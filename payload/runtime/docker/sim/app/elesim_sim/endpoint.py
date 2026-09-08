@@ -34,7 +34,7 @@ from elesim_protocol import (
 )
 
 from .control_state import SimulationStateSource
-from .observability.tracing import current_trace_context, message_span
+from elesim_protocol.tracing import current_trace_context, message_span
 from .simulation.operator_control import (
     SimulationOperatorCommand,
     SimulationOperatorMailbox,

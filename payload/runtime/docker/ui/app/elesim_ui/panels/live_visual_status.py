@@ -696,7 +696,6 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
     """Perception / host relay / gaze heartbeat shown at panel top."""
     st = panel.state
     now = time.time()
-    run_local = bool(getattr(panel, "_perception_run_local", True))
     gaze_count = int(getattr(st, "gaze_tick_count", getattr(st, "gaze_update_count", 0)))
     last_gaze_count = int(getattr(panel, "_gaze_rate_last_count", gaze_count))
     last_gaze_t = float(getattr(panel, "_gaze_rate_last_t", now))
@@ -714,7 +713,7 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
         imgui.separator()
     if show_title:
         section_title("Vision / Gaze")
-    _line("Perception source", "local" if run_local else "remote")
+    _line("Perception source", "local")
     _line("Detector config", getattr(panel, "_perception_config_path_draft", ""))
     _line(
         "Visual target",
@@ -728,23 +727,12 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
     )
 
     host = panel._host_state
-    host_age = -1.0
-    host_live = False
-    if host is not None and bool(getattr(host, "connected", False)):
-        if float(host.perceived_timestamp_s) > 0.0:
-            host_age = max(0.0, now - float(host.perceived_timestamp_s))
-        host_live = host.perceived_center_uv is not None and host_age >= 0.0 and host_age <= 0.75
-
     perc_active = bool(st.perception_running)
-    if not run_local and host_live:
-        perc_active = True
     perc_tag = _heartbeat_tag(st.perception_last_update_s, active=perc_active)
     if st.perception_failed:
         perc_tag = "FAILED"
     elif not perc_active:
         perc_tag = "OFF"
-    elif not run_local:
-        perc_tag = "REMOTE"
 
     _line(
         "Perception",
@@ -799,8 +787,7 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
         elif host_age >= 0.0:
             host_tag = f"WAIT {host_age:.1f}s"
         if (
-            run_local
-            and perc_active
+            perc_active
             and local_age >= 0.0
             and local_age <= 0.75
             and host_age > 0.75
@@ -847,24 +834,14 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
     )
     _line("Gaze msg", st.gaze_status_msg)
 
-    needed = (
-        (run_local and not st.perception_running)
-        or st.perception_center_uv is None
-        or (host is not None and host.perceived_center_uv is None)
-    )
+    needed = (not st.perception_running) or st.perception_center_uv is None
     note = ""
     if bool(st.gaze_running) and needed:
-        if run_local:
-            note = (
-                "Gaze needs Perception Start + host UV relay. "
-                "Check sim camera, target label, and that a target is visible."
-            )
-        else:
-            note = (
-                "Gaze needs Jetson perception_worker + host UV relay. "
-                "Check RealSense, target label, and worker process on Jetson."
-            )
-    elif host is not None and run_local and perc_active and st.perception_center_uv is not None:
+        note = (
+            "Gaze needs Perception Start + host UV relay. "
+            "Check camera input, target label, and that a target is visible."
+        )
+    elif host is not None and perc_active and st.perception_center_uv is not None:
         host_age_note = -1.0
         if float(getattr(host, "perceived_timestamp_s", 0.0)) > 0.0:
             host_age_note = max(0.0, now - float(host.perceived_timestamp_s))

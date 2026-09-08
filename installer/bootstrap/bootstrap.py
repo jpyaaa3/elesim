@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
-"""Download an EleSim source archive and start the EleSim setup wizard.
-
-This file intentionally uses only the Python standard library. It can therefore
-be piped directly from GitHub before EleSim or its dependencies are installed.
-"""
 
 from __future__ import annotations
-
 import argparse
 import contextlib
 import fcntl
@@ -36,9 +30,6 @@ REQUIRED_SETUP_COMMANDS = ("wizard", "gui", "install", "update", "status")
 VERIFY_BOOTSTRAP_SOURCE_ENV = "ELESIM_VERIFY_BOOTSTRAP_SOURCE"
 _FULL_COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}")
 _REVISION_RE = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})")
-# The curl cache is installation input, not a source checkout. Developer setup
-# still clones the complete repository into its requested workspace; it only
-# consumes the four development-context files retained here before that clone.
 _BOOTSTRAP_ROLES = ("pilot", "sim", "ui", "robot")
 _BOOTSTRAP_ROLE_RUNTIMES = {
     "pilot": PurePosixPath("payload/runtime/docker/pilot"),
@@ -55,19 +46,19 @@ _BOOTSTRAP_SOURCE_FILES = frozenset(
         PurePosixPath("installer/bootstrap/bootstrap.py"),
         PurePosixPath("installer/bootstrap/install.sh"),
         PurePosixPath("installer/bootstrap/bootstrap-contract.json"),
-        PurePosixPath("payload/runtime/docker/tools/app/pyproject.toml"),
-        PurePosixPath("payload/runtime/docker/tools/app/requirements.lock"),
+        PurePosixPath("payload/runtime/docker/setup/app/pyproject.toml"),
+        PurePosixPath("payload/runtime/docker/setup/app/requirements.lock"),
         PurePosixPath("payload/runtime/common/protocol/pyproject.toml"),
         PurePosixPath("payload/runtime/common/elesim_interfaces/CMakeLists.txt"),
         PurePosixPath("payload/runtime/common/elesim_interfaces/package.xml"),
         PurePosixPath("payload/runtime/docker/shared/Dockerfile.app"),
-        PurePosixPath("payload/runtime/docker/tools/Dockerfile"),
-        PurePosixPath("payload/runtime/docker/tools/tools-entrypoint"),
+        PurePosixPath("payload/runtime/docker/setup/Dockerfile"),
+        PurePosixPath("payload/runtime/docker/setup/tools-entrypoint"),
         PurePosixPath("payload/runtime/docker/shared/robotpkg.asc"),
-        PurePosixPath("payload/runtime/docker/development/Dockerfile"),
-        PurePosixPath("payload/runtime/docker/development/requirements.lock"),
-        PurePosixPath("payload/runtime/docker/development/entrypoint.sh"),
-        PurePosixPath("payload/runtime/docker/development/dev-env.sh"),
+        PurePosixPath("payload/runtime/docker/dev/Dockerfile"),
+        PurePosixPath("payload/runtime/docker/dev/requirements.lock"),
+        PurePosixPath("payload/runtime/docker/dev/entrypoint.sh"),
+        PurePosixPath("payload/runtime/docker/dev/dev-env.sh"),
         *(
             _BOOTSTRAP_ROLE_APPLICATIONS[role] / "pyproject.toml"
             for role in _BOOTSTRAP_ROLES
@@ -83,7 +74,7 @@ _BOOTSTRAP_SOURCE_FILES = frozenset(
     }
 )
 _BOOTSTRAP_SOURCE_TREES = (
-    PurePosixPath("payload/runtime/docker/tools/app"),
+    PurePosixPath("payload/runtime/docker/setup/app"),
     PurePosixPath("payload/runtime/common/protocol"),
     PurePosixPath("payload/runtime/common/elesim_interfaces/msg"),
     PurePosixPath("payload/runtime/common/elesim_interfaces/srv"),
@@ -105,7 +96,7 @@ _BOOTSTRAP_SOURCE_TREES = (
     PurePosixPath("payload/data/calibration"),
 )
 _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
-    PurePosixPath("payload/runtime/docker/tools/app/elesim_setup") / f"{name}.py"
+    PurePosixPath("payload/runtime/docker/setup/app/elesim_setup") / f"{name}.py"
     for name in (
         "__init__",
         "_security_storage",
@@ -230,10 +221,6 @@ _BOOTSTRAP_EXCLUDED_CONFIG_FILES = frozenset(
         PurePosixPath("payload/config/robot/public.example.yaml"),
     }
 )
-# Repository-only material is intentionally tracked for development and
-# research, but never belongs in the curl-installed setup snapshot.  Keep the
-# boundary explicit so adding a future source tree cannot accidentally ship
-# docs, research tools, or the standalone TURN helper.
 _BOOTSTRAP_SOURCE_ONLY_COMPONENTS = frozenset(
     (
         "tests",
@@ -245,9 +232,6 @@ _BOOTSTRAP_SOURCE_ONLY_COMPONENTS = frozenset(
         "coturn",
     )
 )
-# The RL training stack is tracked research code, not part of the runtime
-# source needed by the curl installer.  Keep this path-specific so an
-# unrelated future package containing an ``rl`` directory is not discarded.
 _BOOTSTRAP_SOURCE_ONLY_PATHS = (PurePosixPath("payload/runtime/docker/sim/app/elesim_sim/rl"),)
 
 
@@ -305,13 +289,11 @@ def archive_url(repository: str, ref: str) -> str:
     repo = str(repository).strip().strip("/")
     revision = str(ref).strip()
     if repo.count("/") != 1 or not revision:
-        raise BootstrapError("repository는 owner/name, ref는 비어 있지 않은 값이어야 합니다")
+        raise BootstrapError("Please fill out repository or reference")
     return f"https://codeload.github.com/{repo}/tar.gz/{quote(revision, safe='')}"
 
 
 def safe_extract_archive(archive: Path, destination: Path) -> Path:
-    """Extract safe install-source files only and return the single source root."""
-
     destination.mkdir(parents=True, exist_ok=True)
     roots: set[str] = set()
     with tarfile.open(archive, mode="r:*") as bundle:
@@ -321,25 +303,18 @@ def safe_extract_archive(archive: Path, destination: Path) -> Path:
             if path.is_absolute() or ".." in path.parts or not path.parts:
                 raise BootstrapError(f"unsafe archive member: {member.name!r}")
             if member.issym() or member.islnk() or member.isdev():
-                # GitHub source archives may contain generated, non-runtime
-                # links such as ``log/latest``.  They are outside the
-                # allowlisted install source boundary and are discarded
-                # below, so they must not make an otherwise valid archive
-                # unusable.  Links/devices that touch an allowlisted source
-                # tree remain a hard failure: extracting them could change
-                # the meaning of a path we later copy into the setup cache.
                 relative = PurePosixPath(*path.parts[1:])
                 if (
                     _bootstrap_source_path_allowed(relative)
                     or _bootstrap_source_directory_allowed(relative)
                 ):
                     raise BootstrapError(
-                        f"unsupported archive link/device: {member.name!r}"
+                        f"Unsupported archive link/device: {member.name!r}"
                     )
                 continue
             roots.add(path.parts[0])
         if len(roots) != 1:
-            raise BootstrapError("source archive must contain exactly one top-level directory")
+            raise BootstrapError("Source archive must contain exactly one top-level directory")
 
         for member in members:
             relative = PurePosixPath(member.name)
@@ -365,8 +340,8 @@ def safe_extract_archive(archive: Path, destination: Path) -> Path:
             resolved.chmod(member.mode & 0o777)
 
     root = destination / next(iter(roots))
-    if not (root / "payload/runtime/docker/tools/app/pyproject.toml").is_file():
-        raise BootstrapError("downloaded archive does not contain the EleSim setup package")
+    if not (root / "payload/runtime/docker/setup/app/pyproject.toml").is_file():
+        raise BootstrapError("Downloaded archive does not contain the EleSim setup package")
     return root
 
 
@@ -439,10 +414,10 @@ def _validate_source_snapshot(root: Path) -> None:
     missing = [str(path.relative_to(root)) for path in required_files if not path.is_file()]
     if missing:
         raise BootstrapError(
-            "downloaded archive is missing required setup files: "
+            "Downloaded archive is missing required setup files: "
             + ", ".join(missing)
         )
-    setup_root = root / "payload/runtime/docker/tools/app/elesim_setup"
+    setup_root = root / "payload/runtime/docker/setup/app/elesim_setup"
     actual_setup_python = frozenset(
         PurePosixPath(path.relative_to(root).as_posix())
         for path in setup_root.rglob("*.py")
@@ -474,7 +449,7 @@ def _validate_source_snapshot(root: Path) -> None:
     )
     if actual_role_configs != _BOOTSTRAP_ROLE_CONFIG_FILES:
         raise BootstrapError(
-            "unexpected role config manifest: "
+            "Unexpected role config manifest: "
             f"missing={sorted(_BOOTSTRAP_ROLE_CONFIG_FILES - actual_role_configs)!r}; "
             f"unexpected={sorted(actual_role_configs - _BOOTSTRAP_ROLE_CONFIG_FILES)!r}"
         )
@@ -499,7 +474,7 @@ def _validate_source_snapshot(root: Path) -> None:
             break
     if unexpected:
         raise BootstrapError(
-            "downloaded archive contains files outside the install source boundary: "
+            "Downloaded archive contains files outside the install source boundary: "
             + ", ".join(unexpected)
         )
     validate_bootstrap_contract(root)
@@ -539,12 +514,12 @@ def _snapshots_directory(cache: Path) -> Path:
     snapshots = cache / "snapshots"
     try:
         if snapshots.is_symlink():
-            raise BootstrapError("cache snapshots directory must not be a symlink")
+            raise BootstrapError("Cache directory must not be a symlink")
         resolved_cache = cache.resolve()
         resolved_snapshots = snapshots.resolve()
         resolved_snapshots.relative_to(resolved_cache)
     except (OSError, ValueError) as exc:
-        raise BootstrapError("cache snapshots directory escapes its URL cache") from exc
+        raise BootstrapError("Cache directory escapes its URL cache") from exc
     return snapshots
 
 
@@ -668,13 +643,13 @@ def _download_archive(
                     None,
                 )
             raise BootstrapError(
-                f"source archive download failed: {_safe_download_error(exc, url)}"
+                f"Source archive download failed: {_safe_download_error(exc, url)}"
             ) from exc
         finally:
             exc.close()
     except (OSError, http.client.HTTPException, urllib.error.URLError) as exc:
         raise BootstrapError(
-            f"source archive download failed: {_safe_download_error(exc, url)}"
+            f"Source archive download failed: {_safe_download_error(exc, url)}"
         ) from exc
 
     try:
@@ -693,7 +668,7 @@ def _download_archive(
                     None,
                 )
             if status != 200:
-                raise BootstrapError(f"source archive download failed: HTTP {status}")
+                raise BootstrapError(f"Source archive download failed: HTTP {status}")
             digest = hashlib.sha256()
             with archive.open("wb") as handle:
                 while True:
@@ -774,8 +749,6 @@ def download_source(
     refresh: bool = False,
     ref: str | None = None,
 ) -> Path:
-    """Validate or download a source snapshot without falling back to stale data."""
-
     cache_root = cache_root.expanduser().resolve()
     cache = cache_root / "sources-v2" / _url_fingerprint(url)
     immutable_commit = _immutable_commit(ref, url)
@@ -785,7 +758,7 @@ def download_source(
         if immutable_commit is not None and cached_root is not None and not refresh:
             if _index_text(index or {}, "revision") != f"git-{immutable_commit}":
                 raise BootstrapError(
-                    "cached source revision does not match the requested immutable commit"
+                    "Cached source revision does not match the requested immutable commit"
                 )
             revision = _index_text(index or {}, "revision")
             assert revision is not None
@@ -812,7 +785,7 @@ def download_source(
             if status == 304:
                 if not validators:
                     raise BootstrapError(
-                        "archive returned 304 without a conditional request"
+                        "Source server returned 304 without a conditional request"
                     )
                 if cached_root is not None:
                     revision = _index_text(index or {}, "revision")
@@ -833,10 +806,10 @@ def download_source(
                 )
                 if status == 304:
                     raise BootstrapError(
-                        "archive returned 304 for an unconditional recovery request"
+                        "Source server returned 304 after an unconditional retry"
                     )
             if status != 200 or digest is None:
-                raise BootstrapError("source archive download did not return content")
+                raise BootstrapError("Source archive did not return content")
 
             staging = temporary / "snapshot"
             source_root = safe_extract_archive(archive, staging)
@@ -851,7 +824,7 @@ def download_source(
                 and revision != f"git-{immutable_commit}"
             ):
                 raise BootstrapError(
-                    "downloaded archive revision does not match the requested "
+                    "Downloaded archive revision does not match the requested "
                     "immutable commit"
                 )
             published_root = _publish_snapshot(
@@ -882,18 +855,18 @@ def validate_bootstrap_contract(source_root: Path) -> dict[str, object]:
     try:
         contract = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise BootstrapError("downloaded archive is missing bootstrap-contract.json") from exc
+        raise BootstrapError("Downloaded archive is missing bootstrap-contract.json") from exc
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise BootstrapError(f"cannot read bootstrap contract: {exc}") from exc
+        raise BootstrapError(f"Cannot read bootstrap contract: {exc}") from exc
     if not isinstance(contract, dict):
-        raise BootstrapError("bootstrap contract must be a JSON object")
+        raise BootstrapError("Bootstrap contract must be a JSON object")
     if contract.get("schema_version") != BOOTSTRAP_CONTRACT_SCHEMA_VERSION:
-        raise BootstrapError("unsupported bootstrap contract schema")
+        raise BootstrapError("Unsupported bootstrap contract schema")
     if contract.get("bootstrap_api") != BOOTSTRAP_API_VERSION:
-        raise BootstrapError("bootstrap generation mismatch: incompatible bootstrap API")
+        raise BootstrapError("Bootstrap generation mismatch: Incompatible bootstrap API")
     commands = contract.get("required_commands")
     if commands != list(REQUIRED_SETUP_COMMANDS):
-        raise BootstrapError("bootstrap generation mismatch: required setup commands differ")
+        raise BootstrapError("Bootstrap generation mismatch: Required setup commands differ")
     return contract
 
 
@@ -913,15 +886,15 @@ def validate_bootstrap_generation(
         return
     archived = source_root / "installer/bootstrap/bootstrap.py"
     if not archived.is_file():
-        raise BootstrapError("downloaded archive is missing installer/bootstrap/bootstrap.py")
+        raise BootstrapError("Downloaded archive is missing installer/bootstrap/bootstrap.py")
     try:
         executing_digest = hashlib.sha256(executing_file.read_bytes()).digest()
         archived_digest = hashlib.sha256(archived.read_bytes()).digest()
     except OSError as exc:
-        raise BootstrapError(f"cannot compare bootstrap generations: {exc}") from exc
+        raise BootstrapError(f"Cannot compare bootstrap generations: {exc}") from exc
     if executing_digest != archived_digest:
         raise BootstrapError(
-            "bootstrap generation mismatch: the branch moved during bootstrap; rerun it"
+            "Bootstrap generation mismatch: the branch moved during bootstrap; please retry."
         )
 
 
@@ -936,13 +909,13 @@ def preflight_setup(executable: Path) -> None:
     )
     if completed.returncode != 0:
         raise BootstrapError(
-            "installed setup does not provide the required 'gui' command"
+            "Installed setup does not provide the required 'gui' command"
         )
 
 
 def _setup_project_version(source_root: Path) -> str:
     try:
-        project = (source_root / "payload/runtime/docker/tools/app/pyproject.toml").read_text(
+        project = (source_root / "payload/runtime/docker/setup/app/pyproject.toml").read_text(
             encoding="utf-8"
         )
     except (OSError, UnicodeError):
@@ -952,16 +925,6 @@ def _setup_project_version(source_root: Path) -> str:
 
 
 def _ensure_bootstrap_pip(python: Path) -> None:
-    """Repair an incomplete cached venv before invoking ``python -m pip``.
-
-    ``venv`` can leave a usable interpreter without pip when the host was
-    created without the matching ``python3-venv``/``ensurepip`` package, or
-    when an older interrupted bootstrap left a partial cache behind.  The
-    old code went straight to the first pip command and exposed the opaque
-    ``No module named pip`` error.  Probe first, use the standard-library
-    repair path when available, and fail with an installation hint otherwise.
-    """
-
     probe = subprocess.run(
         (str(python), "-m", "pip", "--version"),
         stdin=subprocess.DEVNULL,
@@ -987,9 +950,9 @@ def _ensure_bootstrap_pip(python: Path) -> None:
             detail = detail[-600:]
         suffix = f" ({detail})" if detail else ""
         raise BootstrapError(
-            "bootstrap 가상환경에 pip가 없습니다. 호스트에 Python venv/ensurepip "
-            "패키지(예: Debian/Ubuntu의 python3-venv 또는 해당 Python 버전의 "
-            f"python3.X-venv)를 설치한 뒤 다시 실행하십시오{suffix}"
+            "Pip does not exist in the bootstrap venv. "
+            "Please install a proper virtual environment "
+            f"and then retry; {suffix}"
         )
 
     verify = subprocess.run(
@@ -1004,7 +967,7 @@ def _ensure_bootstrap_pip(python: Path) -> None:
         detail = (verify.stderr or "").strip()
         suffix = f" ({detail[-600:]})" if detail else ""
         raise BootstrapError(
-            "bootstrap 가상환경에서 ensurepip 복구 후에도 pip를 실행할 수 없습니다"
+            "Tried ensurepip recovery in the bootstrap venv, yet cannot run pip; sorry."
             f"{suffix}"
         )
 
@@ -1030,9 +993,9 @@ def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
             "packaging>=24.2,<26",
             "wheel",
         ),
-        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "-r", str(source_root / "payload/runtime/docker/tools/app/requirements.lock")),
+        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "-r", str(source_root / "payload/runtime/docker/setup/app/requirements.lock")),
         (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--force-reinstall", "--no-deps", str(source_root / "payload/runtime/common/protocol")),
-        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--force-reinstall", "--no-deps", str(source_root / "payload/runtime/docker/tools/app")),
+        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--force-reinstall", "--no-deps", str(source_root / "payload/runtime/docker/setup/app")),
         (str(python), "-m", "pip", "--disable-pip-version-check", "check"),
     )
     for command in commands:
@@ -1042,10 +1005,10 @@ def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repository", default=os.environ.get("ELESIM_REPOSITORY", DEFAULT_REPOSITORY))
+    parser.add_argument("--repo", default=os.environ.get("ELESIM_REPOSITORY", DEFAULT_REPOSITORY))
     parser.add_argument("--ref", default=os.environ.get("ELESIM_REF", DEFAULT_REF))
-    parser.add_argument("--archive-url", default=os.environ.get("ELESIM_ARCHIVE_URL", ""))
-    parser.add_argument("--cache-dir", default=os.environ.get("ELESIM_CACHE_DIR", "~/.cache/elesim/setup"))
+    parser.add_argument("--url", default=os.environ.get("ELESIM_ARCHIVE_URL", ""))
+    parser.add_argument("--cache", default=os.environ.get("ELESIM_CACHE_DIR", "~/.cache/elesim/setup"))
     parser.add_argument("--refresh", action="store_true")
     return parser
 
@@ -1082,18 +1045,18 @@ def setup_arguments(
 
 def main(argv: Sequence[str] | None = None) -> int:
     if sys.version_info < (3, 10):
-        print("오류: Python 3.10 이상이 필요합니다.", file=sys.stderr)
+        print("Python 3.10 or higher is required", file=sys.stderr)
         return 2
     parser = _parser()
     args, wizard_args = parser.parse_known_args(argv)
-    cache_root = Path(args.cache_dir).expanduser().resolve()
-    url = args.archive_url or archive_url(args.repository, args.ref)
+    cache_root = Path(args.cache).expanduser().resolve()
+    url = args.url or archive_url(args.repo, args.ref)
     try:
         source_root = download_source(
             url,
             cache_root,
             refresh=bool(args.refresh),
-            ref=None if args.archive_url else args.ref,
+            ref=None if args.url else args.ref,
         )
         validate_bootstrap_contract(source_root)
         validate_bootstrap_generation(source_root)
@@ -1102,7 +1065,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[bootstrap] setup version={_setup_project_version(source_root)}")
         wizard_args = setup_arguments(
             wizard_args,
-            repository=args.repository,
+            repository=args.repo,
             ref=args.ref,
         )
         command = (str(executable), "--source-root", str(source_root), *wizard_args)
@@ -1116,8 +1079,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         run_stdin = tty
                     except OSError as exc:
                         raise BootstrapError(
-                            "대화형 설치에는 controlling terminal이 필요합니다; "
-                            "자동화에서는 install subcommand를 지정하십시오"
+                            "Interactive installation requires a controlling terminal. "
+                            "Use the install subcommand for automated installations."
                         ) from exc
                 else:
                     run_stdin = subprocess.DEVNULL
@@ -1127,7 +1090,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 tty.close()
         return int(completed.returncode)
     except (BootstrapError, OSError, subprocess.CalledProcessError, tarfile.TarError) as exc:
-        print(f"부트스트랩 오류: {exc}", file=sys.stderr)
+        print(f"Bootstrap error: {exc}", file=sys.stderr)
         return 2
 
 

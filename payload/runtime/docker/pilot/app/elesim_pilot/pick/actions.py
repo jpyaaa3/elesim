@@ -19,7 +19,7 @@ from elesim_pilot.robot.arm.iklib import kinematics as ik_kin
 from elesim_pilot.config import IkConfig, PerceptionConfig, PickConfig, SimConfig, load_app_config
 from elesim_pilot.gaze.stabilizer import GazeStabilizerConfig, patch_gaze_config
 from elesim_pilot.gaze.gaze_service import GazeControlService
-from elesim_pilot.observability.tracing import traced_thread_target
+from elesim_protocol.tracing import traced_thread_target
 from elesim_protocol import (
     ControlU,
     DEFAULT_START_CONTROL_U,
@@ -173,7 +173,7 @@ class _ControlServiceCore(
         self._config_path = None if config_path is None else str(config_path)
         self._config_mode = None if config_mode is None else str(config_mode)
         self._perception_cfg = perception_cfg or PerceptionConfig()
-        self._perception_run_local = self._perception_config_runs_locally(self._perception_cfg)
+        self._validate_perception_config(self._perception_cfg)
         self._pick_cfg = pick_cfg or PickConfig()
         self._hand_eye_transform = (
             None
@@ -336,6 +336,15 @@ class _ControlServiceCore(
         self._gaze_last_sent_du_mag: float = 0.0
         self._gaze_command_ref_u: Optional[ControlU] = None
 
+    @staticmethod
+    def _validate_perception_config(config: PerceptionConfig) -> None:
+        provider = str(getattr(config, "provider", "")).strip().lower()
+        if provider != "local" or not bool(getattr(config, "run_local", False)):
+            raise ValueError(
+                "vision.perception.runtime must use Pilot-owned local perception "
+                "(provider=local, run_local=true); remote perception workers are unsupported"
+            )
+
     @property
     def gaze_config(self) -> GazeStabilizerConfig:
         return self._gaze_cfg
@@ -343,36 +352,17 @@ class _ControlServiceCore(
     def update_gaze_stabilizer_config(
         self,
         patch: dict[str, Any] | GazeStabilizerConfig,
-        *,
-        send_remote: bool = True,
     ) -> GazeStabilizerConfig:
         if isinstance(patch, GazeStabilizerConfig):
             next_cfg = patch
-            outbound_patch = {}
         else:
-            outbound_patch = dict(patch)
-            next_cfg = patch_gaze_config(self._gaze_cfg, outbound_patch)
+            next_cfg = patch_gaze_config(self._gaze_cfg, dict(patch))
         self._gaze_cfg = next_cfg
         self._gaze_service.update_config(next_cfg)
-        if (
-            bool(send_remote)
-            and outbound_patch
-            and self._delegate_gaze_to_host()
-            and hasattr(self.client, "send_gaze_config_update")
-        ):
-            self.client.send_gaze_config_update(outbound_patch)
         return next_cfg
 
     def _gaze_busy(self) -> bool:
         return self._gaze_service.is_running
-
-    def _delegate_gaze_to_host(self) -> bool:
-        """Workflow computation is always owned by this deployment."""
-        return False
-
-    def _delegate_pick_to_host(self) -> bool:
-        """Robot and sim endpoints never execute Pick workflows."""
-        return False
 
     def _set_pick_failure(self, message: str) -> None:
         self.state.set_pick_status(
@@ -761,114 +751,9 @@ class _PilotContextActions(_ControlServiceCore):
             ctx["sag_model"] = dict(sag_model)
         return self._with_current_arm_base(ctx, host_state)
 
-    @staticmethod
-    def _perception_config_runs_locally(config: PerceptionConfig) -> bool:
-        provider = str(getattr(config, "provider", "")).strip().lower()
-        if provider == "host":
-            return False
-        if not bool(getattr(config, "run_local", True)):
-            return False
-        return True
-
-    def perception_run_local(self) -> bool:
-        return bool(self._perception_run_local)
-
     def _maybe_start_local_perception(self) -> None:
-        if not self._perception_run_local:
-            return
         if self._perception_capture is None or not self._perception_capture.is_running():
             self.start_perception_capture()
-
-    def _sync_remote_perception_from_host(self, host_state: HostState) -> None:
-        if self._perception_run_local:
-            return
-        record_path = str(getattr(host_state, "perception_last_record_path", "") or "")
-        self.state.set_perception_recording(
-            bool(getattr(host_state, "perception_recording", False)),
-            record_path,
-        )
-        capture_path = str(getattr(host_state, "perception_last_capture_path", "") or "")
-        if capture_path:
-            self.state.set_perception_last_capture(capture_path)
-        if bool(getattr(host_state, "perception_recording", False)):
-            self.state.set_perception_record_overlay(
-                bool(getattr(host_state, "perception_record_with_overlay", False))
-            )
-        stale_s = float(self._visual_obs_stale_s)
-        now = time.time()
-        ts = float(host_state.perceived_timestamp_s)
-        center_uv = host_state.perceived_center_uv
-        scale = host_state.perceived_scale
-        perception_hz = float(getattr(host_state, "perception_hz", 0.0))
-        fresh = (
-            center_uv is not None
-            and scale is not None
-            and ts > 0.0
-            and (now - ts) <= stale_s
-        )
-        if fresh:
-            self.state.set_perception_status(
-                running=True,
-                failed=bool(getattr(host_state, "perception_failed", False)),
-                msg=str(getattr(host_state, "perception_status", "") or "remote Jetson worker"),
-                frame_idx=1,
-                label=str(host_state.perceived_object_label),
-                confidence=float(host_state.perceived_object_confidence),
-                camera_xyz=host_state.perceived_object_camera_xyz,
-                image_scale=float(scale),
-                center_uv=(float(center_uv[0]), float(center_uv[1])),
-                perception_hz=perception_hz,
-            )
-            with self.state._lock:
-                self.state.perception_last_update_s = float(ts)
-            return
-        worker_running = bool(getattr(host_state, "perception_running", False))
-        worker_failed = bool(getattr(host_state, "perception_failed", False))
-        worker_msg = str(getattr(host_state, "perception_status", "") or "").strip()
-        if worker_running or worker_failed or worker_msg:
-            self.state.set_perception_status(
-                running=worker_running,
-                failed=worker_failed,
-                msg=worker_msg or "remote: waiting for detection",
-                perception_hz=perception_hz,
-            )
-            return
-        self.state.set_perception_status(
-            running=False,
-            failed=False,
-            msg="remote: stopped",
-            perception_hz=0.0,
-        )
-
-    def _sync_remote_gaze_from_host(self, host_state: HostState) -> None:
-        if not self._delegate_gaze_to_host():
-            return
-        self.state.set_gaze_status(
-            running=bool(getattr(host_state, "gaze_running", False)),
-            mode=str(getattr(host_state, "gaze_mode", "") or "idle"),
-            msg=str(getattr(host_state, "gaze_status_msg", "") or ""),
-            u_err=float(getattr(host_state, "gaze_u_err", 0.0)),
-            v_err=float(getattr(host_state, "gaze_v_err", 0.0)),
-            du_roll=float(getattr(host_state, "gaze_du_roll", 0.0)),
-            du_s1=float(getattr(host_state, "gaze_du_s1", 0.0)),
-            du_s2=float(getattr(host_state, "gaze_du_s2", 0.0)),
-            obs_age_s=float(getattr(host_state, "gaze_obs_age_s", -1.0)),
-            tick_count=int(getattr(host_state, "gaze_tick_count", 0)),
-            update_count=int(getattr(host_state, "gaze_update_count", 0)),
-        )
-
-    def _sync_remote_pick_from_host(self, host_state: HostState) -> None:
-        if not self._delegate_pick_to_host():
-            return
-        self.state.set_pick_status(
-            running=bool(getattr(host_state, "pick_running", False)),
-            failed=bool(getattr(host_state, "pick_failed", False)),
-            phase=str(
-                getattr(host_state, "pick_phase", ObjectPickPhase.IDLE.value)
-                or ObjectPickPhase.IDLE.value
-            ),
-            msg=str(getattr(host_state, "pick_status_msg", "") or ""),
-        )
 
     def refresh_host_state(self) -> Optional[HostState]:
         if self.client is None:
@@ -881,9 +766,6 @@ class _PilotContextActions(_ControlServiceCore):
                 float(host_state.q.theta1_rad),
                 float(host_state.q.theta2_rad),
             )
-        self._sync_remote_perception_from_host(host_state)
-        self._sync_remote_gaze_from_host(host_state)
-        self._sync_remote_pick_from_host(host_state)
         return host_state
 
     def has_client(self) -> bool:
@@ -907,8 +789,6 @@ class _PilotContextActions(_ControlServiceCore):
         )
         if obs is not None:
             return obs
-        if not self._perception_run_local:
-            return None
         st = self.state
         return extract_local_perception_observation(
             running=bool(st.perception_running),
@@ -1111,31 +991,6 @@ class _PilotContextActions(_ControlServiceCore):
         return False
 
     def stop_pick_e2e(self) -> None:
-        if self._delegate_pick_to_host() and (
-            hasattr(self.client, "send_pick_stop")
-            or hasattr(self.client, "send_mobile_pick_stop")
-        ):
-            self._pick_e2e_cancel.set()
-            try:
-                if hasattr(self.client, "send_mobile_pick_stop"):
-                    self.client.send_mobile_pick_stop()
-                else:
-                    self.client.send_pick_stop()
-                self.state.set_pick_status(
-                    running=False,
-                    failed=False,
-                    phase=ObjectPickPhase.IDLE.value,
-                    msg="on-device pick stop requested",
-                )
-                host_state = self.client.refresh_state()
-                self._sync_remote_pick_from_host(host_state)
-                self._sync_remote_gaze_from_host(host_state)
-                self._sync_remote_perception_from_host(host_state)
-                print("[Pick] on-device stop requested")
-            except Exception as exc:
-                self._set_pick_failure(f"on-device pick stop failed: {exc}")
-                print(f"[Pick] on-device stop failed: {exc}")
-            return
         self._pick_e2e_cancel.set()
         self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
         self.stop_gaze_stabilizer()
@@ -1274,41 +1129,6 @@ class _MobilePickWorkflowActions(_PilotContextActions):
 
     def start_mobile_gaze_lji_pick_e2e(self) -> None:
         """Walk with gaze until handoff distance, then run LJI grasp."""
-        if self._delegate_pick_to_host() and hasattr(self.client, "send_mobile_pick_start"):
-            if (
-                self.state.pick_running
-                or self.pick_e2e_running()
-                or self._pick_busy()
-                or self.state.ik_running
-                or self._ik_worker is not None
-            ):
-                self.state.set_pick_status(
-                    running=bool(self.state.pick_running),
-                    failed=True,
-                    phase=ObjectPickPhase.FAILED.value,
-                    msg="busy",
-                )
-                return
-            self._pick_e2e_cancel.clear()
-            self._pick_stop_event.clear()
-            try:
-                self.client.send_mobile_pick_start()
-                self.state.set_pick_status(
-                    running=True,
-                    failed=False,
-                    phase=ObjectPickPhase.ACQUIRE.value,
-                    msg="on-device mobile pick start requested",
-                )
-                host_state = self.client.refresh_state()
-                self._sync_remote_pick_from_host(host_state)
-                self._sync_remote_gaze_from_host(host_state)
-                self._sync_remote_perception_from_host(host_state)
-                print("[MobilePick] on-device start requested")
-            except Exception as exc:
-                self._set_pick_failure(f"on-device mobile pick start failed: {exc}")
-                print(f"[MobilePick] on-device start failed: {exc}")
-            return
-
         if self.pick_e2e_running() or self._pick_busy() or self.state.ik_running or self._ik_worker is not None:
             self._set_pick_failure("busy")
             return
@@ -1342,16 +1162,10 @@ class _MobilePickWorkflowActions(_PilotContextActions):
                     msg="mobile pick: acquiring target",
                 )
 
-                perception_running = bool(self.state.perception_running)
-                if not self._perception_run_local and self.client is not None:
-                    host_preview = self.client.refresh_state()
-                    self._sync_remote_perception_from_host(host_preview)
-                    perception_running = bool(getattr(host_preview, "perception_running", False))
-                if self._perception_run_local:
-                    perception_running = (
-                        self._perception_capture is not None
-                        and self._perception_capture.is_running()
-                    )
+                perception_running = (
+                    self._perception_capture is not None
+                    and self._perception_capture.is_running()
+                )
                 if not perception_running:
                     self.start_perception_capture(config=self._perception_cfg)
 
@@ -1501,41 +1315,6 @@ class _MobilePickWorkflowActions(_PilotContextActions):
 
     def start_lji_grasp_only(self) -> None:
         """Run arm-only LJI grasp without starting mobile gaze or locomotion."""
-        if self._delegate_pick_to_host() and hasattr(self.client, "send_lji_grasp_start"):
-            if (
-                self.state.pick_running
-                or self.pick_e2e_running()
-                or self._pick_busy()
-                or self.state.ik_running
-                or self._ik_worker is not None
-            ):
-                self.state.set_pick_status(
-                    running=bool(self.state.pick_running),
-                    failed=True,
-                    phase=ObjectPickPhase.FAILED.value,
-                    msg="busy",
-                )
-                return
-            self._pick_e2e_cancel.clear()
-            self._pick_stop_event.clear()
-            try:
-                self.client.send_lji_grasp_start()
-                self.state.set_pick_status(
-                    running=True,
-                    failed=False,
-                    phase=ObjectPickPhase.GRASP.value,
-                    msg="on-device LJI grasp start requested",
-                )
-                host_state = self.client.refresh_state()
-                self._sync_remote_pick_from_host(host_state)
-                self._sync_remote_gaze_from_host(host_state)
-                self._sync_remote_perception_from_host(host_state)
-                print("[Pick] on-device LJI grasp start requested")
-            except Exception as exc:
-                self._set_pick_failure(f"on-device LJI grasp start failed: {exc}")
-                print(f"[Pick] on-device LJI grasp start failed: {exc}")
-            return
-
         if self._use_hardware and not self._host_native_lji_runtime():
             self._set_pick_failure("LJI grasp must run on-device host-native in hardware mode")
             print("[Pick] blocked hardware LJI grasp outside host-native runtime")

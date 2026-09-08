@@ -107,13 +107,6 @@ class ControlPanel:
         self._current_yellow_ma = abs(int(hw_cfg.current_yellow_ma))
         self._current_limit_ma = abs(int(hw_cfg.current_limit_ma))
         pc = perception_cfg or PerceptionConfig()
-        self._perception_provider_draft = str(getattr(pc, "provider", "") or ("local" if pc.run_local else "host"))
-        self._perception_run_local = self._perception_provider_draft.strip().lower() != "host" and bool(pc.run_local)
-        self._perception_real_provider_draft = (
-            self._perception_provider_draft
-            if str(pc.mode).strip().lower() != "sim"
-            else "local"
-        )
         pk = pick_cfg or PickConfig()
         gz = gaze_cfg or getattr(service, "gaze_config", GazeStabilizerConfig())
         self._stop = False
@@ -145,7 +138,6 @@ class ControlPanel:
         self.state.visual_scale_tol = float(pk.scale_tol)
         self.state.visual_ready_distance_m = float(pk.ready_pose_standoff_m)
         self.state.visual_look_distance_m = float(pk.look_pose_standoff_m)
-        self._ctrl_window_init = False
         self._port_input = ""
         self._host_state: Optional[HostState] = None
         self._sag_model_path_draft = str(self.state.sag_model_path)
@@ -744,7 +736,6 @@ class ControlPanel:
         io = imgui.get_io()
         imgui.set_next_window_position(0.0, 0.0, cond)
         imgui.set_next_window_size(float(io.display_size.x), float(io.display_size.y), cond)
-        self._ctrl_window_init = True
         window_flags = getattr(imgui, "WINDOW_NO_TITLE_BAR", 0)
         imgui.begin("Arm Control###arm_control_window", True, flags=window_flags)
         avail_w = max(1.0, float(imgui.get_content_region_available_width()))

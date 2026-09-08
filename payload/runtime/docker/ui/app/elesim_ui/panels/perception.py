@@ -276,14 +276,8 @@ def _draw_camera_mode_row(panel) -> None:
     _control_label(panel, "Mode")
     if _mode_button(panel, "Real", "camera_mode_real", is_real):
         panel._perception_mode_draft = "camera"
-        provider = str(getattr(panel, "_perception_real_provider_draft", "")).strip().lower()
-        panel._perception_provider_draft = provider if provider in ("local", "host") else "local"
     imgui.same_line()
     if _mode_button(panel, "Virtual", "camera_mode_virtual", not is_real):
-        if is_real:
-            provider = str(getattr(panel, "_perception_provider_draft", "local")).strip().lower()
-            if provider in ("local", "host"):
-                panel._perception_real_provider_draft = provider
         panel._perception_mode_draft = "sim"
 
 
@@ -360,14 +354,10 @@ def _draw_tracker_row(panel, *, disabled: bool) -> None:
         panel._perception_tracker_draft = "kcf"
 
 
-def _draw_actual_rate_row(panel, *, run_local: bool) -> None:
+def _draw_actual_rate_row(panel) -> None:
     hz = float(getattr(panel.state, "perception_hz", 0.0))
-    host = getattr(panel, "_host_state", None)
-    if not bool(run_local) and host is not None:
-        hz = float(getattr(host, "perception_hz", hz))
-    source = "local" if bool(run_local) else "Jetson"
     _control_label(panel, "Actual")
-    imgui.text(f"{hz:.1f} Hz  {source}")
+    imgui.text(f"{hz:.1f} Hz  local")
 
 
 def browse_detector_config_path(initial_path: str) -> str | None:
@@ -840,35 +830,19 @@ def _draw_ready_pose_dir_editor(panel) -> None:
 
 def _build_perception_config(panel) -> PerceptionConfig:
     mode = str(panel._perception_mode_draft).strip().lower()
-    provider = str(getattr(panel, "_perception_provider_draft", "local")).strip().lower() or "local"
-    if mode == "sim":
-        effective_provider = "local"
-    elif provider not in ("local", "host"):
-        effective_provider = "local"
-    else:
-        effective_provider = provider
-        panel._perception_real_provider_draft = effective_provider
-    run_local = effective_provider != "host"
-    panel._perception_run_local = bool(run_local)
-    if mode != "sim":
-        panel._perception_provider_draft = effective_provider
     return PerceptionConfig(
         enabled=True,
         detector_config=str(panel._perception_config_path_draft),
         mode=mode,
-        detector=(
-            _local_detector_mode(str(panel._perception_detector_draft))
-            if run_local
-            else str(panel._perception_detector_draft)
-        ),
-        provider=effective_provider,
+        detector=_local_detector_mode(str(panel._perception_detector_draft)),
+        provider="local",
         target_label=str(panel._perception_target_label_draft),
         yolo_device=str(panel._perception_yolo_device_draft),
         publish_hz=float(panel._perception_publish_hz_draft),
         show_preview=bool(panel._perception_show_preview_draft),
         pipeline=str(panel._perception_pipeline_draft),
         tracker=str(panel._perception_tracker_draft),
-        run_local=run_local,
+        run_local=True,
     )
 
 
@@ -887,9 +861,6 @@ def draw_perception_panel(panel) -> None:
     if _begin_section("Camera", "camera"):
         _draw_camera_mode_row(panel)
 
-        cfg_preview = _build_perception_config(panel)
-        run_local = bool(cfg_preview.run_local)
-
         changed_hz, publish_hz = _input_float(
             panel,
             "Rate",
@@ -901,7 +872,7 @@ def draw_perception_panel(panel) -> None:
         )
         if changed_hz:
             panel._perception_publish_hz_draft = max(0.1, float(publish_hz))
-        _draw_actual_rate_row(panel, run_local=run_local)
+        _draw_actual_rate_row(panel)
 
         _draw_model_row(panel)
         pipeline_idx = _draw_detection_row(panel)

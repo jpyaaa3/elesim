@@ -9,7 +9,6 @@ from elesim_protocol import (
     ProtocolError,
     STATE_VALUES,
     SERVICE_CALLS,
-    SERVICE_VALUES,
 )
 from elesim_protocol.payloads import (
     CloseSimulationSessionRequest,
@@ -68,9 +67,9 @@ def test_telemetry_q_is_a_canonical_four_vector() -> None:
 
 def test_operator_intent_requires_known_operation_and_request_id() -> None:
     parsed = OperatorIntentRequest.from_payload(
-        {"request_id": "request-a", "operation": "snapshot", "name": ""}
+        {"request_id": "request-a", "operation": "view_snapshot", "name": ""}
     )
-    assert parsed.operation == "snapshot"
+    assert parsed.operation == "view_snapshot"
     with pytest.raises(ProtocolError, match="unsupported operator operation"):
         OperatorIntentRequest.from_payload(
             {"request_id": "request-a", "operation": "run_arbitrary_python"}
@@ -117,11 +116,15 @@ def test_operator_view_snapshot_is_a_known_intent_operation() -> None:
     assert parsed.operation == "view_snapshot"
 
 
-def test_operator_allowlist_distinguishes_methods_from_properties() -> None:
-    assert "current_host_state" in SERVICE_CALLS
-    assert "current_host_state" not in SERVICE_VALUES
-    assert "available_endpoints" in SERVICE_VALUES
-    assert "_pick_config_effective" not in SERVICE_VALUES
+def test_operator_reads_use_the_view_snapshot_not_individual_remote_calls() -> None:
+    for name in ("refresh_host_state", "current_host_state", "has_client",
+                 "current_control_u", "control_mapping", "pick_e2e_running"):
+        assert name not in SERVICE_CALLS
+    for operation in ("snapshot", "service_get"):
+        with pytest.raises(ProtocolError, match="unsupported operator operation"):
+            OperatorIntentRequest.from_payload(
+                {"request_id": "retired-read", "operation": operation}
+            )
 
 
 def test_simulation_session_open_and_close_contracts_are_bounded() -> None:

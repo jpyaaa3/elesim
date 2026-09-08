@@ -2,20 +2,37 @@
 
 ## Current Work Handoff
 
-- Updated: 2026-09-05
-- Branch: `main`; the canonical `payload/` source-layout migration and the
-  Router-free ROS 2/DDS changes below are currently uncommitted.
+- Updated: 2026-09-07
+- Docker source directories are `payload/runtime/docker/dev` and
+  `payload/runtime/docker/setup` (formerly development/tools). This source-only
+  rename does not change Compose service/image names or release output layout.
+- Branch: `main`; cleanup was pushed as `7a2392f`. The model-builder flattening
+  to `model/` is currently uncommitted; preserve that work.
+- Logic cleanup is also uncommitted: Pilot-only workflow ownership, narrowed
+  operator reads, shared protocol tracing, and opt-in Sim performance printing.
+  See `docs/status.md` for the exact partial checks and unfinished audit scope.
+- Follow-up setup cleanup removes unused wizard SSH/file-picker paths and
+  updater pull hooks, flattens CLI preset metadata, and reads configured Compose
+  services once per status poll/unit. Host fallback setup suite: 600 passed;
+  canonical dev/release/runtime gates remain unrun. Preserve these changes.
+- UI media retry calculation is consolidated; Robot dead camera/Sim helpers
+  and no-op methods are removed while safety paths remain. Host fallback UI
+  suite: 67 passed; Robot: 102 passed + 2 subtests. See status for remaining gates.
+- Active plan: `docs/status.md` owns R0–R5 operational acceptance milestones.
+  Start with R0 verification readiness, then R1 installation and R2 Robot-free
+  connection/presentation. Do not infer R completion from historical M1/M2 results.
+  This planning task does not authorize live deployment or physical motion.
 - Goal: Maintain the Router-free ROS 2/DDS architecture while keeping the
   bounded M1 operator-readiness layer and the explicit contract/connection/UI
   follow-up implemented below. Real network, security, GPU and hardware gates
   remain manual; do not confuse the software layer with those acceptance tests.
-- Phase: Router-free transport, M2-A preflight, M2-B simulation-only topology,
+- Phase: Router-free transport, M2-A preflight, M2-B role-derived topology,
   and M1 software/operator readiness are implemented and software-validated.
   Real multi-host networking, SROS2 enforcement, NAT/TURN relay selection, GPU
   rendering, Jetson, and physical hardware behavior remain manual gates.
 - Handoff boundary: do **not** restart or broaden the Router/ZMQ-to-DDS
-  refactor. M2-B is complete: the connection manager now has an explicit
-  `full`/`simulation-only` topology mode, schema-v1-v3 compatibility, role-aware
+  refactor. M2-B is complete: the connection manager has a mode-free schema-v5
+  topology, schema-v1-v4 compatibility, role-aware
   deployment and security generation, independent DDS/SSH endpoints, fixed
   Docker-backend selection, and explicit lifecycle status/actions. M1 is also
   complete. New protocol work must first
@@ -72,11 +89,12 @@
     NIC/domain. `elesim-unitree-bridge` is the only Unitree participant;
     inter-host `elesim-robot` talks to it over bounded credential-checked Unix
     `SOCK_SEQPACKET` IPC. It is not a fifth application or a Router.
-  - Connection topology schema v4 has an explicit `topology_mode`: `full` uses
-    all four roles across 2..4 hosts, while `simulation-only` uses only
-    Pilot/Sim/UI across 1..3 container/Compose hosts and contains no
-    Robot or Jetson placeholder. Schemas v1-v3 are loaded and normalized to v4;
-    v1 is interpreted as `full`.
+  - Connection topology schema v5 has no execution-mode selector. One to four
+    hosts and their role cards define the graph directly; no fixed role set is
+    required. Schemas v1-v4 are loaded and normalized to v5, and legacy
+    `topology_mode` is validated and discarded. Duplicate non-Robot role cards
+    are representable but execution rejects them until B2 namespaces Compose
+    services and containers per instance.
   - Robot/Sim own their motion leases; Sim separately owns its UI
     simulation session. DDS discovery grants neither.
   - RGBD is a latest-only coherent DDS sample. WebRTC signaling is a
@@ -112,10 +130,11 @@
     uses a 64 KiB-bounded JSON Unix packet protocol with `SO_PEERCRED`, boot
     IDs, monotonic sequences, command/parameter allowlists and deadman stop.
     GO2 IPC failure cannot skip arm safe-hold, torque-off or hardware cleanup.
-  - Installer state schema v10 retains the v9 SROS2, TURN, logging, fixed
+  - Installer state schema v11 retains the v10 development attachment and v9
+    SROS2, TURN, logging, fixed
     Docker context/Engine identity, and `direct-host`/`tailscale-sidecar`
-    network contracts. It adds the optional external-workspace development
-    attachment to the same installation state.
+    network contracts. It separates installed role capability from the roles
+    assigned to the current topology; v1-v10 states retain all-role assignment.
     Migrations from v1-v7 disable new log retention. SSH remains setup-only and
     respects non-default ports; the connection manager also supports explicit
     keyless Tailscale SSH on port 22.
@@ -160,18 +179,16 @@
     Managed rollout verifies staged file digests, restores empty pending fields,
     removes inactive failed generations, records a transaction journal, and has
     an explicit interrupted-state recovery action.
-  - `elesim-connections` exposes the two topology modes above. In
-    `simulation-only`, the GUI hides the fixed Robot card, allows one to three
-    active COM cards, and serializes exactly one Pilot, Sim, and UI.
-    Deployment, lifecycle rollback, and SROS2 policy generation use only those
-    active roles; no `robot_id` is emitted for simulation-only rollback.
+  - `elesim-connections` derives topology directly from one to four COM cards
+    and their role cards. Robot-free and partial graphs need no special mode.
+    Deployment, lifecycle rollback, and SROS2 policy generation use only the
+    assigned roles.
   - Schema-v2 `TwoHostPreflight` and the loopback `/api/preflight` endpoint are
     ephemeral
     and role-neutral. They validate exactly two COM host DDS/SSH endpoints for
     the Jetson-less Tailscale test path, never save a topology, issue keys, or
-    deploy roles. A saved `ConnectionTopology` uses explicit `full` or
-    `simulation-only` invariants; only the former requires Robot and all four
-    roles.
+    deploy roles. A saved `ConnectionTopology` has no execution mode or fixed
+    role-set invariant.
   - In managed SROS2 mode the operator laptop keeps the complete Authority.
     Runtime hosts receive common public material plus only their assigned role
     enclaves. Rotation is an all-host generation transaction with rollback;
@@ -266,12 +283,11 @@
   - `payload/runtime/native/robot/app/elesim_robot/go2/unitree_ipc*.py` and
     `unitree_bridge_daemon.py`: local bounded UDS boundary, peer credentials,
     replay fencing and bridge-side GO2 deadman stop.
-  - `payload/runtime/docker/tools/app/elesim_setup/`: state schema v10, role-specific DDS
+  - `payload/runtime/docker/setup/app/elesim_setup/`: state schema v11, role-specific DDS
     generation, connection topology/GUI, SROS2 Authority generation and
     transactional deployment, network doctor, TURN credential validation, and
     the ephemeral schema-v2 `TwoHostPreflight` contract/API.
-    `connection_manager.py` owns topology schema v4 and its
-    `full`/`simulation-only` invariants;
+    `connection_manager.py` owns mode-free topology schema v5;
     `security_policy.py` and `secure_deployment.py` filter SROS2/lifecycle
     operations to the active role set.
     Runtime role keys and source trees are the same names (`pilot` and `sim`).
@@ -341,10 +357,9 @@
     ACL, unit registration or service-start commands. Defaults for the private
     Unitree link are `eth0`, domain `1`, and `$HOME/ros2_ws`; bootstrap accepts
     explicit `ELESIM_UNITREE_*` overrides.
-  - Use `elesim-connections` on the operator laptop to select `full` (all four
-    roles, 2..4 hosts) or `simulation-only` (Pilot/Sim/UI, 1..3
-    hosts), validate independent DDS/SSH endpoints, provision or rotate managed
-    SROS2 bundles, and deploy them transactionally.
+  - Use `elesim-connections` on the operator laptop to arrange one to four
+    hosts and their role cards, validate independent DDS/SSH endpoints,
+    provision or rotate managed SROS2 bundles, and deploy them transactionally.
   - Managed SROS2 `provision` (or the first `deploy` alias) creates and applies
     one generation atomically. Once a generation is active, repeating either
     action is rejected; use `rotate` for an intentional replacement. The setup
@@ -447,7 +462,7 @@ fifth application and not part of inter-host DDS.
   as `payload/runtime/docker/sim/app/elesim_sim/config/` is Python application code. Never filter files
   recursively by basename when preparing build contexts.
 - The Pilot arm model and Sim model bundle are immutable runtime inputs.
-  Regenerate them with `model/builder`, not inside a runtime process.
+  Regenerate them with `model/`, not inside a runtime process.
 - Installer output, release contexts, and wheels are products that require their
   own isolation checks. A source-tree import test is not a substitute for checking
   the generated context or installed wheel.

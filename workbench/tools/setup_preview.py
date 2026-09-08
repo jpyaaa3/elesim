@@ -19,7 +19,7 @@ from typing import Callable
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [
     str(ROOT / "payload/runtime/common/protocol"),
-    str(ROOT / "payload/runtime/docker/tools/app"),
+    str(ROOT / "payload/runtime/docker/setup/app"),
 ]
 
 from elesim_setup import gui as wizard_gui  # noqa: E402

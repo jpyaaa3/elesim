@@ -7,7 +7,6 @@ from typing import Any, Callable
 
 from elesim_protocol import (
     SERVICE_CALLS,
-    SERVICE_VALUES,
     STATE_CALLS,
     STATE_VALUES,
     ControlU,
@@ -164,6 +163,4 @@ class RemoteControlService:
             return lambda *args, **kwargs: self.session.submit(
                 "service_call", name, *args, **kwargs
             )
-        if name in SERVICE_VALUES:
-            return self.session.service_value(name)
         raise AttributeError(name)

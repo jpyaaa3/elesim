@@ -1856,7 +1856,7 @@ def test_runtime_up_selects_sim_owned_coturn_from_security_profile(
     )
     assert result.returncode == 0
     calls = (tmp_path / "docker.args").read_text(encoding="utf-8").splitlines()
-    assert calls[0].endswith("stop coturn")
+    assert not any(call.endswith("stop coturn") for call in calls)
     assert calls[-1].endswith("up -d --build --remove-orphans pilot")
 
     (tmp_path / "docker.args").write_text("", encoding="utf-8")
@@ -1893,6 +1893,7 @@ def test_runtime_up_builds_only_when_runtime_image_fingerprint_is_stale(
     expected_up_flag: str,
 ) -> None:
     expected_fingerprint = "a" * 64
+    (tmp_path / "install-state.json").write_text("{}", encoding="utf-8")
     wrapper = tmp_path / "elesim-up"
     wrapper.write_text(
         _runtime_up_wrapper(

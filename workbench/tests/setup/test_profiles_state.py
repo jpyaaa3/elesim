@@ -22,6 +22,12 @@ def test_profiles_are_router_free() -> None:
     assert roles_for_profile("local-sim") == ("sim", "pilot", "ui")
     assert roles_for_profile("laptop") == ("pilot", "ui")
     assert roles_for_profile("compute") == ("sim",)
+    assert roles_for_profile("robot") == ("robot",)
+    assert roles_for_profile("custom", ("ui", "pilot", "ui")) == ("pilot", "ui")
+    with pytest.raises(ValueError, match="프로필"):
+        roles_for_profile("missing")
+    with pytest.raises(ValueError, match="역할"):
+        roles_for_profile("custom")
     assert normalize_roles(("ui", "sim", "ui")) == ("sim", "ui")
     with pytest.raises(ValueError, match="router"):
         normalize_roles(("router",))
@@ -75,7 +81,7 @@ def test_state_round_trip_persists_dds_v10_logs_and_developer_attachment(
     path = state.save()
     loaded = InstallState.load(path)
 
-    assert loaded.schema_version == STATE_SCHEMA_VERSION == 10
+    assert loaded.schema_version == STATE_SCHEMA_VERSION == 11
     assert loaded.dds == state.dds
     assert loaded.runtime_text_logs == RuntimeTextLogSettings(enabled=True)
     assert loaded.developer_attachment == state.developer_attachment

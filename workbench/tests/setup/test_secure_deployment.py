@@ -1207,7 +1207,6 @@ def test_colocated_role_launches_keep_pilot_and_sim_gpu_choices_independent() ->
                 ),
             ),
         ),
-        topology_mode="simulation-only",
     ).validate()
     options = RuntimeLaunchOptions.from_payload(
         {
@@ -1406,6 +1405,35 @@ def test_local_host_operations_use_install_root_security_directory(
     assert (ui_root / "enclaves/ui/key.pem").read_bytes() == b"g2-ui"
 
 
+def test_activation_clears_installed_but_unassigned_role_views(tmp_path: Path) -> None:
+    raw = _topology().to_dict()
+    raw["hosts"][1]["install_root"] = str(tmp_path / "install")
+    raw["hosts"][1]["bin_dir"] = str(tmp_path / "bin")
+    raw["hosts"][1]["local"] = True
+    raw["hosts"][0]["local"] = False
+    raw["hosts"][0]["ssh"] = raw["hosts"][1]["ssh"]
+    raw["hosts"][1]["ssh"] = None
+    topology = ConnectionTopology.from_dict(raw)
+    host = topology.host("server")
+    inactive = Path(host.install_root) / "security/apps/pilot"
+    (inactive / "public").mkdir(parents=True)
+    (inactive / "enclaves").mkdir()
+    (inactive / "enclaves/key.pem").write_bytes(b"old-pilot-key")
+
+    class InstalledSupersetLifecycle(FakeLifecycle):
+        def snapshot(self, _session, _host):
+            return {"roles": ["pilot", "sim", "ui"], "assigned_roles": ["pilot"]}
+
+    operations = LocalHostOperations(InstalledSupersetLifecycle(), topology)
+    operations.stage(host, _bundle("server"))
+    operations.activate(host, "g2")
+
+    assert not (inactive / "public").exists()
+    assert not (inactive / "enclaves").exists()
+    active = Path(host.install_root) / "security/apps/sim/enclaves/sim/key.pem"
+    assert active.read_bytes() == b"g2-sim"
+
+
 def test_role_view_switch_and_clear_keep_stable_root_inode(tmp_path: Path) -> None:
     raw = _topology().to_dict()
     raw["hosts"][0]["install_root"] = str(tmp_path / "install")
@@ -1496,6 +1524,51 @@ class LifecycleSession(FakeSession):
         if values[-2:] == ("config", "--services"):
             return RemoteCommandResult(0, "sim coturn\n")
         return RemoteCommandResult(0, "26.1\n" if values[0] == "docker" else "")
+
+
+@pytest.mark.parametrize("assigned", [("pilot",), ("sim", "ui")])
+def test_lifecycle_accepts_installed_superset_and_scopes_commands(assigned) -> None:
+    from dataclasses import replace
+    topology = _topology()
+    base_host = topology.host("server")
+    unit = replace(base_host.primary_unit, assignments=tuple(
+        RoleAssignment(role, f"{role}-main") for role in assigned
+    ))
+    host = ManagedHost(
+        base_host.host_id, base_host.local, base_host.dds, base_host.ssh,
+        units=(unit,),
+    )
+    class SupersetSession(LifecycleSession):
+        def run(self, argv, *, check=True):
+            result = super().run(argv, check=check)
+            if tuple(argv)[-1:] == ("show",):
+                raw = json.loads(result.stdout)
+                raw["roles"] = ["pilot", "sim", "ui"]
+                raw["assigned_roles"] = list(assigned)
+                return RemoteCommandResult(0, json.dumps(raw))
+            return result
+    session = SupersetSession()
+    lifecycle = InstalledElesimLifecycle(topology)
+    lifecycle.preflight(session, host, PurePosixPath("/opt/elesim/security"))
+    lifecycle.runtime_launch_preflight(session, host)
+    lifecycle.configure(session, host, "g2", PurePosixPath("/opt/elesim/security"))
+    lifecycle.build(session, host, lambda *_: None) if hasattr(session, "run_streaming") else None
+    lifecycle.start(session, host, assigned)
+    commands = [argv for argv, _ in session.commands]
+    configured = next(argv for argv in commands if "configure" in argv)
+    assert tuple(configured[i+1] for i, value in enumerate(configured) if value == "--assigned-role") == assigned
+    started = next(argv for argv in commands if "start" in argv)
+    assert set(started[started.index("start")+1:]) == set(assigned) | ({"coturn"} if "sim" in assigned else set())
+
+
+def test_lifecycle_rejects_missing_assigned_role_before_mutation() -> None:
+    topology = _topology()
+    session = LifecycleSession()  # Only Sim is installed; laptop needs Pilot/UI.
+    with pytest.raises(RuntimeError, match="not installed"):
+        InstalledElesimLifecycle(topology).preflight(
+            session, topology.host("laptop"), PurePosixPath("/opt/elesim/security")
+        )
+    assert all("configure" not in argv and "start" not in argv for argv, _ in session.commands)
 
 
 class SidecarNetworkSession:
@@ -1621,9 +1694,9 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     )
     assert configure[configure.index("--dds-enclave") + 1] == "/elesim/lab"
     assert configure[configure.index("--sim-id") + 1] == "sim-main"
-    assert "--pilot-id" not in configure
-    assert "--ui-id" not in configure
-    assert "--robot-id" not in configure
+    assert configure[configure.index("--pilot-id") + 1] == "pilot-main"
+    assert configure[configure.index("--ui-id") + 1] == "ui-main"
+    assert configure[configure.index("--robot-id") + 1] == "robot-main"
     assert configure[configure.index("--turn-mode") + 1] == "managed"
     assert configure[configure.index("--turn-url") + 1] == (
         "turn:100.64.0.2:3478?transport=udp"
@@ -1884,6 +1957,55 @@ def test_lifecycle_status_counts_managed_coturn_for_sim_readiness() -> None:
     assert with_relay["containers_present"] is True
 
 
+def test_lifecycle_status_queries_configured_services_once_per_unit_and_poll() -> None:
+    class ChangingStatusSession:
+        def __init__(self) -> None:
+            self.configured = "sim\ncoturn\ntailscale\n"
+            self.created = self.configured
+            self.config_calls = 0
+            self.sidecar_calls = 0
+
+        def run(self, argv, *, check=True) -> RemoteCommandResult:
+            values = tuple(str(value) for value in argv)
+            if values[-2:] == ("config", "--services"):
+                self.config_calls += 1
+                return RemoteCommandResult(0, self.configured)
+            if values[-3:] == ("ps", "--all", "--services"):
+                return RemoteCommandResult(0, self.created)
+            if values[-4:] == ("ps", "--status", "running", "--services"):
+                return RemoteCommandResult(0, self.configured)
+            if values[-2:] == ("status", "--json"):
+                self.sidecar_calls += 1
+                return RemoteCommandResult(
+                    0, '{"BackendState":"Running","IPv4":"100.64.0.2"}'
+                )
+            return RemoteCommandResult(0)
+
+    topology = _topology()
+    session = ChangingStatusSession()
+    lifecycle = InstalledElesimLifecycle(topology)
+
+    first = lifecycle.status(session, topology.host("server"))
+    assert first["state"] == "running"
+    assert first["containers_present"] is True
+    assert session.config_calls == 1
+    assert session.sidecar_calls == 1
+
+    session.created = "sim\n"
+    second = lifecycle.status(session, topology.host("server"))
+    assert second["containers_present"] is False
+    assert session.config_calls == 2
+    assert session.sidecar_calls == 2
+
+    session.configured = "sim\n"
+    third = lifecycle.status(session, topology.host("server"))
+    assert third["state"] == "degraded"
+    assert third["containers_present"] is True
+    assert session.config_calls == 3
+    # No persistent cache: removing the configured sidecar stops its queries.
+    assert session.sidecar_calls == 2
+
+
 def test_lifecycle_status_reports_installed_role_gpu_policy() -> None:
     class SimStatusSession:
         def run(self, argv, *, check=True) -> RemoteCommandResult:
@@ -1960,7 +2082,6 @@ def test_simulation_only_configuration_does_not_emit_robot_endpoint() -> None:
                 ),
             ),
         ),
-        topology_mode="simulation-only",
     ).validate()
     host = topology.host("laptop")
     session = LifecycleSession()
@@ -2123,7 +2244,6 @@ def test_simulation_only_trusted_rollout_accepts_one_compose_host() -> None:
                 ),
             ),
         ),
-        topology_mode="simulation-only",
     ).validate()
     events: list[str] = []
     operations = {"laptop": FakeOperations("laptop", events)}

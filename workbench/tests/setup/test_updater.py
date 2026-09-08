@@ -112,7 +112,7 @@ def test_update_wrapper_requires_install_identity_for_owned_image_cleanup(
         raise AssertionError("owned image cleanup must require an install UUID")
 
 
-def test_general_update_can_pull_explicit_infrastructure_then_builds(
+def test_general_update_does_not_pull_infrastructure_before_building(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -126,14 +126,11 @@ def test_general_update_can_pull_explicit_infrastructure_then_builds(
         compose=compose,
         compose_wrapper=compose_wrapper,
         build_services=("sim", "tools"),
-        pull_services=("tailscale",),
     )
 
-    assert f"{compose_wrapper} -f {compose} pull tailscale" in script
+    assert f"{compose_wrapper} -f {compose} pull" not in script
     assert f"{compose_wrapper} --progress plain -f {compose} build sim tools" in script
-    assert "pull sim" not in script
     assert " up " not in script
-    assert "elesim-connections or run elesim-tailscale login" in script
     assert subprocess.run(
         ("bash", "-n"),
         input=script,

@@ -6,7 +6,7 @@ import time
 from typing import Any, Optional
 
 import numpy as np
-from elesim_pilot.observability.tracing import sampled_traced
+from elesim_protocol.tracing import sampled_traced
 
 from elesim_pilot.vision.perception.depth_pose import CameraIntrinsics, estimate_object_position_camera
 from elesim_pilot.vision.perception.detector import DetectionResult, ObjectDetector

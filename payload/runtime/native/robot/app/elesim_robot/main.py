@@ -25,7 +25,7 @@ from elesim_robot.camera.worker import CameraPublisherThread
 from elesim_robot.config import load_config
 from elesim_robot.go2 import create_go2_client_if_enabled
 from elesim_robot.runtime import RobotRuntime
-from elesim_robot.tracing import (
+from elesim_protocol.tracing import (
     configure_tracing,
     current_trace_context,
     shutdown_tracing,

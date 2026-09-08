@@ -603,7 +603,7 @@ def test_noninteractive_runtime_text_logs_use_boolean_optional_flag(
     assert cli._build_state(disabled, ROOT).runtime_text_logs.enabled is False
 
 
-def test_noninteractive_install_rejects_explicit_topology_mode_mismatch(
+def test_noninteractive_install_rejects_explicit_install_mode_mismatch(
     tmp_path: Path,
 ) -> None:
     common = (

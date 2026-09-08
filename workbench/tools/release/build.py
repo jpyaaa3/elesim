@@ -220,13 +220,13 @@ def copy_infrastructure(repository: Path, release_root: Path) -> None:
     destination = release_root / "infra"
     destination.mkdir(parents=True, exist_ok=True)
     docker_payload = repository / "payload/runtime/docker"
-    copy_tree(docker_payload / "development", destination / "development")
+    copy_tree(docker_payload / "dev", destination / "development")
     containers = destination / "containers"
     containers.mkdir(parents=True, exist_ok=True)
     shutil.copy2(docker_payload / "shared/Dockerfile.app", containers / "Dockerfile.app")
     shutil.copy2(docker_payload / "shared/robotpkg.asc", containers / "robotpkg.asc")
-    shutil.copy2(docker_payload / "tools/Dockerfile", containers / "Dockerfile.tools")
-    shutil.copy2(docker_payload / "tools/tools-entrypoint", containers / "tools-entrypoint")
+    shutil.copy2(docker_payload / "setup/Dockerfile", containers / "Dockerfile.tools")
+    shutil.copy2(docker_payload / "setup/tools-entrypoint", containers / "tools-entrypoint")
     shutil.copy2(docker_payload / "README.md", containers / "README.md")
     setup_destination = destination / "setup"
     setup_destination.mkdir(parents=True, exist_ok=True)
@@ -242,7 +242,7 @@ def copy_infrastructure(repository: Path, release_root: Path) -> None:
         repository / "installer/bootstrap/bootstrap-contract.json",
         setup_destination / "bootstrap-contract.json",
     )
-    setup_project = repository / "payload/runtime/docker/tools/app"
+    setup_project = repository / "payload/runtime/docker/setup/app"
     package_destination = setup_destination / "package"
     if package_destination.exists():
         shutil.rmtree(package_destination)

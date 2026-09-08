@@ -11,7 +11,7 @@ from elesim_protocol import (
     rgbd_from_encoded_frame,
 )
 
-from elesim_pilot.observability.tracing import sampled_traced
+from elesim_protocol.tracing import sampled_traced
 from elesim_pilot.vision.sim_camera.types import (
     SimCameraFrame,
     SimCameraIntrinsics,

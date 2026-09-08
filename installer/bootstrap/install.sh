@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the EleSim installer in a disposable Python container.
+
 set -euo pipefail
 
 repository="${ELESIM_REPOSITORY:-jpyaaa3/elesim}"
@@ -31,10 +31,10 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-command -v curl >/dev/null 2>&1 || fail "curl is required"
+command -v curl >/dev/null 2>&1 || fail "Curl is required"
 [[ "$gui_port" =~ ^[0-9]+$ ]] && ((gui_port >= 1 && gui_port <= 65535)) || \
   fail "ELESIM_GUI_PORT must be in 1..65535"
-[[ -d "$invocation_dir" ]] || fail "invocation directory does not exist: $invocation_dir"
+[[ -d "$invocation_dir" ]] || fail "Invocation directory does not exist: $invocation_dir"
 
 docker_cmd=(docker)
 if ! command -v docker >/dev/null 2>&1; then
@@ -43,7 +43,7 @@ if ! command -v docker >/dev/null 2>&1; then
   fi
   answer="n"
   if [[ -r /dev/tty ]]; then
-    read -r -p "Docker가 없습니다. Ubuntu 패키지를 설치합니까? [y/N]: " answer </dev/tty
+    read -r -p "Docker is missing. Do you want to install Docker? [y/N]: " answer </dev/tty
   fi
   if [[ "$answer" =~ ^[Yy]$ ]]; then
     sudo apt-get update
@@ -53,7 +53,7 @@ if ! command -v docker >/dev/null 2>&1; then
     fi
     sudo systemctl enable --now docker
   else
-    fail "Docker Engine and Docker Compose plugin are required"
+    fail "Docker is missing. Install Docker Engine and the Compose plugin first."
   fi
 fi
 
@@ -370,7 +370,7 @@ if ((gui_mode)); then
       --port "$gui_port" \
       --token "$gui_token" \
       --invocation-dir "$invocation_dir" \
-      --repository "$repository" \
+      --repo "$repository" \
       --ref "$ref"
   else
     "${docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
@@ -380,7 +380,7 @@ if ((gui_mode)); then
         --port "$gui_port" \
         --token "$gui_token" \
         --invocation-dir "$invocation_dir" \
-        --repository "$repository" \
+        --repo "$repository" \
         --ref "$ref"
   fi
 elif [[ -r /dev/tty ]]; then

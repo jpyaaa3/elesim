@@ -8,7 +8,7 @@ from elesim_protocol import (
     DdsRuntimeSettings,
     encoded_frame_from_rgbd,
 )
-from elesim_sim.observability.tracing import sampled_traced
+from elesim_protocol.tracing import sampled_traced
 from elesim_sim.vision.sim_camera.types import SimCameraFrame
 
 

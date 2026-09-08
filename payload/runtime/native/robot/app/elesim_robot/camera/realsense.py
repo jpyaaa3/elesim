@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from elesim_robot.camera.depth_pose import CameraIntrinsics
+from elesim_protocol.rgbd import RgbdIntrinsics
 
 try:
     import pyrealsense2 as rs
@@ -25,7 +25,7 @@ class RealSenseFrame:
     color_bgr: np.ndarray
     depth_raw: np.ndarray
     depth_scale: float
-    intrinsics: CameraIntrinsics
+    intrinsics: RgbdIntrinsics
     camera_world_origin: Optional[tuple[float, float, float]] = None
     camera_world_look: Optional[tuple[float, float, float]] = None
     camera_world_right: Optional[tuple[float, float, float]] = None
@@ -140,7 +140,7 @@ class RealSenseCamera:
         color = np.asanyarray(color_frame.get_data())
         depth = np.asanyarray(depth_frame.get_data())
         intr = color_frame.profile.as_video_stream_profile().intrinsics
-        intrinsics = CameraIntrinsics(
+        intrinsics = RgbdIntrinsics(
             fx=float(intr.fx),
             fy=float(intr.fy),
             cx=float(intr.ppx),

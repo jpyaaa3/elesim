@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import http.client
 import threading
 import time
 from pathlib import Path
@@ -8,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from elesim_setup.capabilities import HostCapabilities
-from elesim_setup.gui import WizardApplication, web_root
+from elesim_setup.gui import WizardApplication, WizardServer, web_root
 
 
 def _capabilities() -> HostCapabilities:
@@ -318,8 +319,10 @@ def test_directory_browser_cannot_escape_mounted_roots(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
     (home / "a").mkdir()
+    (home / "secret-key").write_text("not a directory", encoding="utf-8")
     outside = tmp_path / "outside"
     outside.mkdir()
+    (home / "outside-link").symlink_to(outside, target_is_directory=True)
     app = WizardApplication(
         source_root=home,
         invocation_dir=home,
@@ -332,9 +335,48 @@ def test_directory_browser_cannot_escape_mounted_roots(tmp_path: Path) -> None:
     )
 
     listing = app.list_directories(home)
-    assert listing["directories"][0]["name"] == "a"
+    assert [item["name"] for item in listing["directories"]] == ["a"]
     with pytest.raises(PermissionError):
         app.list_directories(outside)
+
+
+def test_wizard_http_has_directory_browser_but_no_ssh_probe(tmp_path: Path) -> None:
+    (tmp_path / "workspace").mkdir()
+    (tmp_path / "key").write_text("private", encoding="utf-8")
+    app = WizardApplication(
+        source_root=tmp_path,
+        invocation_dir=tmp_path,
+        capabilities=_capabilities(),
+        repository="owner/repo",
+        ref="main",
+        token="test-token",
+        allowed_roots=(tmp_path,),
+        runner=lambda _request, _log: None,
+    )
+    server = WizardServer(("127.0.0.1", 0), app)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    connection = http.client.HTTPConnection(*server.server_address, timeout=2)
+    try:
+        connection.request("POST", "/api/ssh/fingerprint", body="{}")
+        response = connection.getresponse()
+        assert response.status == 401
+        response.read()
+        headers = {"X-Elesim-Token": "test-token"}
+        connection.request("POST", "/api/ssh/fingerprint", body="{}", headers=headers)
+        response = connection.getresponse()
+        assert response.status == 404
+        response.read()
+        connection.request("GET", "/api/directories?files=1", headers=headers)
+        response = connection.getresponse()
+        assert response.status == 200
+        listing = json.loads(response.read())
+        assert [entry["name"] for entry in listing["directories"]] == ["workspace"]
+    finally:
+        connection.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_gui_request_cannot_replace_bootstrap_source_root(tmp_path: Path) -> None:

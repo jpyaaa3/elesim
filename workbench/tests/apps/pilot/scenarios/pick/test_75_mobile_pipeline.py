@@ -4,7 +4,6 @@ import math
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "payload").is_dir())
 if str(ROOT) not in sys.path:
@@ -51,18 +50,6 @@ def _host(
 
 
 class MobilePickPipelineTests(unittest.TestCase):
-    def test_mobile_pick_is_never_delegated_to_target_endpoint(self) -> None:
-        client = MagicMock()
-        svc = ControlService(
-            PanelState(),
-            client=client,
-            perception_cfg=PerceptionConfig(run_local=False, provider="host", mode="camera"),
-        )
-
-        self.assertFalse(svc._delegate_pick_to_host())
-        self.assertFalse(svc._delegate_gaze_to_host())
-        client.send_mobile_pick_start.assert_not_called()
-
     def test_handoff_distance_uses_sim_base_pose(self) -> None:
         svc = ControlService(PanelState(), client=None)
         host = _host(base_pos=(0.0, 0.0, 0.3), sim_base_pos=(0.7, 0.0, 0.3))

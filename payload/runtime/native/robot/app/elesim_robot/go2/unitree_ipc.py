@@ -177,9 +177,6 @@ class UnitreeIpcClient:
     def latest_state(self) -> Optional[OdomSample]:
         return self._latest
 
-    def maybe_log_status(self, _now_s: Optional[float] = None) -> None:
-        return
-
     def _handle_server_packet(self, packet: UnitreeIpcPacket) -> None:
         if packet.boot_id != self._server_boot_id:
             raise UnitreeIpcProtocolError("bridge boot identity changed in-session")

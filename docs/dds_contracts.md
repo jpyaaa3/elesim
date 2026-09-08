@@ -27,6 +27,13 @@ observer와 hand-eye 픽셀은 DDS payload가 아니며 WebRTC DTLS/SRTP track�
 
 ## 2. Control registry
 
+2026-09-07 operator surface 정리: wire major 6과 view schema 1을 유지한다.
+현재 UI가 사용하는 `view_snapshot`, `service_call`, `state_call`, `state_set`만
+지원한다. UI가 snapshot cache에서 읽는 조회 메서드, `snapshot`과
+`service_get` 우회 조회는 제거한다. Envelope/응답 구조와 현재 UI 동작은
+변하지 않으며, 제거된 호출을 직접 보내는 구형 custom client는 명시적으로
+거부된다. 이 제한은 모든 과거 custom client와의 호환성을 주장하지 않는다.
+
 | message | sender → receiver | authority/용도 | QoS | payload 규칙 |
 | --- | --- | --- | --- | --- |
 | `discover` | Pilot/UI → all | peer 조회 | reliable control | `role`, `capability` |

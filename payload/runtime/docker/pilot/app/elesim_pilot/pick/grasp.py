@@ -1,7 +1,7 @@
 """Guided grasp and local-image-Jacobian workflow methods."""
 from __future__ import annotations
 from ._deps import *  # noqa: F401,F403
-from elesim_pilot.observability.tracing import traced_thread_target
+from elesim_protocol.tracing import traced_thread_target
 
 def _service_type():
     from .actions import ControlService

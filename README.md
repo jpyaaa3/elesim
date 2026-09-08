@@ -1,14 +1,10 @@
-<p align="center"><img src="./assets/branding/icon.png" width="180" alt="EleSim logo"></p>
+<p align="center"><img src="./payload/runtime/docker/setup/app/elesim_setup/web/icon.svg" width="180" alt="EleSim logo"></p>
 
 <h1 align="center">EleSim</h1>
 
 <p align="center">https://doi.org/10.1109/LRA.2026.3663818</p>
 
 <br>
-
-배포 가능한 애플리케이션 소스는 [`payload/`](payload/README.md)에 있습니다.
-개발 editable install, 설치 context 생성, release build가 모두 같은 tree를
-사용하며 `dist/`는 생성된 release output 전용입니다.
 
 ## 1. 설치 방법
 

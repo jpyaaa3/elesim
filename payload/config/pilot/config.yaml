@@ -37,8 +37,8 @@ profiles:
           target_label: sports ball
         runtime:
           mode: camera
-          provider: host
-          run_local: false
+          provider: local
+          run_local: true
           show_preview: false
     behaviors:
       pick:

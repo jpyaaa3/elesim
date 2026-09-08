@@ -108,54 +108,6 @@ class ControlClient:
     def disconnect_device(self) -> None:
         self._send({"t": "disconnect_device"}, force=True)
 
-    def _workflow_is_local(self, operation: str) -> None:
-        raise RuntimeError(f"{operation} belongs to the pilot deployment, not the target endpoint")
-
-    def send_perception_start(self, *, config: Optional[Any] = None) -> None:
-        self._workflow_is_local("perception_start")
-
-    def send_perception_stop(self) -> None:
-        self._workflow_is_local("perception_stop")
-
-    def send_perception_refresh(self) -> None:
-        self._workflow_is_local("perception_refresh")
-
-    def send_perception_capture(self, *, include_overlay: bool = True) -> None:
-        self._workflow_is_local("perception_capture")
-
-    def send_perception_record_start(self, *, include_overlay: bool = False, fps: float = 0.0) -> None:
-        self._workflow_is_local("perception_record_start")
-
-    def send_perception_record_stop(self) -> None:
-        self._workflow_is_local("perception_record_stop")
-
-    def send_gaze_start_standing(self, *, run_id: str = "") -> None:
-        self._workflow_is_local("gaze_start_standing")
-
-    def send_gaze_start_walking(self, *, run_id: str = "", gaze_mode: str = "") -> None:
-        self._workflow_is_local("gaze_start_walking")
-
-    def send_gaze_stop(self) -> None:
-        self._workflow_is_local("gaze_stop")
-
-    def stop_lji_velocity_control(self, *, reason: str = "client_stop") -> None:
-        self._workflow_is_local("lji_velocity_stop")
-
-    def send_gaze_config_update(self, config: dict[str, Any]) -> None:
-        self._workflow_is_local("gaze_config_update")
-
-    def send_mobile_pick_start(self) -> None:
-        self._workflow_is_local("mobile_pick_start")
-
-    def send_lji_grasp_start(self) -> None:
-        self._workflow_is_local("lji_grasp_start")
-
-    def send_pick_stop(self) -> None:
-        self._workflow_is_local("pick_stop")
-
-    def send_mobile_pick_stop(self) -> None:
-        self._workflow_is_local("mobile_pick_stop")
-
     def send_perception_observation(
         self,
         *,

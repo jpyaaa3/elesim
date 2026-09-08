@@ -7,8 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-import elesim_protocol.messages as proto
-from elesim_robot.tracing import sampled_traced, traced
+from elesim_protocol.tracing import sampled_traced, traced
 
 if TYPE_CHECKING:
     from elesim_robot.config import HardwareConfig
@@ -95,13 +94,6 @@ def tick_to_deg_0_360(tick: int, direction: int = +1) -> float:
     return float(tick) * (360.0 / float(TICK_MAX))
 
 
-def tick_to_deg_unbounded(tick: int, direction: int = +1) -> float:
-    tick_signed = signed32(int(tick))
-    if int(direction) < 0:
-        tick_signed = TICK_MAX - tick_signed
-    return float(tick_signed) * (360.0 / float(TICK_MAX))
-
-
 @dataclass(frozen=True)
 class JointProfile:
     profile_vel: int
@@ -134,37 +126,6 @@ def default_joint_profiles(cfg: DxlConfig) -> Dict[int, JointProfile]:
         cfg.id_seg2: JointProfile(profile_vel=60, profile_acc=6),
         cfg.id_claw: JointProfile(profile_vel=80, profile_acc=5),
     }
-
-
-def estimate_ideal_sim_rates(
-    mapping_cfg: proto.SimMappingConfig,
-    *,
-    cfg: Optional[DxlConfig] = None,
-) -> Tuple[float, float]:
-    cfg = cfg if cfg is not None else DxlConfig()
-    profiles = default_joint_profiles(cfg)
-
-    def _profile_deg_s(raw: int) -> float:
-        return float(raw) * float(DXL_PROFILE_VEL_UNIT_RPM) * 6.0
-
-    roll_deg_s = _profile_deg_s(profiles[cfg.id_roll].profile_vel)
-    seg1_deg_s = _profile_deg_s(profiles[cfg.id_seg1].profile_vel)
-    seg2_deg_s = _profile_deg_s(profiles[cfg.id_seg2].profile_vel)
-
-    roll_rad_per_u = (float(mapping_cfg.roll_q_max_rad) - float(mapping_cfg.roll_q_min_rad)) / max(
-        1e-9, float(mapping_cfg.roll_u_max) - float(mapping_cfg.roll_u_min)
-    )
-    seg1_rad_per_u = (float(mapping_cfg.seg1_q_max_rad) - float(mapping_cfg.seg1_q_min_rad)) / max(
-        1e-9, float(mapping_cfg.seg_u_max) - float(mapping_cfg.seg_u_min)
-    )
-    seg2_rad_per_u = (float(mapping_cfg.seg2_q_max_rad) - float(mapping_cfg.seg2_q_min_rad)) / max(
-        1e-9, float(mapping_cfg.seg_u_max) - float(mapping_cfg.seg_u_min)
-    )
-    roll_rad_s = abs(roll_deg_s * roll_rad_per_u)
-    bend1_rad_s = abs(seg1_deg_s * seg1_rad_per_u)
-    bend2_rad_s = abs(seg2_deg_s * seg2_rad_per_u)
-    bend_rad_s = min(bend1_rad_s, bend2_rad_s)
-    return float(roll_rad_s), float(bend_rad_s)
 
 
 class Dynamixel3dofDriver:
@@ -410,10 +371,6 @@ class Dynamixel3dofDriver:
 
     def command_claw_deg(self, claw_deg: float) -> None:
         self._write4(self.cfg.id_claw, ADDR_GOAL_POSITION, self.deg_to_goal_tick(self.cfg.id_claw, claw_deg))
-
-    def go_mid_pose(self) -> None:
-        self.command_4dof_deg(180.0, 180.0, 180.0, 180.0)
-
 
 def load_hardware(
     device: str,

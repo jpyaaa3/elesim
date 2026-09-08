@@ -90,11 +90,10 @@ def _preflight() -> TwoHostPreflight:
     ).validate()
 
 
-def _simulation_topology() -> ConnectionTopology:
+def _partial_topology() -> ConnectionTopology:
     return ConnectionTopology(
         system_id="lab_sim",
         security_profile="trusted-network",
-        topology_mode="simulation-only",
         hosts=(
             ManagedHost(
                 host_id="sim-laptop",
@@ -425,23 +424,22 @@ def test_tailscale_ssh_rejects_non_keyless_or_nonstandard_settings(changes) -> N
         SshEndpoint.from_dict(values)
 
 
-def test_simulation_only_topology_accepts_one_host_without_robot() -> None:
-    topology = _simulation_topology()
+def test_mode_free_topology_accepts_one_host_without_robot() -> None:
+    topology = _partial_topology()
     raw = topology.to_dict()
 
-    assert raw["schema_version"] == 4
-    assert raw["topology_mode"] == "simulation-only"
+    assert raw["schema_version"] == 5
+    assert "topology_mode" not in raw
     restored = ConnectionTopology.from_dict(raw)
 
     assert restored == topology
     assert restored.hosts[0].roles == ("pilot", "sim", "ui")
 
 
-def test_simulation_only_allows_pilot_sim_edge_unit_with_remote_ui() -> None:
+def test_mode_free_topology_allows_pilot_sim_edge_unit_with_remote_ui() -> None:
     topology = ConnectionTopology(
         system_id="lab_sim_edge",
         security_profile="sros2",
-        topology_mode="simulation-only",
         dds_graph=DdsGraphSettings(discovery_mode="static"),
         hosts=(
             ManagedHost(
@@ -482,16 +480,14 @@ def test_simulation_only_allows_pilot_sim_edge_unit_with_remote_ui() -> None:
     assert restored.discovery_peers("operator") == ("100.64.0.52", "100.64.0.51")
 
 
-def test_legacy_schema_v1_is_loaded_as_full_and_normalized() -> None:
+def test_legacy_schema_v1_is_loaded_and_normalized_without_mode() -> None:
     raw = _topology().to_dict()
     raw["schema_version"] = 1
-    raw.pop("topology_mode")
 
     restored = ConnectionTopology.from_dict(raw)
 
-    assert restored.schema_version == 4
-    assert restored.topology_mode == "full"
-    assert restored.to_dict()["topology_mode"] == "full"
+    assert restored.schema_version == 5
+    assert "topology_mode" not in restored.to_dict()
     assert restored.host("compute").ssh is not None
     assert restored.host("compute").ssh.host == "100.64.0.20"
 
@@ -502,24 +498,32 @@ def test_legacy_schema_v2_v3_keep_shared_address_semantics(
 ) -> None:
     raw = _topology().to_dict()
     raw["schema_version"] = legacy_version
+    raw["topology_mode"] = "full"
     raw["hosts"][1]["ssh"]["host"] = "stale-management.example"
 
     restored = ConnectionTopology.from_dict(raw)
 
-    assert restored.schema_version == 4
+    assert restored.schema_version == 5
     assert restored.host("compute").ssh is not None
     assert restored.host("compute").ssh.host == restored.host("compute").dds.address
 
 
-def test_simulation_only_rejects_robot_and_jetson_hosts() -> None:
-    raw = _simulation_topology().to_dict()
-    raw["hosts"][0]["assignments"].append(
-        {"role": "robot", "endpoint_id": "robot-go2"}
-    )
-    with pytest.raises(ValueError, match="simulation-only|Robot"):
-        ConnectionTopology.from_dict(raw)
+def test_schema_v4_keeps_independent_ssh_address_while_removing_mode() -> None:
+    raw = _topology().to_dict()
+    raw["schema_version"] = 4
+    raw["topology_mode"] = "full"
+    raw["hosts"][1]["ssh"]["host"] = "management.example"
 
-    raw = _simulation_topology().to_dict()
+    restored = ConnectionTopology.from_dict(raw)
+
+    assert restored.schema_version == 5
+    assert restored.host("compute").ssh is not None
+    assert restored.host("compute").ssh.host == "management.example"
+    assert "topology_mode" not in restored.to_dict()
+
+
+def test_mode_free_topology_still_rejects_jetson_container_units() -> None:
+    raw = _partial_topology().to_dict()
     raw["hosts"][0].update(
         {"jetson": True}
     )
@@ -527,7 +531,7 @@ def test_simulation_only_rejects_robot_and_jetson_hosts() -> None:
         ConnectionTopology.from_dict(raw)
 
 
-def test_changing_dds_address_does_not_change_ssh_destination_in_v4() -> None:
+def test_changing_dds_address_does_not_change_ssh_destination_in_v5() -> None:
     raw = _topology().to_dict()
     raw["hosts"][1]["dds"]["address"] = "runtime-sidecar.example"
 
@@ -562,7 +566,7 @@ def test_static_discovery_peers_seed_co_located_roles() -> None:
 
 
 def test_static_discovery_peers_seed_one_host_simulation_roles() -> None:
-    raw = _simulation_topology().to_dict()
+    raw = _partial_topology().to_dict()
     raw["dds_graph"]["discovery_mode"] = "static"
     topology = ConnectionTopology.from_dict(raw)
 
@@ -614,32 +618,31 @@ def test_endpoint_ids_reject_ros_key_truncation_collisions() -> None:
         ConnectionTopology.from_dict(raw)
 
 
-@pytest.mark.parametrize("role", ["pilot", "sim", "ui", "robot"])
-def test_every_role_must_be_assigned_exactly_once(role: str) -> None:
+@pytest.mark.parametrize("role", ["pilot", "sim", "ui"])
+def test_topology_may_omit_runtime_roles(role: str) -> None:
     raw = _topology().to_dict()
     for host in raw["hosts"]:
         host["assignments"] = [
             item for item in host["assignments"] if item["role"] != role
         ]
+    raw["hosts"] = [host for host in raw["hosts"] if host["assignments"]]
 
-    with pytest.raises(
-        ValueError,
-        match="at least one role|exactly once|Jetson host",
-    ):
-        ConnectionTopology.from_dict(raw)
+    restored = ConnectionTopology.from_dict(raw)
+    assert role not in {assignment.role for host in restored.hosts for assignment in host.assignments}
 
 
-def test_duplicate_role_assignment_is_rejected() -> None:
+def test_duplicate_runtime_role_assignment_is_representable() -> None:
     raw = _topology().to_dict()
     raw["hosts"][1]["assignments"].append(
         {"role": "pilot", "endpoint_id": "pilot-other"}
     )
 
-    with pytest.raises(
-        ValueError,
-        match="one role more than once|every role must be assigned exactly once",
-    ):
-        ConnectionTopology.from_dict(raw)
+    restored = ConnectionTopology.from_dict(raw)
+    assert sum(
+        assignment.role == "pilot"
+        for host in restored.hosts
+        for assignment in host.assignments
+    ) == 2
 
 
 @pytest.mark.parametrize(

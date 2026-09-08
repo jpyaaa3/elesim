@@ -12,8 +12,8 @@ PROJECTS = {
     "payload/runtime/docker/ui/app/pyproject.toml": "elesim-ui",
     "payload/runtime/docker/sim/app/pyproject.toml": "elesim-sim",
     "payload/runtime/native/robot/app/pyproject.toml": "elesim-robot",
-    "payload/runtime/docker/tools/app/pyproject.toml": "elesim-setup",
-    "model/builder/pyproject.toml": "elesim-model-builder",
+    "payload/runtime/docker/setup/app/pyproject.toml": "elesim-setup",
+    "model/pyproject.toml": "elesim-model-builder",
 }
 INTERNAL_DEPENDENCIES = {
     "payload/runtime/common/protocol/pyproject.toml": (),
@@ -21,15 +21,15 @@ INTERNAL_DEPENDENCIES = {
     "payload/runtime/docker/ui/app/pyproject.toml": ("elesim-protocol==0.3.0",),
     "payload/runtime/docker/sim/app/pyproject.toml": ("elesim-protocol==0.3.0",),
     "payload/runtime/native/robot/app/pyproject.toml": ("elesim-protocol==0.3.0",),
-    "payload/runtime/docker/tools/app/pyproject.toml": ("elesim-protocol==0.3.0",),
-    "model/builder/pyproject.toml": (
+    "payload/runtime/docker/setup/app/pyproject.toml": ("elesim-protocol==0.3.0",),
+    "model/pyproject.toml": (
         "elesim-protocol==0.3.0",
         "elesim-pilot==0.3.0",
     ),
 }
 EXPORTED_VERSIONS = (
     "payload/runtime/common/protocol/elesim_protocol/__init__.py",
-    "payload/runtime/docker/tools/app/elesim_setup/__init__.py",
+    "payload/runtime/docker/setup/app/elesim_setup/__init__.py",
 )
 
 

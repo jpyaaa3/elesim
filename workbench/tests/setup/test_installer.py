@@ -55,7 +55,7 @@ def test_native_venv_pip_repair_reports_missing_ensurepip(
 def test_native_venvs_pin_setuptools_for_ros_colcon() -> None:
     source = (
         Path(__file__).resolve().parents[3]
-        / "payload/runtime/docker/tools/app/elesim_setup/installer.py"
+        / "payload/runtime/docker/setup/app/elesim_setup/installer.py"
     ).read_text(encoding="utf-8")
 
     assert source.count('"setuptools>=68,<80"') == 2

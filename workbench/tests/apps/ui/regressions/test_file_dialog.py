@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from elesim_ui.file_dialog import _applescript_escape, _resolve_initial_dir, browse_open_file_path
 from elesim_ui.panels.sag import sag_browse_initial_dir
@@ -48,11 +49,13 @@ class FileDialogHelpersTests(unittest.TestCase):
         self.assertEqual(calls, ["Pick"])
 
     def test_sag_browser_defaults_to_config_presets(self) -> None:
-        root = next(parent for parent in Path(__file__).resolve().parents if (parent / "payload").is_dir())
-        self.assertEqual(
-            Path(sag_browse_initial_dir("")),
-            root / "payload" / "config" / "ui" / "sag",
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch("elesim_ui.panels.sag._config_root", return_value=root):
+                self.assertEqual(Path(sag_browse_initial_dir("")), root)
+                (root / "sag").mkdir()
+                self.assertEqual(Path(sag_browse_initial_dir("")), root / "sag")
+                self.assertEqual(Path(sag_browse_initial_dir("config/sag/model.json")), root / "sag")
 
     def test_detector_browser_defaults_to_config_presets(self) -> None:
         import elesim_ui.panels.perception as panel

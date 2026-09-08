@@ -17,7 +17,7 @@ elesim-up
 elesim-dev python3 workbench/research/experiments/<runner>.py
 ```
 
-각 결과는 source revision, effective config, topology mode, endpoint/boot,
+각 결과는 source revision, effective config, role topology, endpoint/boot,
 run ID, GPU policy, encoder, simulated/physical hardware와 통과하지 않은 수동
 gate를 기록한다. Headless simulation은 물리 convergence, SROS2 enforce, NAT,
 TURN relay 또는 display 동작의 증거가 아니다.

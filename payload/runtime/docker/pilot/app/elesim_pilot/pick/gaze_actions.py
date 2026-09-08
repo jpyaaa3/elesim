@@ -228,14 +228,6 @@ class GazeActions:
             self.client.close()
 
     def start_gaze_stabilizer_standing(self, *, run_id: str = "") -> None:
-        if self._delegate_gaze_to_host():
-            if hasattr(self.client, "send_gaze_start_standing"):
-                self.client.send_gaze_start_standing(run_id=run_id)
-                self.state.set_gaze_status(running=True, mode="standing/on-device", msg="start requested")
-                print("[gaze] on-device standing start requested")
-            else:
-                self.state.set_gaze_status(running=False, mode="idle", msg="remote host lacks gaze_start_standing")
-            return
         if self._visual_busy() and not self._gaze_busy():
             self.state.set_gaze_status(running=False, mode="idle", msg="rejected: visual pipeline busy")
             print("[gaze] rejected: visual pipeline busy")
@@ -251,14 +243,6 @@ class GazeActions:
         from elesim_pilot.gaze.stabilizer import resolve_walking_gaze_mode
 
         mode = resolve_walking_gaze_mode(self._gaze_cfg, gaze_mode)
-        if self._delegate_gaze_to_host():
-            if hasattr(self.client, "send_gaze_start_walking"):
-                self.client.send_gaze_start_walking(run_id=run_id, gaze_mode=mode)
-                self.state.set_gaze_status(running=True, mode=f"walking/{mode}/on-device", msg="start requested")
-                print(f"[gaze] on-device walking start requested | mode={mode}")
-            else:
-                self.state.set_gaze_status(running=False, mode="idle", msg="remote host lacks gaze_start_walking")
-            return
         if self._visual_busy() and not self._gaze_busy():
             self.state.set_gaze_status(running=False, mode="idle", msg="rejected: visual pipeline busy")
             print("[gaze] rejected: visual pipeline busy")
@@ -271,12 +255,6 @@ class GazeActions:
             print(f"[gaze] start walking failed: {exc}")
 
     def stop_gaze_stabilizer(self) -> None:
-        if self._delegate_gaze_to_host():
-            if hasattr(self.client, "send_gaze_stop"):
-                self.client.send_gaze_stop()
-                self.state.set_gaze_status(running=False, mode="idle", msg="on-device stop requested")
-                print("[gaze] on-device stop requested")
-                return
         self._gaze_service.stop()
 
     def start_demo4_stop_and_grasp(self) -> None:
@@ -284,4 +262,3 @@ class GazeActions:
             print("[demo4] rejected: pipeline busy")
             return
         self._gaze_service.start_stop_and_grasp_demo()
-

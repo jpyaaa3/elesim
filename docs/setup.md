@@ -91,6 +91,12 @@ optional:    elesim-coturn (Sim host), elesim-tailscale (Docker Desktop)
 한 host의 같은 prefix에는 EleSim installation을 두 개 만들지 않는다.
 필요하면 서로 다른 prefix와 독립 deployment unit을 사용한다.
 
+한 container 설치에는 Pilot/Sim/UI를 모두 준비해 둘 수 있다. 연결 관리자는
+설치된 `roles`를 capability inventory로 취급하고, 현재 topology에 선택된
+`assigned_roles`만 설정하고 실행한다. 예를 들어 두 host 모두 세 역할을 설치한
+상태에서 한 host에는 Pilot만, 다른 host에는 Sim/UI만 배정할 수 있다. 배정을
+바꾸기 전에 이전 topology에서 제외될 실행 중 역할은 중지해야 한다.
+
 ### 선택적 개발 attachment
 
 개발 attachment는 기존의 완전한 Git checkout을 같은 `elesim-runtime`
@@ -100,7 +106,7 @@ checkout을 생성·갱신·소유하지 않는다. `pilot`/`sim`/`ui` 컨테이
 그대로 분리되며, 개발 셸에는 런타임 DDS/SROS2 identity를 자동 지급하지 않는다.
 
 ```bash
-elesim-up             # 선택한 runtime 역할 시작
+elesim-up             # 현재 topology가 이 host에 배정한 역할 시작
 elesim-dev            # 필요할 때 developer profile 시작 후 Compose exec
 ```
 
@@ -293,7 +299,7 @@ enforce를 사용한다. managed mode의 Authority private key는 operator lapto
 stream만 수행한다. DDS endpoint/interface/address와 SSH management
 destination/port/user/fingerprint는 별도 필드다.
 
-자세한 topology mode, preflight, host lifecycle, security journal은
+자세한 role-derived topology, preflight, host lifecycle, security journal은
 [`deployment.md`](deployment.md)를 참조한다.
 
 ## 10. 제거

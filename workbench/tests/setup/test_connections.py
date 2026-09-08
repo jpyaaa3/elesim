@@ -19,6 +19,7 @@ from elesim_setup.connections import (
     ConnectionDeploymentRunner,
     OperationCloseError,
     RuntimeRollbackError,
+    _exception_detail,
 )
 from elesim_setup.secure_deployment import RuntimeLaunchOptions
 
@@ -131,6 +132,36 @@ def test_runner_rejects_symlinked_authority_root(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="authority root.*symlink"):
         ConnectionDeploymentRunner(linked_root)
+
+
+def test_runner_rejects_repeated_role_instances_before_host_operations(
+    tmp_path: Path,
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    operator = topology.local_host
+    duplicated = replace(
+        topology,
+        hosts=(
+            replace(
+                operator,
+                units=(
+                    replace(
+                        operator.primary_unit,
+                        assignments=operator.assignments
+                        + (RoleAssignment("ui", "ui-secondary"),),
+                    ),
+                ),
+            ),
+            topology.hosts[1],
+        ),
+    ).validate()
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        local_install_root=tmp_path / "install",
+    )
+
+    with pytest.raises(ValueError, match="복수 인스턴스.*ui"):
+        runner(duplicated, "start", lambda _message: None)
 
 
 def test_trusted_network_runner_ignores_cancel_after_rollout_commit(
@@ -446,11 +477,11 @@ def test_runtime_readiness_checks_hosts_concurrently(
 
 
 def test_runtime_readiness_keeps_exception_type_for_terse_context_errors() -> None:
-    assert ConnectionDeploymentRunner._exception_detail(AttributeError("__enter__")) == (
+    assert _exception_detail(AttributeError("__enter__")) == (
         "AttributeError: __enter__"
     )
     actual = AttributeError("'object' object has no attribute '__enter__'")
-    assert ConnectionDeploymentRunner._exception_detail(actual).startswith(
+    assert _exception_detail(actual).startswith(
         "AttributeError: "
     )
 

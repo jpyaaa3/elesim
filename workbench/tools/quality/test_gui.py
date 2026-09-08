@@ -39,7 +39,7 @@ SOURCE_ROOTS = (
     ROOT / "payload/runtime/native/robot/app",
     ROOT / "payload/runtime/docker/sim/app",
     ROOT / "payload/runtime/docker/ui/app",
-    ROOT / "model/builder/src",
+    ROOT / "model",
 )
 WINDOW_W = 1280
 WINDOW_H = 760

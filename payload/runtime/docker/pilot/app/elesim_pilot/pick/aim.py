@@ -1,7 +1,7 @@
 """Aim, equal-sag, and visual-centering workflow methods."""
 from __future__ import annotations
 from ._deps import *  # noqa: F401,F403
-from elesim_pilot.observability.tracing import traced_thread_target
+from elesim_protocol.tracing import traced_thread_target
 
 class AimMotionActions:
     def _pick_reach_model(

@@ -383,6 +383,48 @@ def test_media_stream_error_retries_only_the_failed_stream() -> None:
     assert hand_eye.closed is False
 
 
+@pytest.mark.parametrize("offer_fails", (False, True))
+def test_stream_retry_backoff_is_shared_bounded_and_reset_by_answer(offer_fails) -> None:
+    Receiver.created.clear()
+    clock = Clock()
+    endpoint = Endpoint()
+    session = new_session(clock)
+    session.run_cycle(endpoint)
+    endpoint.inbox.append(opened(str(endpoint.sent[0][1]["payload"]["request_id"])))
+    session.run_cycle(endpoint)
+    endpoint.inbox.extend((answer("observer"), answer("hand_eye_preview")))
+    session.run_cycle(endpoint)
+    observer, hand_eye = Receiver.created
+
+    class RetryReceiver(Receiver):
+        def create_offer(self, *, turn=None):
+            if offer_fails:
+                raise RuntimeError("offer failed")
+            return super().create_offer(turn=turn)
+
+    session.receiver_factory = RetryReceiver
+    observer.error_callback("retry observer")
+    for attempt in range(1, 21):
+        clock.now = session._stream_retry_at["observer"]
+        session.run_cycle(endpoint)
+        assert session._stream_retry_count["observer"] == min(attempt, 16)
+        assert session._stream_retry_at["observer"] - clock.now == min(0.5 * 2**attempt, 5)
+        assert session.snapshot.session_id == "session-a"
+        assert session.connected_streams == ("hand_eye_preview",)
+        assert not hand_eye.closed
+        if offer_fails:
+            assert Receiver.created[-1].closed
+
+    session.receiver_factory = Receiver
+    clock.now = session._stream_retry_at["observer"]
+    session.run_cycle(endpoint)
+    endpoint.inbox.append(answer("observer"))
+    session.run_cycle(endpoint)
+    assert session.connected_streams == ("observer", "hand_eye_preview")
+    assert "observer" not in session._stream_retry_count
+    assert "observer" not in session._stream_retry_at
+
+
 def test_connected_stream_without_decoded_frames_is_restarted_independently() -> None:
     Receiver.created.clear()
     clock = Clock()

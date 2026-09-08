@@ -10,7 +10,7 @@
 | [`deployment.md`](deployment.md) | release, multi-host topology, Connection Manager, SROS2 rollout |
 | [`configuration.md`](configuration.md) | source/installed config 필드와 ownership |
 | [`dds_contracts.md`](dds_contracts.md) | protocol v6 message registry, QoS, RGB-D wire, fencing |
-| [`status.md`](status.md) | 완료 범위, 미해결 항목, manual acceptance gate |
+| [`status.md`](status.md) | R0–R5 운영 마일스톤, 완료 조건, 검증 공백, 환경별 acceptance gate |
 | [`research.md`](research.md) | repository-only experiments와 진단 절차 |
 
 판정 순서:

@@ -733,20 +733,26 @@ class UiSimSession:
             self._stream_retry_at.pop(signal.stream, None)
             self._stream_retry_count.pop(signal.stream, None)
 
-    def _schedule_stream_retry(self, stream: str) -> None:
+    def _schedule_stream_retry(
+        self, stream: str, *, attempted_at: Optional[float] = None
+    ) -> None:
         name = str(stream).strip()
         if not name:
             return
         with self._lock:
             attempts = min(
-                int(self._stream_retry_count.get(name, 0)),
+                int(self._stream_retry_count.get(name, 0))
+                + (attempted_at is not None),
                 _STREAM_RETRY_COUNT_CAP,
             )
+            if attempted_at is not None:
+                self._stream_retry_count[name] = attempts
             delay = min(
                 self.retry_s * (2.0 ** attempts),
                 _MAX_STREAM_RETRY_DELAY_S,
             )
-            self._stream_retry_at[name] = self.clock() + delay
+            now = self.clock() if attempted_at is None else attempted_at
+            self._stream_retry_at[name] = now + delay
 
     def _check_stream_liveness(self) -> None:
         """Recover a named track which is connected but produces no frames.
@@ -887,19 +893,11 @@ class UiSimSession:
                     previous = self._receivers.get(stream)
                     self._receivers[stream] = receiver
                     self._connected_streams.discard(stream)
-                    retry_count = min(
-                        int(self._stream_retry_count.get(stream, 0)) + 1,
-                        _STREAM_RETRY_COUNT_CAP,
-                    )
-                    self._stream_retry_count[stream] = retry_count
                     self._stream_offer_sent_at[stream] = now
                     # Keep trying while the DDS session is alive.  The delay
                     # is capped and the counter itself is bounded, so a dead
                     # media path cannot create an unbounded queue or timer.
-                    self._stream_retry_at[stream] = now + min(
-                        self.retry_s * (2.0 ** retry_count),
-                        _MAX_STREAM_RETRY_DELAY_S,
-                    )
+                    self._schedule_stream_retry(stream, attempted_at=now)
                 if previous is not None and previous is not receiver:
                     try:
                         previous.close()
@@ -913,16 +911,7 @@ class UiSimSession:
                         receiver.close()
                     except Exception:
                         pass
-                with self._lock:
-                    retry_count = min(
-                        int(self._stream_retry_count.get(stream, 0)) + 1,
-                        _STREAM_RETRY_COUNT_CAP,
-                    )
-                    self._stream_retry_count[stream] = retry_count
-                    self._stream_retry_at[stream] = now + min(
-                        self.retry_s * (2.0 ** retry_count),
-                        _MAX_STREAM_RETRY_DELAY_S,
-                    )
+                self._schedule_stream_retry(stream, attempted_at=now)
                 self._set_error(
                     f"{stream} WebRTC retry failed: "
                     f"{str(exc).strip() or type(exc).__name__}"

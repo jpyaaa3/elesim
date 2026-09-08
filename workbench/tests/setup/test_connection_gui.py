@@ -80,11 +80,10 @@ def _topology() -> ConnectionTopology:
     ).validate()
 
 
-def _simulation_topology() -> ConnectionTopology:
+def _partial_topology() -> ConnectionTopology:
     return ConnectionTopology(
         system_id="lab_sim",
         security_profile="trusted-network",
-        topology_mode="simulation-only",
         hosts=(
             ManagedHost(
                 host_id="laptop",
@@ -377,7 +376,13 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert set(catalog["ko"]) == set(catalog["en"])
     assert all(
         (root / name).is_file()
-        for name in ("index.html", "style.css", "app.js", "icon.svg")
+        for name in (
+            "index.html",
+            "style.css",
+            "app.js",
+            "icon.svg",
+            "private-key-warning.svg",
+        )
     )
     assert '<title data-i18n="app.title">EleSim 연결 관리자</title>' in html
     assert '<img src="/icon.svg" alt="">' in html
@@ -390,22 +395,67 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert html.count("data-banner-close") == 2
     assert "banner.querySelector(\".banner-message\")" in script
     assert "setTimeout(() => { banner.hidden = true;" not in script
-    assert all(label in html for label in ("COM1", "COM2", "COM3", "Robot"))
-    assert 'data-field="unused"' in html
-    assert (
-        ".host-card.disabled > .ssh-fields { filter: grayscale(1); opacity: .46; }"
-        in style
-    )
-    assert ".host-card.disabled > .ssh-fields,\n\n.unit-lanes" not in style
+    assert 'id="host-grid"' in html
+    assert 'id="host-template"' in html
+    assert 'id="add-host"' in html
+    assert 'class="icon-button add-role"' in html
+    assert catalog["ko"]["action.add.host"] == "컴퓨터 추가"
+    assert catalog["en"]["action.add.host"] == "Add a computer"
+    assert 'data-field="unused"' not in html
+    assert "grid-template-columns: minmax(200px, .65fr) minmax(360px, 1.3fr) minmax(300px, 1.05fr)" in style
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in style
+    assert "min-height: 304px" in style
+    assert "grid-auto-rows: 82px" in style
+    assert "padding: 8px 8px 34px" in style
+    assert ".robot-host .unit-lanes { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 7px; }" in style
+    assert ".robot-host .runtime-lane .drop-zone { grid-template-columns: repeat(2, minmax(0, 1fr)); }" in style
+    assert ".robot-lane .drop-zone { border-color: #b2a5ca; grid-template-columns: 1fr; }" in style
+    assert ".drop-zone.empty::before" in style
+    assert ".drop-guidance" in style
+    assert 'guidance.textContent = t("role.add.guidance")' in script
+    assert 'if (zone.dataset.dropUnit === "runtime")' in script
+    assert ".ssh-column { display: flex; flex-direction: column; background: #fafbfc; }" in style
+    assert ".ssh-fields { display: flex; min-height: 304px; flex: 1; flex-direction: column; }" in style
+    assert ".network-fields { min-height: 304px; }" in style
+    assert '<div class="column-heading"><h3 data-i18n="column.network"></h3></div>' in html
+    assert ".install-fields { margin-top: 9px; padding-top: 0; }" in style
+    assert ".install-fields { margin-top: 10px;" not in style
+    assert catalog["ko"]["host.local"] == "이 컴퓨터는 내 컴퓨터임"
+    assert catalog["en"]["host.local"] == "This is my computer"
+    assert ".robot-host .local-choice { display: none; }" in style
+    assert "local.checked = !robot && (operational || computerSlots.length === 1);" in script
+    assert catalog["ko"]["ssh.title"] == "SSH 인증"
+    assert catalog["en"]["ssh.title"] == "Authentication via SSH"
+    assert "color: var(--ink); font-size: var(--font-body); font-weight: 700" in style
+    assert "letter-spacing: normal; text-transform: none" in style
+    assert 'class="column-heading"><h3 data-i18n="ssh.title"></h3><label class="local-choice"' in html
+    assert 'data-i18n="ssh.local"' not in html
+    assert 'data-field="ssh-user" type="text"' in html
+    assert 'input[data-field="ssh-port"]:disabled { background: #f2f4f3; color: #4f5c56; opacity: 1; }' in style
+    assert '<img src="/private-key-warning.svg" alt="">' in html
+    assert 'data-i18n="ssh.private.warning"' in html
+    assert catalog["ko"]["ssh.private.warning"] == "개인키는 외부에 노출하지 마십시오!"
+    assert "width: min(190px, 78%)" in style
+    assert catalog["en"]["role.add.guidance"] == "Use the [+] button above to add a role card."
+    assert 'warning.hidden = !isActive(slot) || local !== slot;' in script
+    assert "nextRoleNumbers = {pilot: 1, ui: 1, sim: 1, robot: 1}" in script
+    assert "appendRoleCard(role, target)" in script
+    assert "const first = createHost({operational: true});" in script
+    assert "const second = createHost();" not in script
+    assert "const robot = createHost({robot: true});" not in script
     assert (
         ".banner.notice { border: 1px solid #9fc4eb; "
         "background: var(--accent-soft); color: var(--accent-dark); }"
         in style
     )
-    assert 'id="topology-mode"' in html
-    assert "simulation-only" in script
-    assert "ensureRoutedDiscovery" in script
-    assert "notice.tailscale.static" in script
+    assert 'id="topology-mode"' not in html
+    assert html.index('id="system-id"') < html.index('id="security"')
+    assert html.index('id="domain-id"') < html.index('id="security"')
+    assert "topologyMode" not in script
+    assert 'id="discovery"' not in html
+    assert "ensureRoutedDiscovery" not in script
+    assert "notice.tailscale.static" not in script
+    assert 'discovery_mode: "static"' in script
     assert 'id="apply"' in html
     assert 'id="restart"' not in html
     assert 'class="workflow-actions"' in html
@@ -516,50 +566,64 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert '.workflow-step[data-enabled="false"] button' in style
     assert 'startJob("check")' not in script
     assert 'workflow.stage.' not in script
-    assert 'data-drop-slot="com4"' in html
+    assert 'data-drop-slot="com4"' not in html
     assert 'data-slot="robot"' not in html
     assert 'data-drop-unit="runtime"' in html
     assert 'data-drop-unit="robot"' in html
     assert "dragstart" in script and "dataTransfer" in script
-    assert "let roleOrder = [...applicationRoles];" in script
+    assert "let roleCards = [];" in script
     assert "function insertRoleInOrder" in script
-    assert "roleOrder.splice(insertionIndex, 0, role);" in script
-    assert "const dropBandRatio = 0.5;" in script
-    assert "function dropPlacement(zone, pointerY, draggedRole = \"\")" in script
-    assert "previous.bottom - previous.height * dropBandRatio" in script
-    assert "next.rect.top + next.rect.height * dropBandRatio" in script
-    assert "function dropChangesOrder(zone, draggedRole, placement)" in script
-    assert "const previewPlacement = allowed && placement && dropChangesOrder" in script
-    assert "function updateDropPreview(zone, placement, draggedRole)" in script
-    assert "block.classList.add(\"drop-shift\")" in script
-    assert ".role-block.drop-shift { transform: translateY(12px); }" in style
-    assert "targetRole," in script
-    assert 'roleLocations.robot = "robot"' in script
-    assert 'sim: "sim-default"' in script
-    assert 'robot: "robot-go2"' in script
+    assert "roleCards.splice(insertionIndex, 0, moving);" in script
+    assert "function dropPlacement(zone, pointerX, pointerY, draggedCardId = \"\")" in script
+    assert "pointerX >= rect.left" in script
+    assert "pointerX <= rect.right" in script
+    assert "pointerY >= rect.top" in script
+    assert "pointerY <= rect.bottom" in script
+    assert "function dropChangesOrder" not in script
+    assert "const previewPlacement = allowed ? placement : null;" in script
+    assert "function updateDropPreview(zone, placement, draggedCardId)" in script
+    assert 'dropPlaceholder.className = "role-block drop-placeholder"' in script
+    assert "zone.insertBefore(dropPlaceholder, target);" in script
+    assert ".role-block.drop-placeholder" in style
+    assert "visibility: hidden" in style
+    assert "dashed #6d9dcc" not in style
+    assert ".role-block.drag-source-hidden { position: fixed; visibility: hidden; pointer-events: none; }" in style
+    assert "previous.left - current.left" in script
+    assert '{duration: 150, easing: "ease-out"}' in script
+    assert "function updateDragAutoScroll(pointerY)" in script
+    assert "window.scrollBy(0, dragScrollSpeed);" in script
+    assert "window.requestAnimationFrame(runDragAutoScroll)" in script
+    assert "targetCardId," in script
+    assert 'return `${role}-${number}`;' in script
+    assert "firstEndpointIds" not in script
     assert catalog["ko"]["actions.title"] == "연결 확인"
     assert catalog["en"]["actions.title"] == "Check Connections"
     ssh_key_fields = re.findall(
         r'<input\b[^>]*data-field="ssh-key"[^>]*>',
         html,
     )
-    assert len(ssh_key_fields) == 4
+    assert len(ssh_key_fields) == 1
     assert all("value=" not in field for field in ssh_key_fields)
     ssh_tailscale_fields = re.findall(
         r'<input\b[^>]*data-field="ssh-tailscale"[^>]*>',
         html,
     )
-    assert len(ssh_tailscale_fields) == 4
+    assert len(ssh_tailscale_fields) == 1
     assert "ssh-tailscale" in script
     assert "ssh.help" not in catalog["ko"]
-    assert catalog["en"]["ssh.title"] == "Private key authentication via SSH"
+    assert catalog["en"]["ssh.title"] == "Authentication via SSH"
     ssh_host_fields = re.findall(
         r'<input\b[^>]*data-field="ssh-host"[^>]*>',
         html,
     )
-    assert len(ssh_host_fields) == 4
+    assert len(ssh_host_fields) == 1
     assert all("readonly" not in value and "disabled" not in value for value in ssh_host_fields)
-    assert html.count('<details class="ssh-fields" open>') == 4
+    assert 'class="host-column ssh-column"' in html
+    assert 'id="add-host-dialog"' in html
+    assert 'name="new-host-kind" value="robot"' in html
+    assert "function createHost(" in script
+    assert "function bindHostCardEvents(" in script
+    assert "function updateRoleChoices(" in script
     assert "coturn-fields" not in html
     assert "updateCoturnVisibility" not in script
     assert "updateCoturnSecurity" not in script
@@ -567,7 +631,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "robot-install-root" not in html
     assert "robot-bin-dir" not in html
     assert 'host.ssh.host' in script
-    assert "let schemaVersion = 4;" in script
+    assert "let schemaVersion = 5;" in script
     assert 'host: field(slot, "ssh-host").value.trim()' in script
     assert 'const host = field(slot, "ssh-host").value.trim();' in script
     assert "syncSshAddress" not in script
@@ -701,15 +765,15 @@ def test_application_rejects_symlinked_authority_root(tmp_path: Path) -> None:
         )
 
 
-def test_application_saves_simulation_only_topology_without_robot(tmp_path: Path) -> None:
+def test_application_saves_partial_topology_without_robot(tmp_path: Path) -> None:
     app = _application(tmp_path)
-    topology = _simulation_topology()
+    topology = _partial_topology()
 
     response = app.save_topology(topology.to_dict())
 
     assert response["valid"] is True
     saved = ConnectionTopology.load(tmp_path / "connections.json")
-    assert saved.topology_mode == "simulation-only"
+    assert "topology_mode" not in saved.to_dict()
     assert {assignment.role for host in saved.hosts for assignment in host.assignments} == {
         "pilot",
         "sim",
@@ -971,6 +1035,14 @@ def test_http_boundary_requires_token_and_sets_strict_headers(tmp_path: Path) ->
         assert "script-src 'self'" in response.getheader("Content-Security-Policy")
         assert response.getheader("Cache-Control") == "no-store"
         response.read()
+        connection.close()
+
+        connection = http.client.HTTPConnection(host, port, timeout=2)
+        connection.request("GET", "/private-key-warning.svg")
+        response = connection.getresponse()
+        assert response.status == 200
+        assert response.getheader("Content-Type") == "image/svg+xml"
+        assert len(response.read()) > 1_000
         connection.close()
 
         connection = http.client.HTTPConnection(host, port, timeout=2)

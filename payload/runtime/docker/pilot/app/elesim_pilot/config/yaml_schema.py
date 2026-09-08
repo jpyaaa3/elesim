@@ -409,6 +409,12 @@ def build_bundle_from_yaml(data: Mapping[str, Any], *, config_dir: str) -> AppCo
         raise ConfigValidationError(str(exc)) from exc
 
     perception_config = components["perception_config"]
+    provider = str(perception_config.provider).strip().lower()
+    if provider != "local" or not bool(perception_config.run_local):
+        raise ConfigValidationError(
+            "vision.perception.runtime must use Pilot-owned local perception "
+            "(provider=local, run_local=true); remote perception workers are unsupported"
+        )
     detector_config = str(perception_config.detector_config).strip()
     if detector_config and not os.path.isabs(detector_config):
         components["perception_config"] = replace(

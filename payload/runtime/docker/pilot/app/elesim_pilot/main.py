@@ -23,7 +23,7 @@ from elesim_pilot.runtime import build_control_runtime
 from elesim_pilot.config import load_app_config, load_runtime_role_config
 from elesim_pilot.pick import ControlClient
 from elesim_pilot.pick.mock_hug import MockHugCoordinator
-from elesim_pilot.observability.tracing import configure_tracing, shutdown_tracing, span
+from elesim_protocol.tracing import configure_tracing, shutdown_tracing, span
 from elesim_pilot.simulation_sync import SimulationWorkflowSync
 from elesim_pilot.vision.rgbd import DdsRgbdRelay
 
@@ -250,7 +250,7 @@ def _run() -> None:
 
 
 def main() -> None:
-    configure_tracing("elesim-pilot-agent")
+    configure_tracing("elesim-pilot-agent", local_log=True)
     try:
         with span(
             "elesim_pilot.main.main",

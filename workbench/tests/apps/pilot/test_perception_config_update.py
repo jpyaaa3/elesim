@@ -2,8 +2,22 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from elesim_pilot.config import PerceptionConfig
 from elesim_pilot.pick import ControlService, PanelState
+
+
+@pytest.mark.parametrize("patch", [{"provider": "host"}, {"run_local": False}])
+def test_unsupported_remote_update_preserves_current_config(patch) -> None:
+    baseline = PerceptionConfig(target_label="keep")
+    state = PanelState()
+    service = ControlService(state, perception_cfg=baseline)
+    previous_label = state.visual_target_label
+    with pytest.raises(ValueError, match="Pilot-owned local perception"):
+        service.update_perception_config({"target_label": "discard", **patch})
+    assert service._perception_cfg is baseline
+    assert state.visual_target_label == previous_label
 
 
 def test_ui_perception_patch_preserves_controller_only_tracking_fields() -> None:

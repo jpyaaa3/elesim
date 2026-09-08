@@ -14,7 +14,7 @@ from elesim_protocol import (
 )
 
 from elesim_robot.camera.realsense import RealSenseCamera
-from elesim_robot.camera.types import RgbdFrame, RgbdIntrinsics
+from elesim_protocol.rgbd import RgbdFrame, RgbdIntrinsics
 
 
 class CameraPublisherThread:

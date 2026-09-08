@@ -1,7 +1,7 @@
 """Look and ready-pose workflow methods for ControlService."""
 from __future__ import annotations
 from ._deps import *  # noqa: F401,F403
-from elesim_pilot.observability.tracing import traced_thread_target
+from elesim_protocol.tracing import traced_thread_target
 
 class ReadyGeometryActions:
     def _pick_frozen_world(self) -> Optional[tuple[float, float, float]]:
@@ -1242,8 +1242,7 @@ class LookActions(ReadySolveActions):
             return False, host_state, "disabled"
         if self.client is None:
             return False, host_state, "no host client"
-        if self._perception_run_local:
-            self._maybe_start_local_perception()
+        self._maybe_start_local_perception()
         lock_timeout = min(max(float(pk.acquire_timeout_s), 0.5), 2.5)
         if not self._wait_for_track_lock(
             timeout_s=float(lock_timeout),

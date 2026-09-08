@@ -11,25 +11,20 @@ EleSim은 네 개의 독립 애플리케이션으로 나뉜다. monorepo의 공�
 애플리케이션을 import하는 것은 허용하지 않는다.
 
 ```text
-full topology (2–4 hosts)
+card-derived topology (1–4 hosts)
 
   pilot ──────── DDS ──────── sim ──────── private Unitree DDS/NIC
     │             │            │                    ▲
     │             │            └─ WebRTC media       │
     └──── DDS ─── ui ──────────────── DTLS/SRTP      │
                                   robot ── UDS ──────┘
-
-simulation-only topology (1–3 hosts)
-
-             [pilot + sim] ─── DDS ─── ui
-                   │                  ▲
-                   └──── local RGB-D ─┘
 ```
 
-`simulation-only`은 Pilot/Sim/UI만 갖고 Robot 또는 Jetson placeholder를
-저장하지 않는다. `full`은 Pilot/Sim/UI/Robot을 각각 정확히 한 번
-배치하고 Robot은 native Jetson unit이어야 한다. 두 모드와 schema migration은
-[`deployment.md`](deployment.md)에 정의되어 있다.
+별도 실행 모드는 없다. 저장된 COM과 역할 카드가 곧 토폴로지이며 Robot 없는
+부분집합도 유효하다. Robot 카드는 native Jetson unit에만 둘 수 있다. 현재 고정
+Compose service/container 이름 때문에 동일 역할 복수 인스턴스는 문서에는 저장할
+수 있지만 실행 단계에서 명시적으로 거부한다. 이 제한 해제는 다중 system B2
+마일스톤의 소유다.
 
 중앙 Router, ZMQ, CurveZMQ, CURVE, ZAP은 현재 구조에 없다. 각 DDS participant는
 필요한 peer와 직접 IP-routable해야 하며, DDS discovery는 애플리케이션
@@ -69,8 +64,8 @@ safe-hold·torque-off·hardware cleanup을 계속 수행한다.
        ├── elesim_interfaces (ROSIDL wire types)
        └── protocol (PeerEnvelope, discovery, authority, RGB-D helpers)
 
-model/builder ── payload/data/models/assemblies/zed-mini/assets → payload/data/models/assemblies/zed-mini
-payload/runtime/docker/tools/app ── state/config/Compose/security/lifecycle artifacts
+model/ ── payload/data/models/assemblies/zed-mini/assets → payload/data/models/assemblies/zed-mini
+payload/runtime/docker/setup/app ── state/config/Compose/security/lifecycle artifacts
 workbench/tools/release ── isolated release contexts
 workbench/tests/system ── cross-process acceptance probes
 ```

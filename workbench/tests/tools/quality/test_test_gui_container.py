@@ -48,7 +48,7 @@ def test_developer_tooling_has_no_standalone_compose_project() -> None:
 
 
 def test_developer_environment_fingerprints_interfaces_and_project_metadata() -> None:
-    source = (ROOT / "payload/runtime/docker/development/dev-env.sh").read_text(encoding="utf-8")
+    source = (ROOT / "payload/runtime/docker/dev/dev-env.sh").read_text(encoding="utf-8")
 
     assert 'fingerprint_file="$state_root/dev-env.fingerprint"' in source
     assert '"$interfaces/msg" "$interfaces/srv" "$interfaces/action"' in source

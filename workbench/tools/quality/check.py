@@ -70,7 +70,7 @@ CHECKS: tuple[Check, ...] = (
     Check(
         "model-builder",
         ("workbench/tests/model_builder", "workbench/tests/tools/release"),
-        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "model/builder/src"),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "model"),
         description="Blueprint, bundle and URDF generation",
     ),
     Check(
@@ -102,7 +102,7 @@ CHECKS: tuple[Check, ...] = (
     Check(
         "setup-tools",
         ("workbench/tests/setup",),
-        (PROTOCOL_SRC, "payload/runtime/docker/tools/app"),
+        (PROTOCOL_SRC, "payload/runtime/docker/setup/app"),
         description="Installer profiles, generated configs and network diagnostics",
     ),
     Check(
@@ -116,7 +116,7 @@ CHECKS: tuple[Check, ...] = (
     Check(
         "analysis-tools",
         ("workbench/tests/research/analysis",),
-        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "model/builder/src"),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "model"),
         group="extended",
         description="Offline analysis helpers",
     ),
@@ -130,7 +130,7 @@ CHECKS: tuple[Check, ...] = (
     Check(
         "experiment-tools",
         ("workbench/tests/research/experiments",),
-        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "model/builder/src"),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "model"),
         group="extended",
         description="Repeatable experiment orchestration",
     ),

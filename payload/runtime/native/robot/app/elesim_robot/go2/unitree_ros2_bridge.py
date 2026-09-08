@@ -30,7 +30,7 @@ from elesim_robot.go2.vel_feedback import (
     linear_motion_active,
     yaw_command_active,
 )
-from elesim_robot.tracing import sampled_traced, traced
+from elesim_protocol.tracing import sampled_traced, traced
 
 
 def _ros_topic(name: str) -> str:

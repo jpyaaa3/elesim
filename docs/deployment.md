@@ -46,6 +46,12 @@ prefix/build context를 사용한다. 수동 build는 진단·릴리스 개발�
 General은 고정 `elesim-runtime` project와 role별 image/container 이름을
 사용한다.
 
+설치 역할과 graph 배정은 별개다. 각 host의 설치에는 여러 role service가 있을
+수 있고, topology deployment는 그중 해당 graph에 배정한 부분집합만 DDS 설정,
+role-scoped SROS2 view와 lifecycle 대상으로 삼는다. 재배정은 설치 prefix나
+Compose manifest를 교체하지 않으며, 배정되지 않은 실행 중 역할이 있으면 먼저
+중지하도록 거부한다.
+
 | 역할 | image | container | 실행 경계 |
 | --- | --- | --- | --- |
 | Pilot | `elesim/pilot:local` | `elesim-pilot` | Docker |
@@ -149,19 +155,21 @@ managed SROS2 rollout을 소유한다. runtime application이나 Router가 아�
 container에 Docker socket, tailscaled local API 또는 Authority private key를
 주지 않는다.
 
-| mode | hosts/roles | Robot |
-| --- | --- | --- |
-| `full` | 2–4 host, Pilot/Sim/UI/Robot 각 1회 | native Jetson unit 필수 |
-| `simulation-only` | 1–3 host, Pilot/Sim/UI 각 1회 | 저장하지 않음 |
-
-schema v1–v3 입력은 읽을 때 v4로 normalize한다(v1은 `full`). 한 host에 여러
-role 또는 독립 deployment unit이 있을 수 있다. Robot은 native `robot-native`
+schema v5에는 실행 모드가 없다. 1–4개 host와 그 위의 역할 카드가 graph를
+직접 정의한다. schema v1–v4 입력은 읽을 때 v5로 normalize하며, 기존
+`topology_mode`는 호환성 검증 후 저장에서 제거한다. 한 host에 여러 role 또는
+독립 deployment unit이 있을 수 있다. Robot은 native `robot-native`
 unit, container role은 별도 `runtime` unit으로 관리할 수 있다. DDS
 address/interface와 SSH address/port/user/fingerprint는 독립 필드이며 어느
 한쪽에서 다른 쪽을 추론하지 않는다. static peer는 active DDS address에서만
 만든다.
 
-`simulation-only` 권장 배치는 `[pilot, sim]` Compose unit과 별도 `[ui]`
+deployment unit의 `assignments`는 설치된 역할 전체 목록이 아니다. 연결 관리자는
+원격 `install-state.json`의 `roles`에 배정 역할이 포함되는지만 확인하고,
+배포 시 `assigned_roles`로 그 부분집합을 기록한다. 따라서 동일한 설치 inventory를
+유지한 채 host 사이에서 Pilot/Sim/UI 배치를 바꿀 수 있다.
+
+Robot 없는 대표 배치는 `[pilot, sim]` Compose unit과 별도 `[ui]`
 unit이다. Sim source가 encoded sample을 Pilot에 넘기고 Pilot이 broker stream을
 UI로 relay한다. 세 role을 한 host에 두는 것도 유효하다. 새 배포에서 raw source
 RGB-D를 inter-host consumer가 직접 구독하지 않는다.

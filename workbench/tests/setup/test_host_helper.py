@@ -12,7 +12,7 @@ from elesim_setup.host_helper import (
     HostHelperError,
     _Server,
     _validate_command,
-    _valid_tailscale_target,
+    _normalize_tailscale_target,
 )
 from elesim_setup.host_proxy import _upload_stdin, main as host_proxy_main
 from elesim_setup.secure_deployment import _run_through_host_helper
@@ -369,11 +369,11 @@ def test_host_helper_rejects_unscoped_compose_up() -> None:
 
 
 def test_tailscale_target_accepts_ipv6_and_rejects_path_values() -> None:
-    assert _valid_tailscale_target("fd7a:115c:a1e0::1234")
-    assert _valid_tailscale_target("[fd7a:115c:a1e0::1234]")
-    assert _valid_tailscale_target("sim.example")
-    assert not _valid_tailscale_target("/tmp/socket")
-    assert not _valid_tailscale_target("sim example")
+    assert _normalize_tailscale_target("fd7a:115c:a1e0::1234") == "fd7a:115c:a1e0::1234"
+    assert _normalize_tailscale_target("[fd7a:115c:a1e0::1234]") == "fd7a:115c:a1e0::1234"
+    assert _normalize_tailscale_target("sim.example") == "sim.example"
+    assert _normalize_tailscale_target("/tmp/socket") is None
+    assert _normalize_tailscale_target("sim example") is None
 
 
 def test_tailscale_stream_releases_small_banner_before_eof(tmp_path: Path) -> None:

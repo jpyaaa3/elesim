@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from elesim_pilot.pick import ControlClient, ControlService, PanelState
 from elesim_protocol import SimMappingConfig, SimQ
 
@@ -56,12 +54,6 @@ def test_target_commands_are_never_dropped_inside_workflow_client() -> None:
 
     assert len(sender.messages) == 2
     assert sender.messages[-1][0]["q"] == [-0.2, 0.1, 0.2, -0.2]
-
-
-def test_workflow_commands_cannot_be_delegated_to_robot_or_sim() -> None:
-    client = ControlClient(cfg=SimMappingConfig())
-    with pytest.raises(RuntimeError, match="pilot deployment"):
-        client.send_mobile_pick_start()
 
 
 def test_final_mock_hug_target_carries_stale_plan_fence() -> None:

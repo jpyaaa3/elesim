@@ -8,9 +8,9 @@ ROOT = Path(__file__).resolve().parents[3]
 
 def test_setup_runtime_depends_on_ros_interfaces_not_pyzmq() -> None:
     requirements = (
-        ROOT / "payload/runtime/docker/tools/app/requirements.lock"
+        ROOT / "payload/runtime/docker/setup/app/requirements.lock"
     ).read_text(encoding="utf-8")
-    metadata = (ROOT / "payload/runtime/docker/tools/app/pyproject.toml").read_text(
+    metadata = (ROOT / "payload/runtime/docker/setup/app/pyproject.toml").read_text(
         encoding="utf-8"
     )
 
@@ -24,7 +24,7 @@ def test_container_images_build_the_interface_overlay() -> None:
     app = (ROOT / "payload/runtime/docker/shared/Dockerfile.app").read_text(
         encoding="utf-8"
     )
-    tools = (ROOT / "payload/runtime/docker/tools/Dockerfile").read_text(
+    tools = (ROOT / "payload/runtime/docker/setup/Dockerfile").read_text(
         encoding="utf-8"
     )
 
@@ -48,7 +48,7 @@ def test_sim_runtime_images_build_and_verify_casadi_osqp() -> None:
     app = (ROOT / "payload/runtime/docker/shared/Dockerfile.app").read_text(
         encoding="utf-8"
     )
-    development = (ROOT / "payload/runtime/docker/development/Dockerfile").read_text(
+    development = (ROOT / "payload/runtime/docker/dev/Dockerfile").read_text(
         encoding="utf-8"
     )
 
@@ -66,11 +66,11 @@ def test_go2_mpc_dependency_is_pinned_to_the_validated_commit() -> None:
     app = (ROOT / "payload/runtime/docker/shared/Dockerfile.app").read_text(
         encoding="utf-8"
     )
-    development = (ROOT / "payload/runtime/docker/development/Dockerfile").read_text(
+    development = (ROOT / "payload/runtime/docker/dev/Dockerfile").read_text(
         encoding="utf-8"
     )
     installer = (
-        ROOT / "payload/runtime/docker/tools/app/elesim_setup/installer.py"
+        ROOT / "payload/runtime/docker/setup/app/elesim_setup/installer.py"
     ).read_text(encoding="utf-8")
     controller = (
         ROOT / "payload/runtime/docker/sim/app/elesim_sim/robot/go2/mpc/controller.py"

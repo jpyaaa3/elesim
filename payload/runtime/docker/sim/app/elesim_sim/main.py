@@ -28,7 +28,7 @@ from elesim_sim.media import (
     MediaWorkerUnavailable,
     VideoStreamSpec,
 )
-from elesim_sim.observability.tracing import configure_tracing, shutdown_tracing, span
+from elesim_protocol.tracing import configure_tracing, shutdown_tracing, span
 from elesim_sim.simulation.operator_control import SimulationOperatorMailbox
 from elesim_sim.simulation.mock_objects import MockObjectCatalog, resolve_mock_object_catalog_root
 from elesim_sim.simulation.mock_object_state import MockObjectState
@@ -257,7 +257,7 @@ def _run() -> None:
 
 
 def main() -> None:
-    configure_tracing("elesim-sim-agent")
+    configure_tracing("elesim-sim-agent", local_log=True)
     try:
         with span(
             "elesim_sim.main.main",

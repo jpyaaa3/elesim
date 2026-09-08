@@ -26,6 +26,12 @@ installed prefix
   └─ secrets/ and logs/runs/
 ```
 
+설치 상태 schema v11은 `roles`와 `assigned_roles`를 구분한다. `roles`는 이
+prefix에 설치되어 언제든 실행할 수 있는 역할 목록이다. `assigned_roles`는 현재
+connection topology가 이 host에 배정한 부분집합이며, 값이 `null`이면 독립 설치의
+기존 동작대로 설치된 역할 전체를 사용한다. 토폴로지를 다시 배치해도 role image,
+config source와 설치 ownership은 삭제하거나 다시 만들지 않는다.
+
 Source config는 설치 중 복사되며 installed config를 수정해도 source default로
 되돌아가지 않는다. generated files를 직접 편집한 뒤 `elesim-update`하면
 owned artifact가 다시 생성될 수 있다. 변경은 setup GUI, `elesim-net`,
@@ -57,11 +63,20 @@ rgbd:
 
 Pilot은 source가 Robot인지 Sim인지에 관계없이 encoded RGB-D 외부 stream의
 단일 broker owner다. source는 카메라 경계에서 한 번 encode하며, legacy raw
-source만 Pilot relay가 encode한다. `simulation-only`에서는 Sim과 Pilot을 한
+source만 Pilot relay가 encode한다. Robot 없는 graph에서는 Sim과 Pilot을 한
 Compose unit에 둘 수 있지만 source와 Pilot 사이에는 bounded DDS source topic을
 사용한다. Robot도 `source-dds-to-pilot` handoff를 사용한다. UI는
 `broker_role: pilot` stream을 decode하며 source camera topic을 publish하지 않는다.
 endpoint ID가 바뀌면 설치기가 broker topic도 함께 다시 계산한다.
+
+Perception 계산은 Pilot에서만 실행한다. `vision.perception.runtime`의
+`provider: host` 또는 `run_local: false`는 지원되지 않는 옛 설정으로 거부된다.
+Robot/Sim의 원격 카메라를 사용하는 것은 DDS RGB-D 입력 선택이며 원격
+perception worker를 선택하는 기능이 아니다.
+
+Sim의 `simulation.performance.log_enable` 기본값은 `false`다. 상세 loop,
+camera, GO2 timing 출력은 진단할 때 이 값을 `true`로 켠다. 기존 installed
+config에서 명시적으로 켠 값은 유지되며, 오류·상태 변화 진단과 별개다.
 
 ## 2. 공통 DDS 필드
 
@@ -85,11 +100,10 @@ authentication/access-control/encryption을 사용한다. `ROS_DOMAIN_ID`만으�
 
 ## 3. Topology 필드
 
-connection topology schema v4는 다음을 분리한다.
+connection topology schema v5는 다음을 분리한다.
 
 | 필드 | 의미 |
 | --- | --- |
-| `topology_mode` | `full` 또는 `simulation-only` |
 | `hosts[]` | stable host ID, display name, local flag |
 | `dds.address` | DDS advertised IP/hostname (port 없음) |
 | `dds.interface` | DDS bind interface, 예: `tailscale0` |
@@ -99,10 +113,10 @@ connection topology schema v4는 다음을 분리한다.
 | `units[]` | host 안의 독립 prefix/Compose 또는 native unit |
 | `roles[]` | 해당 unit의 `pilot`, `sim`, `ui`, `robot` assignment |
 
-`full`은 두–네 host와 네 role을 요구하고 `simulation-only`는 한–세 host와
-Pilot/Sim/UI만 허용한다. schema v1–v3 입력은 load 시 v4로 normalize하며
-v1은 `full`로 해석한다. DDS 주소와 SSH 주소가 같아도 한 필드에서 다른 필드를
-추론하지 않는다.
+한–네 host에 배치한 역할 카드가 실제 graph를 정의하며 특정 역할 집합을
+강제하지 않는다. schema v1–v4 입력은 load 시 v5로 normalize하고, v2–v4의
+`topology_mode`는 호환성 검증 후 폐기한다. DDS 주소와 SSH 주소가 같아도 한
+필드에서 다른 필드를 추론하지 않는다.
 
 ## 4. GPU와 Viewer
 

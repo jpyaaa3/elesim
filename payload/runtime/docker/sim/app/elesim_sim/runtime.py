@@ -64,7 +64,7 @@ from elesim_sim.robot.go2.locomotion.kinematics import (
 from elesim_sim.robot.arm.rates import estimate_ideal_sim_rates
 from elesim_sim.core.runtime_urdf import select_runtime_urdf
 from elesim_sim.robot.arm.sag_model import segment_errors_from_model
-from elesim_sim.observability.tracing import configure_tracing, shutdown_tracing, span
+from elesim_protocol.tracing import configure_tracing, shutdown_tracing, span
 from elesim_sim.media import FrameDispatchWorker
 from elesim_sim.simulation.operator_control import SimulationOperatorController
 from elesim_sim.simulation.mock_objects import MockObjectCatalog, resolve_mock_object_catalog_root
@@ -4193,7 +4193,7 @@ def _run() -> None:
 
 
 def main() -> None:
-    configure_tracing("elesim-sim")
+    configure_tracing("elesim-sim", local_log=True)
     try:
         with span("sim.process.run"):
             _run()

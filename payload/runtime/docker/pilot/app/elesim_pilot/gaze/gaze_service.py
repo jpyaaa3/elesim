@@ -18,7 +18,7 @@ from elesim_pilot.gaze.stabilizer import GazeStabilizer, GazeStabilizerConfig, r
 from elesim_pilot.gaze.preview_lite import PitchLeadEstimator, resolve_pitch_rate
 from elesim_pilot.gaze.preview_mpc import solve_preview_du
 from elesim_pilot.observability.camera_metrics import CameraMetricsLogger, env_run_id
-from elesim_pilot.observability.tracing import traced_thread_target
+from elesim_protocol.tracing import traced_thread_target
 from elesim_pilot.vision.visual_servoing.uv_jacobian import default_uv_jacobian
 
 if TYPE_CHECKING:

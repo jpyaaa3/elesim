@@ -28,7 +28,7 @@ from elesim_protocol import (
     MediaStreamDescriptor,
     encode_value,
 )
-from .observability.tracing import current_trace_context, message_span, sampled_span
+from elesim_protocol.tracing import current_trace_context, message_span, sampled_span
 
 
 @dataclass(frozen=True)

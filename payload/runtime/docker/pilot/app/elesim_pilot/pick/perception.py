@@ -1,4 +1,4 @@
-"""Perception capture, preview, and mock-target workflow methods."""
+"""Pilot-owned perception capture, preview, and mock-target workflows."""
 from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import fields
@@ -47,22 +47,9 @@ class PerceptionActions:
             self._pick_frozen_world_xyz = tuple(p_world)
         return p_world
 
-    def _stop_remote_preview(self) -> None:
-        return
-
     def start_perception_capture(self, *, config: Optional[PerceptionConfig] = None) -> None:
         if config is not None:
             self.update_perception_config(config)
-        if not self._perception_run_local:
-            self.state.set_perception_status(
-                running=False,
-                failed=True,
-                msg=(
-                    "remote Robot perception is unsupported; select its DDS "
-                    "RGB-D stream and run perception in Pilot"
-                ),
-            )
-            return
         old = self._perception_capture
         if old is not None:
             if old.is_running():
@@ -78,7 +65,6 @@ class PerceptionActions:
             else:
                 self._retire_perception_capture(old)
         cfg = self._perception_cfg
-        self._perception_cfg = cfg
         self.state.visual_target_label = str(cfg.target_label).strip()
         epoch = int(self._perception_capture_epoch) + 1
         self._perception_capture_epoch = epoch
@@ -100,20 +86,6 @@ class PerceptionActions:
         cap.start()
 
     def stop_perception_capture(self, *, stop_recording: bool = True) -> None:
-        if not self._perception_run_local:
-            self._stop_remote_preview()
-            if bool(stop_recording):
-                self._stop_observer_camera_recording()
-            if self.client is not None and hasattr(self.client, "send_perception_stop"):
-                self.client.send_perception_stop()
-            if bool(stop_recording):
-                self.state.set_perception_recording(False)
-            self.state.set_perception_status(
-                running=False,
-                failed=False,
-                msg="remote: stopping Jetson perception",
-            )
-            return
         cap = self._perception_capture
         if cap is None:
             if bool(stop_recording):
@@ -138,15 +110,6 @@ class PerceptionActions:
         )
 
     def refresh_perception_capture(self) -> None:
-        if not self._perception_run_local:
-            if self.client is not None and hasattr(self.client, "send_perception_refresh"):
-                self.client.send_perception_refresh()
-            self.state.set_perception_status(
-                running=bool(self.state.perception_running),
-                failed=False,
-                msg="remote: refresh requested",
-            )
-            return
         cap = self._perception_capture
         if cap is None or not cap.is_running():
             self.state.set_perception_status(running=False, failed=True, msg="perception is not running")
@@ -262,23 +225,6 @@ class PerceptionActions:
 
     def capture_perception_frame(self) -> bool:
         """Save latest perception frame (or one-shot sim grab) under logs/perception_capture/."""
-        if not self._perception_run_local:
-            if self.client is None or not hasattr(self.client, "send_perception_capture"):
-                self.state.set_perception_status(
-                    running=bool(self.state.perception_running),
-                    failed=True,
-                    msg="remote: snapshot unsupported by host client",
-                )
-                return False
-            self.client.send_perception_capture(
-                include_overlay=bool(self.state.perception_record_with_overlay)
-            )
-            self.state.set_perception_status(
-                running=bool(self.state.perception_running),
-                failed=False,
-                msg="remote: snapshot requested on Jetson",
-            )
-            return True
         out_dir = default_perception_capture_dir()
         cap = self._perception_capture
         path: Optional[Path] = None
@@ -317,27 +263,6 @@ class PerceptionActions:
 
     def start_perception_recording(self) -> bool:
         """Start recording local perception frames to MP4 under logs/perception_capture/."""
-        if not self._perception_run_local:
-            if self.client is None or not hasattr(self.client, "send_perception_record_start"):
-                self.state.set_perception_status(
-                    running=bool(self.state.perception_running),
-                    failed=True,
-                    msg="remote: recording unsupported by host client",
-                )
-                return False
-            use_overlay = bool(self.state.perception_record_with_overlay)
-            self.client.send_perception_record_start(
-                include_overlay=use_overlay,
-                fps=float(self._perception_cfg.publish_hz),
-            )
-            self.state.set_perception_recording(True, "Jetson host")
-            overlay_tag = "overlay" if use_overlay else "raw"
-            self.state.set_perception_status(
-                running=bool(self.state.perception_running),
-                failed=False,
-                msg=f"remote: recording start requested on Jetson ({overlay_tag})",
-            )
-            return True
         cap = self._perception_capture
         if cap is None or not cap.is_running():
             self.state.set_perception_status(running=False, failed=True, msg="perception is not running")
@@ -366,22 +291,6 @@ class PerceptionActions:
         return True
 
     def stop_perception_recording(self) -> bool:
-        if not self._perception_run_local:
-            if self.client is None or not hasattr(self.client, "send_perception_record_stop"):
-                self.state.set_perception_status(
-                    running=bool(self.state.perception_running),
-                    failed=True,
-                    msg="remote: recording unsupported by host client",
-                )
-                return False
-            self.client.send_perception_record_stop()
-            self.state.set_perception_recording(False)
-            self.state.set_perception_status(
-                running=bool(self.state.perception_running),
-                failed=False,
-                msg="remote: recording stop requested on Jetson",
-            )
-            return True
         cap = self._perception_capture
         if cap is None:
             self.state.set_perception_recording(False)
@@ -478,8 +387,8 @@ class PerceptionActions:
                     "unknown perception config fields: " + ", ".join(unknown)
                 )
             updated = replace(self._perception_cfg, **raw)
+        self._validate_perception_config(updated)
         self._perception_cfg = updated
-        self._perception_run_local = self._perception_config_runs_locally(updated)
         self.state.visual_target_label = str(updated.target_label).strip()
 
     def _mock_world_xyz_from_state(self) -> Optional[tuple[float, float, float]]:

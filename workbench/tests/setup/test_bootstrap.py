@@ -77,14 +77,14 @@ def _archive_payload(
 
 def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, bytes]:
     members: dict[str, bytes] = {
-        "payload/runtime/docker/tools/app/pyproject.toml": project,
-        "payload/runtime/docker/tools/app/requirements.lock": b"",
-        "payload/runtime/docker/tools/app/elesim_setup/__init__.py": b"",
-        "payload/runtime/docker/tools/app/elesim_setup/cli.py": b"",
-        "payload/runtime/docker/tools/app/elesim_setup/network.py": b"",
-        "payload/runtime/docker/tools/app/elesim_setup/connections.py": b"",
-        "payload/runtime/docker/tools/app/elesim_setup/uninstall.py": b"",
-        "payload/runtime/docker/tools/app/elesim_setup/host_proxy.py": b"",
+        "payload/runtime/docker/setup/app/pyproject.toml": project,
+        "payload/runtime/docker/setup/app/requirements.lock": b"",
+        "payload/runtime/docker/setup/app/elesim_setup/__init__.py": b"",
+        "payload/runtime/docker/setup/app/elesim_setup/cli.py": b"",
+        "payload/runtime/docker/setup/app/elesim_setup/network.py": b"",
+        "payload/runtime/docker/setup/app/elesim_setup/connections.py": b"",
+        "payload/runtime/docker/setup/app/elesim_setup/uninstall.py": b"",
+        "payload/runtime/docker/setup/app/elesim_setup/host_proxy.py": b"",
         "payload/runtime/common/protocol/pyproject.toml": b"[project]\n",
         "payload/runtime/common/protocol/elesim_protocol/__init__.py": b"",
         "payload/runtime/common/elesim_interfaces/CMakeLists.txt": (
@@ -108,13 +108,13 @@ def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, b
             }
         ).encode("utf-8"),
         "payload/runtime/docker/shared/Dockerfile.app": b"FROM scratch\n",
-        "payload/runtime/docker/tools/Dockerfile": b"FROM scratch\n",
-        "payload/runtime/docker/tools/tools-entrypoint": b"#!/bin/sh\n",
+        "payload/runtime/docker/setup/Dockerfile": b"FROM scratch\n",
+        "payload/runtime/docker/setup/tools-entrypoint": b"#!/bin/sh\n",
         "payload/runtime/docker/shared/robotpkg.asc": b"public key\n",
-        "payload/runtime/docker/development/Dockerfile": b"FROM scratch\n",
-        "payload/runtime/docker/development/requirements.lock": b"",
-        "payload/runtime/docker/development/entrypoint.sh": b"#!/bin/sh\n",
-        "payload/runtime/docker/development/dev-env.sh": b"#!/bin/sh\n",
+        "payload/runtime/docker/dev/Dockerfile": b"FROM scratch\n",
+        "payload/runtime/docker/dev/requirements.lock": b"",
+        "payload/runtime/docker/dev/entrypoint.sh": b"#!/bin/sh\n",
+        "payload/runtime/docker/dev/dev-env.sh": b"#!/bin/sh\n",
         "payload/data/models/assemblies/zed-mini/bundle.json": b"{}\n",
         "payload/data/models/assemblies/d435/bundle.json": b"{}\n",
         "payload/data/models/perception/yolov8n-seg.pt": b"weights\n",
@@ -216,14 +216,14 @@ def test_source_snapshot_allows_explicitly_excluded_public_examples(
 @pytest.mark.parametrize(
     "relative",
     (
-        "payload/runtime/docker/tools/app/elesim_setup/cli.py",
-        "payload/runtime/docker/tools/app/elesim_setup/network.py",
-        "payload/runtime/docker/tools/app/elesim_setup/connections.py",
-        "payload/runtime/docker/tools/app/elesim_setup/uninstall.py",
-        "payload/runtime/docker/tools/app/elesim_setup/host_proxy.py",
-        "payload/runtime/docker/tools/app/elesim_setup/ownership.py",
-        "payload/runtime/docker/tools/app/elesim_setup/runtime_status.py",
-        "payload/runtime/docker/tools/app/elesim_setup/shell.py",
+        "payload/runtime/docker/setup/app/elesim_setup/cli.py",
+        "payload/runtime/docker/setup/app/elesim_setup/network.py",
+        "payload/runtime/docker/setup/app/elesim_setup/connections.py",
+        "payload/runtime/docker/setup/app/elesim_setup/uninstall.py",
+        "payload/runtime/docker/setup/app/elesim_setup/host_proxy.py",
+        "payload/runtime/docker/setup/app/elesim_setup/ownership.py",
+        "payload/runtime/docker/setup/app/elesim_setup/runtime_status.py",
+        "payload/runtime/docker/setup/app/elesim_setup/shell.py",
     ),
 )
 def test_source_snapshot_requires_every_setup_console_target(
@@ -245,7 +245,7 @@ def test_source_snapshot_rejects_unowned_setup_python_module(
     snapshot = tmp_path / "snapshot"
     _write_valid_snapshot(snapshot)
     root = snapshot / "elesim-main"
-    (root / "payload/runtime/docker/tools/app/elesim_setup/dummy.py").write_text(
+    (root / "payload/runtime/docker/setup/app/elesim_setup/dummy.py").write_text(
         "", encoding="utf-8"
     )
 
@@ -259,7 +259,7 @@ def test_source_snapshot_rejects_nested_setup_python_package(
     snapshot = tmp_path / "snapshot"
     _write_valid_snapshot(snapshot)
     root = snapshot / "elesim-main"
-    rogue = root / "payload/runtime/docker/tools/app/elesim_setup/rogue"
+    rogue = root / "payload/runtime/docker/setup/app/elesim_setup/rogue"
     rogue.mkdir()
     (rogue / "__init__.py").write_text("", encoding="utf-8")
     (rogue / "payload.py").write_text("", encoding="utf-8")
@@ -373,13 +373,13 @@ def test_safe_extract_returns_valid_source_root(tmp_path: Path) -> None:
     _archive(
         archive,
         {
-            "elesim-main/payload/runtime/docker/tools/app/pyproject.toml": b"[project]\n",
+            "elesim-main/payload/runtime/docker/setup/app/pyproject.toml": b"[project]\n",
             "elesim-main/payload/runtime/common/protocol/pyproject.toml": b"[project]\n",
         },
     )
     root = safe_extract_archive(archive, tmp_path / "out")
     assert root.name == "elesim-main"
-    assert (root / "payload/runtime/docker/tools/app/pyproject.toml").is_file()
+    assert (root / "payload/runtime/docker/setup/app/pyproject.toml").is_file()
 
 
 def test_safe_extract_ignores_links_outside_install_source_boundary(
@@ -389,7 +389,7 @@ def test_safe_extract_ignores_links_outside_install_source_boundary(
     with tarfile.open(archive, "w:gz") as bundle:
         root = "elesim-main"
         for name, payload in {
-            f"{root}/payload/runtime/docker/tools/app/pyproject.toml": b"[project]\n",
+            f"{root}/payload/runtime/docker/setup/app/pyproject.toml": b"[project]\n",
             f"{root}/payload/runtime/common/protocol/pyproject.toml": b"[project]\n",
         }.items():
             info = tarfile.TarInfo(name)
@@ -413,13 +413,13 @@ def test_safe_extract_rejects_links_inside_install_source_boundary(
     archive = tmp_path / "source-with-source-link.tgz"
     with tarfile.open(archive, "w:gz") as bundle:
         link = tarfile.TarInfo(
-            "elesim-main/payload/runtime/docker/tools/app/elesim_setup/connections.py"
+            "elesim-main/payload/runtime/docker/setup/app/elesim_setup/connections.py"
         )
         link.type = tarfile.SYMTYPE
         link.linkname = "other.py"
         bundle.addfile(link)
 
-    with pytest.raises(BootstrapError, match="unsupported archive link/device"):
+    with pytest.raises(BootstrapError, match="Unsupported archive link/device"):
         safe_extract_archive(archive, tmp_path / "out")
 
 
@@ -439,8 +439,8 @@ def test_download_source_uses_full_url_hash_and_ignores_legacy_cache(
     url = "https://archives.example/elesim.tar.gz?signature=secret"
     legacy = tmp_path / "sources" / hashlib.sha256(url.encode()).hexdigest()[:16]
     legacy_root = legacy / "elesim-old"
-    (legacy_root / "payload/runtime/docker/tools/app").mkdir(parents=True)
-    (legacy_root / "payload/runtime/docker/tools/app/pyproject.toml").write_text("[project]\n")
+    (legacy_root / "payload/runtime/docker/setup/app").mkdir(parents=True)
+    (legacy_root / "payload/runtime/docker/setup/app/pyproject.toml").write_text("[project]\n")
     (legacy / ".elesim-source-complete").write_text("elesim-old\n")
     opener = _URLSequence(_Response(_archive_payload(tmp_path)))
     monkeypatch.setattr(urllib.request, "urlopen", opener)
@@ -464,12 +464,12 @@ def test_download_source_caches_only_install_source_boundary(
     payload = _archive_payload(
         tmp_path,
         extra_members={
-            "payload/runtime/docker/development/Dockerfile": b"FROM ubuntu:22.04\n",
-            "payload/runtime/docker/development/requirements.lock": b"pytest==8.4.2\n",
-            "payload/runtime/docker/development/entrypoint.sh": b"#!/bin/sh\n",
-            "payload/runtime/docker/development/dev-env.sh": b"#!/bin/sh\n",
+            "payload/runtime/docker/dev/Dockerfile": b"FROM ubuntu:22.04\n",
+            "payload/runtime/docker/dev/requirements.lock": b"pytest==8.4.2\n",
+            "payload/runtime/docker/dev/entrypoint.sh": b"#!/bin/sh\n",
+            "payload/runtime/docker/dev/dev-env.sh": b"#!/bin/sh\n",
             "payload/runtime/docker/shared/robotpkg.asc": b"public key\n",
-            "payload/runtime/docker/tools/app/elesim_setup/__init__.py": b"",
+            "payload/runtime/docker/setup/app/elesim_setup/__init__.py": b"",
             "payload/runtime/common/protocol/elesim_protocol/__init__.py": b"",
             "payload/runtime/common/elesim_interfaces/action/RunOperatorWorkflow.action": b"",
             "payload/runtime/docker/pilot/app/elesim_pilot/main.py": b"def main(): pass\n",
@@ -496,12 +496,12 @@ def test_download_source_caches_only_install_source_boundary(
 
     root = download_source("https://archives.example/elesim.tar.gz", tmp_path)
 
-    assert (root / "payload/runtime/docker/development/Dockerfile").is_file()
-    assert (root / "payload/runtime/docker/development/requirements.lock").is_file()
-    assert (root / "payload/runtime/docker/development/entrypoint.sh").is_file()
-    assert (root / "payload/runtime/docker/development/dev-env.sh").is_file()
+    assert (root / "payload/runtime/docker/dev/Dockerfile").is_file()
+    assert (root / "payload/runtime/docker/dev/requirements.lock").is_file()
+    assert (root / "payload/runtime/docker/dev/entrypoint.sh").is_file()
+    assert (root / "payload/runtime/docker/dev/dev-env.sh").is_file()
     assert (root / "payload/runtime/docker/shared/robotpkg.asc").is_file()
-    assert (root / "payload/runtime/docker/tools/app/elesim_setup/__init__.py").is_file()
+    assert (root / "payload/runtime/docker/setup/app/elesim_setup/__init__.py").is_file()
     assert (root / "payload/runtime/common/protocol/elesim_protocol/__init__.py").is_file()
     assert (
         root / "payload/runtime/common/elesim_interfaces/action/RunOperatorWorkflow.action"
@@ -666,7 +666,7 @@ def test_download_source_rejects_incomplete_same_revision_archive(
     invalid_path = tmp_path / "invalid.tgz"
     _archive(
         invalid_path,
-        {"elesim-invalid/payload/runtime/docker/tools/app/pyproject.toml": b"[project]\n"},
+        {"elesim-invalid/payload/runtime/docker/setup/app/pyproject.toml": b"[project]\n"},
         commit=commit,
     )
     opener = _URLSequence(
@@ -822,7 +822,7 @@ def test_download_source_retries_unconditionally_after_304_for_incomplete_snapsh
     monkeypatch.setattr(urllib.request, "urlopen", opener)
     url = "https://archives.example/elesim.tar.gz"
     first = download_source(url, tmp_path)
-    (first / "payload/runtime/docker/tools/app/pyproject.toml").unlink()
+    (first / "payload/runtime/docker/setup/app/pyproject.toml").unlink()
 
     recovered = download_source(url, tmp_path)
 
@@ -1287,11 +1287,11 @@ def test_main_forwards_trusted_gui_source_metadata(
 
     result = bootstrap_module.main(
         (
-            "--repository",
+            "--repo",
             "owner/fork",
             "--ref",
             "feature",
-            "--cache-dir",
+            "--cache",
             str(tmp_path / "cache"),
             "--state",
             str(tmp_path / "state.json"),

@@ -84,7 +84,8 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
     ),
     "operator_intent": _contract(
         "operator_intent", ("ui",), ("pilot",),
-        authority="pilot workflow", notes="validated OperatorIntentRequest",
+        authority="pilot workflow",
+        notes="view_snapshot reads; allowlisted service_call/state_call/state_set writes",
     ),
     "operator_result": _contract(
         "operator_result", ("pilot",), ("ui",),

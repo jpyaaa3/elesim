@@ -28,7 +28,7 @@ def test_sim_configs_load_with_role_owned_schema(name: str) -> None:
     assert bundle.sim_config.sim_observer_camera_fov_deg == 40.0
     assert bundle.sim_config.sim_observer_camera_pos == (3.5, 0.5, 2.5)
     assert bundle.sim_config.sim_observer_camera_lookat == (0.0, 0.0, 0.5)
-    assert bundle.sim_config.perf_log_enable is True
+    assert bundle.sim_config.perf_log_enable is False
     assert bundle.sim_config.camera_execution == "async_process"
     assert bundle.sim_config.camera_first_frame_timeout_s == 30.0
     assert bundle.sim_config.visualizer_max_hz == 30.0

@@ -74,7 +74,7 @@ def test_dispatcher_executes_only_allowlisted_operations() -> None:
 
 
 def test_dispatcher_requires_request_id() -> None:
-    result = OperatorDispatcher(State(), Service()).handle({"operation": "snapshot"})
+    result = OperatorDispatcher(State(), Service()).handle({"operation": "view_snapshot"})
     assert result == {"request_id": "", "ok": False, "error": "missing_request_id"}
 
 
