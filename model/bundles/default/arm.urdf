@@ -323,7 +323,7 @@
     <origin xyz="0 0 0" rpy="0 0 0" />
     <axis xyz="1 0 0" />
     <limit lower="-0.23" upper="0" effort="200" velocity="3" />
-    <dynamics damping="60" friction="20" />
+    <dynamics damping="5" friction="1" />
   </joint>
   <joint name="j_housing_wedge" type="revolute">
     <parent link="housing" />
@@ -425,7 +425,7 @@
     <origin xyz="0.01046 -0.02587 -0.019" rpy="1.57079633 0 0" />
     <axis xyz="0 0 1" />
     <limit lower="-0.02" upper="0" effort="200" velocity="3" />
-    <dynamics damping="60" friction="20" />
+    <dynamics damping="5" friction="1" />
   </joint>
   <joint name="j_gripper_base_claw_right" type="prismatic">
     <parent link="gripper_base" />
@@ -433,7 +433,7 @@
     <origin xyz="0.01046 0.02587 -0.019" rpy="1.57079633 0 0" />
     <axis xyz="0 0 1" />
     <limit lower="0" upper="0.02" effort="200" velocity="3" />
-    <dynamics damping="60" friction="20" />
+    <dynamics damping="5" friction="1" />
   </joint>
   <joint name="j_gripper_base_camera" type="fixed">
     <parent link="gripper_base" />

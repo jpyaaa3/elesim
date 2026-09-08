@@ -139,8 +139,11 @@ class UrdfExportConfig:
     prismatic_velocity: Optional[float] = None
     revolute_damping: float = 0.12
     revolute_friction: float = 0.06
-    prismatic_damping: float = 60.0
-    prismatic_friction: float = 20.0
+    #: 60 / 20 put a 40 mm stage move at 6.72 s against a 0.4 s macro
+    #: step, so the arm never reached a commanded waypoint.  5 / 1 is
+    #: the most conservative pair measured to complete inside the step.
+    prismatic_damping: float = 5.0
+    prismatic_friction: float = 1.0
     mesh_basename_only: bool = False
     part_color_rgba_by_name: dict[str, Tuple[float, float, float, float]] = field(default_factory=dict)
 

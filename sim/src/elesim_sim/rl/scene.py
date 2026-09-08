@@ -468,6 +468,16 @@ class WrapGraspScene:
         self.robot.set_dofs_force_range(
             np.full(n, -limit), np.full(n, limit), dofs_idx_local=idxs
         )
+        # The linear stage is the one prismatic axis here, and a stiffness in
+        # N/m is not the same quantity as one in N.m/rad -- sharing a number
+        # between them left the stage unable to follow the macro step's ramp.
+        linear = int(self.arm_dofs.linear)
+        self.robot.set_dofs_kp(
+            np.full(1, float(gains.linear_kp)), dofs_idx_local=[linear]
+        )
+        self.robot.set_dofs_kv(
+            np.full(1, float(gains.linear_kv)), dofs_idx_local=[linear]
+        )
 
     def _configure_go2_legs(self) -> None:
         """Hold the quadruped legs at a fixed stance.

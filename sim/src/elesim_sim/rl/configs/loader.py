@@ -91,6 +91,27 @@ class ArmGains:
     kp: float = 200.0
     kv: float = 20.0
     force_range: float = 100.0
+    #: Stiffness for the linear stage, which needs its own.
+    #:
+    #: One gain for every arm joint means the prismatic axis is held at
+    #: 200 N/m while the revolute ones get 200 N.m/rad, and the units are not
+    #: comparable: the stage then tracked the macro step's interpolated target
+    #: 17-22 mm behind, whatever its damping, because 200 N/m can only supply
+    #: 3.4 N at 17 mm of error.  The arm ran permanently 80-120 mm behind its
+    #: waypoint and no commanded move completed inside a step.
+    #:
+    #: Measured tracking error against the 167 mm/s ramp a full-rate step asks
+    #: for, at damping 5 / friction 1: kp 200 -> 22.1 mm, 2000 -> 2.5 mm,
+    #: 10000 -> 0.8 mm.  2000 is the least stiff value that tracks; stiffer
+    #: only buys tenths of a millimetre and makes contact more impulsive.
+    #:
+    #: With the ramp tracked, how fast the arm moves is set by `rate_limit`
+    #: and `move_fraction` -- both chosen deliberately -- instead of by an
+    #: actuator nobody tuned.
+    linear_kp: float = 2000.0
+    #: Damping for the linear stage.  Scaled with `linear_kp` to keep the same
+    #: ratio the revolute joints have (kv = kp / 10).
+    linear_kv: float = 200.0
 
 
 @dataclass(frozen=True)

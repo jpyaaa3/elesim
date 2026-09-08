@@ -380,9 +380,22 @@ robot:
         - 0.6901960784313725
         - 0.6901960784313725
         - 1.0
-      prismatic_damping: 60.0
+      # Measured, not inherited: at 60 / 20 the stage moved 40 mm -- one
+      # rate limit -- in 6.72 s, against a 0.4 s macro step, so no commanded
+      # move ever completed inside a step and the arm ran permanently 80-120
+      # mm behind its waypoint.  Control can supply kp 200 N/m x error, i.e.
+      # 26 N at 130 mm, and 20 N of that went into breaking friction.
+      #
+      # Swept: 60/20 -> 6.72 s, 10/3 -> 3.06 s, 5/1 -> 0.27 s, 2/0.5 ->
+      # 0.19 s.  5 / 1 is the most conservative pair that completes inside
+      # the macro step, and keeps the friction a lead screw actually has
+      # rather than idealising it away.
+      #
+      # Still derived from that requirement rather than from the real
+      # stage: if hardware is measured at 40 mm in ~0.7 s, 8 / 2 is nearer.
+      prismatic_damping: 5.0
       prismatic_effort: null
-      prismatic_friction: 20.0
+      prismatic_friction: 1.0
       prismatic_velocity: null
       revolute_damping: 0.12
       revolute_effort: null
