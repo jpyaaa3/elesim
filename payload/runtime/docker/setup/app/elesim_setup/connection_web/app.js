@@ -79,14 +79,13 @@ function createHost({robot = false, slot = "", operational = false} = {}) {
   hostCard.classList.toggle("robot-host", robot);
   hostKinds[selectedSlot] = robot ? "robot" : "computer";
   computerSlots.push(selectedSlot);
-  hostCard.querySelector(".slot-name").textContent = selectedSlot.toUpperCase();
+  hostCard.querySelector(".host-name").value = selectedSlot;
   hostCard.querySelector(".robot-badge").hidden = !robot;
   hostCard.querySelector(".robot-lane").hidden = !robot;
   hostCard.querySelectorAll(".drop-zone").forEach((zone) => {
     zone.dataset.dropSlot = selectedSlot;
     zone.setAttribute("aria-label", `${selectedSlot} ${zone.dataset.dropUnit} roles`);
   });
-  fieldFromCard(hostCard, "host-id").value = selectedSlot;
   const local = hostCard.querySelector('input[name="local-host"]');
   local.value = selectedSlot;
   local.checked = !robot && (operational || computerSlots.length === 1);
@@ -94,12 +93,62 @@ function createHost({robot = false, slot = "", operational = false} = {}) {
   byId("host-grid").append(hostCard);
   bindHostCardEvents(selectedSlot);
   updateHostLimit();
+  updateHostOrderButtons();
   updateSshVisibility();
   return selectedSlot;
 }
 
 function fieldFromCard(hostCard, name) {
   return hostCard.querySelector(`[data-field="${name}"]`);
+}
+
+function updateHostOrderButtons() {
+  computerSlots.forEach((slot, index) => {
+    const hostCard = card(slot);
+    if (!hostCard) return;
+    hostCard.querySelector(".move-host-up").disabled = index === 0;
+    hostCard.querySelector(".move-host-down").disabled = index === computerSlots.length - 1;
+  });
+}
+
+function moveHost(slot, offset) {
+  const index = computerSlots.indexOf(slot);
+  const destination = index + offset;
+  if (index < 0 || destination < 0 || destination >= computerSlots.length) return;
+  [computerSlots[index], computerSlots[destination]] = [
+    computerSlots[destination],
+    computerSlots[index],
+  ];
+  const grid = byId("host-grid");
+  computerSlots.forEach((orderedSlot) => grid.append(card(orderedSlot)));
+  updateHostOrderButtons();
+  markWorkflowDirty();
+}
+
+function beginHostRename(slot) {
+  const input = card(slot).querySelector(".host-name");
+  input.dataset.previous = input.value;
+  input.readOnly = false;
+  input.focus();
+  input.select();
+}
+
+function finishHostRename(slot) {
+  const input = card(slot).querySelector(".host-name");
+  if (input.readOnly) return;
+  const candidate = input.value.trim().toLowerCase();
+  const duplicate = computerSlots.some((other) => (
+    other !== slot
+    && card(other).querySelector(".host-name").value.trim().toLowerCase() === candidate
+  ));
+  if (!/^[a-z][a-z0-9_-]{0,62}$/.test(candidate) || duplicate) {
+    input.value = input.dataset.previous || slot;
+    showError(t("error.host.id"));
+  } else {
+    input.value = candidate;
+    markWorkflowDirty();
+  }
+  input.readOnly = true;
 }
 
 function removeHost(slot) {
@@ -123,6 +172,7 @@ function removeHost(slot) {
   const index = computerSlots.indexOf(slot);
   if (index >= 0) computerSlots.splice(index, 1);
   delete hostKinds[slot];
+  updateHostOrderButtons();
   if (local?.value === slot && computerSlots.length) {
     const replacement = firstActiveRuntime();
     if (replacement) {
@@ -586,7 +636,7 @@ function topologyFromForm() {
         lifecycle: "systemd"
       });
     }
-    const hostId = field(slot, "host-id").value.trim();
+    const hostId = card(slot).querySelector(".host-name").value.trim().toLowerCase();
     const host = {
       id: hostId,
       local,
@@ -627,7 +677,7 @@ function topologyFromForm() {
 }
 
 function fillHost(slot, host) {
-  field(slot, "host-id").value = host.id;
+  card(slot).querySelector(".host-name").value = host.id;
   field(slot, "dds-address").value = host.dds.address;
   field(slot, "dds-interface").value = host.dds.interface;
   const units = Array.isArray(host.units) ? host.units : [{
@@ -1189,6 +1239,19 @@ function bindHostCardEvents(slot) {
     control.addEventListener("change", markWorkflowDirty);
   });
   hostCard.querySelector(".probe").addEventListener("click", () => probeSsh(slot).catch(showError));
+  const hostName = hostCard.querySelector(".host-name");
+  hostCard.querySelector(".rename-host").addEventListener("click", () => beginHostRename(slot));
+  hostName.addEventListener("blur", () => finishHostRename(slot));
+  hostName.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") hostName.blur();
+    if (event.key === "Escape") {
+      hostName.value = hostName.dataset.previous || slot;
+      hostName.readOnly = true;
+      hostName.blur();
+    }
+  });
+  hostCard.querySelector(".move-host-up").addEventListener("click", () => moveHost(slot, -1));
+  hostCard.querySelector(".move-host-down").addEventListener("click", () => moveHost(slot, 1));
   hostCard.querySelector(".remove-host").addEventListener("click", () => removeHost(slot));
   hostCard.querySelector(".add-role").addEventListener("click", () => {
     pendingRoleSlot = slot;

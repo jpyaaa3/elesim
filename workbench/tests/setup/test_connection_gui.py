@@ -381,6 +381,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
             "style.css",
             "app.js",
             "icon.svg",
+            "pencil.svg",
             "private-key-warning.svg",
         )
     )
@@ -399,6 +400,17 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'id="host-template"' in html
     assert 'id="add-host"' in html
     assert 'class="icon-button add-role"' in html
+    assert 'class="host-name"' in html
+    assert 'data-field="host-id"' not in html
+    assert 'class="icon-button rename-host"' in html
+    assert '<img src="/pencil.svg" alt="">' in html
+    assert 'class="icon-button move-host-up"' in html
+    assert 'class="icon-button move-host-down"' in html
+    assert "function beginHostRename(slot)" in script
+    assert "function moveHost(slot, offset)" in script
+    assert 'const hostId = card(slot).querySelector(".host-name").value.trim().toLowerCase();' in script
+    assert ".host-name" in style
+    assert "text-transform: uppercase" not in style
     assert catalog["ko"]["action.add.host"] == "컴퓨터 추가"
     assert catalog["en"]["action.add.host"] == "Add a computer"
     assert 'data-field="unused"' not in html
@@ -416,16 +428,17 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'if (zone.dataset.dropUnit === "runtime")' in script
     assert ".ssh-column { display: flex; flex-direction: column; background: #fafbfc; }" in style
     assert ".ssh-fields { display: flex; min-height: 304px; flex: 1; flex-direction: column; }" in style
+    assert ".local-security-warning { display: grid; min-height: 309px;" in style
     assert ".network-fields { min-height: 304px; }" in style
     assert '<div class="column-heading"><h3 data-i18n="column.network"></h3></div>' in html
     assert ".install-fields { margin-top: 9px; padding-top: 0; }" in style
     assert ".install-fields { margin-top: 10px;" not in style
-    assert catalog["ko"]["host.local"] == "이 컴퓨터는 내 컴퓨터임"
-    assert catalog["en"]["host.local"] == "This is my computer"
+    assert catalog["ko"]["host.local"] == "이 기기에서 연결 관리자가 실행 중임"
+    assert catalog["en"]["host.local"] == "Connection manager is now running on this device"
     assert ".robot-host .local-choice { display: none; }" in style
     assert "local.checked = !robot && (operational || computerSlots.length === 1);" in script
-    assert catalog["ko"]["ssh.title"] == "SSH 인증"
-    assert catalog["en"]["ssh.title"] == "Authentication via SSH"
+    assert catalog["ko"]["ssh.title"] == "SSH 검증"
+    assert catalog["en"]["ssh.title"] == "Validation via SSH"
     assert "color: var(--ink); font-size: var(--font-body); font-weight: 700" in style
     assert "letter-spacing: normal; text-transform: none" in style
     assert 'class="column-heading"><h3 data-i18n="ssh.title"></h3><label class="local-choice"' in html
@@ -433,6 +446,9 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'data-field="ssh-user" type="text"' in html
     assert 'input[data-field="ssh-port"]:disabled { background: #f2f4f3; color: #4f5c56; opacity: 1; }' in style
     assert '<img src="/private-key-warning.svg" alt="">' in html
+    assert 'class="private-key-local" data-i18n="ssh.private.local"' in html
+    assert catalog["ko"]["ssh.private.local"] == "이 기기에서 개인키를 생성합니다."
+    assert catalog["en"]["ssh.private.local"] == "The private key is generated on this device."
     assert 'data-i18n="ssh.private.warning"' in html
     assert catalog["ko"]["ssh.private.warning"] == "개인키는 외부에 노출하지 마십시오!"
     assert "width: min(190px, 78%)" in style
@@ -611,7 +627,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert len(ssh_tailscale_fields) == 1
     assert "ssh-tailscale" in script
     assert "ssh.help" not in catalog["ko"]
-    assert catalog["en"]["ssh.title"] == "Authentication via SSH"
+    assert catalog["en"]["ssh.title"] == "Validation via SSH"
     ssh_host_fields = re.findall(
         r'<input\b[^>]*data-field="ssh-host"[^>]*>',
         html,
@@ -1043,6 +1059,16 @@ def test_http_boundary_requires_token_and_sets_strict_headers(tmp_path: Path) ->
         assert response.status == 200
         assert response.getheader("Content-Type") == "image/svg+xml"
         assert len(response.read()) > 1_000
+        connection.close()
+
+        connection = http.client.HTTPConnection(host, port, timeout=2)
+        connection.request("GET", "/pencil.svg")
+        response = connection.getresponse()
+        assert response.status == 200
+        assert response.getheader("Content-Type") == "image/svg+xml"
+        pencil = response.read()
+        assert pencil.startswith(b"<svg ")
+        assert len(pencil) > 500
         connection.close()
 
         connection = http.client.HTTPConnection(host, port, timeout=2)

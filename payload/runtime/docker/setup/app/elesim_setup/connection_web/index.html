@@ -59,14 +59,21 @@
     <template id="host-template">
       <article class="host-card" data-slot="">
         <header>
-          <div><span class="slot-name"></span><span class="robot-badge" data-i18n="host.robot.badge" hidden></span></div>
-          <button type="button" class="icon-button remove-host" data-i18n-aria-label="action.remove.host">×</button>
+          <div class="host-identity">
+            <input class="host-name" type="text" readonly spellcheck="false">
+            <button type="button" class="icon-button rename-host" data-i18n-aria-label="action.rename.host"><img src="/pencil.svg" alt=""></button>
+            <span class="robot-badge" data-i18n="host.robot.badge" hidden></span>
+          </div>
+          <div class="host-header-actions">
+            <button type="button" class="icon-button move-host-up" data-i18n-aria-label="action.move.host.up">▲</button>
+            <button type="button" class="icon-button move-host-down" data-i18n-aria-label="action.move.host.down">▼</button>
+            <button type="button" class="icon-button remove-host" data-i18n-aria-label="action.remove.host">×</button>
+          </div>
         </header>
         <div class="host-column network-column">
           <div class="column-heading"><h3 data-i18n="column.network"></h3></div>
           <div class="network-fields">
             <div class="host-fields">
-              <label><span data-i18n="host.id"></span><input data-field="host-id" type="text" spellcheck="false"></label>
               <label><span data-i18n="dds.address"></span><input data-field="dds-address" type="text" placeholder="100.x.y.z" spellcheck="false"></label>
               <label><span data-i18n="dds.interface"></span><input data-field="dds-interface" type="text" placeholder="tailscale0" spellcheck="false"></label>
             </div>
@@ -98,7 +105,10 @@
           </div>
           <div class="local-security-warning" hidden>
             <img src="/private-key-warning.svg" alt="">
-            <p data-i18n="ssh.private.warning"></p>
+            <div class="private-key-copy">
+              <p class="private-key-local" data-i18n="ssh.private.local"></p>
+              <p class="private-key-danger" data-i18n="ssh.private.warning"></p>
+            </div>
           </div>
         </div>
       </article>

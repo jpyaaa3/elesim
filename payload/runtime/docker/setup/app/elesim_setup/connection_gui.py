@@ -765,6 +765,10 @@ class ConnectionManagerRequestHandler(BaseHTTPRequestHandler):
                 connection_web_root() / "private-key-warning.svg",
                 "image/svg+xml",
             ),
+            "pencil.svg": (
+                connection_web_root() / "pencil.svg",
+                "image/svg+xml",
+            ),
             "fonts/NotoSansCJKkr-Regular.otf": (
                 installer_web_font_root() / "NotoSansCJKkr-Regular.otf",
                 "font/otf",
