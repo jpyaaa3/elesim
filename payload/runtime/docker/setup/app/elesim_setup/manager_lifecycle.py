@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 from pathlib import Path
+
+
+_DOCKER_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
 def compose_owner_guard(
@@ -11,12 +15,17 @@ def compose_owner_guard(
     *,
     project: str,
     containers: tuple[str, ...],
+    alternate_composes: tuple[Path, ...] = (),
 ) -> str:
     """Reject fixed-name containers owned by another Compose installation."""
 
     rendered_containers = " ".join(shlex.quote(name) for name in containers)
+    accepted_composes = " ".join(
+        shlex.quote(str(path)) for path in (compose, *alternate_composes)
+    )
     return (
         f"expected_compose={shlex.quote(str(compose))}\n"
+        f"expected_composes=({accepted_composes})\n"
         f"expected_project={shlex.quote(project)}\n"
         f"for container in {rendered_containers}; do\n"
         "  if ! docker container inspect \"$container\" >/dev/null 2>&1; then\n"
@@ -31,10 +40,12 @@ def compose_owner_guard(
         "  compose_match=0\n"
         "  IFS=',' read -r -a compose_files <<<\"$actual_compose\"\n"
         "  for compose_file in \"${compose_files[@]}\"; do\n"
-        "    if [[ \"$compose_file\" == \"$expected_compose\" ]]; then\n"
-        "      compose_match=1\n"
-        "      break\n"
-        "    fi\n"
+        "    for expected_compose in \"${expected_composes[@]}\"; do\n"
+        "      if [[ \"$compose_file\" == \"$expected_compose\" ]]; then\n"
+        "        compose_match=1\n"
+        "        break 2\n"
+        "      fi\n"
+        "    done\n"
         "  done\n"
         "  if [[ \"$actual_project\" != \"$expected_project\" || $compose_match != 1 ]]; then\n"
         "    printf 'EleSim 고정 컨테이너 이름 충돌: %s\\n' \"$container\" >&2\n"
@@ -49,43 +60,67 @@ def compose_owner_guard(
     )
 
 
-def manager_lifecycle_fragment(install_uuid: str) -> str:
+def manager_lifecycle_fragment(
+    install_uuid: str,
+    *,
+    container_name: str = "elesim-manager",
+    container_name_variable: str | None = None,
+) -> str:
     """Return shell code that protects and cleans ``elesim-manager``.
 
-    A running manager from another invocation is never removed automatically.
-    A stopped manager is a disposable one-shot object, so it may be removed
-    even when it belongs to a previous installation.  Once this wrapper starts
-    its own manager, the EXIT cleanup is restricted to the current install UUID
-    and force-removes that owned container so an interrupted GUI cannot leave a
-    fixed-name container blocking the next invocation.
+    A manager from another invocation or installation is never removed
+    automatically. A stopped manager may be removed at startup only when its
+    install UUID matches this installation. Once this wrapper starts its own
+    manager, EXIT cleanup is restricted to the current install UUID and
+    force-removes that owned container.
     """
 
+    if container_name_variable is not None:
+        if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", container_name_variable):
+            raise ValueError(f"invalid manager container variable: {container_name_variable!r}")
+        # The variable is assigned only after strict system-id validation in
+        # the generated wrapper.  It therefore cannot inject shell syntax or
+        # a Docker filter expression.
+        container = f'"${container_name_variable}"'
+        filter_name = f'"name=^/${{{container_name_variable}}}$"'
+        display_name = f'"${container_name_variable}"'
+    else:
+        if not _DOCKER_NAME.fullmatch(str(container_name)):
+            raise ValueError(f"invalid manager container name: {container_name!r}")
+        container = shlex.quote(str(container_name))
+        filter_name = shlex.quote(f"name=^/{re.escape(container_name)}$")
+        display_name = container
     quoted_uuid = shlex.quote(install_uuid)
+    inspect_format = "'{{.Id}}|{{.State.Running}}|{{index .Config.Labels \"io.elesim.install_uuid\"}}|{{index .Config.Labels \"io.elesim.manager_invocation\"}}'"
     return (
         "manager_started=0\n"
+        "manager_invocation_token=\"$(date -u +%s%N)-$$-$RANDOM-$RANDOM\"\n"
         "manager_cleanup() {\n"
-        "  local state owner\n"
-        "  state=\"$(docker inspect -f '{{.State.Running}}' elesim-manager "
-        "2>/dev/null || true)\"\n"
-        "  owner=\"$(docker inspect -f '{{index .Config.Labels \"io.elesim.install_uuid\"}}' "
-        "elesim-manager 2>/dev/null || true)\"\n"
-        "  if [[ $manager_started == 1 && $owner == "
+        "  local metadata manager_id manager_state manager_owner manager_invocation\n"
+        f"  metadata=\"$(docker inspect -f {inspect_format} {container} 2>/dev/null || true)\"\n"
+        "  IFS='|' read -r manager_id manager_state manager_owner manager_invocation <<<\"$metadata\"\n"
+        "  if [[ $manager_started == 1 && $manager_owner == "
         + quoted_uuid
-        + " ]]; then\n"
-        "    docker rm -f elesim-manager >/dev/null 2>&1 || true\n"
-        "  elif [[ $state == false && $manager_started == 0 ]]; then\n"
-        "    docker rm elesim-manager >/dev/null 2>&1 || true\n"
+        + " && $manager_invocation == \"$manager_invocation_token\" && -n $manager_id ]]; then\n"
+        "    docker rm -f \"$manager_id\" >/dev/null 2>&1 || true\n"
         "  fi\n"
         "}\n"
         "trap manager_cleanup EXIT\n"
-        "existing_manager=\"$(docker ps -aq --filter 'name=^/elesim-manager$')\"\n"
+        f"existing_manager=\"$(docker ps -aq --filter {filter_name})\"\n"
         "if [[ -n $existing_manager ]]; then\n"
-        "  manager_running=\"$(docker inspect -f '{{.State.Running}}' \"$existing_manager\")\"\n"
-        "  if [[ $manager_running == true ]]; then\n"
-        "    printf 'elesim-manager가 이미 실행 중입니다. 기존 연결관리자를 종료하거나 다른 터미널을 사용하십시오.\\n' >&2\n"
+        f"  metadata=\"$(docker inspect -f {inspect_format} \"$existing_manager\")\"\n"
+        "  IFS='|' read -r manager_id manager_state manager_owner manager_invocation <<<\"$metadata\"\n"
+        "  if [[ $manager_state == true ]]; then\n"
+        f"    printf '%s가 이미 실행 중입니다. 기존 연결관리자를 종료하거나 다른 터미널을 사용하십시오.\\n' {display_name} >&2\n"
         "    exit 73\n"
         "  fi\n"
-        "  docker rm \"$existing_manager\" >/dev/null\n"
+        "  if [[ $manager_owner != "
+        + quoted_uuid
+        + " || -z $manager_invocation || -z $manager_id ]]; then\n"
+        f"    printf '기존 %s는 다른 설치 또는 invocation 소유입니다. 기존 연결관리자를 종료하거나 다른 터미널을 사용하십시오.\\n' {display_name} >&2\n"
+        "    exit 73\n"
+        "  fi\n"
+        "  docker rm \"$manager_id\" >/dev/null\n"
         "fi\n"
     )
 
@@ -96,6 +131,7 @@ def host_helper_fragment(
     compose_argument: str,
     bin_dir_argument: str,
     project: str,
+    instance_system_argument: str = "",
 ) -> str:
     """Start a private host broker and mount only its Unix socket."""
 
@@ -120,7 +156,14 @@ def host_helper_fragment(
         + " --project "
         + shlex.quote(project)
         + ")\n"
-        "if [[ -n $tailscale_bin ]]; then\n"
+        + (
+            "host_helper_args+=(--instance-system "
+            + instance_system_argument
+            + ")\n"
+            if instance_system_argument
+            else ""
+        )
+        + "if [[ -n $tailscale_bin ]]; then\n"
         "  host_helper_args+=(--tailscale-bin \"$tailscale_bin\")\n"
         "fi\n"
         "PYTHONPATH="

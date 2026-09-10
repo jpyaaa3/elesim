@@ -86,8 +86,10 @@ def developer_service(
     data_root: Path,
     install_uuid: str,
     build_fingerprint: str,
+    image: str = "elesim/dev:local",
+    container_name: str = "elesim-dev",
 ) -> dict[str, object]:
-    """Return the optional dev shell service for the one runtime project."""
+    """Return the optional dev shell service for one install namespace."""
 
     workspace = state.developer_attachment.workspace_path
     if workspace is None:
@@ -115,8 +117,8 @@ def developer_service(
         "PYTHONNOUSERSITE": "1",
     }
     service: dict[str, object] = {
-        "image": "elesim/dev:local",
-        "container_name": "elesim-dev",
+        "image": image,
+        "container_name": container_name,
         "build": {
             "context": str(context),
             "labels": dict(labels),

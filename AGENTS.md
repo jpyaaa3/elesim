@@ -2,7 +2,7 @@
 
 ## Current Work Handoff
 
-- Updated: 2026-09-07
+- Updated: 2026-09-10
 - Docker source directories are `payload/runtime/docker/dev` and
   `payload/runtime/docker/setup` (formerly development/tools). This source-only
   rename does not change Compose service/image names or release output layout.
@@ -18,6 +18,15 @@
 - UI media retry calculation is consolidated; Robot dead camera/Sim helpers
   and no-op methods are removed while safety paths remain. Host fallback UI
   suite: 67 passed; Robot: 102 passed + 2 subtests. See status for remaining gates.
+- One-EleSim-policy removal is uncommitted: fresh container installs use an
+  install-UUID Compose project, immutable release publication, topology schema
+  v6 and instance schema v3, with per-system lifecycle/state/config/security/
+  cache/log boundaries. Legacy fixed-project installs are preserved. The
+  focused host fallback passes 279 tests; final ownership/release/state and
+  downstream connection/deployment batches pass 123 and 151 tests. Canonical/
+  live Docker gates remain unrun because the generated development wrapper/
+  container is absent and the Docker socket is not accessible. Preserve these
+  changes.
 - Active plan: `docs/status.md` owns R0–R5 operational acceptance milestones.
   Start with R0 verification readiness, then R1 installation and R2 Robot-free
   connection/presentation. Do not infer R completion from historical M1/M2 results.
@@ -31,8 +40,8 @@
   Real multi-host networking, SROS2 enforcement, NAT/TURN relay selection, GPU
   rendering, Jetson, and physical hardware behavior remain manual gates.
 - Handoff boundary: do **not** restart or broaden the Router/ZMQ-to-DDS
-  refactor. M2-B is complete: the connection manager has a mode-free schema-v5
-  topology, schema-v1-v4 compatibility, role-aware
+  refactor. M2-B is complete: the connection manager has a mode-free schema-v6
+  topology, schema-v1-v5 compatibility, role-aware
   deployment and security generation, independent DDS/SSH endpoints, fixed
   Docker-backend selection, and explicit lifecycle status/actions. M1 is also
   complete. New protocol work must first
@@ -51,21 +60,24 @@
     no Router role.
   - Development is an optional attachment to the normal container install,
     not a separate edition. It adds one profile-scoped privileged Ubuntu/WSL
-    amd64 container named `elesim-dev` to `elesim-runtime`. It receives no
-    runtime DDS/SROS2 identity. Do not create a second Compose project or a
-    separate tracing service.
-  - General Compose uses the fixed project name `elesim-runtime`, images
-    `elesim/<role>:local`, and containers `elesim-pilot`, `elesim-ui`, and
-    `elesim-sim` for the selected roles. Pilot and Sim are the actual role
-    keys and application names, not aliases. Robot remains native-only.
+    amd64 dev service to the install-UUID Compose project. The operator wrapper
+    remains `elesim-dev`, while its container identity is install-scoped. It
+    receives no runtime DDS/SROS2 identity. Do not create a second Compose
+    project or a separate tracing service.
+  - Fresh General Compose uses `elesim-runtime-<install UUID hex>`, immutable
+    `elesim/<role>:<install UUID hex>-<fingerprint>` release images, and
+    system/endpoint-scoped services and containers. A manifest-owned legacy
+    installation alone retains fixed `elesim-runtime`, `:local` images and old
+    container names. Pilot and Sim remain the actual role keys and application
+    names, not aliases. Robot remains native-only.
   - The GUI binds to host loopback only. Remote use goes through SSH forwarding.
   - Installation generates files and Compose contexts but does not build or
     start images.
   - PATH registration uses an idempotent `.bashrc` block; the current parent
     shell still requires `source ~/.bashrc`.
   - Installs default to optional local runtime text archives. Docker
-    logs are bounded at 10 MiB x4; `elesim-logs --save` and `elesim-down`
-    retain five private snapshots.
+    logs are bounded at 10 MiB x4; scoped `elesim-instance <system> logs`/`down`
+    and the legacy generic wrappers retain five private snapshots.
   - Clean uninstall is host-only and ownership-manifest based. It validates an
     install UUID, exact wrapper/systemd hashes and Docker metadata/labels before
     mutation. It executes directly after validation and removes owned logs and
@@ -89,12 +101,12 @@
     NIC/domain. `elesim-unitree-bridge` is the only Unitree participant;
     inter-host `elesim-robot` talks to it over bounded credential-checked Unix
     `SOCK_SEQPACKET` IPC. It is not a fifth application or a Router.
-  - Connection topology schema v5 has no execution-mode selector. One to four
+  - Connection topology schema v6 has no execution-mode selector. One to four
     hosts and their role cards define the graph directly; no fixed role set is
-    required. Schemas v1-v4 are loaded and normalized to v5, and legacy
+    required. Schemas v1-v5 are loaded and normalized to v6, and legacy
     `topology_mode` is validated and discarded. Duplicate non-Robot role cards
-    are representable but execution rejects them until B2 namespaces Compose
-    services and containers per instance.
+    remain representable in topology but execution rejects them; concurrent
+    systems may each have one endpoint of a role.
   - Robot/Sim own their motion leases; Sim separately owns its UI
     simulation session. DDS discovery grants neither.
   - RGBD is a latest-only coherent DDS sample. WebRTC signaling is a
@@ -146,16 +158,17 @@
     instead owns a kernel-mode `tailscale` sidecar; its explicit one-time
     browser/device login is exposed through `elesim-tailscale login`, with
     sanitized status from `elesim-tailscale status`. The manager exposes
-    bounded `check`, `start` and `stop` host-lifecycle jobs. Deliberate runtime
-    restart remains the host-owned `elesim-down` then `elesim-up` sequence. Full
+    bounded `check`, `start` and `stop` host-lifecycle jobs. Deliberate scoped
+    runtime restart targets `elesim-instance <system> down` then `up`. Full
     `start` builds every host before launching any role; these report
     Compose/systemd management state only and do not claim DDS discovery or
     WebRTC media.
   - The privileged Tailscale sidecar uses the official rolling `stable` image,
     as recommended for immutable Tailscale containers. Only the explicit
     `elesim-tailscale update` pull/recreate action advances it; ordinary starts
-    do not pull implicitly. Ordinary `elesim-down` leaves the enrolled sidecar
-    running; only `elesim-down --purge` tears it down. Docker context and Engine
+    do not pull implicitly. Instance lifecycle leaves the install-scoped
+    enrolled sidecar running; uninstall owns its final removal. Legacy
+    `elesim-down --purge` behavior is retained only for legacy installs. Docker context and Engine
     ID remain pinned: a v1-v8
     install may acquire that daemon identity only when exact install-labelled
     Docker artifacts prove ownership on that daemon. Empty or foreign daemons
@@ -228,20 +241,21 @@
   - Specific GPU mode uses one Compose `device_ids` reservation and does not
     reapply the host index through in-container `CUDA_VISIBLE_DEVICES`.
   - The optional development attachment remains one persistent privileged
-    all-project `elesim-dev` container with persistent home/venv, WSLg
-    forwarding and no separate observability container. `elesim-dev` uses
+    install-scoped dev service with persistent home/venv, WSLg forwarding and
+    no separate observability container. The `elesim-dev` wrapper uses
     Compose `exec`; it must not create random `run --rm` containers.
   - Ownership refresh must fail closed when legacy generated paths exist
     without a manifest. Never auto-adopt them. Managed roots are exact
     EleSim-only subtrees, never the whole external checkout, home, or bin
-    parent. Do not add prune, wildcard deletion, or upstream-image removal.
+    parent. A new prefix/bin must not be nested below another standard EleSim
+    prefix. Do not add prune, wildcard deletion, or upstream-image removal.
   - Runtime log archivers reject direct and ancestor symlinks. Archive failure
-    must not prevent `elesim-down` from attempting shutdown, and must still
-    produce a nonzero status.
+    must not prevent scoped instance down (or legacy `elesim-down`) from
+    attempting shutdown, and must still produce a nonzero status.
   - Release metadata must reject `UNKNOWN` and `0.0.0`; generated contexts must
     contain the complete setup and connection-manager web packages and ROSIDL
     source.
-- Verification:
+- Historical verification (not evidence for the current uncommitted revision):
   - Canonical required gate passed: Protocol `87`, Robot `98`, Pilot
     `350`, Sim `77`, UI `34`, model/release `34`, DDS RGBD `2`, encoded
     two-stream WebRTC `1`, and setup `315`.
@@ -287,7 +301,8 @@
     generation, connection topology/GUI, SROS2 Authority generation and
     transactional deployment, network doctor, TURN credential validation, and
     the ephemeral schema-v2 `TwoHostPreflight` contract/API.
-    `connection_manager.py` owns mode-free topology schema v5;
+    `connection_manager.py` owns mode-free topology schema v6 and v1-v5 read
+    migration; `instances.py` owns instance schema v3 and v2 read migration;
     `security_policy.py` and `secure_deployment.py` filter SROS2/lifecycle
     operations to the active role set.
     Runtime role keys and source trees are the same names (`pilot` and `sim`).
@@ -304,10 +319,10 @@
   - Before running tests, always check whether the persistent `elesim-dev`
     container is available. If it is available, do not substitute host-Python
     tests for the canonical container test run.
-  - If `elesim-dev` is stopped, start it with the repository's `elesim-up`
-    workflow when verification is part of the requested work, then run tests
-    through `elesim-dev python3 ...`. Do not merely assume that the container
-    is unavailable.
+  - If the generated `elesim-dev` service is stopped, start/enter it with the
+    installed `elesim-dev` wrapper when verification is part of the requested
+    work, then run tests through `elesim-dev python3 ...`. Do not merely assume
+    that the container is unavailable.
   - Host-only checks are permitted only when the development container was
     actually unavailable or failed to start. In that case, report the exact
     container failure and clearly identify every verification gate that was
@@ -316,8 +331,7 @@
     builds a persistent ROSIDL overlay, creates the system-site-packages venv,
     and installs every project editable. Do not add dependencies to host Python
     or reference an external Compose file.
-  - Start or enter it with `elesim-up` and `elesim-dev`. The topology invocation
-    is:
+  - Start or enter it with `elesim-dev`. The topology invocation is:
 
     ```bash
     elesim-dev python3 workbench/tests/system/smoke_topology.py
@@ -335,20 +349,23 @@
 - Operator-facing installation/run facts:
   - Bootstrap defaults to the local web wizard. Installation only writes the
     prefix/configuration/Compose contexts; it does not build or start images.
-    After installation, `source ~/.bashrc` once, then use `elesim-update`, `elesim-up`,
-    `elesim-setup status`, `elesim-logs`, `elesim-logs --save`, and
-    `elesim-down` on the machine owning the selected role.
+    After installation, `source ~/.bashrc` once, publish a release with
+    `elesim-update`, register the system, then use
+    `elesim-instance <system> up|down|logs|status|remove` on the machine owning
+    the selected role.
+    Generic lifecycle wrappers remain legacy-only.
   - `elesim-update` fetches the repository/ref recorded by the install,
     validates its ownership manifest, regenerates owned artifacts, and
-    incrementally builds selected images. It preserves topology, security and
-    logs and does not restart containers; `elesim-up` is the activation step.
-    It does not pull or mutate an attached external Git checkout.
-  - Container installations expose fixed role container names and optionally
-    expose profile-scoped `elesim-dev` for the coding environment.
-    Managed TURN adds `elesim-coturn` on the Sim host. Docker Desktop container
-    installs add the `tailscale` service/fixed `elesim-tailscale` infrastructure
-    container; enroll it once with `elesim-tailscale login`, inspect its DDS IP
-    with `elesim-tailscale status`, and keep the WSL/host SSH address separate.
+    publishes a new immutable release. It preserves topology, security, logs
+    and existing instance pins and does not restart containers; explicit
+    register/replace followed by `elesim-instance <system> up` activates a new
+    release. It does not pull or mutate an attached external Git checkout.
+  - Fresh container installations expose install/system/endpoint-scoped role
+    identities and optionally a profile-scoped dev service for the coding
+    environment. Managed TURN and Docker Desktop Tailscale containers are
+    install/instance scoped; enroll once with `elesim-tailscale login`, inspect
+    its DDS IP with `elesim-tailscale status`, and keep the WSL/host SSH address
+    separate.
   - Use `elesim-uninstall` to validate and remove immediately. Logs and owned operator Authority are removed
     unless their `--keep-*` flags are supplied. On Robot, remove the exact two installed systemd units
     using the refusal message before rerunning the uninstaller.
@@ -474,8 +491,9 @@ fifth application and not part of inter-host DDS.
 - The setup wizard must preserve existing host Python, CUDA, ROS, and APT state
   when container mode is selected.
 - Container runtime roles and the optional development attachment share the
-  fixed `elesim-runtime` project with predictable container/image names and
-  host networking. Do not assume `127.0.0.1` refers to another computer.
+  install-UUID Compose project with deterministic scoped container/image names
+  and host networking. Only legacy manifests retain fixed `elesim-runtime`.
+  Do not assume `127.0.0.1` refers to another computer.
 - DDS participants must be mutually routable over UDP. Static discovery peers
   seed discovery but do not cross NAT or relay application traffic. Support
   LAN, routed VPN and global IPv6; do not claim ordinary NAT/CGNAT works.
@@ -490,12 +508,13 @@ fifth application and not part of inter-host DDS.
   streams enabled. A native Genesis Viewer requires an explicit display/X11
   attachment and must not silently become the server default.
 - Managed TURN selection may include Coturn in the Sim's generated
-  Compose project, so `elesim-up`, `elesim-down`, and `elesim-logs` own its
+  instance services, so `elesim-instance <system> up|down|logs` owns its
   lifecycle. External TURN remains independently operated. TURN does not carry
   DDS signaling or data. Managed TURN requires SROS2.
 - Label multi-host commands with the machine that owns them. Do not tell users to
   create laptop configuration or destination directories on the compute server.
-- `Ctrl+C` on `elesim-logs` stops log following, not the detached services.
+- `Ctrl+C` on scoped instance logs (or legacy `elesim-logs`) stops log
+  following, not the detached services.
 - Preserve the ownership manifest and installed `elesim-uninstall` wrapper
   until cleanup completes. Never replace them with raw recursive deletion or
   Docker prune instructions.

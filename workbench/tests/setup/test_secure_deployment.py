@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import json
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
@@ -46,6 +46,40 @@ from elesim_setup.secure_deployment import (
 
 
 FINGERPRINT = "SHA256:" + "A" * 43
+SCOPED_INSTALL = "11111111-1111-4111-8111-111111111111"
+SCOPED_PROJECT = "elesim-runtime-11111111111141118111111111111111"
+
+
+def _scoped_remote_topology(*, install_uuid: str = SCOPED_INSTALL) -> ConnectionTopology:
+    project = SCOPED_PROJECT if install_uuid == SCOPED_INSTALL else ""
+    return ConnectionTopology(
+        "lab",
+        "trusted-network",
+        (
+            ManagedHost(
+                "laptop",
+                True,
+                DdsEndpoint("100.64.0.1", "tailscale0"),
+                None,
+                (RoleAssignment("ui", "ui-main"),),
+            ),
+            ManagedHost(
+                "server",
+                False,
+                DdsEndpoint("100.64.0.2", "tailscale0"),
+                _ssh(),
+                units=(
+                    DeploymentUnit(
+                        "runtime",
+                        (RoleAssignment("sim", "sim-main"),),
+                        install_uuid=install_uuid,
+                        project=project,
+                    ),
+                ),
+            ),
+        ),
+        dds_graph=DdsGraphSettings(discovery_mode="static"),
+    ).validate()
 
 
 def test_paramiko_proxy_socket_swallows_established_broken_pipe() -> None:
@@ -175,8 +209,6 @@ def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
 
     assert _lifecycle_command(host, action="start") == (
         "/usr/local/bin/elesim-compose",
-        "-p",
-        "elesim-runtime",
         "-f",
         "/opt/elesim/containers/compose.yaml",
         "start",
@@ -186,8 +218,6 @@ def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
         "/usr/local/bin/elesim-compose",
         "--progress",
         "plain",
-        "-p",
-        "elesim-runtime",
         "-f",
         "/opt/elesim/containers/compose.yaml",
         "build",
@@ -201,6 +231,236 @@ def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
     assert _lifecycle_command(
         host, action="start", include_coturn=True
     )[-3:] == ("start", "sim", "coturn")
+
+
+def test_scoped_lifecycle_routes_through_exact_instance_dispatcher() -> None:
+    host = _topology().host("server")
+    unit = host.primary_unit
+    assert _lifecycle_command(
+        unit, action="launch", system_id="lab", scoped=True
+    ) == (
+        "/usr/local/bin/elesim-instance",
+        "lab",
+        "up",
+        "--no-build",
+    )
+    assert _lifecycle_command(
+        unit, action="stop", system_id="lab", scoped=True
+    ) == ("/usr/local/bin/elesim-instance", "lab", "down")
+    assert _lifecycle_command(
+        unit, action="status", system_id="lab", scoped=True
+    ) == ("/usr/local/bin/elesim-instance", "lab", "status")
+    assert _lifecycle_command(
+        unit, action="logs", system_id="lab", scoped=True
+    ) == ("/usr/local/bin/elesim-instance", "lab", "logs")
+    with pytest.raises(ValueError, match="immutable published releases"):
+        _lifecycle_command(unit, action="build", system_id="lab", scoped=True)
+    cpu_override = RuntimeLaunchOptions(
+        gpu_inherit=False,
+        gpu_device="",
+        viewer=False,
+    )
+    with pytest.raises(ValueError, match="scoped instance lifecycle.*runtime GPU/viewer"):
+        _lifecycle_command(
+            unit,
+            action="launch",
+            system_id="lab",
+            scoped=True,
+            runtime_options=cpu_override,
+        )
+
+
+def test_scoped_lifecycle_requires_system_id() -> None:
+    unit = _topology().host("server").primary_unit
+    with pytest.raises(ValueError, match="system_id"):
+        _lifecycle_command(unit, action="launch", scoped=True)
+
+
+def test_scoped_remote_lifecycle_binds_authenticated_install_identity() -> None:
+    topology = _scoped_remote_topology()
+
+    class Session:
+        def __init__(self, payload: str) -> None:
+            self.payload = payload
+            self.commands: list[tuple[str, ...]] = []
+
+        def run(self, argv, *, check=True):
+            values = tuple(str(value) for value in argv)
+            self.commands.append(values)
+            if values[:2] == ("/usr/local/bin/elesim-net", "identity"):
+                return RemoteCommandResult(0, self.payload)
+            if values[:2] == ("test", "-L"):
+                return RemoteCommandResult(1)
+            if values[:2] in {("test", "-e"), ("test", "-x")}:
+                return RemoteCommandResult(0)
+            return RemoteCommandResult(0)
+
+    identity = json.dumps(
+        {
+            "schema_version": 1,
+            "install_uuid": SCOPED_INSTALL,
+            "project": SCOPED_PROJECT,
+        }
+    )
+    session = Session(identity)
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    lifecycle._validate_scoped_target(
+        session, topology.host("server").primary_unit, local=False
+    )
+    assert session.commands[0] == ("/usr/local/bin/elesim-net", "identity")
+
+    with pytest.raises(RuntimeError, match="identity mismatch"):
+        lifecycle._validate_scoped_target(
+            Session(identity.replace(SCOPED_INSTALL, "22222222-2222-4222-8222-222222222222")),
+            topology.host("server").primary_unit,
+            local=False,
+        )
+
+
+def test_scoped_remote_lifecycle_rejects_unenrolled_legacy_unit() -> None:
+    topology = _scoped_remote_topology()
+    unit = topology.host("server").primary_unit
+    unbound = replace(unit, install_uuid="", project="")
+    host = replace(topology.host("server"), units=(unbound,))
+    topology = replace(topology, hosts=(topology.host("laptop"), host)).validate()
+    with pytest.raises(RuntimeError, match="no enrolled install UUID"):
+        InstalledElesimLifecycle(topology, scoped=True)._validate_scoped_target(
+            object(), unbound, local=False
+        )
+
+
+def test_scoped_installed_lifecycle_validates_and_uses_instance_commands() -> None:
+    topology = ConnectionTopology(
+        "lab",
+        "trusted-network",
+        (
+            ManagedHost(
+                "server",
+                True,
+                DdsEndpoint("100.64.0.2", "tailscale0"),
+                None,
+                (RoleAssignment("sim", "sim-main"),),
+            ),
+        ),
+    ).validate()
+
+    class ScopedSession:
+        def __init__(self) -> None:
+            self.commands = []
+
+        def run(self, argv, *, check=True):
+            values = tuple(argv)
+            self.commands.append((values, check))
+            if values[:2] == ("test", "-L"):
+                return RemoteCommandResult(1)
+            if values[:2] in {
+                ("test", "-e"),
+                ("test", "-x"),
+                ("test", "-w"),
+            }:
+                return RemoteCommandResult(0)
+            if values[:2] == ("/usr/local/bin/elesim-net", "show"):
+                return RemoteCommandResult(
+                    0,
+                    json.dumps(
+                        {
+                            "roles": ["sim"],
+                            "assigned_roles": ["sim"],
+                            "prefix": "/opt/elesim",
+                            "bin_dir": "/usr/local/bin",
+                            "install_mode": "container",
+                            "dds": {},
+                        }
+                    ),
+                )
+            if values[0].endswith("elesim-instance") and values[2] == "status":
+                return RemoteCommandResult(0, "sim\n")
+            return RemoteCommandResult(0)
+
+    session = ScopedSession()
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    host = topology.local_host
+    lifecycle.stop(session, host, host.roles)
+    lifecycle.start(session, host, host.roles)
+    lifecycle.launch(session, host)
+    assert [
+        command
+        for command, _check in session.commands
+        if command and command[0].endswith("elesim-instance")
+    ] == [
+        ("/usr/local/bin/elesim-instance", "lab", "down"),
+        ("/usr/local/bin/elesim-instance", "lab", "up", "--no-build"),
+        ("/usr/local/bin/elesim-instance", "lab", "up", "--no-build"),
+    ]
+
+
+def test_scoped_lifecycle_rejects_legacy_configuration_and_restore() -> None:
+    topology = _scoped_remote_topology()
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+
+    with pytest.raises(RuntimeError, match="install-wide configuration"):
+        lifecycle.configure(
+            object(),
+            topology.host("server"),
+            None,
+            PurePosixPath("/opt/elesim/security"),
+        )
+    with pytest.raises(RuntimeError, match="configuration rollback"):
+        lifecycle.restore(
+            object(),
+            topology.host("server"),
+            {"dds": {}, "network": {}},
+        )
+
+
+def test_scoped_security_upload_failure_cleans_only_exact_staging_generation() -> None:
+    topology = _scoped_remote_topology()
+    host = topology.host("server")
+    unit = host.primary_unit
+
+    class FailingUploadSession(FakeSession):
+        def upload_bytes(self, path, content, mode) -> None:
+            if len(self.uploads) == 1:
+                raise RuntimeError("injected upload failure")
+            super().upload_bytes(path, content, mode)
+
+    session = FailingUploadSession()
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    lifecycle.scoped_identity = lambda _session, _unit: {  # type: ignore[method-assign]
+        "install_uuid": SCOPED_INSTALL
+    }
+    instance = SimpleNamespace(
+        system_id="lab",
+        security_generation="g2",
+        release_key="a" * 64,
+        domain_id=0,
+        rmw_implementation="rmw_cyclonedds_cpp",
+        discovery_mode="static",
+        static_peers=(),
+        interface="tailscale0",
+        security_profile="sros2",
+        endpoints=(SimpleNamespace(role="sim", endpoint_id="sim-main"),),
+    )
+
+    with pytest.raises(RuntimeError, match="injected upload failure"):
+        lifecycle.register_scoped_instance(
+            session,
+            host,
+            unit,
+            instance,
+            object(),
+            _bundle("server"),
+        )
+
+    assert session.commands[-1][0] == (
+        "/usr/local/bin/elesim-instance-register",
+        "cleanup-staging",
+        "--system",
+        "lab",
+        "--security-generation",
+        "g2",
+    )
+    assert all("rm" not in command for command, _check in session.commands)
 
 
 def test_runtime_launch_options_are_bounded_and_use_normal_runtime_launcher() -> None:
@@ -1190,6 +1450,48 @@ class FakeSession:
         self.uploads.append((path, content, mode))
 
 
+def test_scoped_registration_forwards_graph_wide_role_ids() -> None:
+    topology = _scoped_remote_topology()
+    host = topology.host("server")
+    unit = host.primary_unit
+    session = FakeSession()
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    lifecycle.scoped_identity = lambda _session, _unit: {  # type: ignore[method-assign]
+        "install_uuid": SCOPED_INSTALL
+    }
+    instance = SimpleNamespace(
+        system_id="lab",
+        security_generation="",
+        release_key="a" * 64,
+        domain_id=17,
+        rmw_implementation="rmw_cyclonedds_cpp",
+        discovery_mode="static",
+        static_peers=("100.64.0.1",),
+        interface="tailscale0",
+        security_profile="trusted-network",
+        endpoints=(SimpleNamespace(role="sim", endpoint_id="sim-2"),),
+        pilot_id="pilot-1",
+        sim_id="sim-2",
+        ui_id="ui-3",
+    )
+
+    lifecycle.register_scoped_instance(
+        session,
+        host,
+        unit,
+        instance,
+        object(),
+    )
+
+    command = session.commands[-1][0]
+    pairs = tuple(
+        command[index + 1]
+        for index, value in enumerate(command[:-1])
+        if value == "--graph-endpoint"
+    )
+    assert pairs == ("pilot:pilot-1", "sim:sim-2", "ui:ui-3")
+
+
 def test_colocated_role_launches_keep_pilot_and_sim_gpu_choices_independent() -> None:
     topology = ConnectionTopology(
         "lab_sim",
@@ -1711,8 +2013,6 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     ]
     assert (
         "/usr/local/bin/elesim-compose",
-        "-p",
-        "elesim-runtime",
         "-f",
         "/opt/elesim/containers/compose.yaml",
         "stop",
@@ -1721,8 +2021,6 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     ) in compose_commands
     assert (
         "/usr/local/bin/elesim-compose",
-        "-p",
-        "elesim-runtime",
         "-f",
         "/opt/elesim/containers/compose.yaml",
         "start",
@@ -1955,6 +2253,129 @@ def test_lifecycle_status_counts_managed_coturn_for_sim_readiness() -> None:
     )
     assert with_relay["state"] == "running"
     assert with_relay["containers_present"] is True
+
+
+@pytest.mark.parametrize(
+    ("turn_mode", "running", "expected"),
+    (
+        ("external", "sim\n", "running"),
+        ("none", "sim\n", "running"),
+        ("managed", "sim\n", "degraded"),
+        ("managed", "sim\ncoturn\n", "running"),
+    ),
+)
+def test_scoped_status_uses_instance_turn_mode_for_coturn_readiness(
+    turn_mode: str, running: str, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class ScopedStatusSession:
+        def run(self, argv, *, check=True) -> RemoteCommandResult:
+            values = tuple(str(value) for value in argv)
+            if values[:3] == ("/usr/local/bin/elesim-instance", "lab", "status"):
+                return RemoteCommandResult(0, running)
+            return RemoteCommandResult(0)
+
+    if turn_mode == "managed":
+        turn = {
+            "mode": "managed",
+            "realm": "lab",
+            "public_host": "100.64.0.2",
+            "secret_file": "/opt/elesim/instances/lab/secrets/turn.secret",
+        }
+        urls = ["turn:100.64.0.2:49200?transport=udp"]
+    elif turn_mode == "external":
+        turn = {
+            "mode": "external",
+            "credential_file": "/run/turn/credentials.json",
+        }
+        urls = ["turn:relay.example:3478?transport=udp"]
+    else:
+        turn = {"mode": "none"}
+        urls = []
+    instance_state = {"system_id": "lab", "turn": turn, "turn_urls": urls}
+    topology = _scoped_remote_topology()
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    monkeypatch.setattr(lifecycle, "_validate_scoped_target", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        lifecycle,
+        "_scoped_instance_state",
+        lambda *args, **kwargs: instance_state,
+    )
+    monkeypatch.setattr(lifecycle, "_gpu_devices", lambda *args, **kwargs: [])
+
+    status = lifecycle.status(ScopedStatusSession(), topology.host("server"))
+
+    assert status["state"] == expected
+    if turn_mode == "managed" and running == "sim\n":
+        assert "managed Coturn" in status["detail"]
+
+
+@pytest.mark.parametrize("turn_mode", ("managed", "external", "none"))
+def test_scoped_verify_uses_instance_turn_mode_for_coturn_readiness(
+    turn_mode: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ScopedVerifySession:
+        def run(self, argv, *, check=True) -> RemoteCommandResult:
+            values = tuple(str(value) for value in argv)
+            if values[:3] == ("/usr/local/bin/elesim-instance", "lab", "status"):
+                return RemoteCommandResult(0, "sim\n")
+            return RemoteCommandResult(0, "")
+
+    topology = _scoped_remote_topology()
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    monkeypatch.setattr(lifecycle, "_validate_scoped_target", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        lifecycle,
+        "snapshot",
+        lambda *args, **kwargs: {
+            "dds": {
+                "system_id": "lab",
+                "domain_id": 0,
+                "rmw_implementation": "rmw_cyclonedds_cpp",
+                "discovery_mode": "static",
+                "static_peers": ["100.64.0.2", "100.64.0.1"],
+                "interface": "tailscale0",
+                "security_profile": "trusted-network",
+            }
+        },
+    )
+    if turn_mode == "managed":
+        turn = {
+            "mode": "managed",
+            "realm": "lab",
+            "public_host": "100.64.0.2",
+            "secret_file": "/opt/elesim/instances/lab/secrets/turn.secret",
+        }
+        urls = ["turn:100.64.0.2:49200?transport=udp"]
+    elif turn_mode == "external":
+        turn = {
+            "mode": "external",
+            "credential_file": "/run/turn/credentials.json",
+        }
+        urls = ["turn:relay.example:3478?transport=udp"]
+    else:
+        turn = {"mode": "none"}
+        urls = []
+    monkeypatch.setattr(
+        lifecycle,
+        "_scoped_instance_state",
+        lambda *args, **kwargs: {
+            "system_id": "lab",
+            # This is the instance-owned state.  The install-level snapshot
+            # deliberately contains no TURN data.
+            "turn": turn,
+            "turn_urls": urls,
+        },
+    )
+
+    if turn_mode == "managed":
+        with pytest.raises(RuntimeError, match="managed Coturn is not running"):
+            lifecycle.verify(
+                ScopedVerifySession(), topology.host("server"), None, ("sim",)
+            )
+    else:
+        lifecycle.verify(
+            ScopedVerifySession(), topology.host("server"), None, ("sim",)
+        )
 
 
 def test_lifecycle_status_queries_configured_services_once_per_unit_and_poll() -> None:

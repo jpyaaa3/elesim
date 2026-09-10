@@ -21,10 +21,10 @@ card-derived topology (1–4 hosts)
 ```
 
 별도 실행 모드는 없다. 저장된 COM과 역할 카드가 곧 토폴로지이며 Robot 없는
-부분집합도 유효하다. Robot 카드는 native Jetson unit에만 둘 수 있다. 현재 고정
-Compose service/container 이름 때문에 동일 역할 복수 인스턴스는 문서에는 저장할
-수 있지만 실행 단계에서 명시적으로 거부한다. 이 제한 해제는 다중 system B2
-마일스톤의 소유다.
+부분집합도 유효하다. graph role ID는 global registry에 기록되고 instance schema
+v3에 보존된다(schema v2는 읽을 때 이관). Robot 카드는 native Jetson unit에만
+둘 수 있으며, 하나의 native Robot graph boundary만 허용한다. scoped container
+registration은 Robot을 거부한다.
 
 중앙 Router, ZMQ, CurveZMQ, CURVE, ZAP은 현재 구조에 없다. 각 DDS participant는
 필요한 peer와 직접 IP-routable해야 하며, DDS discovery는 애플리케이션
@@ -76,9 +76,13 @@ primitive뿐이다. typed ROS service/action 정의는 생성되지만 현재 ru
 연결되어 있지 않다. 현재 control/signaling carrier는 protocol major 6의
 bounded `PeerEnvelope`다.
 
-컨테이너 설치는 고정 `elesim-runtime` Compose project와 선택된
-`elesim-pilot`, `elesim-ui`, `elesim-sim` container를 사용한다. Robot은
-native-only다. 개발 도구를 선택하면 같은 project에 profile-scoped 영속
+컨테이너 설치는 설치 UUID에서 유도한 전용 Compose project
+`elesim-runtime-<install UUID hex>`와 그 설치에 속한 instance service를 사용한다.
+각 instance는 등록된 exact service만 lifecycle 대상으로 삼고, 다른 설치의
+legacy 고정 `elesim-runtime` project를 자동 인수하지 않는다. `elesim-update`는
+immutable release를 build/publish하지만 기존 instance release pin을 바꾸지
+않는다. Robot은
+native-only다. 개발 도구를 선택하면 같은 설치 project에 profile-scoped 영속
 `elesim-dev`가 attachment로 추가된다. 이 도구 컨테이너는 런타임 역할이나
 DDS/SROS2 identity가 아니며 별도 observability 컨테이너도 두지 않는다.
 

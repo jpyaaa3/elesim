@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import pwd
 import re
@@ -37,6 +38,8 @@ from .manager_lifecycle import (
     host_helper_fragment,
     manager_lifecycle_fragment,
 )
+from .instance_identity import container_name as scoped_container_name
+from .instance_identity import image_reference, project_name
 from .ownership import (
     DOCKER_BUILD_FINGERPRINT_LABEL,
     DOCKER_INSTALL_UUID_LABEL,
@@ -57,9 +60,9 @@ from .security_provisioning import (
 from .security_views import prepare_app_keystore_views
 from .runtime_status import render_compose_status_wrapper
 from .shell import operator_home, write_executable
-from .state import ContainerNetworkSettings, InstallState
+from .state import ComputeSettings, ContainerNetworkSettings, InstallState
 from .uninstall import UninstallSafetyError, validate_docker_ownership
-from .updater import render_update_wrapper
+from .updater import render_release_wrapper, render_update_wrapper
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,11 @@ class ContainerAction:
 
 
 GENERAL_COMPOSE_PROJECT = "elesim-runtime"
+# Scoped connection-manager wrappers need a stable host endpoint for each
+# install/system pair.  Keep it in a high, non-privileged application range;
+# the legacy (unscoped) wrapper intentionally remains on port 8766.
+SCOPED_MANAGER_PORT_BASE = 49152
+SCOPED_MANAGER_PORT_SPAN = 16384
 ROLE_CONTAINER_NAMES = {
     "pilot": "elesim-pilot",
     "ui": "elesim-ui",
@@ -284,7 +292,7 @@ def build_container_plan(state: InstallState) -> tuple[ContainerAction, ...]:
         actions.append(
             ContainerAction(
                 "개발 도구",
-                "동일 elesim-runtime project의 선택적 developer profile",
+                "현재 설치 namespace의 선택적 developer profile",
             )
         )
     actions.extend(
@@ -320,6 +328,22 @@ class ContainerInstaller:
         self.dry_run = bool(dry_run)
         self.log = log
         self._install_uuid = ""
+        # Direct helper calls retain the historical literals for compatibility
+        # with setup-unit callers.  ``run`` selects the install namespace after
+        # ownership has been validated, before any generated artifact exists.
+        self._scoped_namespace = False
+        # Set before ownership preflight. A valid legacy manifest deliberately
+        # does not claim the immutable-instance roots; a new/unknown prefix
+        # does claim them so stale trees fail closed.
+        self._claim_scoped_roots = True
+        self._compose_project = GENERAL_COMPOSE_PROJECT
+        self._role_container_names = dict(ROLE_CONTAINER_NAMES)
+        self._special_container_names = {
+            "tailscale": TAILSCALE_CONTAINER_NAME,
+            "coturn": "elesim-coturn",
+            "manager": "elesim-manager",
+            "dev": "elesim-dev",
+        }
         self._image_fingerprints: dict[str, str] = {}
         self.shell_bashrc = (
             None
@@ -348,14 +372,16 @@ class ContainerInstaller:
             )
         self.state.require_installable_dds()
         self._validate_external_turn_credentials()
+        self._claim_scoped_roots = self._should_claim_scoped_roots()
         ownership_refresh = prepare_ownership_refresh(
             prefix=self.state.prefix_path,
             bin_dir=self.state.bin_path,
             edition="general",
             claimed_paths=self._claimed_paths(),
         )
-        self._validate_legacy_docker_adoption(ownership_refresh)
         self._install_uuid = ownership_install_uuid(ownership_refresh)
+        self._select_docker_namespace(ownership_refresh)
+        self._validate_legacy_docker_adoption(ownership_refresh)
         prefix_created = not os.path.lexists(self.state.prefix_path)
         bin_created = not os.path.lexists(self.state.bin_path)
         self.log("\n컨테이너 설치 계획")
@@ -371,6 +397,7 @@ class ContainerInstaller:
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
         self._prepare_manager_roots()
+        self._prepare_scoped_roots()
         self._runtime_cache_root = self._prepare_runtime_cache()
         self._build_root = self._prepare_build_root()
         prepare_app_keystore_views(self.state)
@@ -379,6 +406,8 @@ class ContainerInstaller:
         self._prepare_tailscale_state()
         self._prepare_turn_secret()
         self._copy_runtime_data()
+        if self._scoped_namespace:
+            self._copy_runtime_snapshot()
         generate_role_configs(self.state)
         self.log("[2/6] 역할별 image context 생성")
         for role in self.state.roles:
@@ -407,7 +436,69 @@ class ContainerInstaller:
         )
         self.log(f"[완료] 설치 상태: {saved}")
         self.log(f"[완료] 제거 소유권: {manifest.path}")
-        self.log(f"[다음] 이미지 빌드 및 시작: {self.state.bin_path / 'elesim-up'}")
+        if self._scoped_namespace:
+            self.log(
+                "[다음] release instance 등록 후 system별 실행: "
+                f"{self.state.bin_path / 'elesim-instance'} <system> <up|down|logs|status|remove>"
+            )
+        else:
+            self.log(f"[다음] 이미지 빌드 및 시작: {self.state.bin_path / 'elesim-up'}")
+
+    def _select_docker_namespace(self, refresh: OwnershipRefresh | None) -> None:
+        """Select the immutable Docker boundary for this install refresh.
+
+        A manifest is the compatibility boundary: a missing manifest means a
+        new scoped install, the historical project remains exactly historical,
+        and any other project is foreign rather than something to adopt.
+        """
+
+        previous = None if refresh is None else refresh.docker
+        if refresh is not None and previous is None:
+            raise ValueError(
+                "기존 container 설치 ownership에 Docker namespace가 없습니다"
+            )
+        if previous is not None and previous.project not in {
+            GENERAL_COMPOSE_PROJECT,
+            project_name(self._install_uuid),
+        }:
+            raise ValueError(
+                "기존 Docker project가 현재 EleSim namespace가 아닙니다: "
+                f"{previous.project}"
+            )
+        self._scoped_namespace = refresh is None or (
+            previous is not None and previous.project != GENERAL_COMPOSE_PROJECT
+        )
+        self._compose_project = (
+            project_name(self._install_uuid)
+            if self._scoped_namespace
+            else GENERAL_COMPOSE_PROJECT
+        )
+        if self._scoped_namespace:
+            self._role_container_names = {
+                role: scoped_container_name(self._install_uuid, role)
+                for role in ROLE_CONTAINER_NAMES
+            }
+            self._special_container_names = {
+                key: scoped_container_name(self._install_uuid, key)
+                for key in self._special_container_names
+            }
+
+    def _container_name(self, role: str) -> str:
+        return self._role_container_names[role]
+
+    def _infra_container_name(self, key: str) -> str:
+        return self._special_container_names[key]
+
+    def _image_name(self, role: str) -> str:
+        if not self._scoped_namespace:
+            return f"elesim/{role}:local"
+        try:
+            fingerprint = self._image_fingerprints[role]
+        except KeyError as exc:
+            raise RuntimeError(
+                f"image context fingerprint가 준비되지 않았습니다: {role}"
+            ) from exc
+        return image_reference(self._install_uuid, role, fingerprint)
 
     def _claimed_paths(self) -> tuple[Path, ...]:
         claims = [
@@ -419,17 +510,50 @@ class ContainerInstaller:
             self.state.prefix_path / "connections",
             self.state.prefix_path / "security",
             self.state.prefix_path / "secrets",
-            self.state.prefix_path / "maintenance",
+            *(
+                (
+                    # Scoped installs retain immutable releases and endpoint
+                    # instances across refreshes. Claim these exact roots
+                    # during preflight so an unowned stale tree is never
+                    # silently adopted by a new install.
+                    self.state.prefix_path / "releases",
+                    self.state.prefix_path / "instances",
+                    self.state.prefix_path / "maintenance",
+                )
+                if self._claim_scoped_roots
+                else ()
+            ),
             # A prior General install may have emitted one wrapper per role.
             # Keep those paths in the preflight claims so an orphaned wrapper
             # without a manifest fails closed instead of being silently
             # adopted by the consolidated ``elesim-up`` surface.
             *(self.state.bin_path / name for name in CONTAINER_ROLE_WRAPPER_NAMES),
+            *(
+                (self.state.bin_path / "elesim-instance",)
+                if self._claim_scoped_roots
+                else ()
+            ),
+            self.state.bin_path / "elesim-release",
             *self._wrapper_paths(include_uninstaller=True),
         ]
         if _is_within(self.state_path, self.state.prefix_path):
             claims.append(self.state_path)
         return tuple(claims)
+
+    def _should_claim_scoped_roots(self) -> bool:
+        """Keep legacy refreshes outside the immutable-instance boundary."""
+
+        manifest_path = self.state.prefix_path / "install-ownership.json"
+        if not os.path.lexists(manifest_path):
+            return True
+        try:
+            previous = OwnershipManifest.load(manifest_path)
+        except Exception:
+            # The ownership preflight below owns the precise corruption
+            # diagnostic. Keep the conservative claim until then.
+            return True
+        docker = previous.docker
+        return docker is None or docker.project != GENERAL_COMPOSE_PROJECT
 
     def _write_ownership_manifest(
         self,
@@ -463,24 +587,27 @@ class ContainerInstaller:
             external_paths.append(self.state.dds.keystore_path)
         if self.state.turn.mode == "external" and self.state.turn.credential_path is not None:
             external_paths.append(self.state.turn.credential_path)
-        containers = tuple(ROLE_CONTAINER_NAMES[role] for role in self.state.roles)
+        containers = tuple(self._container_name(role) for role in self.state.roles)
         if self.state.container_network.uses_tailscale_sidecar:
-            containers = (*containers, TAILSCALE_CONTAINER_NAME)
+            containers = (*containers, self._infra_container_name("tailscale"))
         if self.state.turn.managed:
-            containers = (*containers, "elesim-coturn")
+            containers = (*containers, self._infra_container_name("coturn"))
         if self.state.developer_attachment.enabled:
-            containers = (*containers, "elesim-dev")
-        # A crashed one-shot manager is still an exact Compose-owned object.
-        containers = (*containers, "elesim-manager")
+            containers = (*containers, self._infra_container_name("dev"))
+        # Legacy keeps its historical fixed manager ownership.  Scoped
+        # managers are per-system transient names and register themselves
+        # atomically from the host wrapper immediately before creation.
+        if not self._scoped_namespace:
+            containers = (*containers, self._infra_container_name("manager"))
         docker = DockerOwnership(
             install_uuid=self._install_uuid,
             compose_file=str(self.container_root / "compose.yaml"),
-            project=GENERAL_COMPOSE_PROJECT,
+            project=self._compose_project,
             containers=containers,
             local_images=(
-                *(f"elesim/{role}:local" for role in self.state.roles),
-                "elesim/tools:local",
-                *(("elesim/dev:local",) if self.state.developer_attachment.enabled else ()),
+                *(self._image_name(role) for role in self.state.roles),
+                self._image_name("tools"),
+                *((self._image_name("dev"),) if self.state.developer_attachment.enabled else ()),
             ),
             context=self.state.container_network.docker_context,
             engine_id=self.state.container_network.docker_engine_id,
@@ -507,6 +634,15 @@ class ContainerInstaller:
                 self.state.prefix_path / "connections",
                 self.state.prefix_path / "security",
                 self.state.prefix_path / "secrets",
+                *(
+                    (
+                        self.state.prefix_path / "releases",
+                        self.state.prefix_path / "instances",
+                        self.state.prefix_path / "maintenance",
+                    )
+                    if self._scoped_namespace
+                    else ()
+                ),
             ),
             created_roots=created_roots,
             wrapper_paths=wrappers,
@@ -594,6 +730,26 @@ class ContainerInstaller:
                     ) from exc
             finally:
                 os.close(directory_fd)
+
+    def _prepare_scoped_roots(self) -> None:
+        """Create immutable-release/instance roots for a scoped install.
+
+        These roots are deliberately not touched on refresh.  Existing
+        releases and systems are user data owned by the scoped installation,
+        not generated Compose output.
+        """
+
+        if not self._scoped_namespace:
+            return
+        for name in ("releases", "instances", "maintenance"):
+            path = self.state.prefix_path / name
+            if os.path.lexists(path):
+                metadata = os.lstat(path)
+                if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                    raise ValueError(f"scoped state root는 실제 directory여야 합니다: {path}")
+            else:
+                path.mkdir(mode=0o700)
+            path.chmod(0o700)
 
     def _prepare_runtime_cache(self) -> Path:
         """Prepare a user-owned cache, tolerating legacy root-owned state.
@@ -742,35 +898,56 @@ class ContainerInstaller:
                 role,
                 runtime_data_root=Path("/opt/elesim/data"),
             )
-            if role in {"pilot", "sim"}:
-                _copy_tree(
-                    root / "payload/data/calibration",
-                    data_root / "calibration",
-                )
-            elif role == "ui":
-                _copy_tree(
-                    root / "payload/data/calibration/arm",
-                    data_root / "calibration/arm",
-                )
-            if role == "pilot":
-                _copy_tree(
-                    root / "payload/data/models/arm",
-                    data_root / "models/arm",
-                )
-                _copy_tree(root / "payload/data/models/perception", data_root / "models/perception")
-                _copy_tree(
-                    root / "payload/data/policies",
-                    data_root / "policies",
-                )
-            elif role == "sim":
-                _copy_tree(
-                    root / "payload/data/models/assemblies",
-                    data_root / "models/assemblies",
-                )
-                _copy_tree(
-                    root / "payload/data/models/objects",
-                    data_root / "models/objects",
-                )
+            self._copy_role_payload_data(root, data_root, role)
+
+    @staticmethod
+    def _copy_role_payload_data(root: Path, data_root: Path, role: str) -> None:
+        """Copy only the immutable data consumed by one Docker role."""
+
+        if role in {"pilot", "sim"}:
+            _copy_tree(root / "payload/data/calibration", data_root / "calibration")
+        elif role == "ui":
+            _copy_tree(
+                root / "payload/data/calibration/arm",
+                data_root / "calibration/arm",
+            )
+        if role == "pilot":
+            _copy_tree(root / "payload/data/models/arm", data_root / "models/arm")
+            _copy_tree(
+                root / "payload/data/models/perception",
+                data_root / "models/perception",
+            )
+            _copy_tree(root / "payload/data/policies", data_root / "policies")
+        elif role == "sim":
+            _copy_tree(
+                root / "payload/data/models/assemblies",
+                data_root / "models/assemblies",
+            )
+            _copy_tree(
+                root / "payload/data/models/objects",
+                data_root / "models/objects",
+            )
+
+    def _copy_runtime_snapshot(self) -> None:
+        """Refresh the scoped release input snapshot without link traversal."""
+
+        snapshot = self.container_root / "runtime-snapshot"
+        for current in (snapshot, *snapshot.parents):
+            if current.is_symlink():
+                raise ValueError(f"runtime snapshot path는 symlink일 수 없습니다: {current}")
+        _reset_generated_context(snapshot)
+        config_root = snapshot / "config"
+        data_root = snapshot / "data"
+        config_root.mkdir(parents=True, mode=0o700)
+        data_root.mkdir(mode=0o700)
+        source_root = self.state.source_path
+        for role in self.state.roles:
+            source_config = source_root / "payload/config" / role
+            # Unlike mutable app config, release templates retain the complete
+            # source role directory (including public examples).  Publication
+            # hashes this exact tree and instances consume the pinned copy.
+            _copy_source_tree(source_config, config_root / role)
+            self._copy_role_payload_data(source_root, data_root, role)
 
     def _role_build_args(self, role: str) -> dict[str, str]:
         return {
@@ -798,11 +975,12 @@ class ContainerInstaller:
         if entrypoint.read_text(encoding="utf-8") != expected_entrypoint:
             raise ValueError(f"prepacked {role} entrypoint does not match runtime contract")
         (context / "entrypoint").chmod(0o755)
-        image = f"elesim/{role}:local"
-        self._image_fingerprints[image] = _build_context_fingerprint(
+        fingerprint = _build_context_fingerprint(
             context,
             build_args=self._role_build_args(role),
         )
+        self._image_fingerprints[role] = fingerprint
+        self._image_fingerprints[self._image_name(role)] = fingerprint
 
     def _write_tools_context(self) -> None:
         root = self.state.source_path
@@ -816,14 +994,14 @@ class ContainerInstaller:
             root / "payload/runtime/common/elesim_interfaces",
             context / "interfaces/elesim_interfaces",
         )
-        self._image_fingerprints["elesim/tools:local"] = _build_context_fingerprint(
-            context
-        )
+        fingerprint = _build_context_fingerprint(context)
+        self._image_fingerprints["tools"] = fingerprint
+        self._image_fingerprints[self._image_name("tools")] = fingerprint
 
     def _write_developer_context(self) -> None:
         context = self._build_root / "development"
         write_developer_context(source_root=self.state.source_path, context=context)
-        self._image_fingerprints["elesim/dev:local"] = _build_context_fingerprint(
+        fingerprint = _build_context_fingerprint(
             context,
             build_args={
                 "USERNAME": resolve_developer_username(),
@@ -832,6 +1010,8 @@ class ContainerInstaller:
                 "COMPUTE_MODE": self.state.compute.gpu_mode,
             },
         )
+        self._image_fingerprints["dev"] = fingerprint
+        self._image_fingerprints[self._image_name("dev")] = fingerprint
 
     def _write_compose(self) -> None:
         services: dict[str, object] = {}
@@ -845,15 +1025,17 @@ class ContainerInstaller:
             services["dev"] = developer_service(
                 state=self.state,
                 context=self._build_root / "development",
-                data_root=self.state.prefix_path / "cache/developer",
+                data_root=self._runtime_cache_root / "developer",
                 install_uuid=self._install_uuid,
-                build_fingerprint=self._image_fingerprints["elesim/dev:local"],
+                build_fingerprint=self._image_fingerprints["dev"],
+                image=self._image_name("dev"),
+                container_name=self._infra_container_name("dev"),
             )
         services["tools"] = self._tools_service()
         if self.state.container_network.uses_tailscale_sidecar:
             services["runtime-tools"] = self._runtime_tools_service()
         services["manager"] = self._manager_service()
-        payload = {"name": GENERAL_COMPOSE_PROJECT, "services": services}
+        payload = {"name": self._compose_project, "services": services}
         destination = self.container_root / "compose.yaml"
         destination.parent.mkdir(parents=True, exist_ok=True)
         if os.path.lexists(destination):
@@ -873,13 +1055,89 @@ class ContainerInstaller:
             if temporary.exists():
                 temporary.unlink()
 
-    def _role_service(self, role: str) -> dict[str, object]:
+    def _role_service(
+        self,
+        role: str,
+        *,
+        config_root: Path | None = None,
+        cache_root: Path | None = None,
+        data_root: Path | None = None,
+        keystore_root: Path | None = None,
+        enclave: str | None = None,
+        instance_scoped: bool = False,
+        compute: ComputeSettings | None = None,
+    ) -> dict[str, object]:
+        if instance_scoped:
+            if config_root is None or cache_root is None or data_root is None:
+                raise ValueError(
+                    "instance-scoped role services require explicit config, cache and data roots"
+                )
+            if self.state.dds.security_profile not in {"trusted-network", "sros2"}:
+                raise ValueError("instance-scoped role services require trusted-network or sros2")
+            if self.state.dds.security_profile == "sros2":
+                if keystore_root is None or not enclave:
+                    raise ValueError("instance-scoped SROS2 services require explicit keystore and enclave")
+                if keystore_root == app_keystore_path(self.state, role):
+                    raise ValueError("instance-scoped SROS2 services must not use a legacy shared keystore")
+            elif keystore_root is not None or enclave:
+                raise ValueError("trusted-network instance services must not receive SROS2 views")
+
+        def checked_root(value: Path, *, name: str) -> Path:
+            path = Path(value)
+            if not path.is_absolute():
+                raise ValueError(f"{name} must be an absolute path")
+            # Reject symlink ancestors lexically; resolving first would erase
+            # the very escape that must be detected by the caller.
+            probe = path
+            while True:
+                if os.path.lexists(probe) and probe.is_symlink():
+                    raise ValueError(f"{name} may not have a symlink ancestor: {path}")
+                if probe == probe.parent:
+                    break
+                probe = probe.parent
+            return path
+
         context = self._build_root / role
         role_root = app_directory(self.state, role)
-        image = f"elesim/{role}:local"
+        selected_config = checked_root(
+            config_root if config_root is not None else role_root / "config",
+            name="config_root",
+        )
+        selected_cache = checked_root(
+            cache_root if cache_root is not None else self._runtime_cache_root,
+            name="cache_root",
+        )
+        selected_data = checked_root(
+            data_root if data_root is not None else self.state.prefix_path / "data",
+            name="data_root",
+        )
+        if instance_scoped and (
+            selected_config == role_root / "config"
+            or selected_cache == self._runtime_cache_root
+            or selected_data == self.state.prefix_path / "data"
+        ):
+            raise ValueError("instance-scoped role services must not use legacy shared roots")
+        if instance_scoped:
+            selected_roots = (selected_config, selected_cache, selected_data)
+            if keystore_root is not None:
+                selected_roots += (checked_root(keystore_root, name="keystore_root"),)
+            for index, current in enumerate(selected_roots):
+                for other in selected_roots[index + 1 :]:
+                    if _is_within(current, other) or _is_within(other, current):
+                        raise ValueError("instance-scoped roots overlap")
+            systems = {
+                parts[index + 1]
+                for root in selected_roots
+                for parts in (root.parts,)
+                for index, part in enumerate(parts[:-1])
+                if part == "instances"
+            }
+            if len(systems) > 1:
+                raise ValueError("instance-scoped roots belong to different systems")
+        image = self._image_name(role)
         service: dict[str, object] = {
             "image": image,
-            "container_name": ROLE_CONTAINER_NAMES[role],
+            "container_name": self._container_name(role),
             "build": {
                 "context": str(context),
                 "labels": self._image_build_labels(image),
@@ -892,18 +1150,28 @@ class ContainerInstaller:
                 "driver": DOCKER_LOGGING["driver"],
                 "options": dict(DOCKER_LOGGING["options"]),
             },
-            "environment": self._dds_environment(role),
+            "environment": self._dds_environment(
+                role,
+                keystore_override=keystore_root,
+                enclave_override_value=enclave,
+            ),
             "volumes": [
-                f"{role_root / 'config'}:/opt/elesim/config:ro",
-                (
-                    f"{app_keystore_path(self.state, role)}:"
-                    f"{app_keystore_path(self.state, role)}:ro"
-                ),
+                f"{selected_config}:/opt/elesim/config:ro",
             ],
         }
+        if not instance_scoped:
+            service["volumes"].append(  # type: ignore[union-attr]
+                f"{app_keystore_path(self.state, role)}:"
+                f"{app_keystore_path(self.state, role)}:ro"
+            )
+        elif self.state.dds.security_profile == "sros2":
+            assert keystore_root is not None
+            service["volumes"].append(  # type: ignore[union-attr]
+                f"{keystore_root}:{keystore_root}:ro"
+            )
         if role in {"pilot", "sim", "ui"}:
             service["volumes"].append(  # type: ignore[union-attr]
-                f"{self.state.prefix_path / 'data'}:/opt/elesim/data:ro"
+                f"{selected_data}:/opt/elesim/data:ro"
             )
         self._apply_tailscale_dependency(service)
         if role == "sim":
@@ -931,11 +1199,11 @@ class ContainerInstaller:
             service["environment"]["ELESIM_SIM_VIEWER"] = "${ELESIM_SIM_VIEWER:-}"  # type: ignore[index]
             service["volumes"].extend(  # type: ignore[union-attr]
                 (
-                    f"{self._runtime_cache_root}:/tmp/elesim-cache:rw",
+                    f"{selected_cache}:/tmp/elesim-cache:rw",
                 )
             )
             service["shm_size"] = "2gb"
-            service["ipc"] = "host"
+            service["ipc"] = "private" if instance_scoped else "host"
             if self.state.turn.managed:
                 secret = self.state.turn.secret_path
                 if secret is None:
@@ -969,7 +1237,7 @@ class ContainerInstaller:
                 "${ELESIM_UI_SOFTWARE_GL:-1}"
             )
         if role in {"pilot", "sim"}:
-            self._apply_compute(service)
+            self._apply_compute(service, compute=compute)
         return service
 
     def _image_build_labels(self, image: str) -> dict[str, str]:
@@ -979,10 +1247,16 @@ class ContainerInstaller:
             raise RuntimeError(
                 f"image context fingerprint가 준비되지 않았습니다: {image}"
             ) from exc
-        return {
+        labels = {
             DOCKER_INSTALL_UUID_LABEL: self._install_uuid,
             DOCKER_BUILD_FINGERPRINT_LABEL: fingerprint,
         }
+        if self._scoped_namespace:
+            # Release publication validates image provenance independently of
+            # the Compose owner guard. Legacy ``:local`` images retain their
+            # historical label set.
+            labels["com.docker.compose.project"] = self._compose_project
+        return labels
 
     @staticmethod
     def _apply_x11_display(
@@ -1012,10 +1286,34 @@ class ContainerInstaller:
             environment["XAUTHORITY"] = str(authority_path)
             volumes.append(f"{authority_path}:{authority_path}:ro")
 
-    def _coturn_service(self) -> dict[str, object]:
-        secret = self.state.turn.secret_path
+    def _coturn_service(
+        self,
+        *,
+        instance_scoped: bool = False,
+        service_key: str = "coturn",
+        sim_service_key: str = "sim",
+        turn=None,
+    ) -> dict[str, object]:
+        selected_turn = self.state.turn if turn is None else turn
+        if selected_turn.mode != "managed":
+            raise ValueError("Coturn service requires managed TURN")
+        secret = selected_turn.secret_path
         if secret is None:
             raise ValueError("managed Coturn requires a TURN secret file")
+        if instance_scoped:
+            if self.state.dds.security_profile != "sros2":
+                raise ValueError("managed instance Coturn requires the sros2 profile")
+            labels = {
+                DOCKER_INSTALL_UUID_LABEL: self._install_uuid,
+                "io.elesim.system_id": self.state.dds.system_id,
+                "io.elesim.endpoint_id": "coturn",
+                "io.elesim.role": "sim",
+                "io.elesim.service_kind": "coturn",
+            }
+            container = scoped_container_name(self._install_uuid, service_key)
+        else:
+            labels = {DOCKER_INSTALL_UUID_LABEL: self._install_uuid}
+            container = self._infra_container_name("coturn")
         command = (
             'secret="$$(cat /run/secrets/turn.secret)"; '
             'test -n "$$secret"; '
@@ -1025,14 +1323,16 @@ class ContainerInstaller:
             'fi; '
             "exec turnserver -n --log-file=stdout --fingerprint "
             "--use-auth-secret --no-multicast-peers --no-tls --no-dtls "
-            "--min-port=49160 --max-port=49200 "
+            f"--listening-port={selected_turn.effective_listen_port} "
+            f"--min-port={selected_turn.effective_relay_min_port} "
+            f"--max-port={selected_turn.effective_relay_max_port} "
             '--realm="$$TURN_REALM" $$external_ip_arg '
             '--static-auth-secret="$$secret"'
         )
         service: dict[str, object] = {
             "image": "coturn/coturn:4.14.0-r0-alpine",
-            "container_name": "elesim-coturn",
-            "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
+            "container_name": container,
+            "labels": labels,
             "network_mode": self._runtime_network_mode(),
             # The bind-mounted secret is owned by the installing host user and
             # deliberately remains 0600.  Run Coturn under that exact UID/GID
@@ -1048,17 +1348,17 @@ class ContainerInstaller:
             # script argument so `sh -ec` receives the complete command.
             "command": (command,),
             "environment": {
-                "TURN_REALM": self.state.turn.realm,
-                "TURN_PUBLIC_IP": self.state.turn.public_host,
+                "TURN_REALM": selected_turn.realm,
+                "TURN_PUBLIC_IP": selected_turn.public_host,
             },
             "volumes": (f"{secret}:/run/secrets/turn.secret:ro",),
             "tmpfs": ("/var/lib/coturn",),
-            "depends_on": ("sim",),
+            "depends_on": (sim_service_key,),
         }
         if self.state.container_network.uses_tailscale_sidecar:
             service["depends_on"] = {
                 "tailscale": {"condition": "service_healthy"},
-                "sim": {"condition": "service_started"},
+                sim_service_key: {"condition": "service_started"},
             }
         return service
 
@@ -1069,7 +1369,7 @@ class ContainerInstaller:
             raise ValueError("Tailscale sidecar settings are incomplete")
         return {
             "image": TAILSCALE_IMAGE,
-            "container_name": TAILSCALE_CONTAINER_NAME,
+            "container_name": self._infra_container_name("tailscale"),
             "hostname": settings.tailscale_hostname,
             "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
             "restart": "unless-stopped",
@@ -1108,21 +1408,30 @@ class ContainerInstaller:
                 "tailscale": {"condition": "service_healthy"}
             }
 
-    def _apply_compute(self, service: dict[str, object]) -> None:
+    def _apply_compute(
+        self,
+        service: dict[str, object],
+        *,
+        compute: ComputeSettings | None = None,
+    ) -> None:
+        # Scoped instance preparation supplies its immutable policy here. The
+        # default remains the install-level policy for legacy/general Compose.
+        selected = self.state.compute if compute is None else compute
+        selected.validate()
         environment = service["environment"]
         assert isinstance(environment, dict)
-        if self.state.compute.gpu_mode == "cpu":
+        if selected.gpu_mode == "cpu":
             environment["CUDA_VISIBLE_DEVICES"] = ""
             return
         environment["NVIDIA_DRIVER_CAPABILITIES"] = "compute,utility,graphics"
-        if self.state.compute.gpu_mode == "specific":
+        if selected.gpu_mode == "specific":
             service["deploy"] = {
                 "resources": {
                     "reservations": {
                         "devices": (
                             {
                                 "driver": "nvidia",
-                                "device_ids": (self.state.compute.gpu_device,),
+                                "device_ids": (selected.gpu_device,),
                                 "capabilities": ("gpu",),
                             },
                         )
@@ -1163,10 +1472,10 @@ class ContainerInstaller:
         # deliberately has no host passwd database to resolve it.
         environment["ELESIM_HOST_USER"] = _resolve_viewer_user()
         service: dict[str, object] = {
-            "image": "elesim/tools:local",
+            "image": self._image_name("tools"),
             "build": {
                 "context": str(context),
-                "labels": self._image_build_labels("elesim/tools:local"),
+                "labels": self._image_build_labels(self._image_name("tools")),
             },
             "network_mode": "host",
             "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
@@ -1214,10 +1523,10 @@ class ContainerInstaller:
         if not _is_within(self.state.bin_path, home):
             volumes.append(f"{self.state.bin_path}:{self.state.bin_path}:ro")
         return {
-            "image": "elesim/tools:local",
+            "image": self._image_name("tools"),
             "build": {
                 "context": str(context),
-                "labels": self._image_build_labels("elesim/tools:local"),
+                "labels": self._image_build_labels(self._image_name("tools")),
             },
             "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
             "profiles": ("manager",),
@@ -1271,18 +1580,21 @@ class ContainerInstaller:
             else None
         )
         backend_guard = _docker_backend_guard(self.state.container_network)
-        owner_guard = compose_owner_guard(
-            compose,
-            project=GENERAL_COMPOSE_PROJECT,
-            containers=(
+        guard_containers = (
+            (*self._role_container_names.values(), *self._special_container_names.values())
+            if self._scoped_namespace
+            else (
                 *ROLE_CONTAINER_NAMES.values(),
                 *LEGACY_ROLE_CONTAINER_NAMES,
-                TAILSCALE_CONTAINER_NAME,
-                "elesim-coturn",
-                "elesim-manager",
-                "elesim-dev",
-                "elesim-jaeger",
-            ),
+                *self._special_container_names.values(),
+            )
+        )
+        if not self._scoped_namespace:
+            guard_containers = (*guard_containers, "elesim-jaeger")
+        owner_guard = compose_owner_guard(
+            compose,
+            project=self._compose_project,
+            containers=guard_containers,
         )
         guard = backend_guard + owner_guard
         write_executable(
@@ -1335,6 +1647,57 @@ class ContainerInstaller:
             )
             + "if (( runtime_cuda_visible_set )); then export CUDA_VISIBLE_DEVICES=$runtime_cuda_visible; fi\n"
             + "if [[ -n $runtime_sim_viewer ]]; then export ELESIM_SIM_VIEWER=$runtime_sim_viewer; fi\n"
+            + (
+                # The base Compose file of a scoped install is an immutable
+                # capability/build context.  It is not a runtime graph: role
+                # services belong to ``compose.instances.yaml`` and are
+                # reached only through ``elesim-instance``.  Keep the
+                # install-owned tools/dev/manager/sidecar operations usable,
+                # while refusing a direct base-project lifecycle command.
+                "if [[ ${ELESIM_SCOPED_COMPOSE_INTERNAL:-0} != 1 ]]; then\n"
+                "  scoped_compose_action=\n"
+                "  for scoped_compose_arg in \"$@\"; do\n"
+                "    case $scoped_compose_arg in\n"
+                "      build|config|exec|kill|pause|pull|push|ps|restart|rm|run|scale|start|stop|top|unpause|up|down)\n"
+                "        scoped_compose_action=$scoped_compose_arg\n"
+                "        break\n"
+                "        ;;\n"
+                "    esac\n"
+                "  done\n"
+                "  case $scoped_compose_action in\n"
+                "    kill|pause|pull|push|restart|rm|scale|top|unpause|down)\n"
+                "      printf '%s\\n' 'scoped 설치의 base Compose lifecycle은 사용할 수 없습니다. 등록된 system에는 elesim-instance를 사용하십시오.' >&2\n"
+                "      exit 78\n"
+                "      ;;\n"
+                "    run|exec)\n"
+                "      scoped_compose_role_target=0\n"
+                "      for scoped_compose_arg in \"$@\"; do\n"
+                "        case $scoped_compose_arg in pilot|sim|ui|coturn) scoped_compose_role_target=1 ;; esac\n"
+                "      done\n"
+                "      if (( scoped_compose_role_target )); then\n"
+                "        printf '%s\\n' 'scoped 설치의 base role service에는 직접 명령을 보낼 수 없습니다. 등록된 system에는 elesim-instance를 사용하십시오.' >&2\n"
+                "        exit 78\n"
+                "      fi\n"
+                "      ;;\n"
+                "    up|start|stop)\n"
+                "      scoped_compose_role_target=0\n"
+                "      scoped_compose_infrastructure_target=0\n"
+                "      for scoped_compose_arg in \"$@\"; do\n"
+                "        case $scoped_compose_arg in\n"
+                "          pilot|sim|ui|coturn) scoped_compose_role_target=1 ;;\n"
+                "          tools|manager|dev|tailscale|runtime-tools) scoped_compose_infrastructure_target=1 ;;\n"
+                "        esac\n"
+                "      done\n"
+                "      if (( scoped_compose_role_target || ! scoped_compose_infrastructure_target )); then\n"
+                "        printf '%s\\n' 'scoped 설치의 base Compose lifecycle은 사용할 수 없습니다. 등록된 system에는 elesim-instance를 사용하십시오.' >&2\n"
+                "        exit 78\n"
+                "      fi\n"
+                "      ;;\n"
+              "esac\n"
+                "fi\n"
+                if self._scoped_namespace
+                else ""
+            )
             + 'exec docker compose "$@"\n',
         )
         application_guard = launch_guard(provisioning_required_path(self.state))
@@ -1389,6 +1752,12 @@ class ContainerInstaller:
             f"{shlex.quote(str(self.state.bin_path / 'elesim-net'))} "
             "namespace-check >/dev/null\n"
         )
+        source_revision = os.environ.get("ELESIM_SOURCE_REVISION", "").strip() or None
+        runtime_snapshot = self.container_root / "runtime-snapshot"
+        release_images = {
+            role: self._image_name(role)
+            for role in self.state.roles
+        }
         wrappers: dict[str, tuple[str, bool]] = {
             "elesim-build": (f"{command} build", False),
             "elesim-setup": (
@@ -1398,6 +1767,26 @@ class ContainerInstaller:
             ),
         }
         for name, (body, requires_provisioning) in wrappers.items():
+            scoped_instance_remove = ""
+            if name == "elesim-setup" and self._scoped_namespace:
+                scoped_instance_remove = (
+                    "if [[ ${1:-} == instance && ${2:-} == remove ]]; then\n"
+                    "  instance_remove_system=\n"
+                    "  if (( $# == 4 )) && [[ $3 == --system ]]; then\n"
+                    "    instance_remove_system=$4\n"
+                    "  elif (( $# == 3 )) && [[ $3 == --system=* ]]; then\n"
+                    "    instance_remove_system=${3#--system=}\n"
+                    "  else\n"
+                    "    printf 'usage: elesim-setup instance remove --system <system>\\n' >&2\n"
+                    "    exit 64\n"
+                    "  fi\n"
+                    "  if [[ ! $instance_remove_system =~ ^[a-z][a-z0-9_]{0,62}$ ]]; then\n"
+                    "    printf 'system ID가 올바르지 않습니다: %s\\n' \"$instance_remove_system\" >&2\n"
+                    "    exit 64\n"
+                    "  fi\n"
+                    f"  exec {shlex.quote(str(self.state.bin_path / 'elesim-instance'))} \"$instance_remove_system\" remove\n"
+                    "fi\n"
+                )
             write_executable(
                 self.state.bin_path / name,
                 "#!/usr/bin/env bash\nset -euo pipefail\n"
@@ -1407,35 +1796,66 @@ class ContainerInstaller:
                     else ""
                 )
                 + guard
+                + scoped_instance_remove
                 + "exec "
                 + body
                 + ' "$@"\n',
             )
-        write_executable(
-            self.state.bin_path / "elesim-up",
-            _runtime_up_wrapper(
-                compose=compose,
-                compose_wrapper=compose_wrapper,
-                # Compose operations use elesim-compose; direct fingerprint
-                # inspection/removal also needs the pinned daemon guard.
-                launch_guard=application_guard + runtime_network_guard,
-                has_sim="sim" in self.state.roles,
-                runtime_roles=self.state.roles,
-                state_path=self.state_path,
-                viewer_state=viewer_state,
-                viewer_user=viewer_user,
-                runtime_uid=os.getuid(),
-                runtime_gpu_mode=self.state.compute.gpu_mode,
-                runtime_install_uuid=self._install_uuid,
-                runtime_image_fingerprints=tuple(
-                    (f"elesim/{role}:local", self._image_fingerprints[f"elesim/{role}:local"])
-                    for role in self.state.roles
+        if self._scoped_namespace:
+            # A scoped install has no implicit system.  InstanceRuntime writes
+            # exact lifecycle wrappers below ``instances/<system>/bin`` after
+            # registration; the public dispatcher is the only normal path.
+            write_executable(
+                self.state.bin_path / "elesim-instance",
+                _scoped_instance_dispatcher(
+                    prefix=self.state.prefix_path,
+                    state_path=self.state_path,
+                    install_uuid=self._install_uuid,
+                    docker_context=self.state.container_network.docker_context,
+                    docker_engine_id=self.state.container_network.docker_engine_id,
                 ),
-                # Fingerprint inspection/removal uses the Docker CLI directly;
-                # keep those reads on the same pinned daemon as Compose.
-                guard=backend_guard,
-            ),
-        )
+            )
+            # Connection-manager registration is a host-owned, file-only
+            # handoff.  The manager never receives the Docker socket; its
+            # short-lived host helper invokes this exact wrapper instead.
+            write_executable(
+                self.state.bin_path / "elesim-instance-register",
+                "#!/usr/bin/env bash\nset -euo pipefail\n"
+                + guard
+                + f"exec {command} run --rm --no-deps --no-build tools elesim-setup "
+                f"--state {shlex.quote(str(self.state_path))} instance \"$@\"\n",
+            )
+            scoped_refusal = _scoped_lifecycle_refusal(
+                instance_command=str(self.state.bin_path / "elesim-instance")
+            )
+            for lifecycle_name in ("elesim-up", "elesim-down", "elesim-logs", "elesim-status"):
+                write_executable(self.state.bin_path / lifecycle_name, scoped_refusal)
+        else:
+            write_executable(
+                self.state.bin_path / "elesim-up",
+                _runtime_up_wrapper(
+                    compose=compose,
+                    compose_wrapper=compose_wrapper,
+                    # Compose operations use elesim-compose; direct fingerprint
+                    # inspection/removal also needs the pinned daemon guard.
+                    launch_guard=application_guard + runtime_network_guard,
+                    has_sim="sim" in self.state.roles,
+                    runtime_roles=self.state.roles,
+                    state_path=self.state_path,
+                    viewer_state=viewer_state,
+                    viewer_user=viewer_user,
+                    runtime_uid=os.getuid(),
+                    runtime_gpu_mode=self.state.compute.gpu_mode,
+                    runtime_install_uuid=self._install_uuid,
+                    runtime_image_fingerprints=tuple(
+                        (self._image_name(role), self._image_fingerprints[role])
+                        for role in self.state.roles
+                    ),
+                    # Fingerprint inspection/removal uses the Docker CLI directly;
+                    # keep those reads on the same pinned daemon as Compose.
+                    guard=backend_guard,
+                ),
+            )
         if self.state.developer_attachment.enabled:
             write_executable(
                 self.state.bin_path / "elesim-dev",
@@ -1465,6 +1885,61 @@ class ContainerInstaller:
         write_executable(
             self.state.bin_path / "elesim-net",
             "#!/usr/bin/env bash\nset -euo pipefail\n"
+            # This is a bounded, read-only identity handshake.  Keep it ahead
+            # of the Docker guard so a remote manager can enroll/verify the
+            # installation without touching Docker or mutable runtime state.
+            + "if [[ ${1:-} == identity ]]; then\n"
+            + "  if (( $# != 1 )); then printf '%s\\n' 'identity accepts no options' >&2; exit 64; fi\n"
+            + "  printf '%s\\n' "
+            + shlex.quote(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "install_uuid": self._install_uuid,
+                        "project": self._compose_project,
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            )
+            + "  exit 0\n"
+            + "fi\n"
+            # Scoped installations have no install-wide network configuration
+            # surface.  In particular, a legacy connection manager must not
+            # be able to route ``configure``/``restore-snapshot`` to this
+            # install and rewrite its DDS/TURN state.  Scoped lifecycle uses
+            # instance registration plus namespace checks instead.
+            + (
+                "if [[ ${1:-} == configure || ${1:-} == restore-snapshot ]]; then\n"
+                "  printf '%s\\n' 'scoped 설치에서는 install-wide elesim-net 변경 작업을 사용할 수 없습니다.' >&2\n"
+                "  exit 78\n"
+                "fi\n"
+                if self._scoped_namespace
+                else ""
+            )
+            # A scoped connection manager selects a release independently on
+            # every deployment unit.  Keep this query read-only and emit the
+            # published manifest bodies; the manager re-validates the
+            # content-addressed key before using one.
+            + "if [[ ${1:-} == releases ]]; then\n"
+            + "  if (( $# != 1 )); then printf '%s\\n' 'releases accepts no options' >&2; exit 64; fi\n"
+            + "  exec env PYTHONPATH="
+            + shlex.quote(str(self.state.prefix_path / "maintenance"))
+            + " PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1"
+            + " python3 -B -S -c "
+            + shlex.quote(
+                "import json, sys; "
+                "from elesim_setup.releases import list_releases; "
+                "print(json.dumps([value.to_dict() for value in "
+                "list_releases(sys.argv[1], install_uuid=sys.argv[2])], "
+                "sort_keys=True, separators=(',', ':')))"
+            )
+            + " "
+            + shlex.quote(str(self.state.prefix_path))
+            + " "
+            + shlex.quote(self._install_uuid)
+            + "\n"
+            + "fi\n"
             + guard
             + _docker_backend_diagnostic()
             + "net_service=tools\n"
@@ -1475,16 +1950,18 @@ class ContainerInstaller:
                 if self.state.container_network.uses_tailscale_sidecar
                 else ""
             )
-            + f"expected_tools_build_fingerprint={shlex.quote(self._image_fingerprints['elesim/tools:local'])}\n"
+            + f"expected_tools_build_fingerprint={shlex.quote(self._image_fingerprints['tools'])}\n"
             + f"expected_tools_install_uuid={shlex.quote(self._install_uuid)}\n"
-            + "tools_image_fingerprint=\"$(docker image inspect elesim/tools:local --format '{{if .Config.Labels}}{{index .Config.Labels \"io.elesim.build_fingerprint\"}}{{end}}' 2>/dev/null || true)\"\n"
+            + "tools_image_fingerprint=\"$(docker image inspect "
+            + shlex.quote(self._image_name("tools"))
+            + " --format '{{if .Config.Labels}}{{index .Config.Labels \"io.elesim.build_fingerprint\"}}{{end}}' 2>/dev/null || true)\"\n"
             + "needs_tools_build=1\n"
             + "if [[ ${ELESIM_UP_NO_BUILD:-0} == 1 || $tools_image_fingerprint == \"$expected_tools_build_fingerprint\" ]]; then\n"
             + "  needs_tools_build=0\n"
             + "fi\n"
             + "tools_previous_image_id=\"\"\n"
             + "if [[ $needs_tools_build == 1 ]]; then\n"
-            + "  tools_previous_image_id=\"$(docker image inspect elesim/tools:local --format '{{.Id}}' 2>/dev/null || true)\"\n"
+            + f"  tools_previous_image_id=\"$(docker image inspect {shlex.quote(self._image_name('tools'))} --format '{{.Id}}' 2>/dev/null || true)\"\n"
             + f"  {command} build --quiet tools >/dev/null\n"
             + "  if [[ -n $tools_previous_image_id ]]; then\n"
             + "    tools_image_tags=\"$(docker image inspect \"$tools_previous_image_id\" --format '{{range .RepoTags}}{{println .}}{{end}}' 2>/dev/null || true)\"\n"
@@ -1503,56 +1980,67 @@ class ContainerInstaller:
         if self.state.turn.managed:
             managed_services = (*managed_services, "coturn")
         tailscale_services = (*managed_services, "runtime-tools")
-        write_executable(
-            self.state.bin_path / "elesim-logs",
-            _runtime_logs_wrapper(
-                compose=compose,
-                logs_root=self.state.prefix_path / "logs",
-                services=managed_services,
-                archive_enabled=self.state.runtime_text_logs.enabled,
-                guard=guard,
-            ),
-        )
-        write_executable(
-            self.state.bin_path / "elesim-down",
-            _runtime_down_wrapper(
-                compose=compose,
-                logs_root=self.state.prefix_path / "logs",
-                services=managed_services,
-                archive_enabled=self.state.runtime_text_logs.enabled,
-                guard=guard,
-                viewer_state=viewer_state,
-                viewer_user=viewer_user,
-                infrastructure_services=(
-                    ("tailscale",)
-                    if self.state.container_network.uses_tailscale_sidecar
-                    else ()
+        if not self._scoped_namespace:
+            write_executable(
+                self.state.bin_path / "elesim-logs",
+                _runtime_logs_wrapper(
+                    compose=compose,
+                    logs_root=self.state.prefix_path / "logs",
+                    services=managed_services,
+                    archive_enabled=self.state.runtime_text_logs.enabled,
+                    guard=guard,
+                    project=self._compose_project,
                 ),
-            ),
-        )
+            )
+            write_executable(
+                self.state.bin_path / "elesim-down",
+                _runtime_down_wrapper(
+                    compose=compose,
+                    logs_root=self.state.prefix_path / "logs",
+                    services=managed_services,
+                    archive_enabled=self.state.runtime_text_logs.enabled,
+                    guard=guard,
+                    viewer_state=viewer_state,
+                    viewer_user=viewer_user,
+                    infrastructure_services=(
+                        ("tailscale",)
+                        if self.state.container_network.uses_tailscale_sidecar
+                        else ()
+                    ),
+                    project=self._compose_project,
+                    instance_scoped=False,
+                    manager_container=self._infra_container_name("manager"),
+                ),
+            )
         status_services = [
-            (role, ROLE_CONTAINER_NAMES[role]) for role in self.state.roles
+            (role, self._container_name(role)) for role in self.state.roles
         ]
         if self.state.turn.managed:
-            status_services.append(("coturn", "elesim-coturn"))
+            status_services.append(("coturn", self._infra_container_name("coturn")))
         if self.state.container_network.uses_tailscale_sidecar:
-            status_services.append(("tailscale", TAILSCALE_CONTAINER_NAME))
+            status_services.append(("tailscale", self._infra_container_name("tailscale")))
         if self.state.developer_attachment.enabled:
-            status_services.append(("dev", "elesim-dev"))
-        write_executable(
-            self.state.bin_path / "elesim-status",
-            render_compose_status_wrapper(
-                compose=compose,
-                project=GENERAL_COMPOSE_PROJECT,
-                services=status_services,
-                guard=guard,
-                sim_container=(
-                    ROLE_CONTAINER_NAMES["sim"]
-                    if "sim" in self.state.roles
-                    else None
+            status_services.append(("dev", self._infra_container_name("dev")))
+        if not self._scoped_namespace:
+            write_executable(
+                self.state.bin_path / "elesim-status",
+                render_compose_status_wrapper(
+                    compose=compose,
+                    project=self._compose_project,
+                    services=status_services,
+                    guard=guard,
+                    sim_container=(
+                        self._container_name("sim")
+                        if "sim" in self.state.roles
+                        else None
+                    ),
+                    tailscale_container=(
+                        self._infra_container_name("tailscale")
+                        if self.state.container_network.uses_tailscale_sidecar
+                        else None
+                    ),
                 ),
-            ),
-        )
+            )
         if self.state.container_network.uses_tailscale_sidecar:
             write_executable(
                 self.state.bin_path / "elesim-tailscale",
@@ -1562,6 +2050,7 @@ class ContainerInstaller:
                     guard=guard,
                     hostname=self.state.container_network.tailscale_hostname,
                     services=tailscale_services,
+                    scoped=self._scoped_namespace,
                 ),
             )
         write_executable(
@@ -1579,6 +2068,11 @@ class ContainerInstaller:
                 container_network_mode=self.state.container_network.mode,
                 gpu_mode=self.state.compute.gpu_mode,
                 gpu_device=self.state.compute.gpu_device,
+                project=self._compose_project,
+                manager_container=self._infra_container_name("manager"),
+                scoped_systems=self._scoped_namespace,
+                docker_context=self.state.container_network.docker_context,
+                docker_engine_id=self.state.container_network.docker_engine_id,
             ),
         )
         write_executable(
@@ -1598,13 +2092,55 @@ class ContainerInstaller:
                 ref=self.state.source_ref,
                 runtime_uid=os.getuid(),
                 install_uuid=self._install_uuid,
+                # A scoped release may still point at an older image ID after
+                # a rebuild.  Keep its history until an explicit,
+                # reference-aware release GC exists; legacy :local updates
+                # retain their historical bounded dangling-image cleanup.
                 owned_images=(
-                    *(f"elesim/{role}:local" for role in self.state.roles),
-                    "elesim/tools:local",
-                    *(("elesim/dev:local",) if self.state.developer_attachment.enabled else ()),
+                    ()
+                    if self._scoped_namespace
+                    else (
+                        *(self._image_name(role) for role in self.state.roles),
+                        self._image_name("tools"),
+                        *((self._image_name("dev"),) if self.state.developer_attachment.enabled else ()),
+                    )
                 ),
+                runtime_snapshot=(runtime_snapshot if self._scoped_namespace else None),
+                # The update command refreshes source before building. Resolve
+                # the bootstrap-authenticated revision at invocation time so
+                # an old wrapper cannot publish a new image set under its
+                # previous release revision.
+                source_revision=None,
+                publish_roles=(self.state.roles if self._scoped_namespace else ()),
             ),
         )
+        if self._scoped_namespace:
+            release_script = (
+                render_release_wrapper(
+                    prefix=self.state.prefix_path,
+                    state_path=self.state_path,
+                    compose=compose,
+                    compose_wrapper=compose_wrapper,
+                    build_services=(*self.state.roles, "tools"),
+                    preamble=guard,
+                    source_revision=source_revision,
+                    runtime_snapshot=runtime_snapshot,
+                    install_uuid=self._install_uuid,
+                    release_images=tuple(release_images[role] for role in self.state.roles),
+                    runtime_uid=os.getuid(),
+                )
+                if source_revision is not None
+                else (
+                    "#!/usr/bin/env bash\nset -euo pipefail\n"
+                    "printf '%s\\n' 'No bootstrap-authenticated source revision is available for this install.' >&2\n"
+                    "printf '%s\\n' 'Run elesim-update to fetch, build, and publish an authenticated release.' >&2\n"
+                    "exit 64\n"
+                )
+            )
+            write_executable(
+                self.state.bin_path / "elesim-release",
+                release_script,
+            )
 
     def _wrapper_paths(self, *, include_uninstaller: bool = False) -> tuple[Path, ...]:
         names = [
@@ -1625,6 +2161,9 @@ class ContainerInstaller:
             names.append("elesim-viewer-cleanup")
         if self.state.developer_attachment.enabled:
             names.append("elesim-dev")
+        if self._scoped_namespace:
+            names.append("elesim-instance")
+            names.append("elesim-release")
         if include_uninstaller:
             names.append("elesim-uninstall")
         return tuple(self.state.bin_path / name for name in names)
@@ -1634,6 +2173,8 @@ class ContainerInstaller:
         role: str,
         *,
         enclave_override: bool = False,
+        keystore_override: Path | None = None,
+        enclave_override_value: str | None = None,
     ) -> dict[str, object]:
         interface = str(self.state.dds.interface).strip()
         if interface.casefold() in {"automatic", "auto", "-"}:
@@ -1657,9 +2198,15 @@ class ContainerInstaller:
                     "ROS_SECURITY_ENABLE": "true",
                     "ROS_SECURITY_STRATEGY": "Enforce",
                     "ROS_SECURITY_KEYSTORE": str(
-                        app_keystore_path(self.state, role)
+                        keystore_override
+                        if keystore_override is not None
+                        else app_keystore_path(self.state, role)
                     ),
-                    "ELESIM_DDS_ENCLAVE": dds_enclave(self.state, role),
+                    "ELESIM_DDS_ENCLAVE": (
+                        enclave_override_value
+                        if enclave_override_value is not None
+                        else dds_enclave(self.state, role)
+                    ),
                 }
             )
             if enclave_override:
@@ -2014,6 +2561,139 @@ def _docker_backend_diagnostic() -> str:
     )
 
 
+def _scoped_lifecycle_refusal(*, instance_command: str) -> str:
+    """Render the intentionally inert lifecycle commands for scoped installs.
+
+    A scoped installation has no implicit/global system.  Its generated
+    ``compose.yaml`` is an installation/build and manager context, not an
+    operator runtime graph; starting it from a generic wrapper would create
+    services which have never been registered in ``instances/``.  Keep the
+    historical command names present for discoverability, but make their
+    refusal deterministic and Docker-free.
+    """
+
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' '이 scoped 설치에는 전역 runtime이 없습니다. 등록된 system을 대상으로 elesim-instance <system> <up|down|logs|status>를 사용하십시오.' >&2\n"
+        "printf '예: %s alpha up\\n' "
+        + shlex.quote(instance_command)
+        + " >&2\n"
+        "exit 64\n"
+    )
+
+
+def _scoped_instance_dispatcher(
+    *,
+    prefix: Path,
+    state_path: Path | None = None,
+    install_uuid: str = "",
+    docker_context: str = "",
+    docker_engine_id: str = "",
+) -> str:
+    """Render the host dispatcher for one registered system instance.
+
+    The dispatcher intentionally performs only lexical/path checks.  The
+    generated per-instance wrapper remains responsible for Docker ownership,
+    backend pinning, and exact service selection.  Rejecting absent or linked
+    state/wrapper paths here prevents an arbitrary directory from becoming a
+    lifecycle target through the public operator command.
+    """
+
+    root = shlex.quote(str(prefix / "instances"))
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "umask 077\n"
+        "usage() { printf '사용법: elesim-instance <system> <up|down|logs|status|remove> [옵션]\\n' >&2; exit 64; }\n"
+        "if (( $# < 2 )); then usage; fi\n"
+        "if [[ $1 == --system=* ]]; then\n"
+        "  (( $# >= 2 )) || usage\n"
+        "  instance_system=${1#--system=}\n"
+        "  instance_action=$2\n"
+        "  shift 2\n"
+        "elif [[ $1 == --system ]]; then\n"
+        "  (( $# >= 3 )) || usage\n"
+        "  instance_system=$2\n"
+        "  instance_action=$3\n"
+        "  shift 3\n"
+        "else\n"
+        "  instance_system=$1\n"
+        "  instance_action=$2\n"
+        "  shift 2\n"
+        "fi\n"
+        "if [[ ! $instance_system =~ ^[a-z][a-z0-9_]{0,62}$ ]]; then\n"
+        "  printf 'system ID가 올바르지 않습니다: %s\\n' \"$instance_system\" >&2\n"
+        "  exit 64\n"
+        "fi\n"
+        "case $instance_action in\n"
+        "  up|down|logs|status|remove) ;;\n"
+        "  *) printf '지원하지 않는 instance 작업입니다: %s\\n' \"$instance_action\" >&2; exit 64 ;;\n"
+        "esac\n"
+        f"instance_registry={root}\n"
+        "instance_root=$instance_registry/$instance_system\n"
+        "instance_state=$instance_root/state.json\n"
+        "instance_wrapper=$instance_root/bin/$instance_action\n"
+        "reject_symlink_path() {\n"
+        "  local instance_path=$1\n"
+        "  while [[ $instance_path != / && -n $instance_path ]]; do\n"
+        "    if [[ -L $instance_path ]]; then\n"
+        "      printf 'instance 경로에 symlink가 있어 중단합니다: %s\\n' \"$instance_path\" >&2\n"
+        "      exit 78\n"
+        "    fi\n"
+        "    instance_path=${instance_path%/*}\n"
+        "  done\n"
+        "}\n"
+        "for instance_path in \"$instance_registry\" \"$instance_root\" \"$instance_state\" \"$instance_root/bin\" \"$instance_wrapper\"; do\n"
+        "  reject_symlink_path \"$instance_path\"\n"
+        "done\n"
+        "if [[ ! -d $instance_root || ! -f $instance_state ]]; then\n"
+        "  printf '등록되지 않은 instance입니다: %s\\n' \"$instance_system\" >&2\n"
+        "  printf '먼저 release instance를 등록하십시오.\\n' >&2\n"
+        "  exit 3\n"
+        "fi\n"
+        "if [[ $(stat -c %s -- \"$instance_state\" 2>/dev/null || printf 0) -gt 1048576 ]]; then\n"
+        "  printf 'instance state가 허용 크기를 넘습니다: %s\n' \"$instance_state\" >&2\n"
+        "  exit 78\n"
+        "fi\n"
+        "registered_system=$(python3 -B -S -c 'import json,sys; value=json.load(open(sys.argv[1], encoding=\"utf-8\")); print(value.get(\"system_id\", \"\") if isinstance(value, dict) else \"\")' \"$instance_state\" 2>/dev/null) || {\n"
+        "  printf 'instance state를 검증할 수 없습니다: %s\n' \"$instance_state\" >&2\n"
+        "  exit 78\n"
+        "}\n"
+        "if [[ $registered_system != \"$instance_system\" ]]; then\n"
+        "  printf 'instance directory와 state system ID가 다릅니다: %s\n' \"$instance_system\" >&2\n"
+        "  exit 78\n"
+        "fi\n"
+        + (
+            "if [[ $instance_action == remove ]]; then\n"
+            + (
+                f"  if [[ ! -f {shlex.quote(str(prefix / 'maintenance' / 'elesim_setup' / 'instance_remove.py'))} ]]; then\n"
+                "    printf 'host instance removal bundle is unavailable.\\n' >&2; exit 78\n"
+                "  fi\n"
+                "  exec env PYTHONPATH="
+                + shlex.quote(str(prefix / "maintenance"))
+                + " PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 -B -S -m elesim_setup.instance_remove"
+                + " --prefix " + shlex.quote(str(prefix))
+                + " --state " + shlex.quote(str(state_path))
+                + " --system-id \"$instance_system\""
+                + " --install-uuid " + shlex.quote(install_uuid)
+                + " --project " + shlex.quote(project_name(install_uuid))
+                + " --docker-context " + shlex.quote(docker_context)
+                + " --docker-engine-id " + shlex.quote(docker_engine_id)
+                + " --compose " + shlex.quote(str(prefix / "containers" / "compose.yaml"))
+                + " \"$@\"\n"
+                if state_path is not None and install_uuid and docker_context and docker_engine_id
+                else "  printf 'host instance removal is not configured for this installation.\\n' >&2; exit 78\n"
+            )
+            + "fi\n"
+            + "if [[ ! -x $instance_wrapper ]]; then\n"
+            + "  printf '등록된 instance wrapper가 없습니다: %s\\n' \"$instance_system\" >&2; exit 3\n"
+            + "fi\n"
+            + "exec \"$instance_wrapper\" \"$@\"\n"
+        )
+    )
+
+
 def _manager_wrapper(
     *,
     compose: Path,
@@ -2028,6 +2708,11 @@ def _manager_wrapper(
     container_network_mode: str,
     gpu_mode: str,
     gpu_device: str,
+    project: str = GENERAL_COMPOSE_PROJECT,
+    manager_container: str = "elesim-manager",
+    scoped_systems: bool = False,
+    docker_context: str = "",
+    docker_engine_id: str = "",
 ) -> str:
     if container_network_mode not in {"direct-host", "tailscale-sidecar"}:
         raise ValueError(
@@ -2039,6 +2724,107 @@ def _manager_wrapper(
         raise ValueError("specific GPU mode requires a GPU device")
     if gpu_mode != "specific" and gpu_device:
         raise ValueError("GPU device is only valid for specific GPU mode")
+    if scoped_systems and project == GENERAL_COMPOSE_PROJECT:
+        raise ValueError("scoped connection workspaces require an install-scoped Compose project")
+    manager_identity = manager_lifecycle_fragment(
+        install_uuid,
+        container_name=manager_container,
+        container_name_variable=("manager_container" if scoped_systems else None),
+    )
+    if scoped_systems:
+        # System IDs are validated again by the application.  This shell
+        # boundary only accepts the same lower-case ROS-safe alphabet before
+        # using the value in a path and Docker name.  The install UUID makes
+        # names unique across installations; the exact system suffix makes
+        # concurrent workspaces within one installation distinct.
+        install_scope = install_uuid.replace("-", "")
+        scoped_setup = (
+            "manager_system=\n"
+            "manager_args=()\n"
+            "manager_input=(\"$@\")\n"
+            "for ((manager_index=0; manager_index<${#manager_input[@]}; manager_index++)); do\n"
+            "  manager_arg=\"${manager_input[$manager_index]}\"\n"
+            "  case \"$manager_arg\" in\n"
+            "    --system=*)\n"
+            "      if [[ -n $manager_system ]]; then printf '연결관리자 --system은 한 번만 지정하십시오.\\n' >&2; exit 2; fi\n"
+            "      manager_system=\"${manager_arg#--system=}\"\n"
+            "      ;;\n"
+            "    --system)\n"
+            "      if (( manager_index + 1 >= ${#manager_input[@]} )); then printf '연결관리자 --system 값이 없습니다.\\n' >&2; exit 2; fi\n"
+            "      manager_index=$((manager_index + 1))\n"
+            "      if [[ -n $manager_system ]]; then printf '연결관리자 --system은 한 번만 지정하십시오.\\n' >&2; exit 2; fi\n"
+            "      manager_system=\"${manager_input[$manager_index]}\"\n"
+            "      ;;\n"
+            "    *) manager_args+=(\"$manager_arg\") ;;\n"
+            "  esac\n"
+            "done\n"
+            "if [[ ! $manager_system =~ ^[a-z][a-z0-9_]{0,62}$ ]]; then\n"
+            "  printf '연결관리자 --system은 소문자 시스템 ID여야 합니다: %s\\n' \"$manager_system\" >&2\n"
+            "  exit 2\n"
+            "fi\n"
+            f"manager_container=elesim-{install_scope}-manager-$manager_system\n"
+            f"manager_state_path={shlex.quote(str(local_install_root))}/connections/$manager_system/topology.json\n"
+        )
+        manager_args_init = ""
+        manager_lifecycle = manager_identity
+        forwarded_args = '"${manager_args[@]}"'
+        state_argument = '"$manager_state_path"'
+        expected_system_argument = ' --expected-system-id "$manager_system"'
+    else:
+        scoped_setup = ""
+        manager_args_init = 'manager_args=("$@")\n'
+        manager_lifecycle = manager_identity
+        forwarded_args = '"${manager_args[@]}"'
+        state_argument = shlex.quote(str(state_path))
+        expected_system_argument = ""
+    manager_name_argument = (
+        '"$manager_container"' if scoped_systems else shlex.quote(manager_container)
+    )
+    if scoped_systems:
+        # ``manager_system`` is validated by ``scoped_setup`` immediately
+        # before this fragment.  Quote the install UUID as data and hash the
+        # two values in the wrapper so every invocation derives the same
+        # endpoint without putting the system ID in an unquoted shell word.
+        manager_port_init = (
+            "manager_port_digest=\"$(printf '%s:%s' "
+            + shlex.quote(install_uuid)
+            + " \"$manager_system\" | sha256sum)\"\n"
+            "manager_port=$(("
+            + str(SCOPED_MANAGER_PORT_BASE)
+            + " + (16#${manager_port_digest:0:8} % "
+            + str(SCOPED_MANAGER_PORT_SPAN)
+            + ")))\n"
+            # The digest gives each install/system a repeatable starting
+            # point, but host-loopback publication is still a shared resource
+            # across prefixes.  Probe forward when another install (or a
+            # stale manager) already owns the candidate port.  Docker remains
+            # the final arbiter at launch, so this is intentionally only a
+            # collision avoidance hint; explicit --port is never rewritten.
+            "manager_port_explicit=0\n"
+        )
+    else:
+        # Legacy installs retain their historical fixed GUI port.  Initialize
+        # the shared parser flag so the scoped-only collision probe cannot
+        # trip ``set -u`` when this wrapper is invoked without ``--port``.
+        manager_port_init = "manager_port=8766\nmanager_port_explicit=1\n"
+    manager_ownership = ""
+    if scoped_systems:
+        manager_ownership = (
+            "PYTHONPATH="
+            + shlex.quote(str(maintenance_root))
+            + " PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 -B -S -m elesim_setup.manager_ownership "
+            + "--manifest "
+            + shlex.quote(str(local_install_root / "install-ownership.json"))
+            + " --install-uuid "
+            + shlex.quote(install_uuid)
+            + " --project "
+            + shlex.quote(project)
+            + " --system-id \"$manager_system\" --docker-context "
+            + shlex.quote(docker_context)
+            + " --docker-engine-id "
+            + shlex.quote(docker_engine_id)
+            + "\n"
+        )
     tailscale_hint = (
         "tailscale_interface=\"$(ip -o link show 2>/dev/null | awk -F': ' '$2 ~ /^tailscale[0-9]+$/ {print $2; exit}')\"\n"
         "tailscale_address=\"\"\n"
@@ -2052,15 +2838,19 @@ def _manager_wrapper(
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         + guard
-        + manager_lifecycle_fragment(install_uuid)
-        + "manager_compose_args=(-f "
+        + scoped_setup
+        + manager_lifecycle
+        + "manager_compose_args=(-p "
+        + shlex.quote(project)
+        + " -f "
         + shlex.quote(str(compose))
         + ")\n"
-        + "manager_port=8766\n"
-        "manager_args=(\"$@\")\n"
-        "for ((manager_index=0; manager_index<${#manager_args[@]}; manager_index++)); do\n"
+        + manager_port_init
+        + manager_args_init
+        + "manager_args_without_port=()\n"
+        + "for ((manager_index=0; manager_index<${#manager_args[@]}; manager_index++)); do\n"
         "  case \"${manager_args[$manager_index]}\" in\n"
-        "    --port=*) manager_port=\"${manager_args[$manager_index]#--port=}\" ;;\n"
+        "    --port=*) manager_port=\"${manager_args[$manager_index]#--port=}\"; manager_port_explicit=1 ;;\n"
         "    --port)\n"
         "      if (( manager_index + 1 >= ${#manager_args[@]} )); then\n"
         "        printf '연결관리자 --port 값이 없습니다.\\n' >&2\n"
@@ -2068,13 +2858,31 @@ def _manager_wrapper(
         "      fi\n"
         "      manager_index=$((manager_index + 1))\n"
         "      manager_port=\"${manager_args[$manager_index]}\"\n"
+        "      manager_port_explicit=1\n"
         "      ;;\n"
+        "    *) manager_args_without_port+=(\"${manager_args[$manager_index]}\") ;;\n"
         "  esac\n"
         "done\n"
+        "manager_args=(\"${manager_args_without_port[@]}\")\n"
+        "if (( manager_port_explicit == 0 )); then\n"
+        "  manager_port_attempts=0\n"
+        "  while (exec 3<>\"/dev/tcp/127.0.0.1/$manager_port\") >/dev/null 2>&1; do\n"
+        "    (( manager_port_attempts += 1 ))\n"
+        "    if (( manager_port_attempts >= 16384 || manager_port >= 65535 )); then\n"
+        "      printf '연결관리자에 사용할 loopback port를 확보하지 못했습니다.\n' >&2\n"
+        "      exit 98\n"
+        "    fi\n"
+        "    (( manager_port += 1 ))\n"
+        "  done\n"
+        "fi\n"
         "if [[ ! $manager_port =~ ^[0-9]+$ || $manager_port -lt 1 || $manager_port -gt 65535 ]]; then\n"
         "  printf '연결관리자 port가 유효하지 않습니다: %s\\n' \"$manager_port\" >&2\n"
         "  exit 2\n"
         "fi\n"
+        # Always give the container the exact port that was published on the
+        # host.  Appending this canonical option also makes an explicit
+        # ``--port`` override win over the application parser's default.
+        "manager_args+=(--port \"$manager_port\")\n"
         "manager_args+=(--host 0.0.0.0)\n"
         + tailscale_hint
         + "manager_options=()\n"
@@ -2094,7 +2902,8 @@ def _manager_wrapper(
             maintenance_root=maintenance_root,
             compose_argument=shlex.quote(str(compose)),
             bin_dir_argument=shlex.quote(str(local_bin_dir)),
-            project=GENERAL_COMPOSE_PROJECT,
+            project=project,
+            instance_system_argument='"$manager_system"' if scoped_systems else "",
         )
         + "if [[ -n ${SSH_AUTH_SOCK:-} && -S $SSH_AUTH_SOCK ]]; then\n"
         "  manager_options+=(\n"
@@ -2102,20 +2911,24 @@ def _manager_wrapper(
         "    -v \"$SSH_AUTH_SOCK:$SSH_AUTH_SOCK\"\n"
         "  )\n"
         "fi\n"
-        "manager_started=1\n"
+        + manager_ownership
+        + "manager_started=1\n"
         "set +e\n"
         + shlex.quote(str(compose_wrapper))
-        + " \"${manager_compose_args[@]}\" run --rm --build --name elesim-manager --publish "
+        + " \"${manager_compose_args[@]}\" run --rm --build --name "
+        + manager_name_argument
+        + " --label io.elesim.manager_invocation=\"$manager_invocation_token\" --publish "
         + '"127.0.0.1:${manager_port}:${manager_port}" '
         + '"${manager_options[@]}" manager elesim-connections --state '
-        + shlex.quote(str(state_path))
+        + state_argument
+        + expected_system_argument
         + " --authority-root "
         + shlex.quote(str(authority_root))
         + " --local-install-root "
         + shlex.quote(str(local_install_root))
         + " --local-bin-dir "
         + shlex.quote(str(local_bin_dir))
-        + ' "${manager_args[@]}"\n'
+        + " " + forwarded_args + "\n"
         + "manager_status=$?\n"
         + "exit \"$manager_status\"\n"
     )
@@ -2128,6 +2941,7 @@ def _tailscale_wrapper(
     guard: str,
     hostname: str,
     services: tuple[str, ...] = (),
+    scoped: bool = False,
 ) -> str:
     """Render the bounded sidecar enrollment/status/update operator surface.
 
@@ -2143,6 +2957,11 @@ def _tailscale_wrapper(
 
     compose_array = (
         "tailscale_compose=("
+        + (
+            "env ELESIM_SCOPED_COMPOSE_INTERNAL=1 "
+            if scoped
+            else ""
+        )
         + shlex.quote(str(compose_wrapper))
         + " -f "
         + shlex.quote(str(compose))
@@ -2801,7 +3620,8 @@ def _runtime_up_wrapper(
         raise ValueError("runtime image fingerprints must not contain duplicates")
     for image, fingerprint in normalized_fingerprints:
         if not re.fullmatch(
-            r"elesim/[a-z0-9][a-z0-9_.-]{0,127}:local", image
+            r"elesim/[a-z0-9][a-z0-9_.-]{0,127}:(?:local|[0-9a-f]{32}-[0-9a-f]{64})",
+            image,
         ):
             raise ValueError(f"invalid runtime image name: {image!r}")
         if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
@@ -3098,7 +3918,7 @@ def _runtime_up_wrapper(
             "    runtime_image_name=\"${runtime_image_spec%%|*}\"\n"
             "    runtime_expected_fingerprint=\"${runtime_image_spec#*|}\"\n"
             "    runtime_service_name=\"${runtime_image_name#elesim/}\"\n"
-            "    runtime_service_name=\"${runtime_service_name%:local}\"\n"
+            "    runtime_service_name=\"${runtime_service_name%%:*}\"\n"
             "    runtime_service_selected=0\n"
             "    for runtime_argument in \"${compose_args[@]}\"; do\n"
             "      if [[ $runtime_argument == \"$runtime_service_name\" ]]; then\n"
@@ -3111,7 +3931,7 @@ def _runtime_up_wrapper(
             "    if [[ $runtime_actual_fingerprint != \"$runtime_expected_fingerprint\" ]]; then\n"
             "      runtime_build_required=1\n"
             f"      runtime_previous_image_id=\"$(docker image inspect \"$runtime_image_name\" --format {docker_image_id_format} 2>/dev/null || true)\"\n"
-            "      if [[ -n $runtime_previous_image_id ]]; then\n"
+            "      if [[ -n $runtime_previous_image_id && $runtime_image_name == *:local ]]; then\n"
             "        runtime_previous_image_specs+=(\"$runtime_image_name|$runtime_previous_image_id\")\n"
             "      fi\n"
             "    fi\n"
@@ -3219,11 +4039,11 @@ def _runtime_up_wrapper(
         "if (( runtime_build_required == 0 )); then\n"
         "  "
         + command
-        + ' up -d --no-build --remove-orphans "${compose_args[@]}"\n'
+        + ' up -d --no-build "${compose_args[@]}"\n'
         "else\n"
         "  "
         + command
-        + ' up -d --build --remove-orphans "${compose_args[@]}"\n'
+        + ' up -d --build "${compose_args[@]}"\n'
         "fi\n"
         "compose_status=$?\n"
         "set -e\n"
@@ -3252,6 +4072,7 @@ def _runtime_archive_function(
     compose: Path,
     logs_root: Path,
     services: tuple[str, ...],
+    project: str | None = None,
 ) -> str:
     rendered_services = " ".join(shlex.quote(service) for service in services)
     return (
@@ -3314,7 +4135,9 @@ def _runtime_archive_function(
         "  local service destination\n"
         f"  for service in {rendered_services}; do\n"
         '    destination="$run_dir/$service.log"\n'
-        "    if ! docker compose -f "
+        "    if ! docker compose "
+        + (("-p " + shlex.quote(project) + " ") if project is not None else "")
+        + "-f "
         + shlex.quote(str(compose))
         + ' logs --no-color --timestamps "$service" '
         + '>"$destination" 2>&1; then\n'
@@ -3367,10 +4190,14 @@ def _runtime_presence_function(
     compose: Path,
     services: tuple[str, ...],
     function_name: str = "runtime_has_role_containers",
+    project: str | None = None,
 ) -> str:
     """Render a bounded role-container presence probe for operator wrappers."""
 
-    command = "docker compose -f " + shlex.quote(str(compose))
+    command = "docker compose "
+    if project is not None:
+        command += "-p " + shlex.quote(project) + " "
+    command += "-f " + shlex.quote(str(compose))
     rendered_services = " ".join(shlex.quote(service) for service in services)
     return (
         function_name
@@ -3391,13 +4218,19 @@ def _runtime_logs_wrapper(
     services: tuple[str, ...],
     archive_enabled: bool,
     guard: str,
+    project: str | None = None,
 ) -> str:
-    command = "docker compose -f " + shlex.quote(str(compose))
+    command = "docker compose "
+    if project is not None:
+        command += "-p " + shlex.quote(project) + " "
+    command += "-f " + shlex.quote(str(compose))
+    rendered_services = " ".join(shlex.quote(service) for service in services)
     archive = (
         _runtime_archive_function(
             compose=compose,
             logs_root=logs_root,
             services=services,
+            project=project,
         )
         if archive_enabled
         else ""
@@ -3417,7 +4250,7 @@ def _runtime_logs_wrapper(
         "umask 077\n"
         + guard
         + archive
-        + _runtime_presence_function(compose=compose, services=services)
+        + _runtime_presence_function(compose=compose, services=services, project=project)
         + "if (( $# == 0 )); then\n"
         + "  if ! runtime_has_role_containers; then\n"
         + "    printf '실행 중인 EleSim 역할 컨테이너가 없습니다. 먼저 elesim-up을 실행하십시오.\\n' >&2\n"
@@ -3425,7 +4258,7 @@ def _runtime_logs_wrapper(
         + "  fi\n"
         + "  exec "
         + command
-        + " logs -f\n"
+        + " logs -f " + rendered_services + "\n"
         + "fi\n"
         + "if (( $# == 1 )) && [[ $1 == --save ]]; then\n"
         + "  if ! runtime_has_role_containers; then\n"
@@ -3450,10 +4283,29 @@ def _runtime_down_wrapper(
     viewer_state: Path | None = None,
     viewer_user: str = "root",
     infrastructure_services: tuple[str, ...] = (),
+    project: str | None = None,
+    instance_scoped: bool = False,
+    manager_container: str = "elesim-manager",
 ) -> str:
-    command = "docker compose -f " + shlex.quote(str(compose))
+    if instance_scoped and not services:
+        raise ValueError("instance-scoped runtime down requires services")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", manager_container):
+        raise ValueError(f"invalid manager container name: {manager_container!r}")
+    command = "docker compose "
+    if project is not None:
+        command += "-p " + shlex.quote(project) + " "
+    command += "-f " + shlex.quote(str(compose))
     rendered_services = " ".join(shlex.quote(service) for service in services)
     manager_purge = (
+        (
+            "purge_requested=0\n"
+            "if (( $# > 0 )) && [[ $1 == --purge ]]; then\n"
+            "  purge_requested=1\n"
+            "  shift\n"
+            "fi\n"
+        )
+        if instance_scoped
+        else (
         "purge_requested=0\n"
         "if (( $# > 0 )) && [[ $1 == --purge ]]; then\n"
         "  purge_requested=1\n"
@@ -3461,17 +4313,36 @@ def _runtime_down_wrapper(
         "fi\n"
         "purge_manager() {\n"
         "  (( purge_requested )) || return 0\n"
-        "  if ! docker container inspect elesim-manager >/dev/null 2>&1; then\n"
+        f"  if ! docker container inspect {shlex.quote(manager_container)} >/dev/null 2>&1; then\n"
         "    return 0\n"
         "  fi\n"
-        "  docker rm -f elesim-manager >/dev/null\n"
+        f"  docker rm -f {shlex.quote(manager_container)} >/dev/null\n"
         "}\n"
+        )
     )
     manager_purge_action = (
         "manager_purge_status=0\n"
+        if instance_scoped
+        else (
+        "manager_purge_status=0\n"
         "purge_manager || manager_purge_status=$?\n"
+        )
     )
     shutdown_function = (
+        (
+            "shutdown_runtime() {\n"
+            "  if runtime_has_role_containers; then\n"
+            f"    {command} stop {rendered_services}\n"
+            "  else\n"
+            "    printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+            "  fi\n"
+            "  if (( purge_requested )); then\n"
+            f"    {command} rm -f -s {rendered_services}\n"
+            "  fi\n"
+            "}\n"
+        )
+        if instance_scoped
+        else (
         "shutdown_runtime() {\n"
         "  if (( purge_requested )); then\n"
         f"    {command} down --remove-orphans\n"
@@ -3487,12 +4358,16 @@ def _runtime_down_wrapper(
             f"  {command} down --remove-orphans\n"
             "}\n"
         )
+        )
     )
-    presence = _runtime_presence_function(compose=compose, services=services)
+    presence = _runtime_presence_function(
+        compose=compose, services=services, project=project
+    )
     project_presence = _runtime_presence_function(
         compose=compose,
         services=(*services, *infrastructure_services),
         function_name="runtime_has_project_containers",
+        project=project,
     )
     viewer_function = (
         _viewer_xhost_function(viewer_state, xhost_user=viewer_user)
@@ -3581,6 +4456,7 @@ def _runtime_down_wrapper(
             compose=compose,
             logs_root=logs_root,
             services=services,
+            project=project,
         )
         + "archive_status=0\n"
         + "runtime_present=0\n"

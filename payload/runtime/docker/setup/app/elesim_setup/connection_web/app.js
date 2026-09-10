@@ -614,6 +614,9 @@ function topologyFromForm() {
     const runtimeRoles = assignments.filter((item) => item.role !== "robot");
     const installRoot = field(slot, "install-root").value.trim();
     const binDir = field(slot, "bin-dir").value.trim();
+    const installUuid = field(slot, "install-uuid").value.trim();
+    const installProject = field(slot, "install-project").value.trim();
+    const installRelease = field(slot, "install-release").value.trim();
     const units = [];
     if (runtimeRoles.length) {
       units.push({
@@ -622,7 +625,10 @@ function topologyFromForm() {
         install_mode: "container",
         install_root: installRoot,
         bin_dir: binDir,
-        lifecycle: "compose"
+        lifecycle: "compose",
+        ...(installUuid ? {install_uuid: installUuid} : {}),
+        ...(installProject ? {project: installProject} : {}),
+        ...(installRelease ? {release_key: installRelease} : {})
       });
     }
     const robotAssignments = assignments.filter((item) => item.role === "robot");
@@ -633,7 +639,9 @@ function topologyFromForm() {
         install_mode: "native",
         install_root: installRoot,
         bin_dir: binDir,
-        lifecycle: "systemd"
+        lifecycle: "systemd",
+        ...(installUuid ? {install_uuid: installUuid} : {}),
+        ...(installProject ? {project: installProject} : {})
       });
     }
     const hostId = card(slot).querySelector(".host-name").value.trim().toLowerCase();
@@ -691,6 +699,9 @@ function fillHost(slot, host) {
   const pathUnit = units.find((unit) => unit.install_mode === "container") || units[0];
   field(slot, "install-root").value = pathUnit?.install_root || "/opt/elesim";
   field(slot, "bin-dir").value = pathUnit?.bin_dir || "/opt/elesim/bin";
+  field(slot, "install-uuid").value = pathUnit?.install_uuid || "";
+  field(slot, "install-project").value = pathUnit?.project || "";
+  field(slot, "install-release").value = pathUnit?.release_key || "";
   document.querySelector(`input[name="local-host"][value="${slot}"]`).checked = host.local;
   if (host.ssh) {
     field(slot, "ssh-host").value = host.ssh.host;

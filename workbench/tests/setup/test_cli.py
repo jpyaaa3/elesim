@@ -31,7 +31,14 @@ def test_cli_commands_match_bootstrap_contract() -> None:
         for action in cli._parser()._actions
         if isinstance(action, argparse._SubParsersAction)
     )
-    assert tuple(subparsers.choices) == tuple(contract["required_commands"])
+    commands = tuple(subparsers.choices)
+    required = tuple(contract["required_commands"])
+    # The bootstrap wrapper only exposes this stable five-command surface.
+    # The host CLI may also carry internal maintenance commands, so keep the
+    # contract focused on presence and ordering rather than rejecting those
+    # additional parser entries.
+    positions = [commands.index(command) for command in required]
+    assert positions == sorted(positions)
 
 
 def test_runtime_namespace_check_requires_configured_interface(local_state) -> None:

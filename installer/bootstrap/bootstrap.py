@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -29,7 +30,7 @@ BOOTSTRAP_API_VERSION = 1
 REQUIRED_SETUP_COMMANDS = ("wizard", "gui", "install", "update", "status")
 VERIFY_BOOTSTRAP_SOURCE_ENV = "ELESIM_VERIFY_BOOTSTRAP_SOURCE"
 _FULL_COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}")
-_REVISION_RE = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})")
+_REVISION_RE = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})\Z")
 _BOOTSTRAP_ROLES = ("pilot", "sim", "ui", "robot")
 _BOOTSTRAP_ROLE_RUNTIMES = {
     "pilot": PurePosixPath("payload/runtime/docker/pilot"),
@@ -114,10 +115,21 @@ _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
         "host_helper",
         "host_proxy",
         "installer",
+        "instance_compose",
+        "instance_identity",
+        "instance_preparation",
+        "instance_remove",
+        "instance_runtime",
+        "instance_security",
+        "instances",
         "manager_lifecycle",
+        "manager_ownership",
         "network",
+        "operation_lock",
         "ownership",
         "profiles",
+        "releases",
+        "release_publication",
         "request",
         "runtime_status",
         "secure_deployment",
@@ -401,6 +413,90 @@ def _read_index(cache: Path) -> dict[str, object] | None:
 def _index_text(index: Mapping[str, object], key: str) -> str | None:
     value = index.get(key)
     return value if isinstance(value, str) and value else None
+
+
+def _validated_source_revision(cache_root: Path, url: str, source_root: Path) -> str:
+    """Return the revision authenticated by the completed download cache.
+
+    The setup process must receive the revision selected by bootstrap, never a
+    caller-supplied environment value.  Re-read the cache index and verify it
+    still points at the exact validated snapshot returned by ``download_source``.
+    """
+
+    cache = Path(cache_root) / "sources-v2" / _url_fingerprint(url)
+    index = _read_index(cache)
+    revision = _index_text(index or {}, "revision") if index is not None else None
+    if revision is None or _REVISION_RE.fullmatch(revision) is None:
+        raise BootstrapError("Downloaded source has no canonical revision")
+    cached_root = _snapshot_root(cache, index)
+    try:
+        if cached_root is None or cached_root.resolve() != Path(source_root).resolve():
+            raise BootstrapError("Downloaded source cache changed during bootstrap")
+    except OSError as exc:
+        raise BootstrapError("Downloaded source cache cannot be verified") from exc
+    return revision
+
+
+def _write_source_revision_handoff(revision: str) -> None:
+    """Publish bootstrap's authenticated revision for an outer update shell.
+
+    ``install.sh`` starts bootstrap as a child process, so the authenticated
+    value cannot flow back through the child's environment.  The shell opts
+    into this handoff only for its ``update`` command and supplies a fixed
+    ``<invocation>/maintenance/.bootstrap-source-revision`` path.  Refuse
+    arbitrary paths and write atomically with private permissions so a stale
+    or partially-written value cannot be consumed by the publisher.
+    """
+
+    raw_path = os.environ.get("ELESIM_SOURCE_REVISION_FILE", "").strip()
+    if not raw_path:
+        return
+    if _REVISION_RE.fullmatch(revision) is None:
+        raise BootstrapError("Cannot write a non-canonical source revision handoff")
+    path = Path(raw_path).expanduser()
+    invocation_raw = os.environ.get("ELESIM_INVOCATION_DIR", "").strip()
+    if (
+        not path.is_absolute()
+        or path.name != ".bootstrap-source-revision"
+        or path.parent.name != "maintenance"
+        or not invocation_raw
+    ):
+        raise BootstrapError("Invalid source revision handoff path")
+    invocation = Path(invocation_raw).expanduser()
+    try:
+        if path.parent.parent.resolve() != invocation.resolve():
+            raise BootstrapError("Source revision handoff is outside the invocation directory")
+    except OSError as exc:
+        raise BootstrapError("Cannot validate source revision handoff path") from exc
+
+    parent = path.parent
+    temporary: Path | None = None
+    try:
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        parent_stat = os.lstat(parent)
+        if stat.S_ISLNK(parent_stat.st_mode) or not stat.S_ISDIR(parent_stat.st_mode):
+            raise BootstrapError("Source revision handoff directory is unsafe")
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=".bootstrap-source-revision.", dir=str(parent)
+        )
+        temporary = Path(temporary_name)
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write((revision + "\n").encode("ascii"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    except BootstrapError:
+        raise
+    except (OSError, UnicodeError) as exc:
+        raise BootstrapError(f"Cannot write source revision handoff: {exc}") from exc
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
 
 
 def _validate_source_snapshot(root: Path) -> None:
@@ -1068,7 +1164,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             repository=args.repo,
             ref=args.ref,
         )
+        source_revision = _validated_source_revision(cache_root, url, source_root)
+        _write_source_revision_handoff(source_revision)
         command = (str(executable), "--source-root", str(source_root), *wizard_args)
+        setup_environment = os.environ.copy()
+        # Bootstrap owns this value.  Do not forward a potentially stale or
+        # forged ELESIM_SOURCE_REVISION from the outer shell/environment.
+        setup_environment["ELESIM_SOURCE_REVISION"] = source_revision
         tty: BinaryIO | None = None
         run_stdin: BinaryIO | int | None = None
         try:
@@ -1084,7 +1186,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                         ) from exc
                 else:
                     run_stdin = subprocess.DEVNULL
-            completed = subprocess.run(command, stdin=run_stdin, check=False)
+            completed = subprocess.run(
+                command,
+                stdin=run_stdin,
+                check=False,
+                env=setup_environment,
+            )
         finally:
             if tty is not None:
                 tty.close()

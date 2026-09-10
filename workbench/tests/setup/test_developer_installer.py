@@ -12,6 +12,7 @@ from elesim_setup.developer import (
     resolve_developer_username,
     validate_developer_workspace,
 )
+from elesim_setup.instance_identity import container_name, project_name
 from elesim_setup.ownership import OwnershipManifest
 from elesim_setup.state import DeveloperAttachmentSettings
 
@@ -35,12 +36,16 @@ def test_developer_attachment_joins_the_canonical_runtime_project(local_state) -
     compose = yaml.safe_load(
         (state.prefix_path / "containers/compose.yaml").read_text(encoding="utf-8")
     )
-    assert compose["name"] == "elesim-runtime"
+    manifest = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
+    assert manifest.docker is not None
+    assert compose["name"] == project_name(manifest.install_uuid)
     assert {"pilot", "sim", "ui", "dev"} <= set(compose["services"])
     dev = compose["services"]["dev"]
     assert dev["profiles"] == ["developer"]
-    assert dev["image"] == "elesim/dev:local"
-    assert dev["container_name"] == "elesim-dev"
+    assert dev["image"].startswith(
+        f"elesim/dev:{manifest.install_uuid.replace('-', '')}-"
+    )
+    assert dev["container_name"] == container_name(manifest.install_uuid, "dev")
     assert dev["privileged"] is True
     assert dev["working_dir"] == str(ROOT)
     assert f"{ROOT}:{ROOT}:rw" in dev["volumes"]
@@ -63,10 +68,9 @@ def test_developer_attachment_joins_the_canonical_runtime_project(local_state) -
         check=False,
     ).returncode == 0
 
-    manifest = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
-    assert manifest.docker.project == "elesim-runtime"
-    assert "elesim-dev" in manifest.docker.containers
-    assert "elesim/dev:local" in manifest.docker.local_images
+    assert manifest.docker.project == project_name(manifest.install_uuid)
+    assert container_name(manifest.install_uuid, "dev") in manifest.docker.containers
+    assert dev["image"] in manifest.docker.local_images
     assert not (state.prefix_path / ".elesim/development").exists()
 
 

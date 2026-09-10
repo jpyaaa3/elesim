@@ -33,6 +33,25 @@ _PROXY_CONNECT_TIMEOUT_S = 10.0
 _DEFAULT_COMMAND_TIMEOUT_S = 5 * 60
 _MAX_COMMAND_TIMEOUT_S = 30 * 60
 _ROLES = frozenset({"pilot", "sim", "ui"})
+# A scoped manager may inspect/build the install's immutable base context, but
+# it must never use that context as an implicit runtime graph.  Per-system
+# lifecycle is exposed only by ``elesim-instance``; accepting any of these
+# Compose verbs here would let a legacy connection-manager operation start,
+# stop, or recreate the install-wide role services behind that boundary.
+_SCOPED_COMPOSE_MUTATIONS = frozenset(
+    {
+        "up",
+        "down",
+        "start",
+        "stop",
+        "restart",
+        "kill",
+        "rm",
+        "pause",
+        "unpause",
+        "scale",
+    }
+)
 _HOSTNAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
 _GPU_SELECTOR = re.compile(
     r"^(?:[0-9]{1,6}|GPU-[A-Za-z0-9_-]{1,124}|"
@@ -56,11 +75,13 @@ class _Server(socketserver.ThreadingUnixStreamServer):
         bin_dir: Path,
         project: str,
         tailscale_bin: Path | None,
+        instance_system: str = "",
     ) -> None:
         self.compose = compose.resolve()
         self.bin_dir = bin_dir.resolve()
         self.project = project
         self.tailscale_bin = tailscale_bin
+        self.instance_system = instance_system
         super().__init__(socket_path, _Handler)
 
 
@@ -80,6 +101,8 @@ class _Handler(socketserver.StreamRequestHandler):
             operation = request.get("operation")
             if operation == "run":
                 self._run(request)
+            elif operation == "upload":
+                self._upload(request)
             elif operation == "tailscale-nc":
                 self._tailscale_nc(request)
             else:
@@ -103,6 +126,7 @@ class _Handler(socketserver.StreamRequestHandler):
             compose=self.helper.compose,
             bin_dir=self.helper.bin_dir,
             project=self.helper.project,
+            instance_system=self.helper.instance_system,
         )
         stream = request.get("stream", False)
         if not isinstance(stream, bool):
@@ -150,6 +174,41 @@ class _Handler(socketserver.StreamRequestHandler):
                 "stderr_truncated": err_cut,
             }
         )
+
+    def _upload(self, request: dict[str, object]) -> None:
+        raw_path = request.get("path")
+        raw_data = request.get("data")
+        raw_mode = request.get("mode", 0o600)
+        if not isinstance(raw_path, str) or not raw_path.startswith("/"):
+            raise HostHelperError("host-helper upload path is invalid")
+        try:
+            path = Path(raw_path)
+            data = base64.b64decode(str(raw_data), validate=True)
+            mode = int(raw_mode)
+        except (ValueError, TypeError):
+            raise HostHelperError("host-helper upload payload is invalid")
+        root = (self.helper.compose.parent.parent / "maintenance" / ".connection-scoped").resolve()
+        try:
+            candidate = path.resolve(strict=False)
+        except OSError as exc:
+            raise HostHelperError("host-helper upload path is invalid") from exc
+        if root not in candidate.parents or path.is_symlink() or len(data) > 1024 * 1024:
+            raise HostHelperError("host-helper upload escapes the scoped staging root")
+        current = path
+        while True:
+            if current.is_symlink():
+                raise HostHelperError("host-helper upload path contains a symlink")
+            if current == current.parent:
+                break
+            current = current.parent
+        if mode not in {0o600, 0o644}:
+            raise HostHelperError("host-helper upload mode is invalid")
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with open(path, "xb") as stream:
+            stream.write(data)
+        path.chmod(mode)
+        self._reply({"ok": True, "type": "result", "returncode": 0,
+                     "stdout": "", "stderr": ""})
 
     def _tailscale_nc(self, request: dict[str, object]) -> None:
         binary = self.helper.tailscale_bin
@@ -347,17 +406,25 @@ def _drain_pipe(pipe: object) -> None:
 
 
 def _validate_command(
-    argv: Sequence[str], *, compose: Path, bin_dir: Path, project: str
+    argv: Sequence[str], *, compose: Path, bin_dir: Path, project: str,
+    instance_system: str = "",
 ) -> None:
     net = str(bin_dir / "elesim-net")
     if argv[0] == net and len(argv) >= 2 and argv[1] in {
         "show",
+        "identity",
+        "releases",
         "configuration-check",
         "namespace-check",
         "configure",
         "restore-snapshot",
         "doctor",
     }:
+        if instance_system and argv[1] in {"configure", "restore-snapshot"}:
+            raise HostHelperError(
+                "scoped host helper refuses install-wide elesim-net mutation; "
+                "use the exact elesim-instance registration command"
+            )
         return
     tailscale = str(bin_dir / "elesim-tailscale")
     if tuple(argv) in {
@@ -374,6 +441,64 @@ def _validate_command(
         return
     viewer_cleanup = str(bin_dir / "elesim-viewer-cleanup")
     if tuple(argv) == (viewer_cleanup,):
+        if instance_system:
+            raise HostHelperError(
+                "scoped host helper refuses install-wide viewer cleanup"
+            )
+        return
+    instance = str(bin_dir / "elesim-instance")
+    if argv[0] == instance:
+        if len(argv) < 3:
+            raise HostHelperError("scoped lifecycle command is incomplete")
+        system, action = argv[1], argv[2]
+        if instance_system and system != instance_system:
+            raise HostHelperError("scoped lifecycle system does not match this manager")
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", system):
+            raise HostHelperError("scoped lifecycle system is invalid")
+        if action not in {"up", "down", "status", "logs"}:
+            raise HostHelperError("scoped lifecycle action is invalid")
+        remainder = tuple(argv[3:])
+        if action == "up":
+            if remainder not in {(), ("--no-build",)}:
+                raise HostHelperError("scoped up accepts only --no-build")
+        elif remainder:
+            raise HostHelperError("scoped lifecycle command has unsupported options")
+        return
+    register = str(bin_dir / "elesim-instance-register")
+    if argv[0] == register:
+        if len(argv) < 2 or argv[1] not in {
+            "register",
+            "replace",
+            "remove",
+            "cleanup-staging",
+        }:
+            raise HostHelperError("scoped registration command is invalid")
+        # The wrapper itself owns argument parsing and release/security
+        # validation.  Keep the broker boundary narrow: no shell, no Docker
+        # project selector, and only the exact system selected for this
+        # manager.  In particular, a failed upload may clean only its own
+        # system's generation staging directory.
+        if any("\x00" in value for value in argv[1:]):
+            raise HostHelperError("scoped registration command contains NUL")
+        if instance_system:
+            try:
+                system_index = argv.index("--system", 2)
+                system = argv[system_index + 1]
+            except (ValueError, IndexError):
+                raise HostHelperError(
+                    "scoped registration system is missing or incomplete"
+                )
+            if system != instance_system:
+                raise HostHelperError(
+                    "scoped registration system does not match this manager"
+                )
+        if argv[1] == "cleanup-staging":
+            if len(argv) != 6 or argv[2:4] != ("--system", instance_system):
+                raise HostHelperError("staging cleanup command is invalid")
+            if argv[4] != "--security-generation" or not re.fullmatch(
+                r"[a-z0-9][a-z0-9_.-]{0,95}", argv[5]
+            ):
+                raise HostHelperError("staging cleanup generation is invalid")
         return
     runtime_up = str(bin_dir / "elesim-up")
     if argv[0] == runtime_up:
@@ -443,38 +568,75 @@ def _validate_command(
             option_end += 2
             continue
         break
-    prefix = (
-        compose_wrapper,
-        *argv[1:option_end],
-        "-p",
-        project,
-        "-f",
-        str(compose),
+    # The generated wrapper pins the project through the Compose file's
+    # top-level ``name``.  Accept that canonical form as well as the older
+    # explicit ``-p <project>`` form used by legacy wrappers; never accept an
+    # arbitrary project selector.  This keeps legacy manager lifecycle calls
+    # working while preserving the host-helper's path/project boundary.
+    prefixes = (
+        (
+            compose_wrapper,
+            *argv[1:option_end],
+            "-p",
+            project,
+            "-f",
+            str(compose),
+        ),
+        (compose_wrapper, *argv[1:option_end], "-f", str(compose)),
     )
-    progress_prefix = (
-        compose_wrapper,
-        "--progress",
-        "plain",
-        "-p",
-        project,
-        "-f",
-        str(compose),
+    progress_prefixes = (
+        (
+            compose_wrapper,
+            "--progress",
+            "plain",
+            "-p",
+            project,
+            "-f",
+            str(compose),
+        ),
+        (
+            compose_wrapper,
+            "--progress",
+            "plain",
+            "-f",
+            str(compose),
+        ),
     )
-    if tuple(argv[: len(progress_prefix)]) == progress_prefix:
-        suffix = tuple(argv[len(progress_prefix) :])
+    matched_progress_prefix = next(
+        (
+            candidate
+            for candidate in progress_prefixes
+            if tuple(argv[: len(candidate)]) == candidate
+        ),
+        None,
+    )
+    if matched_progress_prefix is not None:
+        suffix = tuple(argv[len(matched_progress_prefix) :])
         if suffix and suffix[0] == "build":
             _validate_roles(suffix[1:])
             return
         raise HostHelperError("Compose progress output is allowed only for builds")
-    if tuple(argv[: len(prefix)]) != prefix:
+    matched_prefix = next(
+        (
+            candidate
+            for candidate in prefixes
+            if tuple(argv[: len(candidate)]) == candidate
+        ),
+        None,
+    )
+    if matched_prefix is None:
         raise HostHelperError("Docker command escapes the managed Compose project")
-    suffix = tuple(argv[len(prefix) :])
+    suffix = tuple(argv[len(matched_prefix) :])
+    if instance_system and suffix and suffix[0] in _SCOPED_COMPOSE_MUTATIONS:
+        raise HostHelperError(
+            "scoped host helper refuses install-wide Compose lifecycle; "
+            "use the exact elesim-instance command"
+        )
     has_runtime_options = option_end > 1
-    if has_runtime_options and suffix[:4] != (
+    if has_runtime_options and suffix[:3] != (
         "up",
         "-d",
         "--no-build",
-        "--remove-orphans",
     ):
         raise HostHelperError(
             "runtime launch options are allowed only for an up lifecycle"
@@ -493,8 +655,8 @@ def _validate_command(
         else:
             _validate_runtime_services(services)
         return
-    if suffix[:4] == ("up", "-d", "--no-build", "--remove-orphans"):
-        _validate_runtime_services(suffix[4:])
+    if suffix[:3] == ("up", "-d", "--no-build"):
+        _validate_runtime_services(suffix[3:])
         return
     raise HostHelperError("Docker command is not an allowed EleSim lifecycle action")
 
@@ -624,6 +786,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--compose", type=Path, required=True)
     parser.add_argument("--bin-dir", type=Path, required=True)
     parser.add_argument("--project", required=True)
+    parser.add_argument("--instance-system", default="")
     parser.add_argument("--tailscale-bin", type=Path)
     return parser
 
@@ -650,6 +813,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         bin_dir=bin_dir,
         project=str(args.project),
         tailscale_bin=tailscale_bin,
+        instance_system=str(args.instance_system),
     )
     os.chmod(socket_path, 0o600)
     try:

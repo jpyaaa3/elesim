@@ -99,7 +99,7 @@ def test_up_reads_current_assignment_and_refuses_spare_roles(tmp_path: Path):
     env = dict(os.environ, CALLS=str(log))
     result = subprocess.run([wrapper], env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert log.read_text().splitlines()[-1].endswith("--remove-orphans pilot")
+    assert log.read_text().splitlines()[-1].endswith("up -d --build pilot")
     before = log.read_bytes()
     result = subprocess.run([wrapper, "sim"], env=env, capture_output=True, text=True)
     assert result.returncode == 64
@@ -108,7 +108,7 @@ def test_up_reads_current_assignment_and_refuses_spare_roles(tmp_path: Path):
     state.write_text(json.dumps({"assigned_roles": ["ui"], "dds": {"security_profile": "trusted-network"}}))
     result = subprocess.run([wrapper], env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert log.read_text().splitlines()[-1].endswith("--remove-orphans ui")
+    assert log.read_text().splitlines()[-1].endswith("up -d --build ui")
 
 
 def test_security_view_refresh_clears_inactive_role(tmp_path: Path):

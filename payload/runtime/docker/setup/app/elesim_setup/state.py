@@ -254,6 +254,12 @@ class TurnSettings:
     public_host: str = ""
     secret_file: str = ""
     credential_file: str = ""
+    # Scoped instances leave these unset and receive a deterministic allocation
+    # from the instance registry.  Legacy install state keeps the historical
+    # Coturn defaults through the effective_* helpers below.
+    listen_port: int | None = None
+    relay_min_port: int | None = None
+    relay_max_port: int | None = None
 
     def validate(self) -> "TurnSettings":
         if self.mode not in TURN_MODES:
@@ -262,6 +268,22 @@ class TurnSettings:
         public_host = self.public_host.strip()
         secret_file = self.secret_file.strip()
         credential_file = self.credential_file.strip()
+        ports = (self.listen_port, self.relay_min_port, self.relay_max_port)
+        for name, port in zip(("listen_port", "relay_min_port", "relay_max_port"), ports):
+            if port is not None and (
+                isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535
+            ):
+                raise ValueError(f"{name} must be an integer from 1 through 65535")
+        if (self.relay_min_port is None) != (self.relay_max_port is None):
+            raise ValueError("relay_min_port and relay_max_port must be set together")
+        if (
+            self.relay_min_port is not None
+            and self.relay_max_port is not None
+            and self.relay_min_port > self.relay_max_port
+        ):
+            raise ValueError("relay_min_port must not exceed relay_max_port")
+        if self.mode != "managed" and any(port is not None for port in ports):
+            raise ValueError("TURN ports are supported only for managed TURN")
         if self.mode == "managed":
             if not realm:
                 raise ValueError("managed TURN에는 realm이 필요합니다")
@@ -302,6 +324,20 @@ class TurnSettings:
     def credential_path(self) -> Path | None:
         value = self.credential_file.strip()
         return None if not value else Path(value).expanduser().resolve()
+
+    @property
+    def effective_listen_port(self) -> int:
+        """Return the legacy fixed listener when no scoped allocation exists."""
+
+        return 3478 if self.listen_port is None else self.listen_port
+
+    @property
+    def effective_relay_min_port(self) -> int:
+        return 49160 if self.relay_min_port is None else self.relay_min_port
+
+    @property
+    def effective_relay_max_port(self) -> int:
+        return 49200 if self.relay_max_port is None else self.relay_max_port
 
 
 @dataclass(frozen=True)

@@ -43,6 +43,31 @@ def test_release_infrastructure_contains_dds_aware_installers(tmp_path: Path) ->
     assert not tuple(package.rglob("__pycache__"))
 
 
+def test_release_setup_package_contains_instance_and_publication_modules(
+    tmp_path: Path,
+) -> None:
+    """The curl/release setup context must ship the complete setup module set."""
+    source = Path(__file__).resolve().parents[4]
+    release_root = tmp_path / "releases"
+    copy_infrastructure(source, release_root)
+
+    package = release_root / "infra/setup/package/elesim_setup"
+    expected = {
+        "instance_compose.py",
+        "instance_identity.py",
+        "instance_preparation.py",
+        "instance_remove.py",
+        "instance_runtime.py",
+        "instance_security.py",
+        "instances.py",
+        "operation_lock.py",
+        "manager_ownership.py",
+        "releases.py",
+        "release_publication.py",
+    }
+    assert {path.name for path in package.glob("*.py")} >= expected
+
+
 def test_setup_wheel_contains_browser_assets_and_cjk_font(tmp_path: Path) -> None:
     root = Path(__file__).resolve().parents[4]
     release_root = tmp_path / "releases"

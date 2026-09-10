@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Mapping, Sequence
 
 import pytest
 
@@ -11,6 +11,7 @@ from elesim_setup.ownership import (
     DOCKER_INSTALL_UUID_LABEL,
     DockerOwnership,
     OwnershipError,
+    OwnershipManifest,
     SystemdUnitOwnership,
     install_host_uninstaller_bundle,
     ownership_install_uuid,
@@ -18,13 +19,52 @@ from elesim_setup.ownership import (
     sha256_file,
     write_ownership_manifest,
 )
+from elesim_setup.instance_identity import container_name, project_name, service_key
+from elesim_setup.releases import ReleaseManifest
 from elesim_setup.shell import managed_path_block
 from elesim_setup.uninstall import (
     UninstallSafetyError,
+    _owned_tailscale_state_path,
+    _scoped_container_name,
     execute_uninstall,
     main,
     plan_uninstall,
 )
+
+
+def test_scoped_special_container_names_are_resolved_without_runtime_import(
+    tmp_path: Path,
+) -> None:
+    install_uuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    prefix = tmp_path / "install"
+    bin_dir = tmp_path / "bin"
+    state = prefix / "secrets/tailscale"
+    prefix.mkdir()
+    bin_dir.mkdir()
+    _write(state / "state.json")
+    _write(prefix / "containers/compose.yaml")
+    wrapper = _write(bin_dir / "elesim-uninstall", "#!/bin/sh\n", executable=True)
+    docker = DockerOwnership(
+        install_uuid=install_uuid,
+        compose_file=str(prefix / "containers/compose.yaml"),
+        project=f"elesim-runtime-{install_uuid.replace('-', '')}",
+        containers=(_scoped_container_name(install_uuid, "tailscale"),),
+        local_images=(),
+    )
+    manifest = write_ownership_manifest(
+        prefix=prefix,
+        bin_dir=bin_dir,
+        edition="general",
+        inventory_roots=(prefix / "containers",),
+        managed_roots=(prefix / "containers", prefix / "secrets"),
+        created_roots=(prefix, bin_dir),
+        wrapper_paths=(wrapper,),
+        docker=docker,
+        install_uuid=install_uuid,
+    )
+
+    loaded = OwnershipManifest.load(manifest.path)
+    assert _owned_tailscale_state_path(loaded) == state
 
 
 @pytest.fixture(autouse=True)
@@ -488,11 +528,15 @@ class _DockerRunner:
         foreign: bool = False,
         unlisted: tuple[str, ...] = (),
         inspect_failure: bool = False,
+        container_labels: Mapping[str, str] | None = None,
+        container_compose: str | None = None,
     ) -> None:
         self.docker = docker
         self.foreign = foreign
         self.unlisted = unlisted
         self.inspect_failure = inspect_failure
+        self.container_labels = dict(container_labels or {})
+        self.container_compose = container_compose
         self.commands: list[tuple[str, ...]] = []
 
     def __call__(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
@@ -520,8 +564,13 @@ class _DockerRunner:
                     "Config": {
                         "Labels": {
                             "com.docker.compose.project": project,
-                            "com.docker.compose.project.config_files": self.docker.compose_file,
+                            "com.docker.compose.project.config_files": (
+                                self.docker.compose_file
+                                if self.container_compose is None
+                                else self.container_compose
+                            ),
                             DOCKER_INSTALL_UUID_LABEL: self.docker.install_uuid,
+                            **self.container_labels,
                         }
                     },
                 }
@@ -1135,6 +1184,236 @@ def test_docker_deletes_only_exact_manifest_objects(tmp_path: Path) -> None:
     assert not any("prune" in command for values in runner.commands for command in values)
 
 
+def test_scoped_instance_container_accepts_exact_instance_compose_identity(
+    tmp_path: Path,
+) -> None:
+    install_uuid = "11111111-1111-4111-8111-111111111111"
+    compose = tmp_path / "install/containers/compose.yaml"
+    instance_compose = compose.with_name("compose.instances.yaml")
+    system_id, endpoint_id = "alpha", "pilot-1"
+    instance_name = container_name(install_uuid, service_key(system_id, endpoint_id))
+    docker = DockerOwnership(
+        install_uuid=install_uuid,
+        compose_file=str(compose),
+        project=project_name(install_uuid),
+        containers=(instance_name,),
+        local_images=(),
+    )
+    manifest, *_ = _manifest(tmp_path, docker=docker)
+    _write(instance_compose)
+    runner = _DockerRunner(
+        docker,
+        container_compose=str(instance_compose),
+        container_labels={
+            "io.elesim.system_id": system_id,
+            "io.elesim.endpoint_id": endpoint_id,
+            "io.elesim.role": "pilot",
+        },
+    )
+
+    plan = plan_uninstall(manifest.path, runner=runner)
+
+    assert tuple(item.name for item in plan.containers) == (instance_name,)
+
+
+@pytest.mark.parametrize(
+    "container_compose",
+    ("compose.foreign.yaml", "compose.yaml,compose.foreign.yaml"),
+)
+def test_scoped_instance_container_rejects_arbitrary_compose(
+    tmp_path: Path, container_compose: str
+) -> None:
+    install_uuid = "22222222-2222-4222-8222-222222222222"
+    compose = tmp_path / "install/containers/compose.yaml"
+    instance_name = container_name(install_uuid, service_key("alpha", "pilot-1"))
+    docker = DockerOwnership(
+        install_uuid=install_uuid,
+        compose_file=str(compose),
+        project=project_name(install_uuid),
+        containers=(instance_name,),
+        local_images=(),
+    )
+    manifest, *_ = _manifest(tmp_path, docker=docker)
+    runner = _DockerRunner(
+        docker,
+        container_compose=container_compose.replace(
+            "compose.foreign.yaml", str(tmp_path / "install/containers/compose.foreign.yaml")
+        ),
+        container_labels={
+            "io.elesim.system_id": "alpha",
+            "io.elesim.endpoint_id": "pilot-1",
+            "io.elesim.role": "pilot",
+        },
+    )
+
+    with pytest.raises(UninstallSafetyError, match="다른 설치|Compose"):
+        plan_uninstall(manifest.path, runner=runner)
+
+
+def test_legacy_project_rejects_instance_compose_even_with_identity_labels(
+    tmp_path: Path,
+) -> None:
+    compose = tmp_path / "install/containers/compose.yaml"
+    instance_compose = compose.with_name("compose.instances.yaml")
+    docker = DockerOwnership(
+        install_uuid="33333333-3333-4333-8333-333333333333",
+        compose_file=str(compose),
+        project="elesim-runtime",
+        containers=("elesim-sim",),
+        local_images=(),
+    )
+    manifest, *_ = _manifest(tmp_path, docker=docker)
+    _write(instance_compose)
+    runner = _DockerRunner(
+        docker,
+        container_compose=str(instance_compose),
+        container_labels={
+            "io.elesim.system_id": "alpha",
+            "io.elesim.endpoint_id": "pilot-1",
+            "io.elesim.role": "pilot",
+        },
+    )
+
+    with pytest.raises(UninstallSafetyError, match="legacy"):
+        plan_uninstall(manifest.path, runner=runner)
+
+
+@pytest.mark.parametrize(
+    "identity",
+    (
+        {},
+        {"io.elesim.system_id": "alpha", "io.elesim.endpoint_id": "pilot-1", "io.elesim.role": "router"},
+        {"io.elesim.system_id": "bravo", "io.elesim.endpoint_id": "pilot-1", "io.elesim.role": "pilot"},
+    ),
+)
+def test_scoped_instance_container_rejects_missing_or_foreign_identity(
+    tmp_path: Path, identity: Mapping[str, str]
+) -> None:
+    install_uuid = "44444444-4444-4444-8444-444444444444"
+    compose = tmp_path / "install/containers/compose.yaml"
+    instance_compose = compose.with_name("compose.instances.yaml")
+    instance_name = container_name(install_uuid, service_key("alpha", "pilot-1"))
+    docker = DockerOwnership(
+        install_uuid=install_uuid,
+        compose_file=str(compose),
+        project=project_name(install_uuid),
+        containers=(instance_name,),
+        local_images=(),
+    )
+    manifest, *_ = _manifest(tmp_path, docker=docker)
+    _write(instance_compose)
+    runner = _DockerRunner(
+        docker, container_compose=str(instance_compose), container_labels=identity
+    )
+
+    with pytest.raises(UninstallSafetyError, match="identity|role"):
+        plan_uninstall(manifest.path, runner=runner)
+
+
+def test_docker_ownership_accepts_matching_immutable_image(tmp_path: Path) -> None:
+    install_uuid = "11111111-1111-4111-8111-111111111111"
+    docker = DockerOwnership(
+        install_uuid=install_uuid,
+        compose_file=str(tmp_path / "install/containers/compose.yaml"),
+        project="elesim-runtime-11111111111141118111111111111111",
+        containers=("elesim-sim",),
+        local_images=(
+            "elesim/sim:11111111111141118111111111111111-" + "a" * 64,
+        ),
+    )
+    assert docker.validate() == docker
+
+
+def test_docker_ownership_rejects_foreign_immutable_image(tmp_path: Path) -> None:
+    docker = DockerOwnership(
+        install_uuid="11111111-1111-4111-8111-111111111111",
+        compose_file=str(tmp_path / "install/containers/compose.yaml"),
+        project="elesim-runtime",
+        containers=("elesim-sim",),
+        local_images=(
+            "elesim/sim:22222222222242228222222222222222-" + "a" * 64,
+        ),
+    )
+    with pytest.raises(OwnershipError, match="immutable"):
+        docker.validate()
+
+
+class _ReleaseImageRunner(_DockerRunner):
+    def __init__(self, docker: DockerOwnership, image_id: str, *, foreign: bool = False):
+        super().__init__(docker)
+        self.release_image_id = image_id
+        self.release_foreign = foreign
+
+    def __call__(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        values = tuple(command)
+        if values[:3] == ("docker", "image", "inspect") and values[-1] == self.release_image_id:
+            labels = {
+                "com.docker.compose.project": (
+                    "foreign-project" if self.release_foreign else self.docker.project
+                ),
+                DOCKER_INSTALL_UUID_LABEL: self.docker.install_uuid,
+            }
+            payload = [{"Id": self.release_image_id, "Config": {"Labels": labels}}]
+            self.commands.append(values)
+            return subprocess.CompletedProcess(values, 0, stdout=json.dumps(payload), stderr="")
+        return super().__call__(command)
+
+
+def _write_release_image_manifest(prefix: Path, install_uuid: str, image_id: str) -> None:
+    fingerprint = "a" * 64
+    release = ReleaseManifest(
+        install_uuid=install_uuid,
+        source_revision="git-" + "b" * 40,
+        platform="linux/amd64",
+        role_images={"pilot": f"elesim/pilot:{install_uuid.replace('-', '')}-{fingerprint}"},
+        image_ids={"pilot": image_id},
+        build_fingerprints={"pilot": fingerprint},
+        runtime_data_digest="c" * 64,
+    ).validate()
+    destination = prefix / "releases" / release.to_dict()["release_key"] / "manifest.json"
+    destination.parent.mkdir(parents=True)
+    destination.write_text(json.dumps(release.to_dict()), encoding="utf-8")
+
+
+def test_uninstall_includes_historical_release_image_ids(tmp_path: Path) -> None:
+    install_uuid = "66666666-6666-4666-8666-666666666666"
+    docker = DockerOwnership(
+        install_uuid=install_uuid,
+        compose_file=str(tmp_path / "install/containers/compose.yaml"),
+        project=project_name(install_uuid),
+        containers=(),
+        local_images=(),
+    )
+    manifest, *_ = _manifest(tmp_path, docker=docker)
+    image_id = "sha256:" + "d" * 64
+    _write_release_image_manifest(Path(manifest.prefix), install_uuid, image_id)
+    runner = _ReleaseImageRunner(docker, image_id)
+
+    plan = plan_uninstall(manifest.path, runner=runner)
+
+    assert tuple(image.name for image in plan.images) == (image_id,)
+    assert ("docker", "image", "inspect", image_id) in runner.commands
+
+
+def test_uninstall_rejects_foreign_image_for_historical_release(tmp_path: Path) -> None:
+    install_uuid = "66666666-6666-4666-8666-666666666666"
+    docker = DockerOwnership(
+        install_uuid=install_uuid,
+        compose_file=str(tmp_path / "install/containers/compose.yaml"),
+        project=project_name(install_uuid),
+        containers=(),
+        local_images=(),
+    )
+    manifest, *_ = _manifest(tmp_path, docker=docker)
+    image_id = "sha256:" + "e" * 64
+    _write_release_image_manifest(Path(manifest.prefix), install_uuid, image_id)
+    runner = _ReleaseImageRunner(docker, image_id, foreign=True)
+
+    with pytest.raises(UninstallSafetyError, match="foreign|upstream"):
+        plan_uninstall(manifest.path, runner=runner)
+    assert not any(values[:3] == ("docker", "image", "rm") for values in runner.commands)
+
+
 def test_foreign_fixed_container_name_aborts_before_removal(tmp_path: Path) -> None:
     compose = tmp_path / "install/containers/compose.yaml"
     docker = DockerOwnership(
@@ -1342,6 +1621,41 @@ def test_new_install_refuses_preexisting_claim_without_manifest(tmp_path: Path) 
         )
 
     assert foreign.read_text(encoding="utf-8") == "foreign\n"
+
+
+def test_new_install_refuses_prefix_nested_inside_another_install(
+    tmp_path: Path,
+) -> None:
+    outer, *_ = _manifest(tmp_path)
+    nested_prefix = Path(outer.prefix) / "containers" / "second-install"
+    nested_bin = nested_prefix / "bin"
+
+    with pytest.raises(OwnershipError, match="중첩"):
+        prepare_ownership_refresh(
+            prefix=nested_prefix,
+            bin_dir=nested_bin,
+            edition="general",
+        )
+
+    assert not nested_prefix.exists()
+
+
+def test_new_install_refuses_bin_nested_inside_another_install_prefix(
+    tmp_path: Path,
+) -> None:
+    outer, *_ = _manifest(tmp_path)
+    second_prefix = tmp_path / "second-install"
+    nested_bin = Path(outer.prefix) / "containers" / "second-bin"
+
+    with pytest.raises(OwnershipError, match="중첩"):
+        prepare_ownership_refresh(
+            prefix=second_prefix,
+            bin_dir=nested_bin,
+            edition="general",
+        )
+
+    assert not second_prefix.exists()
+    assert not nested_bin.exists()
 
 
 def test_host_bundle_uninstalls_without_container_or_installed_package(

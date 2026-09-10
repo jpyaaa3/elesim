@@ -124,6 +124,7 @@ class ConnectionManagerApplication:
         state_path: Path,
         token: str,
         runner: ConnectionRunner,
+        expected_system_id: str | None = None,
         status_provider: StatusProvider | None = None,
         fingerprint_probe: FingerprintProbe | None = None,
         tailscale_fingerprint_probe: FingerprintProbe | None = None,
@@ -134,6 +135,15 @@ class ConnectionManagerApplication:
         gpu_device: str = "",
     ) -> None:
         self.state_path = state_path.expanduser()
+        self.expected_system_id = (
+            None if expected_system_id is None else str(expected_system_id).strip()
+        )
+        if self.expected_system_id is not None:
+            # ConnectionTopology performs the canonical ROS-safe identifier
+            # validation; use it here too so a wrapper cannot create a
+            # workspace with an ambiguous or path-like name.
+            if re.fullmatch(r"[a-z][a-z0-9_]{0,62}", self.expected_system_id) is None:
+                raise ValueError("expected_system_id must be a ROS-safe lower-case identifier")
         self.token = str(token)
         if not self.token:
             raise ValueError("a non-empty connection-manager token is required")
@@ -250,10 +260,13 @@ class ConnectionManagerApplication:
                         "save a valid connection topology before starting deployment"
                     )
                 return None
-            return ConnectionTopology.load(self.state_path)
+            topology = ConnectionTopology.load(self.state_path)
+            self._validate_expected_system(topology)
+            return topology
 
     def validate_topology(self, payload: Mapping[str, Any]) -> dict[str, object]:
         topology = ConnectionTopology.from_dict(payload)
+        self._validate_expected_system(topology)
         return self._topology_response(topology, saved=False)
 
     def validate_preflight(self, payload: Mapping[str, Any]) -> dict[str, object]:
@@ -302,6 +315,7 @@ class ConnectionManagerApplication:
 
     def save_topology(self, payload: Mapping[str, Any]) -> dict[str, object]:
         topology = ConnectionTopology.from_dict(payload)
+        self._validate_expected_system(topology)
         with self._job_lock:
             if self.job.status in {"running", "cancelling"}:
                 raise RuntimeError(
@@ -312,6 +326,14 @@ class ConnectionManagerApplication:
         response = self._topology_response(topology, saved=True)
         response["mode"] = f"{destination.stat().st_mode & 0o777:04o}"
         return response
+
+    def _validate_expected_system(self, topology: ConnectionTopology) -> None:
+        expected = self.expected_system_id
+        if expected is not None and topology.system_id != expected:
+            raise ValueError(
+                "connection topology system_id does not match this workspace: "
+                f"expected {expected!r}, got {topology.system_id!r}"
+            )
 
     def probe_fingerprint(self, payload: Mapping[str, Any]) -> dict[str, object]:
         keys = {str(key) for key in payload}
@@ -509,7 +531,9 @@ class ConnectionManagerApplication:
             if isinstance(updated, ConnectionTopology) and updated != topology:
                 with self._state_lock:
                     current = ConnectionTopology.load(self.state_path)
+                    self._validate_expected_system(current)
                     if current != updated:
+                        self._validate_expected_system(updated)
                         updated.save(self.state_path)
                 with self._job_lock:
                     self.job.topology_updated = True
@@ -841,6 +865,7 @@ def run_connection_gui(
     *,
     state_path: Path,
     runner: ConnectionRunner,
+    expected_system_id: str | None = None,
     status_provider: StatusProvider | None = None,
     host: str = "127.0.0.1",
     port: int = 8766,
@@ -857,6 +882,7 @@ def run_connection_gui(
         state_path=state_path,
         token=session_token,
         runner=runner,
+        expected_system_id=expected_system_id,
         status_provider=status_provider,
         fingerprint_probe=fingerprint_probe,
         local_install_root=local_install_root,

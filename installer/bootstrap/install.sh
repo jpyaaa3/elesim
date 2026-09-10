@@ -8,8 +8,10 @@ invocation_dir="${ELESIM_INVOCATION_DIR:-$PWD}"
 gui_port="${ELESIM_GUI_PORT:-8765}"
 raw_url="${ELESIM_BOOTSTRAP_URL:-https://raw.githubusercontent.com/${repository}/${ref}/installer/bootstrap/bootstrap.py}"
 cache_dir="${ELESIM_CACHE_DIR:-$HOME/.cache/elesim/setup}"
+source_revision_file=""
 bootstrap_file="$cache_dir/bootstrap.py"
 bootstrap_tmp=""
+bootstrap_publish_tmp=""
 archive_env_file=""
 browser_pid=""
 
@@ -21,6 +23,9 @@ fail() {
 cleanup() {
   if [[ -n "$bootstrap_tmp" ]]; then
     rm -f -- "$bootstrap_tmp" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$bootstrap_publish_tmp" ]]; then
+    rm -f -- "$bootstrap_publish_tmp" >/dev/null 2>&1 || true
   fi
   if [[ -n "$archive_env_file" ]]; then
     rm -f -- "$archive_env_file" >/dev/null 2>&1 || true
@@ -35,6 +40,19 @@ command -v curl >/dev/null 2>&1 || fail "Curl is required"
 [[ "$gui_port" =~ ^[0-9]+$ ]] && ((gui_port >= 1 && gui_port <= 65535)) || \
   fail "ELESIM_GUI_PORT must be in 1..65535"
 [[ -d "$invocation_dir" ]] || fail "Invocation directory does not exist: $invocation_dir"
+
+# A scoped update needs the revision authenticated by bootstrap after the
+# short-lived setup process exits.  Derive this path from the invocation
+# directory and command, never from an ambient caller-provided path.  The
+# outer update wrapper removes the previous handoff too; this second removal
+# keeps direct `install.sh ... update` invocations fail-closed as well.
+for argument in "$@"; do
+  if [[ "$argument" == "update" && "${ELESIM_SCOPED_UPDATE:-0}" == "1" ]]; then
+    source_revision_file="$invocation_dir/maintenance/.bootstrap-source-revision"
+    rm -f -- "$source_revision_file"
+    break
+  fi
+done
 
 docker_cmd=(docker)
 if ! command -v docker >/dev/null 2>&1; then
@@ -112,8 +130,13 @@ fi
 mkdir -p "$cache_dir" "$HOME/.local/share/elesim" "$HOME/.local/bin"
 bootstrap_tmp="$(mktemp "$cache_dir/.bootstrap.py.XXXXXX")"
 curl -fsSL "$raw_url" -o "$bootstrap_tmp"
-mv -f -- "$bootstrap_tmp" "$bootstrap_file"
-bootstrap_tmp=""
+# Publish a cache copy atomically, but execute only this invocation's unique
+# download.  A concurrent install may replace the shared cache after this
+# point without changing the bootstrap bytes mounted/executed below.
+bootstrap_publish_tmp="$(mktemp "$cache_dir/.bootstrap-publish.XXXXXX")"
+cp -- "$bootstrap_tmp" "$bootstrap_publish_tmp"
+mv -f -- "$bootstrap_publish_tmp" "$bootstrap_file"
+bootstrap_publish_tmp=""
 if [[ -n "${ELESIM_ARCHIVE_URL:-}" ]]; then
   case "$ELESIM_ARCHIVE_URL" in
     *$'\n'*|*$'\r'*) fail "ELESIM_ARCHIVE_URL must not contain newlines" ;;
@@ -257,8 +280,11 @@ docker_args=(
   --env "ELESIM_HOST_DOCKER_ENDPOINT=$docker_context_endpoint"
   --env "ELESIM_HOST_DOCKER_HOST_OVERRIDE=$docker_host_override"
   --volume "$HOME:$HOME"
-  --volume "$bootstrap_file:/tmp/elesim-bootstrap.py:ro"
+  --volume "$bootstrap_tmp:/tmp/elesim-bootstrap.py:ro"
 )
+if [[ -n "$source_revision_file" ]]; then
+  docker_args+=(--env "ELESIM_SOURCE_REVISION_FILE=$source_revision_file")
+fi
 if [[ -n "$archive_env_file" ]]; then
   docker_args+=(--env-file "$archive_env_file")
 fi
@@ -328,6 +354,9 @@ if [[ -n "${ELESIM_ARCHIVE_URL:-}" ]]; then
   # env-file mechanism above.
   host_bootstrap_env+=("ELESIM_ARCHIVE_URL=$ELESIM_ARCHIVE_URL")
 fi
+if [[ -n "$source_revision_file" ]]; then
+  host_bootstrap_env+=("ELESIM_SOURCE_REVISION_FILE=$source_revision_file")
+fi
 
 gui_url="http://127.0.0.1:${gui_port}/?token=${gui_token}"
 if ((gui_mode)); then
@@ -364,7 +393,7 @@ if ((gui_mode)); then
     fi
   done
   if ((host_bootstrap)); then
-    env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_file" \
+    env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_tmp" \
       "${gui_arguments[@]}" \
       --host 127.0.0.1 \
       --port "$gui_port" \
@@ -385,14 +414,14 @@ if ((gui_mode)); then
   fi
 elif [[ -r /dev/tty ]]; then
   if ((host_bootstrap)); then
-    env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_file" "$@" </dev/tty
+    env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_tmp" "$@" </dev/tty
   else
     "${docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
       python /tmp/elesim-bootstrap.py "$@" </dev/tty
   fi
 else
   if ((host_bootstrap)); then
-    env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_file" "$@"
+    env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_tmp" "$@"
   else
     "${docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
       python /tmp/elesim-bootstrap.py "$@"

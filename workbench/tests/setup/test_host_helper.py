@@ -34,6 +34,7 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
         bin_dir=bin_dir,
         project="elesim-runtime",
     )
+
     prefix = (
         _compose_wrapper(bin_dir),
         "-p",
@@ -50,7 +51,7 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
         ("stop", "sim"),
         ("stop", "sim", "coturn"),
         ("start", "pilot"),
-        ("up", "-d", "--no-build", "--remove-orphans", "pilot", "sim", "coturn"),
+        ("up", "-d", "--no-build", "pilot", "sim", "coturn"),
     ):
         _validate_command(
             (*prefix, *suffix),
@@ -136,7 +137,6 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
             "up",
             "-d",
             "--no-build",
-            "--remove-orphans",
             "sim",
         ),
         compose=compose,
@@ -167,7 +167,6 @@ def test_host_helper_bounds_runtime_launch_options() -> None:
                     "up",
                     "-d",
                     "--no-build",
-                    "--remove-orphans",
                     "sim",
                 ),
                 compose=compose,
@@ -276,7 +275,6 @@ def test_host_helper_bounds_runtime_launch_options() -> None:
             "up",
             "-d",
             "--no-build",
-            "--remove-orphans",
             "coturn",
         ),
     ),
@@ -347,6 +345,39 @@ def test_host_helper_limits_network_cli_to_installed_wrapper() -> None:
         )
 
 
+def test_host_helper_scoped_staging_cleanup_is_manager_system_bound() -> None:
+    compose, bin_dir = _paths()
+    register = str(bin_dir / "elesim-instance-register")
+    valid = (
+        register,
+        "cleanup-staging",
+        "--system",
+        "alpha",
+        "--security-generation",
+        "g1",
+    )
+    _validate_command(
+        valid,
+        compose=compose,
+        bin_dir=bin_dir,
+        project="elesim-runtime",
+        instance_system="alpha",
+    )
+    for invalid in (
+        (*valid[:3], "bravo", *valid[4:]),
+        (*valid[:5], "../g1"),
+        (*valid[:5], "G1"),
+    ):
+        with pytest.raises(HostHelperError):
+            _validate_command(
+                invalid,
+                compose=compose,
+                bin_dir=bin_dir,
+                project="elesim-runtime",
+                instance_system="alpha",
+            )
+
+
 def test_host_helper_rejects_unscoped_compose_up() -> None:
     compose, bin_dir = _paths()
     with pytest.raises(HostHelperError, match="at least one service"):
@@ -360,7 +391,28 @@ def test_host_helper_rejects_unscoped_compose_up() -> None:
                 "up",
                 "-d",
                 "--no-build",
+            ),
+            compose=compose,
+            bin_dir=bin_dir,
+            project="elesim-runtime",
+        )
+
+
+def test_host_helper_rejects_remove_orphans_on_compose_up() -> None:
+    compose, bin_dir = _paths()
+    with pytest.raises(HostHelperError):
+        _validate_command(
+            (
+                _compose_wrapper(bin_dir),
+                "-p",
+                "elesim-runtime",
+                "-f",
+                str(compose),
+                "up",
+                "-d",
+                "--no-build",
                 "--remove-orphans",
+                "sim",
             ),
             compose=compose,
             bin_dir=bin_dir,
@@ -617,7 +669,6 @@ def test_host_helper_enforces_client_command_timeout(
                     "up",
                     "-d",
                     "--no-build",
-                    "--remove-orphans",
                     "pilot",
                 ),
                 socket_path=str(socket_path),
@@ -743,3 +794,88 @@ def _recv_exact(connection: socket.socket, size: int) -> bytes:
     while len(result) < size:
         result.extend(connection.recv(size - len(result)))
     return bytes(result)
+
+
+def test_host_helper_scoped_dispatcher_is_bound_to_manager_system() -> None:
+    compose, bin_dir = _paths()
+    instance = str(bin_dir / "elesim-instance")
+    _validate_command(
+        (instance, "lab", "up", "--no-build"),
+        compose=compose,
+        bin_dir=bin_dir,
+        project="elesim-runtime-0123456789abcdef",
+        instance_system="lab",
+    )
+    with pytest.raises(HostHelperError, match="does not match"):
+        _validate_command(
+            (instance, "other", "status"),
+            compose=compose,
+            bin_dir=bin_dir,
+            project="elesim-runtime-0123456789abcdef",
+            instance_system="lab",
+        )
+
+
+def test_host_helper_scoped_manager_cannot_use_install_compose_lifecycle() -> None:
+    compose, bin_dir = _paths()
+    prefix = (
+        _compose_wrapper(bin_dir),
+        "-p",
+        "elesim-runtime-0123456789abcdef",
+        "-f",
+        str(compose),
+    )
+    for action in ("up", "down", "start", "stop", "restart", "rm"):
+        with pytest.raises(HostHelperError, match="install-wide Compose lifecycle"):
+            _validate_command(
+                (*prefix, action, "sim"),
+                compose=compose,
+                bin_dir=bin_dir,
+                project="elesim-runtime-0123456789abcdef",
+                instance_system="lab",
+            )
+
+    # Read-only inspection and an immutable-context build remain available to
+    # update/release tooling.  Instance lifecycle itself is a separate exact
+    # dispatcher command and is covered by the neighboring test.
+    for suffix in (
+        ("config", "--quiet"),
+        ("ps", "--status", "running", "--services"),
+        ("build", "pilot", "sim"),
+    ):
+        _validate_command(
+            (*prefix, *suffix),
+            compose=compose,
+            bin_dir=bin_dir,
+            project="elesim-runtime-0123456789abcdef",
+            instance_system="lab",
+        )
+    _validate_command(
+        (
+            _compose_wrapper(bin_dir),
+            "-f",
+            str(compose),
+            "config",
+            "--quiet",
+        ),
+        compose=compose,
+        bin_dir=bin_dir,
+        project="elesim-runtime-0123456789abcdef",
+        instance_system="lab",
+    )
+    with pytest.raises(HostHelperError):
+        _validate_command(
+            (
+                *prefix[:1],
+                "-p",
+                "other-project",
+                "-f",
+                str(compose),
+                "config",
+                "--quiet",
+            ),
+            compose=compose,
+            bin_dir=bin_dir,
+            project="elesim-runtime-0123456789abcdef",
+            instance_system="lab",
+        )

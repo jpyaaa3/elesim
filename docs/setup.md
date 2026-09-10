@@ -11,13 +11,27 @@
 
 - `install-state.json`, `install-ownership.json`
 - role별 Compose/build context와 immutable runtime configuration
-- `elesim-up`, `elesim-down`, `elesim-update`, `elesim-logs`, `elesim-status`
-  및 `elesim-setup`, `elesim-net`, `elesim-connections` wrapper
+- scoped instance lifecycle용 `elesim-instance`, 모든 설치의 release 갱신용
+  `elesim-update`, legacy fixed project용 `elesim-up`, `elesim-down`,
+  `elesim-logs`, `elesim-status`, 그리고 `elesim-setup`, `elesim-net`,
+  `elesim-connections` wrapper
 - 선택한 security/TURN/config state와 bounded log archive
 - 선택 시 같은 Compose project에 붙는 persistent `elesim-dev` 개발 attachment
 
-설치 자체는 image build나 runtime start를 하지 않는다. 첫 build와 실행은
-설치 후의 `elesim-up` 또는 `elesim-update`가 담당한다.
+설치 자체는 image build나 runtime start를 하지 않는다. 첫 release build/publish는
+`elesim-update`, 등록된 system의 실행은 `elesim-instance <system> up`이 담당한다.
+
+Scoped 설치의 정확한 owner identity는 다음 read-only 명령으로 확인할 수 있다.
+
+```bash
+elesim-net identity
+```
+
+원격 scoped topology에 이 JSON의 `install_uuid`를 deployment unit별로
+등록해야 한다(`project`를 함께 기록할 수도 있다). 연결 관리자는 pinned SSH host key로 인증한 뒤 같은
+명령을 다시 읽어 비교하며, 등록되지 않은 원격 unit에는 lifecycle/security
+작업을 보내지 않는다. 이 enrollment는 설치 UUID를 자동 추정하거나 mutating
+작업 중에 생성하지 않는다.
 
 ## 2. Bootstrap
 
@@ -25,8 +39,8 @@
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/installer/bootstrap/install.sh \
-  | ELESIM_REF=refactoring bash
+  https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/install.sh \
+  | ELESIM_REF=main bash
 ```
 
 재현 가능한 설치는 branch 대신 40자리 commit SHA를 raw URL과
@@ -79,17 +93,22 @@ host venv로 setup을 실행한다. 이 venv는 `~/.cache/elesim/setup` 아래�
 생성되며 host Python 패키지나 ROS/Apt 상태를 수정하지 않는다. ROS 2가 없는
 Jetson은 Robot 설치 전에 host ROS 2/Unitree workspace를 준비해야 한다.
 
-고정된 runtime 이름은 다음과 같다.
+신규 container 설치의 runtime namespace는 `elesim-runtime-<install UUID hex>`로
+고정된다. 한 설치의 여러 system instance가 이 project를 공유하지만, 다른
+설치나 legacy 고정 project를 자동으로 인수하지 않는다.
 
 ```text
-project:     elesim-runtime
-images:      elesim/pilot:local  elesim/sim:local  elesim/ui:local
-containers:  elesim-pilot       elesim-sim       elesim-ui
-optional:    elesim-coturn (Sim host), elesim-tailscale (Docker Desktop)
+project:     elesim-runtime-<install UUID hex>
+images:      install-scoped immutable role tags (release fingerprint 포함)
+containers:  install/system/endpoint-scoped service names
+optional:    install-scoped Coturn (Sim host), Tailscale (Docker Desktop), dev service
 ```
 
-한 host의 같은 prefix에는 EleSim installation을 두 개 만들지 않는다.
-필요하면 서로 다른 prefix와 독립 deployment unit을 사용한다.
+동일 host에서도 서로 다른 prefix와 install UUID는 독립 namespace를 갖는다.
+기존 `elesim-runtime`을 사용하는 legacy 설치는 별도 prefix/bin과 ownership
+증거를 유지하며 신규 설치가 자동 변경하지 않는다. 새 prefix/bin을 기존
+EleSim prefix 아래에 중첩하지 않으며, 설치기는 상위 표준 ownership manifest를
+발견하면 mutation 전에 거부한다.
 
 한 container 설치에는 Pilot/Sim/UI를 모두 준비해 둘 수 있다. 연결 관리자는
 설치된 `roles`를 capability inventory로 취급하고, 현재 topology에 선택된
@@ -99,15 +118,15 @@ optional:    elesim-coturn (Sim host), elesim-tailscale (Docker Desktop)
 
 ### 선택적 개발 attachment
 
-개발 attachment는 기존의 완전한 Git checkout을 같은 `elesim-runtime`
+개발 attachment는 기존의 완전한 Git checkout을 같은 install-scoped Compose
 project에 profile-scoped 영속 privileged `elesim-dev`로 연결한다.
 ROS/scientific stack, 모든 role, model tooling과 tests가 들어가지만 설치기는
 checkout을 생성·갱신·소유하지 않는다. `pilot`/`sim`/`ui` 컨테이너와 역할은
 그대로 분리되며, 개발 셸에는 런타임 DDS/SROS2 identity를 자동 지급하지 않는다.
 
 ```bash
-elesim-up             # 현재 topology가 이 host에 배정한 역할 시작
-elesim-dev            # 필요할 때 developer profile 시작 후 Compose exec
+elesim-instance <system> up
+elesim-dev            # developer profile 시작 후 Compose exec
 ```
 
 반복해서 `docker compose run --rm` 개발 컨테이너를 만들지 않는다. attachment는
@@ -115,15 +134,19 @@ source checkout을 ownership deletion boundary로 삼지 않는다.
 
 ## 4. 생성된 prefix와 PATH
 
-설치 prefix의 대표 구조는 다음과 같다.
+설치 prefix의 대표 구조는 다음과 같다. release는 build fingerprint/image ID로
+고정되고, 각 instance의 config·security view·writable cache·logs는 해당
+system/endpoint 아래에만 기록된다.
 
 ```text
 <prefix>/
 ├── install-state.json
 ├── install-ownership.json
-├── maintenance/                  # stdlib-only uninstaller
+├── maintenance/                  # stdlib-only host lifecycle/release/uninstall modules
 ├── containers/compose.yaml
 ├── apps/<role>/                  # config/model/security view
+├── releases/<release-key>/       # immutable manifest + runtime data
+├── instances/<system>/           # state/config/cache/log/security/secrets
 ├── security/                      # managed generation/current
 ├── connections/                   # non-secret topology
 ├── secrets/                       # owned TURN/Tailscale state only
@@ -161,17 +184,12 @@ CPU-only로 감지된 role은 상속 checkbox를 미리 선택/해제한 상태�
 뿐이며, `CUDA_VISIBLE_DEVICES`만 바꿔서 container runtime이 차단한 장치를
 되살릴 수 없다.
 
-설치 후 실제 값을 확인한다.
-
-```bash
-docker exec elesim-sim sh -lc \
-  'printf "CVD=%s\\n" "${CUDA_VISIBLE_DEVICES:-unset}"; \
-   command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=index,uuid,name --format=csv,noheader || true'
-nvidia-smi
-```
+설치 후 실제 값은 install/system/endpoint-scoped service를 대상으로
+`elesim-instance <system> status`에서 확인한다. Docker container 이름을 전역 고정값
+`elesim-sim`으로 가정하지 않는다.
 
 `inherit`는 host 환경의 값에 의존하므로, 서로 다른 host에서 숫자가 같다고
-같은 물리 GPU라는 뜻은 아니다. `elesim-status`의 device request와 container
+같은 물리 GPU라는 뜻은 아니다. `elesim-instance <system> status`의 device request와 container
 내 `torch.cuda.device_count()`를 함께 본다.
 
 ## 6. Display와 Sim Viewer
@@ -181,7 +199,7 @@ native Genesis Viewer는 자동으로 켜지지 않는다. 실제 X11 세션에�
 실행만 Viewer를 열려면 명시적으로 `--view`를 사용한다.
 
 ```bash
-DISPLAY=:0 CUDA_VISIBLE_DEVICES=0 elesim-up --view
+DISPLAY=:0 CUDA_VISIBLE_DEVICES=0 elesim-instance <system> up --view
 ```
 
 연결 관리자가 SSH로 Sim을 시작할 때는 topology의 SSH 관리 username을
@@ -202,57 +220,54 @@ elesim-update
 ```
 
 설치 state가 기록한 repository/ref를 다시 가져와 ownership manifest를
-검증하고, owned artifact를 재생성한 뒤 선택 image를 증분 build한다. topology,
-security generation, credentials, model cache와 logs는 보존하며 실행 중인
-container는 교체하지 않는다. 업데이트 후 새 image를 적용하려면 별도의
-`elesim-up`이 필요하다.
+검증하고, 새 immutable release를 build/publish한다. topology, 등록된 instance의
+release pin, security generation, credentials, model cache와 logs는 보존하며
+실행 중인 container를 교체하거나 instance를 새 release로 repin하지 않는다.
+새 release를 사용하려면 해당 system을 명시적으로 register/replace해야 한다.
 
 `elesim-update`는 source/Dockerfile 결함을 고치는 재빌드 경계이지 자동
 restart가 아니다. 성공한 update는 현재 설치의 fingerprint가 붙은 이전
 dangling image만 ownership 조건 아래 정리한다. `--purge`나 down은 image layer를
 지우거나 foreign resource를 prune하지 않는다.
 
-### Up
+### Scoped instance lifecycle
 
 ```bash
-elesim-up                 # fingerprint가 다를 때만 build
-elesim-up pilot           # Pilot만 시작
-elesim-up sim             # Sim만 시작
-elesim-up ui              # UI만 시작
-elesim-up --no-build      # 이미 준비된 image로 적용
-elesim-up --view          # 명시적 Sim native Viewer
+elesim-instance <system> up [--no-build]
+elesim-instance <system> down
+elesim-instance <system> logs
+elesim-instance <system> status
+elesim-instance <system> remove
 ```
 
-`elesim-up`은 선택한 role image의 generated build fingerprint를 local image
-label과 비교한다. 이미지가 없거나 fingerprint가 다를 때만 build하고, 일치하면
-`--no-build`로 Compose를 시작한다. tools image도 같은 검사를 거쳐 readiness
-검사에서 변경 없이 다시 build하지 않는다. multi-host 전체 build/launch와
-security rollout은 `elesim-connections`가 host별로 조정한다.
-동일한 active generation과 역할을 임의로 덮어쓰지 않는다.
+`elesim-instance`는 등록된 system의 exact service와 해당 release만 대상으로
+lifecycle한다. `remove`도 선택한 instance 자원만 정리하고 공용 release/image나
+legacy fixed project를 건드리지 않는다. register는 기존 system을 덮어쓰지
+않으며, 의도적인 release 교체는 명시적인 replace transaction으로 수행한다.
 
-General 설치는 role별 host wrapper를 만들지 않는다. `elesim-pilot`,
-`elesim-sim`, `elesim-ui`는 Docker 내부의 고정 container/entrypoint 이름이고,
-호스트에서는 항상 `elesim-up <role>`을 사용한다.
+Scoped 설치의 generic `elesim-up`, `elesim-down`, `elesim-logs`, `elesim-status`
+wrapper는 fail-closed로 거부된다. 이 명령들은 legacy fixed `elesim-runtime`
+설치에서만 유지된다.
 
 ### Down, logs, status
 
 ```bash
-elesim-down                 # runtime role/Coturn 중지·로그 snapshot
-elesim-down --purge         # exact owned runtime resource도 정리
-elesim-logs                 # 현재 role 로그 follow (Ctrl+C는 follow만 중지)
-elesim-logs --save          # bounded private snapshot 저장
-elesim-status               # host/IP/container/GPU/DDS/media 요약
+elesim-instance <system> down
+elesim-instance <system> logs
+elesim-instance <system> status
+elesim-instance <system> remove
 ```
 
-`elesim-down`은 managed Coturn 등 해당 Compose 프로젝트가 소유한 서비스도
-설치가 소유하면 함께 중지한다. Docker Desktop의 `elesim-tailscale` sidecar는
-일반 `elesim-down`에서 유지되며 `elesim-down --purge`에서만 내려간다. 로그
+`elesim-instance <system> down`은 managed Coturn 등 해당 instance가 소유한
+서비스만 중지한다. Docker Desktop의 install-scoped Tailscale sidecar는 instance
+lifecycle에서 유지된다. 로그
 archive 실패가 있어도 shutdown은 시도하며 최종 exit status에는 archive 실패를
 반영한다.
 
 연결 관리자의 “restart”는 런타임 설정을 원자적으로 재적용하는 동작이 아니므로
-사용하지 않는다. 전체 재시작은 각 호스트의 정확한 prefix에서 `elesim-down`
-후 `elesim-up`으로 수행하고, multi-host 재구성은 manager의 stop/start 또는
+사용하지 않는다. scoped 전체 재시작은 각 호스트의 정확한 prefix에서 해당
+system을 `elesim-instance <system> down` 후 `up`으로 수행하고, multi-host
+재구성은 manager의 stop/start 또는
 security transaction으로 처리한다.
 
 ## 8. Tailscale sidecar와 네트워크 점검
@@ -322,16 +337,16 @@ legacy generated path가 manifest 없이 남아 있으면 자동 adopt하지 않
 
 | 증상 | 먼저 확인할 것 | 의미/조치 |
 | --- | --- | --- |
-| `DDS readiness` 실패 | `elesim-status`, `elesim-net namespace-check`, role log | manager는 최대 5분 동안 exact descriptor/boot heartbeat만 기다린다. interface/address/route와 실제 peer heartbeat를 분리해서 확인한다. Sim scene/media session은 별도이며 UI가 재시도한다. SSH/HTTP 성공만으로 해결되지 않는다. |
-| `__enter__` 또는 `rclpy` 예외 | `elesim-update` 후 새 tools/runtime image인지, container Python/RMW 버전 | host Python을 고치지 말고 generated image를 재생성·재빌드한 뒤 `elesim-up`한다. |
-| `sim-default` 미발견 | Sim scene/media startup, Pilot/UI descriptor/heartbeat, security bundle | Sim container가 running이어도 session grant 전일 수 있다. scene handshake와 exact boot를 기다린다. |
+| `DDS readiness` 실패 | `elesim-instance <system> status`, `elesim-net namespace-check`, role log | manager는 최대 5분 동안 exact descriptor/boot heartbeat만 기다린다. interface/address/route와 실제 peer heartbeat를 분리해서 확인한다. Sim scene/media session은 별도이며 UI가 재시도한다. SSH/HTTP 성공만으로 해결되지 않는다. |
+| `__enter__` 또는 `rclpy` 예외 | `elesim-update` 후 새 immutable release인지, container Python/RMW 버전 | host Python을 고치지 말고 release를 갱신한 뒤 해당 system을 명시적으로 replace하고 `elesim-instance <system> up`한다. |
+| Sim endpoint 미발견 | Sim scene/media startup, Pilot/UI descriptor/heartbeat, security bundle | Sim container가 running이어도 session grant 전일 수 있다. 등록된 graph role ID(예: `sim-1`)와 scene handshake, exact boot를 확인한다. |
 | Viewer가 다른 사용자 화면에 뜸 | `--viewer-user`, 해당 사용자의 X socket/Xauthority, `DISPLAY` | 연결 topology의 SSH username과 실제 display owner를 일치시킨다. 다른 사용자의 X를 허용하지 않는다. |
 | `simulation session is not connected` | UI/Sim boot, session grant/renewal, WebRTC signaling log | DDS session과 WebRTC media를 별도로 진단한다. Coturn은 DDS를 고치지 않는다. |
-| observer가 깨짐/렉 | `elesim-status`의 encoder/backend/streams와 Sim perf fields | NVENC/libx264 fallback, scene render, camera conversion, MPC solve를 각각 측정한다. QoS를 무작정 낮추지 않는다. |
+| observer가 깨짐/렉 | `elesim-instance <system> status`의 encoder/backend/streams와 Sim perf fields | NVENC/libx264 fallback, scene render, camera conversion, MPC solve를 각각 측정한다. QoS를 무작정 낮추지 않는다. |
 | Robot 설치에서 `/opt/ros/humble/setup.bash` 없음 | Jetson host의 ROS 2 Humble, `colcon`, `~/ros2_ws/install/setup.bash` | 해당 prerequisites가 있는 Jetson은 bootstrap이 host venv 경로를 선택한다. 파일이 없으면 ROS 2/Unitree workspace를 먼저 준비하고, 컨테이너 로그에서 이 오류가 나면 bootstrap source를 갱신한다. |
 | `canonicalize_version(... strip_trailing_zero ...)`로 `elesim_interfaces` 빌드 실패 | host Python의 `setuptools`/`packaging` 혼합 | bootstrap이 캐시 venv에 호환되는 metadata 패키지를 설치하고 ROSIDL 빌드에만 우선 사용한다. host 전역 `pip`를 업그레이드하지 않는다. |
 | `managed SROS2 pending` | manager에서 generation `provision`/`rotate`/`recover` | generation transaction을 끝내기 전 role을 임의로 up하지 않는다. |
-| `elesim-update` 후 옛 동작 | update는 container를 교체하지 않음 | 정확한 prefix에서 `elesim-down` 후 `elesim-up`한다. |
+| `elesim-update` 후 옛 동작 | update는 container나 instance pin을 교체하지 않음 | 새 release를 명시적으로 register/replace한 뒤 `elesim-instance <system> up`한다. |
 | `No module named pip` bootstrap | host venv/cache를 직접 고치지 않음 | `install.sh`를 새 source ref로 다시 실행해 setup cache snapshot을 재생성한다. |
 
 curl bootstrap은 runtime에 필요하지 않은 `payload/runtime/docker/sim/app/elesim_sim/rl` 연구/학습

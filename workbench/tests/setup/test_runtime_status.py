@@ -38,6 +38,19 @@ def test_compose_status_reports_host_runtime_and_sim_media_facts() -> None:
     )
 
 
+def test_compose_status_uses_scoped_tailscale_container() -> None:
+    rendered = render_compose_status_wrapper(
+        compose=Path("/tmp/scoped/compose.yaml"),
+        project="elesim-runtime-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        services=(("sim", "elesim-a-scoped-sim"),),
+        sim_container="elesim-a-scoped-sim",
+        tailscale_container="elesim-a-scoped-tailscale",
+    )
+
+    assert "docker exec elesim-a-scoped-tailscale tailscale ip -4" in rendered
+    assert "docker exec elesim-tailscale tailscale ip -4" not in rendered
+
+
 def test_native_status_reports_both_robot_units() -> None:
     rendered = render_native_status_wrapper(
         robot_unit="elesim-robot.service",

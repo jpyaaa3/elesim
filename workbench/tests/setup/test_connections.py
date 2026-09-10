@@ -116,7 +116,6 @@ def test_trusted_network_runner_applies_bundle_free_topology(
 
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
     runner(topology, "deploy", events.append)
 
@@ -134,8 +133,9 @@ def test_runner_rejects_symlinked_authority_root(tmp_path: Path) -> None:
         ConnectionDeploymentRunner(linked_root)
 
 
+@pytest.mark.parametrize("scoped", (False, True))
 def test_runner_rejects_repeated_role_instances_before_host_operations(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scoped: bool
 ) -> None:
     topology = _topology(tmp_path, security_profile="trusted-network")
     operator = topology.local_host
@@ -159,6 +159,7 @@ def test_runner_rejects_repeated_role_instances_before_host_operations(
         tmp_path / "authority",
         local_install_root=tmp_path / "install",
     )
+    monkeypatch.setattr(runner, "_local_install_scope", lambda: scoped)
 
     with pytest.raises(ValueError, match="복수 인스턴스.*ui"):
         runner(duplicated, "start", lambda _message: None)
@@ -189,7 +190,6 @@ def test_trusted_network_runner_ignores_cancel_after_rollout_commit(
     monkeypatch.setattr("elesim_setup.connections.TopologyRollout", FakeRollout)
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
     events: list[str] = []
 
@@ -209,7 +209,6 @@ def test_trusted_network_rejects_security_actions_before_host_operations(
     topology = _topology(tmp_path, security_profile="trusted-network")
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
     monkeypatch.setattr(
         ConnectionDeploymentRunner,
@@ -284,7 +283,6 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     )
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
 
     options = RuntimeLaunchOptions(True, "1", True)
@@ -338,7 +336,6 @@ def test_runtime_stop_revokes_viewer_acl_only_after_sim_has_stopped(
     )
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
 
     runner(topology, "stop", lambda _message: None)
@@ -383,7 +380,6 @@ def test_runtime_stop_continues_other_hosts_after_viewer_cleanup_failure(
     )
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
 
     with pytest.raises(RuntimeError, match="operator/viewer-cleanup"):
@@ -444,7 +440,6 @@ def test_runtime_start_reports_dds_readiness_after_launch(
     )
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
 
     runner(topology, "start", logs.append)
@@ -550,9 +545,7 @@ def test_runtime_launch_preflight_fails_before_build_or_start(
             lambda graph: {host.host_id: Operations() for host in graph.hosts}
         ),
     )
-    runner = ConnectionDeploymentRunner(
-        tmp_path / "authority", local_install_root=tmp_path / "install"
-    )
+    runner = ConnectionDeploymentRunner(tmp_path / "authority")
 
     with pytest.raises(RuntimeError, match="stale installed enclave"):
         runner(topology, "start", lambda _message: None)
@@ -605,7 +598,6 @@ def test_runtime_readiness_fails_on_malformed_results_payload(
     )
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
 
     with pytest.raises(RuntimeError, match="DDS readiness failed"):
@@ -665,7 +657,6 @@ def test_runtime_readiness_preserves_compensating_stop_failures(
     )
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
 
     with pytest.raises(RuntimeRollbackError) as captured:
@@ -734,7 +725,6 @@ def test_runtime_launch_failure_rolls_back_the_partially_started_current_host(
     )
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
 
     with pytest.raises(RuntimeError, match="partial"):
@@ -787,9 +777,7 @@ def test_runtime_second_host_partial_launch_rolls_back_both_in_reverse_order(
         "_operations",
         staticmethod(lambda _graph: operations),
     )
-    runner = ConnectionDeploymentRunner(
-        tmp_path / "authority", local_install_root=tmp_path / "install"
-    )
+    runner = ConnectionDeploymentRunner(tmp_path / "authority")
 
     with pytest.raises(RuntimeError, match="partial second host"):
         runner(topology, "start", lambda _message: None)
@@ -836,9 +824,7 @@ def test_runtime_start_rejects_mixed_running_state_before_build(
             lambda graph: {host.host_id: Operations() for host in graph.hosts}
         ),
     )
-    runner = ConnectionDeploymentRunner(
-        tmp_path / "authority", local_install_root=tmp_path / "install"
-    )
+    runner = ConnectionDeploymentRunner(tmp_path / "authority")
 
     with pytest.raises(RuntimeError, match="elesim-up"):
         runner(topology, "start", lambda _message: None)
@@ -969,7 +955,6 @@ def test_host_check_combines_network_preflight_and_runtime_status(
     )
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
 
     runner(topology, "check", logs.append)
@@ -1012,7 +997,6 @@ def test_start_persists_changed_sidecar_address_and_requires_prepare(
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
         topology_state_path=state_path,
-        local_install_root=tmp_path / "install",
     )
 
     with pytest.raises(RuntimeError, match="보안 및 실행 준비"):
@@ -1064,7 +1048,6 @@ def test_deploy_persists_sidecar_address_before_remote_configuration(
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
         topology_state_path=state_path,
-        local_install_root=tmp_path / "install",
     )
 
     updated = runner(topology, "deploy", lambda _message: None)
@@ -1104,7 +1087,6 @@ def test_deploy_rejects_changed_sidecar_address_without_a_state_path(
     )
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
 
     with pytest.raises(RuntimeError, match="topology state path"):
@@ -1137,7 +1119,6 @@ def test_sros2_provision_rejects_an_existing_active_generation(
     )
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
 
     with pytest.raises(ValueError, match="provision/deploy"):
@@ -1191,7 +1172,6 @@ def test_sros2_prepare_selects_create_or_reissue_automatically(
 
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
     runner(topology, "prepare", lambda _message: None)
 
@@ -1230,7 +1210,6 @@ def test_runner_validates_tilde_identity_against_operator_home(
     monkeypatch.setenv("ELESIM_OPERATOR_HOME", str(operator_home))
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
 
     for configured in ("~/.ssh/id_ed25519", str(identity)):
@@ -1251,7 +1230,6 @@ def test_runner_does_not_require_a_private_file_for_tailscale_ssh(
     topology = ConnectionTopology.from_dict(raw)
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
-        local_install_root=tmp_path / "install",
     )
 
     runner._validate_management_host(topology)

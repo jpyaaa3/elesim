@@ -797,6 +797,35 @@ def test_application_saves_partial_topology_without_robot(tmp_path: Path) -> Non
     }
 
 
+def test_application_rejects_topology_from_another_system_workspace(
+    tmp_path: Path,
+) -> None:
+    app = ConnectionManagerApplication(
+        state_path=tmp_path / "connections" / "alpha" / "topology.json",
+        token="test-session-token",
+        runner=lambda _topology, _action, _log: None,
+        expected_system_id="alpha",
+    )
+    with pytest.raises(ValueError, match="does not match this workspace"):
+        app.save_topology(_topology().to_dict())
+
+
+def test_application_load_rejects_swapped_system_topology(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "connections" / "alpha" / "topology.json"
+    path.parent.mkdir(parents=True)
+    _topology().save(path)
+    app = ConnectionManagerApplication(
+        state_path=path,
+        token="test-session-token",
+        runner=lambda _topology, _action, _log: None,
+        expected_system_id="alpha",
+    )
+    with pytest.raises(ValueError, match="does not match this workspace"):
+        app.load_topology()
+
+
 def test_fingerprint_probe_uses_explicit_non_default_ssh_port(tmp_path: Path) -> None:
     calls: list[tuple[str, int]] = []
 

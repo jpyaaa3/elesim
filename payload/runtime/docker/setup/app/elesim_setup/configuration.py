@@ -9,13 +9,14 @@ import re
 import shutil
 import tempfile
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
 
 from .state import DdsSettings, InstallState
+from .instances import InstanceState
 
 
 GENERATED_CONFIG = "installed.yaml"
@@ -311,6 +312,138 @@ def generate_role_configs(
     return written
 
 
+def generate_instance_configs(
+    state: InstallState,
+    instance: InstanceState,
+    *,
+    template_root: Path | None = None,
+    security_views: Mapping[str, tuple[Path, str]] | None = None,
+    output_prefix: Path | None = None,
+) -> dict[str, Path]:
+    """Generate endpoint-private configs without touching legacy role configs."""
+    state.validate()
+    instance.validate()
+    # Capability inventory is the installed role set; manager assignment must
+    # not prevent rendering a separately registered instance.
+    installed_roles = tuple(state.roles)
+    if "robot" in installed_roles or any(endpoint.role == "robot" for endpoint in instance.endpoints):
+        raise ValueError("Robot instance configuration is not supported")
+    endpoint_roles = tuple(endpoint.role for endpoint in instance.endpoints)
+    if len(set(endpoint_roles)) != len(endpoint_roles):
+        raise ValueError("instance endpoint roles must be unique")
+    if not set(endpoint_roles).issubset(installed_roles):
+        raise ValueError("instance endpoints must be a subset of installed runtime roles")
+    if instance.security_profile == "sros2":
+        if state.dds.security_provisioning != "managed":
+            raise ValueError("sros2 instances require managed SROS2 provisioning")
+        if security_views is None or set(security_views) != set(endpoint_roles):
+            raise ValueError("sros2 instances require endpoint security views")
+        representative = next(iter(security_views.values()))
+        instance_dds = replace(
+            state.dds,
+            system_id=instance.system_id,
+            domain_id=instance.domain_id,
+            rmw_implementation=instance.rmw_implementation,
+            discovery_mode=instance.discovery_mode,
+            static_peers=instance.static_peers,
+            interface=instance.interface,
+            security_profile="sros2",
+            security_provisioning="managed",
+            security_generation=instance.security_generation,
+            security_bundle=str(representative[0]),
+            keystore=str(representative[0]),
+            enclave=representative[1],
+        )
+    else:
+        instance_dds = replace(
+            state.dds,
+            system_id=instance.system_id,
+            domain_id=instance.domain_id,
+            rmw_implementation=instance.rmw_implementation,
+            discovery_mode=instance.discovery_mode,
+            static_peers=instance.static_peers,
+            interface=instance.interface,
+            security_profile="trusted-network",
+            security_provisioning="none",
+            security_generation="",
+            security_bundle="",
+            keystore="",
+            enclave="",
+        )
+    endpoint_ids = {endpoint.role: endpoint.endpoint_id for endpoint in instance.endpoints}
+    roles = endpoint_roles
+    _reject_symlink_ancestors(Path(state.prefix).expanduser(), name="install prefix")
+    destination_prefix = state.prefix_path if output_prefix is None else Path(output_prefix).expanduser()
+    _reject_symlink_ancestors(destination_prefix, name="instance output prefix")
+    root = destination_prefix / "instances" / instance.system_id / "endpoints"
+    _reject_symlink_ancestors(root, name="instance config destination")
+    # Validate every source and destination before copying the first role.
+    plans: list[tuple[str, Path, Path, Path]] = []
+    for role in roles:
+        source_root = (
+            Path(template_root) / role
+            if template_root is not None
+            else app_directory(state, role) / "config"
+        )
+        _reject_symlink_ancestors(source_root, name="instance config source")
+        if not source_root.is_dir() or source_root.is_symlink():
+            raise FileNotFoundError(source_root)
+        source = source_root / ("runtime.yaml" if role in {"pilot", "sim"} else "default.yaml")
+        if not source.is_file() or source.is_symlink():
+            raise FileNotFoundError(source)
+        _reject_symlink_tree(source_root, name="instance config source")
+        destination = root / endpoint_ids[role] / "config"
+        _reject_symlink_ancestors(destination, name="instance config destination")
+        plans.append((role, source_root, source, destination))
+    written: dict[str, Path] = {}
+    for role, source_root, source, destination in plans:
+        role_state = replace(
+            state,
+            prefix=str(root / endpoint_ids[role]),
+            roles=(role,),
+            assigned_roles=None,
+            network=replace(
+                state.network,
+                pilot_id=instance.pilot_id,
+                sim_id=instance.sim_id,
+                ui_id=instance.ui_id,
+            ),
+            dds=instance_dds,
+        )
+        destination = Path(role_state.prefix) / "config"
+        _reject_symlink_ancestors(destination, name="instance config destination")
+        copy_app_config_tree(source_root, destination, role)
+        if role == "pilot":
+            payload = _pilot_config(
+                role_state,
+                source,
+                security_view=security_views.get(role) if security_views else None,
+            )
+        elif role == "sim":
+            payload = _sim_config(
+                role_state,
+                source,
+                security_view=security_views.get(role) if security_views else None,
+            )
+            _write_yaml(destination / GENERATED_APP, _sim_app_config(role_state))
+        else:
+            payload = _ui_config(
+                role_state,
+                source,
+                security_view=security_views.get(role) if security_views else None,
+            )
+        if role in {"pilot", "sim"} and (destination / "config.yaml").is_file():
+            bind_installed_data_paths(
+                destination,
+                role,
+                runtime_data_root=Path("/opt/elesim/data"),
+            )
+        _write_yaml(destination / (GENERATED_RUNTIME if role in {"pilot", "sim"} else GENERATED_CONFIG), payload)
+        _write_cyclonedds(destination / GENERATED_DDS, role_state.dds)
+        written[role] = destination / (GENERATED_RUNTIME if role in {"pilot", "sim"} else GENERATED_CONFIG)
+    return written
+
+
 def _read_yaml(path: Path) -> dict[str, Any]:
     if not path.is_file():
         raise FileNotFoundError(f"설정 원본이 없습니다: {path}")
@@ -340,11 +473,26 @@ def _atomic_text(path: Path, rendered: str) -> None:
     temporary.replace(path)
 
 
-def _dds_payload(state: InstallState, role: str) -> dict[str, Any]:
+def _dds_payload(
+    state: InstallState,
+    role: str,
+    *,
+    security_view: tuple[Path, str] | None = None,
+) -> dict[str, Any]:
     vendor_config = (
         "/opt/elesim/config/cyclonedds.xml"
         if state.install_mode == "container"
         else str(generated_dds_config_path(state, role))
+    )
+    keystore = (
+        str(security_view[0])
+        if security_view is not None
+        else str(app_keystore_path(state, role))
+    )
+    enclave = (
+        security_view[1]
+        if security_view is not None
+        else dds_enclave(state, role)
     )
     return {
         "system_id": state.dds.system_id,
@@ -358,16 +506,17 @@ def _dds_payload(state: InstallState, role: str) -> dict[str, Any]:
         "security_profile": state.dds.security_profile,
         "security_provisioning": state.dds.security_provisioning,
         "security_generation": state.dds.security_generation,
-        "keystore": (
-            str(app_keystore_path(state, role))
-            if state.dds.security_profile == "sros2"
-            else ""
-        ),
-        "enclave": dds_enclave(state, role),
+        "keystore": keystore if state.dds.security_profile == "sros2" else "",
+        "enclave": enclave,
     }
 
 
-def _pilot_config(state: InstallState, source: Path) -> dict[str, Any]:
+def _pilot_config(
+    state: InstallState,
+    source: Path,
+    *,
+    security_view: tuple[Path, str] | None = None,
+) -> dict[str, Any]:
     raw = _read_yaml(source)
     runtime = dict(raw.get("runtime") or {})
     runtime.pop("server_endpoint", None)
@@ -379,7 +528,7 @@ def _pilot_config(state: InstallState, source: Path) -> dict[str, Any]:
         }
     )
     raw["runtime"] = runtime
-    raw["dds"] = _dds_payload(state, "pilot")
+    raw["dds"] = _dds_payload(state, "pilot", security_view=security_view)
     raw["rgbd"] = _rgbd_role_config(
         state,
         source_role="auto",
@@ -389,7 +538,12 @@ def _pilot_config(state: InstallState, source: Path) -> dict[str, Any]:
     return raw
 
 
-def _ui_config(state: InstallState, source: Path) -> dict[str, Any]:
+def _ui_config(
+    state: InstallState,
+    source: Path,
+    *,
+    security_view: tuple[Path, str] | None = None,
+) -> dict[str, Any]:
     raw = _read_yaml(source)
     runtime = dict(raw.get("runtime") or {})
     runtime.pop("server_endpoint", None)
@@ -401,7 +555,7 @@ def _ui_config(state: InstallState, source: Path) -> dict[str, Any]:
         }
     )
     raw["runtime"] = runtime
-    raw["dds"] = _dds_payload(state, "ui")
+    raw["dds"] = _dds_payload(state, "ui", security_view=security_view)
     raw["rgbd"] = _rgbd_role_config(
         state,
         source_role="pilot",
@@ -411,7 +565,12 @@ def _ui_config(state: InstallState, source: Path) -> dict[str, Any]:
     return raw
 
 
-def _sim_config(state: InstallState, source: Path) -> dict[str, Any]:
+def _sim_config(
+    state: InstallState,
+    source: Path,
+    *,
+    security_view: tuple[Path, str] | None = None,
+) -> dict[str, Any]:
     raw = _read_yaml(source)
     runtime = dict(raw.get("runtime") or {})
     runtime.pop("server_endpoint", None)
@@ -444,7 +603,7 @@ def _sim_config(state: InstallState, source: Path) -> dict[str, Any]:
         }
     )
     raw["runtime"] = runtime
-    raw["dds"] = _dds_payload(state, "sim")
+    raw["dds"] = _dds_payload(state, "sim", security_view=security_view)
     raw["rgbd"] = _rgbd_role_config(
         state,
         source_role="sim",
@@ -623,6 +782,7 @@ __all__ = [
     "dds_enclave",
     "dds_node_key",
     "generate_role_configs",
+    "generate_instance_configs",
     "generated_app_config_path",
     "generated_config_path",
     "generated_dds_config_path",

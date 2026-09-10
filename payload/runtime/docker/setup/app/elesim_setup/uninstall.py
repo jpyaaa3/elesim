@@ -7,6 +7,7 @@ while it removes the generated tools image/venv that originally supplied it.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -15,6 +16,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +51,88 @@ _OFFICIAL_TAILSCALE_REPO_DIGEST = re.compile(
     r"^tailscale/tailscale@sha256:[0-9a-f]{64}$"
 )
 _DOCKER_IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
+_RELEASE_KEY = re.compile(r"^[0-9a-f]{64}$")
+_RELEASE_SOURCE_REVISION = re.compile(r"^(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})$")
+_RELEASE_ROLES = frozenset(("pilot", "sim", "ui"))
+_MAX_RELEASE_MANIFEST_BYTES = 256 * 1024
+_INSTANCE_SYSTEM_ID = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
+_INSTANCE_ENDPOINT_ID = re.compile(r"[a-z][a-z0-9_-]{0,62}\Z")
+_INSTANCE_ROLES = frozenset(("pilot", "sim", "ui"))
+_INSTANCE_INSTALL_LABELS = (
+    "io.elesim.system_id",
+    "io.elesim.endpoint_id",
+    "io.elesim.role",
+)
+
+
+def _scoped_container_name(install_uuid: str, service: str) -> str:
+    """Derive an install-scoped name without importing setup modules.
+
+    The uninstaller is copied as a stdlib-only bundle, so this intentionally
+    mirrors the small pure naming rule instead of importing instance_identity.
+    """
+
+    scope = uuid.UUID(install_uuid).hex
+    digest = hashlib.sha256(service.encode("utf-8")).hexdigest()
+    prefix = f"elesim-{scope}-"
+    readable_budget = 128 - len(prefix) - len(digest) - 1
+    return f"{prefix}{service[:readable_budget]}-{digest}"
+
+
+def _instance_service_key(system_id: str, endpoint_id: str) -> str:
+    """Mirror the bounded instance Compose service identity rule."""
+
+    if _INSTANCE_SYSTEM_ID.fullmatch(system_id) is None:
+        raise UninstallSafetyError("scoped instance system_id label is invalid")
+    if _INSTANCE_ENDPOINT_ID.fullmatch(endpoint_id) is None:
+        raise UninstallSafetyError("scoped instance endpoint_id label is invalid")
+    digest = hashlib.sha256(f"{system_id}\0{endpoint_id}".encode("utf-8")).hexdigest()
+    return f"svc-{system_id[:24]}-{endpoint_id[:24]}-{digest}"[:128]
+
+
+def _validate_scoped_instance_labels(
+    *, name: str, labels: Mapping[str, object], install_uuid: str
+) -> None:
+    """Validate the identity labels used by ``compose.instances.yaml``.
+
+    The instance Compose file is a separate aggregate and is not recorded in
+    ``DockerOwnership``.  Its labels therefore provide the second, exact
+    boundary needed before an uninstaller may remove one of its containers.
+    """
+
+    values = tuple(labels.get(key) for key in _INSTANCE_INSTALL_LABELS)
+    if any(not isinstance(value, str) or not value for value in values):
+        raise UninstallSafetyError(
+            f"scoped instance container identity labels are missing: {name}"
+        )
+    system_id, endpoint_id, role = values
+    if role not in _INSTANCE_ROLES:
+        raise UninstallSafetyError(
+            f"scoped instance container role label is unknown: {name}: {role!r}"
+        )
+    expected = _scoped_container_name(
+        install_uuid, _instance_service_key(system_id, endpoint_id)
+    )
+    if name != expected:
+        raise UninstallSafetyError(
+            f"scoped instance container identity does not match its name: {name}"
+        )
+
+
+def _sim_container_name(ownership: DockerOwnership) -> str:
+    return (
+        SIM_CONTAINER
+        if ownership.project == "elesim-runtime"
+        else _scoped_container_name(ownership.install_uuid, "sim")
+    )
+
+
+def _tailscale_container_name(ownership: DockerOwnership) -> str:
+    return (
+        TAILSCALE_SIDECAR_CONTAINER
+        if ownership.project == "elesim-runtime"
+        else _scoped_container_name(ownership.install_uuid, "tailscale")
+    )
 
 
 class UninstallSafetyError(RuntimeError):
@@ -91,6 +175,106 @@ class UninstallPlan:
     tombstone: Path
 
 
+def _owned_release_image_ids(manifest: OwnershipManifest) -> tuple[str, ...]:
+    """Read release image IDs as additional, install-owned Docker evidence.
+
+    Scoped releases deliberately use content-addressed image IDs.  Their
+    tags can disappear after a rebuild, so the install ownership manifest's
+    ``local_images`` list is not sufficient for a complete host uninstall.
+    This parser is kept stdlib-only because the copied host uninstaller cannot
+    import the setup package's release module.
+    """
+
+    root = manifest.prefix_path / "releases"
+    _ensure_no_symlink_ancestors(root, boundary=manifest.prefix_path)
+    if not _lexists(root):
+        return ()
+    if root.is_symlink() or not root.is_dir():
+        raise UninstallSafetyError(f"release registry is not a real directory: {root}")
+
+    found: set[str] = set()
+    for release_dir in sorted(root.iterdir(), key=lambda path: path.name):
+        if release_dir.name == ".publish.lock":
+            if release_dir.is_symlink() or not release_dir.is_file():
+                raise UninstallSafetyError("release publication lock is unsafe")
+            continue
+        if _RELEASE_KEY.fullmatch(release_dir.name) is None:
+            raise UninstallSafetyError(f"invalid release registry entry: {release_dir}")
+        _ensure_no_symlink_ancestors(release_dir, boundary=manifest.prefix_path)
+        if release_dir.is_symlink() or not release_dir.is_dir():
+            raise UninstallSafetyError(f"invalid release directory: {release_dir}")
+        source = release_dir / "manifest.json"
+        _ensure_no_symlink_ancestors(source, boundary=manifest.prefix_path)
+        try:
+            info = source.lstat()
+        except OSError as exc:
+            raise UninstallSafetyError(f"release manifest is unavailable: {source}") from exc
+        if (
+            source.is_symlink()
+            or not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_size > _MAX_RELEASE_MANIFEST_BYTES
+        ):
+            raise UninstallSafetyError(f"release manifest is unsafe: {source}")
+        try:
+            raw = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise UninstallSafetyError(f"release manifest is malformed: {source}") from exc
+        if not isinstance(raw, Mapping):
+            raise UninstallSafetyError(f"release manifest is not an object: {source}")
+        fields = (
+            "schema_version",
+            "install_uuid",
+            "source_revision",
+            "platform",
+            "role_images",
+            "image_ids",
+            "build_fingerprints",
+            "runtime_data_digest",
+        )
+        if set(raw) != {*fields, "release_key"} or raw.get("schema_version") != 1:
+            raise UninstallSafetyError(f"release manifest fields are invalid: {source}")
+        if raw.get("install_uuid") != manifest.install_uuid:
+            raise UninstallSafetyError(f"release belongs to another installation: {source}")
+        if (
+            not isinstance(raw.get("source_revision"), str)
+            or _RELEASE_SOURCE_REVISION.fullmatch(raw["source_revision"]) is None
+            or raw.get("platform") not in {"linux/amd64", "linux/arm64"}
+            or not isinstance(raw.get("runtime_data_digest"), str)
+            or _RELEASE_KEY.fullmatch(raw["runtime_data_digest"]) is None
+        ):
+            raise UninstallSafetyError(f"release manifest provenance is invalid: {source}")
+        role_images = raw.get("role_images")
+        image_ids = raw.get("image_ids")
+        fingerprints = raw.get("build_fingerprints")
+        if not all(isinstance(value, Mapping) for value in (role_images, image_ids, fingerprints)):
+            raise UninstallSafetyError(f"release image fields are invalid: {source}")
+        roles = set(role_images)
+        if not roles or roles != set(image_ids) or roles != set(fingerprints) or not roles <= _RELEASE_ROLES:
+            raise UninstallSafetyError(f"release image roles are invalid: {source}")
+        install_hex = manifest.install_uuid.replace("-", "")
+        for role in sorted(roles):
+            fingerprint = fingerprints[role]
+            image = role_images[role]
+            image_id = image_ids[role]
+            if (
+                not isinstance(fingerprint, str)
+                or _RELEASE_KEY.fullmatch(fingerprint) is None
+                or image != f"elesim/{role}:{install_hex}-{fingerprint}"
+                or not isinstance(image_id, str)
+                or _DOCKER_IMAGE_ID.fullmatch(image_id) is None
+            ):
+                raise UninstallSafetyError(f"release image provenance is invalid: {source}")
+            found.add(image_id)
+        canonical_fields = {key: raw[key] for key in fields}
+        expected_key = hashlib.sha256(
+            (json.dumps(canonical_fields, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n").encode()
+        ).hexdigest()
+        if raw.get("release_key") != expected_key or release_dir.name != expected_key:
+            raise UninstallSafetyError(f"release content key does not match: {source}")
+    return tuple(sorted(found))
+
+
 def plan_uninstall(
     manifest_path: Path | None = None,
     *,
@@ -116,12 +300,14 @@ def plan_uninstall(
     images: tuple[DockerObject, ...] = ()
     tailscale_state_cleanup: TailscaleStateCleanup | None = None
     if manifest.docker is not None:
+        release_image_ids = _owned_release_image_ids(manifest)
         tailscale_state = _owned_tailscale_state_path(manifest)
         containers, images, tailscale_state_cleanup = _validate_docker(
             manifest.docker,
             runner=runner,
             tailscale_state=tailscale_state,
             require_tailscale_state=tailscale_state is not None,
+            release_image_ids=release_image_ids,
         )
         if (
             tailscale_state_cleanup is not None
@@ -254,7 +440,10 @@ def execute_uninstall(
             (
                 container
                 for container in current.containers
-                if container.name == SIM_CONTAINER
+                if (
+                    docker_ownership is not None
+                    and container.name == _sim_container_name(docker_ownership)
+                )
             ),
             None,
         )
@@ -677,7 +866,7 @@ def _mount_points() -> tuple[Path, ...]:
 
 def _owned_tailscale_state_path(manifest: OwnershipManifest) -> Path | None:
     ownership = manifest.docker
-    if ownership is None or TAILSCALE_SIDECAR_CONTAINER not in ownership.containers:
+    if ownership is None or _tailscale_container_name(ownership) not in ownership.containers:
         return None
     secrets_root = manifest.prefix_path / "secrets"
     if str(secrets_root) not in manifest.managed_roots:
@@ -1018,6 +1207,7 @@ def _validate_docker(
     runner: CommandRunner | None,
     tailscale_state: Path | None = None,
     require_tailscale_state: bool = False,
+    release_image_ids: Sequence[str] = (),
 ) -> tuple[
     tuple[DockerObject, ...],
     tuple[DockerObject, ...],
@@ -1085,6 +1275,12 @@ def _validate_docker(
     containers: list[DockerObject] = []
     tailscale_cleanup: TailscaleStateCleanup | None = None
     expected_compose = str(Path(ownership.compose_file).resolve(strict=False))
+    alternate_compose = str(
+        Path(ownership.compose_file)
+        .with_name("compose.instances.yaml")
+        .resolve(strict=False)
+    )
+    expected_configs = {expected_compose, alternate_compose}
     for name in ownership.containers:
         if name not in container_names:
             continue
@@ -1104,10 +1300,37 @@ def _validate_docker(
             for value in config_files.split(",")
             if value.strip()
         }
+        if expected_compose not in configs and alternate_compose not in configs:
+            raise UninstallSafetyError(
+                f"고정 container 이름이 다른 설치 소유입니다: {name}: "
+                f"project={project!r} install_uuid={install_uuid!r} "
+                f"compose={config_files!r}"
+            )
+        if not configs.issubset(expected_configs):
+            raise UninstallSafetyError(
+                f"고정 container가 승인되지 않은 Compose 파일을 사용합니다: "
+                f"{name}: compose={config_files!r}"
+            )
+        if alternate_compose in configs:
+            expected_scoped_project = (
+                f"elesim-runtime-{uuid.UUID(ownership.install_uuid).hex}"
+            )
+            if ownership.project != expected_scoped_project:
+                raise UninstallSafetyError(
+                    "legacy Docker project에는 scoped instance Compose를 "
+                    f"사용할 수 없습니다: {name}"
+                )
+            _validate_scoped_instance_labels(
+                name=name, labels=labels, install_uuid=ownership.install_uuid
+            )
+        elif any(key in labels for key in _INSTANCE_INSTALL_LABELS):
+            raise UninstallSafetyError(
+                "scoped instance identity labels require compose.instances.yaml: "
+                f"{name}"
+            )
         if (
             project != ownership.project
             or install_uuid != ownership.install_uuid
-            or expected_compose not in configs
         ):
             raise UninstallSafetyError(
                 f"고정 container 이름이 다른 설치 소유입니다: {name}: "
@@ -1119,7 +1342,10 @@ def _validate_docker(
             raise UninstallSafetyError(f"Docker container ID가 비어 있습니다: {name}")
         container = DockerObject(name=name, object_id=object_id)
         containers.append(container)
-        if name == TAILSCALE_SIDECAR_CONTAINER and require_tailscale_state:
+        if (
+            require_tailscale_state
+            and name == _tailscale_container_name(ownership)
+        ):
             if tailscale_state is None:
                 raise UninstallSafetyError(
                     "Tailscale sidecar가 manifest에 있으나 install-owned state 경계가 없습니다"
@@ -1164,6 +1390,32 @@ def _validate_docker(
         if not object_id:
             raise UninstallSafetyError(f"Docker image ID가 비어 있습니다: {name}")
         images.append(DockerObject(name=name, object_id=object_id))
+
+    # Release manifests retain image IDs even after a rebuild has removed the
+    # corresponding immutable tag.  Inspect only those exact IDs; never list
+    # or prune unrelated images.  Missing historical IDs are already gone and
+    # therefore need no mutation, matching the tag-based path above.
+    for image_id in sorted(set(release_image_ids)):
+        if not _DOCKER_IMAGE_ID.fullmatch(image_id):
+            raise UninstallSafetyError(f"release image ID가 유효하지 않습니다: {image_id}")
+        result = command_runner(("docker", "image", "inspect", image_id))
+        if result.returncode != 0:
+            continue
+        payload = _inspect_object(result.stdout, kind="image", name=image_id)
+        if str(payload.get("Id", "")) != image_id:
+            raise UninstallSafetyError(
+                f"release image ID가 inspect 결과와 다릅니다: {image_id}"
+            )
+        labels = _labels(payload)
+        if (
+            labels.get("com.docker.compose.project") != ownership.project
+            or labels.get(DOCKER_INSTALL_UUID_LABEL) != ownership.install_uuid
+        ):
+            raise UninstallSafetyError(
+                f"release image가 다른 설치 또는 upstream 소유입니다: {image_id}"
+            )
+        if not any(image.name == image_id for image in images):
+            images.append(DockerObject(name=image_id, object_id=image_id))
     return tuple(containers), tuple(images), tailscale_cleanup
 
 

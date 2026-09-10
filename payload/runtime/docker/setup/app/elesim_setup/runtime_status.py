@@ -25,13 +25,13 @@ def render_compose_status_wrapper(
     services: Iterable[tuple[str, str]],
     guard: str = "",
     sim_container: str | None = None,
+    tailscale_container: str | None = None,
 ) -> str:
     """Render a read-only status command for a Compose installation.
 
-    ``services`` contains ``(display-name, fixed-container-name)`` pairs.
-    Fixed names are used deliberately: generated Compose files own those
-    names, while the owner guard prevents a different installation from being
-    inspected or modified accidentally.
+    ``services`` contains ``(display-name, exact-container-name)`` pairs.
+    Names may be legacy fixed names or install-scoped names; the generator
+    never reconstructs or broadens that boundary at runtime.
     """
 
     service_calls: list[str] = []
@@ -52,6 +52,7 @@ def render_compose_status_wrapper(
         else ""
     )
     command = "docker compose -f " + _quoted(compose)
+    rendered_tailscale = _quoted(tailscale_container or "elesim-tailscale")
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
@@ -94,7 +95,9 @@ def render_compose_status_wrapper(
         "  network_mode=\"$(docker inspect -f '{{.HostConfig.NetworkMode}}' \"$container\" 2>/dev/null || printf unknown)\"\n"
         "  runtime_ip=\"$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' \"$container\" 2>/dev/null | xargs 2>/dev/null || true)\"\n"
         "  if [[ $network_mode == service:tailscale ]]; then\n"
-        "    runtime_ip=\"$(docker exec elesim-tailscale tailscale ip -4 2>/dev/null | xargs 2>/dev/null || true)\"\n"
+        "    runtime_ip=\"$(docker exec "
+        + rendered_tailscale
+        + " tailscale ip -4 2>/dev/null | xargs 2>/dev/null || true)\"\n"
         "  fi\n"
         "  if [[ -z $runtime_ip ]]; then\n"
         "    runtime_ip=$host_ips\n"

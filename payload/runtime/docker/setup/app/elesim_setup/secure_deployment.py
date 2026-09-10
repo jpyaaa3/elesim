@@ -37,6 +37,7 @@ from .connection_manager import (
     SshEndpoint,
     resolve_ssh_identity_path,
 )
+from .instance_identity import project_name
 from .credentials import (
     _ParamikoProxySocket,
     proxy_failure_detail,
@@ -243,6 +244,11 @@ def _command_timeout(argv: Sequence[str], base: float) -> float:
     command_name = PurePosixPath(values[0]).name if values else ""
     if (
         command_name == "elesim-up"
+        or (
+            command_name == "elesim-instance"
+            and len(values) >= 3
+            and values[2] in {"up", "down", "logs", "status"}
+        )
         or (
             any(
                 value == "compose" or PurePosixPath(value).name == "elesim-compose"
@@ -614,6 +620,30 @@ class HostOperations(Protocol):
     def prepare_runtime_network(
         self, host: ManagedHost, output: CommandOutput
     ) -> str | None: ...
+
+    def scoped_identity(self, host: ManagedHost, unit: DeploymentUnit) -> Mapping[str, str]: ...
+
+    def scoped_releases(
+        self, host: ManagedHost, unit: DeploymentUnit
+    ) -> tuple[Mapping[str, Any], ...]: ...
+
+    def scoped_instance_state(
+        self, host: ManagedHost, unit: DeploymentUnit, system_id: str
+    ) -> Mapping[str, Any] | None: ...
+
+    def scoped_install_state(
+        self, host: ManagedHost, unit: DeploymentUnit
+    ) -> Mapping[str, Any]: ...
+
+    def register_scoped_instance(
+        self, host: ManagedHost, unit: DeploymentUnit, instance: Any,
+        release: Any, bundle: SecurityBundle | None = None,
+        *, replace_existing: bool = False,
+    ) -> None: ...
+
+    def remove_scoped_instance(
+        self, host: ManagedHost, unit: DeploymentUnit, system_id: str
+    ) -> None: ...
 
     def capture_state(self, host: ManagedHost) -> HostActivationState: ...
 
@@ -1164,6 +1194,57 @@ def _managed_turn_from_state(
     }
 
 
+def _scoped_turn_from_instance_state(
+    state: Mapping[str, Any], host: ManagedHost, *, system_id: str = ""
+) -> dict[str, str] | None:
+    """Read TURN exclusively from one registered instance state.
+
+    Scoped lifecycle must never consult the install-wide ``elesim-net show``
+    TURN fields: another instance (or the legacy install) may own those.
+    """
+
+    turn = state.get("turn")
+    if not isinstance(turn, Mapping):
+        raise RuntimeError(f"scoped instance TURN state is missing on {host.host_id}")
+    mode = str(turn.get("mode", "none")).strip()
+    if mode not in {"none", "managed", "external"}:
+        raise RuntimeError(f"unsupported scoped instance TURN mode on {host.host_id}")
+    raw_urls = state.get("turn_urls", ())
+    urls = tuple(str(value).strip() for value in raw_urls) if isinstance(raw_urls, Sequence) and not isinstance(raw_urls, (str, bytes, bytearray)) else ()
+    if mode == "none":
+        if urls:
+            raise RuntimeError("scoped instance TURN URLs are set while TURN is disabled")
+        return None
+    if len(urls) != 1:
+        raise RuntimeError(f"scoped instance {mode} TURN requires exactly one URL")
+    if mode == "managed":
+        realm = str(turn.get("realm", "")).strip()
+        public_host = str(turn.get("public_host", "")).strip()
+        secret_file = str(turn.get("secret_file", "")).strip()
+        if not realm or not public_host or not secret_file:
+            raise RuntimeError("scoped managed TURN state is incomplete")
+        if system_id:
+            expected_secret = (
+                PurePosixPath(host.primary_unit.install_root)
+                / "instances" / system_id / "secrets" / "turn.secret"
+            )
+            if PurePosixPath(secret_file) != expected_secret:
+                raise RuntimeError(
+                    "scoped managed TURN secret is outside the instance secret namespace"
+                )
+        return {
+            "turn_mode": "managed", "turn_url": urls[0], "turn_realm": realm,
+            "turn_public_host": public_host, "turn_secret_file": secret_file,
+        }
+    credential_file = str(turn.get("credential_file", "")).strip()
+    if not credential_file:
+        raise RuntimeError("scoped external TURN state has no credential file")
+    return {
+        "turn_mode": "external", "turn_url": urls[0],
+        "turn_credential_file": credential_file,
+    }
+
+
 def _remote_path_contains_symlink(session: SshSession, path: str) -> bool:
     """Check a remote path and every existing ancestor without following it."""
 
@@ -1224,6 +1305,45 @@ class SshHostOperations:
 
         with self._connect(host) as session:
             return self._lifecycle.prepare_runtime_network(session, host, output)
+
+    def scoped_identity(self, host: ManagedHost, unit: DeploymentUnit) -> Mapping[str, str]:
+        with self._connect(host) as session:
+            return self._lifecycle.scoped_identity(session, unit)
+
+    def scoped_releases(
+        self, host: ManagedHost, unit: DeploymentUnit
+    ) -> tuple[Mapping[str, Any], ...]:
+        with self._connect(host) as session:
+            return self._lifecycle.scoped_releases(session, unit)
+
+    def scoped_instance_state(
+        self, host: ManagedHost, unit: DeploymentUnit, system_id: str
+    ) -> Mapping[str, Any] | None:
+        with self._connect(host) as session:
+            return self._lifecycle.scoped_instance_state(session, unit, system_id)
+
+    def scoped_install_state(
+        self, host: ManagedHost, unit: DeploymentUnit
+    ) -> Mapping[str, Any]:
+        with self._connect(host) as session:
+            return self._lifecycle.scoped_install_state(session, unit)
+
+    def register_scoped_instance(
+        self, host: ManagedHost, unit: DeploymentUnit, instance: Any,
+        release: Any, bundle: SecurityBundle | None = None,
+        *, replace_existing: bool = False,
+    ) -> None:
+        with self._connect(host) as session:
+            self._lifecycle.register_scoped_instance(
+                session, host, unit, instance, release, bundle,
+                replace_existing=replace_existing,
+            )
+
+    def remove_scoped_instance(
+        self, host: ManagedHost, unit: DeploymentUnit, system_id: str
+    ) -> None:
+        with self._connect(host) as session:
+            self._lifecycle.remove_scoped_instance(session, host, unit, system_id)
 
     def capture_state(self, host: ManagedHost) -> HostActivationState:
         with self._connect(host) as session:
@@ -1568,6 +1688,13 @@ class SshHostOperations:
     ) -> PurePosixPath:
         if self._topology.host(host.host_id) != host:
             raise ValueError(f"host {host.host_id!r} does not match the managed topology")
+        if getattr(self._lifecycle, "scoped", False) and unit.install_mode == "container":
+            return (
+                PurePosixPath(unit.install_root)
+                / "instances"
+                / self._topology.system_id
+                / "security"
+            )
         if self._security_root_override is not None and len(host.units) == 1:
             return self._security_root_override
         return _safe_remote_root(str(PurePosixPath(unit.install_root) / "security"))
@@ -1688,6 +1815,8 @@ class _LocalSession:
                 "elesim-tailscale",
                 "elesim-status",
                 "elesim-up",
+                "elesim-instance",
+                "elesim-instance-register",
                 "elesim-viewer-cleanup",
             }
         ):
@@ -1736,6 +1865,12 @@ class _LocalSession:
             raise ValueError("local deployment path must be absolute and contained")
         if len(content) > MAX_BUNDLE_FILE_BYTES:
             raise ValueError("local upload exceeds per-file limit")
+        helper_socket = os.environ.get("ELESIM_HOST_HELPER_SOCKET", "").strip()
+        if helper_socket:
+            _upload_through_host_helper(
+                path, content, mode, socket_path=helper_socket, timeout_s=self._timeout_s
+            )
+            return
         destination = Path(str(path))
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         descriptor, temporary_name = tempfile.mkstemp(
@@ -1753,6 +1888,37 @@ class _LocalSession:
         finally:
             if temporary.exists():
                 temporary.unlink()
+
+
+def _upload_through_host_helper(
+    path: PurePosixPath,
+    content: bytes,
+    mode: int,
+    *,
+    socket_path: str,
+    timeout_s: float,
+) -> None:
+    request = json.dumps(
+        {
+            "operation": "upload",
+            "path": str(path),
+            "mode": int(mode),
+            "data": base64.b64encode(content).decode("ascii"),
+        },
+        separators=(",", ":"),
+    ).encode("utf-8") + b"\n"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(max(float(timeout_s) + 2.0, 2.0))
+        connection.connect(socket_path)
+        connection.sendall(request)
+        line = connection.makefile("rb").readline(MAX_REMOTE_OUTPUT_BYTES + 1)
+    try:
+        result = json.loads(line.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("host-helper upload response is malformed") from exc
+    if not isinstance(result, Mapping) or result.get("ok") is not True:
+        detail = result.get("error", "request refused") if isinstance(result, Mapping) else "invalid response"
+        raise RuntimeError(f"host-helper upload failed: {detail}")
 
 
 def _run_through_host_helper(
@@ -1885,8 +2051,410 @@ def _run_local_streaming(
 class InstalledElesimLifecycle:
     """Concrete lifecycle for independently installed units on one host."""
 
-    def __init__(self, topology: ConnectionTopology) -> None:
+    def __init__(
+        self,
+        topology: ConnectionTopology,
+        *,
+        scoped: bool | None = None,
+    ) -> None:
         self._topology = topology.validate()
+        # ``None`` is the compatibility mode used by direct callers that do
+        # not have an install manifest.  The connection manager supplies an
+        # explicit value after validating its local ownership manifest; a
+        # remote target is then required to expose the exact instance paths.
+        self._scoped = scoped
+
+    @property
+    def scoped(self) -> bool | None:
+        return self._scoped
+
+    def _validate_scoped_target(
+        self,
+        session: SshSession,
+        unit: DeploymentUnit,
+        *,
+        local: bool = False,
+    ) -> None:
+        """Establish the per-system lifecycle boundary before any mutation.
+
+        A remote scoped target must be explicitly bound in the topology to the
+        install UUID/project returned by its authenticated, host-fingerprint
+        pinned ``elesim-net identity`` command.  Legacy local direct callers
+        may omit the binding because their prefix is already selected by the
+        local ownership boundary; remote targets never receive that fallback.
+        """
+
+        # A host may carry the native Robot unit beside a scoped Compose
+        # unit.  Robot remains an install-wide/systemd boundary; it has no
+        # scoped instance dispatcher or ``elesim-net identity`` command.
+        if not self._scoped or unit.install_mode != "container":
+            return
+        expected_uuid = str(unit.install_uuid).strip()
+        expected_project = str(unit.project).strip()
+        if not expected_uuid:
+            if not local:
+                raise RuntimeError(
+                    f"scoped deployment unit {unit.unit_id!r} has no enrolled install UUID"
+                )
+        else:
+            expected_project = expected_project or project_name(expected_uuid)
+            command = (str(_net_command(unit)), "identity")
+            result = session.run(command, check=False)
+            if result.exit_status != 0:
+                raise RemoteCommandError(command, result)
+            try:
+                identity = json.loads(result.stdout)
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise RuntimeError(
+                    f"scoped install identity is not valid JSON on {unit.unit_id!r}"
+                ) from exc
+            if not isinstance(identity, Mapping):
+                raise RuntimeError(f"scoped install identity is not an object on {unit.unit_id!r}")
+            if set(identity) != {"schema_version", "install_uuid", "project"}:
+                raise RuntimeError(f"scoped install identity fields are invalid on {unit.unit_id!r}")
+            if identity.get("schema_version") != 1:
+                raise RuntimeError(f"unsupported scoped install identity on {unit.unit_id!r}")
+            if (
+                identity.get("install_uuid") != expected_uuid
+                or identity.get("project") != expected_project
+            ):
+                raise RuntimeError(
+                    f"scoped install identity mismatch on {unit.unit_id!r}: "
+                    f"expected UUID/project {expected_uuid}/{expected_project}"
+                )
+        system_id = self._topology.system_id
+        _safe_identifier(system_id, name="system_id")
+        prefix = PurePosixPath(unit.install_root)
+        bin_dir = PurePosixPath(unit.bin_dir)
+        instance_root = prefix / "instances" / system_id
+        paths = (
+            prefix / "instances",
+            bin_dir / "elesim-instance",
+            instance_root,
+            instance_root / "state.json",
+            instance_root / "bin",
+            *(instance_root / "bin" / action for action in ("up", "down", "status", "logs")),
+            prefix / "containers" / "compose.instances.yaml",
+        )
+        for path in paths:
+            linked = session.run(("test", "-L", str(path)), check=False)
+            if linked.exit_status == 0:
+                raise RuntimeError(
+                    f"scoped lifecycle path is a symlink on {unit.unit_id}: {path}"
+                )
+            exists = session.run(("test", "-e", str(path)), check=False)
+            if exists.exit_status != 0:
+                raise RuntimeError(
+                    f"scoped lifecycle scope is not established on "
+                    f"{unit.unit_id}: missing {path}"
+                )
+        for path in (
+            bin_dir / "elesim-instance",
+            *(instance_root / "bin" / action for action in ("up", "down", "status", "logs")),
+        ):
+            executable = session.run(("test", "-x", str(path)), check=False)
+            if executable.exit_status != 0:
+                raise RuntimeError(
+                    f"scoped lifecycle wrapper is not executable on "
+                    f"{unit.unit_id}: {path}"
+                )
+
+    def _scoped_instance_state(
+        self, session: SshSession, unit: DeploymentUnit
+    ) -> Mapping[str, Any]:
+        """Read the exact registered instance state for a scoped unit."""
+
+        if unit.install_mode != "container":
+            raise RuntimeError("native Robot units do not have scoped instance state")
+
+        state_path = (
+            PurePosixPath(unit.install_root)
+            / "instances"
+            / self._topology.system_id
+            / "state.json"
+        )
+        result = session.run(("cat", str(state_path)))
+        try:
+            raw = json.loads(result.stdout)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"scoped instance state is not valid JSON on {unit.unit_id!r}"
+            ) from exc
+        if not isinstance(raw, Mapping):
+            raise RuntimeError(f"scoped instance state is not an object on {unit.unit_id!r}")
+        if str(raw.get("system_id", "")) != self._topology.system_id:
+            raise RuntimeError(f"scoped instance state system ID mismatch on {unit.unit_id!r}")
+        return raw
+
+    def _validate_scoped_security(
+        self,
+        session: SshSession,
+        unit: DeploymentUnit,
+        instance_state: Mapping[str, Any],
+    ) -> None:
+        """Validate the registered instance generation, not install security."""
+
+        if self._topology.security_profile != "sros2":
+            return
+        generation = instance_state.get("security_generation")
+        if not isinstance(generation, str) or not re.fullmatch(
+            r"[a-z0-9][a-z0-9_.-]{0,95}", generation
+        ):
+            raise RuntimeError("scoped SROS2 instance has no valid security generation")
+        security_root = (
+            PurePosixPath(unit.install_root)
+            / "instances"
+            / self._topology.system_id
+            / "security"
+        )
+        marker = security_root / "provisioning-required"
+        marker_link = session.run(("test", "-L", str(marker)), check=False)
+        if marker_link.exit_status == 0:
+            raise RuntimeError("scoped SROS2 provisioning marker is a symlink")
+        if session.run(("test", "-e", str(marker)), check=False).exit_status == 0:
+            raise RuntimeError("scoped SROS2 instance still has a provisioning marker")
+        generations = security_root / "generations"
+        if session.run(("test", "-L", str(generations)), check=False).exit_status == 0:
+            raise RuntimeError("scoped SROS2 generations path is a symlink")
+        current_path = security_root / "current"
+        if session.run(("test", "-L", str(current_path)), check=False).exit_status != 0:
+            raise RuntimeError("scoped SROS2 current path is not a symlink")
+        current = session.run(("readlink", str(current_path)))
+        if PurePosixPath(current.stdout.strip()) != PurePosixPath("generations") / generation:
+            raise RuntimeError(
+                f"scoped SROS2 current generation mismatch on {unit.unit_id!r}"
+            )
+        manifest_path = security_root / "current/manifest.json"
+        if session.run(("test", "-L", str(manifest_path)), check=False).exit_status == 0:
+            raise RuntimeError("scoped SROS2 manifest is a symlink")
+        session.run(("test", "-f", str(manifest_path)))
+
+    def scoped_identity(
+        self, session: SshSession, unit: DeploymentUnit
+    ) -> Mapping[str, str]:
+        """Read one container install's immutable enrollment identity."""
+
+        if unit.install_mode != "container":
+            raise ValueError("only container units expose scoped identity")
+        result = session.run((str(_net_command(unit)), "identity"))
+        try:
+            value = json.loads(result.stdout)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"scoped install identity is invalid on {unit.unit_id!r}"
+            ) from exc
+        if not isinstance(value, Mapping):
+            raise RuntimeError(f"scoped install identity is not an object on {unit.unit_id!r}")
+        if set(value) != {"schema_version", "install_uuid", "project"}:
+            raise RuntimeError(f"scoped install identity fields are invalid on {unit.unit_id!r}")
+        if type(value.get("schema_version")) is not int or value["schema_version"] != 1:
+            raise RuntimeError(
+                f"scoped install identity schema is unsupported on {unit.unit_id!r}"
+            )
+        install_uuid = value.get("install_uuid")
+        project = value.get("project")
+        if not isinstance(install_uuid, str) or not isinstance(project, str):
+            raise RuntimeError(f"scoped install identity values are invalid on {unit.unit_id!r}")
+        if project != project_name(install_uuid):
+            raise RuntimeError(
+                f"scoped install identity project is not derived from UUID on {unit.unit_id!r}"
+            )
+        return {"install_uuid": install_uuid, "project": project}
+
+    def scoped_releases(
+        self, session: SshSession, unit: DeploymentUnit
+    ) -> tuple[Mapping[str, Any], ...]:
+        """Read the immutable release registry from one enrolled unit."""
+
+        if unit.install_mode != "container":
+            raise ValueError("only container units expose scoped releases")
+        result = session.run((str(_net_command(unit)), "releases"))
+        try:
+            value = json.loads(result.stdout)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"scoped release registry is invalid on {unit.unit_id!r}"
+            ) from exc
+        if not isinstance(value, list) or not all(isinstance(item, Mapping) for item in value):
+            raise RuntimeError(f"scoped release registry is not a list on {unit.unit_id!r}")
+        return tuple(dict(item) for item in value)
+
+    def scoped_instance_state(
+        self, session: SshSession, unit: DeploymentUnit, system_id: str
+    ) -> Mapping[str, Any] | None:
+        """Read one target system state without changing the registry."""
+
+        if unit.install_mode != "container":
+            raise ValueError("only container units expose scoped instance state")
+        state_path = PurePosixPath(unit.install_root) / "instances" / system_id / "state.json"
+        result = session.run(("cat", str(state_path)), check=False)
+        if result.exit_status != 0:
+            return None
+        try:
+            value = json.loads(result.stdout)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"scoped instance state is invalid on {unit.unit_id!r}") from exc
+        if not isinstance(value, Mapping) or value.get("system_id") != system_id:
+            raise RuntimeError(f"scoped instance state identity mismatch on {unit.unit_id!r}")
+        return dict(value)
+
+    def scoped_install_state(
+        self, session: SshSession, unit: DeploymentUnit
+    ) -> Mapping[str, Any]:
+        """Read the install's non-secret state for per-unit compute policy."""
+
+        if unit.install_mode != "container":
+            raise ValueError("only container units expose scoped install state")
+        result = session.run((str(_net_command(unit)), "show"))
+        try:
+            value = json.loads(result.stdout)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"scoped install state is invalid on {unit.unit_id!r}") from exc
+        if not isinstance(value, Mapping):
+            raise RuntimeError(f"scoped install state is not an object on {unit.unit_id!r}")
+        return dict(value)
+
+    def register_scoped_instance(
+        self,
+        session: SshSession,
+        host: ManagedHost,
+        unit: DeploymentUnit,
+        instance: Any,
+        release: Any,
+        bundle: SecurityBundle | None = None,
+        *,
+        replace_existing: bool = False,
+    ) -> None:
+        """Register one unit through its installed host-owned wrapper.
+
+        Security bytes are staged below ``maintenance`` (never under the
+        final ``instances/<system>`` tree) and the installed wrapper performs
+        the atomic InstanceRuntime transaction.  The wrapper is the only
+        mutating command exposed to the manager's local host helper.
+        """
+
+        if unit.install_mode != "container":
+            raise ValueError("scoped registration is available only for container units")
+        identity = self.scoped_identity(session, unit)
+        if identity.get("install_uuid") != unit.install_uuid:
+            raise RuntimeError(f"scoped install UUID changed on {unit.unit_id!r}")
+        system_id = str(instance.system_id)
+        generation = str(getattr(instance, "security_generation", ""))
+        stage_root: PurePosixPath | None = None
+        if bundle is not None:
+            if not generation:
+                raise ValueError("a security bundle requires an instance generation")
+            _safe_generation(generation)
+            stage_root = (
+                PurePosixPath(unit.install_root)
+                / "maintenance"
+                / ".connection-scoped"
+                / system_id
+                / generation
+            )
+            try:
+                for file in bundle.for_roles(unit.roles).files:
+                    destination = stage_root / file.relative_path
+                    session.upload_bytes(destination, file.content, file.mode)
+            except BaseException as upload_error:
+                # Uploads are intentionally no-replace, so a broken transfer
+                # leaves a partial manager staging tree behind.  Remove only
+                # this exact system/generation through the same host-owned
+                # wrapper before allowing the caller to retry.  Never issue a
+                # generic recursive delete from the manager boundary.
+                cleanup_command = (
+                    str(PurePosixPath(unit.bin_dir) / "elesim-instance-register"),
+                    "cleanup-staging",
+                    "--system",
+                    system_id,
+                    "--security-generation",
+                    generation,
+                )
+                try:
+                    session.run(cleanup_command)
+                except BaseException as cleanup_error:
+                    raise RuntimeError(
+                        f"scoped security upload failed on {host.host_id}/{unit.unit_id}; "
+                        f"exact staging cleanup also failed: {cleanup_error}"
+                    ) from upload_error
+                raise
+        command = [
+            str(PurePosixPath(unit.bin_dir) / "elesim-instance-register"),
+            "replace" if replace_existing else "register",
+            "--system", system_id,
+            "--release", str(instance.release_key),
+            "--domain-id", str(instance.domain_id),
+            "--rmw", str(instance.rmw_implementation),
+            "--discovery-mode", str(instance.discovery_mode),
+            "--interface", str(instance.interface),
+            "--security-profile", str(instance.security_profile),
+        ]
+        command.extend(value for peer in instance.static_peers for value in ("--static-peer", str(peer)))
+        command.extend(
+            value for endpoint in instance.endpoints
+            for value in ("--endpoint", f"{endpoint.role}:{endpoint.endpoint_id}")
+        )
+        command.extend(
+            value
+            for role, endpoint_id in (
+                ("pilot", instance.pilot_id),
+                ("sim", instance.sim_id),
+                ("ui", instance.ui_id),
+            )
+            for value in ("--graph-endpoint", f"{role}:{endpoint_id}")
+        )
+        compute = getattr(instance, "compute", None)
+        if compute is not None:
+            command.extend(("--gpu-mode", str(compute.gpu_mode)))
+            if str(compute.gpu_device):
+                command.extend(("--gpu-device", str(compute.gpu_device)))
+        turn = getattr(instance, "turn", None)
+        turn_mode = str(getattr(turn, "mode", "none"))
+        command.extend(("--turn-mode", turn_mode))
+        command.extend(
+            value
+            for url in getattr(instance, "turn_urls", ())
+            for value in ("--turn-url", str(url))
+        )
+        if turn_mode == "managed":
+            command.extend(("--turn-realm", str(turn.realm)))
+            command.extend(("--turn-public-host", str(turn.public_host)))
+            for option, value in (
+                ("--turn-listen-port", turn.listen_port),
+                ("--turn-relay-min-port", turn.relay_min_port),
+                ("--turn-relay-max-port", turn.relay_max_port),
+            ):
+                if value is not None:
+                    command.extend((option, str(value)))
+        elif turn_mode == "external":
+            command.extend(
+                ("--turn-credential-file", str(turn.credential_file))
+            )
+        if generation:
+            command.extend(("--security-generation", str(stage_root or generation)))
+        if stage_root is not None:
+            command.extend(("--security-bundle-root", str(stage_root)))
+        # The installed wrapper consumes and removes the exact validated
+        # maintenance staging tree.  Do not issue a generic recursive-delete
+        # command from the manager container/SSH client: on the local helper
+        # path it cannot address the host mount reliably, and cleanup belongs
+        # to the same host-owned validation boundary as registration.
+        session.run(tuple(command))
+
+    def remove_scoped_instance(
+        self, session: SshSession, host: ManagedHost, unit: DeploymentUnit, system_id: str
+    ) -> None:
+        if unit.install_mode != "container":
+            raise ValueError("native Robot units cannot remove scoped instances")
+        self._validate_scoped_target(session, unit, local=host.local)
+        session.run(
+            (
+                str(PurePosixPath(unit.bin_dir) / "elesim-instance-register"),
+                "remove",
+                "--system",
+                system_id,
+            )
+        )
 
     def preflight(
         self, session: SshSession, host: ManagedHost, security_root: PurePosixPath
@@ -1898,18 +2466,36 @@ class InstalledElesimLifecycle:
         else:
             states = {host.primary_unit.unit_id: state}
         for unit in host.units:
+            scoped_unit = self._scoped and unit.install_mode == "container"
+            self._validate_scoped_target(session, unit, local=host.local)
+            scoped_state = self._scoped_instance_state(session, unit) if scoped_unit else None
             unit_state = states.get(unit.unit_id)
             if not isinstance(unit_state, Mapping):
                 raise RuntimeError(
                     f"installed state for unit {unit.unit_id!r} is missing on {host.host_id!r}"
                 )
             configured_roles = tuple(str(value) for value in unit_state.get("roles", ()))
+            if scoped_unit:
+                raw_endpoints = scoped_state.get("endpoints", []) if scoped_state else []
+                configured_roles = tuple(
+                    str(row.get("role"))
+                    for row in raw_endpoints
+                    if isinstance(row, Mapping) and isinstance(row.get("role"), str)
+                )
+                if set(configured_roles) != set(unit.roles):
+                    raise RuntimeError(
+                        f"scoped instance roles do not match {host.host_id}/{unit.unit_id!r}"
+                    )
             if not set(unit.roles).issubset(configured_roles):
                 raise RuntimeError(
                     f"assigned roles are not installed on {host.host_id}/{unit.unit_id!r}: "
                     f"installed={configured_roles!r}, assigned={unit.roles!r}"
                 )
-            if unit.install_mode == "container" and set(configured_roles) - set(unit.roles):
+            if (
+                not self._scoped
+                and unit.install_mode == "container"
+                and set(configured_roles) - set(unit.roles)
+            ):
                 running = session.run(
                     (*_compose_command(unit), "ps", "--status", "running", "--services")
                 )
@@ -1928,14 +2514,37 @@ class InstalledElesimLifecycle:
                     raise RuntimeError(
                         f"{key} mismatch on {host.host_id}/{unit.unit_id}"
                     )
-            self._validate_managed_security_state(
-                session,
-                host,
-                self._unit_security_root(host, unit, security_root),
-                unit_state,
-            )
-            if "sim" in unit.roles and self._topology.security_profile == "sros2":
-                managed_turn = _managed_turn_from_state(unit_state, host)
+            if scoped_unit:
+                self._validate_scoped_security(session, unit, scoped_state or {})
+            else:
+                self._validate_managed_security_state(
+                    session,
+                    host,
+                    self._unit_security_root(host, unit, security_root),
+                    unit_state,
+                )
+            if "sim" in unit.roles:
+                turn_state = (
+                        _scoped_turn_from_instance_state(
+                            scoped_state or {}, host, system_id=self._topology.system_id
+                        )
+                    if scoped_unit
+                    else (_managed_turn_from_state(unit_state, host)
+                          if self._topology.security_profile == "sros2" else None)
+                )
+                if turn_state is None:
+                    continue
+                if turn_state.get("turn_mode", "managed") == "external":
+                    credential_file = turn_state["turn_credential_file"]
+                    if _remote_path_contains_symlink(session, credential_file):
+                        raise RuntimeError(
+                            f"external TURN credential path is a symlink or has a symlink ancestor on "
+                            f"{host.host_id}/{unit.unit_id}: {credential_file}"
+                        )
+                    if session.run(("test", "-f", credential_file), check=False).exit_status != 0:
+                        raise RuntimeError(f"external TURN credential file is missing on {host.host_id}/{unit.unit_id}: {credential_file}")
+                    continue
+                managed_turn = turn_state
                 if _remote_path_contains_symlink(
                     session, managed_turn["turn_secret_file"]
                 ):
@@ -1952,7 +2561,7 @@ class InstalledElesimLifecycle:
                         f"managed Coturn secret file is missing on {host.host_id}/{unit.unit_id}: "
                         f"{managed_turn['turn_secret_file']}"
                     )
-                if unit.install_mode == "container":
+                if not self._scoped and unit.install_mode == "container":
                     services = session.run(
                         (*_compose_command(unit), "config", "--services"),
                         check=False,
@@ -1991,6 +2600,11 @@ class InstalledElesimLifecycle:
 
         for unit in host.runtime_units:
             compose = PurePosixPath(unit.install_root) / "containers/compose.yaml"
+            if self._scoped:
+                # The installation aggregate is not the runtime graph for a
+                # scoped target; its immutable aggregate lives in the exact
+                # per-system compose context checked above.
+                continue
             if session.run(("test", "-f", str(compose)), check=False).exit_status != 0:
                 raise RuntimeError(
                     f"Compose manifest is missing on {host.host_id}/{unit.unit_id}"
@@ -2063,14 +2677,26 @@ class InstalledElesimLifecycle:
         state = self.snapshot(session, host)
         unit_states = state.get("units")
         for unit in host.units:
+            scoped_unit = self._scoped and unit.install_mode == "container"
+            self._validate_scoped_target(session, unit, local=host.local)
             installed = unit_states[unit.unit_id] if isinstance(unit_states, Mapping) else state
-            assigned = installed.get("assigned_roles")
-            if set(installed.get("roles", ()) if assigned is None else assigned) != set(unit.roles):
+            if scoped_unit:
+                scoped_state = self._scoped_instance_state(session, unit)
+                assigned_roles = tuple(
+                    str(row.get("role"))
+                    for row in scoped_state.get("endpoints", ())
+                    if isinstance(row, Mapping) and isinstance(row.get("role"), str)
+                )
+            else:
+                assigned = installed.get("assigned_roles")
+                assigned_roles = installed.get("roles", ()) if assigned is None else assigned
+            if set(assigned_roles) != set(unit.roles):
                 raise RuntimeError(
                     f"topology assignment is not applied on {host.host_id}/{unit.unit_id}; "
                     "run connection-manager preparation before start"
                 )
-            session.run((str(_net_command(unit)), "configuration-check"))
+            if not self._scoped:
+                session.run((str(_net_command(unit)), "configuration-check"))
 
     def prepare_runtime_network(
         self,
@@ -2244,6 +2870,11 @@ class InstalledElesimLifecycle:
         generation: str | None,
         security_root: PurePosixPath,
     ) -> None:
+        if self._scoped:
+            raise RuntimeError(
+                "scoped instances do not expose install-wide configuration; "
+                "register or replace the exact elesim instance instead"
+            )
         installed = self.snapshot(session, host)
         installed_units = installed.get("units")
         installed_states = (
@@ -2257,6 +2888,7 @@ class InstalledElesimLifecycle:
             for assignment in managed_host.assignments
         }
         for unit in host.units:
+            self._validate_scoped_target(session, unit, local=host.local)
             unit_root = self._unit_security_root(host, unit, security_root)
             values: dict[str, Any] = {
                 "system_id": self._topology.system_id,
@@ -2292,14 +2924,27 @@ class InstalledElesimLifecycle:
                     }
                 )
             if "sim" in unit.roles:
-                if self._topology.security_profile == "sros2":
-                    installed_state = installed_states.get(unit.unit_id)
-                    if not isinstance(installed_state, Mapping):
-                        raise RuntimeError(
-                            f"Sim runtime state is missing on {host.host_id}/{unit.unit_id}"
-                        )
-                    values.update(_managed_turn_from_state(installed_state, host))
-                    values["turn_mode"] = "managed"
+                installed_state = (
+                    self._scoped_instance_state(session, unit)
+                    if self._scoped
+                    else installed_states.get(unit.unit_id)
+                )
+                if not isinstance(installed_state, Mapping):
+                    raise RuntimeError(
+                        f"Sim runtime state is missing on {host.host_id}/{unit.unit_id}"
+                    )
+                turn_state = (
+                    _scoped_turn_from_instance_state(
+                        installed_state, host, system_id=self._topology.system_id
+                    )
+                    if self._scoped
+                    else (_managed_turn_from_state(installed_state, host)
+                          if self._topology.security_profile == "sros2" else None)
+                )
+                if turn_state is not None:
+                    values.update(turn_state)
+                    if not self._scoped:
+                        values["turn_mode"] = "managed"
                 else:
                     values["turn_mode"] = "none"
             # Remote role identities are also runtime inputs (UI -> Pilot/Sim,
@@ -2322,12 +2967,17 @@ class InstalledElesimLifecycle:
         host: ManagedHost,
         configuration: Mapping[str, Any],
     ) -> None:
+        if self._scoped:
+            raise RuntimeError(
+                "scoped instances do not expose install-wide configuration rollback"
+            )
         dds = configuration.get("dds")
         network = configuration.get("network")
         if not isinstance(dds, Mapping) or not isinstance(network, Mapping):
             raise RuntimeError(f"rollback state is malformed for {host.host_id!r}")
         unit_snapshots = configuration.get("units")
         for unit in host.units:
+            self._validate_scoped_target(session, unit, local=host.local)
             snapshot = (
                 unit_snapshots.get(unit.unit_id, {})
                 if isinstance(unit_snapshots, Mapping)
@@ -2358,8 +3008,20 @@ class InstalledElesimLifecycle:
         selected = set(_selected_roles(host, roles))
         units = sorted(host.units, key=lambda unit: ("robot" not in unit.roles, unit.unit_id))
         for unit in units:
+            self._validate_scoped_target(session, unit, local=host.local)
             unit_roles = tuple(role for role in unit.roles if role in selected)
             if unit_roles:
+                if self._scoped and unit.install_mode == "container":
+                    session.run(
+                        _lifecycle_command(
+                            unit,
+                            action="stop",
+                            roles=unit_roles,
+                            system_id=self._topology.system_id,
+                            scoped=True,
+                        )
+                    )
+                    continue
                 include_coturn = (
                     "sim" in unit_roles
                     and unit.install_mode == "container"
@@ -2380,6 +3042,10 @@ class InstalledElesimLifecycle:
         selected = set(_selected_roles(host, roles))
         if "sim" not in selected:
             return
+        if self._scoped:
+            # Instance wrappers own their exact service set and do not expose
+            # the legacy X11 cleanup channel.
+            return
         for unit in host.units:
             if (
                 "sim" in unit.roles
@@ -2396,8 +3062,20 @@ class InstalledElesimLifecycle:
         selected = set(_selected_roles(host, roles))
         units = sorted(host.units, key=lambda unit: ("robot" in unit.roles, unit.unit_id))
         for unit in units:
+            self._validate_scoped_target(session, unit, local=host.local)
             unit_roles = tuple(role for role in unit.roles if role in selected)
             if unit_roles:
+                if self._scoped and unit.install_mode == "container":
+                    session.run(
+                        _lifecycle_command(
+                            unit,
+                            action="start",
+                            roles=unit_roles,
+                            system_id=self._topology.system_id,
+                            scoped=True,
+                        )
+                    )
+                    continue
                 include_coturn = (
                     self._topology.security_profile == "sros2"
                     and "sim" in unit_roles
@@ -2416,6 +3094,13 @@ class InstalledElesimLifecycle:
     def build(
         self, session: SshSession, host: ManagedHost, output: CommandOutput
     ) -> None:
+        if self._scoped:
+            # Scoped instances run immutable, already-published releases.
+            # Building the installation-level aggregate would be both the
+            # wrong boundary and a possible cross-system mutation.
+            for unit in host.runtime_units:
+                self._validate_scoped_target(session, unit, local=host.local)
+            return
         for unit in host.runtime_units:
             def unit_output(stream: str, text: str, *, unit_id: str = unit.unit_id) -> None:
                 output(stream, f"[{unit_id}] {text}")
@@ -2434,6 +3119,22 @@ class InstalledElesimLifecycle:
     ) -> None:
         units = sorted(host.units, key=lambda unit: ("robot" in unit.roles, unit.unit_id))
         for unit in units:
+            self._validate_scoped_target(session, unit, local=host.local)
+            if self._scoped and unit.install_mode == "container":
+                if runtime_options is not None:
+                    raise ValueError(
+                        "scoped instance lifecycle does not accept runtime GPU/viewer overrides; "
+                        "configure the instance compute policy at registration"
+                    )
+                session.run(
+                    _lifecycle_command(
+                        unit,
+                        action="launch",
+                        system_id=self._topology.system_id,
+                        scoped=True,
+                    )
+                )
+                continue
             # A role-specific manager request must be launched separately when
             # Pilot and Sim share one Compose unit.  ``elesim-up`` accepts one
             # CUDA_VISIBLE_DEVICES value per invocation; combining the roles
@@ -2504,6 +3205,7 @@ class InstalledElesimLifecycle:
         payloads: dict[str, Mapping[str, Any]] = {}
         deadline = time.monotonic() + float(timeout_s)
         for unit in host.units:
+            self._validate_scoped_target(session, unit, local=host.local)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 payloads[unit.unit_id] = {
@@ -2606,6 +3308,59 @@ class InstalledElesimLifecycle:
         unit_status: dict[str, Mapping[str, Any]] = {}
         for unit in host.units:
             if unit.install_mode == "container":
+                if self._scoped:
+                    self._validate_scoped_target(session, unit, local=host.local)
+                    command = _lifecycle_command(
+                        unit,
+                        action="status",
+                        system_id=self._topology.system_id,
+                        scoped=True,
+                    )
+                    result = session.run(command, check=False)
+                    if result.exit_status != 0:
+                        raise RemoteCommandError(command, result)
+                    running_services = set(result.stdout.split())
+                    expected = set(unit.roles)
+                    scoped_turn = None
+                    if "sim" in expected:
+                        scoped_turn = _scoped_turn_from_instance_state(
+                            self._scoped_instance_state(session, unit),
+                            host,
+                            system_id=self._topology.system_id,
+                        )
+                    managed_required = (
+                        scoped_turn is not None
+                        and scoped_turn.get("turn_mode") == "managed"
+                    )
+                    required = set(expected)
+                    if managed_required:
+                        # The instance status wrapper emits ``coturn`` for
+                        # the exact managed service, so include it in
+                        # readiness without consulting install-global TURN.
+                        required.add("coturn")
+                    running = tuple(sorted(running_services & expected))
+                    relay_detail = (
+                        "managed Coturn is not running"
+                        if managed_required and "coturn" not in running_services
+                        else ""
+                    )
+                    active = required.issubset(running_services)
+                    detail = result.stderr.strip()[:512]
+                    if relay_detail:
+                        detail = f"{detail}; {relay_detail}" if detail else relay_detail
+                    # The per-instance status wrapper has already checked the
+                    # exact registered service set.  Its output is the
+                    # running service list, so a registered but stopped
+                    # instance is represented as present/not running here.
+                    unit_status[unit.unit_id] = {
+                        "state": "running" if active else (
+                            "stopped" if not running else "degraded"
+                        ),
+                        "running_roles": list(running),
+                        "containers_present": True,
+                        "detail": detail,
+                    }
+                    continue
                 all_command = (*_compose_command(unit), "ps", "--all", "--services")
                 all_result = session.run(all_command, check=False)
                 if all_result.exit_status != 0:
@@ -2626,7 +3381,18 @@ class InstalledElesimLifecycle:
                 running = tuple(sorted(value for value in running_services if value in expected))
                 configured_services = self._compose_services(session, unit)
                 required_services = set(expected)
-                if "sim" in expected and self._topology.security_profile == "sros2":
+                scoped_turn = None
+                if "sim" in expected and self._scoped:
+                    scoped_turn = _scoped_turn_from_instance_state(
+                        self._scoped_instance_state(session, unit), host,
+                        system_id=self._topology.system_id,
+                    )
+                managed_required = (
+                    scoped_turn is not None and scoped_turn.get("turn_mode") == "managed"
+                    if self._scoped
+                    else self._topology.security_profile == "sros2"
+                )
+                if "sim" in expected and managed_required:
                     if "coturn" in configured_services:
                         required_services.add("coturn")
                 if "tailscale" in configured_services:
@@ -2658,7 +3424,7 @@ class InstalledElesimLifecycle:
                 relay_ok = True
                 relay_detail = ""
                 if "sim" in expected:
-                    if self._topology.security_profile == "sros2":
+                    if managed_required:
                         relay_ok = "coturn" in running_services
                         if not relay_ok:
                             relay_detail = "managed Coturn is not running"
@@ -2716,7 +3482,9 @@ class InstalledElesimLifecycle:
                 ),
                 "units": unit_status,
             }
-        policies, policy_errors = self._gpu_policies(session, host)
+        policies, policy_errors = (
+            ({}, []) if self._scoped else self._gpu_policies(session, host)
+        )
         if policies:
             snapshot["gpu_policy"] = policies
         if policy_errors:
@@ -2791,9 +3559,21 @@ class InstalledElesimLifecycle:
             if not isinstance(unit_state, Mapping):
                 raise RuntimeError(f"DDS state is missing on {host.host_id}/{unit.unit_id}")
             if unit_selected and unit.install_mode == "container":
-                result = session.run(
-                    (*_compose_command(unit), "ps", "--status", "running", "--services")
-                )
+                if self._scoped:
+                    self._validate_scoped_target(session, unit, local=host.local)
+                    status_command = _lifecycle_command(
+                        unit,
+                        action="status",
+                        system_id=self._topology.system_id,
+                        scoped=True,
+                    )
+                    result = session.run(status_command, check=False)
+                    if result.exit_status != 0:
+                        raise RemoteCommandError(status_command, result)
+                else:
+                    result = session.run(
+                        (*_compose_command(unit), "ps", "--status", "running", "--services")
+                    )
                 missing = sorted(set(unit_selected) - set(result.stdout.split()))
                 if missing:
                     raise RuntimeError(
@@ -2801,7 +3581,7 @@ class InstalledElesimLifecycle:
                         f"{host.host_id}/{unit.unit_id}: {', '.join(missing)}"
                     )
                 running_services = set(result.stdout.split())
-                if "tailscale" in self._compose_services(session, unit):
+                if not self._scoped and "tailscale" in self._compose_services(session, unit):
                     sidecar = session.run(
                         (str(_tailscale_command(unit)), "status", "--json")
                     )
@@ -2813,11 +3593,24 @@ class InstalledElesimLifecycle:
                             f"backend={backend or 'unknown'}"
                         )
                 if "sim" in unit_selected:
-                    if self._topology.security_profile == "sros2" and "coturn" not in running_services:
+                    scoped_turn = None
+                    if self._scoped:
+                        scoped_state = self._scoped_instance_state(session, unit)
+                        scoped_turn = _scoped_turn_from_instance_state(
+                            scoped_state, host, system_id=self._topology.system_id
+                        )
+                    managed_required = (
+                        scoped_turn is not None and scoped_turn.get("turn_mode") == "managed"
+                        if self._scoped
+                        else self._topology.security_profile == "sros2"
+                    )
+                    if managed_required and "coturn" not in running_services:
                         raise RuntimeError(
                             f"managed Coturn is not running on {host.host_id}/{unit.unit_id}"
                         )
-                    if self._topology.security_profile == "trusted-network" and "coturn" in running_services:
+                    if (self._scoped and not managed_required and "coturn" in running_services) or (
+                        not self._scoped and self._topology.security_profile == "trusted-network" and "coturn" in running_services
+                    ):
                         raise RuntimeError(
                             f"Coturn must be stopped for plaintext DDS on "
                             f"{host.host_id}/{unit.unit_id}"
@@ -2846,22 +3639,43 @@ class InstalledElesimLifecycle:
                         f"{actual!r} != {value!r}"
                     )
             if "sim" in unit.roles:
-                network = unit_state.get("network")
-                turn = unit_state.get("turn")
+                scoped_runtime_state = (
+                    self._scoped_instance_state(session, unit) if self._scoped else unit_state
+                )
+                # Scoped InstanceState keeps TURN URLs alongside its TURN
+                # settings.  The install-level ``elesim-net`` snapshot has a
+                # nested network object, but that is deliberately not the
+                # source of truth for an instance lifecycle.
+                network = (
+                    {"turn_urls": scoped_runtime_state.get("turn_urls", ())}
+                    if self._scoped
+                    else scoped_runtime_state.get("network")
+                )
+                turn = scoped_runtime_state.get("turn")
                 if not isinstance(network, Mapping) or not isinstance(turn, Mapping):
                     raise RuntimeError(
                         f"managed Coturn state is missing on {host.host_id}/{unit.unit_id}"
                     )
-                expected_mode = "managed" if self._topology.security_profile == "sros2" else "none"
+                scoped_turn = (
+                    _scoped_turn_from_instance_state(
+                        scoped_runtime_state, host,
+                        system_id=self._topology.system_id,
+                    )
+                    if self._scoped else None
+                )
+                expected_mode = (
+                    scoped_turn["turn_mode"] if scoped_turn is not None
+                    else ("managed" if self._topology.security_profile == "sros2" else "none")
+                )
                 expected_turn = (
-                    _managed_turn_from_state(unit_state, host)
+                    (scoped_turn if self._scoped else _managed_turn_from_state(unit_state, host))
                     if expected_mode == "managed"
                     else None
                 )
                 urls = tuple(str(value) for value in network.get("turn_urls", ()))
                 expected_urls = (
-                    (str(expected_turn["turn_url"]),)
-                    if expected_turn is not None
+                    (str((expected_turn or scoped_turn)["turn_url"]),)
+                    if expected_mode in {"managed", "external"}
                     else ()
                 )
                 if urls != expected_urls:
@@ -2878,7 +3692,7 @@ class InstalledElesimLifecycle:
                             "secret_file": str(expected_turn["turn_secret_file"]),
                         }
                         if expected_turn is not None
-                        else {}
+                        else ({"credential_file": str(scoped_turn["turn_credential_file"])} if scoped_turn is not None and expected_mode == "external" else {})
                     ),
                 }
                 for name, expected_value in expected_turn_values.items():
@@ -3350,8 +4164,6 @@ def _compose_command(
     compose = PurePosixPath(unit.install_root) / "containers/compose.yaml"
     return (
         str(PurePosixPath(unit.bin_dir) / "elesim-compose"),
-        "-p",
-        "elesim-runtime",
         "-f",
         str(compose),
     )
@@ -3364,8 +4176,6 @@ def _compose_build_command(target: ManagedHost | DeploymentUnit) -> tuple[str, .
         str(PurePosixPath(unit.bin_dir) / "elesim-compose"),
         "--progress",
         "plain",
-        "-p",
-        "elesim-runtime",
         "-f",
         str(compose),
     )
@@ -3395,9 +4205,17 @@ def _lifecycle_command(
     include_coturn: bool = False,
     runtime_options: RuntimeLaunchOptions | None = None,
     viewer_user: str | None = None,
+    system_id: str | None = None,
+    scoped: bool | None = None,
 ) -> tuple[str, ...]:
-    if action not in {"start", "stop", "build", "launch"}:
+    if action not in {"start", "stop", "build", "launch", "status", "logs"}:
         raise ValueError(f"unsupported lifecycle action: {action!r}")
+    if scoped is None:
+        scoped = system_id is not None
+    if scoped:
+        if not system_id:
+            raise ValueError("scoped lifecycle requires the topology system_id")
+        _safe_identifier(str(system_id), name="system_id")
     if isinstance(target, ManagedHost):
         selected = _selected_roles(target, roles)
         unit = target.primary_unit
@@ -3407,6 +4225,34 @@ def _lifecycle_command(
         if len(set(selected)) != len(selected) or not set(selected).issubset(unit.roles):
             raise ValueError(f"runtime role selection escapes {unit.unit_id!r}: {selected!r}")
     services = tuple(selected)
+    if scoped and unit.install_mode != "container":
+        raise ValueError("scoped lifecycle is available only for container units")
+    if scoped:
+        # InstanceRuntime publishes exact wrappers under instances/<system>.
+        # No role/service argument is forwarded: doing so would allow a
+        # manager to escape the registered service set.
+        if action == "build":
+            raise ValueError(
+                "scoped instances use immutable published releases; build is not a lifecycle action"
+            )
+        instance_action = {
+            "start": "up",
+            "launch": "up",
+            "stop": "down",
+            "status": "status",
+            "logs": "logs",
+        }[action]
+        if runtime_options is not None:
+            raise ValueError(
+                "scoped instance lifecycle does not accept runtime GPU/viewer overrides; "
+                "configure the instance compute policy at registration"
+            )
+        return (
+            str(PurePosixPath(unit.bin_dir) / "elesim-instance"),
+            str(system_id),
+            instance_action,
+            *(('--no-build',) if instance_action == "up" else ()),
+        )
     if include_coturn and "sim" in selected and "coturn" not in services:
         services = (*services, "coturn")
     if unit.lifecycle == "compose":
@@ -3547,6 +4393,20 @@ def _configuration_command(
                 str(dds["turn_public_host"]),
                 "--turn-secret-file",
                 str(dds["turn_secret_file"]),
+            )
+        )
+    elif turn_mode == "external":
+        turn_values = ("turn_url", "turn_credential_file")
+        missing_turn = [name for name in turn_values if not str(dds.get(name, "")).strip()]
+        if missing_turn:
+            raise ValueError(
+                "external TURN configuration is missing: " + ", ".join(missing_turn)
+            )
+        arguments.extend(
+            (
+                "--turn-mode", "external",
+                "--turn-url", str(dds["turn_url"]),
+                "--turn-credential-file", str(dds["turn_credential_file"]),
             )
         )
     elif turn_mode == "none":

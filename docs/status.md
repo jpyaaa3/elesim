@@ -1,37 +1,77 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-09-07. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-09-10. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 다중 system 실행 설계 초안 (계획, 미구현)
+### One-EleSim policy 해체 (2026-09-10, 구현 완료 범위)
 
-목표는 **한 host 설치와 고정 `elesim-runtime` Compose project를 공유하면서**
-서로 다른 `system_id`의 EleSim graph를 동시에 실행하는 것이다. 새 edition이나
-두 번째 전체 설치, system별 Compose project는 만들지 않는다. `system_id`를 별도
-instance ID 없이 실행 instance의 정본 key로 사용한다. 이 절은 후속 구현의 초안이며
-현재 container 이름, 상태 schema 또는 명령 동작이 이미 바뀌었다는 뜻이 아니다.
+현재 goal은 구형 RL 설치를 자동 수정·인수하지 않고 신형 설치와 여러 system의
+공존을 구현하는 것이다. 아래 과거 B0 초안의 **전역 고정 Compose project 및
+공통 mutable `:local` image** 결정은 다음 계약으로 대체됐다. 구현된 격리·상태
+경계와 실제 Docker/RL 통합 수용시험은 별개다.
+
+- 신규 설치 project는 `elesim-runtime-<install UUID hex>`이며 한 설치의 여러
+  system은 이 project를 공유한다. 구형 설치의 `elesim-runtime`은 자동 인수하지 않는다.
+- connection topology는 schema v1–v5를 읽어 schema v6으로 normalize하고,
+  저장 시에는 항상 v6을 쓴다. graph role ID는 global registry와 instance
+  schema v3에 저장하며 schema v2 입력은 읽을 때 이관한다.
+- 호스트 설치 / 불변 release / system instance 상태를 분리한다. release는 빌드
+  입력 fingerprint와 이미지 ID를 기록하고 system별 참조를 고정한다.
+- 서비스·설정·보안 view·쓰기 가능한 cache·로그는 system/endpoint 단위다.
+  서로 다른 ID의 이름 변환 충돌을 허용하지 않는다. 같은 system의 중복 role
+  실행 거부는 control/media 검증 전까지 유지한다.
+- fresh container install의 project는 `elesim-runtime-<install UUID hex>`다.
+  release는 immutable이며 `elesim-update`는 새 release를 build/publish하지만
+  등록된 instance를 새 release로 repin하지 않는다. instance는
+  `elesim-instance <system> up|down|logs|status|remove`로 exact service만
+  대상으로 lifecycle한다. scoped install에서 generic `elesim-up`, `elesim-down`,
+  `elesim-logs`, `elesim-status`는 거부되고 legacy fixed project에서만 유지된다.
+- 인스턴스 lifecycle은 `--remove-orphans`와 project-wide `down`을 사용하지
+  않는다. 설치 잠금과 system별 transaction journal/lock을 구분한다.
+- 기존 실행 설치를 새 schema로 강제 이관하지 않는다. 공존 설치는 별도 prefix/bin과
+  PATH 비등록을 사용한다. 실제 RL 서버 배포·종료·이관은 이번 goal에서 수행하지 않는다.
+- 현재 확인은 host 테스트뿐이며 canonical/live Docker proof는 주장하지 않는다.
+  실제 RL server는 건드리지 않았다. B6 live integration 수용시험은 수동으로
+  남아 있다.
+
+Luna 작업 분담: namespace 식별자 및 검증, instance state/registry 및 검증,
+기존 lifecycle 호출 경로 조사. 주 에이전트가 계약·기존 코드 통합·수용시험을 소유한다.
+
+#### 상태와 운영 경계
+
+`system_id`가 instance의 정본 key다. 한 신규 host 설치의 여러 system은
+설치 UUID로 구분된 project를 공유하되, 구형 RL 설치와 공존할 때는 별도
+prefix/bin 및 project를 사용한다. 신규 container 설치는 이 scoped 경로를
+기본으로 사용하고 legacy manifest만 기존 고정 project를 유지한다.
 
 상태와 자원의 소유 범위는 다음 세 층으로 나눈다.
 
 | 범위 | 소유할 값과 자원 |
 | --- | --- |
-| host 설치 | prefix/bin, source revision, Docker context/Engine ID, 설치된 role capability, 공통 image/build cache, `elesim-dev`, Tailscale sidecar, 전체 ownership manifest |
-| system instance | `system_id`, 이 host의 `assigned_roles`, DDS/compute/TURN 설정, role별 생성 config와 SROS2 view, 로그, 실행 상태 |
+| host 설치 | prefix/bin, Docker context/Engine ID, 설치된 role capability, 공통 build cache, scoped dev/Tailscale, 전체 ownership manifest |
+| 불변 release | source revision, platform, role별 build fingerprint/image ID, runtime data snapshot 및 digest |
+| system instance | schema v3의 global graph role ID, `system_id`, release key, endpoint 배정, DDS/compute/TURN 설정, endpoint별 config와 SROS2 view, 캐시·로그·실행 상태 |
 | graph topology | host와 role 배치, DDS/SSH endpoint, endpoint ID, SROS2 Authority generation과 배포 transaction |
 
-제안된 설치 경계는 다음과 같다. 정확한 파일명과 schema는 B1에서 focused test와
-함께 확정한다.
+구현은 registry와 생성 설정을 원자적으로 통합하고, 소유권 manifest와
+instance별 config/cache/log/security/TURN/GPU 경계를 기록한다. legacy 상태와
+고정 project는 보존한다.
 
 ```text
 <prefix>/
   install-state.json
   containers/compose.yaml
+  releases/<release_key>/
+    manifest.json
+    data/
   instances/<system_id>/
     state.json
-    apps/<role>/config/
+    endpoints/<endpoint_id>/
+      config/
+      cache/
     security/
     secrets/
     cache/
@@ -40,21 +80,15 @@ instance ID 없이 실행 instance의 정본 key로 사용한다. 이 절은 후
   authority/<system_id>/
 ```
 
-Compose project 이름은 계속 `elesim-runtime`이다. 공통 `dev`, tools와 Tailscale
-service는 한 번만 생성하고, application service key는
-`instance-<system_id>-<role>`처럼 system을 포함한다. application container의
-전역 `container_name`은 제거하고 Compose가 이름을 만들게 하며,
-`io.elesim.install_uuid`, `io.elesim.system_id`, `io.elesim.role` exact label로
-소유권을 검증한다. image는 설치 단위에서 공유하되 instance 삭제가 공통 image를
-삭제하지 못하게 한다.
+공통 dev/tools/Tailscale은 설치당 한 번 생성한다. application service는
+system/endpoint와 전체 SHA-256로, container는 설치 UUID 및 service digest로
+구분한다. install/system/endpoint/role exact label을 검증하고 실행 image는
+불변 image ID로 pin한다. instance 삭제는 공통 image를 삭제하지 않는다.
 
-운영 명령은 기존 wrapper에 `--system <system_id>`를 추가하는 방향으로 유지한다.
-instance가 하나뿐이면 인자를 생략할 수 있지만, 둘 이상이면 생략을 거부한다.
-생략을 `--all`로 해석하지 않는다. instance stop/remove는 선택한 service만
-대상으로 하며 project 전체 `docker compose down`은 명시적인 전체 제거 또는
-host uninstall에만 허용한다. instance lifecycle에서는 `--remove-orphans`도
-사용하지 않는다. aggregate Compose 파일은 등록된 모든 instance service를 항상
-포함하고, host helper는 선택한 system에서 파생된 exact service key만 허용한다.
+운영 명령은 `elesim-instance <system> <up|down|logs|status|remove>`를 사용한다.
+scoped generic wrapper는 fail-closed하고 legacy fixed project wrapper는 기존
+동작을 유지한다. instance stop/remove는 선택한 service만 대상으로 하며
+project 전체 `docker compose down`과 `--remove-orphans`는 사용하지 않는다.
 서로 다른 system의 연결관리자는 동시에 실행할 수 있지만 같은 system의 저장·보안
 배포는 system별 lock으로 직렬화한다.
 
@@ -66,12 +100,14 @@ DDS application topic과 SROS2 policy는 이미 `system_id` namespace를 사용�
 
 Tailscale sidecar와 개발 attachment는 host 공용으로 유지한다. managed Coturn은
 host/Tailscale network namespace의 listen/relay port가 충돌하므로 instance별
-고정 port와 겹치지 않는 relay 범위를 설치 상태에서 할당하는 방향을 우선 검토한다.
+고정 listen port와 relay block을 설치 UUID/system ID에서 결정적으로 할당하고,
+같은 prefix 안의 충돌을 등록 전에 거부한다. 다른 prefix의 실제 host bind 충돌은
+Docker가 최종 거부하며 live 공존 gate에서 확인해야 한다.
 외부 TURN은 instance별 credential 경로를 가진다. GPU 선택과 writable runtime
 경로도 instance 설정으로 내려 같은 host의 두 Sim이 설정 파일을 공유하지 않게 한다.
-공통 mutable `:local` image를 동시에 build하지 않도록 host 설치 단위 build lock과
-context fingerprint를 유지한다. instance 제거는 image를 삭제하지 않고 전체 host
-uninstall만 공통 image 제거를 소유한다.
+신규 image tag는 설치 UUID와 build fingerprint를 포함하며, host 설치 단위
+build lock을 둔다. instance 제거는 image를 삭제하지 않고 전체 host uninstall만
+공통 image 제거를 소유한다.
 
 물리 Robot은 host당 하나의 native 안전 경계와 고정 systemd lifecycle을 유지한다.
 한 Robot host에서 두 system이 Robot을 동시에 활성화하는 것은 거부한다. 초기
@@ -83,24 +119,31 @@ uninstall만 공통 image 제거를 소유한다.
 
 | ID / 상태 | 결과 | 완료 증거 |
 | --- | --- | --- |
-| B0 계약 / 초안 | 현재 단일 instance 동작과 목표 경계를 구분한다 | 상태/명령/소유권/DDS/Robot/Coturn 결정과 충돌 회귀 목록 |
-| B1 상태 분리 / 미착수 | host 설치와 system instance가 독립적으로 저장된다 | schema migration; 기존 설치가 기존 `system_id`의 한 instance로 손실 없이 이관 |
-| B2 Compose namespace / 대기(B1) | 한 project에 같은 role의 여러 service가 존재한다 | service/config/label 충돌 검사와 생성 Compose isolation test |
-| B3 lifecycle / 대기(B2) | 한 system의 up/down/status/logs가 다른 system을 건드리지 않는다 | 두 Robot 없는 instance 동시 실행, 한쪽 stop/remove/update 후 다른 쪽 생존 |
-| B4 연결·보안 / 대기(B3) | topology와 SROS2 transaction이 system별로 독립적이다 | 두 manager 동시 실행, generation/rollback/실패 journal 교차 오염 없음 |
-| B5 공용 인프라 / 대기(B3) | dev/Tailscale/image를 공유하며 TURN/GPU 자원 충돌을 거부하거나 할당한다 | sidecar 유지, image ownership, Coturn port/range, GPU/writable path 회귀 |
-| B6 통합 수용 / 대기(B4,B5) | 여러 graph의 제어·RGBD·WebRTC·종료가 격리된다 | 같은 host와 multi-host software smoke, SROS2 교차 publish/subscribe 거부, Robot 독점 검사 |
+| B0 계약 / 확정 | legacy 설치 보존 및 install/release/system 경계를 구분한다 | 위 범위와 명시적인 미지원 경계 |
+| B1 상태 분리 / 완료(소프트웨어) | host 설치·immutable release·system instance가 독립적으로 저장된다 | instance schema v3, global role ID, schema v2 read migration, registry/release publication 회귀 |
+| B2 Compose namespace / 완료(소프트웨어) | 한 install project 안에서 system/endpoint별 service와 자원이 격리된다 | exact service rendering, per-instance config/cache/log/TURN/GPU/security, legacy preservation 회귀 |
+| B3 lifecycle / 완료(소프트웨어) | 한 system의 up/down/status/logs/remove가 다른 system을 건드리지 않는다 | `elesim-instance` wrapper, generic scoped refusal, transaction journal/lock 회귀 |
+| B4 연결·보안 / 완료(소프트웨어) | topology와 SROS2 transaction이 system별로 독립적이다 | schema v6 read migration, exact registration/replace, staged publication·rollback·recovery 회귀 |
+| B5 공용 인프라 / 완료(소프트웨어) | immutable release와 공용 dev/Tailscale을 공유하며 instance 자원 충돌을 거부·할당한다 | release build/publish, sidecar/image ownership, Coturn/GPU/cache/log 경계 회귀 |
+| B6 통합 수용 / 수동 | 여러 graph의 제어·RGBD·WebRTC·종료가 격리된다 | live Docker/RL, multi-host media, SROS2 교차 publish/subscribe 거부, Robot 독점 검증은 미실행 |
 
-B0에서 먼저 고정할 위험 회귀는 세 가지다. `down`/`--remove-orphans`가 다른
-system을 제거하지 않을 것, 연결관리자의 전역 `elesim-manager` 이름을 없애고
-system별 transaction lock을 사용할 것, `<prefix>/apps/<role>`와 공통 Sim cache를
-instance 경로로 옮길 것이다. 현재 topology의 "host당 Compose runtime unit 하나"
-제약은 공통 aggregate project/설치 unit과 모순되지 않으므로 이 이유만으로 풀지 않는다.
+B0에서 고정한 위험 회귀는 세 가지다. `down`/`--remove-orphans`가 다른
+system을 제거하지 않는 것, 연결관리자의 전역 lock 대신 system별 transaction
+journal/lock을 사용하는 것, role config와 Sim cache를 instance 경로로 격리하는
+것이다. 이 경계는 구현·회귀 검증됐다.
 
-첫 vertical slice는 한 host에 `lab_a`와 `lab_b`라는 두 Robot 없는
-instance를 만들고 Pilot/Sim/UI를 모두 동시에 띄운 뒤, `lab_a`만 내렸을 때
-`lab_b`의 process와 설정·DDS 상태가 그대로 남는 것이다. 이 slice가 통과하기
-전에는 multi-host, managed Coturn 자동 할당이나 Robot 전환 UI를 확장하지 않는다.
+첫 vertical slice의 host-side isolation checks는 구현됐다. 다만 실제 Docker
+동시 실행과 DDS/WebRTC/RL 통합은 B6 수동 수용시험으로 남아 있다.
+
+2026-09-10 bounded final host fallback에서는 one-EleSim 관련 집중 묶음
+**279 passed**, setup 전체 **837 passed / 14 failed**였다. 전체 실패는 이
+sandbox에서 금지된 loopback/Unix/X11 socket 생성 13건과 그에 따른 stream
+timeout 1건이며 제품 성공으로 바꾸어 세지 않는다. 이후 추가한 release UUID
+조회, graph role ID canonical 충돌, 중첩 prefix 거부 경계까지 포함한 최종
+관련 묶음은 **123 passed**, downstream connection/deployment 묶음은
+**151 passed**다. `py_compile`, connection-manager JavaScript syntax,
+`git diff --check`도 통과했다. 정식 `elesim-dev`, Docker daemon, live graph는
+사용할 수 없어 B6와 canonical required/extended/release gate는 미실행이다.
 
 ### 연결관리자 COM 편집 화면 개편 (2026-09-08)
 
@@ -125,11 +168,11 @@ instance를 만들고 Pilot/Sim/UI를 모두 동시에 띄운 뒤, `lab_a`만 �
   제거했다. 검증된 컴퓨터 이름이 topology의 host ID가 된다. 현재 편집 버튼에는
   연필 자산이 준비될 때까지 기존 코끼리 그림을 사용한다. 헤더의 `▲`/`▼`는 화면과
   저장되는 host 배열의 순서를 함께 바꾼다.
-- 실행 모드 선택을 제거하고 topology schema를 v5로 올렸다. 1–4개 COM과 실제
+- 실행 모드 선택을 제거하고 topology schema를 v6으로 올렸다. 1–4개 COM과 실제
   역할 카드가 graph를 직접 정의하며 Pilot/Sim/UI/Robot의 고정 집합을 강요하지
-  않는다. v1–v4는 v5로 이관하고 기존 `topology_mode`는 검증 후 폐기한다. 복수
-  역할 카드는 endpoint ID와 함께 저장할 수 있지만, instance별 Compose/service
-  namespace가 생기기 전까지 실행 작업은 명시적으로 거부한다(B2).
+  않는다. v1–v5는 v6으로 이관하고 기존 `topology_mode`는 검증 후 폐기한다. 복수
+  역할 카드는 endpoint ID와 함께 저장하며 instance별 Compose/service namespace로
+  exact lifecycle을 수행한다.
 - 새 역할 카드의 endpoint ID는 역할별 `pilot-1`, `sim-1`, `ui-1`, `robot-1`
   형식으로 번호를 붙인다. Robot COM의 역할 영역은 세로로 두 zone을 쌓지 않고,
   같은 높이 안에서 일반 역할 2/3와 고정 Robot 1/3을 좌우로 배치한다. 일반 역할
@@ -150,11 +193,13 @@ instance를 만들고 Pilot/Sim/UI를 모두 동시에 띄운 뒤, `lab_a`만 �
 - 연결 관리자는 `assigned_roles`가 설치 역할의 부분집합이면 허용한다. DDS/XML,
   Compose 환경, endpoint identity, SROS2 app view와 start/stop/build는 현재 배정
   역할만 대상으로 한다. 비활성 역할의 설치 파일과 image는 보존한다.
-- 재배정 시 실행 중인 비활성 역할이 있으면 설정 변경 전에 거부한다. 기본
-  `elesim-up`은 상태 파일의 최신 배정을 매번 읽고, 명시적으로 비배정 역할을
-  요청해도 거부한다. Pilot만 시작할 때 별도로 실행 중인 Sim/Coturn을 끄지 않는다.
-- 동일 host에서 여러 graph를 동시에 실행하는 instance namespace 분리는 이번
-  변경에 포함하지 않았다. Compose project/container 이름은 계속 고정이다.
+- 재배정 시 실행 중인 비활성 역할이 있으면 설정 변경 전에 거부한다. 이 문단의
+  과거 install-wide `elesim-up` 동작은 legacy fixed project에만 남고, scoped
+  설치는 `elesim-instance <system> up`으로 exact assignment만 시작한다. Pilot만
+  시작할 때 다른 system의 Sim/Coturn을 끄지 않는다.
+- 동일 host에서 여러 graph를 동시에 실행하는 instance namespace 분리와
+  per-instance lifecycle은 구현됐다. Compose project는 install UUID로 고정하고
+  service/resource는 system/endpoint로 구분한다.
 - `elesim-dev`는 Docker daemon에 존재하지 않아 canonical container gate를
   실행하지 못했다. 호스트 setup suite를 소켓 허용 구간과 일반 구간으로 나눠
   **612 passed**로 확인했고 bootstrap **73 passed**, 관련 상태/배포/실행 회귀
@@ -225,9 +270,9 @@ instance를 만들고 Pilot/Sim/UI를 모두 동시에 띄운 뒤, `lab_a`만 �
   출력 기본값은 껐으며 명시적 설정으로 다시 켤 수 있다.
 - 기존 model 이동을 제외한 runtime diff는 약 1,200줄 순감이다. 제거한
   소스는 Git HEAD로 복구할 수 있으며 설치물·로그·장비는 삭제하지 않았다.
-- 재확인: `docker ps -a --filter name=elesim-dev` 결과가 비어 있고,
-  `elesim-dev`/`elesim-up` 래퍼도 PATH에 없다. 기존 다른 checkout 소유
-  runtime을 변경하거나 host 의존성을 설치하지 않았다.
+- 재확인: canonical/live Docker proof는 수행하지 않았고 실제 RL server도
+  건드리지 않았다. scoped generic lifecycle은 fail-closed이며 등록된 system은
+  `elesim-instance`로만 조작한다.
 - **호스트 부분 검증만 수행:** protocol 전체, Pilot operator, UI
   operator proxy/session, Pilot perception YAML ownership, 공통 tracing
   회귀 묶음은 159 passed + 5 subtests. 회전 한도, 기록 경로 실패,
@@ -286,7 +331,8 @@ R5의 기본 장치 검증은 R4 알고리즘 완성을 기다릴 필요가 없�
 
 1. 설치 UUID, prefix, Docker context/Engine과 Compose 소유권을 확인하고
    setup-generated `elesim-dev`를 사용할 수 있게 한다. 실행 중인 다른
-   prefix의 `elesim-runtime`을 임의로 교체하지 않는다.
+   prefix의 legacy fixed `elesim-runtime` 또는 다른 install-scoped project를 임의로
+   교체하지 않는다.
 2. 아래 required/extended gate와 release build/verify를 정확한 revision에서
    실행한다. 실패를 제품 결함, 테스트 결함, 환경 제약으로 분류한다.
    원인을 모르는 실패는 그대로 미해결로 남긴다.
@@ -411,10 +457,12 @@ R5의 기본 장치 검증은 R4 알고리즘 완성을 기다릴 필요가 없�
 - encoded latest-only RGB-D broker와 observer/hand-eye WebRTC 분리가 구현됐다.
 - Robot–Unitree bridge UDS 경계, peer credential 검증, replay fence와 deadman
   stop이 구현됐다.
-- installer state v10, mode-free topology schema v5, 독립
+- installer state v11, mode-free topology schema v6 (v1–v5 read/normalize), 독립
   DDS/SSH endpoint, ownership-based uninstall이 구현됐다.
-- fixed `elesim-runtime` Compose와 선택적 `elesim-dev` attachment, managed
-  Coturn, Docker Desktop Tailscale sidecar가 구현됐다.
+- install-scoped Compose namespace와 선택적 `elesim-dev` attachment, managed
+  Coturn, Docker Desktop Tailscale sidecar가 구현됐다. Legacy fixed
+  `elesim-runtime` 자원은 자동 인수하지 않으며, 실제 공존 운영은 아직 live gate가
+  아니다.
 - role-scoped managed SROS2 generation의 stage/activate/verify/rollback/recover와
   external keystore 경계가 구현됐다.
 - four-role + infra release build/verify, four-process DDS smoke, RGB-D 및 두

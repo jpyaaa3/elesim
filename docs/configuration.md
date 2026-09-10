@@ -100,7 +100,7 @@ authentication/access-control/encryption을 사용한다. `ROS_DOMAIN_ID`만으�
 
 ## 3. Topology 필드
 
-connection topology schema v5는 다음을 분리한다.
+connection topology schema v6는 다음을 분리한다.
 
 | 필드 | 의미 |
 | --- | --- |
@@ -114,9 +114,17 @@ connection topology schema v5는 다음을 분리한다.
 | `roles[]` | 해당 unit의 `pilot`, `sim`, `ui`, `robot` assignment |
 
 한–네 host에 배치한 역할 카드가 실제 graph를 정의하며 특정 역할 집합을
-강제하지 않는다. schema v1–v4 입력은 load 시 v5로 normalize하고, v2–v4의
+강제하지 않는다. schema v1–v5 입력은 load 시 v6으로 normalize하고, v2–v5의
 `topology_mode`는 호환성 검증 후 폐기한다. DDS 주소와 SSH 주소가 같아도 한
 필드에서 다른 필드를 추론하지 않는다.
+
+graph role ID는 설치 전역 registry와 instance schema v3에 저장한다. schema v2
+instance는 읽을 때 role ID를 이관하며 저장 시 v3을 사용한다. instance는
+immutable `release_key`를 가리키고, `elesim-update`가 새 release를 publish해도
+자동으로 repin되지 않는다. scoped lifecycle은
+`elesim-instance <system> up|down|logs|status|remove`만 사용한다. scoped
+설치의 generic `elesim-up/down/logs/status`는 거부되며 legacy fixed project에서만
+유효하다.
 
 ## 4. GPU와 Viewer
 
@@ -227,12 +235,12 @@ repository에는 credential scratch directory를 만들지 않는다.
 ## 8. 런타임 점검
 
 ```bash
-elesim-status
+elesim-instance <system> status
 elesim-net namespace-check --dds-interface tailscale0
-docker inspect elesim-sim
+docker inspect <instance-scoped-service>
 ```
 
 `namespace-check`는 interface/address/route의 structural gate다. 실제 DDS
 descriptor/heartbeat, SROS2 permission, RGB-D/WebRTC media는 별도 live gate다.
-`elesim-status`의 `gpu.cuda_visible_devices`, device request, `sim.video.*`,
+`elesim-instance <system> status`의 `gpu.cuda_visible_devices`, device request, `sim.video.*`,
 `dds.*`를 함께 읽어 host/container 설정을 혼동하지 않는다.

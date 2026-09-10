@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import ast
 import hashlib
 import http.client
 import io
@@ -28,6 +29,7 @@ from installer.bootstrap.bootstrap import (
     setup_arguments,
     validate_bootstrap_contract,
     validate_bootstrap_generation,
+    _write_source_revision_handoff,
 )
 
 
@@ -250,6 +252,72 @@ def test_source_snapshot_rejects_unowned_setup_python_module(
     )
 
     with pytest.raises(BootstrapError, match="unexpected setup Python"):
+        bootstrap_module._validate_source_snapshot(root)
+
+
+def test_bootstrap_manifest_covers_cli_and_instance_runtime_imports() -> None:
+    """Every relative setup import must survive the curl source filter."""
+    repository_root = Path(__file__).resolve().parents[3]
+    setup_root = repository_root / "payload/runtime/docker/setup/app/elesim_setup"
+    manifest = bootstrap_module._BOOTSTRAP_SETUP_PYTHON_FILES
+    inspected = (
+        setup_root / "cli.py",
+        setup_root / "instance_runtime.py",
+        setup_root / "instance_security.py",
+    )
+
+    for source in inspected:
+        tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.level != 1:
+                continue
+            assert node.module is not None
+            imported = node.module.split(".", 1)[0]
+            expected = PurePosixPath(
+                "payload/runtime/docker/setup/app/elesim_setup"
+            ) / f"{imported}.py"
+            assert expected in manifest, f"{source.name} imports unowned {imported}.py"
+            assert (repository_root / expected).is_file()
+
+
+def test_bootstrap_manifest_covers_all_setup_relative_imports() -> None:
+    """The curl snapshot must include every setup module's local imports."""
+    repository_root = Path(__file__).resolve().parents[3]
+    setup_root = repository_root / "payload/runtime/docker/setup/app/elesim_setup"
+    manifest = bootstrap_module._BOOTSTRAP_SETUP_PYTHON_FILES
+    sources = sorted(set(setup_root.glob("*.py")))
+
+    assert {
+        PurePosixPath(
+            "payload/runtime/docker/setup/app/elesim_setup"
+        ) / f"{source.stem}.py"
+        for source in sources
+    } <= manifest
+
+    for source in sources:
+        tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.level != 1:
+                continue
+            assert node.module is not None
+            imported = node.module.split(".", 1)[0]
+            expected = PurePosixPath(
+                "payload/runtime/docker/setup/app/elesim_setup"
+            ) / f"{imported}.py"
+            assert expected in manifest, f"{source.name} imports unowned {imported}.py"
+            assert (repository_root / expected).is_file()
+
+
+def test_source_snapshot_rejects_missing_instance_runtime_module(
+    tmp_path: Path,
+) -> None:
+    snapshot = tmp_path / "snapshot"
+    _write_valid_snapshot(snapshot)
+    root = snapshot / "elesim-main"
+    missing = root / "payload/runtime/docker/setup/app/elesim_setup/instance_runtime.py"
+    missing.unlink()
+
+    with pytest.raises(BootstrapError, match="instance_runtime.py"):
         bootstrap_module._validate_source_snapshot(root)
 
 
@@ -1251,6 +1319,7 @@ def test_main_forwards_trusted_gui_source_metadata(
     executable = tmp_path / "elesim-setup"
     download_call: dict[str, object] = {}
     commands: list[tuple[str, ...]] = []
+    setup_environments: list[dict[str, str]] = []
 
     def fake_download(
         url: str,
@@ -1269,14 +1338,22 @@ def test_main_forwards_trusted_gui_source_metadata(
 
     def fake_run(
         command: tuple[str, ...],
-        **_kwargs: object,
+        **kwargs: object,
     ) -> subprocess.CompletedProcess[str]:
         commands.append(tuple(command))
+        environment = kwargs.get("env")
+        if isinstance(environment, dict):
+            setup_environments.append(dict(environment))
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(bootstrap_module, "download_source", fake_download)
     monkeypatch.setattr(bootstrap_module, "validate_bootstrap_contract", lambda _root: {})
     monkeypatch.setattr(bootstrap_module, "validate_bootstrap_generation", lambda _root: None)
+    monkeypatch.setattr(
+        bootstrap_module,
+        "_validated_source_revision",
+        lambda _cache, _url, _root: "git-" + "a" * 40,
+    )
     monkeypatch.setattr(
         bootstrap_module,
         "prepare_bootstrap_venv",
@@ -1322,6 +1399,37 @@ def test_main_forwards_trusted_gui_source_metadata(
             "feature",
         )
     ]
+    assert setup_environments[-1]["ELESIM_SOURCE_REVISION"] == "git-" + "a" * 40
+
+
+def test_bootstrap_revision_handoff_overwrites_stale_value_and_ignores_forged_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invocation = tmp_path / "install"
+    maintenance = invocation / "maintenance"
+    maintenance.mkdir(parents=True)
+    handoff = maintenance / ".bootstrap-source-revision"
+    handoff.write_text("git-" + "f" * 40 + "\n", encoding="ascii")
+    monkeypatch.setenv("ELESIM_INVOCATION_DIR", str(invocation))
+    monkeypatch.setenv("ELESIM_SOURCE_REVISION_FILE", str(handoff))
+    monkeypatch.setenv("ELESIM_SOURCE_REVISION", "git-" + "f" * 40)
+
+    _write_source_revision_handoff("git-" + "a" * 40)
+
+    assert handoff.read_text(encoding="ascii") == "git-" + "a" * 40 + "\n"
+    assert (handoff.stat().st_mode & 0o777) == 0o600
+
+
+def test_bootstrap_revision_handoff_rejects_forged_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ELESIM_INVOCATION_DIR", str(tmp_path / "install"))
+    monkeypatch.setenv("ELESIM_SOURCE_REVISION_FILE", str(tmp_path / "forged"))
+
+    with pytest.raises(BootstrapError, match="handoff path"):
+        _write_source_revision_handoff("git-" + "a" * 40)
 
 
 def test_failed_shell_download_preserves_previous_bootstrap(tmp_path: Path) -> None:
@@ -1588,9 +1696,14 @@ def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None
     assert 'if [[ "$argument" != "gui" ]]' in script
     assert 'bootstrap_tmp="$(mktemp "$cache_dir/.bootstrap.py.XXXXXX")"' in script
     assert 'curl -fsSL "$raw_url" -o "$bootstrap_tmp"' in script
-    assert 'mv -f -- "$bootstrap_tmp" "$bootstrap_file"' in script
+    assert 'cp -- "$bootstrap_tmp" "$bootstrap_publish_tmp"' in script
+    assert 'mv -f -- "$bootstrap_publish_tmp" "$bootstrap_file"' in script
+    assert '--volume "$bootstrap_tmp:/tmp/elesim-bootstrap.py:ro"' in script
+    assert '"$host_python" "$bootstrap_tmp"' in script
     assert 'docker_args+=(--env-file "$archive_env_file")' in script
     assert 'python /tmp/elesim-bootstrap.py "$@"' in script
+    assert 'source_revision_file="$invocation_dir/maintenance/.bootstrap-source-revision"' in script
+    assert 'ELESIM_SOURCE_REVISION_FILE=$source_revision_file' in script
     assert '"PYTHONNOUSERSITE=1"' in script
 
 
@@ -1611,6 +1724,6 @@ def test_jetson_bootstrap_uses_host_ros_without_exposing_gui() -> None:
     assert "[[ -r /opt/ros/humble/setup.bash ]]" in script
     assert 'command -v colcon >/dev/null 2>&1' in script
     assert '"$host_python" -m venv --help' in script
-    assert 'env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_file"' in script
+    assert 'env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_tmp"' in script
     assert "--host 127.0.0.1" in script
     assert "EleSim 전용 host venv" in script

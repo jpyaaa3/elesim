@@ -358,6 +358,31 @@ def test_jetson_requires_the_mandatory_robot_unit() -> None:
         ).validate()
 
 
+def test_jetson_rejects_multiple_native_robot_units() -> None:
+    with pytest.raises(ValueError, match="only one native Robot unit"):
+        ManagedHost(
+            host_id="jetson",
+            local=False,
+            dds=DdsEndpoint("100.64.0.31", "tailscale0"),
+            ssh=_ssh("jetson.example"),
+            jetson=True,
+            units=(
+                DeploymentUnit(
+                    "robot-a",
+                    (RoleAssignment("robot", "robot-a"),),
+                    install_mode="native",
+                    lifecycle="systemd",
+                ),
+                DeploymentUnit(
+                    "robot-b",
+                    (RoleAssignment("robot", "robot-b"),),
+                    install_mode="native",
+                    lifecycle="systemd",
+                ),
+            ),
+        ).validate()
+
+
 def test_multicast_rejects_multi_host_tailscale_address_even_when_interface_is_eth0() -> None:
     topology = _topology()
     raw = topology.to_dict()
@@ -428,7 +453,7 @@ def test_mode_free_topology_accepts_one_host_without_robot() -> None:
     topology = _partial_topology()
     raw = topology.to_dict()
 
-    assert raw["schema_version"] == 5
+    assert raw["schema_version"] == 6
     assert "topology_mode" not in raw
     restored = ConnectionTopology.from_dict(raw)
 
@@ -486,7 +511,7 @@ def test_legacy_schema_v1_is_loaded_and_normalized_without_mode() -> None:
 
     restored = ConnectionTopology.from_dict(raw)
 
-    assert restored.schema_version == 5
+    assert restored.schema_version == 6
     assert "topology_mode" not in restored.to_dict()
     assert restored.host("compute").ssh is not None
     assert restored.host("compute").ssh.host == "100.64.0.20"
@@ -503,7 +528,7 @@ def test_legacy_schema_v2_v3_keep_shared_address_semantics(
 
     restored = ConnectionTopology.from_dict(raw)
 
-    assert restored.schema_version == 5
+    assert restored.schema_version == 6
     assert restored.host("compute").ssh is not None
     assert restored.host("compute").ssh.host == restored.host("compute").dds.address
 
@@ -516,10 +541,123 @@ def test_schema_v4_keeps_independent_ssh_address_while_removing_mode() -> None:
 
     restored = ConnectionTopology.from_dict(raw)
 
-    assert restored.schema_version == 5
+    assert restored.schema_version == 6
     assert restored.host("compute").ssh is not None
     assert restored.host("compute").ssh.host == "management.example"
     assert "topology_mode" not in restored.to_dict()
+
+
+def test_schema_v5_mode_free_topology_is_normalized_to_v6() -> None:
+    raw = _topology().to_dict()
+    raw["schema_version"] = 5
+
+    restored = ConnectionTopology.from_dict(raw)
+
+    assert restored.schema_version == 6
+    assert restored.to_dict()["schema_version"] == 6
+
+
+def test_schema_v6_round_trips_scoped_unit_install_and_release_binding() -> None:
+    raw = _topology().to_dict()
+    unit = raw["hosts"][1]["units"][0]
+    unit.update(
+        {
+            "install_uuid": "11111111-1111-4111-8111-111111111111",
+            "project": "elesim-runtime-11111111111141118111111111111111",
+            "release_key": "a" * 64,
+        }
+    )
+
+    restored = ConnectionTopology.from_dict(raw)
+    scoped = restored.host("compute").runtime_units[0]
+
+    assert scoped.install_uuid == "11111111-1111-4111-8111-111111111111"
+    assert scoped.project == "elesim-runtime-11111111111141118111111111111111"
+    assert scoped.release_key == "a" * 64
+
+
+def test_schema_v5_migrates_unit_release_binding_and_persists_as_v6() -> None:
+    raw = _topology().to_dict()
+    raw["schema_version"] = 5
+    unit = raw["hosts"][1]["units"][0]
+    unit.update(
+        {
+            "install_uuid": "11111111-1111-4111-8111-111111111111",
+            "project": "elesim-runtime-11111111111141118111111111111111",
+            "release_key": "b" * 64,
+        }
+    )
+
+    restored = ConnectionTopology.from_dict(raw)
+    persisted = restored.to_dict()
+
+    assert restored.schema_version == 6
+    assert persisted["schema_version"] == 6
+    assert persisted["hosts"][1]["units"][0]["release_key"] == "b" * 64
+
+
+def test_legacy_mirror_edit_does_not_drop_canonical_unit_release_binding() -> None:
+    raw = _topology().to_dict()
+    unit = raw["hosts"][1]["units"][0]
+    unit.update(
+        {
+            "install_uuid": "11111111-1111-4111-8111-111111111111",
+            "project": "elesim-runtime-11111111111141118111111111111111",
+            "release_key": "c" * 64,
+        }
+    )
+    # The host-level fields are a read-compatible legacy mirror.  Editing one
+    # must not erase the canonical schema-v6 per-unit enrollment/release.
+    raw["hosts"][1]["assignments"][0]["endpoint_id"] = "sim-legacy"
+
+    restored = ConnectionTopology.from_dict(raw)
+    scoped = restored.host("compute").runtime_units[0]
+
+    assert scoped.install_uuid == unit["install_uuid"]
+    assert scoped.project == unit["project"]
+    assert scoped.release_key == unit["release_key"]
+    assert scoped.assignments[0].endpoint_id == "sim-legacy"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"release_key": "a" * 64}, "install_uuid"),
+        (
+            {
+                "install_uuid": "11111111-1111-4111-8111-111111111111",
+                "release_key": "a" * 64,
+            },
+            "project",
+        ),
+    ],
+)
+def test_deployment_unit_release_binding_requires_complete_install_identity(
+    kwargs, message: str
+) -> None:
+    unit = DeploymentUnit(
+        "runtime",
+        (RoleAssignment("sim", "sim-main"),),
+        **kwargs,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        unit.validate(jetson=False)
+
+
+def test_native_robot_unit_rejects_container_release_binding() -> None:
+    unit = DeploymentUnit(
+        "robot-native",
+        (RoleAssignment("robot", "robot-main"),),
+        install_mode="native",
+        lifecycle="systemd",
+        install_uuid="11111111-1111-4111-8111-111111111111",
+        project="elesim-runtime-11111111111141118111111111111111",
+        release_key="a" * 64,
+    )
+
+    with pytest.raises(ValueError, match="native units|native Robot"):
+        unit.validate(jetson=True)
 
 
 def test_mode_free_topology_still_rejects_jetson_container_units() -> None:

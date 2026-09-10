@@ -21,17 +21,20 @@ from elesim_setup.container_installer import (
     _tailscale_wrapper,
     _runtime_up_wrapper,
     _runtime_down_wrapper,
+    _scoped_instance_dispatcher,
     _resolve_viewer_user,
     _reset_generated_context,
     build_container_plan,
     refresh_compose_dds_environment,
 )
+from elesim_setup.instance_identity import container_name, image_reference, project_name
 from elesim_setup.ownership import (
     DOCKER_BUILD_FINGERPRINT_LABEL,
     DOCKER_INSTALL_UUID_LABEL,
     OwnershipError,
     OwnershipManifest,
 )
+from elesim_setup.releases import ReleaseManifest, publish_release, runtime_data_digest
 from elesim_setup.state import (
     ContainerNetworkSettings,
     DdsSettings,
@@ -55,6 +58,192 @@ def test_prepacked_role_entrypoints_match_the_runtime_contract() -> None:
 def _compose(state) -> dict:
     return yaml.safe_load(
         (state.prefix_path / "containers/compose.yaml").read_text(encoding="utf-8")
+    )
+
+
+def _refresh_as_legacy_install(state) -> None:
+    """Create an ownership-proven legacy fixture for legacy wrapper tests."""
+
+    ContainerInstaller(state).run()
+    manifest_path = state.prefix_path / "install-ownership.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["docker"]["project"] = "elesim-runtime"
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    ContainerInstaller(state).run()
+
+
+def test_fresh_container_install_uses_an_install_scoped_namespace(
+    local_state, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    install_uuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    monkeypatch.setattr(
+        "elesim_setup.container_installer.ownership_install_uuid",
+        lambda refresh: install_uuid,
+    )
+    monkeypatch.setenv("ELESIM_SOURCE_REVISION", "git-" + "1" * 40)
+    state = local_state(roles=("pilot", "sim"), install_mode="container")
+
+    ContainerInstaller(state).run()
+
+    compose = _compose(state)
+    assert compose["name"] == project_name(install_uuid)
+    assert compose["services"]["pilot"]["container_name"] == container_name(
+        install_uuid, "pilot"
+    )
+    assert compose["services"]["sim"]["container_name"] == container_name(
+        install_uuid, "sim"
+    )
+    assert compose["services"]["pilot"]["image"].startswith(
+        "elesim/pilot:aaaaaaaaaaa"
+    )
+    assert compose["services"]["tools"]["image"].startswith(
+        "elesim/tools:aaaaaaaaaaa"
+    )
+    manifest = json.loads(
+        (state.prefix_path / "install-ownership.json").read_text(encoding="utf-8")
+    )
+    assert manifest["docker"]["project"] == project_name(install_uuid)
+    assert all(
+        image != "elesim/pilot:local" and image != "elesim/tools:local"
+        for image in manifest["docker"]["local_images"]
+    )
+    wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
+    assert "docker container inspect elesim-pilot" not in wrapper
+    assert "docker image inspect elesim/tools:local" not in (
+        (state.bin_path / "elesim-net").read_text(encoding="utf-8")
+    )
+    snapshot = state.prefix_path / "containers/runtime-snapshot"
+    assert (snapshot / "config/pilot/config.yaml").is_file()
+    assert (snapshot / "config/sim/config.yaml").is_file()
+    assert (snapshot / "data/models/assemblies/zed-mini/bundle.json").is_file()
+    assert (state.bin_path / "elesim-release").is_file()
+    release_wrapper = (state.bin_path / "elesim-release").read_text(encoding="utf-8")
+    assert "release publish" in release_wrapper
+    assert "maintenance/.release-evidence" in release_wrapper
+    net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
+    assert "scoped 설치에서는 install-wide elesim-net 변경 작업을 사용할 수 없습니다." in net_wrapper
+    assert "${1:-} == configure || ${1:-} == restore-snapshot" in net_wrapper
+    refused = subprocess.run(
+        (state.bin_path / "elesim-net", "configure"),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert refused.returncode == 78
+    assert "install-wide" in refused.stderr
+    fake_bin = tmp_path / "fake-docker"
+    fake_bin.mkdir()
+    _fake_docker(fake_bin)
+    wrapper_environment = os.environ.copy()
+    wrapper_environment["PATH"] = f"{fake_bin}:{wrapper_environment['PATH']}"
+    for compose_action in (
+        ("up", "-d", "--no-build", "sim"),
+        ("stop", "sim"),
+        ("down",),
+    ):
+        blocked = subprocess.run(
+            (
+                state.bin_path / "elesim-compose",
+                "-f",
+                str(state.prefix_path / "containers/compose.yaml"),
+                *compose_action,
+            ),
+            env=wrapper_environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert blocked.returncode == 78
+        assert "base Compose lifecycle" in blocked.stderr
+    ownership = json.loads(
+        (state.prefix_path / "install-ownership.json").read_text(encoding="utf-8")
+    )
+    assert str(state.prefix_path / "releases") in ownership["managed_roots"]
+    assert str(state.prefix_path / "instances") in ownership["managed_roots"]
+    assert (state.bin_path / "elesim-instance").is_file()
+    for name in ("elesim-up", "elesim-down", "elesim-logs", "elesim-status"):
+        lifecycle = (state.bin_path / name).read_text(encoding="utf-8")
+        assert "전역 runtime이 없습니다" in lifecycle
+        assert "docker" not in lifecycle
+
+
+def test_scoped_instance_dispatcher_requires_registered_system_and_execs_exact_wrapper(
+    tmp_path: Path,
+) -> None:
+    dispatcher = tmp_path / "elesim-instance"
+    dispatcher.write_text(_scoped_instance_dispatcher(prefix=tmp_path), encoding="utf-8")
+    dispatcher.chmod(0o755)
+
+    missing = subprocess.run(
+        (dispatcher, "alpha", "up"), text=True, capture_output=True, check=False
+    )
+    assert missing.returncode == 3
+    assert "등록되지 않은 instance" in missing.stderr
+
+    instance = tmp_path / "instances" / "alpha"
+    (instance / "bin").mkdir(parents=True)
+    (instance / "state.json").write_text(
+        '{"system_id":"alpha"}\n', encoding="utf-8"
+    )
+    marker = tmp_path / "called"
+    wrapper = instance / "bin" / "status"
+    wrapper.write_text(
+        f"#!/usr/bin/env bash\nprintf '%s' \"$*\" > {marker}\n", encoding="utf-8"
+    )
+    wrapper.chmod(0o755)
+
+    selected = subprocess.run(
+        (dispatcher, "--system", "alpha", "status", "--detail"),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert selected.returncode == 0
+    assert marker.read_text(encoding="utf-8") == "--detail"
+
+    (instance / "state.json").write_text('{"system_id":"bravo"}\n', encoding="utf-8")
+    mismatched = subprocess.run(
+        (dispatcher, "alpha", "status"), text=True, capture_output=True, check=False
+    )
+    assert mismatched.returncode == 78
+    assert "system ID" in mismatched.stderr
+    (instance / "state.json").write_text('{"system_id":"alpha"}\n', encoding="utf-8")
+
+    wrapper.unlink()
+    wrapper.symlink_to(marker)
+    linked = subprocess.run(
+        (dispatcher, "alpha", "status"), text=True, capture_output=True, check=False
+    )
+    assert linked.returncode == 78
+    assert "symlink" in linked.stderr
+
+
+def test_legacy_manifest_refresh_keeps_the_fixed_namespace(
+    local_state, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_uuid = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    monkeypatch.setattr(
+        "elesim_setup.container_installer.ownership_install_uuid",
+        lambda refresh: install_uuid if refresh is None else refresh.install_uuid,
+    )
+    state = local_state(roles=("sim",), install_mode="container")
+    ContainerInstaller(state).run()
+    manifest_path = state.prefix_path / "install-ownership.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["docker"]["project"] = "elesim-runtime"
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    ContainerInstaller(state).run()
+
+    compose = _compose(state)
+    assert compose["name"] == "elesim-runtime"
+    assert compose["services"]["sim"]["container_name"] == "elesim-sim"
+    assert compose["services"]["sim"]["image"] == "elesim/sim:local"
+    assert "expected_project=elesim-runtime" in (
+        (state.bin_path / "elesim-compose").read_text(encoding="utf-8")
+    )
+    assert "scoped 설치에서는 install-wide elesim-net 변경 작업을 사용할 수 없습니다." not in (
+        (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     )
 
 
@@ -82,19 +271,19 @@ def _fake_docker(path: Path) -> Path:
         "  exit 0\n"
         "fi\n"
         "if [[ ${1:-} == container && ${2:-} == inspect ]]; then\n"
-        "  if [[ ${3:-} == elesim-manager && ${ELESIM_FAKE_MANAGER_PRESENT:-0} == 1 ]]; then\n"
+        "  if [[ ${3:-} == ${ELESIM_FAKE_MANAGER_NAME:-elesim-manager} && ${ELESIM_FAKE_MANAGER_PRESENT:-0} == 1 ]]; then\n"
         "    exit 0\n"
         "  fi\n"
         "  exit 1\n"
         "fi\n"
-        "if [[ ${1:-} == rm && ${2:-} == -f && ${3:-} == elesim-manager ]]; then\n"
+        "if [[ ${1:-} == rm && ${2:-} == -f && ${3:-} == ${ELESIM_FAKE_MANAGER_NAME:-elesim-manager} ]]; then\n"
         "  if [[ -n ${ELESIM_MANAGER_PURGED_MARKER:-} ]]; then\n"
         "    : >\"$ELESIM_MANAGER_PURGED_MARKER\"\n"
         "  fi\n"
         "  exit \"${ELESIM_MANAGER_PURGE_STATUS:-0}\"\n"
         "fi\n"
         "arguments=\" $* \"\n"
-        "if [[ $arguments == *' image inspect elesim/tools:local '* && $arguments == *'build_fingerprint'* ]]; then\n"
+        "if [[ $arguments == *\" image inspect ${ELESIM_FAKE_TOOLS_IMAGE:-elesim/tools:local} \"* && $arguments == *'build_fingerprint'* ]]; then\n"
         "  printf '%s\\n' \"${ELESIM_FAKE_TOOLS_FINGERPRINT:-}\"\n"
         "  exit 0\n"
         "fi\n"
@@ -139,6 +328,12 @@ def _fake_docker(path: Path) -> Path:
         "if [[ $arguments == *' logs -f '* ]]; then\n"
         "  printf 'live follow\\n'\n"
         "  exit 0\n"
+        "fi\n"
+        "if [[ $arguments == *' stop '* ]]; then\n"
+        "  if [[ -n ${ELESIM_DOWN_MARKER:-} ]]; then\n"
+        "    : >\"$ELESIM_DOWN_MARKER\"\n"
+        "  fi\n"
+        "  exit \"${ELESIM_DOWN_STATUS:-0}\"\n"
         "fi\n"
         "if [[ $arguments == *' down --remove-orphans '* ]]; then\n"
         "  if [[ -n ${ELESIM_DOWN_MARKER:-} ]]; then\n"
@@ -295,7 +490,7 @@ def test_container_install_survives_missing_passwd_entry(
     assert compose["services"]["tools"]["environment"]["ELESIM_HOST_USER"] == (
         "hckang"
     )
-    wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
+    wrapper = (state.bin_path / "elesim-viewer-cleanup").read_text(encoding="utf-8")
     assert "viewer_xhost_user=hckang" in wrapper
 
 
@@ -364,6 +559,11 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
 
     ContainerInstaller(state).run()
     compose = _compose(state)
+    install_manifest = OwnershipManifest.load(
+        state.prefix_path / "install-ownership.json"
+    )
+    assert install_manifest.docker is not None
+    install_uuid = install_manifest.install_uuid
 
     cache_root = state.prefix_path / "cache"
     data_root = state.prefix_path / "data"
@@ -378,7 +578,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert cache_root.stat().st_mode & 0o777 == 0o700
     assert (cache_root / "genesis").is_dir()
     assert (cache_root / "genesis").stat().st_mode & 0o777 == 0o700
-    assert compose["name"] == "elesim-runtime"
+    assert compose["name"] == project_name(install_uuid)
     assert set(compose["services"]) == {
         "sim",
         "pilot",
@@ -388,13 +588,10 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     }
     for role in state.roles:
         service = compose["services"][role]
-        assert service["image"] == f"elesim/{role}:local"
-        expected_container_names = {
-            "pilot": "elesim-pilot",
-            "ui": "elesim-ui",
-            "sim": "elesim-sim",
-        }
-        assert service["container_name"] == expected_container_names[role]
+        assert service["image"].startswith(
+            f"elesim/{role}:{install_uuid.replace('-', '')}-"
+        )
+        assert service["container_name"] == container_name(install_uuid, role)
         assert service["logging"] == {
             "driver": "json-file",
             "options": {"max-size": "10m", "max-file": "4"},
@@ -501,7 +698,9 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert (tools / "interfaces/elesim_interfaces/msg/RgbdFrame.msg").is_file()
     assert not (tools / "protocol/tests").exists()
     assert not (tools / "setup/tests").exists()
-    assert compose["services"]["tools"]["image"] == "elesim/tools:local"
+    assert compose["services"]["tools"]["image"].startswith(
+        f"elesim/tools:{install_uuid.replace('-', '')}-"
+    )
     assert compose["services"]["tools"]["environment"]["ELESIM_HOST_USER"] == (
         _resolve_viewer_user()
     )
@@ -514,7 +713,11 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert manager["environment"]["DOCKER_CONFIG"] == "/tmp/elesim-docker-config"
     assert "group_add" not in manager
     wrapper = (state.bin_path / "elesim-connections").read_text(encoding="utf-8")
-    assert "--name elesim-manager" in wrapper
+    assert '--name "$manager_container"' in wrapper
+    assert (
+        f"manager_container=elesim-{install_uuid.replace('-', '')}-manager-$manager_system"
+        in wrapper
+    )
     assert '--publish "127.0.0.1:${manager_port}:${manager_port}"' in wrapper
     assert "manager_args+=(--host 0.0.0.0)" in wrapper
     assert "ELESIM_INSTALL_GPU_MODE=inherit" in wrapper
@@ -523,11 +726,11 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "elesim_setup.host_helper" in wrapper
     assert "ELESIM_HOST_HELPER_SOCKET=/run/elesim-host-helper/helper.sock" in wrapper
     assert "existing_manager=\"$(docker ps -aq" in wrapper
-    assert "manager_running=\"$(docker inspect" in wrapper
+    assert "manager_invocation_token=\"$(date -u" in wrapper
     assert "manager_started=0" in wrapper
     assert "trap 'host_helper_cleanup; manager_cleanup' EXIT" in wrapper
-    assert "docker rm elesim-manager" in wrapper
-    assert "docker rm -f elesim-manager" in wrapper
+    assert 'docker rm "$manager_id"' in wrapper
+    assert "--system은 소문자 시스템 ID" in wrapper
     assert "manager_status=$?" in wrapper
     assert "ELESIM_DOCKER_GID" not in wrapper
     assert "elesim-manager-compose" not in wrapper
@@ -541,27 +744,9 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     ).read_text(encoding="utf-8")
     update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
     down_wrapper = (state.bin_path / "elesim-down").read_text(encoding="utf-8")
-    assert "up -d --build --remove-orphans" in up_wrapper
-    assert "--view" in up_wrapper
-    assert "--viewer-user" in up_wrapper
-    assert "ELESIM_VIEWER_USER" in up_wrapper
-    assert "export ELESIM_SIM_VIEWER=1" in up_wrapper
-    assert "DISPLAY" in up_wrapper
-    assert (
-        f"viewer_xhost_user={_resolve_viewer_user()}" in up_wrapper
-    )
-    assert 'xhost +si:localuser:"$viewer_xhost_user"' in up_wrapper
-    assert "run --rm -T --build --no-deps sim --elesim-viewer-preflight" in up_wrapper
-    assert "run --rm -T --no-deps sim --elesim-viewer-preflight" in up_wrapper
-    assert "viewer-xhost" in up_wrapper
-    assert "viewer_xhost_select_state" in up_wrapper
-    assert "viewer_display_is_owned" in up_wrapper
-    assert "viewer_xhost_session_uid" in up_wrapper
-    assert "SSH 사용자" in up_wrapper
-    assert "xrandr --listmonitors" in up_wrapper
-    assert ".runtime-cache/viewer-xhost" in up_wrapper
-    assert "elesim-net configuration-check >/dev/null" in up_wrapper
-    assert "elesim-net namespace-check >/dev/null" in up_wrapper
+    assert "전역 runtime이 없습니다" in up_wrapper
+    assert "elesim-instance <system>" in up_wrapper
+    assert "docker" not in up_wrapper
     net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     assert "docker_backend_name" in net_wrapper
     assert "docker_backend_kind=docker-desktop" in net_wrapper
@@ -570,19 +755,16 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     )
     assert "tailscale[0-9]+" in manager_wrapper
     assert "ELESIM_TAILSCALE_INTERFACE" in manager_wrapper
-    assert "down --remove-orphans" in down_wrapper
-    assert "down --remove-orphans" in down_wrapper
-    assert "elesim-down [--purge]" in down_wrapper
-    assert "docker rm -f elesim-manager" in down_wrapper
-    assert 'xhost -si:localuser:"$viewer_xhost_user"' in down_wrapper
-    assert "viewer_xhost_cleanup" in down_wrapper
+    assert "전역 runtime이 없습니다" in down_wrapper
+    assert "docker" not in down_wrapper
     assert "viewer_xhost_cleanup" in viewer_cleanup_wrapper
     assert "docker" not in viewer_cleanup_wrapper
     for role in state.roles:
         assert not (state.bin_path / f"elesim-{role}").exists()
     assert "--edition" not in update_wrapper
     assert "build sim pilot ui tools" in update_wrapper
-    assert "elesim_cleanup_owned_dangling_image" in update_wrapper
+    assert "release publish" in update_wrapper
+    assert "elesim_cleanup_owned_dangling_image" not in update_wrapper
     assert "docker image prune" not in update_wrapper
     assert (state.prefix_path / "security").stat().st_mode & 0o777 == 0o700
     for generated_wrapper in (
@@ -619,6 +801,11 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     ContainerInstaller(state).run()
     compose = _compose(state)
     services = compose["services"]
+    install_manifest = OwnershipManifest.load(
+        prefix / "install-ownership.json"
+    )
+    assert install_manifest.docker is not None
+    install_uuid = install_manifest.install_uuid
 
     assert set(services) == {
         "tailscale",
@@ -631,7 +818,7 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     tailscale = services["tailscale"]
     assert tailscale["image"] == TAILSCALE_IMAGE
     assert tailscale["image"] == "tailscale/tailscale:stable"
-    assert tailscale["container_name"] == TAILSCALE_CONTAINER_NAME
+    assert tailscale["container_name"] == container_name(install_uuid, "tailscale")
     assert tailscale["devices"] == ["/dev/net/tun:/dev/net/tun"]
     assert tailscale["cap_add"] == ["NET_ADMIN", "NET_RAW"]
     assert tailscale["entrypoint"] == ["tailscaled"]
@@ -681,6 +868,7 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     )
     net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
+    status_wrapper = (state.bin_path / "elesim-status").read_text(encoding="utf-8")
     update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
     assert "export DOCKER_CONTEXT=\"$expected_docker_context\"" in compose_wrapper
     assert "expected_docker_engine_id=desktop-engine-id" in compose_wrapper
@@ -692,11 +880,10 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     assert "export CUDA_VISIBLE_DEVICES=$runtime_cuda_visible" in compose_wrapper
     assert "export ELESIM_SIM_VIEWER=$runtime_sim_viewer" in compose_wrapper
     assert "exec docker compose" in compose_wrapper
-    assert str(state.bin_path / "elesim-compose") in up_wrapper
-    assert "actual_docker_engine_id" in up_wrapper
-    assert "sidecar_login_status == 78" in up_wrapper
-    assert "${sidecar_backend_state,,}" not in up_wrapper
-    assert "sidecar_backend_state_lower=" in up_wrapper
+    assert "전역 runtime이 없습니다" in status_wrapper
+    assert "docker compose" not in status_wrapper
+    assert "전역 runtime이 없습니다" in up_wrapper
+    assert "docker compose" not in up_wrapper
     assert "login --hostname=elesim-deadbeef0123" in tailscale_wrapper
     assert "up --force-reauth --hostname=elesim-deadbeef0123" in tailscale_wrapper
     assert "login [--if-needed]" in tailscale_wrapper
@@ -720,14 +907,6 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     assert "net_service=runtime-tools" in net_wrapper
     assert "namespace-check|doctor" in net_wrapper
     assert "configuration-check|namespace-check|doctor" not in net_wrapper
-    assert "elesim-tailscale status --json" in up_wrapper
-    assert "elesim-tailscale login" in up_wrapper
-    assert (
-        up_wrapper.index("elesim-tailscale login")
-        < up_wrapper.index("elesim-tailscale status --json")
-        < up_wrapper.index("elesim-net configuration-check")
-        < up_wrapper.index("elesim-net namespace-check")
-    )
     assert not (state.bin_path / "elesim-pilot").exists()
     assert "pull tailscale" not in update_wrapper
     assert "build pilot ui tools" in update_wrapper
@@ -738,7 +917,7 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
 
     manifest = OwnershipManifest.load(prefix / "install-ownership.json")
     assert manifest.docker is not None
-    assert TAILSCALE_CONTAINER_NAME in manifest.docker.containers
+    assert container_name(install_uuid, "tailscale") in manifest.docker.containers
     assert TAILSCALE_IMAGE not in manifest.docker.local_images
     assert manifest.docker.context == "default"
     assert manifest.docker.engine_id == "desktop-engine-id"
@@ -791,7 +970,7 @@ def test_sidecar_only_runtime_is_preserved_by_ordinary_down(local_state, tmp_pat
             tailscale_state_dir=str(prefix / "secrets/tailscale"),
         ),
     )
-    ContainerInstaller(state).run()
+    _refresh_as_legacy_install(state)
     fake_bin = tmp_path / "fake-sidecar-docker"
     fake_bin.mkdir()
     _fake_docker(fake_bin)
@@ -817,7 +996,7 @@ def test_sidecar_only_runtime_is_preserved_by_ordinary_down(local_state, tmp_pat
 
     assert result.returncode == 0, result.stderr
     assert not marker.exists()
-    assert "Tailscale sidecar는 유지합니다" in result.stderr
+    assert "역할 컨테이너가 이미 정지되어 있습니다" in result.stderr
 
 
 def test_sidecar_down_then_up_starts_persisted_identity_before_namespace_check(
@@ -835,7 +1014,7 @@ def test_sidecar_down_then_up_starts_persisted_identity_before_namespace_check(
             tailscale_state_dir=str(prefix / "secrets/tailscale"),
         ),
     )
-    ContainerInstaller(state).run()
+    _refresh_as_legacy_install(state)
     fake_bin = tmp_path / "fake-down-up-docker"
     fake_bin.mkdir()
     _fake_docker(fake_bin)
@@ -880,7 +1059,7 @@ def test_sidecar_down_then_up_starts_persisted_identity_before_namespace_check(
         "run --rm -T runtime-tools elesim-net", login_status
     )
     runtime_start = rendered.index(
-        "up -d --build --remove-orphans ui", namespace_check
+            "up -d --build ui", namespace_check
     )
     assert login_start < login_status < namespace_check < runtime_start
 
@@ -1456,7 +1635,7 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     )
     assert "run --rm -T --build --no-deps sim --elesim-viewer-preflight" in first_calls
     assert first_calls.index("--elesim-viewer-preflight") < first_calls.index(
-        "up -d --build --remove-orphans"
+        "up -d --build"
     )
 
     environment["DISPLAY"] = ":0"
@@ -1471,7 +1650,7 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     assert viewed.returncode == 0
     assert Path(environment["VIEWER_MARKER"]).read_text(encoding="utf-8") == "1"
     assert Path(environment["CUDA_MARKER"]).read_text(encoding="utf-8") == "2"
-    assert "up -d --no-build --remove-orphans" in Path(
+    assert "up -d --no-build" in Path(
         environment["DOCKER_ARGS_MARKER"]
     ).read_text(encoding="utf-8")
     assert "run --rm -T --no-deps sim --elesim-viewer-preflight" in Path(
@@ -1827,7 +2006,7 @@ def test_runtime_up_selects_sim_owned_coturn_from_security_profile(
     assert result.returncode == 0
     calls = (tmp_path / "docker.args").read_text(encoding="utf-8").splitlines()
     assert calls[0].endswith("stop coturn")
-    assert calls[-1].endswith("up -d --build --remove-orphans pilot sim ui")
+    assert calls[-1].endswith("up -d --build pilot sim ui")
 
     state_path.write_text(
         json.dumps({"dds": {"security_profile": "sros2"}}),
@@ -1844,7 +2023,7 @@ def test_runtime_up_selects_sim_owned_coturn_from_security_profile(
 
     assert result.returncode == 0
     calls = (tmp_path / "docker.args").read_text(encoding="utf-8").splitlines()
-    assert calls[-1].endswith("up -d --build --remove-orphans pilot sim ui coturn")
+    assert calls[-1].endswith("up -d --build pilot sim ui coturn")
 
     (tmp_path / "docker.args").write_text("", encoding="utf-8")
     result = subprocess.run(
@@ -1857,7 +2036,7 @@ def test_runtime_up_selects_sim_owned_coturn_from_security_profile(
     assert result.returncode == 0
     calls = (tmp_path / "docker.args").read_text(encoding="utf-8").splitlines()
     assert not any(call.endswith("stop coturn") for call in calls)
-    assert calls[-1].endswith("up -d --build --remove-orphans pilot")
+    assert calls[-1].endswith("up -d --build pilot")
 
     (tmp_path / "docker.args").write_text("", encoding="utf-8")
     result = subprocess.run(
@@ -1869,7 +2048,7 @@ def test_runtime_up_selects_sim_owned_coturn_from_security_profile(
     )
     assert result.returncode == 0
     calls = (tmp_path / "docker.args").read_text(encoding="utf-8").splitlines()
-    assert calls[-1].endswith("up -d --build --remove-orphans sim coturn")
+    assert calls[-1].endswith("up -d --build sim coturn")
 
     (tmp_path / "docker.args").write_text("", encoding="utf-8")
     result = subprocess.run(
@@ -1944,7 +2123,7 @@ def test_runtime_up_builds_only_when_runtime_image_fingerprint_is_stale(
     calls = (tmp_path / "docker.calls").read_text(encoding="utf-8").splitlines()
     up_call = next(call for call in calls if " up -d " in call)
     assert up_call.endswith(
-        f"up -d {expected_up_flag} --remove-orphans pilot"
+        f"up -d {expected_up_flag} pilot"
     )
     if expected_up_flag == "--no-build":
         assert not any(" image inspect" in call for call in calls[1:])
@@ -2482,6 +2661,69 @@ def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Pa
     assert "run --rm --build tools elesim-net" not in wrapper
 
 
+def test_scoped_net_releases_uses_validated_maintenance_registry_without_docker(
+    local_state, tmp_path: Path
+) -> None:
+    state = local_state(roles=("sim",), install_mode="container")
+    ContainerInstaller(state).run()
+    ownership = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
+    assert ownership.docker is not None
+    compose = _compose(state)
+    service = compose["services"]["sim"]
+    fingerprint = service["build"]["labels"][DOCKER_BUILD_FINGERPRINT_LABEL]
+    source = state.prefix_path / "release-source"
+    source.mkdir()
+    (source / "file").write_text("content\n", encoding="utf-8")
+    value = ReleaseManifest(
+        install_uuid=ownership.install_uuid,
+        source_revision="git-" + "a" * 40,
+        platform="linux/amd64",
+        role_images={"sim": service["image"]},
+        image_ids={"sim": "sha256:" + "b" * 64},
+        build_fingerprints={"sim": fingerprint},
+        runtime_data_digest=runtime_data_digest(source),
+    )
+    publish_release(state.prefix_path, value, source)
+
+    result = subprocess.run(
+        (state.bin_path / "elesim-net", "releases"),
+        env={"PATH": "/usr/bin:/bin"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    rows = json.loads(result.stdout)
+    assert [row["release_key"] for row in rows] == [value.to_dict()["release_key"]]
+    assert "from elesim_setup.releases import list_releases" in (
+        state.bin_path / "elesim-net"
+    ).read_text(encoding="utf-8")
+    assert (state.prefix_path / "maintenance/elesim_setup/releases.py").is_file()
+
+    foreign_install = "fedcba98-7654-3210-fedc-ba9876543210"
+    foreign = ReleaseManifest(
+        install_uuid=foreign_install,
+        source_revision="git-" + "c" * 40,
+        platform="linux/amd64",
+        role_images={
+            "sim": image_reference(foreign_install, "sim", fingerprint),
+        },
+        image_ids={"sim": "sha256:" + "d" * 64},
+        build_fingerprints={"sim": fingerprint},
+        runtime_data_digest=runtime_data_digest(source),
+    )
+    publish_release(state.prefix_path, foreign, source)
+    rejected = subprocess.run(
+        (state.bin_path / "elesim-net", "releases"),
+        env={"PATH": "/usr/bin:/bin"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert rejected.returncode != 0
+    assert "another installation" in rejected.stderr
+
+
 def test_container_net_doctor_reuses_tools_image_after_runtime_build(
     local_state, tmp_path: Path
 ) -> None:
@@ -2501,6 +2743,7 @@ def test_container_net_doctor_reuses_tools_image_after_runtime_build(
             "PATH": f"{fake_bin}:{environment['PATH']}",
             "ELESIM_FAKE_DOCKER_CALLS": str(calls),
             "ELESIM_FAKE_TOOLS_FINGERPRINT": tools_fingerprint,
+            "ELESIM_FAKE_TOOLS_IMAGE": _compose(state)["services"]["tools"]["image"],
         }
     )
 
@@ -2521,7 +2764,10 @@ def test_container_net_doctor_reuses_tools_image_after_runtime_build(
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {"schema_version": 1}
     commands = calls.read_text(encoding="utf-8").splitlines()
-    assert any("image inspect elesim/tools:local" in command for command in commands)
+    assert any(
+        f"image inspect {_compose(state)['services']['tools']['image']}" in command
+        for command in commands
+    )
     assert not any("build --quiet tools" in command for command in commands)
 
 
@@ -2541,19 +2787,20 @@ def test_container_install_records_host_uninstaller_and_docker_uuid(
     assert manifest.path == manifest_path
     assert manifest.docker is not None
     assert manifest.docker.install_uuid == manifest.install_uuid
-    assert manifest.docker.project == compose["name"] == "elesim-runtime"
+    assert manifest.docker.project == compose["name"] == project_name(
+        manifest.install_uuid
+    )
     assert manifest.docker.compose_file == str(
         state.prefix_path / "containers/compose.yaml"
     )
     assert set(manifest.docker.containers) == {
-        "elesim-pilot",
-        "elesim-ui",
-        "elesim-manager",
+        container_name(manifest.install_uuid, "pilot"),
+        container_name(manifest.install_uuid, "ui"),
     }
     assert set(manifest.docker.local_images) == {
-        "elesim/pilot:local",
-        "elesim/ui:local",
-        "elesim/tools:local",
+        compose["services"]["pilot"]["image"],
+        compose["services"]["ui"]["image"],
+        compose["services"]["tools"]["image"],
     }
     for service in compose["services"].values():
         assert service["labels"][DOCKER_INSTALL_UUID_LABEL] == manifest.install_uuid
@@ -2593,8 +2840,10 @@ def test_static_discovery_is_exported_to_every_service(local_state) -> None:
         assert environment["ELESIM_DDS_DISCOVERY_MODE"] == "static"
         assert environment["ELESIM_DDS_STATIC_PEERS"] == "192.0.2.10,192.0.2.11"
         assert environment["ELESIM_DDS_NETWORK_INTERFACE"] == "eth1"
+    net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
+    assert "namespace-check" in net_wrapper
     up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
-    assert "namespace-check >/dev/null" in up_wrapper
+    assert "전역 runtime이 없습니다" in up_wrapper
 
 
 def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
@@ -2631,7 +2880,11 @@ def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
     assert secret.is_file()
     assert secret.stat().st_mode & 0o777 == 0o600
     assert compose["services"]["coturn"]["depends_on"] == ["sim"]
-    assert compose["services"]["coturn"]["container_name"] == "elesim-coturn"
+    manifest = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
+    assert manifest.docker is not None
+    assert compose["services"]["coturn"]["container_name"] == container_name(
+        manifest.install_uuid, "coturn"
+    )
     assert compose["services"]["coturn"]["user"] == f"{os.getuid()}:{os.getgid()}"
     assert compose["services"]["coturn"]["logging"] == {
         "driver": "json-file",
@@ -2664,14 +2917,8 @@ def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
         check=False,
     )
 
-    assert saved.returncode == 0
-    run = next((state.prefix_path / "logs/runs").iterdir())
-    assert (run / "sim.log").read_text(encoding="utf-8") == (
-        "saved log for sim\n"
-    )
-    assert (run / "coturn.log").read_text(encoding="utf-8") == (
-        "saved log for coturn\n"
-    )
+    assert saved.returncode == 64
+    assert "전역 runtime이 없습니다" in saved.stderr
     unsupported = subprocess.run(
         (state.bin_path / "elesim-logs", "--tail", "10"),
         env=environment,
@@ -2680,7 +2927,7 @@ def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
         check=False,
     )
     assert unsupported.returncode == 64
-    assert "elesim-logs [--save]" in unsupported.stderr
+    assert "전역 runtime이 없습니다" in unsupported.stderr
 
 
 def test_managed_coturn_symlinked_secret_fails_at_unowned_install_boundary(
@@ -2770,8 +3017,8 @@ def test_pending_managed_sros2_installs_coturn_but_refuses_application_start(
         check=False,
     )
 
-    assert result.returncode == 78
-    assert "elesim-connections" in result.stderr
+    assert result.returncode == 64
+    assert "전역 runtime이 없습니다" in result.stderr
 
 
 def test_managed_coturn_rejects_empty_existing_secret(
@@ -3026,7 +3273,7 @@ def test_runtime_logs_no_argument_follows_and_save_archives_each_service(
         roles=("pilot", "ui"),
         install_mode="container",
     )
-    ContainerInstaller(state).run()
+    _refresh_as_legacy_install(state)
     fake_bin = tmp_path / "fake-docker"
     fake_bin.mkdir()
     _fake_docker(fake_bin)
@@ -3071,7 +3318,7 @@ def test_runtime_logs_and_down_explain_an_already_stopped_runtime(
     tmp_path: Path,
 ) -> None:
     state = local_state(roles=("ui",), install_mode="container")
-    ContainerInstaller(state).run()
+    _refresh_as_legacy_install(state)
     fake_bin = tmp_path / "fake-docker"
     fake_bin.mkdir()
     _fake_docker(fake_bin)
@@ -3112,7 +3359,7 @@ def test_runtime_log_archive_keeps_only_five_latest_runs(
     tmp_path: Path,
 ) -> None:
     state = local_state(roles=("ui",), install_mode="container")
-    ContainerInstaller(state).run()
+    _refresh_as_legacy_install(state)
     fake_bin = tmp_path / "fake-docker"
     fake_bin.mkdir()
     _fake_docker(fake_bin)
@@ -3142,7 +3389,7 @@ def test_runtime_log_failure_does_not_prevent_down_and_returns_nonzero(
         roles=("pilot", "ui"),
         install_mode="container",
     )
-    ContainerInstaller(state).run()
+    _refresh_as_legacy_install(state)
     fake_bin = tmp_path / "fake-docker"
     fake_bin.mkdir()
     _fake_docker(fake_bin)
@@ -3177,7 +3424,7 @@ def test_runtime_log_archive_rejects_a_symlinked_install_ancestor_before_write(
     tmp_path: Path,
 ) -> None:
     state = local_state(roles=("ui",), install_mode="container")
-    ContainerInstaller(state).run()
+    _refresh_as_legacy_install(state)
     fake_bin = tmp_path / "fake-docker"
     fake_bin.mkdir()
     _fake_docker(fake_bin)
@@ -3210,7 +3457,7 @@ def test_disabled_runtime_archive_preserves_follow_and_down_behavior(
         local_state(roles=("ui",), install_mode="container"),
         runtime_text_logs=RuntimeTextLogSettings(enabled=False),
     )
-    ContainerInstaller(state).run()
+    _refresh_as_legacy_install(state)
     fake_bin = tmp_path / "fake-docker"
     fake_bin.mkdir()
     _fake_docker(fake_bin)
@@ -3253,7 +3500,7 @@ def test_runtime_wrapper_rejects_a_container_owned_by_another_install(
         roles=("ui",),
         install_mode="container",
     )
-    ContainerInstaller(state).run()
+    _refresh_as_legacy_install(state)
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
     docker = fake_bin / "docker"
@@ -3275,7 +3522,7 @@ def test_runtime_wrapper_rejects_a_container_owned_by_another_install(
     environment.update(
         {
             "PATH": f"{fake_bin}:{environment['PATH']}",
-            "ELESIM_FAKE_CONTAINER": "elesim-sim",
+            "ELESIM_FAKE_CONTAINER": "elesim-ui",
             "ELESIM_FAKE_METADATA": "elesim-runtime|/other/compose.yaml",
         }
     )
@@ -3289,5 +3536,5 @@ def test_runtime_wrapper_rejects_a_container_owned_by_another_install(
     )
 
     assert result.returncode == 73
-    assert "elesim-sim" in result.stderr
+    assert "elesim-" in result.stderr
     assert "기존 설치의 elesim-down" in result.stderr

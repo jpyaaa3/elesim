@@ -43,8 +43,15 @@ prefix/build context를 사용한다. 수동 build는 진단·릴리스 개발�
 
 ## 2. General Compose
 
-General은 고정 `elesim-runtime` project와 role별 image/container 이름을
-사용한다.
+신규 General 설치는 install UUID에서 유도한 전용
+`elesim-runtime-<install UUID hex>` project를 사용한다. release manifest가
+role별 build fingerprint와 image ID를 고정하며, 각 instance lifecycle은 선택한
+exact service만 대상으로 한다. 기존 고정 `elesim-runtime` 설치는 legacy
+namespace로 보존되고 신규 설치가 자동 인수하지 않는다.
+
+release는 immutable publication이다. `elesim-update`는 새 release를
+build/publish하지만 이미 등록된 instance의 release pin을 바꾸지 않는다.
+새 release 적용은 명시적인 per-system register/replace transaction으로 한다.
 
 설치 역할과 graph 배정은 별개다. 각 host의 설치에는 여러 role service가 있을
 수 있고, topology deployment는 그중 해당 graph에 배정한 부분집합만 DDS 설정,
@@ -54,10 +61,10 @@ Compose manifest를 교체하지 않으며, 배정되지 않은 실행 중 역�
 
 | 역할 | image | container | 실행 경계 |
 | --- | --- | --- | --- |
-| Pilot | `elesim/pilot:local` | `elesim-pilot` | Docker |
-| Sim | `elesim/sim:local` | `elesim-sim` | Docker, amd64 GPU/CPU profile |
-| UI | `elesim/ui:local` | `elesim-ui` | Docker |
-| Coturn | upstream pinned image | `elesim-coturn` | Sim host의 선택적 WebRTC media service |
+| Pilot | install-scoped immutable release image | instance-scoped service | Docker |
+| Sim | install-scoped immutable release image | instance-scoped service | Docker, amd64 GPU/CPU profile |
+| UI | install-scoped immutable release image | instance-scoped service | Docker |
+| Coturn | upstream pinned image | instance-scoped service | Sim host의 선택적 WebRTC media service |
 | Robot | 별도 native release | systemd units | Jetson only |
 
 설치기는 source config를 prefix에 복사하고 role-specific read-only mount,
@@ -69,7 +76,7 @@ local absolute path이므로 remote Docker daemon을 local install처럼 사용�
 
 - `direct-host`: native Docker Engine host network namespace에 role/tools가
   참여한다. 선택한 LAN/VPN interface가 그 namespace에 있어야 한다.
-- `tailscale-sidecar`: Docker Desktop Linux VM의 고정 `elesim-tailscale`이
+- `tailscale-sidecar`: Docker Desktop Linux VM의 install-scoped Tailscale service가
   kernel-mode `tailscale0`를 제공하고 role, runtime-network doctor, active
   Sim-owned Coturn이 `network_mode: service:tailscale`로 같은 namespace를
   쓴다. 일반 tools는 enrollment 전에도 동작한다.
@@ -81,31 +88,32 @@ WSL/host IP는 SSH management address가 될 수 있다.
 sidecar를 최신 stable 버전으로 올리려면 `elesim-tailscale update`를 사용한다.
 이 명령은 Tailscale이 컨테이너 배포에 권장하는 공식 `stable` image를
 pull하고, sidecar와 namespace를 공유하며 당시 실행 중이던 role/Coturn만
-안전하게 재생성·재연결한다. 일반 `elesim-up`은 암묵적으로 새 버전을
+안전하게 재생성·재연결한다. 일반 instance 시작은 암묵적으로 새 버전을
 가져오지 않으므로 운영자가 요청한 시점에만 버전이 바뀐다.
 
 ## 3. 설치·업데이트·활성화 순서
 
 ```bash
-# 각 role host, 해당 prefix에서
-elesim-update       # source 검증, artifact 재생성, incremental image build
-elesim-down         # 기존 runtime을 중지할 때만
-elesim-up --no-build
+# 각 host의 해당 prefix에서
+elesim-update
+elesim-instance <system> up --no-build
+elesim-instance <system> down
+elesim-instance <system> logs
+elesim-instance <system> status
+elesim-instance <system> remove
 ```
 
-설치 마법사는 build/start를 하지 않는다. `elesim-update`는 실행 중인
-container를 교체하지 않으며 topology/security/log/cache를 보존한다. 현재
-설치의 build fingerprint와 이미지 label을 갱신하고 이전 dangling image는
-소유권 조건 아래 정리한다. rebuilt image를 적용하는 단계가 `elesim-up`이다.
-`elesim-up`은 fingerprint가 일치하면 `--no-build`로 시작하고, 이미지가 없거나
-fingerprint가 다를 때만 build한다. image/Dockerfile 결함은
-down 또는 `--purge`만으로 고쳐지지 않고 update/build가 필요하다.
+설치 마법사는 build/start를 하지 않는다. `elesim-update`는 새 immutable
+release를 build/publish하고 실행 중인 container와 topology/security/log/cache,
+등록된 instance의 release pin을 보존한다. image/Dockerfile 결함은 instance
+down/remove만으로 고쳐지지 않고 update/build 후 명시적인 replace가 필요하다.
 성공한 update는 설치 UUID가 일치하는 이전 local image 중 태그와 container
 참조가 모두 없는 것만 정확한 image ID로 정리한다. 실행 중 container가 아직
 참조하는 이전 image와 foreign/upstream image는 보존하며 전역 prune은 하지 않는다.
-`elesim-uninstall`은 설치가 만든 runtime/container와 `elesim/*:local` image를
-정확히 제거하지만, BuildKit/download cache와 foreign/upstream image는 건드리지
-않는다.
+`elesim-uninstall`은 manifest와 install labels로 확인한 해당 설치의
+runtime/container와 참조되지 않는 install-scoped release image만 정확히
+제거하지만, 공용 BuildKit/download cache와 foreign/upstream image는 건드리지
+않는다. Legacy fixed-project 자원은 별도 ownership 검증 없이는 건드리지 않는다.
 
 전체 multi-host 시작은 connection manager가 모든 host build를 먼저 완료한
 뒤 `--no-build` launch를 수행한다. BuildKit plain progress는 host 라벨과
@@ -155,8 +163,8 @@ managed SROS2 rollout을 소유한다. runtime application이나 Router가 아�
 container에 Docker socket, tailscaled local API 또는 Authority private key를
 주지 않는다.
 
-schema v5에는 실행 모드가 없다. 1–4개 host와 그 위의 역할 카드가 graph를
-직접 정의한다. schema v1–v4 입력은 읽을 때 v5로 normalize하며, 기존
+schema v6에는 실행 모드가 없다. 1–4개 host와 그 위의 역할 카드가 graph를
+직접 정의한다. schema v1–v5 입력은 읽을 때 v6으로 normalize하며, 기존
 `topology_mode`는 호환성 검증 후 저장에서 제거한다. 한 host에 여러 role 또는
 독립 deployment unit이 있을 수 있다. Robot은 native `robot-native`
 unit, container role은 별도 `runtime` unit으로 관리할 수 있다. DDS
@@ -168,6 +176,21 @@ deployment unit의 `assignments`는 설치된 역할 전체 목록이 아니다.
 원격 `install-state.json`의 `roles`에 배정 역할이 포함되는지만 확인하고,
 배포 시 `assigned_roles`로 그 부분집합을 기록한다. 따라서 동일한 설치 inventory를
 유지한 채 host 사이에서 Pilot/Sim/UI 배치를 바꿀 수 있다.
+
+graph role ID는 global registry와 instance schema v3에 persist한다. schema v2
+instance는 load 시 v3으로 migrate한다. scoped container registration은 native
+Robot assignment를 거부하며, Robot은 host당 하나의 exclusive native graph
+boundary만 사용한다.
+
+Scoped release instance를 원격 host에서 lifecycle 관리할 때는 각 deployment
+unit에 설치기의 `install_uuid`를 명시적으로 등록한다. 필요하면 그 UUID에서
+유도한 scoped Compose `project`도 함께 기록한다. 연결 관리자는 pinned SSH
+host-key 세션으로 원격
+`elesim-net identity`를 읽어 두 값이 정확히 일치하는지 확인한 뒤에만 scoped
+instance의 status/start/stop/security 작업을 허용한다. 이 identity 조회는
+Docker와 runtime state를 변경하지 않는다. 예전 schema-v1..v5 topology는 읽을 수
+있지만, UUID가 없는 원격 scoped unit은 재등록 전까지 fail-closed로 동작하며
+legacy fixed `elesim-runtime` lifecycle에는 이 검사가 적용되지 않는다.
 
 Robot 없는 대표 배치는 `[pilot, sim]` Compose unit과 별도 `[ui]`
 unit이다. Sim source가 encoded sample을 Pilot에 넘기고 Pilot이 broker stream을
@@ -212,7 +235,8 @@ check/preflight → topology 저장 → security provision/deploy/rotate
 pinned SSH channel은 allowlisted EleSim command만 실행한다. 실패 시 이번 job이
 시작한 role만 rollback한다. `start`/`stop`은 management state이며 runtime
 재구성용 restart action은 없다. 명시적 재시작은 정확한 host prefix에서
-`elesim-down` 후 `elesim-up --no-build`로 수행한다.
+`elesim-instance <system> down` 후 `elesim-instance <system> up --no-build`로
+수행한다.
 
 Readiness는 다음 상태를 합치지 않는다.
 
@@ -229,13 +253,13 @@ failure는 서로 다른 recovery 원인을 유지한다.
 
 ## 6. 개발 attachment
 
-개발 attachment는 일반 설치의 `elesim-runtime` project에 profile-scoped
+개발 attachment는 일반 설치의 install-scoped Compose project에 profile-scoped
 `elesim-dev` container 하나를 추가한다. 외부 Git checkout과 설치 prefix의
 전용 home/cache는 persistent하다. `elesim-dev`는 Compose `exec`를
 사용해야 하며 random `run --rm` container를 만들지 않는다.
 
 ```bash
-elesim-up
+elesim-instance <system> up
 elesim-dev python3 workbench/tests/system/smoke_topology.py
 elesim-dev python3 workbench/tools/quality/check.py --group required
 ```
@@ -282,13 +306,12 @@ Pilot/UI-only host는 TURN private file을 받지 않는다.
 ## 9. 로그·상태·소유권
 
 ```bash
-elesim-status
-elesim-logs
-elesim-logs --save
-elesim-down
+elesim-instance <system> status
+elesim-instance <system> logs
+elesim-instance <system> down
 ```
 
-`elesim-status`는 current host의 container state, IP, GPU reservation/CVD,
+`elesim-instance <system> status`는 current host의 container state, IP, GPU reservation/CVD,
 DDS interface/security, Sim backend/encoder/display/stream을 요약한다.
 다른 host의 상태는 각 host에서 실행하거나 manager topology를 사용한다.
 

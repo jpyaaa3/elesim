@@ -14,18 +14,21 @@ import os
 import re
 import stat
 import tempfile
+import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
 from .network import is_tailscale_interface
+from .instance_identity import project_name
 
 
-CONNECTION_SCHEMA_VERSION = 5
+CONNECTION_SCHEMA_VERSION = 6
 LEGACY_CONNECTION_SCHEMA_VERSION = 1
 INTERMEDIATE_CONNECTION_SCHEMA_VERSION = 2
 PREVIOUS_CONNECTION_SCHEMA_VERSION = 3
 MODE_CONNECTION_SCHEMA_VERSION = 4
+MODE_FREE_CONNECTION_SCHEMA_VERSION = 5
 PREFLIGHT_SCHEMA_VERSION = 2
 LEGACY_PREFLIGHT_SCHEMA_VERSION = 1
 ROLES = ("pilot", "sim", "ui", "robot")
@@ -42,6 +45,7 @@ _SYSTEM_ID = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _STABLE_ID = re.compile(r"^[a-z][a-z0-9_-]{0,62}$")
 _ENDPOINT_ID = re.compile(r"^[a-z][a-z0-9_-]{0,127}$")
 _FINGERPRINT = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
+_RELEASE_KEY = re.compile(r"^[0-9a-f]{64}$")
 _FORBIDDEN_SECRET_KEYS = (
     "password",
     "passphrase",
@@ -500,6 +504,16 @@ class DeploymentUnit:
     install_root: str = "/opt/elesim"
     bin_dir: str = "/usr/local/bin"
     lifecycle: str = "compose"
+    # Optional for schema-v1..v5 compatibility.  Schema v6 persists this
+    # install/release enrollment; older files normalize to empty values and a
+    # remote scoped lifecycle consequently fails closed until enrolled.
+    # requires this identity to be explicitly enrolled by the operator.
+    install_uuid: str = ""
+    project: str = ""
+    # Optional content-addressed release selected for this unit.  It is
+    # intentionally per-unit: independently built hosts need not share image
+    # IDs and therefore cannot share one release key.
+    release_key: str = ""
 
     def validate(self, *, jetson: bool) -> "DeploymentUnit":
         if not _STABLE_ID.fullmatch(str(self.unit_id)):
@@ -510,6 +524,40 @@ class DeploymentUnit:
             raise ValueError(f"unsupported unit lifecycle: {self.lifecycle!r}")
         _validate_absolute_posix_path(self.install_root, name="unit.install_root")
         _validate_absolute_posix_path(self.bin_dir, name="unit.bin_dir")
+        install_uuid = str(self.install_uuid).strip()
+        project = str(self.project).strip()
+        if install_uuid != self.install_uuid or project != self.project:
+            raise ValueError("unit install identity fields must not contain surrounding whitespace")
+        if install_uuid:
+            try:
+                parsed = uuid.UUID(install_uuid)
+            except (ValueError, AttributeError, TypeError) as exc:
+                raise ValueError("unit.install_uuid must be a canonical UUID string") from exc
+            if str(parsed) != install_uuid:
+                raise ValueError("unit.install_uuid must be a canonical UUID string")
+            expected_project = project_name(install_uuid)
+            if project and project != expected_project:
+                raise ValueError(
+                    "unit.project must match the scoped project derived from unit.install_uuid"
+                )
+        elif project:
+            raise ValueError("unit.project requires a scoped install_uuid")
+        if not isinstance(self.release_key, str):
+            raise ValueError("unit.release_key must be a string")
+        if self.release_key and _RELEASE_KEY.fullmatch(self.release_key) is None:
+            raise ValueError("unit.release_key must be a lowercase SHA-256 key")
+        if self.release_key and self.install_mode != "container":
+            raise ValueError(
+                "native units must not bind a container release"
+            )
+        if self.release_key and not install_uuid:
+            raise ValueError(
+                "unit.release_key requires an enrolled install_uuid"
+            )
+        if self.release_key and not project:
+            raise ValueError(
+                "unit.release_key requires the enrolled install project"
+            )
         if not self.assignments:
             raise ValueError("every deployment unit must own at least one role")
         roles = [assignment.validate().role for assignment in self.assignments]
@@ -534,7 +582,7 @@ class DeploymentUnit:
         return tuple(assignment.role for assignment in self.assignments)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "id": self.unit_id,
             "assignments": [assignment.to_dict() for assignment in self.assignments],
             "install_mode": self.install_mode,
@@ -542,12 +590,20 @@ class DeploymentUnit:
             "bin_dir": self.bin_dir,
             "lifecycle": self.lifecycle,
         }
+        if self.install_uuid:
+            result["install_uuid"] = self.install_uuid
+            if self.project:
+                result["project"] = self.project
+        if self.release_key:
+            result["release_key"] = self.release_key
+        return result
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "DeploymentUnit":
         values = _strict_object(
             raw,
             required={"id", "assignments", "install_mode", "install_root", "bin_dir", "lifecycle"},
+            optional={"install_uuid", "project", "release_key"},
             name="deployment unit",
         )
         assignments_raw = _object_sequence(values["assignments"], name="unit.assignments")
@@ -558,6 +614,11 @@ class DeploymentUnit:
             install_root=_required_string(values["install_root"], name="unit.install_root"),
             bin_dir=_required_string(values["bin_dir"], name="unit.bin_dir"),
             lifecycle=_required_string(values["lifecycle"], name="unit.lifecycle"),
+            install_uuid=_optional_string(
+                values.get("install_uuid", ""), name="unit.install_uuid"
+            ) or "",
+            project=_optional_string(values.get("project", ""), name="unit.project") or "",
+            release_key=_optional_string(values.get("release_key", ""), name="unit.release_key") or "",
         )
 
 
@@ -702,10 +763,15 @@ class ManagedHost:
             )
         for unit in self.units:
             unit.validate(jetson=self.jetson)
+        if len(self.robot_units) > 1:
+            raise ValueError(
+                "a host may have only one native Robot unit because the physical "
+                "device, Unitree IPC socket, and systemd lifecycle are exclusive"
+            )
         if len(self.runtime_units) > 1:
             raise ValueError(
                 "a host may have only one container/Compose unit because the "
-                "runtime project name is fixed to elesim-runtime"
+                "install-scoped aggregate owns all container roles on that host"
             )
         # Installation and command paths belong to the host, not to a role.
         # A Jetson may therefore expose one shared pair of paths to its native
@@ -820,6 +886,13 @@ class ManagedHost:
                             lifecycle=_required_string(
                                 values["lifecycle"], name="lifecycle"
                             ),
+                            # ``units`` is canonical in schema-v6.  A
+                            # one-unit legacy mirror edit may still rebuild
+                            # that unit, but must not discard its enrollment
+                            # or selected immutable release.
+                            install_uuid=(unit.install_uuid if unit is not None else ""),
+                            project=(unit.project if unit is not None else ""),
+                            release_key=(unit.release_key if unit is not None else ""),
                         ),
                     )
         else:
@@ -1022,7 +1095,10 @@ class ConnectionTopology:
                 raise ValueError(
                     f"unsupported legacy topology_mode: {legacy_topology_mode!r}"
                 )
-        elif incoming_version == CONNECTION_SCHEMA_VERSION:
+        elif incoming_version in {
+            MODE_FREE_CONNECTION_SCHEMA_VERSION,
+            CONNECTION_SCHEMA_VERSION,
+        }:
             values = _strict_object(
                 raw, required=common_fields, name="connection topology"
             )
@@ -1032,7 +1108,8 @@ class ConnectionTopology:
                 f"expected {LEGACY_CONNECTION_SCHEMA_VERSION}, "
                 f"{INTERMEDIATE_CONNECTION_SCHEMA_VERSION}, "
                 f"{PREVIOUS_CONNECTION_SCHEMA_VERSION}, "
-                f"{MODE_CONNECTION_SCHEMA_VERSION} or {CONNECTION_SCHEMA_VERSION}"
+                f"{MODE_CONNECTION_SCHEMA_VERSION}, "
+                f"{MODE_FREE_CONNECTION_SCHEMA_VERSION} or {CONNECTION_SCHEMA_VERSION}"
             )
         hosts_raw = _object_sequence(values["hosts"], name="hosts")
         if not isinstance(values["dds_graph"], Mapping):
@@ -1283,6 +1360,7 @@ __all__ = [
     "INTERMEDIATE_CONNECTION_SCHEMA_VERSION",
     "PREVIOUS_CONNECTION_SCHEMA_VERSION",
     "MODE_CONNECTION_SCHEMA_VERSION",
+    "MODE_FREE_CONNECTION_SCHEMA_VERSION",
     "PREFLIGHT_SCHEMA_VERSION",
     "LEGACY_PREFLIGHT_SCHEMA_VERSION",
     "INSTALL_MODES",
