@@ -355,7 +355,7 @@ class StartPoseConfig:
     #: 23.0 deg for the straight line, 17.4 for one via point, 4.8 for these.
     path: tuple[tuple[float, float, float, float], ...] = (
         (-0.166, 0.0, 0.0, 0.0),
-        (-0.230, -1.5673, 0.0, 0.0),
+        (-0.16666666666666666, -1.5673, 0.0, 0.0),
         (-0.092, -1.5673, -0.2094, -0.3142),
     )
     #: Interpolation from Home (0) to `near_waypoint` (1), sampled per env.

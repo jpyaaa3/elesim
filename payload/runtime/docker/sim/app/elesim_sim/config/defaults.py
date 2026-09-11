@@ -23,7 +23,7 @@ def build_mapping_config(
     return proto.SimMappingConfig(
         linear_u_max=float(arm_mapping.linear_u_max_deg),
         linear_u_limit=float(arm_mapping.linear_u_limit_deg),
-        linear_q_min_m=-0.230,
+        linear_q_min_m=-proto.LINEAR_TRAVEL_M,
         linear_q_max_m=0.0,
         roll_q_min_rad=joint_limit.roll_min_rad(),
         roll_q_max_rad=joint_limit.roll_max_rad(),

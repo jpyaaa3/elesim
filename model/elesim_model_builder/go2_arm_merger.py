@@ -1,9 +1,26 @@
 from __future__ import annotations
 
+import json
+import math
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Sequence
+
+
+def mount_from_connectors(asset_root: Path) -> tuple[float, float, float]:
+    """Align the horizontal GO2 ``to`` and plate ``from`` reference frames."""
+    points = []
+    for part, connector in (("go2", "to"), ("plate", "from")):
+        path = asset_root / part / f"{part}_frame.json"
+        pose = json.loads(path.read_text(encoding="utf-8"))["connectors"][connector]
+        if pose.get("q", [0, 0, 0, 1]) not in ([0, 0, 0, 1], [0, 0, 0, -1]):
+            raise ValueError(f"GO2 mount requires unrotated connector: {path}")
+        point = tuple(float(value) for value in pose["p"])
+        if len(point) != 3 or not all(math.isfinite(value) for value in point):
+            raise ValueError(f"invalid GO2 mount connector position: {path}")
+        points.append(point)
+    return tuple(a - b for a, b in zip(*points))
 
 
 def _fmt_xyz(values: Sequence[float]) -> str:
@@ -58,7 +75,7 @@ def merge_go2_arm_urdf(
     go2_urdf_path: str | os.PathLike[str],
     arm_urdf_path: str | os.PathLike[str],
     out_urdf_path: str | os.PathLike[str],
-    mount_xyz: Sequence[float],
+    mount_xyz: Sequence[float] | None = None,
     parent_link: str = "base",
     child_link: str = "plate",
     joint_name: str = "j_go2_base_arm_plate",
@@ -72,6 +89,8 @@ def merge_go2_arm_urdf(
         raise FileNotFoundError(f"GO2 URDF not found: {go2_path}")
     if not arm_path.is_file():
         raise FileNotFoundError(f"arm URDF not found: {arm_path}")
+    if mount_xyz is None:
+        mount_xyz = mount_from_connectors(go2_path.parent.parent)
 
     go2_root = ET.parse(go2_path).getroot()
     arm_root = ET.parse(arm_path).getroot()
@@ -114,4 +133,4 @@ def merge_go2_arm_urdf(
     return str(out_path)
 
 
-__all__ = ["merge_go2_arm_urdf"]
+__all__ = ["merge_go2_arm_urdf", "mount_from_connectors"]

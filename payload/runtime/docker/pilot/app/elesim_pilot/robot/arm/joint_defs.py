@@ -7,6 +7,7 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+from elesim_protocol.messages import LINEAR_TRAVEL_M
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,6 @@ class JointLimit:
         return math.radians(self.bend_deg)
 
     def bounds_arrays(self) -> tuple[np.ndarray, np.ndarray]:
-        lo = np.array([-0.230, self.roll_min_rad(), -self.bend_lim_rad(), -self.bend_lim_rad()], dtype=float)
-        hi = np.array([0.010, self.roll_max_rad(), +self.bend_lim_rad(), +self.bend_lim_rad()], dtype=float)
+        lo = np.array([-LINEAR_TRAVEL_M, self.roll_min_rad(), -self.bend_lim_rad(), -self.bend_lim_rad()], dtype=float)
+        hi = np.array([0.0, self.roll_max_rad(), +self.bend_lim_rad(), +self.bend_lim_rad()], dtype=float)
         return lo, hi

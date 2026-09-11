@@ -152,7 +152,7 @@ robot:
       # Body-frame transform from the GO2 base to the arm plate.  Keep this
       # equal to the builder/Pilot mount so the runtime URDF and world spawn
       # share one physical attachment point.
-      mount_offset_m: [0.35, 0.0, 0.08]
+      mount_offset_m: [0.315, 0.0, 0.087]
       spawn_euler_deg: [0.0, 0.0, 0.0]
     teleop:
       vx_mps: 0.45

@@ -862,7 +862,7 @@ start_pose:
   # the last leg only closes the curl and does not advance into the object.
   path:
     - [-0.166,  0.0000,  0.0000,  0.0000]
-    - [-0.230, -1.5673,  0.0000,  0.0000]
+    - [-0.16666666666666666, -1.5673,  0.0000,  0.0000]
     - [-0.092, -1.5673, -0.2094, -0.3142]
   # Interpolation from Home (0) to near_waypoint (1), sampled per env so one
   # rollout spans a spread of difficulties rather than a single point.

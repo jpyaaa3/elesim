@@ -980,7 +980,7 @@
     <child link="housing" />
     <origin xyz="0 0 0" rpy="0 0 0" />
     <axis xyz="1 0 0" />
-    <limit lower="-0.23" upper="0" effort="200" velocity="3" />
+    <limit lower="-0.166666667" upper="0" effort="200" velocity="3" />
     <dynamics damping="60" friction="20" />
   </joint>
   <joint name="j_housing_wedge" type="revolute">
@@ -1102,6 +1102,6 @@
   <joint name="j_go2_base_arm_plate" type="fixed">
     <parent link="base" />
     <child link="plate" />
-    <origin xyz="0.35 0 0.08" rpy="0 0 0" />
+    <origin xyz="0.315 0 0.087" rpy="0 0 0" />
   </joint>
 </robot>

@@ -7,7 +7,7 @@ if (query.get("token")) {
 }
 
 const token = sessionStorage.getItem("elesimSetupToken") || "";
-const steps = ["mode", "roles", "paths", "compute", "review", "install"];
+const steps = ["roles", "paths", "compute", "review", "install"];
 const roleOrder = ["sim", "pilot", "ui", "robot"];
 // The initial selection is only a convenience; every role remains an explicit
 // checkbox and can be changed independently by the operator.
@@ -209,7 +209,7 @@ function validateCurrentStep() {
     throw new Error(t("error.robot_dds_interface"));
   }
   if (
-    step === "mode" && byId("developer-attachment").checked &&
+    step === "roles" && byId("developer-attachment").checked &&
     !byId("developer-workspace").value.trim()
   ) {
     throw new Error(t("error.developer_workspace"));

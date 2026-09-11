@@ -24,12 +24,11 @@
   <main class="wizard">
     <aside class="steps" aria-label="Installation steps">
       <ol>
-        <li data-step-link="mode"><span>1</span><b data-i18n="step.mode"></b></li>
-        <li data-step-link="roles"><span>2</span><b data-i18n="step.roles"></b></li>
-        <li data-step-link="paths"><span>3</span><b data-i18n="step.paths"></b></li>
-        <li data-step-link="compute"><span>4</span><b data-i18n="step.compute"></b></li>
-        <li data-step-link="review"><span>5</span><b data-i18n="step.review"></b></li>
-        <li data-step-link="install"><span>6</span><b data-i18n="step.install"></b></li>
+        <li data-step-link="roles"><span>1</span><b data-i18n="step.roles"></b></li>
+        <li data-step-link="paths"><span>2</span><b data-i18n="step.paths"></b></li>
+        <li data-step-link="compute"><span>3</span><b data-i18n="step.compute"></b></li>
+        <li data-step-link="review"><span>4</span><b data-i18n="step.review"></b></li>
+        <li data-step-link="install"><span>5</span><b data-i18n="step.install"></b></li>
       </ol>
       <div class="host-facts">
         <strong data-i18n="host.detected"></strong>
@@ -39,34 +38,27 @@
 
     <section class="workspace">
       <form id="setup-form" novalidate>
-        <section class="page active" data-step="mode">
-          <header class="page-heading">
-            <h1 data-i18n="mode.title"></h1>
-            <p data-i18n="mode.subtitle"></p>
-          </header>
-          <label class="check-row attachment-toggle">
-            <input id="developer-attachment" type="checkbox">
-            <span>
-              <strong data-i18n="mode.developer_attachment"></strong>
-              <small data-i18n="mode.developer_attachment.help"></small>
-            </span>
-          </label>
-          <div id="developer-workspace-row" class="field compact attachment-fields" hidden>
-            <label for="developer-workspace" data-i18n="mode.developer_workspace"></label>
-            <div class="input-action">
-              <input id="developer-workspace" type="text" spellcheck="false">
-              <button type="button" class="secondary" data-browse="developer-workspace" data-i18n="action.browse"></button>
-            </div>
-            <small data-i18n="mode.developer_workspace.help"></small>
-          </div>
-        </section>
-
-        <section class="page" data-step="roles">
+        <section class="page active" data-step="roles">
           <header class="page-heading">
             <h1 data-i18n="roles.title"></h1>
             <p data-i18n="roles.subtitle"></p>
           </header>
           <div id="role-options" class="role-grid"></div>
+          <label class="check-row attachment-toggle">
+            <input id="developer-attachment" type="checkbox">
+            <span>
+              <strong data-i18n="roles.developer_attachment"></strong>
+              <small data-i18n="roles.developer_attachment.help"></small>
+            </span>
+          </label>
+          <div id="developer-workspace-row" class="field compact attachment-fields" hidden>
+            <label for="developer-workspace" data-i18n="roles.developer_workspace"></label>
+            <div class="input-action">
+              <input id="developer-workspace" type="text" spellcheck="false">
+              <button type="button" class="secondary" data-browse="developer-workspace" data-i18n="action.browse"></button>
+            </div>
+            <small data-i18n="roles.developer_workspace.help"></small>
+          </div>
         </section>
 
         <section class="page" data-step="paths">

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import tempfile
+import json
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from elesim_model_builder.go2_arm_merger import merge_go2_arm_urdf
+from elesim_model_builder.go2_arm_merger import merge_go2_arm_urdf, mount_from_connectors
 
 
 def _write(path: Path, text: str) -> None:
@@ -13,6 +14,59 @@ def _write(path: Path, text: str) -> None:
 
 
 class Go2ArmMergerTests(unittest.TestCase):
+    def test_default_mount_uses_both_connectors(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            assets = tmp / "assets"
+            for part, connector, point in (
+                ("go2", "to", [0.315, 0, 0.082]),
+                ("plate", "from", [0, 0, -0.005]),
+            ):
+                folder = assets / part
+                folder.mkdir(parents=True)
+                _write(folder / f"{part}_frame.json", json.dumps({
+                    "connectors": {connector: {"p": point}}
+                }))
+            go2 = assets / "go2/go2.urdf"
+            arm = tmp / "arm.urdf"
+            _write(go2, '<robot name="go2"><link name="base"/></robot>')
+            _write(arm, '<robot name="arm"><link name="plate"/></robot>')
+            merge_go2_arm_urdf(go2_urdf_path=go2, arm_urdf_path=arm,
+                               out_urdf_path=tmp / "robot.urdf")
+            origin = ET.parse(tmp / "robot.urdf").find("./joint/origin")
+            self.assertEqual(origin.attrib["xyz"], "0.315 0 0.087")
+
+    def test_shipped_mounts_match_cad_registration_and_runtime_defaults(self) -> None:
+        import yaml
+        from elesim_pilot.config.schema import SpawnConfig as PilotSpawn
+        from elesim_sim.config.schema import SpawnConfig as SimSpawn
+
+        repo = Path(__file__).resolve().parents[3]
+        expected = (0.315, 0.0, 0.087)
+        for profile in ("zed-mini", "d435"):
+            bundle = repo / "payload/data/models/assemblies" / profile
+            self.assertEqual(mount_from_connectors(bundle / "assets"), expected)
+            joint = ET.parse(bundle / "robot.urdf").find(
+                "./joint[@name='j_go2_base_arm_plate']/origin")
+            self.assertEqual(tuple(map(float, joint.attrib["xyz"].split())), expected)
+        self.assertEqual(PilotSpawn().go2_mount_offset_m, expected)
+        self.assertEqual(SimSpawn().go2_mount_offset_m, expected)
+
+        def check_mounts(value):
+            count = 0
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key == "mount_offset_m":
+                        self.assertEqual(tuple(item), expected)
+                        count += 1
+                    else:
+                        count += check_mounts(item)
+            return count
+
+        for role, count in (("pilot", 3), ("sim", 1)):
+            config = yaml.safe_load((repo / f"payload/config/{role}/config.yaml").read_text())
+            self.assertEqual(check_mounts(config), count)
+
     def test_merge_adds_base_to_plate_fixed_joint(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)

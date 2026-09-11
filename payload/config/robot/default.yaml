@@ -35,7 +35,8 @@ arm:
   profile_vel_seg2: 150
   profile_acc_seg2: 20
 mapping:
-  linear_q_min_m: -0.230
+  # Design ratio: 1.5 motor degrees per mm; 250 degrees retracts 166.67 mm.
+  linear_q_min_m: -0.16666666666666666
   linear_q_max_m: 0.0
   roll_q_min_rad: -1.5707963267948966
   roll_q_max_rad: 1.5707963267948966

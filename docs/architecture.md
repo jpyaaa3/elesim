@@ -243,6 +243,38 @@ Mock hug 기능은 protocol major 6의 capability-gated additive extension이다
 
 ## 6. 모델과 설정 lifecycle
 
+Linear rack calibration (2026-09-11): motor/display 0–250 degrees maps to
+q=0 to approximately -0.166666667 m along the plate's +X joint axis. The
+confirmed design ratio is 1.5 motor degrees per millimetre: zero is fully
+forward, and 15 degrees retracts 10 mm. The previous -0.230 m endpoint overstated
+retraction by 63.333333 mm. This replaces the provisional 84 mm outer-diameter
+estimate; travel = angle / 1.5 / 1000 metres. The 295.31 mm rack length does not
+establish usable stroke. Motor limits remain 0–250 degrees and collision
+filtering is unchanged. This is a default calibration correction,
+not a wire format change. Existing installed configuration, release pins and
+exported RL policy interfaces retain their old calibration and require explicit
+review/rebuild; trained policy compatibility is not established by this change.
+
+GO2/plate attachment (2026-09-11): checked against `062222.stp` (Inventor
+assembly, `Go2_Main` and `Go2_plate_new`). CAD +Y points rearward, +Z upward;
+front/rear hip cylinder centres are approximately Y=102.798/488.567 mm,
+Z=-0.187/0 mm. Their midpoint supplies the GO2 base reference. The CAD hip
+spacing is 385.769 mm versus the URDF's 386.8 mm, so this is millimetre-scale
+registration, not an exact identity between models. The assembly places the
+plate approximately 0.5 mm rearward of its part coordinates. Its front corners
+are near Y=-20 mm, X=±60 mm, with top/bottom Z=86.722/36.722 mm.
+In GO2 coordinates the front top reference is consequently about
+(315, 0, 87) mm. Use this rounded position, replacing (350, 0, 80) mm.
+`plate_frame.json` defines `from` at the front top centre (0, 0, 0);
+`go2_frame.json` defines the corresponding `to` at (0.315, 0, 0.087) m.
+These are alignment references, not a claim of a physical bolt at that point.
+The default merger subtracts `plate.from` from `go2.to`; explicit `--mount`
+remains an override. Both bundles and Pilot/Sim mount defaults agree.
+The simplified plate is 550 mm long versus about 299 mm in this CAD part;
+only front-edge/corner alignment is adopted, without stretching or replacing
+the mesh. Its rear extension and full swept-volume collision clearance remain
+unverified. Existing installs/release pins are not rewritten automatically.
+
 `payload/data/models/assemblies/zed-mini/assets`가 ZED Mini의 canonical builder input이며,
 `payload/data/models/assemblies/zed-mini`는 ZED Mini 기본 프로파일의 assets와 생성된
 blueprint/URDF를 함께 담는 self-contained runtime bundle이다.

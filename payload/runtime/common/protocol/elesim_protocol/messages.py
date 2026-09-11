@@ -40,6 +40,11 @@ DEFAULT_START_CONTROL_U = ControlU(
 PERCEPTION_READY_CONTROL_U = DEFAULT_START_CONTROL_U
 
 
+# Design calibration: 1.5 motor degrees per mm of rack travel.
+# Zero is fully forward; 15 degrees retracts 10 mm. Rack length is not stroke.
+LINEAR_TRAVEL_M = 250.0 / 1.5 / 1000.0
+
+
 @dataclass(frozen=True)
 class SimMappingConfig:
     linear_u_min: float = 0.0
@@ -52,7 +57,7 @@ class SimMappingConfig:
     seg_u_min: float = 0.0
     seg_u_max: float = 360.0
 
-    linear_q_min_m: float = -0.230
+    linear_q_min_m: float = -LINEAR_TRAVEL_M
     linear_q_max_m: float = 0.0
     roll_q_min_rad: float = -math.pi / 2.0
     roll_q_max_rad: float = +math.pi / 2.0

@@ -115,7 +115,7 @@ def build_sim_bundle(
     output_dir: str | os.PathLike[str],
     use_go2: bool = True,
     use_hardware: bool = False,
-    mount_xyz: Sequence[float] = (0.35, 0.0, 0.08),
+    mount_xyz: Sequence[float] | None = None,
 ) -> Path:
     """Build a complete bundle and atomically publish it to ``output_dir``."""
 

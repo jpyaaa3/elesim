@@ -2454,7 +2454,7 @@ class SimMover:
         self._claw_right_target = 0.02 if self._claw_closed else 0.0
 
     def target_from_4dof(self, linear_m: float, roll: float, theta1: float, theta2: float) -> np.ndarray:
-        linear = float(np.clip(float(linear_m), -0.230, 0.0))
+        linear = float(np.clip(float(linear_m), -proto.LINEAR_TRAVEL_M, 0.0))
         rl = float(np.clip(float(roll), self.limit.roll_min_rad(), self.limit.roll_max_rad()))
         t1 = float(np.clip(float(theta1), -self.bend_lim, +self.bend_lim))
         t2 = float(np.clip(float(theta2), -self.bend_lim, +self.bend_lim))

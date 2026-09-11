@@ -23,7 +23,7 @@ profiles:
           u_offset_roll: -9.0
       go2:
         spawn:
-          mount_offset_m: [0.35, 0.0, 0.08]
+          mount_offset_m: [0.315, 0.0, 0.087]
         teleop:
           vx_mps: 0.25
           vy_mps: 0.5
@@ -87,7 +87,7 @@ profiles:
           u_offset_roll: -9.0
       go2:
         spawn:
-          mount_offset_m: [0.35, 0.0, 0.08]
+          mount_offset_m: [0.315, 0.0, 0.087]
     vision:
       perception:
         detector:
@@ -409,9 +409,9 @@ robot:
   go2:
     spawn:
       mount_offset_m:
-      - 0.35
+      - 0.315
       - 0.0
-      - 0.08
+      - 0.087
       spawn_euler_deg:
       - 0.0
       - 0.0

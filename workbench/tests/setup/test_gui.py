@@ -41,15 +41,15 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert (root / "fonts/NotoSansCJKkr-Regular.otf").is_file()
     assert set(catalog) == {"ko", "en"}
     assert set(catalog["ko"]) == set(catalog["en"])
-    assert catalog["ko"]["mode.developer_attachment"] == "개발자 attachment 추가"
-    assert catalog["en"]["mode.developer_attachment"] == "Add developer attachment"
-    for section in ("mode", "roles", "paths", "compute", "review", "install"):
+    assert catalog["ko"]["roles.developer_attachment"] == "개발자 attachment 추가"
+    assert catalog["en"]["roles.developer_attachment"] == "Add developer attachment"
+    for section in ("roles", "paths", "compute", "review", "install"):
         assert catalog["ko"][f"step.{section}"] == catalog["ko"][f"{section}.title"]
         assert catalog["en"][f"step.{section}"] == catalog["en"][f"{section}.title"]
-    assert catalog["en"]["mode.developer_attachment.help"] == (
+    assert catalog["en"]["roles.developer_attachment.help"] == (
         "Add a development container with the source, SDKs, and test tools."
     )
-    assert catalog["ko"]["mode.developer_attachment.help"] == (
+    assert catalog["ko"]["roles.developer_attachment.help"] == (
         "소스, SDK와 테스트 도구를 사용할 수 있는 개발 컨테이너를 추가합니다."
     )
     assert "mode.general" not in catalog["ko"]
@@ -67,7 +67,15 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
         for key in catalog["ko"]
     )
 
-    assert 'const steps = ["mode", "roles", "paths", "compute", "review", "install"];' in script
+    assert 'const steps = ["roles", "paths", "compute", "review", "install"];' in script
+    assert 'data-step="mode"' not in html
+    assert 'data-step-link="mode"' not in html
+    assert "step.mode" not in catalog["ko"]
+    roles_page = html.split('data-step="roles">', 1)[1].split('</section>', 1)[0]
+    assert 'id="role-options"' in roles_page
+    assert 'id="developer-attachment"' in roles_page
+    assert 'id="developer-workspace-row"' in roles_page
+    assert 'step === "roles" && byId("developer-attachment").checked' in script
     assert '"dds-security-profile"' not in script
     assert '"dds-security-provisioning"' not in script
     assert 'const roleOrder = ["sim", "pilot", "ui", "robot"];' in script

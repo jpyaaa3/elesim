@@ -1,10 +1,10 @@
 {
   "build": {
     "format_version": 1,
-    "source_assets_sha256": "24247e69995ea41e9670a5b1eeb4172d73563b2160c75bd16b3a6a3247c15cdf",
+    "source_assets_sha256": "f56fb5911392e8a7ae4f19b0b6df4fc924586b690d145d970b1e97d26ae1cb02",
     "use_go2": true
   },
-  "bundle_id": "1276d76481569e68c01e76b917354668bf64c84f3d5461a25482ecdb29e996d1",
+  "bundle_id": "c07e05c31459698124477b508245e1a25de9ce4a519392c817ddc0659333b75d",
   "bundle_type": "elesim.sim-model",
   "entrypoints": {
     "arm_urdf": "arm.urdf",
@@ -13,8 +13,8 @@
   },
   "files": {
     "arm.urdf": {
-      "sha256": "7436192d34f5461bc628398d81fb1fe0c931e7afc1d88eaff717b1792181659a",
-      "size": 14245
+      "sha256": "f3adbe27a23e1db3ea29ddc5afa5d6b28c55a79584e6be5fdfc270d9576fbb80",
+      "size": 14252
     },
     "assets/camera/camera_frame.json": {
       "sha256": "7d347b795114e87af2ee4cbe7217a19e032554c70e7ce65dd2cfba9a3045ff10",
@@ -59,6 +59,10 @@
     "assets/go2/go2.urdf": {
       "sha256": "a259b04597b607e5ebc50899aa72e9f194795cc9c01766f5acd97fecad3ed617",
       "size": 24119
+    },
+    "assets/go2/go2_frame.json": {
+      "sha256": "d65afb590807145db713ba724966fbc9ce67fbe084f71f9ff5682e0337cd2f42",
+      "size": 108
     },
     "assets/gripper_base/gripper_base_frame.json": {
       "sha256": "2a5d43f0f25a1aa98d23f6ff3d91a7d6ea9607fdbfc03c8a51594edbd6162c47",
@@ -133,8 +137,8 @@
       "size": 299
     },
     "assets/plate/plate_frame.json": {
-      "sha256": "c26beeb3e9087ab032fd16462813e35d861dc170c829c3a42461c82713584671",
-      "size": 155
+      "sha256": "99d9a091a31fe77bbe761ba648c7381759a72cc8dfdd564304db6a8eee1a6209",
+      "size": 152
     },
     "assets/plate/plate_mesh.obj": {
       "sha256": "77cdc669b8c35c235db6edb951a12a01ce706f379ed5a73ad97ae687a4acea67",
@@ -157,12 +161,12 @@
       "size": 272
     },
     "blueprint.json": {
-      "sha256": "173610731dfb494cc5f6e6c28f92e29449036d784f34ea7412af34ab531e99d3",
-      "size": 14400
+      "sha256": "38796ca599f8c3ff4f51161650a93a2cdfd4ff0a33120f4a66d4b03788335cda",
+      "size": 14415
     },
     "robot.urdf": {
-      "sha256": "876111bb6b6e46ae9521d15f447642f52eecaf9b5c91724d235dca21de752902",
-      "size": 34610
+      "sha256": "4ff87f3540f50dc880686b38aa425c190c1698e9723811018c9400d6cf71f717",
+      "size": 34619
     }
   },
   "schema_version": 1

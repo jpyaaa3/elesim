@@ -175,7 +175,7 @@ class SpawnConfig:
     spawn_euler_deg: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     draw_debug_markers: bool = True
     go2_spawn_height: float = 0.42
-    go2_mount_offset_m: Tuple[float, float, float] = (0.0, 0.0, 0.08)
+    go2_mount_offset_m: Tuple[float, float, float] = (0.315, 0.0, 0.087)
     go2_spawn_euler_deg: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     go2_teleop_vx_mps: float = 0.35
     go2_teleop_vy_mps: float = 0.25

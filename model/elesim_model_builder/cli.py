@@ -13,14 +13,14 @@ def sim_bundle_main() -> None:
     parser.add_argument("--output", default="payload/data/models/assemblies/zed-mini")
     parser.add_argument("--use-go2", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use-hardware", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--mount", nargs=3, type=float, default=(0.35, 0.0, 0.08))
+    parser.add_argument("--mount", nargs=3, type=float, help="Override the asset connector mount (metres)")
     args = parser.parse_args()
     output = build_sim_bundle(
         asset_root=Path(args.assets),
         output_dir=Path(args.output),
         use_hardware=bool(args.use_hardware),
         use_go2=bool(args.use_go2),
-        mount_xyz=tuple(args.mount),
+        mount_xyz=tuple(args.mount) if args.mount is not None else None,
     )
     print(output)
 
