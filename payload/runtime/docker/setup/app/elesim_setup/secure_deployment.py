@@ -3214,7 +3214,7 @@ class InstalledElesimLifecycle:
                         {
                             "name": "DDS peers",
                             "status": "fail",
-                            "detail": "공통 DDS readiness 제한 시간이 만료됨",
+                            "detail": "shared DDS readiness deadline expired",
                         }
                     ],
                 }

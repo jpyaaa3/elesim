@@ -22,5 +22,5 @@ def test_configuration_snapshot_rejects_broken_symlink(tmp_path: Path) -> None:
     linked = tmp_path / "config.yaml"
     linked.symlink_to(tmp_path / "missing.yaml")
 
-    with pytest.raises(ValueError, match="일반 파일"):
+    with pytest.raises(ValueError, match="regular file"):
         _snapshot(linked)

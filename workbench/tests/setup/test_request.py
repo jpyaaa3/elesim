@@ -129,7 +129,7 @@ def test_general_request_selects_network_from_actual_docker_daemon(
     (
         ("ssh://operator@docker.example", "", "remote Docker context"),
         ("tcp://docker.example:2376", "", "remote Docker context"),
-        ("http://docker.example", "", "지원하지 않는 Docker context endpoint"),
+        ("http://docker.example", "", "Unsupported Docker context endpoint"),
         ("unix:///var/run/docker.sock", "tcp://override:2376", "DOCKER_HOST"),
     ),
 )
@@ -186,7 +186,7 @@ def test_robot_is_native_only_exclusive_and_requires_jetson(tmp_path: Path) -> N
         SetupRequest.from_dict(payload).validate(_capabilities(jetson=True))
 
     payload["roles"] = ["sim", "robot"]
-    with pytest.raises(ValueError, match="단독"):
+    with pytest.raises(ValueError, match="standalone"):
         SetupRequest.from_dict(payload).validate(_capabilities(jetson=True))
 
 
@@ -292,7 +292,7 @@ def test_managed_sros2_request_can_start_pending_but_not_in_developer(
     assert state.dds.managed_security_pending is True
 
     payload.update({"edition": "developer", "roles": []})
-    with pytest.raises(ValueError, match="Developer|개발자"):
+    with pytest.raises(ValueError, match="Developer|developer"):
         SetupRequest.from_dict(payload).validate(_capabilities())
 
 
@@ -422,5 +422,5 @@ def test_required_paths_and_role_list_are_not_coerced(
 
     payload = _payload(tmp_path)
     payload["roles"] = "sim"
-    with pytest.raises(ValueError, match="목록"):
+    with pytest.raises(ValueError, match="list"):
         SetupRequest.from_dict(payload)

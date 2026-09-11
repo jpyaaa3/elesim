@@ -49,8 +49,8 @@ class Interface:
         home = waypoint["home"]
         if home is None:
             raise ValueError(
-                "manifest 에 home waypoint 가 없습니다: export 시 "
-                "arm.home_waypoint 를 명시하세요"
+                "Manifest is missing the home waypoint: set "
+                "arm.home_waypoint when exporting"
             )
         limits = waypoint["limits"]
         linear = tuple(float(v) for v in limits["linear_m"])
@@ -215,8 +215,8 @@ class DeployedPolicy:
         values = list(joint_estimate) + list(object_geometry) + list(load_proxy) + [progress]
         if len(values) != self.iface.obs_dim:
             raise ValueError(
-                f"관측이 {len(values)} 개인데 정책은 {self.iface.obs_dim} 개를 기대합니다 "
-                "(관절 4 + 물체 7 + 부하 4 + 진행률 1)"
+                f"Policy expects {self.iface.obs_dim} observations, but received {len(values)} "
+                "(4 joints + 7 object values + 4 load values + 1 progress value)"
             )
         return self._torch.tensor([values], dtype=self._torch.float32)
 

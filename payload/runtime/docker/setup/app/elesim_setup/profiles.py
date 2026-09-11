@@ -21,9 +21,9 @@ def normalize_roles(values: Iterable[str]) -> tuple[str, ...]:
     requested = {str(value).strip().lower() for value in values if str(value).strip()}
     unknown = sorted(requested - set(ROLE_ORDER))
     if unknown:
-        raise ValueError(f"알 수 없는 역할: {', '.join(unknown)}")
+        raise ValueError(f"Unknown role: {', '.join(unknown)}")
     if not requested:
-        raise ValueError("설치할 역할이 하나 이상 필요합니다")
+        raise ValueError("At least one installation role is required")
     return tuple(role for role in ROLE_ORDER if role in requested)
 
 
@@ -31,7 +31,7 @@ def roles_for_profile(name: str, custom_roles: Iterable[str] = ()) -> tuple[str,
     try:
         roles = PROFILES[str(name)]
     except KeyError as exc:
-        raise ValueError(f"알 수 없는 설치 프로필: {name!r}") from exc
+        raise ValueError(f"Unknown installation profile: {name!r}") from exc
     return normalize_roles(custom_roles) if str(name) == "custom" else roles
 
 

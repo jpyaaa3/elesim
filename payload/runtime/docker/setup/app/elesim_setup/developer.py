@@ -43,13 +43,16 @@ def validate_developer_workspace(workspace: Path) -> None:
     """Require an existing complete checkout; attachments never clone source."""
 
     if workspace.is_symlink() or not workspace.is_dir():
-        raise ValueError(f"developer workspace는 일반 directory여야 합니다: {workspace}")
+        raise ValueError(
+            f"developer workspace must be an existing non-symlink directory: "
+            f"{workspace}"
+        )
     if not (workspace / ".git").is_dir() or not all(
         (workspace / project / marker).is_file()
         for project, marker in _REQUIRED_PROJECTS
     ):
         raise ValueError(
-            "developer attachment는 완전한 EleSim Git checkout을 필요로 합니다: "
+            "developer attachment requires a complete EleSim Git checkout: "
             f"{workspace}"
         )
 
@@ -65,10 +68,10 @@ def write_developer_context(*, source_root: Path, context: Path) -> None:
     missing = tuple(path for path in required if not path.is_file())
     if missing:
         rendered = "\n".join(f"  - {path}" for path in missing)
-        raise FileNotFoundError(f"개발 이미지 입력이 부족합니다:\n{rendered}")
+        raise FileNotFoundError(f"developer image inputs are incomplete:\n{rendered}")
     if os.path.lexists(context):
         if context.is_symlink() or not context.is_dir():
-            raise ValueError(f"Developer image context는 directory여야 합니다: {context}")
+            raise ValueError(f"developer image context must be a directory: {context}")
         shutil.rmtree(context)
     context.mkdir(mode=0o700, parents=True)
     for name in names:
@@ -93,7 +96,7 @@ def developer_service(
 
     workspace = state.developer_attachment.workspace_path
     if workspace is None:
-        raise ValueError("developer service에는 활성 attachment가 필요합니다")
+        raise ValueError("developer service requires an active attachment")
     validate_developer_workspace(workspace)
     username = resolve_developer_username()
     home = data_root / "home"

@@ -125,7 +125,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if seed is not None and not seed.is_absolute():
         seed = (Path.cwd() / seed).resolve()
     if seed is not None and not seed.is_file():
-        print(f"[supervise] --resume 가 가리키는 파일이 없습니다: {seed}")
+        print(f"[supervise] --resume does not point to a file: {seed}")
         return 2
 
     # An explicit --resume must not be silently overridden by whatever happens

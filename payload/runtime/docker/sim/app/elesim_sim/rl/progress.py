@@ -163,7 +163,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     path = Path(args.path).expanduser()
     if not path.is_file():
-        raise SystemExit(f"파일이 없습니다: {path}")
+        raise SystemExit(f"File not found: {path}")
     data = read(path)
     window = args.window or (
         DEFAULT_CURVE_WINDOW if path.suffix.lower() == ".csv" else DEFAULT_LOG_WINDOW

@@ -229,11 +229,11 @@ def render_update_wrapper(
                     "    return",
                     "  fi",
                     "  if [[ -n \"$(docker ps -aq --filter \"ancestor=$elesim_image_id\" 2>/dev/null || true)\" ]]; then",
-                    "    printf '[elesim-update] 이전 이미지 보존: %s (기존 컨테이너가 참조 중)\\n' \"$elesim_image_id\" >&2",
+                    "    printf '[elesim-update] preserving previous image: %s (still referenced by an existing container)\\n' \"$elesim_image_id\" >&2",
                     "    return",
                     "  fi",
                     "  if ! docker image rm \"$elesim_image_id\" >/dev/null; then",
-                    "    printf '[elesim-update] 이전 이미지 정리 실패: %s\\n' \"$elesim_image_id\" >&2",
+                    "    printf '[elesim-update] failed to remove previous image: %s\\n' \"$elesim_image_id\" >&2",
                     "  fi",
                     "}",
                 )

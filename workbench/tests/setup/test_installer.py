@@ -495,7 +495,7 @@ def test_native_down_stops_robot_after_archive_failure_and_returns_nonzero(
 
     assert result.returncode == 74
     assert marker.is_file()
-    assert "저장 실패" in result.stderr
+    assert "Failed to save Robot journald logs" in result.stderr
 
 
 def test_native_log_archive_rejects_a_symlinked_install_ancestor_before_write(

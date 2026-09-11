@@ -6,14 +6,14 @@ source /opt/elesim/ros/install/setup.bash
 set -u
 viewer_preflight_only=0
 if [[ ${1:-} == --elesim-viewer-preflight ]]; then
-  (( $# == 1 )) || { printf 'Sim Viewer 사전 점검 인자가 올바르지 않습니다.\n' >&2; exit 64; }
+  (( $# == 1 )) || { printf 'Sim Viewer preflight accepts no arguments.\n' >&2; exit 64; }
   viewer_preflight_only=1
   shift
 fi
 sim_args=()
 if [[ ${ELESIM_SIM_VIEWER:-} == "1" ]]; then
   if ! python3 -c 'from pyglet.window import Window; window = Window(width=1, height=1, visible=False); window.switch_to(); window.close()'; then
-    printf 'Sim 컨테이너가 DISPLAY의 X11/GL context를 열 수 없습니다: %s\n' "${DISPLAY:-unset}" >&2
+    printf 'Sim container cannot open the X11/GL context for DISPLAY: %s\n' "${DISPLAY:-unset}" >&2
     exit 69
   fi
   if (( viewer_preflight_only )); then
@@ -21,7 +21,7 @@ if [[ ${ELESIM_SIM_VIEWER:-} == "1" ]]; then
   fi
   sim_args+=(--viewer)
 elif (( viewer_preflight_only )); then
-  printf 'Sim Viewer 사전 점검에는 ELESIM_SIM_VIEWER=1이 필요합니다.\n' >&2
+  printf 'Sim Viewer preflight requires ELESIM_SIM_VIEWER=1.\n' >&2
   exit 64
 fi
 exec elesim-sim --config /opt/elesim/config/app.installed.yaml --runtime-config /opt/elesim/config/runtime.installed.yaml "${sim_args[@]}" "$@"

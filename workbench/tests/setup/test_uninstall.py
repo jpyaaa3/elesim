@@ -93,7 +93,7 @@ def test_docker_ownership_pin_is_all_or_nothing(
         engine_id=engine_id,
     )
 
-    with pytest.raises(OwnershipError, match="함께"):
+    with pytest.raises(OwnershipError, match="both"):
         ownership.validate()
 
 
@@ -229,7 +229,7 @@ def test_changed_wrapper_aborts_before_any_mutation(tmp_path: Path) -> None:
     wrapper = Path(manifest.wrappers[0].path)
     wrapper.write_text("foreign\n", encoding="utf-8")
 
-    with pytest.raises(UninstallSafetyError, match="wrapper가 설치 후 변경"):
+    with pytest.raises(UninstallSafetyError, match="wrapper changed after installation"):
         plan_uninstall(manifest.path)
 
     assert manifest.path.is_file()
@@ -341,7 +341,7 @@ def test_viewer_cleanup_failure_aborts_before_uninstall_mutation(tmp_path: Path)
         )
 
     plan = plan_uninstall(manifest.path, runner=runner)
-    with pytest.raises(UninstallSafetyError, match="X11 Viewer ACL 회수 실패"):
+    with pytest.raises(UninstallSafetyError, match="revoke X11 Viewer ACL failed"):
         execute_uninstall(
             plan,
             confirm_prefix=manifest.prefix,
@@ -363,7 +363,7 @@ def test_viewer_state_without_owned_exact_cleanup_fails_closed(tmp_path: Path) -
         executable=True,
     )
 
-    with pytest.raises(UninstallSafetyError, match="ownership manifest에 없습니다"):
+    with pytest.raises(UninstallSafetyError, match="is not in the ownership manifest"):
         plan_uninstall(manifest.path)
 
     assert manifest.path.is_file()
@@ -376,7 +376,7 @@ def test_missing_owned_viewer_cleanup_wrapper_fails_closed(tmp_path: Path) -> No
     cleanup = Path(manifest.bin_dir) / "elesim-viewer-cleanup"
     cleanup.unlink()
 
-    with pytest.raises(UninstallSafetyError, match="cleanup wrapper가 없습니다"):
+    with pytest.raises(UninstallSafetyError, match="ownership manifest lacks the X11 Viewer cleanup wrapper"):
         plan_uninstall(manifest.path)
 
     assert manifest.path.is_file()
@@ -399,7 +399,7 @@ def test_shell_change_after_plan_aborts_before_install_files_are_removed(
     plan = plan_uninstall(manifest.path)
     bashrc.write_text(managed_path_block(Path("/newer/bin")), encoding="utf-8")
 
-    with pytest.raises(UninstallSafetyError, match="상태가 변경"):
+    with pytest.raises(UninstallSafetyError, match="state changed"):
         execute_uninstall(plan, confirm_prefix=manifest.prefix)
 
     assert manifest.path.is_file()
@@ -433,7 +433,9 @@ def test_managed_root_replaced_by_symlink_aborts(tmp_path: Path) -> None:
     security.rmdir()
     security.symlink_to(outside, target_is_directory=True)
 
-    with pytest.raises(UninstallSafetyError, match="유형이 변경|안전한 directory"):
+    with pytest.raises(
+        UninstallSafetyError, match="type changed|safe directory"
+    ):
         plan_uninstall(manifest.path)
 
     assert outside.is_dir()
@@ -498,7 +500,7 @@ def test_foreign_same_name_systemd_unit_never_suggests_rm(tmp_path: Path) -> Non
     with pytest.raises(UninstallSafetyError) as captured:
         plan_uninstall(manifest.path, runner=runner)
 
-    assert "foreign/변경된" in str(captured.value)
+    assert "foreign or modified" in str(captured.value)
     assert "sudo rm" not in str(captured.value)
 
 
@@ -880,7 +882,7 @@ def test_tailscale_cleanup_rejects_foreign_bind_before_mutation(tmp_path: Path) 
     outside.mkdir()
     runner = _TailscaleDockerRunner(docker, state_path, mount_source=outside)
 
-    with pytest.raises(UninstallSafetyError, match="exact 경계와 다릅니다"):
+    with pytest.raises(UninstallSafetyError, match="differs from the install-owned exact boundary"):
         plan_uninstall(manifest.path, runner=runner)
 
     assert manifest.path.is_file()
@@ -909,7 +911,7 @@ def test_tailscale_cleanup_rejects_nested_symlink_and_restores_running_sidecar(
     )
     plan = plan_uninstall(manifest.path, runner=runner)
 
-    with pytest.raises(UninstallSafetyError, match="ownership 복구 실패"):
+    with pytest.raises(UninstallSafetyError, match="ownership restoration failed"):
         execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
 
     assert outside.read_text(encoding="utf-8") == "keep\n"
@@ -940,7 +942,7 @@ def test_tailscale_cleanup_rejects_hardlink_and_restores_running_sidecar(
     )
     plan = plan_uninstall(manifest.path, runner=runner)
 
-    with pytest.raises(UninstallSafetyError, match="ownership 복구 실패"):
+    with pytest.raises(UninstallSafetyError, match="ownership restoration failed"):
         execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
 
     assert outside.read_text(encoding="utf-8") == "keep\n"
@@ -1014,7 +1016,7 @@ def test_tailscale_cleanup_rejects_host_path_swap_after_existing_mount_helper(
     )
     plan = plan_uninstall(manifest.path, runner=runner)
 
-    with pytest.raises(UninstallSafetyError, match="inode.*변경"):
+    with pytest.raises(UninstallSafetyError, match="inode.*changed"):
         execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
 
     assert outside.read_text(encoding="utf-8") == "keep\n"
@@ -1064,7 +1066,7 @@ def test_tailscale_container_remove_failure_resumes_quiesced_sidecar(
     )
     plan = plan_uninstall(manifest.path, runner=runner)
 
-    with pytest.raises(UninstallSafetyError, match="sidecar 제거 실패"):
+    with pytest.raises(UninstallSafetyError, match="sidecar removal failed"):
         execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
 
     assert runner.present
@@ -1090,7 +1092,7 @@ def test_tailscale_container_remove_failure_starts_sidecar_when_resume_fails(
     )
     plan = plan_uninstall(manifest.path, runner=runner)
 
-    with pytest.raises(UninstallSafetyError, match="sidecar 제거 실패"):
+    with pytest.raises(UninstallSafetyError, match="sidecar removal failed"):
         execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
 
     assert runner.present
@@ -1119,7 +1121,7 @@ def test_tailscale_container_remove_failure_reports_resume_and_start_failure(
 
     with pytest.raises(
         UninstallSafetyError,
-        match="sidecar resume/start도 실패: injected start failure",
+        match="sidecar resume/start also failed: injected start failure",
     ):
         execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
 
@@ -1142,7 +1144,7 @@ def test_tailscale_cleanup_resumes_sidecar_when_host_postcheck_fails(
     )
     plan = plan_uninstall(manifest.path, runner=runner)
     try:
-        with pytest.raises(UninstallSafetyError, match="안전하게 제거"):
+        with pytest.raises(UninstallSafetyError, match="cannot safely remove"):
             execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
     finally:
         child.chmod(0o700)
@@ -1246,7 +1248,7 @@ def test_scoped_instance_container_rejects_arbitrary_compose(
         },
     )
 
-    with pytest.raises(UninstallSafetyError, match="다른 설치|Compose"):
+    with pytest.raises(UninstallSafetyError, match="another installation|Compose"):
         plan_uninstall(manifest.path, runner=runner)
 
 
@@ -1426,7 +1428,7 @@ def test_foreign_fixed_container_name_aborts_before_removal(tmp_path: Path) -> N
     manifest, *_ = _manifest(tmp_path, docker=docker)
     runner = _DockerRunner(docker, foreign=True)
 
-    with pytest.raises(UninstallSafetyError, match="다른 설치 소유"):
+    with pytest.raises(UninstallSafetyError, match="belongs to another installation"):
         plan_uninstall(manifest.path, runner=runner)
 
     assert not any(values[:3] == ("docker", "container", "rm") for values in runner.commands)
@@ -1444,7 +1446,7 @@ def test_unlisted_same_install_container_aborts_before_removal(tmp_path: Path) -
     manifest, *_ = _manifest(tmp_path, docker=docker)
     runner = _DockerRunner(docker, unlisted=("elesim-runtime-tools-run-abcd",))
 
-    with pytest.raises(UninstallSafetyError, match="manifest에 없는"):
+    with pytest.raises(UninstallSafetyError, match="not in the manifest"):
         plan_uninstall(manifest.path, runner=runner)
 
     assert not any(values[:3] == ("docker", "container", "rm") for values in runner.commands)
@@ -1464,7 +1466,7 @@ def test_listed_container_inspect_error_is_not_treated_as_absent(
     manifest, *_ = _manifest(tmp_path, docker=docker)
     runner = _DockerRunner(docker, inspect_failure=True)
 
-    with pytest.raises(UninstallSafetyError, match="inspect할 수 없습니다"):
+    with pytest.raises(UninstallSafetyError, match="cannot inspect"):
         plan_uninstall(manifest.path, runner=runner)
 
 
@@ -1476,7 +1478,7 @@ def test_cli_uninstall_validates_then_executes(
     assert main(("--manifest", str(manifest.path),)) == 0
 
     assert not manifest.path.exists()
-    assert "EleSim 제거 완료" in capsys.readouterr().out
+    assert "EleSim removal complete" in capsys.readouterr().out
 
 
 def test_cli_rejects_removed_plan_option(tmp_path: Path) -> None:
@@ -1597,7 +1599,7 @@ def test_refresh_rejects_modified_previous_wrapper(tmp_path: Path) -> None:
     manifest, *_ = _manifest(tmp_path)
     Path(manifest.wrappers[0].path).write_text("foreign\n", encoding="utf-8")
 
-    with pytest.raises(OwnershipError, match="기존 wrapper"):
+    with pytest.raises(OwnershipError, match="existing wrapper"):
         prepare_ownership_refresh(
             prefix=Path(manifest.prefix),
             bin_dir=Path(manifest.bin_dir),
@@ -1612,7 +1614,7 @@ def test_new_install_refuses_preexisting_claim_without_manifest(tmp_path: Path) 
     bin_dir.mkdir()
     foreign = _write(prefix / "security/research.key", "foreign\n")
 
-    with pytest.raises(OwnershipError, match="자동 인수하지"):
+    with pytest.raises(OwnershipError, match="automatically adopt"):
         prepare_ownership_refresh(
             prefix=prefix,
             bin_dir=bin_dir,
@@ -1630,7 +1632,7 @@ def test_new_install_refuses_prefix_nested_inside_another_install(
     nested_prefix = Path(outer.prefix) / "containers" / "second-install"
     nested_bin = nested_prefix / "bin"
 
-    with pytest.raises(OwnershipError, match="중첩"):
+    with pytest.raises(OwnershipError, match="nested"):
         prepare_ownership_refresh(
             prefix=nested_prefix,
             bin_dir=nested_bin,
@@ -1647,7 +1649,7 @@ def test_new_install_refuses_bin_nested_inside_another_install_prefix(
     second_prefix = tmp_path / "second-install"
     nested_bin = Path(outer.prefix) / "containers" / "second-bin"
 
-    with pytest.raises(OwnershipError, match="중첩"):
+    with pytest.raises(OwnershipError, match="nested"):
         prepare_ownership_refresh(
             prefix=second_prefix,
             bin_dir=nested_bin,
@@ -1689,7 +1691,7 @@ def test_host_bundle_uninstalls_without_container_or_installed_package(
     )
 
     assert removed.returncode == 0, removed.stderr
-    assert "EleSim 제거 완료" in removed.stdout
+    assert "EleSim removal complete" in removed.stdout
     assert not bundle.root.exists()
     assert not bundle.wrapper.exists()
 
@@ -1752,7 +1754,7 @@ def test_host_bundle_rejects_outside_or_symlinked_root(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     prefix.mkdir()
     bin_dir.mkdir()
-    with pytest.raises(OwnershipError, match="prefix 하위"):
+    with pytest.raises(OwnershipError, match="below the prefix"):
         install_host_uninstaller_bundle(
             prefix=prefix,
             bin_dir=bin_dir,
@@ -1763,7 +1765,7 @@ def test_host_bundle_rejects_outside_or_symlinked_root(tmp_path: Path) -> None:
     outside.mkdir()
     link = prefix / "maintenance-link"
     link.symlink_to(outside, target_is_directory=True)
-    with pytest.raises(OwnershipError, match="symlink|안전한 directory"):
+    with pytest.raises(OwnershipError, match="symlink|type changed|safe directory"):
         install_host_uninstaller_bundle(
             prefix=prefix,
             bin_dir=bin_dir,

@@ -484,7 +484,7 @@ def test_doctor_strict_peer_probe_rejects_stale_descriptor_without_heartbeat(
 
     result = next(item for item in report.results if item.name == "DDS peers")
     assert result.status == FAIL
-    assert "heartbeat 없음" in result.detail
+    assert "missing heartbeat" in result.detail
 
 
 def test_doctor_dds_failure_skips_dependent_checks(

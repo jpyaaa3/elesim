@@ -319,7 +319,7 @@ class ConnectionManagerApplication:
         with self._job_lock:
             if self.job.status in {"running", "cancelling"}:
                 raise RuntimeError(
-                    "배포 중에는 연결 토폴로지를 변경할 수 없습니다"
+                    "the connection topology cannot be changed during deployment"
                 )
             with self._state_lock:
                 destination = topology.save(self.state_path)
@@ -473,7 +473,7 @@ class ConnectionManagerApplication:
         with self._job_lock:
             if self.job.status in {"running", "cancelling"}:
                 raise RuntimeError(
-                    "배포가 실행 중입니다. 먼저 취소하고 rollback 완료를 기다리십시오"
+                    "deployment is running; cancel it first and wait for rollback to complete"
                 )
 
     def cancel_and_wait(self) -> None:

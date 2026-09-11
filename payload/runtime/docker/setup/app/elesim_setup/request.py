@@ -74,13 +74,14 @@ class SetupRequest:
         legacy_edition = str(raw.get("edition", "general"))
         if legacy_edition != "general":
             raise ValueError(
-                "Developer는 더 이상 별도 설치 종류가 아닙니다. 기존 Developer "
-                "설치를 제거한 뒤 일반 설치의 developer attachment를 선택하십시오"
+                "Developer is no longer a separate installation type. Remove the "
+                "existing Developer installation, then select the developer "
+                "attachment on a general installation"
             )
         turn_url = str(raw.get("turn_url", "")).strip()
         roles_raw = raw.get("roles", ())
         if not isinstance(roles_raw, (list, tuple)):
-            raise ValueError("roles는 프로그램 이름 목록이어야 합니다")
+            raise ValueError("roles must be a list of program names")
         peers_raw = raw.get("dds_static_peers", ())
         if isinstance(peers_raw, str):
             peers = tuple(
@@ -89,14 +90,14 @@ class SetupRequest:
         elif isinstance(peers_raw, (list, tuple)):
             peers = tuple(str(value).strip() for value in peers_raw if str(value).strip())
         else:
-            raise ValueError("dds_static_peers는 hostname/IP 목록이어야 합니다")
+            raise ValueError("dds_static_peers must be a list of hostnames/IPs")
         prefix = _required_path(raw, "prefix")
         developer_enabled = raw.get("developer_attachment", False)
         if type(developer_enabled) is not bool:
-            raise ValueError("developer_attachment 값은 boolean이어야 합니다")
+            raise ValueError("developer_attachment must be boolean")
         developer_wslg = raw.get("developer_wslg", False)
         if type(developer_wslg) is not bool:
-            raise ValueError("developer_wslg 값은 boolean이어야 합니다")
+            raise ValueError("developer_wslg must be boolean")
         developer_workspace = str(raw.get("developer_workspace", "")).strip()
         turn_mode = str(raw.get("turn_mode", "none"))
         secret_file = str(raw.get("turn_secret_file", "")).strip()
@@ -172,9 +173,11 @@ class SetupRequest:
 
     def validate(self, capabilities: HostCapabilities) -> "SetupRequest":
         if self.language not in {"ko", "en"}:
-            raise ValueError(f"지원하지 않는 언어: {self.language!r}")
+            raise ValueError(f"Unsupported language: {self.language!r}")
         if not str(self.prefix) or not str(self.bin_dir) or not str(self.source_root):
-            raise ValueError("설치, bin, source 경로가 필요합니다")
+            raise ValueError(
+                "Installation prefix, bin directory, and source root are required"
+            )
         self.compute.validate()
         self.network.validate()
         self.dds.validate()
@@ -182,41 +185,41 @@ class SetupRequest:
         self.runtime_text_logs.validate()
         self.developer_attachment.validate()
         if self.dds.discovery_mode == "static" and not self.dds.static_peers:
-            raise ValueError("static DDS discovery에는 peer가 하나 이상 필요합니다")
+            raise ValueError("static DDS discovery requires at least one peer")
         if (
             self.dds.security_profile == "sros2"
             and self.dds.security_provisioning == "external"
             and (not self.dds.keystore.strip() or not self.dds.enclave.strip())
         ):
-            raise ValueError("SROS2 profile에는 keystore와 enclave가 필요합니다")
+            raise ValueError("SROS2 profile requires a keystore and enclave")
         roles = normalize_roles(self.roles)
         if self.developer_attachment.enabled:
             if not capabilities.developer_installable:
-                raise ValueError("developer attachment는 Ubuntu/WSL amd64에서만 지원합니다")
+                raise ValueError("developer attachment is supported only on Ubuntu/WSL amd64")
             if self.developer_attachment.wslg and not capabilities.wslg_available:
-                raise ValueError("developer WSLg attachment는 감지된 WSLg host가 필요합니다")
+                raise ValueError("developer WSLg attachment requires a detected WSLg host")
             if roles == ("robot",):
-                raise ValueError("native Robot 설치에는 developer attachment를 추가할 수 없습니다")
+                raise ValueError("developer attachment cannot be added to native Robot installation")
         if "robot" in roles:
             if roles != ("robot",):
-                raise ValueError("Robot native 설치는 다른 역할과 분리한 단독 설치여야 합니다")
+                raise ValueError("native Robot installation must be standalone and separate from other roles")
             if not capabilities.robot_installable:
-                raise ValueError("Robot 설치에는 감지된 Jetson/JetPack 호스트가 필요합니다")
+                raise ValueError("Robot installation requires a detected Jetson/JetPack host")
             if not self.dds.interface.strip():
                 raise ValueError(
-                    "Robot 설치는 inter-host EleSim DDS interface를 명시해야 합니다"
+                    "Robot installation requires an explicitly specified inter-host "
+                    "EleSim DDS interface"
                 )
         if self.turn.managed:
             if "sim" not in self.roles:
-                raise ValueError("managed Coturn은 Sim 설치 호스트가 필요합니다")
+                raise ValueError("managed Coturn requires a Sim installation host")
         if (
             self.turn.mode == "external"
             and "sim" in self.roles
             and self.turn.credential_path is None
         ):
             raise ValueError(
-                "Sim의 external TURN에는 username/credential JSON file이 "
-                "필요합니다"
+                "Sim external TURN requires a username/credential JSON file"
             )
         self._state(capabilities).validate()
         return self
@@ -272,27 +275,27 @@ def container_network_settings_for_host(
     docker_host_override = capabilities.docker_host_override.strip()
     if docker_host_override:
         raise ValueError(
-            "DOCKER_HOST override는 지원하지 않습니다. 설치가 고정한 local Docker "
-            "context를 재현할 수 있도록 DOCKER_HOST를 해제하십시오"
+            "DOCKER_HOST overrides are unsupported. Unset DOCKER_HOST to use the "
+            "installation-pinned local Docker context"
         )
     if not backend and not context and not engine_id and not endpoint:
         # Compatibility for direct API users that predate bootstrap-provided
         # Docker facts. The supported bootstrap always pins new installs.
         return ContainerNetworkSettings()
     if backend not in {"native", "docker-desktop"}:
-        raise ValueError(f"지원하지 않는 Docker backend: {backend!r}")
+        raise ValueError(f"Unsupported Docker backend: {backend!r}")
     if not context or not engine_id or not endpoint:
         raise ValueError(
-            "Docker context, engine ID와 endpoint를 확인할 수 없습니다. "
-            "설치 bootstrap에서 선택한 Docker daemon을 다시 확인하십시오"
+            "Cannot determine Docker context, engine ID, and endpoint. Recheck the "
+            "Docker daemon selected during bootstrap"
         )
     if endpoint.startswith(("ssh://", "tcp://")):
         raise ValueError(
-            "remote Docker context는 local 설치 경로를 안전하게 bind mount할 수 "
-            f"없어 지원하지 않습니다: {endpoint}"
+            "remote Docker contexts cannot safely bind-mount local installation paths "
+            f"and are unsupported: {endpoint}"
         )
     if not endpoint.startswith(("unix://", "npipe://")):
-        raise ValueError(f"지원하지 않는 Docker context endpoint: {endpoint!r}")
+        raise ValueError(f"Unsupported Docker context endpoint: {endpoint!r}")
     if backend == "docker-desktop":
         stable_input = (
             engine_id + "\x00" + str(prefix.expanduser().resolve())
@@ -315,7 +318,7 @@ def container_network_settings_for_host(
 def _required_path(raw: Mapping[str, Any], name: str) -> Path:
     value = str(raw.get(name, "")).strip()
     if not value:
-        raise ValueError(f"{name} 경로가 필요합니다")
+        raise ValueError(f"{name} path is required")
     return Path(value).expanduser().resolve()
 
 
@@ -327,11 +330,11 @@ def _runtime_text_log_settings(
     if value is None:
         return RuntimeTextLogSettings(enabled=default_enabled)
     if not isinstance(value, Mapping):
-        raise ValueError("runtime_text_logs는 object여야 합니다")
+        raise ValueError("runtime_text_logs must be an object")
     unexpected = set(value).difference({"enabled"})
     if unexpected:
         rendered = ", ".join(sorted(str(name) for name in unexpected))
-        raise ValueError(f"runtime_text_logs에 알 수 없는 field가 있습니다: {rendered}")
+        raise ValueError(f"unknown field in runtime_text_logs: {rendered}")
     return RuntimeTextLogSettings(
         enabled=value.get("enabled", default_enabled),
     ).validate()

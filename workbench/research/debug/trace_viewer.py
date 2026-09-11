@@ -411,7 +411,10 @@ class TraceViewer:
 
     def run(self) -> None:
         if glfw is None or imgui is None or GlfwRenderer is None:
-            raise SystemExit("trace viewer에는 elesim-ui와 같은 glfw/imgui 의존성이 필요합니다.")
+            raise SystemExit(
+                "The trace viewer requires the same glfw/imgui dependencies as "
+                "elesim-ui."
+            )
         if not glfw.init():
             raise SystemExit("glfw.init() failed.")
         glfw.window_hint(glfw.RESIZABLE, False)
@@ -421,7 +424,7 @@ class TraceViewer:
         window = glfw.create_window(WINDOW_W, WINDOW_H, "EleSim Trace Viewer", None, None)
         if not window:
             glfw.terminate()
-            raise SystemExit("GLFW 창 생성에 실패했습니다.")
+            raise SystemExit("Failed to create the GLFW window.")
         glfw.make_context_current(window)
         imgui.create_context()
         self._install_font()

@@ -82,8 +82,8 @@ fi
 if ! docker info >/dev/null 2>&1; then
   if sudo docker info >/dev/null 2>&1; then
     docker_cmd=(sudo docker)
-    printf '%s\n' "[bootstrap] 현재 shell은 Docker 권한이 없어 이번 실행만 sudo를 사용합니다."
-    printf '%s\n' "[bootstrap] sudo usermod -aG docker \"$USER\" 후 다시 로그인하면 생성된 명령을 sudo 없이 쓸 수 있습니다."
+    printf '%s\n' "[bootstrap] The current shell lacks Docker permissions; sudo will be used for this run only."
+    printf '%s\n' "[bootstrap] Run sudo usermod -aG docker \"$USER\" and log in again to use the generated commands without sudo."
   else
     fail "Docker daemon is not running or is not reachable"
   fi
@@ -361,14 +361,14 @@ fi
 gui_url="http://127.0.0.1:${gui_port}/?token=${gui_token}"
 if ((gui_mode)); then
   if ((host_bootstrap)); then
-    printf '%s\n' "[bootstrap] Jetson ROS 2/colcon을 확인했습니다. EleSim 전용 host venv에서 native Robot 설치기를 시작합니다."
+    printf '%s\n' "[bootstrap] Jetson ROS 2/colcon detected. Starting the native Robot installer in the EleSim host venv."
   else
-    printf '%s\n' "[bootstrap] 호스트 Python/CUDA/ROS 환경을 건드리지 않고 GUI 설치기를 시작합니다."
+    printf '%s\n' "[bootstrap] Starting the GUI installer without modifying the host Python/CUDA/ROS environment."
   fi
   printf '%s\n' "[bootstrap] ${gui_url}"
   printf '%s\n' "[remote] ssh -L ${gui_port}:127.0.0.1:${gui_port} -p <ssh-port> <user>@<server>"
 else
-  printf '%s\n' "[bootstrap] 호스트 Python 환경을 건드리지 않고 EleSim setup을 시작합니다."
+  printf '%s\n' "[bootstrap] Starting EleSim setup without modifying the host Python environment."
 fi
 if ((gui_mode)) && [[ "$no_open" != "1" ]] && \
    command -v xdg-open >/dev/null 2>&1 && \

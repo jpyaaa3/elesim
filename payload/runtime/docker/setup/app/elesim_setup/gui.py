@@ -166,17 +166,17 @@ class WizardApplication:
         if "sim" in roles and request.dds.security_profile == "sros2":
             if request.turn.mode != "managed":
                 raise ValueError(
-                    "SROS2 Sim 설치는 Sim에 포함된 managed TURN이 필요합니다. "
-                    "기존 relay 선택은 설치 관리자에서 사용할 수 없습니다"
+                    "SROS2 Sim installation requires the managed TURN included with Sim. "
+                    "An existing relay cannot be selected in the installer"
                 )
         elif "sim" in roles and request.turn.mode != "none":
             raise ValueError(
-                "trusted-network Sim은 direct ICE만 사용하므로 TURN을 지정할 수 없습니다"
+                "trusted-network Sim uses direct ICE only, so TURN cannot be specified"
             )
         if "sim" not in roles and request.turn.mode != "none":
             raise ValueError(
-                "TURN은 Sim 설치에만 포함됩니다. 새 설치에서는 외부 relay를 "
-                "지정할 수 없습니다"
+                "TURN is included only with Sim installations. External relays cannot "
+                "be specified for a new installation"
             )
         self._require_allowed(request.prefix)
         self._require_allowed(request.bin_dir)

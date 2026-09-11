@@ -62,7 +62,7 @@ class NetworkSettings:
                 or len(url) > 2048
                 or any(character.isspace() for character in url)
             ):
-                raise ValueError(f"유효하지 않은 TURN URL: {value!r}")
+                raise ValueError(f"Invalid TURN URL: {value!r}")
         return self
 
 
@@ -86,54 +86,54 @@ class DdsSettings:
     def validate(self) -> "DdsSettings":
         if not _ROS_NAME.fullmatch(self.system_id):
             raise ValueError(
-                "DDS system_id는 소문자로 시작하는 영문 소문자/숫자/underscore 값이어야 합니다"
+                "DDS system_id must start with a lowercase letter and contain only lowercase letters, digits, or underscores"
             )
         if isinstance(self.domain_id, bool) or not 0 <= int(self.domain_id) <= 232:
-            raise ValueError("ROS_DOMAIN_ID는 0..232 범위여야 합니다")
+            raise ValueError("ROS_DOMAIN_ID must be in the range 0..232")
         if (
             not _RMW_NAME.fullmatch(self.rmw_implementation)
             or self.rmw_implementation not in DDS_RMW_IMPLEMENTATIONS
         ):
             supported = ", ".join(sorted(DDS_RMW_IMPLEMENTATIONS))
             raise ValueError(
-                f"지원하지 않는 RMW implementation: {self.rmw_implementation!r}; "
+                f"Unsupported RMW implementation: {self.rmw_implementation!r}; "
                 f"supported: {supported}"
             )
         if self.discovery_mode not in DDS_DISCOVERY_MODES:
-            raise ValueError(f"지원하지 않는 DDS discovery mode: {self.discovery_mode!r}")
+            raise ValueError(f"Unsupported DDS discovery mode: {self.discovery_mode!r}")
         peers = tuple(str(value).strip() for value in self.static_peers)
         if any(not value or len(value) > 255 or any(ch.isspace() for ch in value) for value in peers):
-            raise ValueError("DDS static peer는 공백 없는 hostname/IP여야 합니다")
+            raise ValueError("DDS static peer must be a whitespace-free hostname/IP")
         if self.discovery_mode == "multicast" and peers:
-            raise ValueError("multicast discovery에는 static peer를 함께 지정할 수 없습니다")
+            raise ValueError("static peers cannot be specified with multicast discovery")
         interface = str(self.interface).strip()
         if (
             len(interface) > 128
             or any(character.isspace() for character in interface)
             or "/" in interface
         ):
-            raise ValueError("DDS interface는 공백과 경로 구분자가 없는 interface 이름이어야 합니다")
+            raise ValueError("DDS interface must be a whitespace-free interface name without path separators")
         if self.security_profile not in DDS_SECURITY_PROFILES:
             raise ValueError(
-                f"지원하지 않는 DDS security profile: {self.security_profile!r}"
+                f"Unsupported DDS security profile: {self.security_profile!r}"
             )
         if self.security_provisioning not in DDS_SECURITY_PROVISIONING:
             raise ValueError(
-                "지원하지 않는 DDS security provisioning: "
+                "Unsupported DDS security provisioning: "
                 f"{self.security_provisioning!r}"
             )
         if not isinstance(self.security_generation, str):
-            raise ValueError("DDS security generation은 문자열 식별자여야 합니다")
+            raise ValueError("DDS security generation must be a string identifier")
         generation = self.security_generation.strip()
         if generation and not _SECURITY_GENERATION.fullmatch(generation):
             raise ValueError(
-                "DDS security generation은 소문자/숫자로 시작하는 안전한 식별자여야 합니다"
+                "DDS security generation must be a safe identifier beginning with a lowercase letter or digit"
             )
         bundle = str(self.security_bundle).strip()
         keystore = str(self.keystore).strip()
         enclave = str(self.enclave).strip()
         if bool(keystore) != bool(enclave):
-            raise ValueError("SROS2 keystore와 enclave는 함께 지정해야 합니다")
+            raise ValueError("SROS2 keystore and enclave must be specified together")
         if self.security_profile == "trusted-network" and (
             self.security_provisioning != "none"
             or generation
@@ -142,32 +142,31 @@ class DdsSettings:
             or enclave
         ):
             raise ValueError(
-                "trusted-network profile에는 SROS2 provisioning/generation/"
-                "bundle/keystore/enclave를 지정할 수 없습니다"
+                "trusted-network profile cannot specify SROS2 provisioning/generation/"
+                "bundle/keystore/enclave"
             )
         if self.security_profile == "sros2":
             if self.security_provisioning == "none":
-                raise ValueError("sros2 profile에는 security provisioning이 필요합니다")
+                raise ValueError("sros2 profile requires security provisioning")
             if self.security_provisioning == "external" and (generation or bundle):
                 raise ValueError(
-                    "external SROS2 provisioning에는 managed generation/bundle을 "
-                    "지정할 수 없습니다"
+                    "external SROS2 provisioning cannot specify a managed generation/bundle"
                 )
             if self.security_provisioning == "managed":
                 managed_values = (generation, bundle, keystore, enclave)
                 if any(managed_values) and not all(managed_values):
                     raise ValueError(
-                        "managed SROS2 provisioning은 아직 provision되지 않은 all-empty "
-                        "상태이거나 generation/bundle/keystore/enclave가 모두 필요합니다"
+                        "managed SROS2 provisioning must be all-empty before provisioning "
+                        "or include all of generation, bundle, keystore, and enclave"
                     )
                 if bundle and Path(bundle).expanduser().resolve() != Path(
                     keystore
                 ).expanduser().resolve():
                     raise ValueError(
-                        "managed SROS2 keystore는 role bundle 경로와 같아야 합니다"
+                        "managed SROS2 keystore must match the role bundle path"
                     )
         if enclave and (not enclave.startswith("/") or ".." in Path(enclave).parts):
-            raise ValueError("SROS2 enclave는 '..'이 없는 절대 ROS 경로여야 합니다")
+            raise ValueError("SROS2 enclave must be an absolute ROS path without '..'")
         return self
 
     @property
@@ -214,7 +213,7 @@ class ComputeSettings:
 
     def validate(self) -> "ComputeSettings":
         if self.gpu_mode not in GPU_MODES:
-            raise ValueError(f"지원하지 않는 GPU 모드: {self.gpu_mode!r}")
+            raise ValueError(f"Unsupported GPU mode: {self.gpu_mode!r}")
         device = self.gpu_device.strip()
         if self.gpu_mode == "specific":
             if (
@@ -224,12 +223,12 @@ class ComputeSettings:
                 or any(character.isspace() for character in device)
             ):
                 raise ValueError(
-                    "specific GPU 모드에는 하나의 공백 없는 GPU index 또는 UUID가 필요합니다"
+                    "specific GPU mode requires one whitespace-free GPU index or UUID"
                 )
             if device.startswith(("+", "-")) and device[1:].isdigit():
-                raise ValueError("GPU index는 0 이상이어야 합니다")
+                raise ValueError("GPU index must be non-negative")
         elif device:
-            raise ValueError("gpu_device는 specific GPU 모드에서만 지정할 수 있습니다")
+            raise ValueError("gpu_device is only valid in specific GPU mode")
         return self
 
 
@@ -241,7 +240,7 @@ class RuntimeTextLogSettings:
 
     def validate(self) -> "RuntimeTextLogSettings":
         if not isinstance(self.enabled, bool):
-            raise ValueError("runtime text log enabled 값은 boolean이어야 합니다")
+            raise ValueError("runtime text log enabled must be a boolean")
         return self
 
 
@@ -263,7 +262,7 @@ class TurnSettings:
 
     def validate(self) -> "TurnSettings":
         if self.mode not in TURN_MODES:
-            raise ValueError(f"지원하지 않는 TURN 모드: {self.mode!r}")
+            raise ValueError(f"Unsupported TURN mode: {self.mode!r}")
         realm = self.realm.strip()
         public_host = self.public_host.strip()
         secret_file = self.secret_file.strip()
@@ -286,7 +285,7 @@ class TurnSettings:
             raise ValueError("TURN ports are supported only for managed TURN")
         if self.mode == "managed":
             if not realm:
-                raise ValueError("managed TURN에는 realm이 필요합니다")
+                raise ValueError("managed TURN requires a realm")
             # A new general install deliberately leaves the endpoint empty.
             # The connection manager fills it from the Sim host's current
             # advertised address after the topology is saved.  Once a URL is
@@ -294,20 +293,20 @@ class TurnSettings:
             if public_host:
                 _validate_connect_host(public_host, name="TURN public hostname/IP")
             if not secret_file:
-                raise ValueError("managed TURN에는 secret file 경로가 필요합니다")
+                raise ValueError("managed TURN requires a secret file path")
             if credential_file:
                 raise ValueError(
-                    "managed TURN에는 external credential file을 지정할 수 없습니다"
+                    "managed TURN cannot specify an external credential file"
                 )
         elif self.mode == "external":
             if realm or public_host or secret_file:
                 raise ValueError(
-                    "TURN realm/public_host/secret_file은 managed 모드에서만 "
-                    "지정할 수 있습니다"
+                    "TURN realm/public_host/secret_file can only be specified in "
+                    "managed mode"
                 )
         elif realm or public_host or secret_file or credential_file:
             raise ValueError(
-                "TURN credential 설정은 TURN이 활성화된 경우에만 지정할 수 있습니다"
+                "TURN credentials can only be specified when TURN is enabled"
             )
         return self
 
@@ -359,7 +358,7 @@ class ContainerNetworkSettings:
     def validate(self) -> "ContainerNetworkSettings":
         if self.mode not in CONTAINER_NETWORK_MODES:
             raise ValueError(
-                f"지원하지 않는 container network mode: {self.mode!r}"
+                f"Unsupported container network mode: {self.mode!r}"
             )
         context = _bounded_single_line(
             self.docker_context,
@@ -373,7 +372,7 @@ class ContainerNetworkSettings:
         )
         if bool(context) != bool(engine_id):
             raise ValueError(
-                "Docker context와 engine ID는 함께 지정하거나 모두 비워야 합니다"
+                "Docker context and engine ID must both be specified or both omitted"
             )
         hostname = _bounded_single_line(
             self.tailscale_hostname,
@@ -388,19 +387,19 @@ class ContainerNetworkSettings:
         if self.mode == "tailscale-sidecar":
             if not context or not engine_id:
                 raise ValueError(
-                    "Tailscale sidecar에는 고정 Docker context와 engine ID가 필요합니다"
+                    "Tailscale sidecar requires a pinned Docker context and engine ID"
                 )
             if not hostname or not _TAILSCALE_HOSTNAME.fullmatch(hostname):
                 raise ValueError(
-                    "Tailscale hostname은 1..63자의 소문자 DNS label이어야 합니다"
+                    "Tailscale hostname must be a 1..63-character lowercase DNS label"
                 )
             if not state_dir or not Path(state_dir).expanduser().is_absolute():
                 raise ValueError(
-                    "Tailscale state directory는 절대 경로여야 합니다"
+                    "Tailscale state directory must be an absolute path"
                 )
         elif hostname or state_dir:
             raise ValueError(
-                "direct-host mode에는 Tailscale sidecar hostname/state를 지정할 수 없습니다"
+                "direct-host mode cannot specify a Tailscale sidecar hostname or state"
             )
         return self
 
@@ -429,16 +428,16 @@ class DeveloperAttachmentSettings:
 
     def validate(self) -> "DeveloperAttachmentSettings":
         if type(self.enabled) is not bool or type(self.wslg) is not bool:
-            raise ValueError("developer attachment enabled/wslg 값은 boolean이어야 합니다")
+            raise ValueError("developer attachment enabled/wslg must be boolean")
         value = str(self.workspace).strip()
         if self.enabled:
             if not value:
-                raise ValueError("developer attachment에는 Git workspace가 필요합니다")
+                raise ValueError("developer attachment requires a Git workspace")
             if not Path(value).expanduser().is_absolute():
-                raise ValueError("developer workspace는 절대 경로여야 합니다")
+                raise ValueError("developer workspace must be an absolute path")
         elif value or self.wslg:
             raise ValueError(
-                "비활성 developer attachment에는 workspace/WSLg를 지정할 수 없습니다"
+                "disabled developer attachment cannot specify workspace/WSLg"
             )
         return self
 
@@ -501,7 +500,7 @@ class InstallState:
     def validate(self) -> "InstallState":
         if self.schema_version != STATE_SCHEMA_VERSION:
             raise ValueError(
-                f"설치 상태 schema {self.schema_version!r}는 지원되지 않습니다; "
+                f"installation state schema {self.schema_version!r} is unsupported; "
                 f"expected {STATE_SCHEMA_VERSION}"
             )
         roles = normalize_roles(self.roles)
@@ -516,7 +515,7 @@ class InstallState:
             ):
                 raise ValueError("assigned_roles must be a nonempty subset of installed roles")
         if not self.prefix.strip() or not self.bin_dir.strip() or not self.source_root.strip():
-            raise ValueError("prefix, bin_dir와 source_root가 필요합니다")
+            raise ValueError("prefix, bin_dir, and source_root are required")
         _validate_source_identity(self.source_repository, name="source_repository")
         _validate_source_identity(self.source_ref, name="source_ref")
         self.network.validate()
@@ -527,63 +526,63 @@ class InstallState:
         self.container_network.validate()
         self.developer_attachment.validate()
         if self.install_mode not in INSTALL_MODES:
-            raise ValueError(f"지원하지 않는 설치 방식: {self.install_mode!r}")
+            raise ValueError(f"Unsupported installation mode: {self.install_mode!r}")
         if "robot" in roles and roles != ("robot",):
             raise ValueError(
-                "Robot native 설치는 다른 역할과 분리한 Robot 단독 "
-                "설치여야 합니다"
+                "native Robot installation must be standalone and separate from other roles"
             )
         if roles == ("robot",) and self.install_mode != "native":
             raise ValueError(
-                "Robot Jetson은 generic Ubuntu 컨테이너로 설치할 수 없습니다. "
-                "JetPack/L4T, ROS2와 unitree_ros2가 준비된 Jetson에서 native 설치를 사용하십시오"
+                "Robot Jetson cannot use a generic Ubuntu container. "
+                "Use native installation on a Jetson with JetPack/L4T, ROS2, "
+                "and unitree_ros2 installed"
             )
         if roles != ("robot",) and self.install_mode != "container":
             raise ValueError(
-                "Sim, Pilot과 UI는 일반 Docker/Compose 설치만 "
-                "지원합니다; native 설치는 Robot Jetson 단독 전용입니다"
+                "Sim, Pilot, and UI support Docker/Compose only; native installation is "
+                "for standalone Robot Jetson hosts"
             )
         if self.developer_attachment.enabled and self.install_mode != "container":
-            raise ValueError("developer attachment는 container 설치에만 추가할 수 있습니다")
+            raise ValueError("developer attachment can only be added to a container installation")
         if (
             self.container_network.uses_tailscale_sidecar
             and self.install_mode != "container"
         ):
-            raise ValueError("Tailscale sidecar에는 container 설치가 필요합니다")
+            raise ValueError("Tailscale sidecar requires a container installation")
         if self.container_network.uses_tailscale_sidecar:
             expected_state = self.prefix_path / "secrets/tailscale"
             if self.container_network.tailscale_state_path != expected_state:
                 raise ValueError(
-                    "Tailscale sidecar state directory는 설치 prefix의 "
-                    f"정확한 경로여야 합니다: {expected_state}"
+                    "Tailscale sidecar state directory must be under the installation prefix: "
+                    f"exact path is required: {expected_state}"
                 )
         has_turn_urls = bool(self.network.turn_urls)
         if self.turn.mode == "none" and has_turn_urls:
-            raise ValueError("TURN URL에는 managed 또는 external TURN 모드가 필요합니다")
+            raise ValueError("TURN URL requires managed or external TURN mode")
         if self.turn.mode != "none" and not has_turn_urls:
             if not self.managed_turn_pending:
-                raise ValueError(f"{self.turn.mode} TURN 모드에는 TURN URL이 필요합니다")
+                raise ValueError(f"{self.turn.mode} TURN mode requires a TURN URL")
         if (
             self.turn.mode == "managed"
             and has_turn_urls
             and not self.turn.public_host.strip()
         ):
-            raise ValueError("configured managed TURN에는 public host가 필요합니다")
+            raise ValueError("configured managed TURN requires a public host")
         if (
             self.turn.mode == "managed"
             and not has_turn_urls
             and self.turn.public_host.strip()
         ):
-            raise ValueError("pending managed TURN에는 public host를 미리 지정할 수 없습니다")
+            raise ValueError("pending managed TURN cannot specify a public host")
         if self.turn.managed and "sim" not in self.roles:
             raise ValueError(
-                "managed Coturn은 Sim가 설치되는 호스트에서만 사용할 수 있습니다"
+                "managed Coturn is only available on a host installing Sim"
             )
         if self.turn.managed and self.install_mode != "container":
-            raise ValueError("managed Coturn lifecycle에는 container 설치가 필요합니다")
+            raise ValueError("managed Coturn lifecycle requires a container installation")
         if self.turn.managed and self.dds.security_profile != "sros2":
             raise ValueError(
-                "managed TURN credential와 WebRTC signaling에는 sros2 profile이 필요합니다"
+                "managed TURN credentials and WebRTC signaling require the sros2 profile"
             )
         if (
             self.turn.mode == "external"
@@ -591,8 +590,7 @@ class InstallState:
             and "sim" not in self.roles
         ):
             raise ValueError(
-                "external TURN credential file은 Sim 설치 호스트에만 "
-                "배포할 수 있습니다"
+                "an external TURN credential file can only be deployed to the Sim host"
             )
         return self
 
@@ -613,13 +611,13 @@ class InstallState:
         self.validate()
         if self.dds.discovery_mode == "static" and not self.dds.static_peers:
             raise ValueError(
-                "static DDS discovery에는 peer가 필요합니다. "
-                "이전 ZMQ 상태에서 자동으로 Router 주소를 peer로 재사용하지 않습니다"
+                "static DDS discovery requires at least one peer. "
+                "Router addresses from legacy ZMQ state are not reused as peers"
             )
         if self.dds.migrated_security_needs_configuration:
             raise ValueError(
-                "이전 Curve 상태는 SROS2 key로 자동 변환할 수 없습니다. "
-                "SROS2 keystore와 enclave를 명시하십시오"
+                "legacy Curve state cannot be converted automatically to SROS2 keys. "
+                "specify the SROS2 keystore and enclave"
             )
         if (
             self.turn.mode == "external"
@@ -627,8 +625,8 @@ class InstallState:
             and self.turn.credential_path is None
         ):
             raise ValueError(
-                "Sim의 external TURN에는 username/credential JSON file이 "
-                "필요합니다. 이전 상태라면 TURN 자격증명 경로를 다시 지정하십시오"
+                "Sim external TURN requires a username/credential JSON file. "
+                "Re-specify the TURN credential path for legacy state"
             )
         return self
 
@@ -638,8 +636,8 @@ class InstallState:
         self.require_installable_dds()
         if self.dds.managed_security_pending:
             raise ValueError(
-                "managed SROS2 role bundle이 아직 provision되지 않았습니다. "
-                "operator laptop에서 elesim-connections를 실행하십시오"
+                "managed SROS2 role bundle has not been provisioned. "
+                "run elesim-connections on the operator laptop"
             )
         return self
 
@@ -658,7 +656,7 @@ class InstallState:
         source_schema = int(raw.get("schema_version", 0))
         if source_schema not in SUPPORTED_STATE_SCHEMAS:
             raise ValueError(
-                f"설치 상태 schema {source_schema!r}는 지원되지 않습니다; "
+                f"installation state schema {source_schema!r} is unsupported; "
                 f"expected one of {sorted(SUPPORTED_STATE_SCHEMAS)}"
             )
         network_raw = raw.get("network", {})
@@ -681,9 +679,8 @@ class InstallState:
             )
         ):
             raise ValueError(
-                "설치 상태의 network/dds/compute/turn/runtime_text_logs/"
-                "container_network/developer_attachment가 "
-                "object가 아닙니다"
+                "installation state network/dds/compute/turn/runtime_text_logs/"
+                "container_network/developer_attachment must be objects"
             )
 
         network_values = dict(network_raw)
@@ -710,7 +707,7 @@ class InstallState:
         if source_schema < 4:
             security_raw = raw.get("security", {})
             if not isinstance(security_raw, Mapping):
-                raise ValueError("설치 상태의 legacy security가 object가 아닙니다")
+                raise ValueError("legacy security in installation state must be an object")
             legacy_security = str(security_raw.get("mode", "loopback"))
             dds = DdsSettings(
                 # The old Router/advertise addresses are deliberately not peers.
@@ -817,7 +814,7 @@ class InstallState:
         source = default_state_path() if path is None else Path(path).expanduser().resolve()
         raw = json.loads(source.read_text(encoding="utf-8"))
         if not isinstance(raw, Mapping):
-            raise ValueError(f"{source}: 설치 상태가 JSON object가 아닙니다")
+            raise ValueError(f"{source}: installation state must be a JSON object")
         return cls.from_dict(raw)
 
     def save(self, path: str | os.PathLike[str] | None = None) -> Path:
@@ -857,33 +854,39 @@ def _validate_connect_host(host: object, *, name: str) -> None:
         or "/" in value
         or any(character.isspace() for character in value)
     ):
-        raise ValueError(f"{name}가 hostname 또는 IP 형식이 아닙니다: {host!r}")
+        raise ValueError(f"{name} is not a hostname or IP: {host!r}")
     try:
         address = ipaddress.ip_address(unbracketed)
     except ValueError:
         if ":" in unbracketed:
-            raise ValueError(f"{name}에는 port를 포함하지 마십시오: {host!r}")
+            raise ValueError(f"{name} must not include a port: {host!r}")
         return
     if address.is_unspecified:
-        raise ValueError(f"{name}에는 bind 전용 주소 {value!r}를 사용할 수 없습니다")
+        raise ValueError(f"{name} does not accept bind-only address {value!r}")
 
 
 def _validate_identifier(value: object, *, name: str) -> None:
     text = str(value).strip()
     if not text or len(text) > 128 or any(character.isspace() for character in text):
-        raise ValueError(f"{name}은 1..128자의 공백 없는 값이어야 합니다")
+        raise ValueError(
+            f"{name} must be a whitespace-free value of 1..128 characters"
+        )
 
 
 def _validate_source_identity(value: object, *, name: str) -> None:
     text = _bounded_single_line(value, name=name, maximum=255)
     if not text or any(character.isspace() for character in text):
-        raise ValueError(f"{name}은 1..255자의 공백 없는 값이어야 합니다")
+        raise ValueError(
+            f"{name} must be a whitespace-free value of 1..255 characters"
+        )
 
 
 def _bounded_single_line(value: object, *, name: str, maximum: int) -> str:
     text = str(value).strip()
     if len(text) > maximum or "\n" in text or "\r" in text or "\x00" in text:
-        raise ValueError(f"{name}은 {maximum}자 이하의 한 줄 문자열이어야 합니다")
+        raise ValueError(
+            f"{name} must be a single-line string of at most {maximum} characters"
+        )
     return text
 
 

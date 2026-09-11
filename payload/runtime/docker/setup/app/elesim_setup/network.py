@@ -719,7 +719,7 @@ def _configure_interactive(state: InstallState) -> InstallState:
             state.dds.security_profile == "sros2"
             and state.dds.security_provisioning == "managed"
         ):
-            print("SROS2 managed bundle은 elesim-connections에서 교체하십시오.")
+            print("Replace the managed SROS2 bundle with elesim-connections.")
         else:
             security_provisioning = "external"
             security_generation = ""
@@ -820,7 +820,7 @@ def _configure_from_args(state: InstallState, args: argparse.Namespace) -> Insta
         and (args.dds_keystore is not None or args.dds_enclave is not None)
     ):
         raise ValueError(
-            "managed SROS2 bundle은 elesim-connections에서만 교체할 수 있습니다"
+            "managed SROS2 bundles can only be replaced with elesim-connections"
         )
     keystore = (
         state.dds.keystore if args.dds_keystore is None else args.dds_keystore
@@ -1058,15 +1058,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 encoded = str(args.payload).encode("ascii")
                 if len(encoded) > 128 * 1024:
-                    raise ValueError("rollback snapshot payload가 너무 큽니다")
+                    raise ValueError("rollback snapshot payload is too large")
                 decoded = base64.urlsafe_b64decode(encoded)
                 if len(decoded) > 64 * 1024:
-                    raise ValueError("rollback snapshot payload가 너무 큽니다")
+                    raise ValueError("rollback snapshot payload is too large")
                 raw = json.loads(decoded.decode("utf-8"))
             except (UnicodeError, ValueError, json.JSONDecodeError) as exc:
-                raise ValueError("rollback snapshot payload가 유효하지 않습니다") from exc
+                raise ValueError("rollback snapshot payload is invalid") from exc
             if not isinstance(raw, Mapping):
-                raise ValueError("rollback snapshot은 object여야 합니다")
+                raise ValueError("rollback snapshot must be an object")
             restored = InstallState.from_dict(raw).require_installable_dds()
             immutable_before = (
                 state.profile,
@@ -1085,7 +1085,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 restored.install_mode,
             )
             if immutable_after != immutable_before:
-                raise ValueError("rollback snapshot이 설치 경계를 변경하려고 합니다")
+                raise ValueError("rollback snapshot attempts to change the installation boundary")
             _apply_configuration_transaction(state_path, restored)
             print("rollback snapshot restored")
             return 0
@@ -1127,10 +1127,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 else _configure_interactive(state)
             )
             written = _apply_configuration_transaction(state_path, updated)
-            print("갱신된 설정:")
+            print("Updated configuration:")
             for role, path in written.items():
                 print(f"  {role}: {path}")
-            print("실행 중인 프로세스는 새 설정을 읽도록 재시작해야 합니다.")
+            print("Running processes must be restarted to read the new configuration.")
             return 0
         if args.command == "doctor":
             report = NetworkDoctor(
@@ -1148,7 +1148,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0 if report.ok else 1
     except (OSError, RuntimeError, ValueError) as exc:
-        print(f"오류: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 2
     return 2
 
@@ -1184,8 +1184,8 @@ def _apply_configuration_transaction(
         )
         if before != after:
             raise ValueError(
-                "external SROS2 keystore/enclave 변경은 역할별 key view를 "
-                "안전하게 다시 만들기 위해 재설치가 필요합니다"
+                "changing an external SROS2 keystore/enclave requires reinstallation "
+                "to safely rebuild the role-specific key views"
             )
 
     targets = {state_path}
@@ -1223,7 +1223,7 @@ def _snapshot(path: Path) -> tuple[bytes, int] | None:
     if not os.path.lexists(path):
         return None
     if path.is_symlink() or not path.is_file():
-        raise ValueError(f"설정 transaction 대상이 일반 파일이 아닙니다: {path}")
+        raise ValueError(f"configuration transaction target is not a regular file: {path}")
     return path.read_bytes(), stat.S_IMODE(path.stat().st_mode)
 
 

@@ -123,7 +123,7 @@ def _build_context_fingerprint(
     """
 
     if context.is_symlink() or not context.is_dir():
-        raise ValueError(f"image context는 일반 directory여야 합니다: {context}")
+        raise ValueError(f"image context must be a real directory: {context}")
     digest = hashlib.sha256()
     entries = sorted(
         context.rglob("*"),
@@ -133,13 +133,13 @@ def _build_context_fingerprint(
         relative = entry.relative_to(context).as_posix()
         metadata = entry.lstat()
         if stat.S_ISLNK(metadata.st_mode):
-            raise ValueError(f"image context 아래 symlink은 허용되지 않습니다: {entry}")
+            raise ValueError(f"symlinks are not allowed below image context: {entry}")
         if stat.S_ISDIR(metadata.st_mode):
             kind = "directory"
         elif stat.S_ISREG(metadata.st_mode):
             kind = "file"
         else:
-            raise ValueError(f"image context에 지원하지 않는 항목이 있습니다: {entry}")
+            raise ValueError(f"image context contains an unsupported entry: {entry}")
         digest.update(kind.encode("ascii"))
         digest.update(b"\0")
         digest.update(relative.encode("utf-8"))
@@ -319,7 +319,7 @@ class ContainerInstaller:
     ) -> None:
         self.state = state.validate()
         if self.state.install_mode != "container":
-            raise ValueError("ContainerInstaller에는 install_mode=container가 필요합니다")
+            raise ValueError("ContainerInstaller requires install_mode=container")
         self.state_path = (
             self.state.state_path
             if state_path is None
@@ -455,14 +455,14 @@ class ContainerInstaller:
         previous = None if refresh is None else refresh.docker
         if refresh is not None and previous is None:
             raise ValueError(
-                "기존 container 설치 ownership에 Docker namespace가 없습니다"
+                "existing container installation ownership has no Docker namespace"
             )
         if previous is not None and previous.project not in {
             GENERAL_COMPOSE_PROJECT,
             project_name(self._install_uuid),
         }:
             raise ValueError(
-                "기존 Docker project가 현재 EleSim namespace가 아닙니다: "
+                "existing Docker project is not the current EleSim namespace: "
                 f"{previous.project}"
             )
         self._scoped_namespace = refresh is None or (
@@ -496,7 +496,7 @@ class ContainerInstaller:
             fingerprint = self._image_fingerprints[role]
         except KeyError as exc:
             raise RuntimeError(
-                f"image context fingerprint가 준비되지 않았습니다: {role}"
+                f"image context fingerprint is unavailable: {role}"
             ) from exc
         return image_reference(self._install_uuid, role, fingerprint)
 
@@ -576,7 +576,7 @@ class ContainerInstaller:
         else:
             external_paths.append(self.state_path)
             self.log(
-                "[ownership] prefix 밖의 custom state file은 보존합니다: "
+                "[ownership] Preserving custom state file outside the prefix: "
                 f"{self.state_path}"
             )
         if (
@@ -684,17 +684,18 @@ class ContainerInstaller:
             containers, images = validate_docker_ownership(candidate)
         except UninstallSafetyError as exc:
             raise ValueError(
-                "기존 unpinned EleSim 설치를 현재 Docker daemon에 안전하게 "
-                f"연결할 수 없습니다: {exc}"
+                "The existing unpinned EleSim installation cannot be safely "
+                f"attached to the current Docker daemon: {exc}"
             ) from exc
         if containers or images:
             return
         raise ValueError(
-            "기존 unpinned EleSim 설치가 현재 Docker daemon에 속한다는 증거가 "
-            "없습니다. manifest label/Compose 경계가 일치하는 기존 container 또는 "
-            "image가 하나 이상 필요합니다. 한 번도 build하지 않은 legacy 설치도 "
-            "자동 update할 수 없습니다. 기존 Docker context에서 다시 실행하거나 "
-            "소유권을 확인한 뒤 clean uninstall/reinstall 하십시오."
+            "There is no evidence that the existing unpinned EleSim installation "
+            "belongs to the current Docker daemon. At least one existing container "
+            "or image with matching manifest labels and a Compose boundary is "
+            "required. A legacy installation that has never been built cannot be "
+            "updated automatically. Rerun it with the existing Docker context, or "
+            "verify ownership and perform a clean uninstall/reinstall."
         )
 
     def _prepare_manager_roots(self) -> None:
@@ -708,7 +709,7 @@ class ContainerInstaller:
                     metadata.st_mode
                 ):
                     raise ValueError(
-                        f"manager data root는 실제 directory여야 합니다: {path}"
+                        f"manager data root must be a real directory: {path}"
                     )
             else:
                 path.mkdir(mode=0o700)
@@ -719,14 +720,14 @@ class ContainerInstaller:
                 )
             except OSError as exc:
                 raise ValueError(
-                    f"manager data root를 안전하게 열 수 없습니다: {path}"
+                    f"cannot safely open manager data root: {path}"
                 ) from exc
             try:
                 try:
                     os.fchmod(directory_fd, 0o700)
                 except OSError as exc:
                     raise PermissionError(
-                        f"manager data root 권한을 설정할 수 없습니다: {path}"
+                    f"cannot set manager data root permissions: {path}"
                     ) from exc
             finally:
                 os.close(directory_fd)
@@ -746,7 +747,7 @@ class ContainerInstaller:
             if os.path.lexists(path):
                 metadata = os.lstat(path)
                 if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
-                    raise ValueError(f"scoped state root는 실제 directory여야 합니다: {path}")
+                    raise ValueError(f"scoped state root must be a real directory: {path}")
             else:
                 path.mkdir(mode=0o700)
             path.chmod(0o700)
@@ -764,7 +765,7 @@ class ContainerInstaller:
         fallback = self.state.prefix_path / ".runtime-cache"
         for candidate in (legacy, fallback):
             if candidate.is_symlink():
-                raise ValueError(f"runtime cache는 symlink일 수 없습니다: {candidate}")
+                raise ValueError(f"runtime cache must not be a symlink: {candidate}")
         # Once migration selected the fallback, keep using it even if an
         # administrator later repairs the legacy directory. This avoids
         # silently switching away from a warm cache on the next update.
@@ -774,24 +775,25 @@ class ContainerInstaller:
                 for cache_path in (cache_root, cache_root / "genesis"):
                     if cache_path.is_symlink():
                         raise ValueError(
-                            f"runtime cache는 symlink일 수 없습니다: {cache_path}"
+                            f"runtime cache must not be a symlink: {cache_path}"
                         )
                     cache_path.mkdir(mode=0o700, parents=True, exist_ok=True)
                     cache_path.chmod(0o700)
                 if index:
                     self.log(
-                        "[cache] 기존 cache에 쓸 수 없어 새 runtime cache를 사용합니다: "
+                        "[cache] Existing cache is not writable; using a new "
+                        "runtime cache: "
                         f"{cache_root}"
                     )
                 return cache_root
             except (PermissionError, FileExistsError, NotADirectoryError) as exc:
                 if index == len(candidates) - 1:
                     raise PermissionError(
-                        "EleSim runtime cache를 준비할 수 없습니다. "
-                        f"다음 경로의 권한/유형을 확인하십시오: {cache_root}"
+                        "Cannot prepare the EleSim runtime cache. "
+                        f"Check the permissions and type of this path: {cache_root}"
                     ) from exc
                 continue
-        raise RuntimeError("runtime cache 후보가 없습니다")
+        raise RuntimeError("no runtime cache candidate exists")
 
     def _prepare_build_root(self) -> Path:
         """Select a writable generated-context root without adopting links.
@@ -807,7 +809,7 @@ class ContainerInstaller:
         fallback = self.container_root / ".runtime-build"
         for candidate in (legacy, fallback):
             if candidate.is_symlink():
-                raise ValueError(f"image context root는 symlink일 수 없습니다: {candidate}")
+                raise ValueError(f"image context root must not be a symlink: {candidate}")
         candidates = (fallback, legacy) if fallback.exists() else (legacy, fallback)
         for index, candidate in enumerate(candidates):
             try:
@@ -820,7 +822,7 @@ class ContainerInstaller:
                 for child in candidate.iterdir():
                     if child.is_symlink():
                         raise ValueError(
-                            f"image context root 아래 symlink은 허용되지 않습니다: {child}"
+                            f"symlinks are not allowed below the image context root: {child}"
                         )
                     if child.is_dir() and not os.access(
                         child, os.W_OK | os.X_OK, effective_ids=True
@@ -828,17 +830,18 @@ class ContainerInstaller:
                         raise PermissionError(child)
                 if index:
                     self.log(
-                        "[build] 기존 image context에 쓸 수 없어 새 context를 사용합니다: "
+                        "[build] Existing image context is not writable; using "
+                        "a new context: "
                         f"{candidate}"
                     )
                 return candidate
             except (PermissionError, FileExistsError, NotADirectoryError) as exc:
                 if index == len(candidates) - 1:
                     raise PermissionError(
-                        "EleSim image context를 준비할 수 없습니다. "
-                        f"다음 경로의 권한/유형을 확인하십시오: {candidate}"
+                        "Cannot prepare the EleSim image context. "
+                        f"Check the permissions and type of this path: {candidate}"
                     ) from exc
-        raise RuntimeError("image context 후보가 없습니다")
+        raise RuntimeError("No image context candidate exists")
 
     def _validate_source(self) -> None:
         root = self.state.source_path
@@ -881,7 +884,9 @@ class ContainerInstaller:
         missing = [path for path in required if not path.is_file()]
         if missing:
             rendered = "\n".join(f"  - {path}" for path in missing)
-            raise FileNotFoundError(f"컨테이너 설치 소스가 불완전합니다:\n{rendered}")
+            raise FileNotFoundError(
+                f"Container installation source is incomplete:\n{rendered}"
+            )
 
     def _copy_runtime_data(self) -> None:
         root = self.state.source_path
@@ -934,7 +939,7 @@ class ContainerInstaller:
         snapshot = self.container_root / "runtime-snapshot"
         for current in (snapshot, *snapshot.parents):
             if current.is_symlink():
-                raise ValueError(f"runtime snapshot path는 symlink일 수 없습니다: {current}")
+                raise ValueError(f"runtime snapshot path must not be a symlink: {current}")
         _reset_generated_context(snapshot)
         config_root = snapshot / "config"
         data_root = snapshot / "data"
@@ -1041,7 +1046,7 @@ class ContainerInstaller:
         if os.path.lexists(destination):
             metadata = os.lstat(destination)
             if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-                raise ValueError(f"Compose manifest는 일반 파일이어야 합니다: {destination}")
+                raise ValueError(f"Compose manifest must be a regular file: {destination}")
         rendered = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
         with tempfile.NamedTemporaryFile(
             "w", encoding="utf-8", dir=destination.parent,
@@ -1245,7 +1250,7 @@ class ContainerInstaller:
             fingerprint = self._image_fingerprints[image]
         except KeyError as exc:
             raise RuntimeError(
-                f"image context fingerprint가 준비되지 않았습니다: {image}"
+                f"image context fingerprint is unavailable: {image}"
             ) from exc
         labels = {
             DOCKER_INSTALL_UUID_LABEL: self._install_uuid,
@@ -1563,7 +1568,7 @@ class ContainerInstaller:
             # ``prepare_ownership_refresh`` has already checked the exact
             # manifest hash and regular-file shape before this mutation.
             path.unlink()
-            self.log(f"[정리] 이전 role wrapper 제거: {path}")
+            self.log(f"[cleanup] removed previous role wrapper: {path}")
 
     def _write_wrappers(self, refresh: OwnershipRefresh | None = None) -> None:
         self._remove_legacy_role_wrappers(refresh)
@@ -1607,22 +1612,22 @@ class ContainerInstaller:
             + "while (($#)); do\n"
             + "  case $1 in\n"
             + "    --elesim-cuda-visible-devices)\n"
-            + "      (( $# >= 2 )) || { printf 'CUDA_VISIBLE_DEVICES 값이 없습니다.\\n' >&2; exit 64; }\n"
+            + "      (( $# >= 2 )) || { printf 'CUDA_VISIBLE_DEVICES value is missing.\\n' >&2; exit 64; }\n"
             + "      runtime_cuda_visible=$2\n"
             + "      if [[ -n $runtime_cuda_visible && ! $runtime_cuda_visible =~ ^([0-9]{1,6}|GPU-[A-Za-z0-9_-]{1,124}|MIG-GPU-[A-Za-z0-9_-]{1,116}/[0-9]+/[0-9]+)$ ]]; then\n"
-            + "        printf 'CUDA_VISIBLE_DEVICES 값이 올바르지 않습니다.\\n' >&2\n"
+            + "        printf 'CUDA_VISIBLE_DEVICES value is invalid.\\n' >&2\n"
             + "        exit 64\n"
             + "      fi\n"
             + "      if [[ $runtime_cuda_visible =~ ^[0-9]+$ ]] && (( 10#$runtime_cuda_visible > 65535 )); then\n"
-            + "        printf 'CUDA_VISIBLE_DEVICES 값이 올바르지 않습니다.\\n' >&2\n"
+            + "        printf 'CUDA_VISIBLE_DEVICES value is invalid.\\n' >&2\n"
             + "        exit 64\n"
             + "      fi\n"
             + "      runtime_cuda_visible_set=1\n"
             + "      shift 2\n"
             + "      ;;\n"
             + "    --elesim-sim-viewer)\n"
-            + "      (( $# >= 2 )) || { printf 'Sim viewer 값이 없습니다.\\n' >&2; exit 64; }\n"
-            + "      [[ $2 == 0 || $2 == 1 ]] || { printf 'Sim viewer 값이 올바르지 않습니다.\\n' >&2; exit 64; }\n"
+            + "      (( $# >= 2 )) || { printf 'Sim viewer value is missing.\\n' >&2; exit 64; }\n"
+            + "      [[ $2 == 0 || $2 == 1 ]] || { printf 'Sim viewer value is invalid.\\n' >&2; exit 64; }\n"
             + "      runtime_sim_viewer=$2\n"
             + "      shift 2\n"
             + "      ;;\n"
@@ -1631,7 +1636,7 @@ class ContainerInstaller:
             + "done\n"
             + (
                 "if (( runtime_cuda_visible_set )); then\n"
-                "  printf 'specific GPU 예약은 Compose device_ids가 소유하므로 CUDA_VISIBLE_DEVICES를 다시 지정할 수 없습니다.\n' >&2\n"
+                "  printf 'A specific GPU is selected by Compose device_ids; do not set CUDA_VISIBLE_DEVICES again.\n' >&2\n"
                 "  exit 64\n"
                 "fi\n"
                 if self.state.compute.gpu_mode == "specific"
@@ -1639,7 +1644,7 @@ class ContainerInstaller:
             )
             + (
                 "if (( runtime_cuda_visible_set )); then\n"
-                "  printf 'CPU-only 설치에는 CUDA_VISIBLE_DEVICES를 지정할 수 없습니다. GPU 모드를 다시 구성하십시오.\n' >&2\n"
+                "  printf 'CPU-only installation cannot set CUDA_VISIBLE_DEVICES. Configure GPU mode instead.\n' >&2\n"
                 "  exit 64\n"
                 "fi\n"
                 if self.state.compute.gpu_mode == "cpu"
@@ -1666,7 +1671,7 @@ class ContainerInstaller:
                 "  done\n"
                 "  case $scoped_compose_action in\n"
                 "    kill|pause|pull|push|restart|rm|scale|top|unpause|down)\n"
-                "      printf '%s\\n' 'scoped 설치의 base Compose lifecycle은 사용할 수 없습니다. 등록된 system에는 elesim-instance를 사용하십시오.' >&2\n"
+                "      printf '%s\\n' 'The base Compose lifecycle is unavailable for a scoped installation. Use elesim-instance for a registered system.' >&2\n"
                 "      exit 78\n"
                 "      ;;\n"
                 "    run|exec)\n"
@@ -1675,7 +1680,7 @@ class ContainerInstaller:
                 "        case $scoped_compose_arg in pilot|sim|ui|coturn) scoped_compose_role_target=1 ;; esac\n"
                 "      done\n"
                 "      if (( scoped_compose_role_target )); then\n"
-                "        printf '%s\\n' 'scoped 설치의 base role service에는 직접 명령을 보낼 수 없습니다. 등록된 system에는 elesim-instance를 사용하십시오.' >&2\n"
+                "        printf '%s\\n' 'Direct commands to base role services are unavailable for a scoped installation. Use elesim-instance for a registered system.' >&2\n"
                 "        exit 78\n"
                 "      fi\n"
                 "      ;;\n"
@@ -1689,7 +1694,7 @@ class ContainerInstaller:
                 "        esac\n"
                 "      done\n"
                 "      if (( scoped_compose_role_target || ! scoped_compose_infrastructure_target )); then\n"
-                "        printf '%s\\n' 'scoped 설치의 base Compose lifecycle은 사용할 수 없습니다. 등록된 system에는 elesim-instance를 사용하십시오.' >&2\n"
+                "        printf '%s\\n' 'The base Compose lifecycle is unavailable for a scoped installation. Use elesim-instance for a registered system.' >&2\n"
                 "        exit 78\n"
                 "      fi\n"
                 "      ;;\n"
@@ -1725,14 +1730,14 @@ class ContainerInstaller:
                 "  if (( sidecar_login_status == 78 )); then\n"
                 "    exit \"$sidecar_login_status\"\n"
                 "  fi\n"
-                "  printf 'Tailscale runtime을 준비하지 못했습니다. 연결관리자의 보안 및 실행 준비를 다시 실행하거나 %s login을 실행하십시오.\\n' "
+                "  printf 'Tailscale runtime preparation failed. Run the connection manager security and runtime preparation again, or run %s login.\\n' "
                 f"{tailscale_wrapper} >&2\n"
                 "  exit \"$sidecar_login_status\"\n"
                 "fi\n"
                 "sidecar_status_json=\n"
                 f"if ! sidecar_status_json=\"$({tailscale_wrapper} status --json "
                 "2>/dev/null)\"; then\n"
-                "  printf 'Tailscale runtime 상태를 확인할 수 없습니다. 연결관리자의 보안 및 실행 준비를 실행하거나 %s login을 실행하십시오.\\n' "
+                "  printf 'Cannot determine Tailscale runtime state. Run the connection manager security and runtime preparation, or run %s login.\\n' "
                 f"{tailscale_wrapper} >&2\n"
                 "  exit 75\n"
                 "fi\n"
@@ -1740,7 +1745,7 @@ class ContainerInstaller:
                 "sed -n 's/.*\"BackendState\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1)\"\n"
                 "sidecar_backend_state_lower=\"$(printf '%s\\n' \"$sidecar_backend_state\" | tr '[:upper:]' '[:lower:]')\"\n"
                 "if [[ $sidecar_backend_state_lower != running ]]; then\n"
-                "  printf 'Tailscale runtime 로그인이 필요합니다 (상태: %s). 연결관리자의 보안 및 실행 준비를 실행하거나 %s login을 실행하십시오.\\n' "
+                "  printf 'Tailscale runtime login is required (state: %s). Run the connection manager security and runtime preparation, or run %s login.\\n' "
                 '"${sidecar_backend_state:-unknown}" '
                 f"{tailscale_wrapper} >&2\n"
                 "  exit 75\n"
@@ -1781,7 +1786,7 @@ class ContainerInstaller:
                     "    exit 64\n"
                     "  fi\n"
                     "  if [[ ! $instance_remove_system =~ ^[a-z][a-z0-9_]{0,62}$ ]]; then\n"
-                    "    printf 'system ID가 올바르지 않습니다: %s\\n' \"$instance_remove_system\" >&2\n"
+                    "    printf 'Invalid system ID: %s\\n' \"$instance_remove_system\" >&2\n"
                     "    exit 64\n"
                     "  fi\n"
                     f"  exec {shlex.quote(str(self.state.bin_path / 'elesim-instance'))} \"$instance_remove_system\" remove\n"
@@ -1911,7 +1916,7 @@ class ContainerInstaller:
             # instance registration plus namespace checks instead.
             + (
                 "if [[ ${1:-} == configure || ${1:-} == restore-snapshot ]]; then\n"
-                "  printf '%s\\n' 'scoped 설치에서는 install-wide elesim-net 변경 작업을 사용할 수 없습니다.' >&2\n"
+                "  printf '%s\\n' 'Install-wide elesim-net changes are unavailable for a scoped installation.' >&2\n"
                 "  exit 78\n"
                 "fi\n"
                 if self._scoped_namespace
@@ -1968,7 +1973,7 @@ class ContainerInstaller:
             + "    tools_real_image_tags=\"${tools_image_tags//<none>:<none>/}\"\n"
             + "    tools_image_install_uuid=\"$(docker image inspect \"$tools_previous_image_id\" --format '{{if .Config.Labels}}{{index .Config.Labels \"io.elesim.install_uuid\"}}{{end}}' 2>/dev/null || true)\"\n"
             + "    if [[ ! $tools_real_image_tags =~ [^[:space:]] && $tools_image_install_uuid == \"$expected_tools_install_uuid\" ]] && [[ -z \"$(docker ps -aq --filter \"ancestor=$tools_previous_image_id\" 2>/dev/null || true)\" ]]; then\n"
-            + "      docker image rm \"$tools_previous_image_id\" >/dev/null || printf '[elesim-net] 이전 tools image 정리 실패: %s\\n' \"$tools_previous_image_id\" >&2\n"
+            + "      docker image rm \"$tools_previous_image_id\" >/dev/null || printf '[elesim-net] Failed to remove the previous tools image: %s\\n' \"$tools_previous_image_id\" >&2\n"
             + "    fi\n"
             + "  fi\n"
             + "fi\n"
@@ -2286,7 +2291,7 @@ class ContainerInstaller:
             metadata = os.lstat(secrets_root)
             if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
                 raise ValueError(
-                    "Tailscale state path는 실제 directory여야 합니다: "
+                    "Tailscale state path must be a real directory: "
                     f"{secrets_root}"
                 )
         else:
@@ -2298,14 +2303,14 @@ class ContainerInstaller:
             )
         except OSError as exc:
             raise ValueError(
-                f"Tailscale state path를 안전하게 열 수 없습니다: {secrets_root}"
+                f"Cannot safely open the Tailscale state path: {secrets_root}"
             ) from exc
         try:
             try:
                 os.fchmod(secrets_fd, 0o700)
             except OSError as exc:
                 raise PermissionError(
-                    f"Tailscale secrets root 권한을 설정할 수 없습니다: {secrets_root}"
+                    f"Cannot set permissions on the Tailscale secrets root: {secrets_root}"
                 ) from exc
             try:
                 child_metadata = os.stat(
@@ -2324,7 +2329,7 @@ class ContainerInstaller:
                 child_metadata.st_mode
             ):
                 raise ValueError(
-                    f"Tailscale state path는 실제 directory여야 합니다: {state_path}"
+                    f"Tailscale state path must be a real directory: {state_path}"
                 )
             try:
                 state_fd = os.open(
@@ -2334,14 +2339,14 @@ class ContainerInstaller:
                 )
             except OSError as exc:
                 raise ValueError(
-                    f"Tailscale state path를 안전하게 열 수 없습니다: {state_path}"
+                    f"Cannot safely open the Tailscale state path: {state_path}"
                 ) from exc
             try:
                 try:
                     os.fchmod(state_fd, 0o700)
                 except OSError as exc:
                     raise PermissionError(
-                        f"Tailscale state directory 권한을 설정할 수 없습니다: {state_path}"
+                        f"Cannot set permissions on the Tailscale state directory: {state_path}"
                     ) from exc
             finally:
                 os.close(state_fd)
@@ -2385,7 +2390,7 @@ def _entrypoint(role: str) -> str:
         command = (
             "viewer_preflight_only=0\n"
             "if [[ ${1:-} == --elesim-viewer-preflight ]]; then\n"
-            "  (( $# == 1 )) || { printf 'Sim Viewer 사전 점검 인자가 올바르지 않습니다.\\n' >&2; exit 64; }\n"
+            "  (( $# == 1 )) || { printf 'Sim Viewer preflight accepts no arguments.\\n' >&2; exit 64; }\n"
             "  viewer_preflight_only=1\n"
             "  shift\n"
             "fi\n"
@@ -2394,7 +2399,7 @@ def _entrypoint(role: str) -> str:
             "  if ! python3 -c 'from pyglet.window import Window; "
             "window = Window(width=1, height=1, visible=False); "
             "window.switch_to(); window.close()'; then\n"
-            "    printf 'Sim 컨테이너가 DISPLAY의 X11/GL context를 열 수 없습니다: %s\\n' \"${DISPLAY:-unset}\" >&2\n"
+            "    printf 'Sim container cannot open the X11/GL context for DISPLAY: %s\\n' \"${DISPLAY:-unset}\" >&2\n"
             "    exit 69\n"
             "  fi\n"
             "  if (( viewer_preflight_only )); then\n"
@@ -2402,7 +2407,7 @@ def _entrypoint(role: str) -> str:
             "  fi\n"
             "  sim_args+=(--viewer)\n"
             "elif (( viewer_preflight_only )); then\n"
-            "  printf 'Sim Viewer 사전 점검에는 ELESIM_SIM_VIEWER=1이 필요합니다.\\n' >&2\n"
+            "  printf 'Sim Viewer preflight requires ELESIM_SIM_VIEWER=1.\\n' >&2\n"
             "  exit 64\n"
             "fi\n"
             "exec "
@@ -2429,8 +2434,8 @@ def _chmod_private_file(path: Path, label: str) -> None:
         path.chmod(0o600)
     except OSError as exc:
         raise PermissionError(
-            f"{label} 파일 권한을 설정할 수 없습니다. "
-            f"설치 소유 사용자가 파일을 쓸 수 있는지 확인하십시오: {path}"
+            f"Cannot set permissions on {label}. "
+            f"Ensure the installation owner can write the file: {path}"
         ) from exc
 
 
@@ -2441,15 +2446,15 @@ def _reset_generated_context(context: Path) -> None:
         return
     metadata = os.lstat(context)
     if stat.S_ISLNK(metadata.st_mode):
-        raise ValueError(f"generated image context는 symlink일 수 없습니다: {context}")
+        raise ValueError(f"generated image context must not be a symlink: {context}")
     if not stat.S_ISDIR(metadata.st_mode):
-        raise ValueError(f"generated image context는 directory여야 합니다: {context}")
+        raise ValueError(f"generated image context must be a directory: {context}")
     try:
         shutil.rmtree(context)
     except PermissionError as exc:
         raise PermissionError(
-            "기존 image context를 교체할 권한이 없습니다. "
-            f"root 소유의 이전 context를 보존하려면 다시 일반 사용자 설치 경로를 확인하십시오: {context}"
+            "Permission denied while replacing the existing image context. "
+            f"To preserve the root-owned context, rerun the installation as a regular user: {context}"
         ) from exc
 
 
@@ -2457,13 +2462,13 @@ def _reject_source_symlinks(source: Path) -> None:
     """Reject source links before ``copytree`` can follow them externally."""
 
     if source.is_symlink():
-        raise ValueError(f"설치 소스는 symlink일 수 없습니다: {source}")
+        raise ValueError(f"installation source must not be a symlink: {source}")
     for directory, names, files in os.walk(source, followlinks=False):
         for name in (*names, *files):
             path = Path(directory) / name
             if path.is_symlink():
                 raise ValueError(
-                    "설치 소스 image context 안의 symlink는 허용되지 않습니다: "
+                    "Symlinks are not allowed inside the installation source image context: "
                     f"{path}"
                 )
 
@@ -2523,11 +2528,11 @@ def _docker_backend_guard(settings: ContainerNetworkSettings) -> str:
         "  sleep 0.2\n"
         "done\n"
         "if [[ -z $actual_docker_engine_id ]]; then\n"
-        "  printf '설치에 고정된 Docker daemon에 연결할 수 없습니다: context=%s\\n' \"$expected_docker_context\" >&2\n"
+        "  printf 'Unable to connect to the Docker daemon pinned for this installation: context=%s\\n' \"$expected_docker_context\" >&2\n"
         "  exit 78\n"
         "fi\n"
         "if [[ $actual_docker_engine_id != \"$expected_docker_engine_id\" ]]; then\n"
-        "  printf '설치에 고정된 Docker daemon과 현재 daemon이 다릅니다.\\n' >&2\n"
+        "  printf 'The current Docker daemon differs from the one pinned for this installation.\\n' >&2\n"
         "  printf '  expected: context=%s engine=%s\\n' \"$expected_docker_context\" \"$expected_docker_engine_id\" >&2\n"
         "  printf '  actual:   context=%s engine=%s\\n' \"$DOCKER_CONTEXT\" \"${actual_docker_engine_id:-unknown}\" >&2\n"
         "  exit 78\n"
@@ -2575,8 +2580,8 @@ def _scoped_lifecycle_refusal(*, instance_command: str) -> str:
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
-        "printf '%s\\n' '이 scoped 설치에는 전역 runtime이 없습니다. 등록된 system을 대상으로 elesim-instance <system> <up|down|logs|status>를 사용하십시오.' >&2\n"
-        "printf '예: %s alpha up\\n' "
+        "printf '%s\\n' 'This scoped installation has no global runtime. Use elesim-instance <system> <up|down|logs|status> for a registered system.' >&2\n"
+        "printf 'Example: %s alpha up\\n' "
         + shlex.quote(instance_command)
         + " >&2\n"
         "exit 64\n"
@@ -2605,7 +2610,7 @@ def _scoped_instance_dispatcher(
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         "umask 077\n"
-        "usage() { printf '사용법: elesim-instance <system> <up|down|logs|status|remove> [옵션]\\n' >&2; exit 64; }\n"
+        "usage() { printf 'Usage: elesim-instance <system> <up|down|logs|status|remove> [options]\\n' >&2; exit 64; }\n"
         "if (( $# < 2 )); then usage; fi\n"
         "if [[ $1 == --system=* ]]; then\n"
         "  (( $# >= 2 )) || usage\n"
@@ -2623,12 +2628,12 @@ def _scoped_instance_dispatcher(
         "  shift 2\n"
         "fi\n"
         "if [[ ! $instance_system =~ ^[a-z][a-z0-9_]{0,62}$ ]]; then\n"
-        "  printf 'system ID가 올바르지 않습니다: %s\\n' \"$instance_system\" >&2\n"
+        "  printf 'System ID is invalid: %s\\n' \"$instance_system\" >&2\n"
         "  exit 64\n"
         "fi\n"
         "case $instance_action in\n"
         "  up|down|logs|status|remove) ;;\n"
-        "  *) printf '지원하지 않는 instance 작업입니다: %s\\n' \"$instance_action\" >&2; exit 64 ;;\n"
+        "  *) printf 'Unsupported instance action: %s\\n' \"$instance_action\" >&2; exit 64 ;;\n"
         "esac\n"
         f"instance_registry={root}\n"
         "instance_root=$instance_registry/$instance_system\n"
@@ -2638,7 +2643,7 @@ def _scoped_instance_dispatcher(
         "  local instance_path=$1\n"
         "  while [[ $instance_path != / && -n $instance_path ]]; do\n"
         "    if [[ -L $instance_path ]]; then\n"
-        "      printf 'instance 경로에 symlink가 있어 중단합니다: %s\\n' \"$instance_path\" >&2\n"
+        "      printf 'Instance path contains a symlink; aborting: %s\\n' \"$instance_path\" >&2\n"
         "      exit 78\n"
         "    fi\n"
         "    instance_path=${instance_path%/*}\n"
@@ -2648,20 +2653,20 @@ def _scoped_instance_dispatcher(
         "  reject_symlink_path \"$instance_path\"\n"
         "done\n"
         "if [[ ! -d $instance_root || ! -f $instance_state ]]; then\n"
-        "  printf '등록되지 않은 instance입니다: %s\\n' \"$instance_system\" >&2\n"
-        "  printf '먼저 release instance를 등록하십시오.\\n' >&2\n"
+        "  printf 'Unregistered instance: %s\\n' \"$instance_system\" >&2\n"
+        "  printf 'Register the release instance first.\\n' >&2\n"
         "  exit 3\n"
         "fi\n"
         "if [[ $(stat -c %s -- \"$instance_state\" 2>/dev/null || printf 0) -gt 1048576 ]]; then\n"
-        "  printf 'instance state가 허용 크기를 넘습니다: %s\n' \"$instance_state\" >&2\n"
+        "  printf 'Instance state exceeds the maximum allowed size: %s\n' \"$instance_state\" >&2\n"
         "  exit 78\n"
         "fi\n"
         "registered_system=$(python3 -B -S -c 'import json,sys; value=json.load(open(sys.argv[1], encoding=\"utf-8\")); print(value.get(\"system_id\", \"\") if isinstance(value, dict) else \"\")' \"$instance_state\" 2>/dev/null) || {\n"
-        "  printf 'instance state를 검증할 수 없습니다: %s\n' \"$instance_state\" >&2\n"
+        "  printf 'Unable to validate instance state: %s\n' \"$instance_state\" >&2\n"
         "  exit 78\n"
         "}\n"
         "if [[ $registered_system != \"$instance_system\" ]]; then\n"
-        "  printf 'instance directory와 state system ID가 다릅니다: %s\n' \"$instance_system\" >&2\n"
+        "  printf 'Instance directory and state system ID differ: %s\n' \"$instance_system\" >&2\n"
         "  exit 78\n"
         "fi\n"
         + (
@@ -2687,7 +2692,7 @@ def _scoped_instance_dispatcher(
             )
             + "fi\n"
             + "if [[ ! -x $instance_wrapper ]]; then\n"
-            + "  printf '등록된 instance wrapper가 없습니다: %s\\n' \"$instance_system\" >&2; exit 3\n"
+            + "  printf 'Registered instance wrapper is missing: %s\\n' \"$instance_system\" >&2; exit 3\n"
             + "fi\n"
             + "exec \"$instance_wrapper\" \"$@\"\n"
         )
@@ -2746,20 +2751,20 @@ def _manager_wrapper(
             "  manager_arg=\"${manager_input[$manager_index]}\"\n"
             "  case \"$manager_arg\" in\n"
             "    --system=*)\n"
-            "      if [[ -n $manager_system ]]; then printf '연결관리자 --system은 한 번만 지정하십시오.\\n' >&2; exit 2; fi\n"
+            "      if [[ -n $manager_system ]]; then printf 'connection manager --system may be specified only once.\\n' >&2; exit 2; fi\n"
             "      manager_system=\"${manager_arg#--system=}\"\n"
             "      ;;\n"
             "    --system)\n"
-            "      if (( manager_index + 1 >= ${#manager_input[@]} )); then printf '연결관리자 --system 값이 없습니다.\\n' >&2; exit 2; fi\n"
+            "      if (( manager_index + 1 >= ${#manager_input[@]} )); then printf 'connection manager --system value is missing.\\n' >&2; exit 2; fi\n"
             "      manager_index=$((manager_index + 1))\n"
-            "      if [[ -n $manager_system ]]; then printf '연결관리자 --system은 한 번만 지정하십시오.\\n' >&2; exit 2; fi\n"
+            "      if [[ -n $manager_system ]]; then printf 'connection manager --system may be specified only once.\\n' >&2; exit 2; fi\n"
             "      manager_system=\"${manager_input[$manager_index]}\"\n"
             "      ;;\n"
             "    *) manager_args+=(\"$manager_arg\") ;;\n"
             "  esac\n"
             "done\n"
             "if [[ ! $manager_system =~ ^[a-z][a-z0-9_]{0,62}$ ]]; then\n"
-            "  printf '연결관리자 --system은 소문자 시스템 ID여야 합니다: %s\\n' \"$manager_system\" >&2\n"
+            "  printf 'connection manager --system must be a lowercase system ID: %s\\n' \"$manager_system\" >&2\n"
             "  exit 2\n"
             "fi\n"
             f"manager_container=elesim-{install_scope}-manager-$manager_system\n"
@@ -2853,7 +2858,7 @@ def _manager_wrapper(
         "    --port=*) manager_port=\"${manager_args[$manager_index]#--port=}\"; manager_port_explicit=1 ;;\n"
         "    --port)\n"
         "      if (( manager_index + 1 >= ${#manager_args[@]} )); then\n"
-        "        printf '연결관리자 --port 값이 없습니다.\\n' >&2\n"
+        "        printf 'connection manager --port value is missing.\\n' >&2\n"
         "        exit 2\n"
         "      fi\n"
         "      manager_index=$((manager_index + 1))\n"
@@ -2869,14 +2874,14 @@ def _manager_wrapper(
         "  while (exec 3<>\"/dev/tcp/127.0.0.1/$manager_port\") >/dev/null 2>&1; do\n"
         "    (( manager_port_attempts += 1 ))\n"
         "    if (( manager_port_attempts >= 16384 || manager_port >= 65535 )); then\n"
-        "      printf '연결관리자에 사용할 loopback port를 확보하지 못했습니다.\n' >&2\n"
+        "      printf 'Unable to obtain a loopback port for the connection manager.\n' >&2\n"
         "      exit 98\n"
         "    fi\n"
         "    (( manager_port += 1 ))\n"
         "  done\n"
         "fi\n"
         "if [[ ! $manager_port =~ ^[0-9]+$ || $manager_port -lt 1 || $manager_port -gt 65535 ]]; then\n"
-        "  printf '연결관리자 port가 유효하지 않습니다: %s\\n' \"$manager_port\" >&2\n"
+        "  printf 'Invalid connection manager port: %s\\n' \"$manager_port\" >&2\n"
         "  exit 2\n"
         "fi\n"
         # Always give the container the exact port that was published on the
@@ -2984,7 +2989,7 @@ def _tailscale_wrapper(
         + "    if (( $# == 2 )) && [[ $2 == --if-needed ]]; then\n"
         + "      login_if_needed=1\n"
         + "    elif (( $# != 1 )); then\n"
-        + "      printf '사용법: elesim-tailscale login [--if-needed]\\n' >&2\n"
+        + "      printf 'Usage: elesim-tailscale login [--if-needed]\\n' >&2\n"
         + "      exit 64\n"
         + "    fi\n"
         + "    \"${tailscale_compose[@]}\" up -d --no-deps tailscale\n"
@@ -3006,7 +3011,7 @@ def _tailscale_wrapper(
         + "      sleep 0.25\n"
         + "    done\n"
         + "    if (( ! sidecar_ready )); then\n"
-        + "      printf 'Tailscale sidecar daemon이 준비되지 않았습니다.\\n' >&2\n"
+        + "      printf 'Tailscale sidecar daemon is not ready.\\n' >&2\n"
         + "      exit 75\n"
         + "    fi\n"
         + "    login_backend_state_lower=\"$(printf '%s\\n' \"$login_backend_state\" | tr '[:upper:]' '[:lower:]')\"\n"
@@ -3021,12 +3026,12 @@ def _tailscale_wrapper(
         + "        ;;\n"
         + "      needslogin|nostate)\n"
         + "        if (( login_if_needed )); then\n"
-        + "          printf 'Tailscale sidecar 로그인이 필요합니다. 먼저 elesim-tailscale login을 실행하십시오.\\n' >&2\n"
+        + "          printf 'Tailscale sidecar login is required. Run elesim-tailscale login first.\\n' >&2\n"
         + "          exit 75\n"
         + "        fi\n"
         + "        ;;\n"
         + "      *)\n"
-        + "        printf 'Tailscale sidecar가 로그인 가능한 상태가 아닙니다: %s\\n' \"${login_backend_state:-unknown}\" >&2\n"
+        + "        printf 'Tailscale sidecar is not in a login-capable state: %s\\n' \"${login_backend_state:-unknown}\" >&2\n"
         + "        exit 75\n"
         + "        ;;\n"
         + "    esac\n"
@@ -3066,7 +3071,7 @@ def _tailscale_wrapper(
         + "      wait \"$heartbeat_child\" || true\n"
         + "      heartbeat_child=\n"
         + "      if kill -0 \"$login_child\" >/dev/null 2>&1; then\n"
-        + "        login_wait_message='[elesim-tailscale] 브라우저 로그인을 기다리는 중...'\n"
+        + "        login_wait_message='[elesim-tailscale] Waiting for browser login...'\n"
         + "        if [[ $last_login_message != \"$login_wait_message\" ]]; then\n"
         + "          printf '%s\\n' \"$login_wait_message\" >&2\n"
         + "          last_login_message=$login_wait_message\n"
@@ -3083,7 +3088,7 @@ def _tailscale_wrapper(
         + "    ;;\n"
         + "  status)\n"
         + "    if (( $# > 2 )) || (( $# == 2 )) && [[ $2 != --json ]]; then\n"
-        + "      printf '사용법: elesim-tailscale status [--json]\\n' >&2\n"
+        + "      printf 'Usage: elesim-tailscale status [--json]\\n' >&2\n"
         + "      exit 64\n"
         + "    fi\n"
         + "    if ! sidecar_id=\"$(\"${tailscale_compose[@]}\" ps -q tailscale 2>/dev/null)\" || [[ -z $sidecar_id ]]; then\n"
@@ -3102,12 +3107,12 @@ def _tailscale_wrapper(
         + "    ;;\n"
         + "  update)\n"
         + "    if (( $# != 1 )); then\n"
-        + "      printf '사용법: elesim-tailscale update\\n' >&2\n"
+        + "      printf 'Usage: elesim-tailscale update\\n' >&2\n"
         + "      exit 64\n"
         + "    fi\n"
         + "    sidecar_id=\n"
         + "    if ! sidecar_id=\"$(\"${tailscale_compose[@]}\" ps --status running -q tailscale 2>/dev/null)\"; then\n"
-        + "      printf 'Tailscale sidecar 실행 상태를 확인하지 못했습니다. Docker backend와 설치 소유권을 확인하십시오.\\n' >&2\n"
+        + "      printf 'Unable to determine Tailscale sidecar run state. Check the Docker backend and installation ownership.\\n' >&2\n"
         + "      exit 75\n"
         + "    fi\n"
         + "    sidecar_running=0\n"
@@ -3120,16 +3125,16 @@ def _tailscale_wrapper(
         + "    for service in \"${tailscale_runtime_services[@]}\"; do\n"
         + "      service_id=\n"
         + "      if ! service_id=\"$(\"${tailscale_compose[@]}\" ps --status running -q \"$service\" 2>/dev/null)\"; then\n"
-        + "        printf 'Tailscale namespace 서비스 실행 상태를 확인하지 못했습니다: %s\\n' \"$service\" >&2\n"
+        + "        printf 'Unable to determine Tailscale namespace service run state: %s\\n' \"$service\" >&2\n"
         + "        exit 75\n"
         + "      fi\n"
         + "      [[ -n $service_id ]] && running_services+=(\"$service\")\n"
         + "    done\n"
         + "    if (( ! sidecar_running && ${#running_services[@]} )); then\n"
-        + "      printf 'Tailscale sidecar 없이 실행 중인 namespace 서비스가 있어 업데이트를 거부합니다.\\n' >&2\n"
+        + "      printf 'Cannot update: a namespace service is running without the Tailscale sidecar.\\n' >&2\n"
         + "      exit 75\n"
         + "    fi\n"
-        + "    printf '%s\\n' '[elesim-tailscale] 공식 stable Tailscale 이미지를 가져오는 중...'\n"
+        + "    printf '%s\\n' '[elesim-tailscale] Pulling the official stable Tailscale image...'\n"
         + "    \"${tailscale_compose[@]}\" pull tailscale\n"
         + "    if (( sidecar_running )); then\n"
         + "      if (( ${#running_services[@]} )); then\n"
@@ -3153,11 +3158,11 @@ def _tailscale_wrapper(
         + "      sleep 0.25\n"
         + "    done\n"
         + "    if (( ! sidecar_ready )); then\n"
-        + "      printf 'Tailscale sidecar daemon이 업데이트 후 준비되지 않았습니다.\\n' >&2\n"
+        + "      printf 'Tailscale sidecar daemon is not ready after the update.\\n' >&2\n"
         + "      exit 75\n"
         + "    fi\n"
         + "    if (( ${#running_services[@]} )) && [[ $sidecar_backend_state_lower != running ]]; then\n"
-        + "      printf 'Tailscale sidecar가 로그인되지 않아 기존 namespace 서비스를 다시 연결하지 않았습니다 (상태: %s). 먼저 elesim-tailscale login을 실행하십시오.\\n' \"${sidecar_backend_state:-unknown}\" >&2\n"
+        + "      printf 'The existing namespace services were not reconnected because the Tailscale sidecar is not logged in (state: %s). Run elesim-tailscale login first.\\n' \"${sidecar_backend_state:-unknown}\" >&2\n"
         + "      exit 75\n"
         + "    fi\n"
         + "    if (( ${#running_services[@]} )); then\n"
@@ -3165,14 +3170,14 @@ def _tailscale_wrapper(
         + "    fi\n"
         + "    current_version=\"$(\"${tailscale_compose[@]}\" exec -T tailscale tailscale --socket=/tmp/tailscaled.sock version 2>/dev/null | head -n1 || true)\"\n"
         + "    if [[ -n $previous_version && $previous_version == \"$current_version\" ]]; then\n"
-        + "      printf '[elesim-tailscale] 이미 최신 stable 버전입니다: %s\\n' \"$current_version\"\n"
+        + "      printf '[elesim-tailscale] Already using the latest stable version: %s\\n' \"$current_version\"\n"
         + "    else\n"
-        + "      printf '[elesim-tailscale] sidecar 업데이트 완료: %s -> %s\\n' \"${previous_version:-not-running}\" \"${current_version:-unknown}\"\n"
+        + "      printf '[elesim-tailscale] sidecar update completed: %s -> %s\\n' \"${previous_version:-not-running}\" \"${current_version:-unknown}\"\n"
         + "    fi\n"
-        + "    printf '%s\\n' '[elesim-tailscale] 기존에 실행 중이던 namespace 서비스만 다시 연결했습니다.'\n"
+        + "    printf '%s\\n' '[elesim-tailscale] Reconnected only the namespace services that were already running.'\n"
         + "    ;;\n"
         + "  *)\n"
-        + "    printf '사용법: elesim-tailscale {login [--if-needed]|status [--json]|update}\\n' >&2\n"
+        + "    printf 'Usage: elesim-tailscale {login [--if-needed]|status [--json]|update}\\n' >&2\n"
         + "    exit 64\n"
         + "    ;;\n"
         + "esac\n"
@@ -3231,7 +3236,7 @@ def _viewer_xhost_function(
         "  local state_parent=\"${viewer_xhost_state%/*}\"\n"
         "  if [[ -d \"$state_parent\" && ! -w \"$state_parent\" ]]; then\n"
         "    viewer_xhost_state=\"$viewer_xhost_fallback\"\n"
-        "    printf '기존 X11 상태 경로에 쓸 수 없어 임시 경로를 사용합니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
+        "    printf 'The existing X11 state path is not writable; using a temporary path: %s\\n' \"$viewer_xhost_state\" >&2\n"
         "  fi\n"
         "}\n"
         "viewer_xhost_select_state\n"
@@ -3245,7 +3250,7 @@ def _viewer_xhost_function(
         "  [[ -n ${ELESIM_VIEWER_USER:-} ]] && viewer_xhost_session_explicit=1\n"
         "  if [[ ! $viewer_xhost_session_user =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,31}$ ]]; then\n"
         "    if (( viewer_xhost_session_explicit )); then\n"
-        "      printf 'Viewer 대상 SSH 사용자 이름을 확인할 수 없습니다: %s\\n' \"$viewer_xhost_session_user\" >&2\n"
+        "      printf 'Cannot determine the Viewer SSH username: %s\\n' \"$viewer_xhost_session_user\" >&2\n"
         "      return 64\n"
         "    fi\n"
         "    viewer_xhost_session_user=viewer\n"
@@ -3254,7 +3259,7 @@ def _viewer_xhost_function(
         "  if (( viewer_xhost_session_explicit )); then\n"
         "    viewer_xhost_session_uid=\"$(id -u \"$viewer_xhost_session_user\" 2>/dev/null || true)\"\n"
         "    if [[ ! $viewer_xhost_session_uid =~ ^[0-9]+$ ]]; then\n"
-        "      printf 'Viewer 대상 SSH 사용자를 호스트에서 찾을 수 없습니다: %s\\n' \"$viewer_xhost_session_user\" >&2\n"
+        "      printf 'Viewer SSH user was not found on the host: %s\\n' \"$viewer_xhost_session_user\" >&2\n"
         "      return 64\n"
         "    fi\n"
         "    if command -v getent >/dev/null 2>&1; then\n"
@@ -3391,7 +3396,7 @@ def _viewer_xhost_function(
         "    fi\n"
         "  done\n"
         "  if [[ -z $best_display ]]; then\n"
-        "    printf 'SSH 사용자 %s(uid=%s)가 소유한 접속 가능한 X11 세션을 찾지 못했습니다.\\n' \"$viewer_xhost_session_user\" \"$viewer_xhost_session_uid\" >&2\n"
+        "    printf 'No accessible X11 session is owned by SSH user %s (uid=%s).\\n' \"$viewer_xhost_session_user\" \"$viewer_xhost_session_uid\" >&2\n"
         "    return 64\n"
         "  fi\n"
         "  # Keep the first candidate for an equal-ranked tie.  DISPLAY from\n"
@@ -3408,21 +3413,21 @@ def _viewer_xhost_function(
         "viewer_xhost_validate_state() {\n"
         "  local checked_state=$1\n"
         "  if [[ ! -f $checked_state || -L $checked_state ]]; then\n"
-        "    printf 'EleSim xhost 상태 파일이 일반 파일이 아닙니다: %s\\n' \"$checked_state\" >&2\n"
+        "    printf 'EleSim xhost state file is not a regular file: %s\\n' \"$checked_state\" >&2\n"
         "    return 74\n"
         "  fi\n"
         "  local state_mode state_uid state_links state_parent parent_mode parent_uid resolved_parent\n"
         "  if ! state_mode=$(stat -c %a -- \"$checked_state\" 2>/dev/null) || ! state_uid=$(stat -c %u -- \"$checked_state\" 2>/dev/null) || ! state_links=$(stat -c %h -- \"$checked_state\" 2>/dev/null); then\n"
-        "    printf 'EleSim xhost 상태 소유권을 확인할 수 없습니다: %s\\n' \"$checked_state\" >&2\n"
+        "    printf 'Unable to inspect EleSim xhost state ownership: %s\\n' \"$checked_state\" >&2\n"
         "    return 74\n"
         "  fi\n"
         "  if [[ $state_uid != \"$viewer_xhost_runtime_uid\" || $state_mode != 600 || $state_links != 1 ]]; then\n"
-        "    printf 'EleSim xhost 상태의 소유자/권한이 안전하지 않습니다: %s\\n' \"$checked_state\" >&2\n"
+        "    printf 'EleSim xhost state has unsafe ownership or permissions: %s\\n' \"$checked_state\" >&2\n"
         "    return 74\n"
         "  fi\n"
         "  state_parent=${checked_state%/*}\n"
         "  if [[ ! -d $state_parent || -L $state_parent ]] || ! resolved_parent=$(realpath -e -- \"$state_parent\" 2>/dev/null) || [[ $resolved_parent != \"$state_parent\" ]] || ! parent_mode=$(stat -c %a -- \"$state_parent\" 2>/dev/null) || ! parent_uid=$(stat -c %u -- \"$state_parent\" 2>/dev/null) || [[ $parent_uid != \"$viewer_xhost_runtime_uid\" || $parent_mode != 700 ]]; then\n"
-        "    printf 'EleSim xhost 상태 디렉터리의 소유자/권한이 안전하지 않습니다: %s\\n' \"$state_parent\" >&2\n"
+        "    printf 'EleSim xhost state directory has unsafe ownership or permissions: %s\\n' \"$state_parent\" >&2\n"
         "    return 74\n"
         "  fi\n"
         "}\n"
@@ -3433,11 +3438,11 @@ def _viewer_xhost_function(
         "  local saved_display=\"\" saved_xauthority=\"\"\n"
         "  { IFS= read -r saved_display || true; IFS= read -r saved_xauthority || true; } <\"$cleanup_state\"\n"
         "  if [[ -z $saved_display ]]; then\n"
-        "    printf 'EleSim xhost 상태에 DISPLAY가 없습니다: %s\\n' \"$cleanup_state\" >&2\n"
+        "    printf 'EleSim xhost state is missing DISPLAY: %s\\n' \"$cleanup_state\" >&2\n"
         "    return 74\n"
         "  fi\n"
         "  if ! command -v xhost >/dev/null 2>&1; then\n"
-        "    printf 'xhost 명령을 찾을 수 없어 X11 권한을 회수할 수 없습니다.\\n' >&2\n"
+        "    printf 'The xhost command is unavailable; cannot revoke X11 permissions.\\n' >&2\n"
         "    return 74\n"
         "  fi\n"
         "  local xhost_status=0\n"
@@ -3447,7 +3452,7 @@ def _viewer_xhost_function(
         "    env -u XAUTHORITY DISPLAY=\"$saved_display\" xhost -si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1 || xhost_status=$?\n"
         "  fi\n"
         "  if (( xhost_status != 0 )); then\n"
-        "    printf 'X11 Viewer 권한 회수 실패; 같은 DISPLAY에서 다시 elesim-down을 실행하십시오: %s\\n' \"$saved_display\" >&2\n"
+        "    printf 'Failed to revoke X11 Viewer permissions; run elesim-down again with DISPLAY %s.\\n' \"$saved_display\" >&2\n"
         "    return \"$xhost_status\"\n"
         "  fi\n"
         "  rm -f -- \"$cleanup_state\"\n"
@@ -3459,7 +3464,7 @@ def _viewer_xhost_function(
         "  local duplicate_display=\"\" duplicate_authority=\"\"\n"
         "  { IFS= read -r duplicate_display || true; IFS= read -r duplicate_authority || true; } <\"$duplicate_state\"\n"
         "  if [[ -z $duplicate_display ]]; then\n"
-        "    printf 'EleSim xhost 상태에 DISPLAY가 없습니다: %s\\n' \"$duplicate_state\" >&2\n"
+        "    printf 'EleSim xhost state is missing DISPLAY: %s\\n' \"$duplicate_state\" >&2\n"
         "    return 74\n"
         "  fi\n"
         "  local duplicate_server=$duplicate_display preserved_server=$preserved_display\n"
@@ -3500,7 +3505,7 @@ def _viewer_xhost_function(
         "}\n"
         "viewer_xhost_enable() {\n"
         "  if ! command -v xhost >/dev/null 2>&1; then\n"
-        "    printf 'xhost 명령을 찾을 수 없어 --view를 실행할 수 없습니다.\\n' >&2\n"
+        "    printf 'The xhost command is unavailable; cannot run --view.\\n' >&2\n"
         "    return 64\n"
         "  fi\n"
         "  viewer_xhost_resolve_session || return $?\n"
@@ -3528,7 +3533,7 @@ def _viewer_xhost_function(
         "  fi\n"
         "  local xhost_list=\"\" had_viewer_user=0\n"
         "  if ! xhost_list=\"$(xhost 2>/dev/null)\"; then\n"
-        "    printf 'DISPLAY에 연결할 수 없어 xhost ACL을 확인할 수 없습니다: %s\\n' \"$display\" >&2\n"
+        "    printf 'Unable to verify the xhost ACL for DISPLAY: %s\\n' \"$display\" >&2\n"
         "    return 64\n"
         "  fi\n"
         "  if grep -Fxq \"SI:localuser:$viewer_xhost_user\" <<<\"$xhost_list\"; then\n"
@@ -3546,14 +3551,14 @@ def _viewer_xhost_function(
         "  local temporary=\"$viewer_xhost_state.tmp.$$\"\n"
         "  if ! mkdir -p -- \"${viewer_xhost_state%/*}\" || ! chmod 0700 -- \"${viewer_xhost_state%/*}\" || ! (umask 077; printf '%s\\n%s\\n' \"$display\" \"${XAUTHORITY:-}\" >\"$temporary\") || ! chmod 0600 -- \"$temporary\" || ! mv -f -- \"$temporary\" \"$viewer_xhost_state\"; then\n"
         "    rm -f -- \"$temporary\"\n"
-        "    printf 'X11 권한 상태를 기록할 수 없습니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
+        "    printf 'Unable to record X11 permissions state: %s\\n' \"$viewer_xhost_state\" >&2\n"
         "    return 74\n"
         "  fi\n"
         "  if ! xhost +si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1; then\n"
         "    # Keep the recovery record.  Although xhost reported failure, it\n"
         "    # may have mutated the server before disconnecting; a later\n"
         "    # explicit cleanup can safely retry the exact removal.\n"
-        "    printf 'X11 Viewer 사용자 권한을 추가할 수 없습니다: %s\\n' \"$display\" >&2\n"
+        "    printf 'Unable to grant X11 Viewer user permissions: %s\\n' \"$display\" >&2\n"
         "    return 64\n"
         "  fi\n"
         "}\n"
@@ -3572,7 +3577,7 @@ def _viewer_cleanup_wrapper(
         "set -euo pipefail\n"
         + _viewer_xhost_function(state_path, xhost_user=xhost_user)
         + "if (( $# != 0 )); then\n"
-        "  printf '사용법: elesim-viewer-cleanup\\n' >&2\n"
+        "  printf 'Usage: elesim-viewer-cleanup\\n' >&2\n"
         "  exit 64\n"
         "fi\n"
         "viewer_xhost_cleanup\n"
@@ -3635,7 +3640,7 @@ def _runtime_up_wrapper(
         else "docker compose"
     ) + " -f " + shlex.quote(str(compose))
     unsupported = (
-        "    printf '이 설치에는 Sim 역할이 없어 --view를 사용할 수 없습니다.\\n' >&2\n"
+        "    printf 'This installation has no Sim role; --view is unavailable.\\n' >&2\n"
         "    exit 64\n"
     )
     view_parse = (
@@ -3651,7 +3656,7 @@ def _runtime_up_wrapper(
         "    --view)\n"
         + (
             "      if (( view_requested )); then\n"
-            "        printf 'elesim-up --view는 한 번만 지정할 수 있습니다.\\n' >&2\n"
+            "        printf 'elesim-up --view may be specified only once.\\n' >&2\n"
             "        exit 64\n"
             "      fi\n"
             "      view_requested=1\n"
@@ -3662,35 +3667,35 @@ def _runtime_up_wrapper(
         "      ;;\n"
         "    --no-build)\n"
         "      if (( no_build_requested )); then\n"
-        "        printf 'elesim-up --no-build는 한 번만 지정할 수 있습니다.\\n' >&2\n"
+        "        printf 'elesim-up --no-build may be specified only once.\\n' >&2\n"
         "        exit 64\n"
         "      fi\n"
         "      no_build_requested=1\n"
         "      shift\n"
         "      ;;\n"
         "    --cuda-visible-devices)\n"
-        "      (( $# >= 2 )) || { printf 'CUDA_VISIBLE_DEVICES 값이 없습니다.\\n' >&2; exit 64; }\n"
+        "      (( $# >= 2 )) || { printf 'CUDA_VISIBLE_DEVICES value is missing.\\n' >&2; exit 64; }\n"
         "      runtime_cuda_visible=$2\n"
         "      if [[ -n $runtime_cuda_visible && ! $runtime_cuda_visible =~ ^([0-9]{1,6}|GPU-[A-Za-z0-9_-]{1,124}|MIG-GPU-[A-Za-z0-9_-]{1,116}/[0-9]+/[0-9]+)$ ]]; then\n"
-        "        printf 'CUDA_VISIBLE_DEVICES 값이 올바르지 않습니다.\\n' >&2\n"
+        "        printf 'CUDA_VISIBLE_DEVICES value is invalid.\\n' >&2\n"
         "        exit 64\n"
         "      fi\n"
         "      if [[ $runtime_cuda_visible =~ ^[0-9]+$ ]] && (( 10#$runtime_cuda_visible > 65535 )); then\n"
-        "        printf 'CUDA_VISIBLE_DEVICES 값이 올바르지 않습니다.\\n' >&2\n"
+        "        printf 'CUDA_VISIBLE_DEVICES value is invalid.\\n' >&2\n"
         "        exit 64\n"
         "      fi\n"
         "      runtime_cuda_visible_set=1\n"
         "      shift 2\n"
         "      ;;\n"
         "    --viewer-user)\n"
-        "      (( $# >= 2 )) || { printf 'Viewer SSH 사용자 이름이 없습니다.\\n' >&2; exit 64; }\n"
+        "      (( $# >= 2 )) || { printf 'Viewer SSH username is missing.\\n' >&2; exit 64; }\n"
         "      if (( runtime_viewer_user_set )); then\n"
-        "        printf 'elesim-up --viewer-user는 한 번만 지정할 수 있습니다.\\n' >&2\n"
+        "        printf 'elesim-up --viewer-user may be specified only once.\\n' >&2\n"
         "        exit 64\n"
         "      fi\n"
         "      runtime_viewer_user=$2\n"
         "      if [[ ! $runtime_viewer_user =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,31}$ ]]; then\n"
-        "        printf 'Viewer SSH 사용자 이름이 올바르지 않습니다.\\n' >&2\n"
+        "        printf 'Invalid Viewer SSH username.\\n' >&2\n"
         "        exit 64\n"
         "      fi\n"
         "      runtime_viewer_user_set=1\n"
@@ -3706,7 +3711,7 @@ def _runtime_up_wrapper(
             f"expected_runtime_uid={shlex.quote(str(runtime_uid))}\n"
             "actual_runtime_uid=\"$(id -u)\"\n"
             "if [[ $actual_runtime_uid != \"$expected_runtime_uid\" ]]; then\n"
-            "  printf '이 설치의 runtime 파일은 UID %s로 생성되었습니다. 현재 UID %s가 아니라 설치 소유 사용자로 실행하십시오.\\n' \"$expected_runtime_uid\" \"$actual_runtime_uid\" >&2\n"
+            "  printf 'The runtime file for this installation was created with UID %s, but the current UID is %s. Run as the installation owner.\\n' \"$expected_runtime_uid\" \"$actual_runtime_uid\" >&2\n"
             "  exit 77\n"
             "fi\n"
             if runtime_uid is not None
@@ -3716,7 +3721,7 @@ def _runtime_up_wrapper(
             "if (( runtime_viewer_user_set )); then\n"
             "  viewer_uid=\"$(id -u \"$runtime_viewer_user\" 2>/dev/null || true)\"\n"
             "  if [[ -z $viewer_uid || $viewer_uid != \"$expected_runtime_uid\" ]]; then\n"
-            "    printf 'Viewer 사용자 %s의 UID가 runtime UID %s와 다릅니다. 설치 소유 사용자로 Viewer를 실행하십시오.\\n' \"$runtime_viewer_user\" \"$expected_runtime_uid\" >&2\n"
+            "    printf 'Viewer user %s has a UID different from runtime UID %s. Run Viewer as the installation owner.\\n' \"$runtime_viewer_user\" \"$expected_runtime_uid\" >&2\n"
             "    exit 77\n"
             "  fi\n"
             "fi\n"
@@ -3725,7 +3730,7 @@ def _runtime_up_wrapper(
         )
         + (
             "if (( runtime_cuda_visible_set )); then\n"
-            "  printf 'specific GPU 예약은 Compose device_ids가 소유하므로 CUDA_VISIBLE_DEVICES를 다시 지정할 수 없습니다.\\n' >&2\n"
+            "  printf 'Specific GPU mode owns the Compose device_ids reservation; do not set CUDA_VISIBLE_DEVICES again.\\n' >&2\n"
             "  exit 64\n"
             "fi\n"
             if runtime_gpu_mode == "specific"
@@ -3733,7 +3738,7 @@ def _runtime_up_wrapper(
         )
         + (
             "if (( runtime_cuda_visible_set )) && [[ -n $runtime_cuda_visible ]]; then\n"
-            "  printf 'CPU-only 설치에는 CUDA_VISIBLE_DEVICES를 지정할 수 없습니다. GPU 모드를 다시 구성하십시오.\\n' >&2\n"
+            "  printf 'CPU-only installation must not set CUDA_VISIBLE_DEVICES. Configure GPU mode instead.\\n' >&2\n"
             "  exit 64\n"
             "fi\n"
             if runtime_gpu_mode == "cpu"
@@ -3748,7 +3753,7 @@ def _runtime_up_wrapper(
         "  unset ELESIM_VIEWER_USER\n"
         "fi\n"
         "if (( runtime_viewer_user_set && ! view_requested )); then\n"
-        "  printf 'elesim-up --viewer-user에는 --view가 필요합니다.\\n' >&2\n"
+        "  printf 'elesim-up --viewer-user requires --view.\\n' >&2\n"
         "  exit 64\n"
         "fi\n"
         "if (( view_requested )); then\n"
@@ -3792,9 +3797,9 @@ def _runtime_up_wrapper(
         + (
             "      coturn) ;;\n"
             if has_sim
-            else "      coturn) printf '이 설치에는 Coturn 서비스가 없습니다.\\n' >&2; exit 64 ;;\n"
+            else "      coturn) printf 'This installation has no Coturn service.\\n' >&2; exit 64 ;;\n"
         )
-        + "      *) printf '지원하지 않는 elesim-up 서비스 인자입니다: %s\\n' \"$argument\" >&2; exit 64 ;;\n"
+        + "      *) printf 'Unsupported elesim-up service argument: %s\\n' \"$argument\" >&2; exit 64 ;;\n"
         "    esac\n"
         "  done\n"
         "fi\n"
@@ -3805,7 +3810,7 @@ def _runtime_up_wrapper(
             "    [[ $argument == sim ]] && viewer_sim_selected=1\n"
             "  done\n"
             "  if (( ! viewer_sim_selected )); then\n"
-            "    printf 'elesim-up --view에는 Sim 서비스가 포함되어야 합니다.\\n' >&2\n"
+            "    printf 'elesim-up --view requires the Sim service.\\n' >&2\n"
             "    exit 64\n"
             "  fi\n"
             "fi\n"
@@ -3838,7 +3843,7 @@ def _runtime_up_wrapper(
         + shlex.quote(str(state_path))
         + "\n"
         "  if [[ ! -f \"$state_path\" || -L \"$state_path\" ]]; then\n"
-        "    printf '설치 상태 파일이 없거나 일반 파일이 아닙니다: %s\\n' \"$state_path\" >&2\n"
+        "    printf 'Installation state file is missing or not a regular file: %s\\n' \"$state_path\" >&2\n"
         "    return 78\n"
         "  fi\n"
         "  local profile\n"
@@ -3849,12 +3854,12 @@ def _runtime_up_wrapper(
         "    :\n"
         "  else\n"
         "    local status=$?\n"
-        "    printf '설치 상태의 DDS 보안 프로필을 읽을 수 없습니다: %s\\n' \"$state_path\" >&2\n"
+        "    printf 'Unable to read the DDS security profile from installation state: %s\\n' \"$state_path\" >&2\n"
         "    return \"$status\"\n"
         "  fi\n"
         "  case \"$profile\" in\n"
         "    sros2|trusted-network) printf '%s' \"$profile\" ;;\n"
-        "    *) printf '알 수 없는 DDS 보안 프로필입니다: %s\\n' \"$profile\" >&2; return 78 ;;\n"
+        "    *) printf 'Unknown DDS security profile: %s\\n' \"$profile\" >&2; return 78 ;;\n"
         "  esac\n"
         "}\n"
         if has_sim
@@ -3876,7 +3881,7 @@ def _runtime_up_wrapper(
         "    esac\n"
         "  done\n"
         "  if (( requested_coturn && ! requested_sim )); then\n"
-        "    printf 'Coturn은 Sim과 함께만 시작할 수 있습니다.\\n' >&2\n"
+        "    printf 'Coturn can only start together with Sim.\\n' >&2\n"
         "    exit 64\n"
         "  fi\n"
         "  if [[ $security_profile == sros2 && requested_sim -eq 1 ]]; then\n"
@@ -3937,7 +3942,7 @@ def _runtime_up_wrapper(
             "    fi\n"
             "  done\n"
             "  if (( runtime_build_required )); then\n"
-            "    printf '%s\\n' '[elesim-up] runtime image 변경을 감지하여 build를 수행합니다.' >&2\n"
+            "    printf '%s\\n' '[elesim-up] Runtime image change detected; building.' >&2\n"
             "  fi\n"
         )
         if normalized_fingerprints
@@ -3965,11 +3970,11 @@ def _runtime_up_wrapper(
             f"    runtime_image_install_uuid=\"$(docker image inspect \"$runtime_image_id\" --format {docker_install_uuid_format} 2>/dev/null || true)\"\n"
             "    [[ $runtime_image_install_uuid == \"$runtime_expected_install_uuid\" ]] || return 0\n"
             "    if [[ -n \"$(docker ps -aq --filter \"ancestor=$runtime_image_id\" 2>/dev/null || true)\" ]]; then\n"
-            "      printf '[elesim-up] 이전 image 보존: %s (기존 컨테이너가 참조 중)\\n' \"$runtime_image_id\" >&2\n"
+            "      printf '[elesim-up] Preserving previous image: %s (an existing container still references it)\\n' \"$runtime_image_id\" >&2\n"
             "      return 0\n"
             "    fi\n"
             "    if ! docker image rm \"$runtime_image_id\" >/dev/null; then\n"
-            "      printf '[elesim-up] 이전 image 정리 실패: %s\\n' \"$runtime_image_id\" >&2\n"
+            "      printf '[elesim-up] Failed to remove previous image: %s\\n' \"$runtime_image_id\" >&2\n"
             "    fi\n"
             "  }\n"
             "  for runtime_previous_image_spec in \"${runtime_previous_image_specs[@]}\"; do\n"
@@ -4001,7 +4006,7 @@ def _runtime_up_wrapper(
         "  viewer_preflight_status=$?\n"
         "  set -e\n"
         "  if (( viewer_preflight_status != 0 )); then\n"
-        "    printf 'Sim Viewer X11/GL 사전 점검에 실패했습니다. 컨테이너를 시작하지 않습니다.\\n' >&2\n"
+        "    printf 'Sim Viewer X11/GL preflight failed; the container will not start.\\n' >&2\n"
         "    if (( viewer_xhost_cleanup_on_failure )); then\n"
         "      viewer_xhost_cleanup || viewer_preflight_status=$?\n"
         "    fi\n"
@@ -4093,41 +4098,41 @@ def _runtime_archive_function(
         f"  local logs_root={shlex.quote(str(logs_root))}\n"
         '  local runs_root="$logs_root/runs"\n'
         '  if ! archive_path_has_no_symlink_ancestor "$logs_root"; then\n'
-        "    printf '로그 archive 경로에 symlink가 포함될 수 없습니다: %s\\n' "
+        "    printf 'Log archive path contains a symlink: %s\\n' "
         '"$logs_root" >&2\n'
         "    return 74\n"
         "  fi\n"
         '  if ! mkdir -p -- "$runs_root"; then\n'
-        "    printf '로그 archive 디렉터리를 만들 수 없습니다: %s\\n' "
+        "    printf 'Unable to create log archive directory: %s\\n' "
         '"$runs_root" >&2\n'
         "    return 74\n"
         "  fi\n"
         '  if ! archive_path_has_no_symlink_ancestor "$logs_root" || '
         '! archive_path_has_no_symlink_ancestor "$runs_root" || '
         '[[ ! -d "$logs_root" || ! -d "$runs_root" ]]; then\n'
-        "    printf '로그 archive 경로가 안전한 디렉터리가 아닙니다: %s\\n' "
+        "    printf 'Log archive path is not a safe directory: %s\\n' "
         '"$runs_root" >&2\n'
         "    return 74\n"
         "  fi\n"
         '  if ! chmod 0700 -- "$logs_root" "$runs_root"; then\n'
-        "    printf '로그 archive 디렉터리 권한을 설정할 수 없습니다: %s\\n' "
+        "    printf 'Unable to set log archive directory permissions: %s\\n' "
         '"$runs_root" >&2\n'
         "    return 74\n"
         "  fi\n"
         "  local timestamp\n"
         "  if ! timestamp=\"$(date -u +%Y%m%dT%H%M%S.%NZ)\"; then\n"
-        "    printf 'UTC 로그 archive timestamp를 만들 수 없습니다.\\n' >&2\n"
+        "    printf 'Unable to create a UTC log archive timestamp.\\n' >&2\n"
         "    return 74\n"
         "  fi\n"
         '  local run_dir="$runs_root/$timestamp"\n'
         '  if [[ -e "$run_dir" || -L "$run_dir" ]] || '
         '! mkdir -- "$run_dir"; then\n'
-        "    printf '고유한 로그 archive 디렉터리를 만들 수 없습니다: %s\\n' "
+        "    printf 'Unable to create unique log archive directory: %s\\n' "
         '"$run_dir" >&2\n'
         "    return 74\n"
         "  fi\n"
         '  if ! chmod 0700 -- "$run_dir"; then\n'
-        "    printf '로그 archive 실행 디렉터리 권한을 설정할 수 없습니다: %s\\n' "
+        "    printf 'Unable to set log archive run directory permissions: %s\\n' "
         '"$run_dir" >&2\n'
         "    return 74\n"
         "  fi\n"
@@ -4141,12 +4146,12 @@ def _runtime_archive_function(
         + shlex.quote(str(compose))
         + ' logs --no-color --timestamps "$service" '
         + '>"$destination" 2>&1; then\n'
-        "      printf '서비스 로그 저장 실패: %s (상세: %s)\\n' "
+        "      printf 'Failed to save service logs: %s (destination: %s)\\n' "
         '"$service" "$destination" >&2\n'
         "      archive_status=74\n"
         "    fi\n"
         '    if ! chmod 0600 -- "$destination"; then\n'
-        "      printf '로그 파일 권한 설정 실패: %s\\n' \"$destination\" >&2\n"
+        "      printf 'Failed to set log file permissions: %s\\n' \"$destination\" >&2\n"
         "      archive_status=74\n"
         "    fi\n"
         "  done\n"
@@ -4168,18 +4173,18 @@ def _runtime_archive_function(
         '      candidate="${generations[index]}"\n'
         '      if [[ -L "$candidate" || ! -d "$candidate" || '
         '"$candidate" != "$runs_root/"* ]]; then\n'
-        "        printf '안전하지 않은 archive 삭제 대상을 건너뜁니다: %s\\n' "
+        "        printf 'Skipping unsafe archive deletion target: %s\\n' "
         '"$candidate" >&2\n'
         "        archive_status=74\n"
         "        continue\n"
         "      fi\n"
         '      if ! rm -rf -- "$candidate"; then\n'
-        "        printf '오래된 로그 archive 삭제 실패: %s\\n' \"$candidate\" >&2\n"
+        "        printf 'Old log archive deletion failed: %s\\n' \"$candidate\" >&2\n"
         "        archive_status=74\n"
         "      fi\n"
         "    done\n"
         "  fi\n"
-        "  printf '로그 archive: %s\\n' \"$run_dir\"\n"
+        "  printf 'Log archive: %s\\n' \"$run_dir\"\n"
         '  return "$archive_status"\n'
         "}\n"
     )
@@ -4239,8 +4244,7 @@ def _runtime_logs_wrapper(
         "  archive_runtime_logs\n"
         if archive_enabled
         else (
-            "  printf '이 설치에서는 runtime text log archive가 비활성화되어 "
-            "있습니다.\\n' >&2\n"
+            "  printf 'Runtime text log archiving is disabled for this installation.\\n' >&2\n"
             "  exit 64\n"
         )
     )
@@ -4253,7 +4257,7 @@ def _runtime_logs_wrapper(
         + _runtime_presence_function(compose=compose, services=services, project=project)
         + "if (( $# == 0 )); then\n"
         + "  if ! runtime_has_role_containers; then\n"
-        + "    printf '실행 중인 EleSim 역할 컨테이너가 없습니다. 먼저 elesim-up을 실행하십시오.\\n' >&2\n"
+        + "    printf 'No running EleSim role container was found. Run elesim-up first.\\n' >&2\n"
         + "    exit 3\n"
         + "  fi\n"
         + "  exec "
@@ -4262,13 +4266,13 @@ def _runtime_logs_wrapper(
         + "fi\n"
         + "if (( $# == 1 )) && [[ $1 == --save ]]; then\n"
         + "  if ! runtime_has_role_containers; then\n"
-        + "    printf '저장할 EleSim 역할 컨테이너가 없습니다. 먼저 elesim-up을 실행하십시오.\\n' >&2\n"
+        + "    printf 'No EleSim role container is available for log saving. Run elesim-up first.\\n' >&2\n"
         + "    exit 3\n"
         + "  fi\n"
         + save_action
         + "  exit $?\n"
         + "fi\n"
-        + "printf '사용법: elesim-logs [--save]\\n' >&2\n"
+        + "printf 'Usage: elesim-logs [--save]\\n' >&2\n"
         + "exit 64\n"
     )
 
@@ -4334,7 +4338,7 @@ def _runtime_down_wrapper(
             "  if runtime_has_role_containers; then\n"
             f"    {command} stop {rendered_services}\n"
             "  else\n"
-            "    printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+            "    printf 'EleSim role container is not running.\\n' >&2\n"
             "  fi\n"
             "  if (( purge_requested )); then\n"
             f"    {command} rm -f -s {rendered_services}\n"
@@ -4349,7 +4353,7 @@ def _runtime_down_wrapper(
         "  elif runtime_has_role_containers; then\n"
         f"    {command} rm -f -s {rendered_services}\n"
         "  else\n"
-        "    printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다. Tailscale sidecar는 유지합니다.\\n' >&2\n"
+        "    printf 'EleSim role container is not running; the Tailscale sidecar is retained.\\n' >&2\n"
         "  fi\n"
         "}\n"
         if infrastructure_services
@@ -4386,7 +4390,7 @@ def _runtime_down_wrapper(
                 + project_presence
                 + shutdown_function
                 + "if (( $# != 0 )); then\n"
-                + "  printf '사용법: elesim-down [--purge]\n' >&2\n"
+                + "  printf 'Usage: elesim-down [--purge]\n' >&2\n"
                 + "  exit 64\n"
                 + "fi\n"
                 + "down_status=0\n"
@@ -4396,7 +4400,7 @@ def _runtime_down_wrapper(
                 + "  down_status=$?\n"
                 + "  set -e\n"
                 + "else\n"
-                + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+                + "  printf 'EleSim role container is not running.\\n' >&2\n"
                 + "fi\n"
                 + manager_purge_action
                 + "if (( manager_purge_status != 0 )); then\n"
@@ -4418,7 +4422,7 @@ def _runtime_down_wrapper(
             + project_presence
             + shutdown_function
             + "if (( $# != 0 )); then\n"
-            + "  printf '사용법: elesim-down [--purge]\\n' >&2\n"
+            + "  printf 'Usage: elesim-down [--purge]\\n' >&2\n"
             + "  exit 64\n"
             + "fi\n"
             + "if runtime_has_project_containers; then\n"
@@ -4427,7 +4431,7 @@ def _runtime_down_wrapper(
             + "  down_status=$?\n"
             + "  set -e\n"
             + "else\n"
-            + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+            + "  printf 'EleSim role container is not running.\\n' >&2\n"
             + "  down_status=0\n"
             + "fi\n"
             + manager_purge_action
@@ -4449,7 +4453,7 @@ def _runtime_down_wrapper(
         + project_presence
         + shutdown_function
         + "if (( $# != 0 )); then\n"
-        + "  printf '사용법: elesim-down [--purge]\\n' >&2\n"
+        + "  printf 'Usage: elesim-down [--purge]\\n' >&2\n"
         + "  exit 64\n"
         + "fi\n"
         + _runtime_archive_function(
@@ -4465,7 +4469,7 @@ def _runtime_down_wrapper(
         + "  runtime_present=1\n"
         + "  archive_runtime_logs || archive_status=$?\n"
         + "else\n"
-        + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 로그 archive를 건너뜁니다.\\n' >&2\n"
+        + "  printf 'EleSim role container is not running; skipping log archive.\\n' >&2\n"
         + "fi\n"
         + "if runtime_has_project_containers; then\n"
         + "  project_present=1\n"
@@ -4474,7 +4478,7 @@ def _runtime_down_wrapper(
         + "if (( project_present )); then\n"
         + "  shutdown_runtime || down_status=$?\n"
         + "else\n"
-        + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+        + "  printf 'EleSim role container is not running.\\n' >&2\n"
         + "fi\n"
         + manager_purge_action
         + "viewer_status=0\n"

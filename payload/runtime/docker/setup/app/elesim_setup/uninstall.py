@@ -316,9 +316,9 @@ def plan_uninstall(
             _require_host_removable_tree(
                 tailscale_state_cleanup.source,
                 reason=(
-                    "정지된 Tailscale sidecar의 기존 bind를 안전한 ownership "
-                    "helper로 고정할 수 없습니다. sidecar를 시작한 뒤 다시 "
-                    "실행하거나 host에서 exact state 권한을 복구하십시오"
+                    "Cannot safely pin the stopped Tailscale sidecar's existing bind "
+                    "with the ownership helper. Start the sidecar and retry, or "
+                    "restore exact state permissions on the host"
                 ),
             )
             tailscale_state_cleanup = None
@@ -326,8 +326,8 @@ def plan_uninstall(
             _require_host_removable_tree(
                 tailscale_state,
                 reason=(
-                    "상태를 쓴 exact EleSim Tailscale sidecar가 남아 있지 않아 "
-                    "Docker-assisted ownership repair를 수행할 수 없습니다"
+                    "No exact EleSim Tailscale sidecar that wrote the state remains; "
+                    "Docker-assisted ownership repair is unavailable"
                 ),
             )
 
@@ -341,7 +341,7 @@ def plan_uninstall(
         remove_shell_path = shell_status == "exact"
         if shell_status == "foreign":
             warnings.append(
-                f"수정되었거나 다른 설치가 소유한 PATH block 보존: {manifest.shell.bashrc}"
+                f"Preserving modified or foreign-owned PATH block: {manifest.shell.bashrc}"
             )
 
     preserve = [Path(value) for value in manifest.external_paths]
@@ -374,7 +374,7 @@ def plan_uninstall(
 
     tombstone = _uninstall_state_root() / f"{manifest.install_uuid}.json"
     if _lexists(tombstone):
-        raise UninstallSafetyError(f"uninstall tombstone이 이미 존재합니다: {tombstone}")
+        raise UninstallSafetyError(f"uninstall tombstone already exists: {tombstone}")
     return UninstallPlan(
         manifest=manifest,
         manifest_sha256=manifest_digest,
@@ -409,7 +409,7 @@ def execute_uninstall(
 
     if confirm_prefix is not None and confirm_prefix != plan.manifest.prefix:
         raise UninstallSafetyError(
-            "--confirm-prefix가 ownership manifest의 정확한 prefix와 다릅니다: "
+            "--confirm-prefix does not match the exact prefix in the ownership manifest: "
             f"expected={plan.manifest.prefix}"
         )
 
@@ -421,7 +421,7 @@ def execute_uninstall(
         runner=runner,
     )
     if current.manifest_sha256 != plan.manifest_sha256:
-        raise UninstallSafetyError("사전 검증 이후 ownership manifest가 변경되었습니다")
+        raise UninstallSafetyError("ownership manifest changed after preflight validation")
     if (
         current.remove_paths != plan.remove_paths
         or current.remove_roots != plan.remove_roots
@@ -431,7 +431,7 @@ def execute_uninstall(
         or current.tailscale_state_cleanup != plan.tailscale_state_cleanup
         or current.remove_shell_path != plan.remove_shell_path
     ):
-        raise UninstallSafetyError("사전 검증 이후 설치 소유권 상태가 변경되었습니다")
+        raise UninstallSafetyError("installation ownership state changed after preflight validation")
 
     command_runner = _command_runner(runner)
     docker_ownership = current.manifest.docker
@@ -458,16 +458,16 @@ def execute_uninstall(
                     ("docker", "container", "stop", sim_container.object_id),
                 )
             )
-            _require_command(stopped, action="Sim Viewer container 정지")
+            _require_command(stopped, action="stop Sim Viewer container")
         result = command_runner((str(current.viewer_cleanup),))
-        _require_command(result, action="X11 Viewer ACL 회수")
+        _require_command(result, action="revoke X11 Viewer ACL")
     if current.remove_shell_path and current.manifest.shell is not None:
         result = unregister_bash_path(
             Path(current.manifest.shell.bin_dir),
             bashrc=Path(current.manifest.shell.bashrc),
         )
         if not result.changed:
-            raise UninstallSafetyError("검증 후 PATH block이 변경되어 제거하지 않았습니다")
+            raise UninstallSafetyError("PATH block changed after validation; refusing removal")
 
     tailscale_cleanup = current.tailscale_state_cleanup
     for container in current.containers:
@@ -484,7 +484,7 @@ def execute_uninstall(
                 ("docker", "container", "rm", "--force", container.object_id),
             )
         )
-        _require_command(result, action=f"container 제거 {container.name}")
+        _require_command(result, action=f"remove container {container.name}")
     if tailscale_cleanup is not None:
         if docker_ownership is None:
             raise UninstallSafetyError("Docker ownership disappeared after validation")
@@ -518,10 +518,10 @@ def execute_uninstall(
             recovery = (
                 ""
                 if resumed.returncode == 0
-                else f"; sidecar resume/start도 실패: {resumed.stderr.strip()}"
+                else f"; sidecar resume/start also failed: {resumed.stderr.strip()}"
             )
             raise UninstallSafetyError(
-                "Tailscale sidecar 제거 실패: "
+                "Tailscale sidecar removal failed: "
                 f"{removed.stderr.strip()}{recovery}"
             )
     for image in current.images:
@@ -533,7 +533,7 @@ def execute_uninstall(
                 ("docker", "image", "rm", image.name),
             )
         )
-        _require_command(result, action=f"local image 제거 {image.name}")
+        _require_command(result, action=f"remove local image {image.name}")
 
     filesystem_protection = (*current.preserve_paths, current.manifest.path)
     for root in sorted(current.remove_roots, key=lambda path: len(path.parts), reverse=True):
@@ -617,25 +617,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             purge_authority=not bool(args.keep_authority),
         )
         tombstone = execute_uninstall(plan)
-        print(f"EleSim 제거 완료. tombstone: {tombstone}")
+        print(f"EleSim removal complete. Tombstone: {tombstone}")
         return 0
     except (OSError, UninstallSafetyError) as exc:
-        print(f"오류: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 2
 
 
 def _validate_install_roots(manifest: OwnershipManifest) -> None:
     prefix = manifest.prefix_path
     if prefix.is_symlink() or not prefix.is_dir():
-        raise UninstallSafetyError(f"prefix가 symlink이거나 directory가 아닙니다: {prefix}")
+        raise UninstallSafetyError(f"prefix is a symlink or not a directory: {prefix}")
     if str(prefix.resolve(strict=True)) != manifest.prefix_realpath:
-        raise UninstallSafetyError("prefix realpath가 설치 시점과 다릅니다")
+        raise UninstallSafetyError("prefix realpath differs from the installation-time value")
     bin_dir = manifest.bin_path
     if _lexists(bin_dir):
         if bin_dir.is_symlink() or not bin_dir.is_dir():
-            raise UninstallSafetyError(f"bin_dir가 symlink이거나 directory가 아닙니다: {bin_dir}")
+            raise UninstallSafetyError(f"bin_dir is a symlink or not a directory: {bin_dir}")
         if str(bin_dir.resolve(strict=True)) != manifest.bin_dir_realpath:
-            raise UninstallSafetyError("bin_dir realpath가 설치 시점과 다릅니다")
+            raise UninstallSafetyError("bin_dir realpath differs from the installation-time value")
     _ensure_no_symlink_ancestors(manifest.path, boundary=prefix)
 
 
@@ -660,7 +660,7 @@ def _validate_owned_paths(manifest: OwnershipManifest) -> None:
         )
         if actual != entry.kind:
             raise UninstallSafetyError(
-                f"owned path 유형이 변경되었습니다: {path}: expected={entry.kind} actual={actual}"
+                f"owned path type changed: {path}: expected={entry.kind} actual={actual}"
             )
     for value in (
         *manifest.managed_roots,
@@ -670,7 +670,7 @@ def _validate_owned_paths(manifest: OwnershipManifest) -> None:
         path = Path(value)
         _ensure_no_symlink_ancestors(path, boundary=prefix)
         if _lexists(path) and (path.is_symlink() or not path.is_dir()):
-            raise UninstallSafetyError(f"managed/preserved root가 안전한 directory가 아닙니다: {path}")
+            raise UninstallSafetyError(f"managed/preserved root is not a safe directory: {path}")
 
 
 def _validate_wrappers(manifest: OwnershipManifest) -> None:
@@ -681,10 +681,10 @@ def _validate_wrappers(manifest: OwnershipManifest) -> None:
             continue
         mode = path.lstat().st_mode
         if not stat.S_ISREG(mode) or stat.S_ISLNK(mode):
-            raise UninstallSafetyError(f"wrapper가 일반 파일이 아닙니다: {path}")
+            raise UninstallSafetyError(f"wrapper is not a regular file: {path}")
         if sha256_file(path) != wrapper.sha256:
             raise UninstallSafetyError(
-                f"wrapper가 설치 후 변경되었습니다. 삭제하지 않습니다: {path}"
+                f"wrapper changed after installation; refusing removal: {path}"
             )
 
 
@@ -714,15 +714,15 @@ def _owned_viewer_cleanup(manifest: OwnershipManifest) -> Path | None:
             mode = state.lstat().st_mode
             if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
                 raise UninstallSafetyError(
-                    f"EleSim xhost 상태가 일반 파일이 아닙니다: {state}"
+                    f"EleSim xhost state is not a regular file: {state}"
                 )
     if ownership is None:
         if any(_lexists(state) for state in states):
             raise UninstallSafetyError(
-                "EleSim-owned X11 Viewer ACL 상태가 남아 있지만 exact cleanup "
-                "wrapper가 ownership manifest에 없습니다. 먼저 elesim-update로 "
-                "wrapper를 복구하거나 같은 설치의 elesim-down으로 권한을 "
-                "회수하십시오"
+                "EleSim-owned X11 Viewer ACL state remains, but the exact cleanup "
+                "wrapper is not in the ownership manifest. First use elesim-update "
+                "to restore the wrapper, or use elesim-down from the same "
+                "installation to revoke it"
             )
         return None
     missing_roots = tuple(
@@ -730,20 +730,20 @@ def _owned_viewer_cleanup(manifest: OwnershipManifest) -> Path | None:
     )
     if missing_roots:
         raise UninstallSafetyError(
-            "X11 Viewer cleanup state의 exact managed root가 ownership "
-            "manifest에 없습니다: "
+            "exact managed root for X11 Viewer cleanup state is not in the ownership "
+            "manifest: "
             + ", ".join(str(root) for root in missing_roots)
         )
     if not _lexists(expected):
         raise UninstallSafetyError(
-            "ownership manifest의 X11 Viewer cleanup wrapper가 없습니다. "
-            "elesim-update로 exact wrapper를 복구한 뒤 다시 실행하십시오: "
+            "ownership manifest lacks the X11 Viewer cleanup wrapper. "
+            "use elesim-update to restore the exact wrapper, then retry: "
             f"{expected}"
         )
     mode = expected.lstat().st_mode
     if not stat.S_ISREG(mode) or stat.S_ISLNK(mode) or not os.access(expected, os.X_OK):
         raise UninstallSafetyError(
-            f"X11 Viewer cleanup wrapper가 실행 가능한 일반 파일이 아닙니다: {expected}"
+            f"X11 Viewer cleanup wrapper is not an executable regular file: {expected}"
         )
     return expected
 
@@ -771,7 +771,7 @@ def _validate_systemd(
         )
         if result.returncode != 0:
             raise UninstallSafetyError(
-                f"systemd 상태를 확인할 수 없습니다: {unit.name}: {result.stderr.strip()}"
+                f"Cannot determine systemd status: {unit.name}: {result.stderr.strip()}"
             )
         values = _key_values(result.stdout)
         load_state = values.get("LoadState", "not-found")
@@ -789,13 +789,13 @@ def _validate_systemd(
             )
             if not exact_copy:
                 raise UninstallSafetyError(
-                    f"{unit.name}과 같은 이름의 foreign/변경된 systemd unit이 있습니다. "
-                    "EleSim은 이 파일을 삭제하지 않습니다. FragmentPath와 unit 내용을 "
-                    f"직접 확인해 충돌을 해결하십시오: fragment={fragment_text or '-'} "
+                    f"{unit.name} has a foreign or modified systemd unit with the same name. "
+                    "EleSim will not remove this file. Inspect FragmentPath and the unit contents to "
+                    f"resolve the conflict: fragment={fragment_text or '-'} "
                     f"expected={unit.destination}"
                 )
             raise UninstallSafetyError(
-                f"{unit.name}이 systemd에 설치되어 있거나 실행 중입니다. 먼저 정확히 다음을 실행하십시오:\n"
+                f"{unit.name} is installed or running in systemd. Run the following exact command first:\n"
                 f"  sudo systemctl disable --now {unit.name}\n"
                 f"  sudo rm -- {unit.destination}\n"
                 "  sudo systemctl daemon-reload"
@@ -815,8 +815,8 @@ def _validate_no_nested_mounts(
         for root in remove_roots:
             if _within_or_equal(mount, root):
                 raise UninstallSafetyError(
-                    f"재귀 제거 경계 안에 mount/bind mount가 있습니다: root={root} "
-                    f"mount={mount}. 먼저 unmount하십시오."
+                    f"recursive removal boundary contains a mount/bind mount: root={root} "
+                    f"mount={mount}. unmount it first."
                 )
         if mount in {prefix, bin_dir}:
             continue
@@ -828,14 +828,14 @@ def _validate_no_nested_mounts(
         for entry in remove_paths:
             if _within_or_equal(Path(entry.path), mount):
                 raise UninstallSafetyError(
-                    "exact 제거 경로가 nested mount 안에 있습니다: "
-                    f"path={entry.path} mount={mount}. 먼저 unmount하십시오."
+                    "exact removal path is inside a nested mount: "
+                    f"path={entry.path} mount={mount}. unmount it first."
                 )
         for wrapper in manifest.wrappers:
             if _within_or_equal(Path(wrapper.path), mount):
                 raise UninstallSafetyError(
-                    "wrapper가 nested mount 안에 있습니다: "
-                    f"path={wrapper.path} mount={mount}. 먼저 unmount하십시오."
+                    "wrapper is inside a nested mount: "
+                    f"path={wrapper.path} mount={mount}. unmount it first."
                 )
 
 
@@ -845,13 +845,13 @@ def _mount_points() -> tuple[Path, ...]:
         lines = source.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
         raise UninstallSafetyError(
-            f"mount 경계를 확인할 수 없습니다: {source}: {exc}"
+            f"Cannot determine mount boundary: {source}: {exc}"
         ) from exc
     mounts: set[Path] = set()
     for line in lines:
         fields = line.split()
         if len(fields) < 6 or "-" not in fields:
-            raise UninstallSafetyError("/proc/self/mountinfo 형식이 유효하지 않습니다")
+            raise UninstallSafetyError("/proc/self/mountinfo has an invalid format")
         value = fields[4]
         for escaped, literal in (
             (r"\040", " "),
@@ -871,7 +871,7 @@ def _owned_tailscale_state_path(manifest: OwnershipManifest) -> Path | None:
     secrets_root = manifest.prefix_path / "secrets"
     if str(secrets_root) not in manifest.managed_roots:
         raise UninstallSafetyError(
-            "Tailscale sidecar state의 exact managed root가 ownership manifest에 없습니다"
+            "The exact managed root for Tailscale sidecar state is not in the ownership manifest"
         )
     state = secrets_root / "tailscale"
     protected = tuple(
@@ -887,7 +887,7 @@ def _owned_tailscale_state_path(manifest: OwnershipManifest) -> Path | None:
         for path in protected
     ):
         raise UninstallSafetyError(
-            "Tailscale sidecar state가 보존/external 경계와 겹쳐 ownership을 복구할 수 없습니다"
+            "Tailscale sidecar state overlaps a preserved/external boundary; ownership cannot be restored"
         )
     _ensure_no_symlink_ancestors(state, boundary=manifest.prefix_path)
     if not _lexists(state):
@@ -895,7 +895,7 @@ def _owned_tailscale_state_path(manifest: OwnershipManifest) -> Path | None:
     mode = state.lstat().st_mode
     if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
         raise UninstallSafetyError(
-            f"Tailscale sidecar state가 실제 directory가 아닙니다: {state}"
+            f"Tailscale sidecar state is not a real directory: {state}"
         )
     return state
 
@@ -909,24 +909,24 @@ def _validate_tailscale_state_container(
 ) -> TailscaleStateCleanup:
     config = payload.get("Config", {})
     if not isinstance(config, Mapping):
-        raise UninstallSafetyError("Tailscale sidecar Config가 유효하지 않습니다")
+        raise UninstallSafetyError("Tailscale sidecar config is invalid")
     if _labels(payload).get("com.docker.compose.service") != "tailscale":
         raise UninstallSafetyError(
-            "elesim-tailscale container의 Compose service가 tailscale이 아닙니다"
+            "Compose service for the elesim-tailscale container is not tailscale"
         )
     image_ref = str(config.get("Image", ""))
     image_id = str(payload.get("Image", ""))
     pinned_image = _LEGACY_PINNED_TAILSCALE_IMAGE.fullmatch(image_ref) is not None
     if not pinned_image and image_ref != _ROLLING_TAILSCALE_IMAGE:
         raise UninstallSafetyError(
-            "Tailscale sidecar가 지원되는 official image를 사용하지 않습니다"
+            "Tailscale sidecar does not use a supported official image"
         )
     if not _DOCKER_IMAGE_ID.fullmatch(image_id):
-        raise UninstallSafetyError("Tailscale sidecar image ID가 유효하지 않습니다")
+        raise UninstallSafetyError("Tailscale sidecar image ID is invalid")
     image_result = runner(("docker", "image", "inspect", image_id))
     if image_result.returncode != 0:
         raise UninstallSafetyError(
-            "Tailscale sidecar의 immutable image를 inspect할 수 없습니다: "
+            "cannot inspect the Tailscale sidecar immutable image: "
             + image_result.stderr.strip()
         )
     image_payload = _inspect_object(
@@ -947,30 +947,30 @@ def _validate_tailscale_state_container(
     )
     if str(image_payload.get("Id", "")) != image_id or not digest_matches:
         raise UninstallSafetyError(
-            "Tailscale sidecar image ID 또는 official repository digest가 다릅니다"
+            "Tailscale sidecar image ID or official repository digest differs"
         )
     if config.get("Entrypoint") != ["tailscaled"] or config.get("User", "") != "":
-        raise UninstallSafetyError("Tailscale sidecar 실행 identity가 생성된 구성과 다릅니다")
+        raise UninstallSafetyError("Tailscale sidecar runtime identity differs from generated configuration")
     if config.get("Cmd") != [
         "--statedir=/var/lib/tailscale",
         "--socket=/tmp/tailscaled.sock",
         "--tun=tailscale0",
     ]:
-        raise UninstallSafetyError("Tailscale sidecar daemon 인자가 생성된 구성과 다릅니다")
+        raise UninstallSafetyError("Tailscale sidecar daemon arguments differ from generated configuration")
 
     mounts = payload.get("Mounts", [])
     if not isinstance(mounts, list) or len(mounts) != 1 or not isinstance(
         mounts[0], Mapping
     ):
         raise UninstallSafetyError(
-            "Tailscale sidecar는 exact state bind mount 하나만 가져야 합니다"
+            "Tailscale sidecar must have exactly one state bind mount"
         )
     mount = mounts[0]
     source = str(mount.get("Source", ""))
     try:
         source_path = _canonical(Path(source))
     except (OSError, ValueError) as exc:
-        raise UninstallSafetyError("Tailscale state bind source가 유효하지 않습니다") from exc
+        raise UninstallSafetyError("Tailscale state bind source is invalid") from exc
     if (
         str(mount.get("Type", "")) != "bind"
         or source_path != state_path
@@ -978,7 +978,7 @@ def _validate_tailscale_state_container(
         or mount.get("RW") is not True
     ):
         raise UninstallSafetyError(
-            "Tailscale sidecar state bind가 install-owned exact 경계와 다릅니다: "
+            "Tailscale sidecar state bind differs from the install-owned exact boundary: "
             f"source={source!r} destination={mount.get('Destination')!r}"
         )
     state = payload.get("State", {})
@@ -1001,7 +1001,7 @@ def _require_host_removable_tree(root: Path, *, reason: str) -> None:
         return
     mode = root.lstat().st_mode
     if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
-        raise UninstallSafetyError(f"{reason}: 지원하지 않는 path 유형: {root}")
+        raise UninstallSafetyError(f"{reason}: Unsupported path type: {root}")
     if not os.access(root, os.R_OK | os.W_OK | os.X_OK):
         raise UninstallSafetyError(f"{reason}: {root}")
     try:
@@ -1039,7 +1039,7 @@ def _normalize_tailscale_state_ownership(
         source_fd = os.open(cleanup.source, directory_flags)
     except OSError as exc:
         raise UninstallSafetyError(
-            f"Tailscale state root를 no-follow로 열 수 없습니다: {cleanup.source}"
+            f"cannot open Tailscale state root without following symlinks: {cleanup.source}"
         ) from exc
     sentinel_name = f".elesim-uninstall-{secrets.token_hex(16)}"
     sentinel_value = secrets.token_hex(32)
@@ -1051,7 +1051,7 @@ def _normalize_tailscale_state_ownership(
             or int(source_stat.st_dev) != cleanup.source_device
             or int(source_stat.st_ino) != cleanup.source_inode
         ):
-            raise UninstallSafetyError("Tailscale state inode가 검증 후 변경되었습니다")
+            raise UninstallSafetyError("Tailscale state inode changed after validation")
         try:
             sentinel_fd = os.open(
                 sentinel_name,
@@ -1061,7 +1061,7 @@ def _normalize_tailscale_state_ownership(
             )
         except OSError as exc:
             raise UninstallSafetyError(
-                "Tailscale state mount identity token을 생성할 수 없습니다"
+                "cannot create Tailscale state mount identity token"
             ) from exc
         try:
             os.write(sentinel_fd, sentinel_value.encode("ascii"))
@@ -1113,7 +1113,7 @@ def _normalize_tailscale_state_ownership(
         )
         if normalized.returncode != 0:
             raise UninstallSafetyError(
-                "Tailscale state ownership 복구 실패: "
+                "Tailscale state ownership restoration failed: "
                 + normalized.stderr.strip()
             )
         os.unlink(sentinel_name, dir_fd=source_fd)
@@ -1125,13 +1125,13 @@ def _normalize_tailscale_state_ownership(
             or int(source_stat.st_ino) != cleanup.source_inode
         ):
             raise UninstallSafetyError(
-                "Tailscale state inode가 ownership 복구 중 변경되었습니다"
+                "Tailscale state inode changed during ownership restoration"
             )
         try:
             current_path_stat = cleanup.source.lstat()
         except OSError as exc:
             raise UninstallSafetyError(
-                "Tailscale state path가 ownership 복구 중 사라졌습니다"
+                "Tailscale state path disappeared during ownership restoration"
             ) from exc
         if (
             stat.S_ISLNK(current_path_stat.st_mode)
@@ -1140,20 +1140,20 @@ def _normalize_tailscale_state_ownership(
             or int(current_path_stat.st_ino) != cleanup.source_inode
         ):
             raise UninstallSafetyError(
-                "Tailscale state path/inode가 ownership 복구 중 변경되었습니다"
+                "Tailscale state path/inode changed during ownership restoration"
             )
         _require_host_removable_tree(
             cleanup.source,
             reason=(
-                "Docker ownership 복구 후에도 Tailscale state를 안전하게 "
-                "제거할 수 없습니다"
+                "Docker ownership restoration still cannot safely "
+                "remove Tailscale state"
             ),
         )
     except BaseException as exc:
         resumed = _resume_tailscale_sidecar(cleanup, ownership=ownership, runner=runner)
         if resumed.returncode != 0:
             raise UninstallSafetyError(
-                f"{exc}; sidecar resume/start도 실패: {resumed.stderr.strip()}"
+                f"{exc}; sidecar resume/start also failed: {resumed.stderr.strip()}"
             ) from exc
         raise
     finally:
@@ -1221,7 +1221,7 @@ def _validate_docker(
     info = command_runner(("docker", "info", "--format", "{{.ServerVersion}}"))
     if info.returncode != 0:
         raise UninstallSafetyError(
-            "Docker daemon에 연결할 수 없어 container/image 소유권을 검증하지 못했습니다: "
+            "cannot connect to Docker daemon to validate container/image ownership: "
             + info.stderr.strip()
         )
     if ownership.engine_id:
@@ -1229,7 +1229,7 @@ def _validate_docker(
         if identity.returncode != 0 or identity.stdout.strip() != ownership.engine_id:
             observed = identity.stdout.strip() or "unavailable"
             raise UninstallSafetyError(
-                "설치 시 고정한 Docker Engine과 현재 daemon이 다릅니다: "
+                "the Docker Engine pinned at installation differs from the current daemon: "
                 f"expected={ownership.engine_id!r} actual={observed!r}"
             )
     listed_containers = command_runner(
@@ -1237,7 +1237,7 @@ def _validate_docker(
     )
     if listed_containers.returncode != 0:
         raise UninstallSafetyError(
-            "Docker container 목록을 확인할 수 없습니다: "
+            "Cannot determine the Docker container list: "
             + listed_containers.stderr.strip()
         )
     container_names = {
@@ -1259,7 +1259,7 @@ def _validate_docker(
     )
     if labeled_containers.returncode != 0:
         raise UninstallSafetyError(
-            "EleSim ownership label container 목록을 확인할 수 없습니다: "
+            "Cannot determine the EleSim ownership-label container list: "
             + labeled_containers.stderr.strip()
         )
     labeled_names = {
@@ -1268,7 +1268,8 @@ def _validate_docker(
     unlisted = sorted(labeled_names - set(ownership.containers))
     if unlisted:
         raise UninstallSafetyError(
-            "manifest에 없는 동일 설치 container가 실행/잔존합니다. 먼저 종료하십시오: "
+            "Containers from this installation that are not in the manifest are "
+            "running or remain. Stop them first: "
             + ", ".join(unlisted)
         )
 
@@ -1287,7 +1288,7 @@ def _validate_docker(
         result = command_runner(("docker", "container", "inspect", name))
         if result.returncode != 0:
             raise UninstallSafetyError(
-                f"목록에 있던 Docker container를 inspect할 수 없습니다: {name}: "
+                f"cannot inspect listed Docker container: {name}: "
                 + result.stderr.strip()
             )
         payload = _inspect_object(result.stdout, kind="container", name=name)
@@ -1302,13 +1303,13 @@ def _validate_docker(
         }
         if expected_compose not in configs and alternate_compose not in configs:
             raise UninstallSafetyError(
-                f"고정 container 이름이 다른 설치 소유입니다: {name}: "
+                f"fixed container name belongs to another installation: {name}: "
                 f"project={project!r} install_uuid={install_uuid!r} "
                 f"compose={config_files!r}"
             )
         if not configs.issubset(expected_configs):
             raise UninstallSafetyError(
-                f"고정 container가 승인되지 않은 Compose 파일을 사용합니다: "
+                f"fixed container uses an unauthorized Compose file: "
                 f"{name}: compose={config_files!r}"
             )
         if alternate_compose in configs:
@@ -1317,8 +1318,8 @@ def _validate_docker(
             )
             if ownership.project != expected_scoped_project:
                 raise UninstallSafetyError(
-                    "legacy Docker project에는 scoped instance Compose를 "
-                    f"사용할 수 없습니다: {name}"
+                    "Scoped instance Compose cannot be used with a legacy Docker project: "
+                    f"{name}"
                 )
             _validate_scoped_instance_labels(
                 name=name, labels=labels, install_uuid=ownership.install_uuid
@@ -1333,13 +1334,13 @@ def _validate_docker(
             or install_uuid != ownership.install_uuid
         ):
             raise UninstallSafetyError(
-                f"고정 container 이름이 다른 설치 소유입니다: {name}: "
+                f"fixed container name belongs to another installation: {name}: "
                 f"project={project!r} install_uuid={install_uuid!r} "
                 f"compose={config_files!r}"
             )
         object_id = str(payload.get("Id", ""))
         if not object_id:
-            raise UninstallSafetyError(f"Docker container ID가 비어 있습니다: {name}")
+            raise UninstallSafetyError(f"Docker container ID is empty: {name}")
         container = DockerObject(name=name, object_id=object_id)
         containers.append(container)
         if (
@@ -1348,7 +1349,7 @@ def _validate_docker(
         ):
             if tailscale_state is None:
                 raise UninstallSafetyError(
-                    "Tailscale sidecar가 manifest에 있으나 install-owned state 경계가 없습니다"
+                    "Tailscale sidecar is present in the manifest but has no install-owned state boundary"
                 )
             tailscale_cleanup = _validate_tailscale_state_container(
                 payload,
@@ -1362,7 +1363,7 @@ def _validate_docker(
     )
     if listed_images.returncode != 0:
         raise UninstallSafetyError(
-            "Docker image 목록을 확인할 수 없습니다: " + listed_images.stderr.strip()
+            "cannot determine Docker image list: " + listed_images.stderr.strip()
         )
     image_names = {
         value.strip() for value in listed_images.stdout.splitlines() if value.strip()
@@ -1374,7 +1375,7 @@ def _validate_docker(
         result = command_runner(("docker", "image", "inspect", name))
         if result.returncode != 0:
             raise UninstallSafetyError(
-                f"목록에 있던 Docker image를 inspect할 수 없습니다: {name}: "
+                f"cannot inspect listed Docker image: {name}: "
                 + result.stderr.strip()
             )
         payload = _inspect_object(result.stdout, kind="image", name=name)
@@ -1383,12 +1384,12 @@ def _validate_docker(
         install_uuid = labels.get(DOCKER_INSTALL_UUID_LABEL, "")
         if project != ownership.project or install_uuid != ownership.install_uuid:
             raise UninstallSafetyError(
-                f"local image 태그가 다른 설치 소유입니다: {name}: "
+                f"local image tag belongs to another installation: {name}: "
                 f"project={project!r} install_uuid={install_uuid!r}"
             )
         object_id = str(payload.get("Id", ""))
         if not object_id:
-            raise UninstallSafetyError(f"Docker image ID가 비어 있습니다: {name}")
+            raise UninstallSafetyError(f"Docker image ID is empty: {name}")
         images.append(DockerObject(name=name, object_id=object_id))
 
     # Release manifests retain image IDs even after a rebuild has removed the
@@ -1397,14 +1398,14 @@ def _validate_docker(
     # therefore need no mutation, matching the tag-based path above.
     for image_id in sorted(set(release_image_ids)):
         if not _DOCKER_IMAGE_ID.fullmatch(image_id):
-            raise UninstallSafetyError(f"release image ID가 유효하지 않습니다: {image_id}")
+            raise UninstallSafetyError(f"release image ID is invalid: {image_id}")
         result = command_runner(("docker", "image", "inspect", image_id))
         if result.returncode != 0:
             continue
         payload = _inspect_object(result.stdout, kind="image", name=image_id)
         if str(payload.get("Id", "")) != image_id:
             raise UninstallSafetyError(
-                f"release image ID가 inspect 결과와 다릅니다: {image_id}"
+                f"release image ID differs from inspect result: {image_id}"
             )
         labels = _labels(payload)
         if (
@@ -1412,7 +1413,7 @@ def _validate_docker(
             or labels.get(DOCKER_INSTALL_UUID_LABEL) != ownership.install_uuid
         ):
             raise UninstallSafetyError(
-                f"release image가 다른 설치 또는 upstream 소유입니다: {image_id}"
+                f"release image belongs to another installation or upstream: {image_id}"
             )
         if not any(image.name == image_id for image in images):
             images.append(DockerObject(name=image_id, object_id=image_id))
@@ -1453,7 +1454,7 @@ def _inspect_object(stdout: str, *, kind: str, name: str) -> Mapping[str, object
             raise ValueError("expected one object")
         return value[0]
     except (json.JSONDecodeError, ValueError) as exc:
-        raise UninstallSafetyError(f"Docker {kind} inspect 응답이 유효하지 않습니다: {name}") from exc
+        raise UninstallSafetyError(f"Docker {kind} inspect response is invalid: {name}") from exc
 
 
 def _labels(payload: Mapping[str, object]) -> Mapping[str, str]:
@@ -1474,7 +1475,7 @@ def _remove_tree(root: Path, *, protected: tuple[Path, ...]) -> None:
         root.unlink()
         return
     if not stat.S_ISDIR(mode):
-        raise UninstallSafetyError(f"지원하지 않는 managed path 유형: {root}")
+        raise UninstallSafetyError(f"Unsupported managed path type: {root}")
     for entry in os.scandir(root):
         path = Path(entry.path)
         if _is_protected(path, protected):
@@ -1523,11 +1524,11 @@ def _rmdir_if_empty(path: Path) -> None:
 
 def _ensure_no_symlink_ancestors(path: Path, *, boundary: Path) -> None:
     if not _within_or_equal(path, boundary):
-        raise UninstallSafetyError(f"경로가 검증 boundary 밖입니다: {path}")
+        raise UninstallSafetyError(f"path is outside the validation boundary: {path}")
     current = path.parent
     while _within_or_equal(current, boundary):
         if _lexists(current) and current.is_symlink():
-            raise UninstallSafetyError(f"경로 ancestor가 symlink입니다: {current}")
+            raise UninstallSafetyError(f"path ancestor is a symlink: {current}")
         if current == boundary:
             break
         current = current.parent
@@ -1600,7 +1601,7 @@ def _require_command(
     action: str,
 ) -> None:
     if result.returncode != 0:
-        raise UninstallSafetyError(f"{action} 실패: {result.stderr.strip()}")
+        raise UninstallSafetyError(f"{action} failed: {result.stderr.strip()}")
 
 
 if __name__ == "__main__":

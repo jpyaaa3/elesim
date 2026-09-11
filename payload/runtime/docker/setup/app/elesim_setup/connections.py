@@ -290,7 +290,7 @@ class ConnectionDeploymentRunner:
         repeated_roles = sorted(role for role, count in role_counts.items() if count > 1)
         if repeated_roles:
             raise ValueError(
-                "동일 역할의 복수 인스턴스 실행은 아직 지원하지 않습니다: "
+                "running multiple instances of the same role is not supported: "
                 + ", ".join(repeated_roles)
             )
         supported_actions = {
@@ -304,7 +304,7 @@ class ConnectionDeploymentRunner:
             "check",
         }
         if action not in supported_actions:
-            raise ValueError(f"지원하지 않는 연결 작업: {action!r}")
+            raise ValueError(f"unsupported connection action: {action!r}")
         if scoped_install and action == "recover":
             # A scoped transaction has its own durable journal and recovery
             # boundary.  The install-wide recovery path remains below for
@@ -318,7 +318,7 @@ class ConnectionDeploymentRunner:
                     action = "deploy"
                 elif action != "deploy":
                     raise ValueError(
-                        "trusted-network에서는 deploy만 사용할 수 있습니다"
+                        "trusted-network supports only the deploy action"
                     )
             else:
                 authority = Sros2Authority(
@@ -329,21 +329,21 @@ class ConnectionDeploymentRunner:
                     action = "rotate" if active is not None else "provision"
                 if action in {"provision", "deploy"} and active is not None:
                     raise ValueError(
-                        "이미 활성 SROS2 generation이 있습니다. 새 generation은 "
-                        "rotate로 교체하십시오. provision/deploy를 반복하지 않습니다."
+                        "an SROS2 generation is already active; use rotate to replace "
+                        "it instead of repeating provision/deploy"
                     )
                 if action == "rotate" and active is None:
                     raise ValueError(
-                        "활성 SROS2 generation이 없습니다. 먼저 provision하십시오."
+                        "no SROS2 generation is active; run provision first"
                     )
                 if action not in {"provision", "deploy", "rotate"}:
-                    raise ValueError(f"지원하지 않는 연결 작업: {action!r}")
+                    raise ValueError(f"unsupported connection action: {action!r}")
         elif (
             action == "recover"
             and topology.security_profile != "sros2"
             and not scoped_install
         ):
-            raise ValueError("복구는 managed SROS2 topology에서만 사용합니다")
+            raise ValueError("recovery is supported only for managed SROS2 topologies")
 
         operations = self._operations(topology)
         journal: dict[str, object] | None = None
@@ -374,12 +374,12 @@ class ConnectionDeploymentRunner:
                     ).active()
                     if action in {"deploy", "provision"} and current is not None:
                         raise ValueError(
-                            "이미 활성 SROS2 generation이 있습니다. 새 generation은 "
-                            "rotate로 교체하십시오. provision/deploy를 반복하지 않습니다."
+                            "an SROS2 generation is already active; use rotate to replace "
+                            "it instead of repeating provision/deploy"
                         )
                     if action == "rotate" and current is None:
                         raise ValueError(
-                            "활성 SROS2 generation이 없습니다. 먼저 provision하십시오."
+                            "no SROS2 generation is active; run provision first"
                         )
             except BaseException:
                 try:
@@ -405,7 +405,7 @@ class ConnectionDeploymentRunner:
                 "rotate",
                 "start",
             }:
-                log("호스트별 런타임 네트워크 인프라를 준비합니다.")
+                log("Preparing runtime network infrastructure on each host.")
                 discovered_addresses: dict[str, str] = {}
                 for host in topology.hosts:
                     log(f"network: {host.host_id}")
@@ -457,8 +457,8 @@ class ConnectionDeploymentRunner:
                     if updated_topology != topology:
                         if self.topology_state_path is None:
                             raise RuntimeError(
-                                "Tailscale sidecar DDS endpoint가 변경되었지만 "
-                                "topology state path가 없어 안전하게 저장할 수 없습니다"
+                                "The Tailscale sidecar DDS endpoint changed, but it "
+                                "cannot be saved safely because the topology state path is missing"
                             )
                         updated_topology.save(self.topology_state_path)
                         previous_operations = operations
@@ -474,8 +474,8 @@ class ConnectionDeploymentRunner:
                             )
                         if action in {"start", "recover"}:
                             raise RuntimeError(
-                                "Tailscale sidecar DDS endpoint가 변경되어 저장했습니다. "
-                                "실행 전에 '보안 및 실행 준비'를 다시 수행하십시오."
+                                "The Tailscale sidecar DDS endpoint changed and was saved. "
+                                "Run 'security and runtime preparation' again before starting."
                             )
             # Scoped container installations are registered only after their
             # host networking has been prepared and any newly discovered DDS
@@ -540,7 +540,7 @@ class ConnectionDeploymentRunner:
                 self._write_transaction_journal(topology, journal)
                 self._log_committed(
                     log,
-                    "모든 scoped instance 등록이 원자적으로 완료되었습니다.",
+                    "All scoped instance registrations completed atomically.",
                 )
                 return result
             if action == "recover":
@@ -561,7 +561,7 @@ class ConnectionDeploymentRunner:
                     return topology
                 hosts = list(topology.hosts)
                 if action == "start":
-                    log("모든 호스트의 런타임 네트워크를 사전 점검합니다.")
+                    log("Prechecking runtime networks on all hosts.")
                     for host in hosts:
                         log(f"preflight: {host.host_id}")
                         # This is a cheap interface-visibility probe, not a
@@ -581,14 +581,13 @@ class ConnectionDeploymentRunner:
                         )
                         if running_roles:
                             raise RuntimeError(
-                                f"{host.host_id}에서 이미 실행 중인 역할이 있습니다: "
-                                f"{', '.join(running_roles)}. 연결 관리자에서는 이미 "
-                                "실행 중인 런타임을 재시작하지 않습니다. 각 호스트에서 "
-                                "elesim-up을 사용하거나, 먼저 elesim-down으로 정리한 "
-                                "뒤 다시 시작하십시오."
+                                f"{host.host_id} already has running roles: "
+                                f"{', '.join(running_roles)}. The connection manager will not "
+                                "restart an already-running runtime. Use elesim-up on each host, "
+                                "or run elesim-down first and then retry."
                             )
                 if action == "stop":
-                    log("활성 역할의 런타임을 정지합니다.")
+                    log("Stopping runtimes for active roles.")
                     stop_errors: list[tuple[str, str, BaseException]] = []
                     for host in reversed(hosts):
                         log(f"stop: {host.host_id}")
@@ -617,7 +616,7 @@ class ConnectionDeploymentRunner:
                             + details
                         ) from stop_errors[0][2]
                 if action == "start":
-                    log("모든 호스트의 이미지를 먼저 준비합니다.")
+                    log("Preparing images on all hosts first.")
                     for host in hosts:
                         log(f"build: {host.host_id}")
                         output = _BuildLogForwarder(host, log)
@@ -625,10 +624,10 @@ class ConnectionDeploymentRunner:
                             operations[host.host_id].build(host, output)
                         finally:
                             output.flush()
-                        log(f"build 완료: {host.host_id}")
+                        log(f"Build complete: {host.host_id}")
                     launched = []
                     try:
-                        log("활성 역할의 런타임을 시작합니다.")
+                        log("Starting runtimes for active roles.")
                         for host in hosts:
                             log(f"start: {host.host_id}")
                             # A host launch can start one unit/container before a
@@ -643,9 +642,8 @@ class ConnectionDeploymentRunner:
                     except BaseException as exc:
                         if launched:
                             log(
-                                "런타임 시작 또는 DDS readiness 확인 실패로 이번 "
-                                "작업에서 시작한 "
-                                "런타임을 롤백합니다."
+                                "Runtime startup or DDS readiness failed; rolling back "
+                                "runtimes started by this operation."
                             )
                         rollback_errors = self._rollback_runtime_hosts(
                             operations,
@@ -657,11 +655,11 @@ class ConnectionDeploymentRunner:
                         raise
                 return topology
             if topology.security_profile == "trusted-network":
-                log("신뢰 네트워크 DDS 토폴로지 배포를 시작합니다.")
+                log("Starting trusted-network DDS topology deployment.")
                 TopologyRollout(topology, operations).apply(progress=progress)
                 self._log_committed(
                     log,
-                    "모든 호스트의 DDS 토폴로지 검증이 끝났습니다.",
+                    "DDS topology validation completed on all hosts.",
                 )
                 return topology
 
@@ -673,13 +671,13 @@ class ConnectionDeploymentRunner:
             journal["generation"] = generation
             self._write_transaction_journal(topology, journal)
             operation = (
-                "새 보안 자료를 생성하고 검증"
+                "generate and validate new security material"
                 if action == "provision"
-                else "기존 보안 세대를 새 세대로 재발급하고 검증"
+                else "reissue and validate the existing security generation as a new generation"
             )
             log(
-                f"{operation}합니다. SROS2 {generation} generation을 "
-                "전체 호스트 사전 점검 후 원자적으로 적용합니다."
+                f"Will {operation}. SROS2 generation {generation} will be applied "
+                "atomically after prechecking all hosts."
             )
             rollout = GenerationRollout(topology, operations)
             rollout.issue_and_apply(
@@ -689,7 +687,7 @@ class ConnectionDeploymentRunner:
             )
             self._log_committed(
                 log,
-                f"SROS2 {generation} generation이 활성화되었습니다.",
+                f"SROS2 generation {generation} is active.",
             )
         except RolloutError as exc:
             if journal is not None:
@@ -1210,7 +1208,7 @@ class ConnectionDeploymentRunner:
                     continue
                 if assignment.role in graph_role_ids:
                     raise ValueError(
-                        "동일 역할의 복수 인스턴스 실행은 아직 지원하지 않습니다: "
+                        "running multiple instances of the same role is not supported: "
                         + assignment.role
                     )
                 graph_role_ids[assignment.role] = assignment.endpoint_id
@@ -2031,9 +2029,8 @@ class ConnectionDeploymentRunner:
         """
 
         log(
-            "DDS endpoint 준비 상태를 확인합니다 (DDS endpoint liveness; "
-            "컨테이너/Sim scene·media "
-            "session과 별도, 최대 5분)."
+            "Checking DDS endpoint readiness (DDS endpoint liveness; separate from "
+            "container/Sim scene and media session, up to 5 minutes)."
         )
         failures: list[str] = []
         expected = tuple(
@@ -2045,14 +2042,14 @@ class ConnectionDeploymentRunner:
         )
         if not expected:
             for host in hosts:
-                log(f"DDS readiness: {host.host_id} — 검사할 endpoint 없음")
+                log(f"DDS readiness: {host.host_id} — no endpoint to check")
             return
 
         def check_host(host: ManagedHost) -> object:
             checker = getattr(operations[host.host_id], "runtime_doctor", None)
             if not callable(checker):
                 raise RuntimeError(
-                    "검사기 없음; 컨테이너 로그에서 실제 상태를 확인하십시오"
+                    "no checker is available; inspect the actual state in container logs"
                 )
             return checker(host, expected, timeout_s=_DDS_READINESS_TIMEOUT_S)
 
@@ -2079,31 +2076,30 @@ class ConnectionDeploymentRunner:
                 )
                 log(
                     f"DDS readiness probe: {host.host_id} — "
-                    f"DDS 판정 전에 검사 호출이 실패했습니다: {detail[:768]}"
+                    f"probe call failed before DDS evaluation: {detail[:768]}"
                 )
                 continue
             if not isinstance(report, Mapping):
-                detail = f"{host.host_id}: 검사 결과 형식이 올바르지 않음"
+                detail = f"{host.host_id}: probe result has an invalid format"
                 failures.append(detail)
                 log(
                     f"DDS readiness: {host.host_id} — "
-                    "실패: 검사 결과 형식이 올바르지 않음; 컨테이너 로그를 "
-                    "확인하십시오"
+                    "failed: probe result has an invalid format; inspect container logs"
                 )
                 continue
             if ConnectionDeploymentRunner._runtime_report_ok(report):
                 log(
                     f"DDS readiness: {host.host_id} — "
-                    f"endpoint descriptor/heartbeat 확인: {', '.join(expected)}"
+                    f"checking endpoint descriptors/heartbeats: {', '.join(expected)}"
                 )
                 continue
             detail = ConnectionDeploymentRunner._runtime_report_detail(report)
             failures.append(f"{host.host_id}: {detail[:768]}")
             log(
                 f"DDS readiness: {host.host_id} — "
-                f"실패: {detail[:768]}; DDS descriptor/heartbeat 경로와 "
-                "Docker Desktop/WSL 네트워크 namespace를 확인하십시오 "
-                "(Sim scene/media session은 별도 게이트입니다)"
+                f"failed: {detail[:768]}; inspect the DDS descriptor/heartbeat path and "
+                "the Docker Desktop/WSL network namespace "
+                "(the Sim scene/media session is a separate gate)"
             )
         if failures:
             raise RuntimeError(
@@ -2149,7 +2145,7 @@ class ConnectionDeploymentRunner:
                 if detail:
                     return detail
             if value.get("ok") is False:
-                return "expected endpoint가 아직 발견되지 않음"
+                return "expected endpoint has not been discovered yet"
             return None
 
         direct = from_one(report)
@@ -2161,7 +2157,7 @@ class ConnectionDeploymentRunner:
                 detail = from_one(unit_report)
                 if detail:
                     return f"{unit_id}: {detail}"
-        return "expected endpoint가 아직 발견되지 않음"
+        return "expected endpoint has not been discovered yet"
 
     @staticmethod
     def _check_hosts(
@@ -2179,7 +2175,7 @@ class ConnectionDeploymentRunner:
         files, security generations, or running roles.
         """
 
-        log("모든 호스트의 연결과 런타임 상태를 점검합니다.")
+        log("Checking connections and runtime state on all hosts.")
         failures: list[str] = []
         for host in topology.hosts:
             log(f"check: {host.host_id}")
@@ -2202,7 +2198,7 @@ class ConnectionDeploymentRunner:
                 failures.append(f"{host.host_id}: {detail}")
                 log(f"check failed: {host.host_id} — {detail}")
         if failures:
-            raise RuntimeError("호스트 점검 실패: " + "; ".join(failures))
+            raise RuntimeError("Host checks failed: " + "; ".join(failures))
 
     def _recover_managed_security(
         self,
@@ -2211,7 +2207,7 @@ class ConnectionDeploymentRunner:
         log: Log,
     ) -> None:
         if topology.security_profile != "sros2":
-            raise ValueError("복구는 managed SROS2 topology에서만 사용합니다")
+            raise ValueError("recovery is supported only for managed SROS2 topologies")
         authority = Sros2Authority(self.authority_root / topology.system_id)
         active = authority.active()
         snapshots = {
@@ -2229,7 +2225,7 @@ class ConnectionDeploymentRunner:
             operations[host.host_id].stop(host, running)
             stopped.append(host)
         if active is None:
-            log("활성 Authority generation이 없어 managed-pending 상태로 복구합니다.")
+            log("No active Authority generation; recovering to managed-pending state.")
             for host in topology.hosts:
                 previous = snapshots[host.host_id]
                 pending = copy.deepcopy(dict(previous.runtime_configuration))
@@ -2268,7 +2264,7 @@ class ConnectionDeploymentRunner:
                     HostActivationState(None, pending, previous.running_roles),
                 )
         else:
-            log(f"Authority generation {active.generation}으로 호스트를 일치시킵니다.")
+            log(f"Aligning hosts with Authority generation {active.generation}.")
             for host in topology.hosts:
                 log(f"recover-active: {host.host_id}")
                 operations[host.host_id].activate(host, active.generation)
@@ -2289,7 +2285,7 @@ class ConnectionDeploymentRunner:
                     active.generation,
                     snapshots[host.host_id].running_roles,
                 )
-        log("managed SROS2 상태 복구가 완료되었습니다.")
+        log("Managed SROS2 state recovery completed.")
 
     @staticmethod
     def _validate_recovery_snapshot(
@@ -2302,7 +2298,7 @@ class ConnectionDeploymentRunner:
                 actual = unit_states.get(unit.unit_id)
                 if not isinstance(actual, Mapping):
                     raise RuntimeError(
-                        f"복구 대상 {host.host_id!r}/{unit.unit_id}의 설치 상태가 없습니다"
+                        f"installation state is missing for recovery target {host.host_id!r}/{unit.unit_id}"
                     )
                 boundaries = {
                     "roles": list(unit.roles),
@@ -2319,8 +2315,8 @@ class ConnectionDeploymentRunner:
                     if name != "roles" and observed == value:
                         continue
                     raise RuntimeError(
-                        f"복구 대상 {host.host_id!r}/{unit.unit_id}의 {name} 설치 경계가 "
-                        f"topology와 다릅니다: {observed!r} != {value!r}"
+                        f"recovery target {host.host_id!r}/{unit.unit_id} has an installation "
+                        f"boundary mismatch for {name}: {observed!r} != {value!r}"
                     )
             return
         boundaries = {
@@ -2337,8 +2333,8 @@ class ConnectionDeploymentRunner:
             elif actual == value:
                 continue
             raise RuntimeError(
-                f"복구 대상 {host.host_id!r}의 {name} 설치 경계가 "
-                f"topology와 다릅니다: {actual!r} != {value!r}"
+                f"recovery target {host.host_id!r} has an installation boundary mismatch "
+                f"for {name}: {actual!r} != {value!r}"
             )
 
     def runtime_status(self, topology: ConnectionTopology) -> dict[str, object]:
@@ -2459,22 +2455,22 @@ class ConnectionDeploymentRunner:
         local = topology.local_host
         if not local.runtime_units:
             raise ValueError(
-                "연결관리자는 Authority를 보관하는 운영 컴퓨터에서 실행해야 하며 "
-                "local 호스트에는 연결관리자용 container unit이 필요합니다"
+                "The connection manager must run on the operator computer holding the "
+                "Authority, and the local host must have its connection-manager container unit"
             )
         if self.local_install_root is not None:
             configured = Path(local.install_root).expanduser().resolve()
             if configured != self.local_install_root:
                 raise ValueError(
-                    "local 호스트 install_root가 이 연결관리자를 설치한 prefix와 "
-                    f"다릅니다: {configured} != {self.local_install_root}"
+                    "local host install_root differs from the prefix where this connection "
+                    f"manager was installed: {configured} != {self.local_install_root}"
                 )
         if self.local_bin_dir is not None:
             configured_bin = Path(local.bin_dir).expanduser().resolve()
             if configured_bin != self.local_bin_dir:
                 raise ValueError(
-                    "local 호스트 bin_dir가 이 연결관리자를 설치한 명령 "
-                    f"디렉터리와 다릅니다: {configured_bin} != {self.local_bin_dir}"
+                    "local host bin_dir differs from the command directory where this "
+                    f"connection manager was installed: {configured_bin} != {self.local_bin_dir}"
                 )
         operator_home = operator_home_path()
         for host in topology.hosts:
@@ -2487,19 +2483,18 @@ class ConnectionDeploymentRunner:
             identity = resolve_ssh_identity_path(host.ssh.identity_file)
             if identity.is_symlink() or not identity.is_file():
                 raise ValueError(
-                    f"{host.host_id} SSH identity가 일반 파일이 아닙니다: "
+                    f"{host.host_id} SSH identity is not a regular file: "
                     f"{identity}"
                 )
             resolved = identity.resolve()
             if operator_home != resolved.parent and operator_home not in resolved.parents:
                 raise ValueError(
-                    f"{host.host_id} SSH identity는 연결관리자에 read-only로 "
-                    "mount된 HOME 안에 있어야 합니다. 다른 위치의 키는 SSH agent에 "
-                    "등록하십시오."
+                    f"{host.host_id} SSH identity must be inside the read-only mounted HOME "
+                    "of the connection manager. Register keys in other locations with the SSH agent."
                 )
             if stat.S_IMODE(resolved.stat().st_mode) & 0o077:
                 raise ValueError(
-                    f"{host.host_id} SSH identity 권한은 0600 이하이어야 합니다: "
+                    f"{host.host_id} SSH identity permissions must be 0600 or stricter: "
                     f"{resolved}"
                 )
 

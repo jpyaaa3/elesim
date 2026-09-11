@@ -82,7 +82,7 @@ def test_attachment_workspace_must_be_an_existing_complete_checkout(
     (workspace / ".git").mkdir(parents=True)
     state = local_state(developer_attachment=_attachment(workspace))
 
-    with pytest.raises(ValueError, match="완전한 EleSim Git checkout"):
+    with pytest.raises(ValueError, match="complete EleSim Git checkout"):
         ContainerInstaller(state).run()
 
     assert not state.prefix_path.exists()

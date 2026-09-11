@@ -1726,4 +1726,4 @@ def test_jetson_bootstrap_uses_host_ros_without_exposing_gui() -> None:
     assert '"$host_python" -m venv --help' in script
     assert 'env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_tmp"' in script
     assert "--host 127.0.0.1" in script
-    assert "EleSim 전용 host venv" in script
+    assert "EleSim host venv" in script

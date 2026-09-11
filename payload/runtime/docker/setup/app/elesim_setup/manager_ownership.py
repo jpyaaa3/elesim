@@ -35,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
             system_id=args.system_id,
         )
     except (OwnershipError, OSError, ValueError) as exc:
-        print(f"연결관리자 소유권 등록을 거부했습니다: {exc}", file=sys.stderr)
+        print(f"Connection manager ownership registration was refused: {exc}", file=sys.stderr)
         return 78
     return 0
 

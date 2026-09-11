@@ -227,7 +227,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         here = Path.cwd() / ckpt
         ckpt = here if here.is_file() else _REPO_ROOT / ckpt
     if not ckpt.is_file():
-        raise SystemExit(f"체크포인트가 없습니다: {ckpt}")
+        raise SystemExit(f"Checkpoint not found: {ckpt}")
 
     out = Path(args.out_dir).expanduser()
     out.mkdir(parents=True, exist_ok=True)
@@ -251,8 +251,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         acted = jit(probe)
     if tuple(acted.shape) != (1, action_dim):
         raise SystemExit(
-            f"내보낸 정책의 출력이 {tuple(acted.shape)} 인데 "
-            f"행동 차원은 {action_dim} 입니다"
+            f"The exported policy produced shape {tuple(acted.shape)}, "
+            f"but the action dimension is {action_dim}"
         )
     torch.jit.save(torch.jit.script(jit), out / "policy.pt")
 
@@ -269,8 +269,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     std = getattr(norm, "_std", None)
     if mean is None or std is None:
         raise SystemExit(
-            "정규화기에서 평균/표준편차를 찾지 못했습니다 — 이대로 내보내면 "
-            "입력 스케일이 달라져 정책이 무의미해집니다"
+            "The normalizer has no mean or standard deviation; exporting it "
+            "would change the input scale and invalidate the policy"
         )
     arrays["norm_mean"] = mean.detach().cpu().numpy().reshape(-1)
     arrays["norm_std"] = std.detach().cpu().numpy().reshape(-1)
@@ -293,7 +293,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     got = numpy_policy(out / "policy.npz")(probe_batch)
     err = float(np.abs(want - got).max())
     if err > 1e-4:
-        raise SystemExit(f"numpy 경로가 TorchScript 와 {err:.2e} 만큼 다릅니다")
+        raise SystemExit(
+            f"The NumPy path differs from TorchScript by {err:.2e}"
+        )
 
     manifest = build_manifest(cfg, ckpt, obs_dim, action_dim)
     (out / "interface.json").write_text(

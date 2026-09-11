@@ -24,13 +24,13 @@ def sync_provisioning_required(state: InstallState) -> Path:
     marker = provisioning_required_path(state)
     root = marker.parent
     if root.is_symlink():
-        raise ValueError(f"security root는 symlink일 수 없습니다: {root}")
+        raise ValueError(f"security root must not be a symlink: {root}")
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     if not root.is_dir():
-        raise ValueError(f"security root가 directory가 아닙니다: {root}")
+        raise ValueError(f"security root is not a directory: {root}")
     root.chmod(0o700)
     if marker.is_symlink() or (marker.exists() and not marker.is_file()):
-        raise ValueError(f"SROS2 provisioning marker가 일반 파일이 아닙니다: {marker}")
+        raise ValueError(f"SROS2 provisioning marker is not a regular file: {marker}")
 
     if state.dds.managed_security_pending:
         with tempfile.NamedTemporaryFile(
@@ -61,10 +61,10 @@ def launch_guard(marker: Path) -> str:
     quoted = shlex.quote(str(marker))
     return (
         f"if [[ -e {quoted} || -L {quoted} ]]; then\n"
-        "  printf 'EleSim 실행 거부: managed SROS2 role bundle이 아직 "
-        "provision되지 않았습니다.\\n' >&2\n"
-        "  printf 'operator laptop에서 elesim-connections를 실행해 "
-        "전체 host generation을 적용하십시오.\\n' >&2\n"
+        "  printf 'EleSim startup refused: managed SROS2 role bundle has not been "
+        "provisioned.\\n' >&2\n"
+        "  printf 'Run elesim-connections on the operator laptop to "
+        "apply the complete host generation.\\n' >&2\n"
         "  exit 78\n"
         "fi\n"
     )

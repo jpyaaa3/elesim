@@ -88,7 +88,7 @@ def _parse_instance_endpoint(value: str) -> InstanceEndpoint:
 
     role, separator, endpoint_id = str(value).partition(":")
     if not separator or not role or not endpoint_id:
-        raise ValueError("--endpoint는 role:endpoint_id 형식이어야 합니다")
+        raise ValueError("--endpoint must use the role:endpoint_id format")
     return InstanceEndpoint(role, endpoint_id)
 
 
@@ -127,7 +127,7 @@ def _scoped_security_stage_root(
 
 def _instance_from_args(args: argparse.Namespace, state: InstallState) -> InstanceState:
     if not args.endpoint:
-        raise ValueError("인스턴스에는 --endpoint role:endpoint_id가 하나 이상 필요합니다")
+        raise ValueError("an instance requires at least one --endpoint role:endpoint_id")
     endpoints = tuple(_parse_instance_endpoint(value) for value in args.endpoint)
     role_ids = {
         "pilot": state.network.pilot_id,
@@ -140,7 +140,7 @@ def _instance_from_args(args: argparse.Namespace, state: InstallState) -> Instan
         endpoint = _parse_instance_endpoint(value)
         if endpoint.role in supplied_role_ids:
             raise ValueError(
-                f"graph endpoint role이 중복되었습니다: {endpoint.role}"
+                f"graph endpoint role is duplicated: {endpoint.role}"
             )
         supplied_role_ids.add(endpoint.role)
         role_ids[endpoint.role] = endpoint.endpoint_id
@@ -330,10 +330,10 @@ def _ask_roles(*, input_fn: Input = input) -> tuple[str, ...]:
         try:
             roles = normalize_roles(value.strip() for value in selected.split(","))
         except ValueError as exc:
-            print(f"오류: {exc}")
+            print(f"Error: {exc}")
             continue
         if "robot" in roles and roles != ("robot",):
-            print("오류: robot은 다른 역할과 함께 설치할 수 없습니다.")
+            print("Error: robot cannot be installed with other roles.")
             continue
         return roles
 
@@ -414,7 +414,7 @@ def run_wizard(
         attachment_capabilities = detect_install_host_capabilities()
         if not attachment_capabilities.developer_installable:
             raise ValueError(
-                "developer attachment는 Ubuntu/WSL amd64에서만 지원합니다"
+                "the developer attachment is supported only on Ubuntu/WSL amd64"
             )
         developer_attachment = replace(
             developer_attachment,
@@ -575,7 +575,7 @@ def _source_root(explicit: str, state_path: Path) -> Path:
         and (candidate / "payload/runtime/common/elesim_interfaces/package.xml").is_file()
     ):
         return candidate
-    raise FileNotFoundError("--source-root를 지정하거나 EleSim 저장소 루트에서 실행하십시오")
+    raise FileNotFoundError("specify --source-root or run from the EleSim repository root")
 
 
 def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
@@ -602,20 +602,20 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
     if sim_turn_required:
         if args.turn_mode in {"none", "external"}:
             raise ValueError(
-                "SROS2 Sim 설치는 Coturn을 포함한 managed TURN만 지원합니다"
+                "SROS2 Sim installations support only managed TURN with Coturn"
             )
         turn_mode = "managed"
         if args.dds_security_profile != "sros2":
             raise ValueError(
-                "Sim에 포함되는 Coturn은 SROS2 보안 profile과 함께 사용해야 합니다"
+                "Coturn included with Sim requires the SROS2 security profile"
             )
     else:
         if args.turn_mode == "managed":
-            raise ValueError("managed Coturn은 Sim 설치에서만 사용할 수 있습니다")
+            raise ValueError("managed Coturn can only be used with a Sim installation")
         if turn_urls:
             raise ValueError(
-                "새 설치에서는 외부 TURN relay를 지정할 수 없습니다. "
-                "TURN은 Sim과 함께 설치됩니다"
+                "external TURN relays cannot be specified for a new installation. "
+                "TURN is installed with Sim"
             )
         turn_mode = "none"
     secret_file = args.turn_secret_file
@@ -976,7 +976,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.command == "release":
             if args.release_action != "publish":
-                raise ValueError("지원하지 않는 release action입니다")
+                raise ValueError("unsupported release action")
             from .release_publication import publish_from_evidence
 
             state, manifest = _load_instance_context(state_path)
@@ -1205,7 +1205,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if state.developer_attachment.enabled:
                     if not capabilities.developer_installable:
                         raise ValueError(
-                            "developer attachment는 Ubuntu/WSL amd64에서만 지원합니다"
+                            "the developer attachment is supported only on Ubuntu/WSL amd64"
                         )
                     state = replace(
                         state,
@@ -1281,13 +1281,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             ).run()
             return 0
     except KeyboardInterrupt:
-        print("\n설치를 중단했습니다.", file=sys.stderr)
+        print("\nInstallation interrupted.", file=sys.stderr)
         return 130
     except EOFError:
-        print("오류: 대화형 입력 terminal을 사용할 수 없습니다.", file=sys.stderr)
+        print("Error: an interactive input terminal is unavailable.", file=sys.stderr)
         return 2
     except (FileNotFoundError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
-        print(f"오류: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 2
     parser.error("unknown command")
     return 2

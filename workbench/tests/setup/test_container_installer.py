@@ -121,7 +121,10 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
     assert "release publish" in release_wrapper
     assert "maintenance/.release-evidence" in release_wrapper
     net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
-    assert "scoped 설치에서는 install-wide elesim-net 변경 작업을 사용할 수 없습니다." in net_wrapper
+    assert (
+        "Install-wide elesim-net changes are unavailable for a scoped installation."
+        in net_wrapper
+    )
     assert "${1:-} == configure || ${1:-} == restore-snapshot" in net_wrapper
     refused = subprocess.run(
         (state.bin_path / "elesim-net", "configure"),
@@ -130,7 +133,7 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
         check=False,
     )
     assert refused.returncode == 78
-    assert "install-wide" in refused.stderr
+    assert "Install-wide" in refused.stderr
     fake_bin = tmp_path / "fake-docker"
     fake_bin.mkdir()
     _fake_docker(fake_bin)
@@ -163,7 +166,7 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
     assert (state.bin_path / "elesim-instance").is_file()
     for name in ("elesim-up", "elesim-down", "elesim-logs", "elesim-status"):
         lifecycle = (state.bin_path / name).read_text(encoding="utf-8")
-        assert "전역 runtime이 없습니다" in lifecycle
+        assert "has no global runtime" in lifecycle
         assert "docker" not in lifecycle
 
 
@@ -178,7 +181,7 @@ def test_scoped_instance_dispatcher_requires_registered_system_and_execs_exact_w
         (dispatcher, "alpha", "up"), text=True, capture_output=True, check=False
     )
     assert missing.returncode == 3
-    assert "등록되지 않은 instance" in missing.stderr
+    assert "Unregistered instance" in missing.stderr
 
     instance = tmp_path / "instances" / "alpha"
     (instance / "bin").mkdir(parents=True)
@@ -242,7 +245,7 @@ def test_legacy_manifest_refresh_keeps_the_fixed_namespace(
     assert "expected_project=elesim-runtime" in (
         (state.bin_path / "elesim-compose").read_text(encoding="utf-8")
     )
-    assert "scoped 설치에서는 install-wide elesim-net 변경 작업을 사용할 수 없습니다." not in (
+    assert "Install-wide elesim-net changes are unavailable" not in (
         (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     )
 
@@ -730,7 +733,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "manager_started=0" in wrapper
     assert "trap 'host_helper_cleanup; manager_cleanup' EXIT" in wrapper
     assert 'docker rm "$manager_id"' in wrapper
-    assert "--system은 소문자 시스템 ID" in wrapper
+    assert "--system must be a lowercase system ID" in wrapper
     assert "manager_status=$?" in wrapper
     assert "ELESIM_DOCKER_GID" not in wrapper
     assert "elesim-manager-compose" not in wrapper
@@ -744,7 +747,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     ).read_text(encoding="utf-8")
     update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
     down_wrapper = (state.bin_path / "elesim-down").read_text(encoding="utf-8")
-    assert "전역 runtime이 없습니다" in up_wrapper
+    assert "has no global runtime" in up_wrapper
     assert "elesim-instance <system>" in up_wrapper
     assert "docker" not in up_wrapper
     net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
@@ -755,7 +758,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     )
     assert "tailscale[0-9]+" in manager_wrapper
     assert "ELESIM_TAILSCALE_INTERFACE" in manager_wrapper
-    assert "전역 runtime이 없습니다" in down_wrapper
+    assert "has no global runtime" in down_wrapper
     assert "docker" not in down_wrapper
     assert "viewer_xhost_cleanup" in viewer_cleanup_wrapper
     assert "docker" not in viewer_cleanup_wrapper
@@ -880,9 +883,9 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     assert "export CUDA_VISIBLE_DEVICES=$runtime_cuda_visible" in compose_wrapper
     assert "export ELESIM_SIM_VIEWER=$runtime_sim_viewer" in compose_wrapper
     assert "exec docker compose" in compose_wrapper
-    assert "전역 runtime이 없습니다" in status_wrapper
+    assert "has no global runtime" in status_wrapper
     assert "docker compose" not in status_wrapper
-    assert "전역 runtime이 없습니다" in up_wrapper
+    assert "has no global runtime" in up_wrapper
     assert "docker compose" not in up_wrapper
     assert "login --hostname=elesim-deadbeef0123" in tailscale_wrapper
     assert "up --force-reauth --hostname=elesim-deadbeef0123" in tailscale_wrapper
@@ -890,15 +893,15 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     assert "update)" in tailscale_wrapper
     assert "ps --status running -q" in tailscale_wrapper
     assert "--force-recreate tailscale" in tailscale_wrapper
-    assert "공식 stable Tailscale 이미지를 가져오는 중" in tailscale_wrapper
-    assert "이미 최신 stable 버전입니다" in tailscale_wrapper
-    assert "sidecar 업데이트 완료:" in tailscale_wrapper
+    assert "Pulling the official stable Tailscale image" in tailscale_wrapper
+    assert "Already using the latest stable version" in tailscale_wrapper
+    assert "sidecar update completed:" in tailscale_wrapper
     assert "tailscale_runtime_services=(pilot ui runtime-tools)" in tailscale_wrapper
     assert "${login_backend_state,,}" not in tailscale_wrapper
     assert "login_backend_state_lower=" in tailscale_wrapper
     assert "needslogin|nostate" in tailscale_wrapper
     assert "trap login_cleanup EXIT TERM INT" in tailscale_wrapper
-    assert "브라우저 로그인을 기다리는 중" in tailscale_wrapper
+    assert "Waiting for browser login" in tailscale_wrapper
     assert "last_login_message" in tailscale_wrapper
     assert 'if [[ $last_login_message != "$login_wait_message" ]]' in tailscale_wrapper
     assert 'wait "$login_child"' in tailscale_wrapper
@@ -996,7 +999,7 @@ def test_sidecar_only_runtime_is_preserved_by_ordinary_down(local_state, tmp_pat
 
     assert result.returncode == 0, result.stderr
     assert not marker.exists()
-    assert "역할 컨테이너가 이미 정지되어 있습니다" in result.stderr
+    assert "role container is not running" in result.stderr
 
 
 def test_sidecar_down_then_up_starts_persisted_identity_before_namespace_check(
@@ -1087,7 +1090,7 @@ def test_tailscale_state_directory_rejects_symlink_escape(
         ),
     )
 
-    with pytest.raises(ValueError, match="실제 directory"):
+    with pytest.raises(ValueError, match="real directory"):
         ContainerInstaller(state)._prepare_tailscale_state()
 
     assert marker.read_text(encoding="utf-8") == "owned elsewhere\n"
@@ -1115,7 +1118,7 @@ def test_legacy_unpinned_update_refuses_daemon_without_owned_objects(
         lambda _ownership: ((), ()),
     )
 
-    with pytest.raises(ValueError, match="한 번도 build하지 않은 legacy 설치"):
+    with pytest.raises(ValueError, match="legacy installation that has never been built"):
         ContainerInstaller(pinned).run()
 
 
@@ -1371,7 +1374,7 @@ def test_tailscale_update_recreates_sidecar_and_only_reconnects_running_services
     assert rendered[10].endswith(
         "exec -T tailscale tailscale --socket=/tmp/tailscaled.sock version"
     )
-    assert "이미 최신 stable 버전입니다: 1.102.3" in result.stdout
+    assert "Already using the latest stable version: 1.102.3" in result.stdout
     assert not any(line.endswith("--no-build --no-deps ui") for line in rendered)
 
 
@@ -1616,7 +1619,7 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
         check=False,
     )
     assert missing_sim.returncode == 64
-    assert "Sim 서비스" in missing_sim.stderr
+    assert "Sim service" in missing_sim.stderr
     assert not Path(environment["DOCKER_CALLS_MARKER"]).exists()
     discovered_display = subprocess.run(
         (wrapper, "--view"),
@@ -1761,7 +1764,7 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
         check=False,
     )
     assert unavailable.returncode == 64
-    assert "X11 세션" in unavailable.stderr
+    assert "X11 session" in unavailable.stderr
     assert "up -d" not in Path(environment["DOCKER_ARGS_MARKER"]).read_text(
         encoding="utf-8"
     )
@@ -1953,7 +1956,7 @@ def test_runtime_up_view_preflight_failure_revokes_acl_and_never_starts(
     )
 
     assert result.returncode == 69
-    assert "X11/GL 사전 점검" in result.stderr
+    assert "X11/GL preflight" in result.stderr
     assert not (tmp_path / "up.marker").exists()
     assert not (tmp_path / "viewer-xhost").exists()
     assert not (tmp_path / "xhost.permission").exists()
@@ -2387,7 +2390,7 @@ def test_runtime_up_refuses_xhost_before_unwritable_state_is_mutated(
     )
 
     assert result.returncode == 74
-    assert "상태를 기록할 수 없습니다" in result.stderr
+    assert "Unable to record X11 permissions state" in result.stderr
     assert not (tmp_path / "xhost.permission").exists()
 
 
@@ -2628,7 +2631,7 @@ def test_viewer_cleanup_rejects_unsafe_legacy_recovery_provenance(
     )
 
     assert result.returncode == 74
-    assert "소유자/권한이 안전하지 않습니다" in result.stderr
+    assert "unsafe ownership or permissions" in result.stderr
     assert legacy.is_file()
     assert not (tmp_path / "xhost.called").exists()
 
@@ -2843,7 +2846,7 @@ def test_static_discovery_is_exported_to_every_service(local_state) -> None:
     net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     assert "namespace-check" in net_wrapper
     up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
-    assert "전역 runtime이 없습니다" in up_wrapper
+    assert "no global runtime" in up_wrapper
 
 
 def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
@@ -2918,7 +2921,7 @@ def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
     )
 
     assert saved.returncode == 64
-    assert "전역 runtime이 없습니다" in saved.stderr
+    assert "has no global runtime" in saved.stderr
     unsupported = subprocess.run(
         (state.bin_path / "elesim-logs", "--tail", "10"),
         env=environment,
@@ -2927,7 +2930,7 @@ def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
         check=False,
     )
     assert unsupported.returncode == 64
-    assert "전역 runtime이 없습니다" in unsupported.stderr
+    assert "has no global runtime" in unsupported.stderr
 
 
 def test_managed_coturn_symlinked_secret_fails_at_unowned_install_boundary(
@@ -2961,7 +2964,7 @@ def test_managed_coturn_symlinked_secret_fails_at_unowned_install_boundary(
 
     with pytest.raises(
         OwnershipError,
-        match="ownership manifest 없는 기존 EleSim 후보 경로",
+        match="EleSim candidate paths without an ownership manifest",
     ):
         ContainerInstaller(state).run()
 
@@ -3018,7 +3021,7 @@ def test_pending_managed_sros2_installs_coturn_but_refuses_application_start(
     )
 
     assert result.returncode == 64
-    assert "전역 runtime이 없습니다" in result.stderr
+    assert "has no global runtime" in result.stderr
 
 
 def test_managed_coturn_rejects_empty_existing_secret(
@@ -3348,9 +3351,9 @@ def test_runtime_logs_and_down_explain_an_already_stopped_runtime(
     )
 
     assert logs.returncode == 3
-    assert "먼저 elesim-up" in logs.stderr
+    assert "Run elesim-up first" in logs.stderr
     assert down.returncode == 0
-    assert "이미 정지" in down.stderr
+    assert "role container is not running" in down.stderr
     assert not marker.exists()
 
 
@@ -3486,7 +3489,7 @@ def test_disabled_runtime_archive_preserves_follow_and_down_behavior(
     )
 
     assert disabled_save.returncode == 64
-    assert "비활성화" in disabled_save.stderr
+    assert "disabled" in disabled_save.stderr
     assert down.returncode == 0
     assert marker.is_file()
     assert not (state.prefix_path / "logs").exists()
@@ -3537,4 +3540,4 @@ def test_runtime_wrapper_rejects_a_container_owned_by_another_install(
 
     assert result.returncode == 73
     assert "elesim-" in result.stderr
-    assert "기존 설치의 elesim-down" in result.stderr
+    assert "existing install elesim-down" in result.stderr

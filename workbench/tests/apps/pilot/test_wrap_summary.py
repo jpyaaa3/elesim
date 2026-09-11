@@ -27,8 +27,8 @@ def test_a_completed_lift_never_claims_the_object_is_held():
     """Nothing off the robot can check retention, so nothing may imply it."""
     got = _wrap_summary(_o(steps=9, reason="lift", lift_requested=True,
                            lift_completed=True, lift_roll_rad=1.5708))
-    assert "성공" not in got
-    assert "유지 미확인" in got
+    assert "success" not in got.lower()
+    assert "retention unverified" in got
     assert "90°" in got                      # the roll it actually unwound
 
 
@@ -39,19 +39,19 @@ def test_a_lift_that_unwound_nothing_says_so_in_the_angle():
 
 
 def test_a_requested_lift_that_did_not_hold_says_so():
-    got = _wrap_summary(_o(steps=12, reason="lift 중단", lift_requested=True))
-    assert "들기 중단" in got and "12" in got and "lift 중단" in got
+    got = _wrap_summary(_o(steps=12, reason="lift aborted", lift_requested=True))
+    assert "Lift aborted" in got and "12" in got and "lift aborted" in got
 
 
 def test_never_reaching_a_lift_is_reported_with_the_reason():
-    got = _wrap_summary(_o(steps=28, reason="steps 소진"))
-    assert "미완" in got and "steps 소진" in got
+    got = _wrap_summary(_o(steps=28, reason="step budget exhausted"))
+    assert "Incomplete" in got and "step budget exhausted" in got
 
 
 def test_a_waypoint_the_arm_could_not_reach_shows_its_reason():
-    got = _wrap_summary(_o(steps=3, reason="waypoint 도달 실패"))
-    assert "도달" in got
+    got = _wrap_summary(_o(steps=3, reason="waypoint was not reached"))
+    assert "waypoint was not reached" in got
 
 
 def test_no_outcome_is_not_an_exception():
-    assert _wrap_summary(None) == "결과 없음"
+    assert _wrap_summary(None) == "No result"

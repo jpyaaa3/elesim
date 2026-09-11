@@ -205,21 +205,22 @@ def _open_probe_connection(
 
 
 def _probe_failure(host: str, port: int, reason: str) -> str:
-    origin = "연결관리자 Docker 컨테이너"
+    origin = "connection manager Docker container"
     if os.environ.get("ELESIM_CONNECTION_PUBLISHED") != "1":
-        origin = "연결관리자 실행 호스트"
+        origin = "connection manager host"
     tail = (
-        " Tailscale SSH라면 원격 호스트에서도 `sudo tailscale set --ssh`와 ACL의 "
-        "SSH 허용을 확인하고, Tailscale 주소는 22번을 사용하십시오."
+        " For Tailscale SSH, verify `sudo tailscale set --ssh` and SSH permission "
+        "in the ACL on the remote host; use port 22 for the Tailscale address."
     )
     container_hint = (
-        " 이 관리자는 Docker 컨테이너에서 실행 중입니다. 호스트 터미널의 "
-        "`nc -vz -w 8 HOST PORT`가 성공해도 컨테이너 경로가 막힐 수 있습니다."
+        " This manager is running in a Docker container. A successful "
+        "`nc -vz -w 8 HOST PORT` from the host terminal does not prove that "
+        "the container path works."
         if os.environ.get("ELESIM_CONNECTION_PUBLISHED") == "1"
         else ""
     )
     return (
-        f"SSH host key probe가 {origin}에서 {host}:{port}에 대해 {reason}되었습니다."
+        f"SSH host key probe from {origin} for {host}:{port} failed: {reason}."
         f"{container_hint}{tail}"
     )
 
@@ -263,7 +264,7 @@ def install_staged_credentials(
             conflicts.append(target)
     if conflicts:
         rendered = "\n".join(f"  - {path}" for path in conflicts)
-        raise FileExistsError(f"기존 보안 파일을 덮어쓸 수 없습니다:\n{rendered}")
+        raise FileExistsError(f"cannot overwrite existing security files:\n{rendered}")
 
     installed: list[Path] = []
     for source in sources:

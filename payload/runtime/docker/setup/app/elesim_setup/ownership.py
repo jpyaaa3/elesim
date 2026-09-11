@@ -81,7 +81,7 @@ class OwnedPath:
         elif stat.S_ISLNK(mode):
             kind = "symlink"
         else:
-            raise OwnershipError(f"지원하지 않는 설치 산출물 유형입니다: {destination}")
+            raise OwnershipError(f"Unsupported installation artifact type: {destination}")
         return cls(str(destination), kind)
 
 
@@ -95,7 +95,7 @@ class WrapperOwnership:
         destination = _canonical(path)
         mode = destination.lstat().st_mode
         if not stat.S_ISREG(mode) or stat.S_ISLNK(mode):
-            raise OwnershipError(f"wrapper는 symlink가 아닌 일반 파일이어야 합니다: {destination}")
+            raise OwnershipError(f"wrapper must be a regular file, not a symlink: {destination}")
         return cls(str(destination), sha256_file(destination))
 
 
@@ -152,18 +152,18 @@ class DockerOwnership:
         _validate_uuid(self.install_uuid, name="Docker install UUID")
         _require_absolute(self.compose_file, name="Docker compose file")
         if not _DOCKER_NAME.fullmatch(self.project):
-            raise OwnershipError(f"안전하지 않은 Compose project 이름: {self.project!r}")
+            raise OwnershipError(f"Unsafe Compose project name: {self.project!r}")
         expected_scoped_project = _scoped_project_name(self.install_uuid)
         if self.project not in {"elesim-runtime", expected_scoped_project}:
             raise OwnershipError(
-                "Docker project가 EleSim legacy 또는 현재 install namespace가 아닙니다"
+                "Docker project is neither an EleSim legacy project nor the current install namespace"
             )
         if len(set(self.containers)) != len(self.containers):
-            raise OwnershipError("Docker container 이름이 중복됩니다")
+            raise OwnershipError("Duplicate Docker container name")
         if any(not _DOCKER_NAME.fullmatch(value) for value in self.containers):
-            raise OwnershipError("Docker container 이름은 고정된 literal이어야 합니다")
+            raise OwnershipError("Docker container name must be a fixed literal")
         if len(set(self.local_images)) != len(self.local_images):
-            raise OwnershipError("Docker image 이름이 중복됩니다")
+            raise OwnershipError("Duplicate Docker image name")
         if any(
             (
                 self.project == expected_scoped_project
@@ -173,15 +173,15 @@ class DockerOwnership:
             for value in self.local_images
         ):
             raise OwnershipError(
-                "삭제 가능한 image는 legacy :local 또는 현재 설치의 immutable 태그뿐입니다"
+                "Deletable images must use the legacy :local tag or the current installation immutable tag"
             )
         if self.context and not _DOCKER_NAME.fullmatch(self.context):
-            raise OwnershipError("Docker context 이름이 유효하지 않습니다")
+            raise OwnershipError("Invalid Docker context name")
         if len(self.engine_id) > 256 or "\x00" in self.engine_id or "\n" in self.engine_id:
-            raise OwnershipError("Docker Engine ID가 유효하지 않습니다")
+            raise OwnershipError("Invalid Docker Engine ID")
         if bool(self.context) != bool(self.engine_id):
             raise OwnershipError(
-                "Docker context와 Engine ID는 함께 지정하거나 모두 비워야 합니다"
+                "Docker context and Engine ID must both be specified or both omitted"
             )
         return self
 
@@ -194,10 +194,10 @@ class SystemdUnitOwnership:
 
     def validate(self) -> "SystemdUnitOwnership":
         if not self.name.endswith(".service") or not _DOCKER_NAME.fullmatch(self.name):
-            raise OwnershipError(f"안전하지 않은 systemd unit 이름: {self.name!r}")
+            raise OwnershipError(f"Unsafe systemd unit name: {self.name!r}")
         _require_absolute(self.destination, name="systemd unit destination")
         if not re.fullmatch(r"[0-9a-f]{64}", self.sha256):
-            raise OwnershipError(f"systemd unit SHA-256이 유효하지 않습니다: {self.name}")
+            raise OwnershipError(f"systemd unit SHA-256 is invalid: {self.name}")
         return self
 
 
@@ -238,16 +238,16 @@ class OwnershipManifest:
     def validate(self) -> "OwnershipManifest":
         if self.schema_version != OWNERSHIP_SCHEMA_VERSION:
             raise OwnershipError(
-                f"ownership schema {self.schema_version!r}는 지원되지 않습니다"
+                f"Unsupported ownership schema: {self.schema_version!r}"
             )
         try:
             parsed_uuid = uuid.UUID(self.install_uuid)
         except (AttributeError, TypeError, ValueError) as exc:
-            raise OwnershipError("install_uuid가 유효한 UUID가 아닙니다") from exc
+            raise OwnershipError("install_uuid is not a valid UUID") from exc
         if str(parsed_uuid) != self.install_uuid:
-            raise OwnershipError("install_uuid는 canonical UUID 문자열이어야 합니다")
+            raise OwnershipError("install_uuid must be a canonical UUID string")
         if self.edition not in _INSTALL_EDITIONS:
-            raise OwnershipError(f"지원하지 않는 설치 edition: {self.edition!r}")
+            raise OwnershipError(f"Unsupported installation edition: {self.edition!r}")
 
         prefix = _require_absolute(self.prefix, name="prefix")
         prefix_realpath = _require_absolute(self.prefix_realpath, name="prefix_realpath")
@@ -255,30 +255,30 @@ class OwnershipManifest:
         _require_absolute(self.bin_dir_realpath, name="bin_dir_realpath")
         manifest_path = _require_absolute(self.manifest_path, name="manifest_path")
         if prefix == Path("/") or bin_dir == Path("/"):
-            raise OwnershipError("filesystem root는 install/bin 경계가 될 수 없습니다")
+            raise OwnershipError("filesystem root cannot be an install/bin boundary")
         if not _is_descendant(manifest_path, prefix):
-            raise OwnershipError("ownership manifest는 설치 prefix 안에 있어야 합니다")
+            raise OwnershipError("ownership manifest must be inside the installation prefix")
         if prefix_realpath == Path("/"):
-            raise OwnershipError("resolved prefix가 filesystem root일 수 없습니다")
+            raise OwnershipError("resolved prefix cannot be the filesystem root")
 
         seen_owned: set[str] = set()
         for entry in self.owned_paths:
             path = _require_absolute(entry.path, name="owned path")
             if entry.kind not in _PATH_KINDS:
-                raise OwnershipError(f"지원하지 않는 owned path kind: {entry.kind!r}")
+                raise OwnershipError(f"Unsupported owned path kind: {entry.kind!r}")
             if entry.path in seen_owned:
-                raise OwnershipError(f"중복 owned path: {entry.path}")
+                raise OwnershipError(f"Duplicate owned path: {entry.path}")
             seen_owned.add(entry.path)
             if path == manifest_path:
-                raise OwnershipError("manifest 자체는 owned_paths에 넣을 수 없습니다")
+                raise OwnershipError("The manifest itself cannot be in owned_paths")
             if not (_is_descendant(path, prefix) or _is_descendant(path, bin_dir)):
-                raise OwnershipError(f"owned path가 설치 경계 밖입니다: {path}")
+                raise OwnershipError(f"owned path is outside the installation boundary: {path}")
 
         managed = _validated_unique_paths(self.managed_roots, name="managed root")
         for path in managed:
             if path == prefix or not _is_descendant(path, prefix):
                 raise OwnershipError(
-                    f"managed root는 prefix 자체가 아닌 하위 경로여야 합니다: {path}"
+                    f"managed root must be a child path, not the prefix itself: {path}"
                 )
         created = _validated_unique_paths(self.created_roots, name="created root")
         for path in created:
@@ -288,18 +288,18 @@ class OwnershipManifest:
                 or path == bin_dir
                 or _is_descendant(path, bin_dir)
             ):
-                raise OwnershipError(f"created root가 설치 경계 밖입니다: {path}")
+                raise OwnershipError(f"created root is outside the installation boundary: {path}")
 
         wrappers: set[str] = set()
         for wrapper in self.wrappers:
             path = _require_absolute(wrapper.path, name="wrapper")
             if not _is_descendant(path, bin_dir):
-                raise OwnershipError(f"wrapper가 bin_dir 밖입니다: {path}")
+                raise OwnershipError(f"wrapper is outside bin_dir: {path}")
             if wrapper.path in wrappers:
-                raise OwnershipError(f"중복 wrapper: {path}")
+                raise OwnershipError(f"Duplicate wrapper: {path}")
             wrappers.add(wrapper.path)
             if not re.fullmatch(r"[0-9a-f]{64}", wrapper.sha256):
-                raise OwnershipError(f"wrapper SHA-256이 유효하지 않습니다: {path}")
+                raise OwnershipError(f"wrapper SHA-256 is invalid: {path}")
 
         protected = (
             *_validated_unique_paths(self.log_roots, name="log root"),
@@ -307,20 +307,20 @@ class OwnershipManifest:
         )
         for path in protected:
             if path == prefix or not _is_descendant(path, prefix):
-                raise OwnershipError(f"보존 root가 prefix 하위가 아닙니다: {path}")
+                raise OwnershipError(f"preserved root is not below the prefix: {path}")
         _validated_unique_paths(self.external_paths, name="external path")
 
         if self.shell is not None:
             _require_absolute(self.shell.bashrc, name="shell bashrc")
             if _require_absolute(self.shell.bin_dir, name="shell bin_dir") != bin_dir:
-                raise OwnershipError("shell PATH bin_dir가 manifest bin_dir와 다릅니다")
+                raise OwnershipError("shell PATH bin_dir differs from manifest bin_dir")
         if self.docker is not None:
             self.docker.validate()
             if self.docker.install_uuid != self.install_uuid:
-                raise OwnershipError("Docker ownership UUID가 install UUID와 다릅니다")
+                raise OwnershipError("Docker ownership UUID differs from install UUID")
             compose = Path(self.docker.compose_file)
             if not _is_descendant(compose, prefix):
-                raise OwnershipError("Compose file이 설치 prefix 밖입니다")
+                raise OwnershipError("Compose file is outside the installation prefix")
         for unit in self.systemd_units:
             unit.validate()
         return self
@@ -331,7 +331,7 @@ class OwnershipManifest:
     @classmethod
     def from_dict(cls, raw: Mapping[str, object]) -> "OwnershipManifest":
         if not isinstance(raw, Mapping):
-            raise OwnershipError("ownership manifest가 JSON object가 아닙니다")
+            raise OwnershipError("ownership manifest must be a JSON object")
         shell_raw = raw.get("shell")
         docker_raw = raw.get("docker")
         try:
@@ -397,22 +397,22 @@ class OwnershipManifest:
         except (KeyError, TypeError, ValueError) as exc:
             if isinstance(exc, OwnershipError):
                 raise
-            raise OwnershipError(f"ownership manifest 필드가 유효하지 않습니다: {exc}") from exc
+            raise OwnershipError(f"Invalid ownership manifest field: {exc}") from exc
         return manifest.validate()
 
     @classmethod
     def load(cls, path: Path) -> "OwnershipManifest":
         source = _canonical(path)
         if source.is_symlink() or not source.is_file():
-            raise OwnershipError(f"ownership manifest는 일반 파일이어야 합니다: {source}")
+            raise OwnershipError(f"ownership manifest must be a regular file: {source}")
         try:
             raw = json.loads(source.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise OwnershipError(f"ownership manifest를 읽을 수 없습니다: {source}: {exc}") from exc
+            raise OwnershipError(f"cannot read ownership manifest: {source}: {exc}") from exc
         manifest = cls.from_dict(_mapping(raw, name="manifest"))
         if source != Path(manifest.manifest_path):
             raise OwnershipError(
-                f"manifest 위치가 기록과 다릅니다: actual={source} expected={manifest.manifest_path}"
+                f"manifest location differs from recorded location: actual={source} expected={manifest.manifest_path}"
             )
         return manifest
 
@@ -499,7 +499,7 @@ def _write_ownership_manifest_unlocked(
     )
     if refresh is None:
         if _lexists(destination):
-            raise OwnershipError(f"기존 ownership manifest를 덮어쓰지 않습니다: {destination}")
+            raise OwnershipError(f"refusing to overwrite existing ownership manifest: {destination}")
     else:
         _validate_refresh_token(
             refresh,
@@ -509,12 +509,12 @@ def _write_ownership_manifest_unlocked(
             edition=edition,
         )
         if install_uuid is not None and str(install_uuid) != refresh.install_uuid:
-            raise OwnershipError("refresh 시 install UUID를 변경할 수 없습니다")
+            raise OwnershipError("cannot change install UUID during refresh")
         install_uuid = refresh.install_uuid
     if not prefix_path.is_dir() or prefix_path.is_symlink():
-        raise OwnershipError(f"prefix는 symlink가 아닌 기존 directory여야 합니다: {prefix_path}")
+        raise OwnershipError(f"prefix must be an existing directory, not a symlink: {prefix_path}")
     if not bin_path.is_dir() or bin_path.is_symlink():
-        raise OwnershipError(f"bin_dir는 symlink가 아닌 기존 directory여야 합니다: {bin_path}")
+        raise OwnershipError(f"bin_dir must be an existing directory, not a symlink: {bin_path}")
 
     logs = _merged_paths(
         () if refresh is None else refresh.log_roots,
@@ -624,7 +624,7 @@ def _ownership_manifest_lock(destination: Path) -> Iterable[None]:
     prefix = destination.parent
     _ensure_no_symlink_ancestors(destination, boundary=prefix)
     if prefix.is_symlink() or not prefix.is_dir():
-        raise OwnershipError(f"ownership manifest parent가 안전한 directory가 아닙니다: {prefix}")
+        raise OwnershipError(f"ownership manifest parent is not a safe directory: {prefix}")
     # Keep the persistent coordination file inside the exact maintenance
     # subtree.  Installers inventory that subtree before publishing the
     # manifest, and scoped installs additionally own it as a managed root, so
@@ -633,16 +633,16 @@ def _ownership_manifest_lock(destination: Path) -> Iterable[None]:
     _ensure_no_symlink_ancestors(lock_root, boundary=prefix)
     if lock_root.is_symlink() or (lock_root.exists() and not lock_root.is_dir()):
         raise OwnershipError(
-            f"ownership manifest lock root가 안전한 directory가 아닙니다: {lock_root}"
+            f"ownership manifest lock root is not a safe directory: {lock_root}"
         )
     lock_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     if lock_root.is_symlink() or not lock_root.is_dir():
         raise OwnershipError(
-            f"ownership manifest lock root가 안전한 directory가 아닙니다: {lock_root}"
+            f"ownership manifest lock root is not a safe directory: {lock_root}"
         )
     lock_path = lock_root / ".ownership-manifest.lock"
     if lock_path.is_symlink():
-        raise OwnershipError(f"ownership manifest lock가 symlink입니다: {lock_path}")
+        raise OwnershipError(f"ownership manifest lock is a symlink: {lock_path}")
     key = str(lock_path)
     with _OWNERSHIP_LOCKS_GUARD:
         thread_lock = _OWNERSHIP_LOCKS.setdefault(key, threading.Lock())
@@ -656,7 +656,7 @@ def _ownership_manifest_lock(destination: Path) -> Iterable[None]:
         )
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-            raise OwnershipError(f"ownership manifest lock는 단일 일반 파일이어야 합니다: {lock_path}")
+            raise OwnershipError(f"ownership manifest lock must be a single regular file: {lock_path}")
         stream = os.fdopen(fd, "a+b")
         fd = None
         try:
@@ -666,7 +666,7 @@ def _ownership_manifest_lock(destination: Path) -> Iterable[None]:
             fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
             stream.close()
     except OSError as exc:
-        raise OwnershipError(f"ownership manifest lock를 열 수 없습니다: {lock_path}") from exc
+        raise OwnershipError(f"cannot open ownership manifest lock: {lock_path}") from exc
     finally:
         if fd is not None:
             os.close(fd)
@@ -741,35 +741,35 @@ def append_instance_docker_ownership(
     from .instances import InstanceState
 
     if not isinstance(instance, InstanceState):
-        raise OwnershipError("instance ownership에는 검증된 InstanceState가 필요합니다")
+        raise OwnershipError("instance ownership requires a validated InstanceState")
     instance.validate()
     try:
         parsed = uuid.UUID(install_uuid)
     except (AttributeError, TypeError, ValueError) as exc:
-        raise OwnershipError("install UUID가 유효하지 않습니다") from exc
+        raise OwnershipError("install UUID is invalid") from exc
     if str(parsed) != install_uuid:
-        raise OwnershipError("install UUID는 canonical UUID 문자열이어야 합니다")
+        raise OwnershipError("install UUID must be a canonical UUID string")
     expected_project = _scoped_project_name(install_uuid)
     if project != expected_project:
-        raise OwnershipError("legacy 또는 foreign Docker project에는 instance를 추가하지 않습니다")
+        raise OwnershipError("do not add an instance to a legacy or foreign Docker project")
     if not isinstance(docker_context, str) or not _DOCKER_NAME.fullmatch(docker_context):
-        raise OwnershipError("scoped instance ownership에는 유효한 Docker context가 필요합니다")
+        raise OwnershipError("scoped instance ownership requires a valid Docker context")
     if not isinstance(docker_engine_id, str) or not docker_engine_id or "\x00" in docker_engine_id or "\n" in docker_engine_id:
-        raise OwnershipError("scoped instance ownership에는 유효한 Docker Engine ID가 필요합니다")
+        raise OwnershipError("scoped instance ownership requires a valid Docker Engine ID")
 
     destination = _canonical(manifest_path)
     with _ownership_manifest_lock(destination):
         manifest = OwnershipManifest.load(destination)
         prefix = manifest.prefix_path
         if destination != prefix / OWNERSHIP_MANIFEST_NAME:
-            raise OwnershipError("ownership manifest가 설치 prefix의 canonical 위치가 아닙니다")
+            raise OwnershipError("ownership manifest is not at the canonical installation-prefix location")
         if prefix.is_symlink() or not prefix.is_dir():
-            raise OwnershipError("ownership manifest prefix가 안전한 directory가 아닙니다")
+            raise OwnershipError("ownership manifest prefix is not a safe directory")
         if str(prefix.resolve(strict=True)) != manifest.prefix_realpath:
-            raise OwnershipError("ownership manifest prefix realpath가 변경되었습니다")
+            raise OwnershipError("ownership manifest prefix realpath changed")
         docker = manifest.docker
         if docker is None:
-            raise OwnershipError("Docker ownership가 없는 설치에는 instance를 추가하지 않습니다")
+            raise OwnershipError("do not add an instance without Docker ownership")
         docker.validate()
         if (
             manifest.install_uuid != install_uuid
@@ -778,7 +778,7 @@ def append_instance_docker_ownership(
             or docker.context != docker_context
             or docker.engine_id != docker_engine_id
         ):
-            raise OwnershipError("foreign 또는 legacy Docker ownership 경계입니다")
+            raise OwnershipError("foreign or legacy Docker ownership boundary")
 
         names = tuple(
             container_name(install_uuid, service_key(instance.system_id, endpoint.endpoint_id))
@@ -832,7 +832,7 @@ def append_instance_docker_ownership(
         try:
             directory_fd = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         except OSError as exc:
-            raise OwnershipError("ownership manifest parent를 동기화할 수 없습니다") from exc
+            raise OwnershipError("cannot synchronize ownership manifest parent") from exc
         try:
             os.fsync(directory_fd)
         finally:
@@ -863,35 +863,35 @@ def append_manager_docker_ownership(
     try:
         parsed = uuid.UUID(install_uuid)
     except (AttributeError, TypeError, ValueError) as exc:
-        raise OwnershipError("install UUID가 유효하지 않습니다") from exc
+        raise OwnershipError("install UUID is invalid") from exc
     if str(parsed) != install_uuid:
-        raise OwnershipError("install UUID는 canonical UUID 문자열이어야 합니다")
+        raise OwnershipError("install UUID must be a canonical UUID string")
     expected_project = _scoped_project_name(install_uuid)
     if project != expected_project:
-        raise OwnershipError("legacy 또는 foreign Docker project에는 manager를 추가하지 않습니다")
+        raise OwnershipError("do not add a manager to a legacy or foreign Docker project")
     if not isinstance(docker_context, str) or not _DOCKER_NAME.fullmatch(docker_context):
-        raise OwnershipError("scoped manager ownership에는 유효한 Docker context가 필요합니다")
+        raise OwnershipError("scoped manager ownership requires a valid Docker context")
     if (
         not isinstance(docker_engine_id, str)
         or not docker_engine_id
         or "\x00" in docker_engine_id
         or "\n" in docker_engine_id
     ):
-        raise OwnershipError("scoped manager ownership에는 유효한 Docker Engine ID가 필요합니다")
+        raise OwnershipError("scoped manager ownership requires a valid Docker Engine ID")
 
     destination = _canonical(manifest_path)
     with _ownership_manifest_lock(destination):
         manifest = OwnershipManifest.load(destination)
         prefix = manifest.prefix_path
         if destination != prefix / OWNERSHIP_MANIFEST_NAME:
-            raise OwnershipError("ownership manifest가 설치 prefix의 canonical 위치가 아닙니다")
+            raise OwnershipError("ownership manifest is not at the canonical installation-prefix location")
         if prefix.is_symlink() or not prefix.is_dir():
-            raise OwnershipError("ownership manifest prefix가 안전한 directory가 아닙니다")
+            raise OwnershipError("ownership manifest prefix is not a safe directory")
         if str(prefix.resolve(strict=True)) != manifest.prefix_realpath:
-            raise OwnershipError("ownership manifest prefix realpath가 변경되었습니다")
+            raise OwnershipError("ownership manifest prefix realpath changed")
         docker = manifest.docker
         if docker is None:
-            raise OwnershipError("Docker ownership가 없는 설치에는 manager를 추가하지 않습니다")
+            raise OwnershipError("do not add a manager without Docker ownership")
         docker.validate()
         if (
             manifest.install_uuid != install_uuid
@@ -900,7 +900,7 @@ def append_manager_docker_ownership(
             or docker.context != docker_context
             or docker.engine_id != docker_engine_id
         ):
-            raise OwnershipError("foreign 또는 legacy Docker ownership 경계입니다")
+            raise OwnershipError("foreign or legacy Docker ownership boundary")
         updated_docker = DockerOwnership(
             install_uuid=docker.install_uuid,
             compose_file=docker.compose_file,
@@ -948,7 +948,7 @@ def append_manager_docker_ownership(
                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
             )
         except OSError as exc:
-            raise OwnershipError("ownership manifest parent를 동기화할 수 없습니다") from exc
+            raise OwnershipError("cannot synchronize ownership manifest parent") from exc
         try:
             os.fsync(directory_fd)
         finally:
@@ -978,41 +978,41 @@ def append_docker_image_ownership(
     try:
         parsed = uuid.UUID(install_uuid)
     except (AttributeError, TypeError, ValueError) as exc:
-        raise OwnershipError("install UUID가 유효하지 않습니다") from exc
+        raise OwnershipError("install UUID is invalid") from exc
     if str(parsed) != install_uuid:
-        raise OwnershipError("install UUID는 canonical UUID 문자열이어야 합니다")
+        raise OwnershipError("install UUID must be a canonical UUID string")
     expected_project = _scoped_project_name(install_uuid)
     if project != expected_project:
-        raise OwnershipError("legacy 또는 foreign Docker project에는 image를 추가하지 않습니다")
+        raise OwnershipError("do not add an image to a legacy or foreign Docker project")
     if not isinstance(docker_context, str) or not _DOCKER_NAME.fullmatch(docker_context):
-        raise OwnershipError("scoped image ownership에는 유효한 Docker context가 필요합니다")
+        raise OwnershipError("scoped image ownership requires a valid Docker context")
     if (
         not isinstance(docker_engine_id, str)
         or not docker_engine_id
         or "\x00" in docker_engine_id
         or "\n" in docker_engine_id
     ):
-        raise OwnershipError("scoped image ownership에는 유효한 Docker Engine ID가 필요합니다")
+        raise OwnershipError("scoped image ownership requires a valid Docker Engine ID")
     if not isinstance(image, str) or not _INSTALL_IMAGE.fullmatch(image):
-        raise OwnershipError("image ownership에는 immutable install image만 지정할 수 있습니다")
+        raise OwnershipError("image ownership accepts only immutable install images")
     if not image.startswith(
         ("elesim/pilot:", "elesim/sim:", "elesim/ui:", "elesim/tools:")
     ) or not image.split(":", 1)[1].startswith(parsed.hex + "-"):
-        raise OwnershipError("image가 현재 scoped installation에 속하지 않습니다")
+        raise OwnershipError("image does not belong to the current scoped installation")
 
     destination = _canonical(manifest_path)
     with _ownership_manifest_lock(destination):
         manifest = OwnershipManifest.load(destination)
         prefix = manifest.prefix_path
         if destination != prefix / OWNERSHIP_MANIFEST_NAME:
-            raise OwnershipError("ownership manifest가 설치 prefix의 canonical 위치가 아닙니다")
+            raise OwnershipError("ownership manifest is not at the canonical installation-prefix location")
         if prefix.is_symlink() or not prefix.is_dir():
-            raise OwnershipError("ownership manifest prefix가 안전한 directory가 아닙니다")
+            raise OwnershipError("ownership manifest prefix is not a safe directory")
         if str(prefix.resolve(strict=True)) != manifest.prefix_realpath:
-            raise OwnershipError("ownership manifest prefix realpath가 변경되었습니다")
+            raise OwnershipError("ownership manifest prefix realpath changed")
         docker = manifest.docker
         if docker is None:
-            raise OwnershipError("Docker ownership가 없는 설치에는 image를 추가하지 않습니다")
+            raise OwnershipError("Do not add an image without Docker ownership")
         docker.validate()
         if (
             manifest.install_uuid != install_uuid
@@ -1021,7 +1021,7 @@ def append_docker_image_ownership(
             or docker.context != docker_context
             or docker.engine_id != docker_engine_id
         ):
-            raise OwnershipError("foreign 또는 legacy Docker ownership 경계입니다")
+            raise OwnershipError("foreign or legacy Docker ownership boundary")
         updated_docker = DockerOwnership(
             install_uuid=docker.install_uuid,
             compose_file=docker.compose_file,
@@ -1070,7 +1070,7 @@ def append_docker_image_ownership(
         try:
             directory_fd = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         except OSError as exc:
-            raise OwnershipError("ownership manifest parent를 동기화할 수 없습니다") from exc
+            raise OwnershipError("cannot synchronize ownership manifest parent") from exc
         try:
             os.fsync(directory_fd)
         finally:
@@ -1099,14 +1099,14 @@ def _refuse_nested_install(candidate: Path, *, destination: Path) -> None:
                 owner = OwnershipManifest.load(marker)
             except OwnershipError as exc:
                 raise OwnershipError(
-                    f"상위 EleSim ownership manifest를 검증할 수 없습니다: {marker}"
+                    f"cannot validate parent EleSim ownership manifest: {marker}"
                 ) from exc
             owner_prefix = _canonical(Path(owner.prefix))
             owner_bin = _canonical(Path(owner.bin_dir))
             if _within_or_equal(path, owner_prefix) or _within_or_equal(path, owner_bin):
                 raise OwnershipError(
-                    "새 설치 prefix/bin을 다른 EleSim 설치 경계 안에 중첩할 수 "
-                    f"없습니다: candidate={path} owner={marker}"
+                    "New installation prefix/bin cannot be nested inside another "
+                    f"EleSim installation boundary: candidate={path} owner={marker}"
                 )
         if current == current.parent:
             break
@@ -1143,15 +1143,15 @@ def prepare_ownership_refresh(
             _within_or_equal(path, prefix_path)
             or _within_or_equal(path, bin_path)
         ):
-            raise OwnershipError(f"claimed install path가 prefix/bin 밖입니다: {path}")
+            raise OwnershipError(f"claimed install path is outside prefix/bin: {path}")
     if not _lexists(destination):
         existing = tuple(path for path in claims if _lexists(path))
         if existing:
             rendered = "\n".join(f"  - {path}" for path in existing)
             raise OwnershipError(
-                "ownership manifest 없는 기존 EleSim 후보 경로를 자동 인수하지 "
-                "않습니다. 파일을 정확히 백업·정리하거나 기존 설치기의 clean "
-                f"uninstall을 먼저 실행하십시오:\n{rendered}"
+                "Do not automatically adopt existing EleSim candidate paths without "
+                "an ownership manifest. Back up/remove them explicitly or run the "
+                f"existing installer's clean uninstall first:\n{rendered}"
             )
         return None
     manifest = OwnershipManifest.load(destination)
@@ -1161,16 +1161,16 @@ def prepare_ownership_refresh(
         or manifest.edition != edition
     ):
         raise OwnershipError(
-            "기존 ownership manifest는 다른 prefix/bin/edition 설치의 소유입니다"
+            "existing ownership manifest belongs to another prefix/bin/edition installation"
         )
     if prefix_path.is_symlink() or not prefix_path.is_dir():
-        raise OwnershipError(f"기존 prefix가 안전한 directory가 아닙니다: {prefix_path}")
+        raise OwnershipError(f"existing prefix is not a safe directory: {prefix_path}")
     if bin_path.is_symlink() or not bin_path.is_dir():
-        raise OwnershipError(f"기존 bin_dir가 안전한 directory가 아닙니다: {bin_path}")
+        raise OwnershipError(f"existing bin_dir is not a safe directory: {bin_path}")
     if str(prefix_path.resolve(strict=True)) != manifest.prefix_realpath:
-        raise OwnershipError("기존 prefix realpath가 manifest와 다릅니다")
+        raise OwnershipError("existing prefix realpath differs from the manifest")
     if str(bin_path.resolve(strict=True)) != manifest.bin_dir_realpath:
-        raise OwnershipError("기존 bin_dir realpath가 manifest와 다릅니다")
+        raise OwnershipError("existing bin_dir realpath differs from the manifest")
     _validate_refresh_paths(manifest)
     for wrapper in manifest.wrappers:
         path = Path(wrapper.path)
@@ -1178,10 +1178,10 @@ def prepare_ownership_refresh(
             continue
         mode = path.lstat().st_mode
         if not stat.S_ISREG(mode) or stat.S_ISLNK(mode):
-            raise OwnershipError(f"기존 wrapper가 일반 파일이 아닙니다: {path}")
+            raise OwnershipError(f"existing wrapper is not a regular file: {path}")
         if sha256_file(path) != wrapper.sha256:
             raise OwnershipError(
-                f"기존 wrapper가 manifest 이후 변경되었습니다: {path}"
+                f"existing wrapper changed after installation: {path}"
             )
     return OwnershipRefresh(
         manifest_path=str(destination),
@@ -1237,7 +1237,7 @@ def _merged_shell(
     )
     previous = None if refresh is None else refresh.shell
     if previous is not None and current is not None and previous != current:
-        raise OwnershipError("refresh에서 기존 PATH registration 소유자를 바꿀 수 없습니다")
+        raise OwnershipError("cannot change existing PATH registration owner during refresh")
     return previous if current is None else current
 
 
@@ -1264,7 +1264,7 @@ def _merged_docker(
             and previous.engine_id != current.engine_id
         )
     ):
-        raise OwnershipError("refresh에서 기존 Docker ownership 경계를 바꿀 수 없습니다")
+        raise OwnershipError("cannot change existing Docker ownership boundary during refresh")
     return DockerOwnership(
         install_uuid=current.install_uuid,
         compose_file=current.compose_file,
@@ -1285,7 +1285,7 @@ def _merged_systemd(
         existing = units.get(unit.name)
         if existing is not None and existing.destination != unit.destination:
             raise OwnershipError(
-                f"refresh에서 systemd unit 목적지를 바꿀 수 없습니다: {unit.name}"
+                f"cannot change systemd unit destination during refresh: {unit.name}"
             )
         units[unit.name] = unit
     return tuple(units[name] for name in sorted(units))
@@ -1312,7 +1312,7 @@ def _validate_refresh_paths(manifest: OwnershipManifest) -> None:
         )
         if actual != entry.kind:
             raise OwnershipError(
-                f"기존 owned path 유형이 변경되었습니다: {path}: "
+                f"existing owned path type changed: {path}: "
                 f"expected={entry.kind} actual={actual}"
             )
     for value in (
@@ -1324,7 +1324,7 @@ def _validate_refresh_paths(manifest: OwnershipManifest) -> None:
         _ensure_no_symlink_ancestors(path, boundary=prefix)
         if _lexists(path) and (path.is_symlink() or not path.is_dir()):
             raise OwnershipError(
-                f"기존 managed/preserved root가 안전한 directory가 아닙니다: {path}"
+                f"existing managed/preserved root is not a safe directory: {path}"
             )
 
 
@@ -1357,20 +1357,20 @@ def install_host_uninstaller_bundle(
         else _canonical(bundle_root)
     )
     if not _is_descendant(bundle_path, prefix_path):
-        raise OwnershipError("host maintenance bundle은 prefix 하위여야 합니다")
+        raise OwnershipError("host maintenance bundle must be below the prefix")
     if prefix_path.is_symlink() or not prefix_path.is_dir():
-        raise OwnershipError(f"prefix가 안전한 directory가 아닙니다: {prefix_path}")
+        raise OwnershipError(f"prefix is not a safe directory: {prefix_path}")
     _ensure_no_symlink_ancestors(bundle_path, boundary=prefix_path)
     if _lexists(bundle_path) and (bundle_path.is_symlink() or not bundle_path.is_dir()):
         raise OwnershipError(
-            f"host maintenance bundle 경계가 안전한 directory가 아닙니다: {bundle_path}"
+            f"host maintenance bundle boundary is not a safe directory: {bundle_path}"
         )
     if _within_or_equal(source, bundle_path) or _within_or_equal(bundle_path, source):
-        raise OwnershipError("host maintenance bundle과 source package가 겹칠 수 없습니다")
+        raise OwnershipError("host maintenance bundle and source package cannot overlap")
     package_root = bundle_path / "elesim_setup"
     if _lexists(package_root) and (package_root.is_symlink() or not package_root.is_dir()):
         raise OwnershipError(
-            f"host maintenance package 경계가 안전한 directory가 아닙니다: {package_root}"
+            f"host maintenance package boundary is not a safe directory: {package_root}"
         )
     package_root.mkdir(parents=True, exist_ok=True)
     files: list[Path] = []
@@ -1390,7 +1390,7 @@ def install_host_uninstaller_bundle(
     ):
         source_file = source / name
         if not source_file.is_file():
-            raise OwnershipError(f"host uninstaller source가 없습니다: {source_file}")
+            raise OwnershipError(f"host uninstaller source is missing: {source_file}")
         destination = package_root / name
         _atomic_copy(source_file, destination, mode=0o644)
         files.append(destination)
@@ -1400,7 +1400,7 @@ def install_host_uninstaller_bundle(
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         "if ! command -v python3 >/dev/null 2>&1; then\n"
-        "  printf 'host python3가 없어 EleSim 안전 제거기를 실행할 수 없습니다.\\n' >&2\n"
+        "  printf 'host python3 is required to run the EleSim safe uninstaller.\\n' >&2\n"
         "  exit 127\n"
         "fi\n"
         f"export PYTHONPATH={shlex.quote(str(bundle_path))}\n"
@@ -1429,14 +1429,14 @@ def _validate_refresh_token(
         or refresh.bin_dir != str(bin_dir)
         or refresh.edition != edition
     ):
-        raise OwnershipError("ownership refresh token이 현재 설치 경계와 다릅니다")
+        raise OwnershipError("ownership refresh token differs from the current installation boundary")
     if not _lexists(destination) or destination.is_symlink() or not destination.is_file():
-        raise OwnershipError("refresh 대상 ownership manifest가 사라졌거나 바뀌었습니다")
+        raise OwnershipError("target ownership manifest disappeared or changed during refresh")
     if sha256_file(destination) != refresh.manifest_sha256:
-        raise OwnershipError("설치 도중 ownership manifest가 변경되었습니다")
+        raise OwnershipError("ownership manifest changed during installation")
     current = OwnershipManifest.load(destination)
     if current.install_uuid != refresh.install_uuid:
-        raise OwnershipError("설치 도중 ownership UUID가 변경되었습니다")
+        raise OwnershipError("ownership UUID changed during installation")
 
 
 def _atomic_text(destination: Path, content: str, *, mode: int) -> None:
@@ -1479,29 +1479,29 @@ def sha256_file(path: Path) -> str:
 
 def _mapping(value: object, *, name: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
-        raise OwnershipError(f"{name}이 JSON object가 아닙니다")
+        raise OwnershipError(f"{name} is not a JSON object")
     return value
 
 
 def _sequence(value: object, *, name: str) -> Sequence[object]:
     if not isinstance(value, (list, tuple)):
-        raise OwnershipError(f"{name}이 JSON array가 아닙니다")
+        raise OwnershipError(f"{name} is not a JSON array")
     return value
 
 
 def _canonical(path: Path) -> Path:
     value = os.path.abspath(os.fspath(path.expanduser()))
     if "\x00" in value or "\n" in value or "\r" in value:
-        raise OwnershipError("경로에 NUL/개행을 사용할 수 없습니다")
+        raise OwnershipError("paths cannot contain NUL or newline characters")
     return Path(value)
 
 
 def _require_absolute(value: str, *, name: str) -> Path:
     if not isinstance(value, str) or not value or "\x00" in value:
-        raise OwnershipError(f"{name}가 유효한 경로가 아닙니다")
+        raise OwnershipError(f"{name} is not a valid path")
     path = Path(value)
     if not path.is_absolute() or str(_canonical(path)) != value:
-        raise OwnershipError(f"{name}는 정규화된 절대 경로여야 합니다: {value!r}")
+        raise OwnershipError(f"{name} must be a normalized absolute path: {value!r}")
     return path
 
 
@@ -1509,26 +1509,26 @@ def _validate_uuid(value: str, *, name: str) -> str:
     try:
         parsed = uuid.UUID(value)
     except (AttributeError, TypeError, ValueError) as exc:
-        raise OwnershipError(f"{name}가 유효한 UUID가 아닙니다") from exc
+        raise OwnershipError(f"{name} is not a valid UUID") from exc
     if str(parsed) != value:
-        raise OwnershipError(f"{name}는 canonical UUID 문자열이어야 합니다")
+        raise OwnershipError(f"{name} must be a canonical UUID string")
     return value
 
 
 def _validated_unique_paths(values: Iterable[str], *, name: str) -> tuple[Path, ...]:
     result = tuple(_require_absolute(value, name=name) for value in values)
     if len({str(path) for path in result}) != len(result):
-        raise OwnershipError(f"{name} 경로가 중복됩니다")
+        raise OwnershipError(f"{name} contains duplicate paths")
     return result
 
 
 def _ensure_no_symlink_ancestors(path: Path, *, boundary: Path) -> None:
     if not _within_or_equal(path, boundary):
-        raise OwnershipError(f"경로가 ownership boundary 밖입니다: {path}")
+        raise OwnershipError(f"path is outside the ownership boundary: {path}")
     current = path.parent
     while _within_or_equal(current, boundary):
         if _lexists(current) and current.is_symlink():
-            raise OwnershipError(f"경로 ancestor가 symlink입니다: {current}")
+            raise OwnershipError(f"path ancestor is a symlink: {current}")
         if current == boundary:
             break
         current = current.parent

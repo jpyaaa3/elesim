@@ -446,10 +446,10 @@ def generate_instance_configs(
 
 def _read_yaml(path: Path) -> dict[str, Any]:
     if not path.is_file():
-        raise FileNotFoundError(f"설정 원본이 없습니다: {path}")
+        raise FileNotFoundError(f"Configuration source is missing: {path}")
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, Mapping):
-        raise ValueError(f"{path}: YAML root가 object가 아닙니다")
+        raise ValueError(f"{path}: YAML root must be an object")
     return dict(raw)
 
 

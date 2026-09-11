@@ -470,19 +470,21 @@ class TestGui:
         ):
             return
         raise DockerOwnerConflict(
-            "EleSim 고정 컨테이너 이름 충돌: "
+            "EleSim fixed container name conflict: "
             f"{DEVELOPER_CONTAINER}\n"
-            f"  기존 소유자: project={actual_project} compose={actual_compose}\n"
-            f"  현재 설치: project={DEVELOPER_PROJECT} compose={expected_compose}\n"
-            "기존 설치의 elesim-down으로 종료·제거한 뒤 다시 실행하십시오."
+            f"  Existing owner: project={actual_project} compose={actual_compose}\n"
+            f"  Current installation: project={DEVELOPER_PROJECT} "
+            f"compose={expected_compose}\n"
+            "Stop and remove the existing installation with its elesim-down "
+            "command, then try again."
         )
 
     def _run_group(self, group: TestCaseGroup) -> None:
         if self._proc is not None:
-            self._append_log("[runner] 이미 실행 중입니다. 먼저 중단하세요.")
+            self._append_log("[runner] A test run is already active. Stop it first.")
             return
         if not group.paths:
-            self._append_log(f"[runner] {group.label}에 해당하는 테스트 파일이 없습니다.")
+            self._append_log(f"[runner] No test files belong to {group.label}.")
             return
         self.selected = group
         self.exit_code = None
@@ -524,7 +526,7 @@ class TestGui:
                 self._queue.put(f"[runner] {exc}")
                 code = 73
             except Exception as exc:
-                self._queue.put(f"[runner] 실행 시작 실패: {exc}")
+                self._queue.put(f"[runner] Failed to start the test run: {exc}")
                 code = -1
             finally:
                 self._queue.put(f"__EXIT__:{code}")
@@ -540,7 +542,7 @@ class TestGui:
         try:
             proc.terminate()
         except Exception as exc:
-            self._append_log(f"[runner] 중단 실패: {exc}")
+            self._append_log(f"[runner] Failed to stop the test run: {exc}")
 
     def _draw_button_grid(self, width: float) -> None:
         assert imgui is not None
@@ -690,7 +692,8 @@ class TestGui:
     def run(self) -> None:
         if glfw is None or imgui is None or GlfwRenderer is None:
             raise SystemExit(
-                "테스트 GUI에는 glfw와 imgui가 필요합니다. elesim-ui 의존성을 설치하세요."
+                "The test GUI requires glfw and imgui. Install the elesim-ui "
+                "dependencies."
             )
         if not glfw.init():
             raise SystemExit("glfw.init() failed.")
@@ -703,7 +706,7 @@ class TestGui:
         window = glfw.create_window(WINDOW_W, WINDOW_H, "테스트 러너", None, None)
         if not window:
             glfw.terminate()
-            raise SystemExit("GLFW 창 생성에 실패했습니다.")
+            raise SystemExit("Failed to create the GLFW window.")
         glfw.make_context_current(window)
         imgui.create_context()
         self._install_font()

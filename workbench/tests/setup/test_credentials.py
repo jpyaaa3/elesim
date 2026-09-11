@@ -40,7 +40,7 @@ def test_staged_files_never_overwrite_different_material(tmp_path: Path) -> None
     source.write_text("new", encoding="utf-8")
     target.write_text("old", encoding="utf-8")
 
-    with pytest.raises(FileExistsError, match="덮어"):
+    with pytest.raises(FileExistsError, match="overwrite"):
         install_staged_credentials(staged, destination)
 
 
@@ -174,7 +174,7 @@ def test_ssh_fingerprint_timeout_explains_container_and_tailscale_path(
     )
     monkeypatch.setitem(sys.modules, "paramiko", SimpleNamespace(Transport=object))
 
-    with pytest.raises(RuntimeError, match="Docker 컨테이너") as error:
+    with pytest.raises(RuntimeError, match="Docker container") as error:
         probe_ssh_fingerprint("100.74.222.24", 22)
     assert "tailscale" in str(error.value).lower()
 

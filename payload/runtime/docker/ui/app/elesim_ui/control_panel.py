@@ -258,7 +258,7 @@ class ControlPanel:
         connected = len(snapshot.connected_streams)
         imgui.text(f"SIM CAMERA  {connected}/2 streams")
         if self._camera_visible:
-            imgui.text_disabled("Sim Camera 창이 별도로 열려 있습니다.")
+            imgui.text_disabled("The Sim Camera is open in a separate window.")
             return
         if imgui.button("Open Sim Camera##open-sim-camera"):
             self._show_camera_window()

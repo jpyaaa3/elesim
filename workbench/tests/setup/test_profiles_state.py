@@ -24,9 +24,9 @@ def test_profiles_are_router_free() -> None:
     assert roles_for_profile("compute") == ("sim",)
     assert roles_for_profile("robot") == ("robot",)
     assert roles_for_profile("custom", ("ui", "pilot", "ui")) == ("pilot", "ui")
-    with pytest.raises(ValueError, match="프로필"):
+    with pytest.raises(ValueError, match="installation profile"):
         roles_for_profile("missing")
-    with pytest.raises(ValueError, match="역할"):
+    with pytest.raises(ValueError, match="installation role"):
         roles_for_profile("custom")
     assert normalize_roles(("ui", "sim", "ui")) == ("sim", "ui")
     with pytest.raises(ValueError, match="router"):
@@ -49,7 +49,7 @@ def test_install_mode_is_centralized_by_runtime_topology(local_state) -> None:
             roles=("robot",),
             install_mode="container",
         ).validate()
-    with pytest.raises(ValueError, match="Robot 단독"):
+    with pytest.raises(ValueError, match="standalone"):
         local_state(
             roles=("pilot", "robot"),
             install_mode="native",
@@ -251,7 +251,7 @@ def test_v3_curve_migration_fails_closed_until_sros2_is_configured(
 
     assert migrated.dds.security_profile == "sros2"
     assert migrated.dds.keystore == ""
-    with pytest.raises(ValueError, match="자동 변환"):
+    with pytest.raises(ValueError, match="converted automatically"):
         migrated.require_runnable_dds()
 
 
@@ -310,7 +310,7 @@ def test_managed_sros2_requires_matching_versioned_bundle(tmp_path) -> None:
         enclave="/elesim/lab",
     ).validate()
 
-    with pytest.raises(ValueError, match="generation/bundle"):
+    with pytest.raises(ValueError, match="include all of generation, bundle"):
         DdsSettings(
             security_profile="sros2",
             security_provisioning="managed",

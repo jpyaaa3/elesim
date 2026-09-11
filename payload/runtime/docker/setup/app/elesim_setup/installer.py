@@ -124,7 +124,7 @@ class Installer:
     ) -> None:
         self.state = state.validate()
         if self.state.install_mode != "native":
-            raise ValueError("Installer에는 install_mode=native가 필요합니다")
+            raise ValueError("Installer requires install_mode=native")
         self.state_path = self.state.state_path if state_path is None else state_path.expanduser().resolve()
         self.dry_run = bool(dry_run)
         self.log = log
@@ -292,26 +292,26 @@ class Installer:
         setup = self.robot_host.unitree_ros_workspace / "install/setup.bash"
         if not setup.is_file():
             raise FileNotFoundError(
-                "Unitree ROS 2 workspace overlay가 없습니다: "
-                f"{setup}. 설치 전에 UNITREE_ROS2_WS 또는 "
-                "ELESIM_UNITREE_ROS2_WS를 실제 workspace로 지정하십시오."
+                "Unitree ROS 2 workspace overlay is missing: "
+                f"{setup}. Set UNITREE_ROS2_WS or ELESIM_UNITREE_ROS2_WS "
+                "to the actual workspace before installation."
             )
 
     def _validate_robot_network_boundary(self) -> None:
         elesim_interface = self.state.dds.interface.strip()
         if not elesim_interface:
             raise ValueError(
-                "Robot 설치는 inter-host EleSim DDS interface를 명시해야 합니다"
+                "Robot installation requires an explicit inter-host EleSim DDS interface"
             )
         if elesim_interface == self.robot_host.unitree_interface:
             raise ValueError(
-                "EleSim DDS interface와 private Unitree interface가 같습니다. "
-                "ELESIM_UNITREE_INTERFACE 또는 설치 DDS interface를 분리하십시오."
+                "The EleSim DDS interface matches the private Unitree interface. "
+                "Separate ELESIM_UNITREE_INTERFACE from the installation DDS interface."
             )
         if self.state.dds.domain_id == self.robot_host.unitree_domain_id:
             raise ValueError(
-                "EleSim ROS domain과 private Unitree domain이 같습니다. "
-                "ELESIM_UNITREE_DOMAIN_ID 또는 설치 DDS domain을 분리하십시오."
+                "The EleSim ROS domain matches the private Unitree domain. "
+                "Separate ELESIM_UNITREE_DOMAIN_ID from the installation DDS domain."
             )
 
     def _show_plan(self) -> None:
@@ -359,16 +359,16 @@ class Installer:
         missing = [path for path in required if not path.is_file()]
         if missing:
             rendered = "\n".join(f"  - {path}" for path in missing)
-            raise FileNotFoundError(f"설치 소스가 불완전합니다:\n{rendered}")
+            raise FileNotFoundError(f"Installation source is incomplete:\n{rendered}")
         if sys.version_info < (3, 10):
-            raise RuntimeError("EleSim 설치에는 Python 3.10 이상이 필요합니다")
+            raise RuntimeError("EleSim installation requires Python 3.10 or newer")
         if (
             "sim" in self.state.roles
             and self.state.install_go2_mpc
             and shutil.which("git") is None
         ):
             raise RuntimeError(
-                "Sim의 go2-convex-mpc dependency 설치에는 git 명령이 필요합니다"
+                "Installing the Sim go2-convex-mpc dependency requires the git command"
             )
 
     def _install_tools(self) -> None:
@@ -933,10 +933,10 @@ def _resolve_native_robot_host() -> NativeRobotHost:
         or (account.pw_dir if account is not None else "")
     )
     if not configured_home:
-        raise ValueError("native Robot 설치의 host home을 확인할 수 없습니다")
+        raise ValueError("Cannot determine the native Robot installation host home")
     robot_home = Path(configured_home).expanduser()
     if not robot_home.is_absolute():
-        raise ValueError("native Robot host home은 절대 경로여야 합니다")
+        raise ValueError("The native Robot host home must be an absolute path")
     workspace_value = os.environ.get("ELESIM_UNITREE_ROS2_WS", "").strip()
     if not workspace_value:
         workspace_value = os.environ.get("UNITREE_ROS2_WS", "").strip()
@@ -950,7 +950,7 @@ def _resolve_native_robot_host() -> NativeRobotHost:
     try:
         unitree_domain_id = int(domain_value)
     except ValueError as exc:
-        raise ValueError("ELESIM_UNITREE_DOMAIN_ID는 0..232 정수여야 합니다") from exc
+        raise ValueError("ELESIM_UNITREE_DOMAIN_ID must be an integer from 0 through 232") from exc
     host = NativeRobotHost(
         robot_user=robot_user,
         robot_home=robot_home.resolve(),
@@ -1017,8 +1017,9 @@ def _ensure_python_pip(python: Path) -> None:
         detail = (repair.stderr or probe.stderr or "").strip()
         suffix = f" ({detail[-600:]})" if detail else ""
         raise RuntimeError(
-            "native EleSim 가상환경에 pip가 없습니다. Python venv/ensurepip 패키지 "
-            f"(예: Debian/Ubuntu의 python3-venv)를 설치하십시오{suffix}"
+            "The native EleSim virtual environment has no pip. Install the "
+            "Python venv/ensurepip package "
+            f"(for example, Debian/Ubuntu's python3-venv){suffix}"
         )
     verify = subprocess.run(
         (str(python), "-m", "pip", "--version"),
@@ -1031,18 +1032,18 @@ def _ensure_python_pip(python: Path) -> None:
     if verify.returncode != 0:
         detail = (verify.stderr or "").strip()
         suffix = f" ({detail[-600:]})" if detail else ""
-        raise RuntimeError(f"native venv pip 복구 후에도 실행할 수 없습니다{suffix}")
+        raise RuntimeError(f"The native venv still cannot run pip after recovery{suffix}")
 
 
 def _reject_source_symlinks(source: Path) -> None:
     if source.is_symlink():
-        raise ValueError(f"설치 소스는 symlink일 수 없습니다: {source}")
+        raise ValueError(f"Installation source must not be a symlink: {source}")
     for directory, names, files in os.walk(source, followlinks=False):
         for name in (*names, *files):
             path = Path(directory) / name
             if path.is_symlink():
                 raise ValueError(
-                    "설치 소스 model tree 안의 symlink는 허용되지 않습니다: "
+                    "Symlinks are not allowed inside the installation source model tree: "
                     f"{path}"
                 )
 
@@ -1117,7 +1118,7 @@ def _native_systemctl_wrapper(action: str) -> str:
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         "if (( $# != 0 )); then\n"
-        f"  printf '사용법: elesim-{'up' if action == 'start' else 'down'}\n' >&2\n"
+        f"  printf 'Usage: elesim-{'up' if action == 'start' else 'down'}\n' >&2\n"
         "  exit 64\n"
         "fi\n"
         f"exec sudo -n systemctl {action} {ROBOT_SYSTEMD_UNIT}\n"
@@ -1145,7 +1146,7 @@ def _native_archive_function(logs_root: Path) -> str:
         f"  local logs_root={shlex.quote(str(logs_root))}\n"
         '  local runs_root="$logs_root/runs"\n'
         '  if ! archive_path_has_no_symlink_ancestor "$logs_root"; then\n'
-        "    printf '로그 archive 경로에 symlink가 포함될 수 없습니다: %s\\n' "
+        "    printf 'Log archive path contains a symlink: %s\\n' "
         '"$logs_root" >&2\n'
         "    return 74\n"
         "  fi\n"
@@ -1153,24 +1154,24 @@ def _native_archive_function(logs_root: Path) -> str:
         '! archive_path_has_no_symlink_ancestor "$logs_root" || '
         '! archive_path_has_no_symlink_ancestor "$runs_root" || '
         '[[ ! -d "$logs_root" || ! -d "$runs_root" ]]; then\n'
-        "    printf '로그 archive 디렉터리를 안전하게 만들 수 없습니다: %s\\n' "
+        "    printf 'Cannot safely create the log archive directory: %s\\n' "
         '"$runs_root" >&2\n'
         "    return 74\n"
         "  fi\n"
         '  if ! chmod 0700 -- "$logs_root" "$runs_root"; then\n'
-        "    printf '로그 archive 디렉터리 권한 설정 실패: %s\\n' "
+        "    printf 'Failed to set log archive directory permissions: %s\\n' "
         '"$runs_root" >&2\n'
         "    return 74\n"
         "  fi\n"
         "  local timestamp\n"
         '  if ! timestamp="$(date -u +%Y%m%dT%H%M%S.%NZ)"; then\n'
-        "    printf 'UTC 로그 archive timestamp 생성 실패.\\n' >&2\n"
+        "    printf 'Failed to create a UTC log archive timestamp.\\n' >&2\n"
         "    return 74\n"
         "  fi\n"
         '  local run_dir="$runs_root/$timestamp"\n'
         '  if [[ -e "$run_dir" || -L "$run_dir" ]] || '
         '! mkdir -- "$run_dir"; then\n'
-        "    printf '고유 로그 archive 디렉터리 생성 실패: %s\\n' "
+        "    printf 'Failed to create a unique log archive directory: %s\\n' "
         '"$run_dir" >&2\n'
         "    return 74\n"
         "  fi\n"
@@ -1180,7 +1181,7 @@ def _native_archive_function(logs_root: Path) -> str:
         "  if ! sudo -n journalctl --no-pager --output=short-iso-precise "
         f"--unit={ROBOT_SYSTEMD_UNIT} --unit={UNITREE_BRIDGE_SYSTEMD_UNIT} "
         f"2>&1 | tail -c {NATIVE_RUNTIME_LOG_BYTES} >\"$destination\"; then\n"
-        "    printf 'Robot journald 로그 저장 실패: %s\\n' "
+        "    printf 'Failed to save Robot journald logs: %s\\n' "
         '"$destination" >&2\n'
         "    archive_status=74\n"
         "  fi\n"
@@ -1203,7 +1204,7 @@ def _native_archive_function(logs_root: Path) -> str:
         '      candidate="${generations[index]}"\n'
         '      if [[ -L "$candidate" || ! -d "$candidate" || '
         '"$candidate" != "$runs_root/"* ]]; then\n'
-        "        printf '안전하지 않은 archive 삭제 대상을 건너뜁니다: %s\\n' "
+        "        printf 'Skipping unsafe archive deletion target: %s\\n' "
         '"$candidate" >&2\n'
         "        archive_status=74\n"
         "        continue\n"
@@ -1211,7 +1212,7 @@ def _native_archive_function(logs_root: Path) -> str:
         '      rm -rf -- "$candidate" || archive_status=74\n'
         "    done\n"
         "  fi\n"
-        "  printf '로그 archive: %s\\n' \"$run_dir\"\n"
+        "  printf 'Log archive: %s\\n' \"$run_dir\"\n"
         '  return "$archive_status"\n'
         "}\n"
     )
@@ -1223,8 +1224,7 @@ def _native_logs_wrapper(*, logs_root: Path, archive_enabled: bool) -> str:
         "  archive_runtime_logs\n"
         if archive_enabled
         else (
-            "  printf '이 설치에서는 runtime text log archive가 비활성화되어 "
-            "있습니다.\\n' >&2\n"
+            "  printf 'Runtime text log archiving is disabled for this installation.\\n' >&2\n"
             "  exit 64\n"
         )
     )
@@ -1241,7 +1241,7 @@ def _native_logs_wrapper(*, logs_root: Path, archive_enabled: bool) -> str:
         + save
         + "  exit $?\n"
         + "fi\n"
-        + "printf '사용법: elesim-logs [--save]\\n' >&2\n"
+        + "printf 'Usage: elesim-logs [--save]\\n' >&2\n"
         + "exit 64\n"
     )
 
@@ -1254,7 +1254,7 @@ def _native_down_wrapper(*, logs_root: Path, archive_enabled: bool) -> str:
         "set -euo pipefail\n"
         "umask 077\n"
         "if (( $# != 0 )); then\n"
-        "  printf '사용법: elesim-down\\n' >&2\n"
+        "  printf 'Usage: elesim-down\\n' >&2\n"
         "  exit 64\n"
         "fi\n"
         + _native_archive_function(logs_root)

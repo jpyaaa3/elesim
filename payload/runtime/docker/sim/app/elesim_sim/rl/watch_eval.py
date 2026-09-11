@@ -102,7 +102,7 @@ def open_master(host: str, port: Optional[int] = None) -> None:
     print(f"[watch] {where} 에 연결합니다. 비밀번호 인증이면 여기서 한 번 물어봅니다.")
     made = subprocess.run(["ssh", "-MNf", *ssh_options(host, port), host])
     if made.returncode != 0:
-        raise SystemExit(f"[watch] SSH 연결 실패: {where}")
+        raise SystemExit(f"[watch] SSH connection failed: {where}")
     print("[watch] 연결됨. 이후 rsync는 이 소켓을 재사용합니다.")
 
 
@@ -119,11 +119,11 @@ def check_remote_path(remote_run: str) -> None:
     if remote_run.startswith(home):
         tail = remote_run[len(home):].lstrip("/")
         raise SystemExit(
-            f"[watch] --remote-run 이 이 컴퓨터의 홈으로 확장되었습니다:\n"
+            f"[watch] --remote-run expanded to this computer's home directory:\n"
             f"         {remote_run}\n"
-            f"         셸이 ~ 를 먼저 펼쳤습니다. 서버 쪽 경로를 주세요:\n"
-            f"           --remote-run '~/{tail}'      (따옴표로 감싸 원격에서 펼치게)\n"
-            f"         또는 절대경로로:\n"
+            f"         The shell expanded ~ locally. Pass the server path instead:\n"
+            f"           --remote-run '~/{tail}'      (quote it for remote expansion)\n"
+            f"         or use an absolute path:\n"
             f"           --remote-run /home/<user>/{tail}"
         )
 
@@ -158,13 +158,14 @@ def pull(host: str, remote_run: str, local_run: Path,
     err = result.stderr.strip()
     if "change_dir" in err or "No such file or directory" in err:
         print(
-            f"[watch] 서버에 그 디렉터리가 없습니다:\n"
+            f"[watch] The directory does not exist on the server:\n"
             f"         {remote_run}\n"
-            f"         학습이 아직 시작되지 않았거나 경로가 틀렸습니다. 서버에서 확인:\n"
+            f"         Training may not have started, or the path may be wrong. "
+            f"Check on the server:\n"
             f"           ls -d {remote_run}"
         )
         return False
-    print(f"[watch] rsync 실패 (재시도합니다): {err[:200]}")
+    print(f"[watch] rsync failed; retrying: {err[:200]}")
     return True
 
 
@@ -202,24 +203,25 @@ def check_commit(local_run: Path, *, allow_mismatch: bool) -> None:
     here = local_commit()
     if trained is None:
         message = (
-            "학습 런에 커밋 기록이 없습니다 (train.py 가 git 정보를 쓰기 전 버전). "
-            "관측 의미가 같은지 직접 확인해야 합니다."
+            "The training run has no commit record (it predates train.py Git "
+            "metadata). Verify the observation semantics manually."
         )
     elif trained == here:
         return
     else:
         message = (
-            f"학습 커밋 {trained[:10]} != 이곳 {str(here)[:10]}. "
-            "관측 채널의 의미가 다르면 평가가 조용히 틀린 값을 냅니다."
+            f"training commit {trained[:10]} != local commit {str(here)[:10]}. "
+            "Different observation semantics can silently invalidate evaluation."
         )
     if allow_mismatch:
         if message not in _WARNED:
             _WARNED.add(message)
-            print(f"[watch] 경고: {message}")
+            print(f"[watch] warning: {message}")
         return
     raise SystemExit(
-        f"[watch] 중단: {message}\n"
-        f"         같은 커밋으로 맞추거나, 알고서도 진행하려면 --allow-commit-mismatch"
+        f"[watch] aborted: {message}\n"
+        f"         Use the same commit, or pass --allow-commit-mismatch "
+        f"if you accept the risk"
     )
 
 
@@ -271,7 +273,7 @@ def evaluate(
     result = subprocess.run(cmd, cwd=_REPO_ROOT, capture_output=True, text=True)
     if result.returncode != 0:
         tail = (result.stderr or result.stdout).strip().splitlines()[-3:]
-        print(f"[watch] 평가 실패 {ckpt.name}: {' / '.join(tail)}")
+        print(f"[watch] evaluation failed for {ckpt.name}: {' / '.join(tail)}")
         return None
     payload = report.with_suffix(".json")
     return json.loads(payload.read_text()) if payload.is_file() else None
@@ -426,7 +428,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     if shutil.which("rsync") is None:
-        raise SystemExit("[watch] rsync 를 찾을 수 없습니다.")
+        raise SystemExit("[watch] rsync was not found.")
     check_remote_path(args.remote_run)
 
     run_name = Path(args.remote_run.rstrip("/")).name
@@ -441,8 +443,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     if lock.exists():
         raise SystemExit(
-            f"[watch] 이미 실행 중인 것 같습니다: {lock}\n"
-            f"         아니라면 지우고 다시 실행하세요."
+            f"[watch] Another watcher appears to be running: {lock}\n"
+            f"         If it is not, remove the lock file and try again."
         )
     lock.write_text(str(os.getpid()))
     where = f"{args.host}:{args.port}" if args.port else args.host
@@ -465,7 +467,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             check_commit(local_run, allow_mismatch=args.allow_commit_mismatch)
             pending = checkpoints(local_run, args.interval)
             if not pending:
-                raise SystemExit("[watch] 평가할 체크포인트가 없습니다.")
+                raise SystemExit("[watch] No checkpoints are available for evaluation.")
             iteration, ckpt = pending[-1]
             print(f"[watch] 크기 스윕: {ckpt.name} (iteration {iteration})")
             sweep_sizes(

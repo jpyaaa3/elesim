@@ -170,13 +170,13 @@ class DoctorReport:
         for result in self.results:
             lines.append(f"[{result.status:4}] {result.name:<{width}}  {result.detail}")
             if result.remedy:
-                lines.append(f"       {'':<{width}}  조치: {result.remedy}")
+                lines.append(f"       {'':<{width}}  Action: {result.remedy}")
         passed = sum(result.status == PASS for result in self.results)
         failed = sum(result.status == FAIL for result in self.results)
         warned = sum(result.status == WARN for result in self.results)
         skipped = sum(result.status == SKIP for result in self.results)
         lines.append(
-            f"\n요약: PASS {passed}, FAIL {failed}, WARN {warned}, SKIP {skipped}"
+            f"\nSummary: PASS {passed}, FAIL {failed}, WARN {warned}, SKIP {skipped}"
         )
         return "\n".join(lines)
 
@@ -262,7 +262,7 @@ def _prepare_dds_environment(state: InstallState) -> None:
     if current_rmw and current_rmw != expected_rmw:
         raise RuntimeError(
             f"RMW_IMPLEMENTATION={current_rmw!r}; expected {expected_rmw!r}. "
-            "새 shell에서 generated wrapper를 사용하십시오"
+            "use the generated wrapper in a new shell"
         )
     os.environ["RMW_IMPLEMENTATION"] = expected_rmw
     os.environ["ROS_DOMAIN_ID"] = str(state.dds.domain_id)
@@ -394,7 +394,7 @@ def probe_dds_peer_state(
         from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
     except ImportError as exc:
         raise RuntimeError(
-            "ROS 2 overlay에서 EleSim discovery message를 찾을 수 없습니다"
+            "EleSim discovery message was not found in the ROS 2 overlay"
         ) from exc
 
     rclpy = _rclpy_import() if import_rclpy is None else import_rclpy()
@@ -522,7 +522,7 @@ def probe_rgbd_frame(
         from rclpy.qos import qos_profile_sensor_data
     except ImportError as exc:
         raise RuntimeError(
-            "ROS 2 overlay에서 elesim_interfaces를 찾을 수 없습니다"
+            "elesim_interfaces was not found in the ROS 2 overlay"
         ) from exc
 
     context = rclpy.context.Context()
@@ -625,14 +625,14 @@ class NetworkDoctor:
                 "Tailscale",
                 PASS,
                 f"{tailscale.interface}: {', '.join(tailscale.addresses)}",
-                "이 주소와 interface를 연결 관리자에 현재값으로 입력하십시오; 값은 고정하지 마십시오",
+                "enter this address and interface as current values in the connection manager; do not pin them",
             )
         else:
             report.add(
                 "Tailscale",
                 WARN,
                 tailscale.detail,
-                "Tailscale을 쓸 때만 설치·로그인한 뒤 현재 tailscale* 주소를 입력하십시오",
+                "install and log in to Tailscale only when using it, then enter the current tailscale* address",
             )
         report.add(
             "DDS configuration",
@@ -653,10 +653,10 @@ class NetworkDoctor:
                 "DDS graph",
                 FAIL,
                 str(exc),
-                "ROS overlay, ROS_DOMAIN_ID, RMW, interface, multicast/static peer와 SROS2 policy를 확인하십시오",
+                "check the ROS overlay, ROS_DOMAIN_ID, RMW, interface, multicast/static peers, and SROS2 policy",
             )
-            report.add("RGBD topic", SKIP, "DDS graph에 참여할 수 없음")
-            report.add("WebRTC signaling", SKIP, "DDS graph에 참여할 수 없음")
+            report.add("RGBD topic", SKIP, "cannot join the DDS graph")
+            report.add("WebRTC signaling", SKIP, "cannot join the DDS graph")
             return report
 
         if graph.nodes:
@@ -665,8 +665,8 @@ class NetworkDoctor:
             report.add(
                 "DDS graph",
                 WARN,
-                "같은 domain에서 EleSim peer를 찾지 못함",
-                "상대 프로세스, ROS_DOMAIN_ID와 DDS discovery 설정을 확인하십시오",
+                "no EleSim peer found in the same domain",
+                "check the peer process, ROS_DOMAIN_ID, and DDS discovery settings",
             )
         self._peer_results(report)
         self._rgbd_results(report, graph)
@@ -675,7 +675,7 @@ class NetworkDoctor:
 
     def _peer_results(self, report: DoctorReport) -> None:
         if not self.expected_peers:
-            report.add("DDS peers", SKIP, "기대하는 endpoint가 지정되지 않음")
+            report.add("DDS peers", SKIP, "no expected endpoint was specified")
             return
         try:
             probe = probe_dds_peer_state(
@@ -688,7 +688,7 @@ class NetworkDoctor:
                 "DDS peers",
                 FAIL if self.strict_peers else WARN,
                 str(exc),
-                "ROS 2 overlay와 DDS discovery carrier를 확인하십시오",
+                "check the ROS 2 overlay and DDS discovery carrier",
             )
             return
         descriptors = set(probe.descriptors)
@@ -712,20 +712,20 @@ class NetworkDoctor:
             report.add(
                 "DDS peers",
                 PASS,
-                f"{len(self.expected_peers)}개 endpoint의 descriptor/heartbeat 확인: "
+                f"checked descriptor/heartbeat for {len(self.expected_peers)} endpoints: "
                 f"{', '.join(self.expected_peers)}",
             )
             return
         status = FAIL if self.strict_peers else WARN
-        descriptor_text = ", ".join(sorted(descriptors)) or "없음"
-        heartbeat_text = ", ".join(sorted(heartbeats)) or "없음"
+        descriptor_text = ", ".join(sorted(descriptors)) or "none"
+        heartbeat_text = ", ".join(sorted(heartbeats)) or "none"
         detail_parts: list[str] = []
         if missing:
-            detail_parts.append(f"미발견: {', '.join(missing)}")
+            detail_parts.append(f"missing: {', '.join(missing)}")
         if missing_descriptors:
-            detail_parts.append(f"descriptor 없음: {', '.join(missing_descriptors)}")
+            detail_parts.append(f"missing descriptor: {', '.join(missing_descriptors)}")
         if missing_heartbeats:
-            detail_parts.append(f"heartbeat 없음: {', '.join(missing_heartbeats)}")
+            detail_parts.append(f"missing heartbeat: {', '.join(missing_heartbeats)}")
         mismatched = tuple(
             peer
             for peer in self.expected_peers
@@ -735,7 +735,7 @@ class NetworkDoctor:
         )
         if mismatched:
             detail_parts.append(
-                "descriptor/heartbeat boot 또는 revision 불일치: "
+                "descriptor/heartbeat boot or revision mismatch: "
                 + ", ".join(mismatched)
             )
         report.add(
@@ -744,16 +744,16 @@ class NetworkDoctor:
             "; ".join(detail_parts)
             + f" (descriptor: {descriptor_text}; heartbeat: {heartbeat_text})",
             (
-                "모든 호스트가 같은 DDS domain/RMW/security를 사용하고, "
-                "런타임 namespace에서 선택 interface와 static peer 경로가 실제로 "
-                "보이는지 확인하십시오. Docker Desktop/WSL의 Tailscale TCP helper는 "
-                "DDS UDP를 전달하지 않습니다."
+                "verify that all hosts use the same DDS domain/RMW/security and that "
+                "the selected interface and static-peer paths are visible in the "
+                "runtime namespace. Docker Desktop/WSL Tailscale TCP helpers do not "
+                "forward DDS UDP."
             ),
         )
 
     def _turn_results(self, report: DoctorReport) -> None:
         if not self.state.network.turn_urls:
-            report.add("TURN", SKIP, "설정되지 않음; 같은 LAN에서는 선택 사항")
+            report.add("TURN", SKIP, "not configured; optional on the same LAN")
             return
         for index, value in enumerate(self.state.network.turn_urls, start=1):
             name = f"TURN {index}"
@@ -773,7 +773,7 @@ class NetworkDoctor:
                     name,
                     FAIL,
                     str(exc),
-                    "Coturn listener, 공개 IP와 UDP/TCP 방화벽을 확인하십시오",
+                    "check the Coturn listener, public IP, and UDP/TCP firewall",
                 )
 
     def _rgbd_results(
@@ -786,20 +786,20 @@ class NetworkDoctor:
         expected_type = ENCODED_RGBD_TYPE if ENCODED_RGBD_TYPE in types else RGBD_TYPE
         if expected_type not in types:
             detail = (
-                f"{topic}가 graph에 없음"
+                f"{topic} is not in the graph"
                 if not types
-                else f"{topic}: 예상 {expected_type}, 실제 {', '.join(types)}"
+                else f"{topic}: expected {expected_type}, found {', '.join(types)}"
             )
             report.add(
                 "RGBD topic",
                 WARN,
                 detail,
-                "Sim publisher와 system_id/sim_id를 확인하십시오",
+                "check the Sim publisher and system_id/sim_id",
             )
             return
         report.add("RGBD topic", PASS, f"{topic} ({expected_type}, sensor QoS)")
         if not self.active:
-            report.add("RGBD frame", SKIP, "실제 sample 검사는 --active에서 수행")
+            report.add("RGBD frame", SKIP, "live sample checks require --active")
             return
         try:
             metadata = probe_rgbd_frame(
@@ -820,7 +820,7 @@ class NetworkDoctor:
                 "RGBD frame",
                 FAIL,
                 str(exc),
-                "Sim camera publisher와 DDS QoS/SROS2 policy를 확인하십시오",
+                "check the Sim camera publisher and DDS QoS/SROS2 policy",
             )
 
     def _webrtc_results(
@@ -839,25 +839,25 @@ class NetworkDoctor:
             report.add(
                 "WebRTC signaling",
                 WARN,
-                f"DDS control topic 미발견 ({PEER_ENVELOPE_TYPE})",
-                "Sim peer와 endpoint descriptor/control topic을 확인하십시오",
+                f"DDS control topic missing ({PEER_ENVELOPE_TYPE})",
+                "check the Sim peer and endpoint descriptor/control topic",
             )
             return
         report.add(
             "WebRTC signaling",
             PASS,
             (
-                f"DDS reliable control carrier {len(control_topics)}개 발견; "
-                "media는 DTLS-SRTP"
+                f"found {len(control_topics)} DDS reliable control carriers; "
+                "media uses DTLS-SRTP"
             ),
         )
         report.add(
             "WebRTC frames",
             SKIP,
             (
-                "실제 ICE/DTLS-SRTP frame 검사는 UI session에서 수행"
+                "live ICE/DTLS-SRTP frame checks run in the UI session"
                 if self.active
-                else "--active는 RGBD DDS sample만 직접 검사"
+                else "--active checks only live RGBD DDS samples"
             ),
         )
 

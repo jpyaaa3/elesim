@@ -60,8 +60,8 @@ class Interface:
         home = m["waypoint"]["home"]
         if home is None:
             raise ValueError(
-                "manifest 에 home waypoint 가 없습니다: 설정의 home_preset 이 "
-                "런타임에서 풀리므로, 내보낼 때 arm.home_waypoint 를 명시하세요"
+                "The manifest has no home waypoint: home_preset is resolved "
+                "at runtime, so set arm.home_waypoint before exporting"
             )
         t, lift = m["timing"], m["lift_script"]
         return Interface(
@@ -224,8 +224,9 @@ class DeployedPolicy:
         vec = list(joint_estimate) + list(object_geometry) + list(load_proxy) + [progress]
         if len(vec) != self.iface.obs_dim:
             raise ValueError(
-                f"관측이 {len(vec)} 개인데 정책은 {self.iface.obs_dim} 개를 "
-                f"기대합니다 (관절 4 + 물체 7 + 부하 4 + 진행률 1)"
+                f"The observation has {len(vec)} values, but the policy "
+                f"expects {self.iface.obs_dim} (4 joints + 7 object values + "
+                "4 load values + 1 progress value)"
             )
         return torch.tensor([vec], dtype=torch.float32)
 

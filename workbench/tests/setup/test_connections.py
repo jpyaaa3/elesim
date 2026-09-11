@@ -161,7 +161,7 @@ def test_runner_rejects_repeated_role_instances_before_host_operations(
     )
     monkeypatch.setattr(runner, "_local_install_scope", lambda: scoped)
 
-    with pytest.raises(ValueError, match="복수 인스턴스.*ui"):
+    with pytest.raises(ValueError, match="multiple instances.*ui"):
         runner(duplicated, "start", lambda _message: None)
 
 
@@ -194,7 +194,7 @@ def test_trusted_network_runner_ignores_cancel_after_rollout_commit(
     events: list[str] = []
 
     def cancel_on_completion(message: str) -> None:
-        if "검증이 끝났습니다" in message:
+        if "validation completed" in message:
             raise ConnectionJobCancelled("too late")
         events.append(message)
 
@@ -223,7 +223,7 @@ def test_trusted_network_rejects_security_actions_before_host_operations(
     with pytest.raises(ValueError, match="deploy"):
         runner(topology, "rotate", lambda _message: None)
 
-    with pytest.raises(ValueError, match="지원하지 않는 연결 작업"):
+    with pytest.raises(ValueError, match="unsupported connection action"):
         runner(topology, "unknown", lambda _message: None)
 
 
@@ -303,8 +303,8 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     ]
     assert "build operator [stdout] operator-step-1" in logs
     assert "build operator [stderr] operator-step-2" in logs
-    assert "build 완료: operator" in logs
-    assert "build 완료: jetson" in logs
+    assert "Build complete: operator" in logs
+    assert "Build complete: jetson" in logs
     assert received_options == [options, options]
 
 
@@ -450,7 +450,9 @@ def test_runtime_start_reports_dds_readiness_after_launch(
         "doctor:jetson:pilot-main,robot-go2,sim-main,ui-main:300",
     }
     assert any("DDS endpoint liveness" in message for message in logs)
-    assert any("endpoint descriptor/heartbeat 확인" in message for message in logs)
+    assert any(
+        "checking endpoint descriptors/heartbeats" in message for message in logs
+    )
 
 
 def test_runtime_readiness_checks_hosts_concurrently(
@@ -497,7 +499,9 @@ def test_runtime_readiness_distinguishes_probe_exception_from_missing_peers(
         ConnectionDeploymentRunner._report_runtime_readiness(
             topology, operations, topology.hosts, logs.append
         )
-    assert any("DDS 판정 전에 검사 호출이 실패했습니다" in message for message in logs)
+    assert any(
+        "probe call failed before DDS evaluation" in message for message in logs
+    )
 
 
 def test_rollback_and_cleanup_errors_keep_terse_exception_types() -> None:
@@ -603,8 +607,8 @@ def test_runtime_readiness_fails_on_malformed_results_payload(
     with pytest.raises(RuntimeError, match="DDS readiness failed"):
         runner(topology, "start", logs.append)
 
-    assert any("expected endpoint가 아직 발견되지 않음" in message for message in logs)
-    assert any("런타임을 롤백합니다" in message for message in logs)
+    assert any("expected endpoint has not been discovered yet" in message for message in logs)
+    assert any("rolling back runtimes" in message for message in logs)
 
 
 def test_runtime_readiness_preserves_compensating_stop_failures(
@@ -889,7 +893,7 @@ def test_runtime_readiness_accepts_multi_unit_doctor_envelope() -> None:
     assert ConnectionDeploymentRunner._runtime_report_ok(report)
     assert (
         ConnectionDeploymentRunner._runtime_report_detail(report)
-        == "expected endpoint가 아직 발견되지 않음"
+        == "expected endpoint has not been discovered yet"
     )
 
 
@@ -903,7 +907,7 @@ def test_runtime_readiness_reports_failed_unit_from_multi_unit_envelope() -> Non
                 "results": [
                     {
                         "name": "DDS peers",
-                        "detail": "heartbeat 없음: sim-main",
+                        "detail": "missing heartbeat: sim-main",
                     }
                 ],
             },
@@ -913,7 +917,7 @@ def test_runtime_readiness_reports_failed_unit_from_multi_unit_envelope() -> Non
     assert not ConnectionDeploymentRunner._runtime_report_ok(report)
     assert (
         ConnectionDeploymentRunner._runtime_report_detail(report)
-        == "robot: heartbeat 없음: sim-main"
+        == "robot: missing heartbeat: sim-main"
     )
 
 
@@ -999,7 +1003,7 @@ def test_start_persists_changed_sidecar_address_and_requires_prepare(
         topology_state_path=state_path,
     )
 
-    with pytest.raises(RuntimeError, match="보안 및 실행 준비"):
+    with pytest.raises(RuntimeError, match="security and runtime preparation"):
         runner(topology, "start", lambda _message: None)
 
     saved = ConnectionTopology.load(state_path)

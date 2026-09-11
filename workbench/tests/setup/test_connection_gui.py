@@ -982,7 +982,7 @@ def test_background_job_cancels_at_the_next_log_boundary(tmp_path: Path) -> None
     app.start_job("rotate")
     assert entered.wait(timeout=1)
 
-    with pytest.raises(RuntimeError, match="배포 중"):
+    with pytest.raises(RuntimeError, match="cannot be changed during deployment"):
         app.save_topology(_topology().to_dict())
     with pytest.raises(RuntimeError, match="rollback"):
         app.request_shutdown()
