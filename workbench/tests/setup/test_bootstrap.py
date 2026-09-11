@@ -1707,6 +1707,49 @@ def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None
     assert '"PYTHONNOUSERSITE=1"' in script
 
 
+@pytest.mark.parametrize("build_fails", [False, True])
+def test_bootstrap_package_builds_preserve_validated_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, build_fails: bool,
+) -> None:
+    payload = _archive_payload(tmp_path)
+    monkeypatch.setattr(
+        urllib.request, "urlopen", _URLSequence(_Response(payload)),
+    )
+    url = "https://archives.example/elesim.tar.gz"
+    root = download_source(url, tmp_path)
+    revision = bootstrap_module._validated_source_revision(tmp_path, url, root)
+    before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    build_paths: list[Path] = []
+
+    def fake_run(command, **kwargs):
+        if "venv" in command:
+            python = Path(command[-1]) / "bin/python"
+            python.parent.mkdir(parents=True)
+            python.touch()
+        if "--force-reinstall" in command:
+            project = Path(command[-1])
+            build_paths.append(project)
+            assert (project / "pyproject.toml").is_file()
+            (project / "build").mkdir()
+            (project / "build/generated.py").write_text("# build artifact\n")
+            (project / "package.egg-info").mkdir()
+            if build_fails:
+                raise subprocess.CalledProcessError(1, command)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(bootstrap_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(bootstrap_module, "_ensure_bootstrap_pip", lambda _python: None)
+    if build_fails:
+        with pytest.raises(subprocess.CalledProcessError):
+            bootstrap_module.prepare_bootstrap_venv(root, tmp_path)
+    else:
+        bootstrap_module.prepare_bootstrap_venv(root, tmp_path)
+    assert len(build_paths) == (1 if build_fails else 2)
+    assert all(not path.exists() for path in build_paths)
+    assert before == {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    assert bootstrap_module._validated_source_revision(tmp_path, url, root) == revision
+
+
 def test_bootstrap_venv_pins_ros_build_python_metadata_dependencies() -> None:
     script = Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.py"
     text = script.read_text(encoding="utf-8")

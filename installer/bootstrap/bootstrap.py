@@ -1090,12 +1090,27 @@ def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
             "wheel",
         ),
         (str(python), "-m", "pip", "--disable-pip-version-check", "install", "-r", str(source_root / "payload/runtime/docker/setup/app/requirements.lock")),
-        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--force-reinstall", "--no-deps", str(source_root / "payload/runtime/common/protocol")),
-        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--force-reinstall", "--no-deps", str(source_root / "payload/runtime/docker/setup/app")),
-        (str(python), "-m", "pip", "--disable-pip-version-check", "check"),
     )
     for command in commands:
         subprocess.run(command, check=True)
+    # Local pip builds write build/ and *.egg-info into their input tree.
+    # Keep those writes outside the validated download snapshot.
+    with tempfile.TemporaryDirectory(prefix=".package-build-", dir=venv.parent) as td:
+        for name, relative in (
+            ("protocol", "payload/runtime/common/protocol"),
+            ("setup", "payload/runtime/docker/setup/app"),
+        ):
+            build_source = Path(td) / name
+            shutil.copytree(source_root / relative, build_source)
+            subprocess.run(
+                (str(python), "-m", "pip", "--disable-pip-version-check",
+                 "install", "--force-reinstall", "--no-deps", str(build_source)),
+                check=True,
+            )
+    subprocess.run(
+        (str(python), "-m", "pip", "--disable-pip-version-check", "check"),
+        check=True,
+    )
     return venv / "bin/elesim-setup"
 
 
