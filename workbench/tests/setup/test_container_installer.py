@@ -3540,4 +3540,4 @@ def test_runtime_wrapper_rejects_a_container_owned_by_another_install(
 
     assert result.returncode == 73
     assert "elesim-" in result.stderr
-    assert "existing install elesim-down" in result.stderr
+    assert "existing install's elesim-down" in result.stderr

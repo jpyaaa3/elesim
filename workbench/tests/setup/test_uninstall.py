@@ -1625,6 +1625,46 @@ def test_new_install_refuses_preexisting_claim_without_manifest(tmp_path: Path) 
     assert foreign.read_text(encoding="utf-8") == "foreign\n"
 
 
+@pytest.mark.parametrize("remove_outer_first", [True, False])
+def test_independent_nested_install_survives_other_uninstall(
+    tmp_path: Path, remove_outer_first: bool,
+) -> None:
+    outer, *_ = _manifest(tmp_path)
+    nested = Path(outer.prefix) / "ws/newsim"
+    assert prepare_ownership_refresh(
+        prefix=nested, bin_dir=nested / "bin", edition="general",
+    ) is None
+    sentinel = _write(nested / "apps/pilot/config.yaml", "new installation\n")
+    wrapper = _write(nested / "bin/elesim-up", "#!/bin/sh\n")
+    inner = write_ownership_manifest(
+        prefix=nested, bin_dir=nested / "bin", edition="general",
+        inventory_roots=(nested / "apps",), managed_roots=(nested / "apps",),
+        created_roots=(nested, nested / "bin"), wrapper_paths=(wrapper,),
+    )
+    first, second = (outer, inner) if remove_outer_first else (inner, outer)
+    execute_uninstall(plan_uninstall(first.path))
+    assert second.path.is_file()
+    if remove_outer_first:
+        assert sentinel.read_text() == "new installation\n"
+        assert wrapper.is_file()
+    else:
+        assert (Path(outer.prefix) / "containers/compose.yaml").is_file()
+    execute_uninstall(plan_uninstall(second.path))
+
+
+@pytest.mark.parametrize("relative", [
+    "logs/new", "authority/new", "static/generated.txt",
+    "static", "static/new-install", "install-ownership.json",
+])
+def test_nested_install_rejects_actual_owned_targets(tmp_path: Path, relative: str) -> None:
+    outer, *_ = _manifest(tmp_path)
+    target = Path(outer.prefix) / relative
+    with pytest.raises(OwnershipError, match="owned path"):
+        prepare_ownership_refresh(
+            prefix=tmp_path / "new", bin_dir=target, edition="general",
+        )
+
+
 def test_new_install_refuses_prefix_nested_inside_another_install(
     tmp_path: Path,
 ) -> None:

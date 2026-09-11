@@ -1079,15 +1079,13 @@ def append_docker_image_ownership(
 
 
 def _refuse_nested_install(candidate: Path, *, destination: Path) -> None:
-    """Reject a prefix/bin nested below another standard EleSim install.
+    """Reject overlaps with an ancestor install's actual removal targets.
 
-    A parent installation may recursively own one of its managed roots.  A new
-    prefix below that boundary would appear independent until the parent is
-    uninstalled, at which point the nested installation could be deleted as
-    collateral.  Standard installs keep their manifest at the prefix root, so
-    inspect only the finite ancestor chain and fail closed on any such owner.
-    The current installation's own manifest is excluded to allow refreshes and
-    a bin directory inside its own prefix.
+    Prefix/bin are placement bases, not recursively owned trees. Uninstall
+    recursively removes managed/log/authority roots and unlinks owned files
+    and wrappers. Inventory directories are also reserved because refresh may
+    inventory their descendants again. Merely created directories are only
+    removed when empty and do not reserve their descendants.
     """
 
     path = _canonical(candidate)
@@ -1101,13 +1099,20 @@ def _refuse_nested_install(candidate: Path, *, destination: Path) -> None:
                 raise OwnershipError(
                     f"cannot validate parent EleSim ownership manifest: {marker}"
                 ) from exc
-            owner_prefix = _canonical(Path(owner.prefix))
-            owner_bin = _canonical(Path(owner.bin_dir))
-            if _within_or_equal(path, owner_prefix) or _within_or_equal(path, owner_bin):
-                raise OwnershipError(
-                    "New installation prefix/bin cannot be nested inside another "
-                    f"EleSim installation boundary: candidate={path} owner={marker}"
-                )
+            targets = (
+                *owner.managed_roots, *owner.log_roots, *owner.authority_roots,
+                owner.manifest_path,
+                *(entry.path for entry in owner.owned_paths),
+                *(wrapper.path for wrapper in owner.wrappers),
+            )
+            for value in targets:
+                target = _canonical(Path(value))
+                if _within_or_equal(path, target) or _within_or_equal(target, path):
+                    raise OwnershipError(
+                        "New installation prefix/bin cannot overlap or be nested "
+                        "inside another EleSim owned path: "
+                        f"candidate={path} owned={target} owner={marker}"
+                    )
         if current == current.parent:
             break
         current = current.parent

@@ -247,8 +247,11 @@
   - Ownership refresh must fail closed when legacy generated paths exist
     without a manifest. Never auto-adopt them. Managed roots are exact
     EleSim-only subtrees, never the whole external checkout, home, or bin
-    parent. A new prefix/bin must not be nested below another standard EleSim
-    prefix. Do not add prune, wildcard deletion, or upstream-image removal.
+    parent. A new prefix/bin must not overlap an ancestor install's actual
+    managed/log/authority roots, inventoried files/directories, wrappers or manifest; the prefix
+    itself does not reserve every descendant. Empty-only directory cleanup
+    must preserve independent nested installations. Do not add prune, wildcard
+    deletion, or upstream-image removal.
   - Runtime log archivers reject direct and ancestor symlinks. Archive failure
     must not prevent scoped instance down (or legacy `elesim-down`) from
     attempting shutdown, and must still produce a nonzero status.

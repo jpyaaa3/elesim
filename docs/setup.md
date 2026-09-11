@@ -107,8 +107,14 @@ optional:    install-scoped Coturn (Sim host), Tailscale (Docker Desktop), dev s
 동일 host에서도 서로 다른 prefix와 install UUID는 독립 namespace를 갖는다.
 기존 `elesim-runtime`을 사용하는 legacy 설치는 별도 prefix/bin과 ownership
 증거를 유지하며 신규 설치가 자동 변경하지 않는다. 새 prefix/bin을 기존
-EleSim prefix 아래에 중첩하지 않으며, 설치기는 상위 표준 ownership manifest를
-발견하면 mutation 전에 거부한다.
+설치기는 상위 표준 ownership manifest의 실제 소유 대상과 충돌하는 새
+prefix/bin을 mutation 전에 거부한다. prefix/bin 자체는 하위 전체의 독점
+경계가 아니다. 예를 들어 기존 prefix가 홈이어도 소유 대상 밖의
+`~/ws/newsim`과 그 전용 `bin`은 허용한다. 재귀 삭제되는 managed/log/authority
+root 및 소유 파일·디렉터리·wrapper·manifest와의 겹침은 계속 거부한다.
+inventory 디렉터리는 업데이트 시 하위를 다시 소유 목록에 넣을 수 있으므로
+보호한다. 단순 created 디렉터리는 비었을 때만 삭제되므로 그 사실만으로
+하위 독립 설치를 금지하지 않는다. 기존 manifest를 삭제·수정할 필요는 없다.
 
 한 container 설치에는 Pilot/Sim/UI를 모두 준비해 둘 수 있다. 연결 관리자는
 설치된 `roles`를 capability inventory로 취급하고, 현재 topology에 선택된
