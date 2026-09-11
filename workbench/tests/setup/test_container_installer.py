@@ -84,6 +84,9 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
     state = local_state(roles=("pilot", "sim"), install_mode="container")
 
     ContainerInstaller(state).run()
+    register = (state.bin_path / "elesim-instance-register").read_text()
+    assert "run --rm --no-deps tools elesim-setup" in register
+    assert "--no-build" not in register
 
     compose = _compose(state)
     assert compose["name"] == project_name(install_uuid)

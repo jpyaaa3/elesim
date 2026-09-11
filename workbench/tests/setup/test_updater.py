@@ -42,6 +42,7 @@ elif args[0] == 'compose' and 'config' in args:
     for role in ('pilot', 'sim', 'ui'):
         print('elesim/' + role + ':' + uuid.replace('-', '') + '-' + 'a' * 64)
 elif args[0] == 'compose' and 'publish' in args:
+    assert '--no-build' not in args, args
     evidence = Path(args[args.index('--evidence') + 1])
     raw = evidence.read_text()
     data = json.loads(raw)
@@ -251,7 +252,7 @@ def test_scoped_release_wrapper_publishes_only_after_complete_build(
     )
 
     assert "curl -fsSL" not in script
-    assert "run --rm --no-deps --no-build tools elesim-setup" in script
+    assert "run --rm --no-deps tools elesim-setup" in script
     assert "release publish" in script
     assert "mktemp" in script and "umask 077" in script
     assert script.index("build pilot sim ui tools") < script.index("release publish")

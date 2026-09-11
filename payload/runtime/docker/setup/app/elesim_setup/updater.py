@@ -361,7 +361,7 @@ def _render_release_publish_lines(
         "  printf '\"%s\":%s' \"$release_role\" \"$release_entry\" >>\"$release_evidence\"",
         "done",
         "printf '%s\\n' '}}' >>\"$release_evidence\"",
-        f"{compose_prefix} run --rm --no-deps --no-build tools elesim-setup --state \"$release_state\" release publish --source-revision \"$release_source_revision\" --snapshot \"$release_snapshot\" --evidence \"$release_evidence\"",
+        f"{compose_prefix} run --rm --no-deps tools elesim-setup --state \"$release_state\" release publish --source-revision \"$release_source_revision\" --snapshot \"$release_snapshot\" --evidence \"$release_evidence\"",
         "trap - EXIT",
         "release_evidence_cleanup",
         *(

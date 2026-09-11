@@ -1827,7 +1827,7 @@ class ContainerInstaller:
                 self.state.bin_path / "elesim-instance-register",
                 "#!/usr/bin/env bash\nset -euo pipefail\n"
                 + guard
-                + f"exec {command} run --rm --no-deps --no-build tools elesim-setup "
+                + f"exec {command} run --rm --no-deps tools elesim-setup "
                 f"--state {shlex.quote(str(self.state_path))} instance \"$@\"\n",
             )
             scoped_refusal = _scoped_lifecycle_refusal(
