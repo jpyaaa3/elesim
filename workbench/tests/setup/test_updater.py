@@ -1,12 +1,75 @@
 from __future__ import annotations
 
 import os
+import json
+import sys
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from elesim_setup.updater import render_release_wrapper, render_update_wrapper
+
+
+def test_release_evidence_shell_passes_unescaped_template_and_valid_json(tmp_path: Path) -> None:
+    from elesim_setup.updater import _render_release_publish_lines
+
+    prefix = tmp_path / "install with spaces"
+    (prefix / "maintenance").mkdir(parents=True)
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(f"#!{sys.executable}\n" + r'''
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+uuid = '01234567-89ab-cdef-0123-456789abcdef'
+if args[:2] == ['image', 'inspect']:
+    template = args[args.index('--format') + 1]
+    assert '\\' not in template, repr(template)
+    values = {
+        'io.elesim.install_uuid': uuid,
+        'io.elesim.build_fingerprint': 'a' * 64,
+        'com.docker.compose.project': 'elesim-runtime-' + uuid.replace('-', ''),
+    }
+    template = template.replace('{{json .Id}}', json.dumps('sha256:' + 'b' * 64))
+    for key, value in values.items():
+        template = template.replace('{{json (index .Config.Labels "' + key + '")}}', json.dumps(value))
+    assert '{{' not in template
+    json.loads(template)
+    print(template)
+elif args[0] == 'compose' and 'config' in args:
+    for role in ('pilot', 'sim', 'ui'):
+        print('elesim/' + role + ':' + uuid.replace('-', '') + '-' + 'a' * 64)
+elif args[0] == 'compose' and 'publish' in args:
+    evidence = Path(args[args.index('--evidence') + 1])
+    raw = evidence.read_text()
+    data = json.loads(raw)
+    assert set(data['roles']) == {'pilot', 'sim', 'ui'}
+    assert evidence.stat().st_mode & 0o777 == 0o600
+    Path(os.environ['CAPTURE']).write_text(raw)
+else:
+    raise AssertionError(args)
+''', encoding="utf-8")
+    docker.chmod(0o755)
+    lines = _render_release_publish_lines(
+        compose=prefix / "compose.yaml", compose_wrapper=None,
+        state_path=prefix / "install-state.json", runtime_snapshot=prefix / "snapshot",
+        source_revision="git-" + "c" * 40, source_revision_file=None,
+        install_uuid="01234567-89ab-cdef-0123-456789abcdef",
+        roles=("pilot", "sim", "ui"), prefix=prefix,
+    )
+    capture = tmp_path / "evidence.json"
+    result = subprocess.run(
+        ("bash", "-euc", "\n".join(lines)), capture_output=True, text=True,
+        env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "CAPTURE": str(capture)},
+    )
+    assert result.returncode == 0, result.stderr
+    evidence = json.loads(capture.read_text())
+    for role, record in evidence["roles"].items():
+        assert record["image_reference"].startswith(f"elesim/{role}:")
+        assert record["image_id"] == "sha256:" + "b" * 64
+    assert not list((prefix / "maintenance").glob(".release-evidence.*"))
 
 
 def test_general_update_wrapper_fetches_regenerates_and_builds_incrementally(
