@@ -101,6 +101,7 @@ _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
     for name in (
         "__init__",
         "_security_storage",
+        "build_progress",
         "capabilities",
         "cli",
         "configuration",

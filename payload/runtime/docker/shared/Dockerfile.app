@@ -1,13 +1,8 @@
+# syntax=docker/dockerfile:1
 ARG BASE_IMAGE=ros:humble-ros-base-jammy
 FROM ${BASE_IMAGE}
 
 ARG ROLE
-ARG COMPUTE_MODE=inherit
-ARG INSTALL_GO2_MPC=1
-ARG CASADI_GIT_REF=3.7.2
-ARG CASADI_GIT_COMMIT=f959d3175a444d763e4eda4aece48f4c5f4a6f90
-ARG OSQP_GIT_REF=v0.6.3
-ARG CASADI_BUILD_JOBS=4
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -35,7 +30,7 @@ RUN set -eux; \
 # used by this project.  Sim images use the same Robotpkg build as the
 # validated development image instead.
 COPY robotpkg.asc /etc/apt/keyrings/robotpkg.asc
-RUN if [ "$ROLE" = sim ]; then \
+RUN set -eu; if [ "$ROLE" = sim ]; then \
       test "$(dpkg --print-architecture)" = amd64 || { \
         echo "sim container currently supports amd64 only" >&2; exit 2; \
       }; \
@@ -46,11 +41,16 @@ RUN if [ "$ROLE" = sim ]; then \
       rm -rf /var/lib/apt/lists/*; \
     fi
 
+ARG CASADI_GIT_REF=3.7.2
+ARG CASADI_GIT_COMMIT=f959d3175a444d763e4eda4aece48f4c5f4a6f90
+ARG OSQP_GIT_REF=v0.6.3
+ARG CASADI_BUILD_JOBS=4
+
 # Robotpkg supplies the CasADi core used by Pinocchio, and its default build
 # does not include CasADi's native OSQP conic interface.  Build the pinned
 # CasADi release in that same prefix so the runtime's /opt/openrobots
 # PYTHONPATH/LD_LIBRARY_PATH cannot silently select the plugin-less copy.
-RUN if [ "$ROLE" = sim ]; then \
+RUN set -eu; if [ "$ROLE" = sim ]; then \
       git clone --depth 1 --branch "$CASADI_GIT_REF" \
         https://github.com/casadi/casadi.git /tmp/casadi; \
       test "$(git -C /tmp/casadi rev-parse HEAD)" = "$CASADI_GIT_COMMIT"; \
@@ -72,8 +72,8 @@ RUN if [ "$ROLE" = sim ]; then \
       rm -rf /tmp/casadi /tmp/casadi-build; \
     fi
 
-COPY requirements.lock /opt/elesim/requirements.lock
-RUN python -m pip install --no-cache-dir --upgrade "pip<26" "setuptools>=68,<80" wheel && \
+ARG COMPUTE_MODE=inherit
+RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -m pip install --upgrade "pip<26" "setuptools>=68,<80" wheel && \
     if [ "$ROLE" = pilot ] || [ "$ROLE" = sim ]; then \
       if [ "$COMPUTE_MODE" = cpu ]; then \
         torch_index="https://download.pytorch.org/whl/cpu"; \
@@ -83,14 +83,25 @@ RUN python -m pip install --no-cache-dir --upgrade "pip<26" "setuptools>=68,<80"
         torch_version="2.12.1"; \
       fi; \
       if [ "$ROLE" = pilot ]; then \
-        python -m pip install --no-cache-dir --index-url "$torch_index" \
+        python -m pip install --index-url "$torch_index" \
           "torch==$torch_version" "torchvision==0.27.1"; \
       else \
-        python -m pip install --no-cache-dir --index-url "$torch_index" \
+        python -m pip install --index-url "$torch_index" \
           "torch==$torch_version"; \
       fi; \
+    fi
+
+COPY requirements.lock /opt/elesim/requirements.lock
+RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -m pip install -r /opt/elesim/requirements.lock
+
+ARG INSTALL_GO2_MPC=1
+RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked if [ "$ROLE" = sim ] && [ "$INSTALL_GO2_MPC" = 1 ]; then \
+      python -m pip install \
+        "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git@1c63c6a762779887ab0431fd60db681dede6cb32"; \
     fi && \
-    python -m pip install --no-cache-dir -r /opt/elesim/requirements.lock
+    if [ "$ROLE" = sim ]; then \
+      python -m pip install "setuptools>=68,<80"; \
+    fi
 
 COPY interfaces/elesim_interfaces/ /tmp/elesim/ros_ws/src/elesim_interfaces/
 RUN . /opt/ros/humble/setup.sh && \
@@ -102,14 +113,7 @@ RUN . /opt/ros/humble/setup.sh && \
 
 COPY protocol/ /tmp/elesim/protocol/
 COPY app/ /tmp/elesim/app/
-RUN if [ "$ROLE" = sim ] && [ "$INSTALL_GO2_MPC" = 1 ]; then \
-      python -m pip install --no-cache-dir \
-        "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git@1c63c6a762779887ab0431fd60db681dede6cb32"; \
-    fi && \
-    python -m pip install --no-cache-dir --no-deps /tmp/elesim/protocol /tmp/elesim/app && \
-    if [ "$ROLE" = sim ]; then \
-      python -m pip install --no-cache-dir "setuptools>=68,<80"; \
-    fi && \
+RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -m pip install --no-deps /tmp/elesim/protocol /tmp/elesim/app && \
     python -m pip check && \
     rm -rf /tmp/elesim
 

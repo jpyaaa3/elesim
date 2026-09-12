@@ -450,6 +450,22 @@ def test_safe_extract_returns_valid_source_root(tmp_path: Path) -> None:
     assert (root / "payload/runtime/docker/setup/app/pyproject.toml").is_file()
 
 
+def test_curl_snapshot_excludes_build_test_doubles(tmp_path: Path) -> None:
+    archive = tmp_path / "source.tgz"
+    excluded = (
+        "workbench/tests/setup/test_docker_cache_layout.py",
+        "payload/runtime/docker/setup/app/tests/fake_docker.py",
+        "payload/runtime/docker/setup/app/fixtures/fake_output.json",
+    )
+    _archive(archive, {
+        "elesim-main/payload/runtime/docker/setup/app/pyproject.toml": b"[project]\n",
+        "elesim-main/payload/runtime/common/protocol/pyproject.toml": b"[project]\n",
+        **{f"elesim-main/{path}": b"test-only\n" for path in excluded},
+    })
+    root = safe_extract_archive(archive, tmp_path / "out")
+    assert all(not (root / path).exists() for path in excluded)
+
+
 def test_safe_extract_ignores_links_outside_install_source_boundary(
     tmp_path: Path,
 ) -> None:

@@ -122,6 +122,11 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
     assert (state.bin_path / "elesim-release").is_file()
     release_wrapper = (state.bin_path / "elesim-release").read_text(encoding="utf-8")
     assert "release publish" in release_wrapper
+    for name in ("elesim-release", "elesim-update"):
+        progress_wrapper = (state.bin_path / name).read_text()
+        assert "maintenance/elesim_setup/build_progress.py" in progress_wrapper
+        assert f"--log-dir {state.prefix_path}/logs/build -- " in progress_wrapper
+    assert (state.prefix_path / "maintenance/elesim_setup/build_progress.py").is_file()
     assert "maintenance/.release-evidence" in release_wrapper
     net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     assert (

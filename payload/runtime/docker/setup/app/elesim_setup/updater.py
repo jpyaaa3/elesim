@@ -43,6 +43,7 @@ def render_update_wrapper(
     source_revision: str | None = None,
     publish_roles: Sequence[str] = (),
     fetch_source: bool = True,
+    build_progress: bool = False,
 ) -> str:
     if runtime_uid is not None and (
         isinstance(runtime_uid, bool) or not isinstance(runtime_uid, int) or runtime_uid < 0
@@ -187,6 +188,11 @@ def render_update_wrapper(
             f"{compose_command} --progress plain "
             f"-f {shlex.quote(str(compose))} build{suffix}"
         )
+        if build_progress:
+            build_line = (
+                f"python3 {shlex.quote(str(prefix / 'maintenance/elesim_setup/build_progress.py'))} "
+                f"--log-dir {shlex.quote(str(prefix / 'logs/build'))} -- " + build_line
+            )
         if normalized_owned_images:
             # Compose retags a rebuilt service image and leaves the previous
             # image ID dangling.  Capture only the exact tagged IDs that
@@ -385,6 +391,7 @@ def render_release_wrapper(
     install_uuid: str,
     release_images: Sequence[str],
     runtime_uid: int | None = None,
+    build_progress: bool = False,
 ) -> str:
     """Render the explicit first-release command for a scoped installation."""
 
@@ -404,6 +411,7 @@ def render_release_wrapper(
         source_revision=source_revision,
         publish_roles=roles,
         fetch_source=False,
+        build_progress=build_progress,
     )
 
 

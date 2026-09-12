@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM docker:27.5.1-cli AS docker_cli
 
 FROM ros:humble-ros-base-jammy
@@ -13,15 +14,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LD_LIBRARY_PATH=/opt/openrobots/lib:$LD_LIBRARY_PATH \
     PYTHONPATH=/opt/openrobots/lib/python3.10/site-packages:$PYTHONPATH \
     CMAKE_PREFIX_PATH=/opt/openrobots:$CMAKE_PREFIX_PATH
-
-ARG USERNAME=dev
-ARG UID=1000
-ARG GID=1000
-ARG COMPUTE_MODE=inherit
-ARG CASADI_GIT_REF=3.7.2
-ARG CASADI_GIT_COMMIT=f959d3175a444d763e4eda4aece48f4c5f4a6f90
-ARG OSQP_GIT_REF=v0.6.3
-ARG CASADI_BUILD_JOBS=4
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash build-essential cmake curl gdb git iputils-ping lsb-release \
@@ -49,6 +41,11 @@ RUN test "$(dpkg --print-architecture)" = amd64 && \
     apt-get install -y --no-install-recommends robotpkg-py310-pinocchio && \
     rm -rf /var/lib/apt/lists/*
 
+ARG CASADI_GIT_REF=3.7.2
+ARG CASADI_GIT_COMMIT=f959d3175a444d763e4eda4aece48f4c5f4a6f90
+ARG OSQP_GIT_REF=v0.6.3
+ARG CASADI_BUILD_JOBS=4
+
 # Robotpkg's CasADi is the copy selected by /opt/openrobots on this image.
 # Rebuild that exact release with CasADi's native OSQP interface enabled and
 # verify the plugin before the development environment is considered usable.
@@ -72,21 +69,21 @@ RUN git clone --depth 1 --branch "$CASADI_GIT_REF" \
     python3 -c 'import casadi as ca; assert ca.__version__ == "3.7.2", ca.__version__; assert ca.has_conic("osqp"), ca.CasadiMeta_plugins()' && \
     rm -rf /tmp/casadi /tmp/casadi-build
 
+ARG COMPUTE_MODE=inherit
 COPY requirements.lock /tmp/requirements.lock
-RUN python3 -m pip install --no-cache-dir --upgrade "pip<26" "setuptools>=68,<80" wheel && \
-    python3 -m pip install --no-cache-dir "numpy==1.26.4" && \
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip install --upgrade "pip<26" "setuptools>=68,<80" wheel && \
+    python3 -m pip install "numpy==1.26.4" && \
     if [ "$COMPUTE_MODE" = cpu ]; then \
-      python3 -m pip install --no-cache-dir \
+      python3 -m pip install \
         --index-url https://download.pytorch.org/whl/cpu \
         --extra-index-url https://pypi.org/simple \
         "torch==2.12.1+cpu" "torchvision==0.27.1+cpu"; \
     fi && \
-    python3 -m pip install --no-cache-dir --upgrade-strategy only-if-needed \
+    python3 -m pip install --upgrade-strategy only-if-needed \
       -r /tmp/requirements.lock && \
-    python3 -m pip install --no-cache-dir \
+    python3 -m pip install \
       "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git@1c63c6a762779887ab0431fd60db681dede6cb32" && \
-    python3 -m pip check && \
-    python3 -m pip cache purge
+    python3 -m pip check
 
 # aiortc needs a current cryptography release, while Humble's SROS2 CLI uses
 # Ubuntu's patched 3.4 ABI.  Keep both: normal applications resolve /usr/local;
@@ -94,6 +91,10 @@ RUN python3 -m pip install --no-cache-dir --upgrade "pip<26" "setuptools>=68,<80
 RUN apt-get update && apt-get install -y --reinstall --no-install-recommends \
       python3-cffi python3-cryptography && \
     rm -rf /var/lib/apt/lists/*
+
+ARG USERNAME=dev
+ARG UID=1000
+ARG GID=1000
 
 RUN username="${USERNAME}"; \
     case "${username}" in \
@@ -119,8 +120,6 @@ RUN username="${USERNAME}"; \
       useradd -m -s /bin/bash -u "${UID}" -g "${group_name}" "${user_name}"; \
     fi && \
     echo "${user_name} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-
-RUN rosdep init || true
 
 COPY --chmod=0755 dev-env.sh /usr/local/bin/elesim-dev-env
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/elesim-dev-entrypoint

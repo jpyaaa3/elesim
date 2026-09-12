@@ -1,7 +1,6 @@
+# syntax=docker/dockerfile:1
 FROM ros:humble-ros-base-jammy
 
-ARG PROTOCOL_WHEEL
-ARG APP_WHEEL
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
@@ -26,13 +25,18 @@ RUN . /opt/ros/humble/setup.sh && \
       --build-base /tmp/elesim/ros_ws/build \
       --install-base /opt/elesim/ros/install && \
     rm -rf /tmp/elesim/ros_ws
-COPY wheels/ /tmp/wheels/
 COPY requirements.lock /opt/elesim/requirements.lock
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip install -r /opt/elesim/requirements.lock
+
+COPY wheels/ /tmp/wheels/
+ARG PROTOCOL_WHEEL
+ARG APP_WHEEL
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip install --no-deps \
+      "/tmp/wheels/${PROTOCOL_WHEEL}" "/tmp/wheels/${APP_WHEEL}" && \
+    python3 -m pip check
 COPY config/ /opt/elesim/config/
 COPY data/ /opt/elesim/data/
-RUN python3 -m pip install --no-cache-dir -r /opt/elesim/requirements.lock && \
-    python3 -m pip install --no-cache-dir --no-deps \
-      "/tmp/wheels/${PROTOCOL_WHEEL}" "/tmp/wheels/${APP_WHEEL}"
+
 WORKDIR /opt/elesim
 
 CMD ["elesim-ui", "--config", "/opt/elesim/config/default.yaml"]

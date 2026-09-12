@@ -236,6 +236,45 @@ restart가 아니다. 성공한 update는 현재 설치의 fingerprint가 붙은
 dangling image만 ownership 조건 아래 정리한다. `--purge`나 down은 image layer를
 지우거나 foreign resource를 prune하지 않는다.
 
+### Build cache
+
+`elesim-update`와 첫 릴리스의 `elesim-release`는 이미지 빌드의 stdout/stderr를
+`<prefix>/logs/build/<UTC timestamp>-<random>.log`에 보관한다. 디렉터리는 0700,
+파일은 0600이며 symlink 조상 경로를 거부한다. 로그 파일 생성·쓰기 실패는
+빌드를 실패 처리하며, 자식 명령의 실패 코드는 그대로 전달한다.
+일반 TTY에서는 현재 출력과 경과 시간을 한 줄로 갱신하고, 실패 시 마지막
+12줄과 로그 경로를 남긴다. `ELESIM_VERBOSE=1`은 원문 출력,
+`ELESIM_BUILD_PROGRESS=plain`은 애니메이션 없는 시작·종료 요약을 선택한다.
+기본 non-TTY 출력은 연결관리자/파이프 호환성을 위해 원문을 계속 전달한다.
+Ctrl+C/SIGTERM은 빌드 process group에 전달하고 3초 후에도 남으면 종료한다.
+빌드 transcript는 runtime snapshot 보존 옵션과 별개로 저장하며 자동 순환
+삭제하지 않는다. 설치 제거의 기본 로그 삭제 및 `--keep-logs` 대상이다.
+Bootstrap의 GUI URL, sudo·로그인 안내와 설치 폼은 그대로 표출한다. 초기
+bootstrap 패키지 준비 및 GUI job 로그까지 모두 파일 보관하는 기능은 아니다.
+
+Dockerfiles use BuildKit cache mounts for pip downloads/wheels; these caches
+are not included in the runtime image. Cache misses must still be buildable
+from the declared dependencies. Do not purge Docker caches during an ordinary
+update. Runtime APT/CasADi/Torch and pinned MPC installation precede app source
+copies; tools ABI repair precedes protocol/app copies. Release dependency
+installation precedes application wheels and runtime config/data. Developer
+UID/GID arguments are declared after dependency installation so a different
+developer account does not invalidate those expensive layers.
+
+Sim robotpkg/CasADi shell blocks fail immediately on installation, pinned-commit,
+build or plugin-check failure; cleanup must not turn these failures into success.
+All release application images run `pip check` after installing their wheels.
+The developer image no longer silently attempts `rosdep init`: dependencies
+are installed explicitly with APT/pip, and no repository workflow uses rosdep.
+Build-command test doubles remain in versioned `workbench/tests`, outside curl
+snapshots and application packages.
+
+The first build after this layer reordering can rebuild dependencies. Subsequent
+source-only builds should reuse dependency layers. Actual cache-hit/timing
+acceptance still requires a live Docker daemon: build twice unchanged, then
+change only app source, requirements, or developer UID/GID separately and inspect
+BuildKit `CACHED` output. Static ordering tests are not proof of cache hits.
+
 ### Scoped instance lifecycle
 
 ```bash

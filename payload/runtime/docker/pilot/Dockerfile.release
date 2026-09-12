@@ -1,7 +1,5 @@
+# syntax=docker/dockerfile:1
 FROM ros:humble-ros-base-jammy
-
-ARG PROTOCOL_WHEEL
-ARG APP_WHEEL
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -30,16 +28,20 @@ RUN . /opt/ros/humble/setup.sh && \
       --install-base /opt/elesim/ros/install && \
     rm -rf /tmp/ros_ws/build /tmp/ros_ws/log
 
-COPY wheels/ /tmp/wheels/
 COPY requirements.lock /opt/elesim/requirements.lock
-COPY config/ /opt/elesim/config/
-COPY data/ /opt/elesim/data/
-RUN python3 -m pip install --no-cache-dir -r /opt/elesim/requirements.lock && \
-    python3 -m pip install --no-cache-dir --no-deps \
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip install -r /opt/elesim/requirements.lock
+
+COPY wheels/ /tmp/wheels/
+ARG PROTOCOL_WHEEL
+ARG APP_WHEEL
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip install --no-deps \
       "/tmp/wheels/${PROTOCOL_WHEEL}" \
       "/tmp/wheels/${APP_WHEEL}" && \
     python3 -m pip check && \
     rm -rf /tmp/wheels
+
+COPY config/ /opt/elesim/config/
+COPY data/ /opt/elesim/data/
 
 WORKDIR /opt/elesim
 ENTRYPOINT ["/ros_entrypoint.sh", "elesim-pilot", "--config", "/opt/elesim/config/config.yaml", "--runtime-config", "/opt/elesim/config/runtime.yaml"]

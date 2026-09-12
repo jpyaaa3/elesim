@@ -2083,6 +2083,7 @@ class ContainerInstaller:
         write_executable(
             self.state.bin_path / "elesim-update",
             render_update_wrapper(
+                build_progress=True,
                 prefix=self.state.prefix_path,
                 state_path=self.state_path,
                 compose=compose,
@@ -2122,6 +2123,7 @@ class ContainerInstaller:
         if self._scoped_namespace:
             release_script = (
                 render_release_wrapper(
+                    build_progress=True,
                     prefix=self.state.prefix_path,
                     state_path=self.state_path,
                     compose=compose,

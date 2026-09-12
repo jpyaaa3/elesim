@@ -1384,6 +1384,7 @@ def install_host_uninstaller_bundle(
     files.append(init)
     for name in (
         "ownership.py",
+        "build_progress.py",
         "releases.py",
         "shell.py",
         "uninstall.py",
