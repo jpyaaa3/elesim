@@ -232,8 +232,9 @@ release pin, security generation, credentials, model cache와 logs는 보존하�
 새 release를 사용하려면 해당 system을 명시적으로 register/replace해야 한다.
 
 `elesim-update`는 source/Dockerfile 결함을 고치는 재빌드 경계이지 자동
-restart가 아니다. 성공한 update는 현재 설치의 fingerprint가 붙은 이전
-dangling image만 ownership 조건 아래 정리한다. `--purge`나 down은 image layer를
+restart가 아니다. 성공한 scoped update는 현재 설치의 이전 이미지 중 어느
+instance나 container도 참조하지 않는 이미지만 ownership 조건 아래 정리한다.
+Legacy update는 기존 dangling-image 정리만 유지한다. `--purge`나 down은 image layer를
 지우거나 foreign resource를 prune하지 않는다.
 
 ### Build cache
@@ -242,15 +243,47 @@ dangling image만 ownership 조건 아래 정리한다. `--purge`나 down은 ima
 `<prefix>/logs/build/<UTC timestamp>-<random>.log`에 보관한다. 디렉터리는 0700,
 파일은 0600이며 symlink 조상 경로를 거부한다. 로그 파일 생성·쓰기 실패는
 빌드를 실패 처리하며, 자식 명령의 실패 코드는 그대로 전달한다.
-일반 TTY에서는 현재 출력과 경과 시간을 한 줄로 갱신하고, 실패 시 마지막
-12줄과 로그 경로를 남긴다. `ELESIM_VERBOSE=1`은 원문 출력,
-`ELESIM_BUILD_PROGRESS=plain`은 애니메이션 없는 시작·종료 요약을 선택한다.
-기본 non-TTY 출력은 연결관리자/파이프 호환성을 위해 원문을 계속 전달한다.
+curl bootstrap의 venv 생성·packaging 도구·의존성·EleSim 패키지 설치·검증도
+같은 단계별 transcript 형식을 사용한다. 이 준비 로그는
+`<ELESIM_CACHE_DIR>/logs/setup/` (기본 `~/.cache/elesim/setup/logs/setup/`)에 남는다.
+TTY에서는 현재 출력과 경과 시간을 한 줄로 갱신한다. 성공하면 마지막 3줄,
+생략 줄 수와 완료 시간을 남기고, 실패하면 마지막 12줄과 실패 코드를 남긴다.
+curl과 새 update/release wrapper는 non-TTY에서도 compact 요약을 기본으로 쓴다.
+`ELESIM_VERBOSE=1`은 원문 출력, `ELESIM_BUILD_PROGRESS=plain`은 애니메이션 없는
+요약을 선택한다. `ELESIM_BUILD_PROGRESS=auto`는 non-TTY 원문 전달을 선택한다.
+구형 update가 설치 파일 갱신 뒤 호출하는 `elesim-compose build`도 새 helper를
+거친다. 직접 Compose 호출은 기본 auto이므로 연결관리자/SSH의 non-TTY 원문
+스트림을 유지한다. 중첩된 helper는 빌드를 이중 기록하지 않는다.
 Ctrl+C/SIGTERM은 빌드 process group에 전달하고 3초 후에도 남으면 종료한다.
 빌드 transcript는 runtime snapshot 보존 옵션과 별개로 저장하며 자동 순환
 삭제하지 않는다. 설치 제거의 기본 로그 삭제 및 `--keep-logs` 대상이다.
-Bootstrap의 GUI URL, sudo·로그인 안내와 설치 폼은 그대로 표출한다. 초기
-bootstrap 패키지 준비 및 GUI job 로그까지 모두 파일 보관하는 기능은 아니다.
+Bootstrap의 GUI URL, sudo·로그인 안내와 설치 폼은 캡처하지 않고 그대로
+표출한다. 비대화형 install/update의 설치 단계·완료·다음 명령·PATH 안내는
+요약 안에서도 표출한다. GUI 서버 전체를 감싸거나 URL token을 transcript에
+수집하지 않는다. GUI의 설치 job 로그는 기존 callback 경로를 유지한다.
+bootstrap cache 로그는 설치 prefix 밖에 있으므로 제거 시에도 보존한다.
+
+### 같은 이미지 이름 아래 여러 태그
+
+Scoped 이미지 이름은 `elesim/<role>:<install UUID>-<build fingerprint>`다.
+update는 변경된 빌드 입력에 새 태그를 부여한다. 성공한 scoped update/release
+및 `elesim-instance <system> up` 뒤에는 미참조 구버전 이미지를 자동 정리한다.
+현재 Compose의 최신 이미지, 등록된 instance가 고정한 릴리스 이미지,
+실행·정지 container가 참조하는 이미지와 외부 별칭/registry digest는 보존한다.
+설치 lock 아래 Engine ID·install UUID·project·fingerprint와 소유 목록을 확인하고
+exact image ID만 `docker image rm` (force 없이)으로 제거한다. 미완료 registry나
+transaction lease, 소유권 불일치가 있으면 삭제하지 않고 실패를 보고한다.
+BuildKit cache·다른 설치·upstream image는 정리하지 않는다.
+이는 다른 설치를 만드는 것이 아니라, 기존 instance의 릴리스 pin을 유지하는
+버전 보관이다. 동일 입력에는 동일 태그를 사용하며 공통 Docker 레이어는
+재사용할 수 있다. Repository 이름만 같은 항목을 중복 설치로 판단하거나
+일괄 삭제하지 않는다. 실행 중 container 및 등록된 release의 참조를 먼저
+확인해야 한다. `<none>` 이미지와 서로 다른 버전 태그는 별도로 구분한다.
+Release manifest/data는 이력으로 남지만, 미등록 구버전의 이미지 보관을
+보장하지 않는다. 정리된 버전으로 되돌리려면 해당 소스를 다시 빌드/발행해야
+한다. 업데이트는 instance를 자동 repin/restart하지 않으며, 구버전에 고정된
+system이 있다면 그 이미지는 계속 남는다. 정리 실패는 완료된 build/start를
+되돌리지 않으며 재시도로 복구한다.
 
 Dockerfiles use BuildKit cache mounts for pip downloads/wheels; these caches
 are not included in the runtime image. Cache misses must still be buildable

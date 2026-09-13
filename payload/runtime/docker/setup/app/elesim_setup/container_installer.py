@@ -62,7 +62,7 @@ from .runtime_status import render_compose_status_wrapper
 from .shell import operator_home, write_executable
 from .state import ComputeSettings, ContainerNetworkSettings, InstallState
 from .uninstall import UninstallSafetyError, validate_docker_ownership
-from .updater import render_release_wrapper, render_update_wrapper
+from .updater import render_compose_build_progress, render_release_wrapper, render_update_wrapper
 
 
 @dataclass(frozen=True)
@@ -1703,6 +1703,7 @@ class ContainerInstaller:
                 if self._scoped_namespace
                 else ""
             )
+            + render_compose_build_progress(self.state.prefix_path)
             + 'exec docker compose "$@"\n',
         )
         application_guard = launch_guard(provisioning_required_path(self.state))
@@ -2084,6 +2085,7 @@ class ContainerInstaller:
             self.state.bin_path / "elesim-update",
             render_update_wrapper(
                 build_progress=True,
+                cleanup_images=True,
                 prefix=self.state.prefix_path,
                 state_path=self.state_path,
                 compose=compose,
@@ -2124,6 +2126,7 @@ class ContainerInstaller:
             release_script = (
                 render_release_wrapper(
                     build_progress=True,
+                    cleanup_images=True,
                     prefix=self.state.prefix_path,
                     state_path=self.state_path,
                     compose=compose,
@@ -2696,6 +2699,16 @@ def _scoped_instance_dispatcher(
             + "if [[ ! -x $instance_wrapper ]]; then\n"
             + "  printf 'Registered instance wrapper is missing: %s\\n' \"$instance_system\" >&2; exit 3\n"
             + "fi\n"
+            + (
+                'if [[ $instance_action == up ]]; then\n'
+                '  "$instance_wrapper" "$@"\n'
+                f'  PYTHONNOUSERSITE=1 PYTHONPATH={shlex.quote(str(prefix / "maintenance"))} python3 -B -S -m elesim_setup.image_cleanup '
+                f'--prefix {shlex.quote(str(prefix))}\n'
+                '  exit 0\n'
+                'fi\n'
+                if state_path is not None and install_uuid and docker_context and docker_engine_id
+                else ""
+            )
             + "exec \"$instance_wrapper\" \"$@\"\n"
         )
     )

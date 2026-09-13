@@ -102,6 +102,7 @@ _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
         "__init__",
         "_security_storage",
         "build_progress",
+        "image_cleanup",
         "capabilities",
         "cli",
         "configuration",
@@ -386,7 +387,7 @@ def _log_value(value: str) -> str:
 
 def _log_source(*, ref: str | None, revision: str, status: str) -> None:
     reference = _log_value(ref) if ref is not None else "custom-archive"
-    print(f"[bootstrap] source ref={reference} revision={revision} status={status}")
+    print(f"[bootstrap] source ref={reference} revision={revision} status={status}", flush=True)
 
 
 @contextlib.contextmanager
@@ -1069,13 +1070,27 @@ def _ensure_bootstrap_pip(python: Path) -> None:
         )
 
 
+def _progress_command(source_root: Path, cache_root: Path, title: str,
+                      command: Sequence[str], *, notices: bool = False) -> tuple[str, ...]:
+    # Execute the stdlib-only helper from the already validated snapshot; do
+    # not import the setup package (or install dependencies into host Python).
+    helper = source_root / "payload/runtime/docker/setup/app/elesim_setup/build_progress.py"
+    return (
+        sys.executable, str(helper), "--log-dir", str(cache_root / "logs/setup"),
+        "--mode", os.environ.get("ELESIM_BUILD_PROGRESS", "compact"), "--title", title,
+        *(("--notice-prefix", "[", "--notice-prefix", "$ ") if notices else ()),
+        "--", *command,
+    )
+
+
 def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
     fingerprint = hashlib.sha256(str(source_root).encode("utf-8")).hexdigest()[:16]
     venv = cache_root.expanduser().resolve() / f"venv-{fingerprint}"
     python = venv / "bin/python"
     if not python.is_file():
-        print(f"[bootstrap] create venv {venv}")
-        subprocess.run((sys.executable, "-m", "venv", str(venv)), check=True)
+        print(f"[bootstrap] create venv {venv}", flush=True)
+        subprocess.run(_progress_command(source_root, cache_root, "Create setup environment",
+                                        (sys.executable, "-m", "venv", str(venv))), check=True)
     _ensure_bootstrap_pip(python)
     commands = (
         (
@@ -1092,8 +1107,8 @@ def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
         ),
         (str(python), "-m", "pip", "--disable-pip-version-check", "install", "-r", str(source_root / "payload/runtime/docker/setup/app/requirements.lock")),
     )
-    for command in commands:
-        subprocess.run(command, check=True)
+    for title, command in zip(("Prepare Python packaging tools", "Install setup dependencies"), commands):
+        subprocess.run(_progress_command(source_root, cache_root, title, command), check=True)
     # Local pip builds write build/ and *.egg-info into their input tree.
     # Keep those writes outside the validated download snapshot.
     with tempfile.TemporaryDirectory(prefix=".package-build-", dir=venv.parent) as td:
@@ -1104,12 +1119,14 @@ def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
             build_source = Path(td) / name
             shutil.copytree(source_root / relative, build_source)
             subprocess.run(
-                (str(python), "-m", "pip", "--disable-pip-version-check",
-                 "install", "--force-reinstall", "--no-deps", str(build_source)),
+                _progress_command(source_root, cache_root, f"Install elesim-{name}",
+                                  (str(python), "-m", "pip", "--disable-pip-version-check",
+                                   "install", "--force-reinstall", "--no-deps", str(build_source))),
                 check=True,
             )
     subprocess.run(
-        (str(python), "-m", "pip", "--disable-pip-version-check", "check"),
+        _progress_command(source_root, cache_root, "Verify setup dependencies",
+                          (str(python), "-m", "pip", "--disable-pip-version-check", "check")),
         check=True,
     )
     return venv / "bin/elesim-setup"
@@ -1129,14 +1146,8 @@ def needs_controlling_terminal(arguments: Sequence[str]) -> bool:
     return not any(value in {"gui", "install", "update", "status"} for value in arguments)
 
 
-def setup_arguments(
-    arguments: Sequence[str],
-    *,
-    repository: str,
-    ref: str,
-) -> list[str]:
+def _setup_command(arguments: Sequence[str]) -> str | None:
     forwarded = list(arguments) if arguments else ["gui"]
-    command: str | None = None
     index = 0
     while index < len(forwarded):
         argument = forwarded[index]
@@ -1147,10 +1158,19 @@ def setup_arguments(
             index += 1
             continue
         if argument in REQUIRED_SETUP_COMMANDS:
-            command = argument
-            break
+            return argument
         index += 1
-    if command == "gui":
+    return None
+
+
+def setup_arguments(
+    arguments: Sequence[str],
+    *,
+    repository: str,
+    ref: str,
+) -> list[str]:
+    forwarded = list(arguments) if arguments else ["gui"]
+    if _setup_command(forwarded) == "gui":
         forwarded.extend(("--repository", repository, "--ref", ref))
     return forwarded
 
@@ -1174,7 +1194,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         validate_bootstrap_generation(source_root)
         executable = prepare_bootstrap_venv(source_root, cache_root)
         preflight_setup(executable)
-        print(f"[bootstrap] setup version={_setup_project_version(source_root)}")
+        print(f"[bootstrap] setup version={_setup_project_version(source_root)}", flush=True)
         wizard_args = setup_arguments(
             wizard_args,
             repository=args.repo,
@@ -1183,6 +1203,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         source_revision = _validated_source_revision(cache_root, url, source_root)
         _write_source_revision_handoff(source_revision)
         command = (str(executable), "--source-root", str(source_root), *wizard_args)
+        if _setup_command(wizard_args) in {"install", "update"}:
+            command = _progress_command(source_root, cache_root, "Generate installation artifacts",
+                                        command, notices=True)
         setup_environment = os.environ.copy()
         # Bootstrap owns this value.  Do not forward a potentially stale or
         # forged ELESIM_SOURCE_REVISION from the outer shell/environment.

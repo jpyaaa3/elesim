@@ -8,6 +8,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tarfile
 import threading
 import urllib.error
@@ -1772,6 +1773,33 @@ def test_bootstrap_venv_pins_ros_build_python_metadata_dependencies() -> None:
 
     assert '"setuptools>=68,<80"' in text
     assert '"packaging>=24.2,<26"' in text
+
+
+def test_bootstrap_progress_command_runs_standalone_helper(tmp_path, monkeypatch):
+    monkeypatch.delenv("ELESIM_BUILD_PROGRESS", raising=False)
+    monkeypatch.delenv("ELESIM_VERBOSE", raising=False)
+    source = Path(bootstrap_module.__file__).resolve().parents[2]
+    command = bootstrap_module._progress_command(
+        source, tmp_path, "Prepare setup dependencies",
+        (sys.executable, "-c", "[print('pip output', i) for i in range(300)]"),
+    )
+    result = subprocess.run(command, capture_output=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == b""
+    assert b"Prepare setup dependencies" in result.stderr
+    assert b"297 lines omitted" in result.stderr
+    log, = (tmp_path / "logs/setup").glob("*.log")
+    assert len(log.read_text().splitlines()) == 300
+
+
+@pytest.mark.parametrize("args,expected", [
+    (["--state", "install", "gui"], "gui"),
+    (["--state=gui", "update"], "update"),
+    (["wizard"], "wizard"),
+    ([], "gui"),
+])
+def test_setup_command_does_not_mistake_state_path_for_subcommand(args, expected):
+    assert bootstrap_module._setup_command(args) == expected
 
 
 def test_jetson_bootstrap_uses_host_ros_without_exposing_gui() -> None:

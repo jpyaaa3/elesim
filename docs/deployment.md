@@ -51,6 +51,11 @@ namespace로 보존되고 신규 설치가 자동 인수하지 않는다.
 
 release는 immutable publication이다. `elesim-update`는 새 release를
 build/publish하지만 이미 등록된 instance의 release pin을 바꾸지 않는다.
+성공한 update/release 및 공개 instance `up` 경로는 설치 lock 아래 미참조
+구버전 이미지를 자동 정리한다. 최신 Compose 이미지, 등록된 모든 instance의
+pin, 실행/정지 container 참조 및 외부 image 별칭은 보존한다. Release
+manifest/data는 이력이며, 미등록 구버전 이미지는 재빌드가 필요할 수 있다.
+다른 install UUID와 upstream/cache 이미지를 prune하지 않는다.
 새 release 적용은 명시적인 per-system register/replace transaction으로 한다.
 
 설치 역할과 graph 배정은 별개다. 각 host의 설치에는 여러 role service가 있을

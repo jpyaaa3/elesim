@@ -59,12 +59,14 @@ def _fit_row(value: str, width: int) -> str:
     return value[:end]
 
 
-def run(command: list[str], log_dir: Path, mode: str = "auto") -> int:
+def run(command: list[str], log_dir: Path, mode: str = "auto", *,
+        title: str = "Runtime image build", notice_prefixes: tuple[str, ...] = ()) -> int:
     log_path, transcript = _open_log(log_dir)
     tty = sys.stdout.isatty() and sys.stderr.isatty() and os.environ.get("TERM") != "dumb"
     verbose = mode == "verbose" or (mode == "auto" and not tty)
     animate = tty and not verbose and mode != "plain"
     tail: deque[str] = deque(maxlen=12)
+    line_count = shown_count = 0
     pending = ""
     decoder = codecs.getincrementaldecoder("utf-8")("replace")
     started = last_draw = time.monotonic()
@@ -84,7 +86,7 @@ def run(command: list[str], log_dir: Path, mode: str = "auto") -> int:
                 pass
 
     def show(chunk: bytes):
-        nonlocal pending
+        nonlocal pending, line_count, shown_count
         transcript.write(chunk)
         transcript.flush()
         if verbose:
@@ -93,12 +95,23 @@ def run(command: list[str], log_dir: Path, mode: str = "auto") -> int:
         text = pending + decoder.decode(chunk)
         lines = text.replace("\r", "\n").split("\n")
         pending = lines.pop()[-1024:]
-        tail.extend(_display_text(line[-1024:]) for line in lines if line.strip())
+        for line in lines:
+            line_count += 1
+            safe = _display_text(line[-1024:])
+            if not verbose and safe.lstrip().startswith(notice_prefixes):
+                if animate:
+                    print("\r\x1b[2K", end="", file=sys.stderr)
+                print(f"  │ {safe}", file=sys.stderr, flush=True)
+                shown_count += 1
+            elif safe.strip():
+                tail.append(safe)
 
     try:
-        print(f"[build] Starting image build. Full log: {log_path}", file=sys.stderr, flush=True)
+        title = _display_text(title)
+        print(f"• {title}\n  └ Full log: {log_path}", file=sys.stderr, flush=True)
+        environment = {**os.environ, "ELESIM_PROGRESS_ACTIVE": "1", "PYTHONUNBUFFERED": "1"}
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                   start_new_session=True)
+                                   start_new_session=True, env=environment)
         for sig in (signal.SIGINT, signal.SIGTERM):
             handlers[sig] = signal.signal(sig, stop)
         with selectors.DefaultSelector() as selector:
@@ -116,21 +129,34 @@ def run(command: list[str], log_dir: Path, mode: str = "auto") -> int:
                 if animate and now - last_draw >= 0.2:
                     elapsed = int(now - started)
                     latest = _display_text(pending) or (tail[-1] if tail else "Waiting for build output")
-                    line = f"[build] {elapsed // 60:02d}:{elapsed % 60:02d}  {latest}"
+                    line = f"  │ {elapsed // 60:02d}:{elapsed % 60:02d}  {latest}"
                     width = max(1, shutil.get_terminal_size().columns - 1)
                     # One live row, never append the entire build stream.
                     print("\r\x1b[2K" + _fit_row(line, width), end="", file=sys.stderr, flush=True)
                     last_draw = now
             status = process.wait()
+        pending += decoder.decode(b"", final=True)
         if pending:
-            tail.append(_display_text(pending))
+            safe = _display_text(pending)
+            if not verbose and safe.lstrip().startswith(notice_prefixes):
+                if animate:
+                    print("\r\x1b[2K", end="", file=sys.stderr)
+                print(f"  │ {safe}", file=sys.stderr)
+                shown_count += 1
+            else:
+                tail.append(safe)
+            line_count += 1
         if animate:
             print("\r\x1b[2K", end="", file=sys.stderr)
         status = 128 + cancelled if cancelled else (128 - status if status < 0 else status)
-        if status and not verbose:
-            print("\n".join(tail), file=sys.stderr)
+        if not verbose:
+            preview = list(tail) if status else ([] if notice_prefixes else list(tail)[-3:])
+            for line in preview:
+                print(f"  │ {_fit_row(line, max(40, shutil.get_terminal_size().columns - 4))}", file=sys.stderr)
+            omitted = max(0, line_count - shown_count - len(preview))
+            print(f"  │ … {omitted} lines omitted", file=sys.stderr)
         label = "Completed" if status == 0 else f"Failed (exit {status})"
-        print(f"[build] {label} in {time.monotonic() - started:.1f}s. Full log: {log_path}",
+        print(f"  └ {label} in {time.monotonic() - started:.1f}s. Full log: {log_path}",
               file=sys.stderr, flush=True)
         return status
     finally:
@@ -151,7 +177,9 @@ def run(command: list[str], log_dir: Path, mode: str = "auto") -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--log-dir", required=True, type=Path)
-    parser.add_argument("--mode", choices=("auto", "plain", "verbose"),
+    parser.add_argument("--title", default="Runtime image build")
+    parser.add_argument("--notice-prefix", action="append", default=[])
+    parser.add_argument("--mode", choices=("auto", "compact", "plain", "verbose"),
                         default="verbose" if os.environ.get("ELESIM_VERBOSE") == "1"
                         else os.environ.get("ELESIM_BUILD_PROGRESS", "auto"))
     parser.add_argument("command", nargs=argparse.REMAINDER)
@@ -160,7 +188,9 @@ def main() -> int:
     if not command:
         parser.error("a build command is required")
     try:
-        return run(command, args.log_dir, args.mode)
+        mode = "verbose" if os.environ.get("ELESIM_VERBOSE") == "1" else args.mode
+        return run(command, args.log_dir, mode, title=args.title,
+                   notice_prefixes=tuple(args.notice_prefix))
     except OSError as exc:
         print(f"Build progress error: {exc}", file=sys.stderr)
         return 74

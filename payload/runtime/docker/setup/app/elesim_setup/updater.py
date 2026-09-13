@@ -19,6 +19,32 @@ _INSTALL_IMAGE = re.compile(
 _SOURCE_REVISION = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})$")
 
 
+def render_compose_build_progress(prefix: Path) -> str:
+    """Catch builds from an already-running old update wrapper after refresh.
+
+    Keep non-TTY manager streams raw by default; new update/release wrappers
+    explicitly choose compact mode. Never intercept run/exec/login commands.
+    """
+    helper = shlex.quote(str(prefix / "maintenance/elesim_setup/build_progress.py"))
+    logs = shlex.quote(str(prefix / "logs/build"))
+    return (
+        'if [[ ${ELESIM_PROGRESS_ACTIVE:-0} != 1 ]]; then\n'
+        '  progress_args=("$@")\n'
+        '  while (( ${#progress_args[@]} )); do\n'
+        '    case ${progress_args[0]} in\n'
+        '      -f|--file|-p|--project-name|--profile|--project-directory|--env-file|--progress|--ansi|--parallel)\n'
+        '        progress_args=("${progress_args[@]:2}") ;;\n'
+        '      --*=*|--all-resources|--compatibility|--dry-run)\n'
+        '        progress_args=("${progress_args[@]:1}") ;;\n'
+        '      build)\n'
+        f'        exec python3 {helper} --log-dir {logs} -- docker compose "$@" ;;\n'
+        '      *) break ;;\n'
+        '    esac\n'
+        '  done\n'
+        'fi\n'
+    )
+
+
 def _image_belongs_to_install(image: str, install_uuid: str) -> bool:
     if _LOCAL_IMAGE.fullmatch(image):
         return True
@@ -44,6 +70,7 @@ def render_update_wrapper(
     publish_roles: Sequence[str] = (),
     fetch_source: bool = True,
     build_progress: bool = False,
+    cleanup_images: bool = False,
 ) -> str:
     if runtime_uid is not None and (
         isinstance(runtime_uid, bool) or not isinstance(runtime_uid, int) or runtime_uid < 0
@@ -191,7 +218,8 @@ def render_update_wrapper(
         if build_progress:
             build_line = (
                 f"python3 {shlex.quote(str(prefix / 'maintenance/elesim_setup/build_progress.py'))} "
-                f"--log-dir {shlex.quote(str(prefix / 'logs/build'))} -- " + build_line
+                f"--log-dir {shlex.quote(str(prefix / 'logs/build'))} "
+                '--mode "${ELESIM_BUILD_PROGRESS:-compact}" -- ' + build_line
             )
         if normalized_owned_images:
             # Compose retags a rebuilt service image and leaves the previous
@@ -294,6 +322,11 @@ def render_update_wrapper(
                 "printf '%s\\n' '[elesim-update] registered instances remain pinned; replace a selected system explicitly to adopt it.'",
             )
         )
+        if cleanup_images:
+            lines.append(
+                f"PYTHONNOUSERSITE=1 PYTHONPATH={shlex.quote(str(prefix / 'maintenance'))} python3 -B -S -m elesim_setup.image_cleanup "
+                f"--prefix {shlex.quote(str(prefix))} --lock-fd 9"
+            )
     lines.append("")
     return "\n".join(lines)
 
@@ -392,6 +425,7 @@ def render_release_wrapper(
     release_images: Sequence[str],
     runtime_uid: int | None = None,
     build_progress: bool = False,
+    cleanup_images: bool = False,
 ) -> str:
     """Render the explicit first-release command for a scoped installation."""
 
@@ -412,6 +446,7 @@ def render_release_wrapper(
         publish_roles=roles,
         fetch_source=False,
         build_progress=build_progress,
+        cleanup_images=cleanup_images,
     )
 
 

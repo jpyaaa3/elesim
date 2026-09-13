@@ -11,6 +11,7 @@ import pytest
 
 from elesim_setup import build_progress
 from elesim_setup.ownership import install_host_uninstaller_bundle
+from elesim_setup.updater import render_compose_build_progress
 
 
 def invoke(tmp_path, script, mode="plain"):
@@ -26,7 +27,9 @@ def test_plain_progress_keeps_full_private_log_and_bounded_terminal(tmp_path):
     assert result.returncode == 0, result.stderr
     assert result.stdout == b""
     assert b"Completed" in result.stderr
-    assert len(result.stderr.splitlines()) == 2
+    assert b"9997 lines omitted" in result.stderr
+    assert b"build line 9999" in result.stderr
+    assert len(result.stderr.splitlines()) == 7
     log, = (tmp_path / "logs").glob("*.log")
     assert len(log.read_text().splitlines()) == 10000
     assert log.stat().st_mode & 0o777 == 0o600
@@ -49,7 +52,7 @@ def test_failure_returns_original_status_and_only_safe_tail(tmp_path):
     assert result.returncode == 42
     assert b"line 39" in result.stderr and b"line 0\n" not in result.stderr
     assert b"\x1b" not in result.stderr
-    assert len(result.stderr.splitlines()) <= 14
+    assert len(result.stderr.splitlines()) <= 16
     log, = (tmp_path / "logs").glob("*.log")
     assert b"\x1b[31merror" in log.read_bytes()
 
@@ -141,7 +144,7 @@ def test_real_terminal_redraws_instead_of_appending_build_output(tmp_path):
         assert process.returncode == 0, bytes(output)
         assert b"\x1b[2K" in output
         assert b"line 0\r\n" not in output
-        assert output.count(b"\n") == 2
+        assert output.count(b"\n") == 7
         log, = (tmp_path / "logs").glob("*.log")
         assert len(log.read_text().splitlines()) == 500
     finally:
@@ -149,3 +152,78 @@ def test_real_terminal_redraws_instead_of_appending_build_output(tmp_path):
         if process.poll() is None:
             process.terminate()
             process.wait(timeout=8)
+
+
+def test_compact_pipe_does_not_fall_back_to_raw_output(tmp_path):
+    result = invoke(tmp_path, "[print('dependency', i) for i in range(100)]", "compact")
+    assert result.returncode == 0
+    assert result.stdout == b""
+    assert b"97 lines omitted" in result.stderr
+    assert b"dependency 0\n" not in result.stderr
+    assert b"\x1b" not in result.stderr
+
+
+def test_installer_notices_remain_visible_while_dependency_output_is_folded(tmp_path):
+    result = subprocess.run(
+        [sys.executable, build_progress.__file__, "--log-dir", str(tmp_path / "logs"),
+         "--mode", "compact", "--title", "Generate installation artifacts",
+         "--notice-prefix", "[", "--notice-prefix", "$ ", "--", sys.executable, "-c",
+         "print('[warning] Review interface settings'); "
+         "[print('dependency', i) for i in range(100)]; "
+         "print('$ sudo systemctl daemon-reload')"],
+        capture_output=True, timeout=10,
+    )
+    assert result.returncode == 0
+    assert b"[warning] Review interface settings" in result.stderr
+    assert b"$ sudo systemctl daemon-reload" in result.stderr
+    assert b"100 lines omitted" in result.stderr
+    assert b"dependency" not in result.stderr
+    log, = (tmp_path / "logs").glob("*.log")
+    assert len(log.read_text().splitlines()) == 102
+
+
+def test_verbose_environment_overrides_explicit_compact(tmp_path, monkeypatch):
+    monkeypatch.setenv("ELESIM_VERBOSE", "1")
+    result = invoke(tmp_path, "print('raw detail')", "compact")
+    assert result.returncode == 0
+    assert result.stdout == b"raw detail\n"
+
+
+@pytest.mark.parametrize("arguments,wrapped", [
+    (["--progress", "plain", "-f", "compose.yaml", "build", "pilot"], True),
+    (["--file", "build", "config"], False),
+    (["--file=compose.yaml", "build", "ui"], True),
+    (["exec", "tools", "echo", "build"], False),
+])
+def test_updated_compose_catches_old_update_build_without_intercepting_other_commands(
+    tmp_path, arguments, wrapped,
+):
+    prefix = tmp_path / "install with spaces"
+    prefix.mkdir()
+    bin_dir = prefix / "bin"
+    bin_dir.mkdir()
+    install_host_uninstaller_bundle(prefix=prefix, bin_dir=bin_dir)
+    docker = bin_dir / "docker"
+    docker.write_text("#!/bin/sh\nprintf 'docker detail\\n'\nexit 23\n")
+    docker.chmod(0o755)
+    wrapper = bin_dir / "elesim-compose"
+    wrapper.write_text("#!/bin/bash\nset -euo pipefail\n" + render_compose_build_progress(prefix)
+                       + 'exec docker compose "$@"\n')
+    wrapper.chmod(0o755)
+    result = subprocess.run([str(wrapper), *arguments], capture_output=True, timeout=10,
+                            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                                 "ELESIM_BUILD_PROGRESS": "compact", "ELESIM_VERBOSE": "0",
+                                 "ELESIM_PROGRESS_ACTIVE": "0"})
+    assert result.returncode == 23
+    assert (b"lines omitted" in result.stderr) == wrapped
+    assert len(list((prefix / "logs/build").glob("*.log"))) == int(wrapped)
+    if wrapped:
+        result = subprocess.run(
+            [sys.executable, build_progress.__file__, "--log-dir", str(prefix / "logs/build"),
+             "--mode", "compact", "--", str(wrapper), *arguments],
+            capture_output=True, timeout=10,
+            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "ELESIM_VERBOSE": "0"},
+        )
+        assert result.returncode == 23
+        assert result.stderr.count(b"Runtime image build") == 1
+        assert len(list((prefix / "logs/build").glob("*.log"))) == 2

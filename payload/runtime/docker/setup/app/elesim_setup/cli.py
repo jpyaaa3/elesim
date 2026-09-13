@@ -560,8 +560,8 @@ def _path_note(bin_dir: Path) -> None:
         if value
     }
     if bin_dir not in paths:
-        print(f"\n{bin_dir}가 PATH에 없습니다. shell 설정에 다음을 한 번 추가하십시오:")
-        print(f'  export PATH="{bin_dir}:$PATH"')
+        print(f"\n[shell] {bin_dir}가 PATH에 없습니다. shell 설정에 다음을 한 번 추가하십시오:")
+        print(f'[shell] export PATH="{bin_dir}:$PATH"')
 
 
 def _source_root(explicit: str, state_path: Path) -> Path:
