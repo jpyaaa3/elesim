@@ -29,7 +29,7 @@ def test_release_infrastructure_contains_dds_aware_installers(tmp_path: Path) ->
     assert (release_root / "infra/setup/package/pyproject.toml").is_file()
     assert (
         release_root
-        / "infra/setup/package/elesim_setup/web/fonts/NotoSansCJKkr-Regular.otf"
+        / "infra/setup/package/elesim_setup/setup_web/fonts/NotoSansCJKkr-Regular.otf"
     ).is_file()
     package = release_root / "infra/setup/package"
     assert {path.name for path in package.iterdir()} == {
@@ -83,15 +83,15 @@ def test_setup_wheel_contains_browser_assets_and_cjk_font(tmp_path: Path) -> Non
         entry_points = archive.read(
             next(name for name in members if name.endswith(".dist-info/entry_points.txt"))
         ).decode("utf-8")
-    assert "elesim_setup/web/index.html" in members
-    assert "elesim_setup/web/app.js" in members
-    assert "elesim_setup/web/i18n.json" in members
-    assert "elesim_setup/web/icon.svg" in members
-    assert "elesim_setup/web/fonts/NotoSansCJKkr-Regular.otf" in members
-    assert "elesim_setup/connection_web/index.html" in members
-    assert "elesim_setup/connection_web/app.js" in members
-    assert "elesim_setup/connection_web/i18n.json" in members
-    assert "elesim_setup/connection_web/icon.svg" in members
+    assert "elesim_setup/setup_web/index.html" in members
+    assert "elesim_setup/setup_web/app.js" in members
+    assert "elesim_setup/setup_web/i18n.json" in members
+    assert "elesim_setup/setup_web/icon.svg" in members
+    assert "elesim_setup/setup_web/fonts/NotoSansCJKkr-Regular.otf" in members
+    assert "elesim_setup/connection_manager_web/index.html" in members
+    assert "elesim_setup/connection_manager_web/app.js" in members
+    assert "elesim_setup/connection_manager_web/i18n.json" in members
+    assert "elesim_setup/connection_manager_web/icon.svg" in members
     assert "elesim_setup/ownership.py" in members
     assert "elesim_setup/uninstall.py" in members
     assert "elesim_setup/shell.py" in members

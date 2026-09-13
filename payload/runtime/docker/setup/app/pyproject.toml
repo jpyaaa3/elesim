@@ -30,15 +30,15 @@ where = ["."]
 
 [tool.setuptools.package-data]
 elesim_setup = [
-  "web/*.html",
-  "web/*.css",
-  "web/*.js",
-  "web/*.json",
-  "web/*.svg",
-  "web/fonts/*.otf",
-  "connection_web/*.html",
-  "connection_web/*.css",
-  "connection_web/*.js",
-  "connection_web/*.json",
-  "connection_web/*.svg",
+  "setup_web/*.html",
+  "setup_web/*.css",
+  "setup_web/*.js",
+  "setup_web/*.json",
+  "setup_web/*.svg",
+  "setup_web/fonts/*.otf",
+  "connection_manager_web/*.html",
+  "connection_manager_web/*.css",
+  "connection_manager_web/*.js",
+  "connection_manager_web/*.json",
+  "connection_manager_web/*.svg",
 ]

@@ -116,17 +116,17 @@ SETUP_PYTHON_MODULES = frozenset(
 )
 REQUIRED_SETUP_PACKAGE_FILES = (
     *sorted(SETUP_PYTHON_MODULES),
-    "elesim_setup/web/index.html",
-    "elesim_setup/web/app.js",
-    "elesim_setup/web/style.css",
-    "elesim_setup/web/i18n.json",
-    "elesim_setup/web/icon.svg",
-    "elesim_setup/web/fonts/NotoSansCJKkr-Regular.otf",
-    "elesim_setup/connection_web/index.html",
-    "elesim_setup/connection_web/app.js",
-    "elesim_setup/connection_web/style.css",
-    "elesim_setup/connection_web/i18n.json",
-    "elesim_setup/connection_web/icon.svg",
+    "elesim_setup/setup_web/index.html",
+    "elesim_setup/setup_web/app.js",
+    "elesim_setup/setup_web/style.css",
+    "elesim_setup/setup_web/i18n.json",
+    "elesim_setup/setup_web/icon.svg",
+    "elesim_setup/setup_web/fonts/NotoSansCJKkr-Regular.otf",
+    "elesim_setup/connection_manager_web/index.html",
+    "elesim_setup/connection_manager_web/app.js",
+    "elesim_setup/connection_manager_web/style.css",
+    "elesim_setup/connection_manager_web/i18n.json",
+    "elesim_setup/connection_manager_web/icon.svg",
 )
 PUBLIC_CONFIG_TEMPLATES = {
     "pilot": "runtime.public.example.yaml",

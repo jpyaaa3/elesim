@@ -117,12 +117,13 @@ tailscale_interfaces=""
 if command -v ip >/dev/null 2>&1; then
   tailscale_interfaces="$(ip -o link show 2>/dev/null | awk -F': ' '$2 ~ /^tailscale[0-9]+$/ {printf "%s%s", separator, $2; separator=","}' || true)"
 fi
-printf '%s\n' "[bootstrap] Docker backend=${docker_backend_kind} name=${docker_backend_name:-unknown} context=${docker_context_name:-unknown} endpoint=${docker_context_endpoint} engine=${docker_engine_id:-unknown}"
+printf '%s\n' "[bootstrap] Docker backend=${docker_backend_kind}"
+printf '%s\n' "[bootstrap] name=${docker_backend_name:-unknown}"
+printf '%s\n' "[bootstrap] context=${docker_context_name:-unknown}"
+printf '%s\n' "[bootstrap] endpoint=${docker_context_endpoint}"
+printf '%s\n' "[bootstrap] engine=${docker_engine_id:-unknown}"
 if [[ -n "$tailscale_interfaces" ]]; then
   printf '%s\n' "[bootstrap] host tailscale interfaces=${tailscale_interfaces}"
-  if [[ "$docker_backend_kind" == "docker-desktop" ]]; then
-    printf '%s\n' "[bootstrap] Docker Desktop does not inherit the WSL tailscale interface; setup will generate a separate kernel-mode Tailscale runtime sidecar."
-  fi
 else
   printf '%s\n' "[bootstrap] host tailscale interfaces=none"
 fi
@@ -362,15 +363,8 @@ fi
 
 gui_url="http://127.0.0.1:${gui_port}/?token=${gui_token}"
 if ((gui_mode)); then
-  if ((host_bootstrap)); then
-    printf '%s\n' "[bootstrap] Jetson ROS 2/colcon detected. Starting the native Robot installer in the EleSim host venv."
-  else
-    printf '%s\n' "[bootstrap] Starting the GUI installer without modifying the host Python/CUDA/ROS environment."
-  fi
   printf '%s\n' "[bootstrap] ${gui_url}"
   printf '%s\n' "[remote] ssh -L ${gui_port}:127.0.0.1:${gui_port} -p <ssh-port> <user>@<server>"
-else
-  printf '%s\n' "[bootstrap] Starting EleSim setup without modifying the host Python environment."
 fi
 if ((gui_mode)) && [[ "$no_open" != "1" ]] && \
    command -v xdg-open >/dev/null 2>&1 && \

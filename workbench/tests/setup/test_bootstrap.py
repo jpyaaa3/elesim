@@ -1514,7 +1514,7 @@ def test_bootstrap_reports_selected_docker_backend_and_tailscale_interfaces() ->
     assert "docker_backend_kind=\"docker-desktop\"" in script
     assert "^tailscale[0-9]+$" in script
     assert "ELESIM_HOST_TAILSCALE_INTERFACES" in script
-    assert "kernel-mode Tailscale runtime sidecar" in script
+    assert "kernel-mode Tailscale runtime sidecar" not in script
     assert "ELESIM_HOST_DOCKER_BACKEND" in script
     assert "ELESIM_HOST_DOCKER_CONTEXT" in script
     assert "ELESIM_HOST_DOCKER_ENGINE_ID" in script
@@ -1813,4 +1813,3 @@ def test_jetson_bootstrap_uses_host_ros_without_exposing_gui() -> None:
     assert '"$host_python" -m venv --help' in script
     assert 'env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_tmp"' in script
     assert "--host 127.0.0.1" in script
-    assert "EleSim host venv" in script

@@ -1,4 +1,4 @@
-<p align="center"><img src="./payload/runtime/docker/setup/app/elesim_setup/web/icon.svg" width="180" alt="EleSim logo"></p>
+<p align="center"><img src="./payload/runtime/docker/setup/app/elesim_setup/setup_web/icon.svg" width="180" alt="EleSim logo"></p>
 
 <h1 align="center">EleSim</h1>
 

@@ -234,7 +234,7 @@ def test_infrastructure_layout_rejects_symlinked_required_path_ancestor(
     tmp_path: Path,
 ) -> None:
     package = _minimal_infrastructure(tmp_path)
-    web = package / "elesim_setup/web"
+    web = package / "elesim_setup/setup_web"
     outside = tmp_path / "outside-web"
     web.rename(outside)
     web.symlink_to(outside, target_is_directory=True)

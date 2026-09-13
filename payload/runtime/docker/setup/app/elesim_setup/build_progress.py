@@ -65,7 +65,8 @@ def _fit_row(value: str, width: int) -> str:
 
 
 def run(command: list[str], log_dir: Path, mode: str = "auto", *,
-        title: str = "Runtime image build", notice_prefixes: tuple[str, ...] = ()) -> int:
+        title: str = "Runtime image build", notice_prefixes: tuple[str, ...] = (),
+        hidden_prefixes: tuple[str, ...] = ()) -> int:
     log_path, transcript = _open_log(log_dir)
     tty = sys.stdout.isatty() and sys.stderr.isatty() and os.environ.get("TERM") != "dumb"
     verbose = mode == "verbose" or (mode == "auto" and not tty)
@@ -103,6 +104,8 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
         for line in lines:
             line_count += 1
             safe = _display_text(line[-1024:])
+            if not verbose and safe.lstrip().startswith(hidden_prefixes):
+                continue
             if not verbose and safe.lstrip().startswith(notice_prefixes):
                 if animate:
                     print("\r\x1b[2K", end="", file=sys.stderr)
@@ -144,7 +147,9 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
         pending += decoder.decode(b"", final=True)
         if pending:
             safe = _display_text(pending)
-            if not verbose and safe.lstrip().startswith(notice_prefixes):
+            if not verbose and safe.lstrip().startswith(hidden_prefixes):
+                pass
+            elif not verbose and safe.lstrip().startswith(notice_prefixes):
                 if animate:
                     print("\r\x1b[2K", end="", file=sys.stderr)
                 print(f"  │ {safe}", file=sys.stderr)
@@ -158,7 +163,8 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
         if not verbose:
             preview = list(tail) if status else ([] if notice_prefixes else list(tail)[-3:])
             for line in preview:
-                print(f"  │ {_fit_row(line, max(40, shutil.get_terminal_size().columns - 4))}", file=sys.stderr)
+                preview_line = f"  │ {_fit_row(line, max(40, shutil.get_terminal_size().columns - 4))}"
+                print(_muted(preview_line, tty), file=sys.stderr)
             omitted = max(0, line_count - shown_count - len(preview))
             print(_muted("  │ ...", tty), file=sys.stderr)
         label = "Completed" if status == 0 else f"Failed (exit {status})"
@@ -186,6 +192,7 @@ def main() -> int:
     parser.add_argument("--log-dir", required=True, type=Path)
     parser.add_argument("--title", default="Runtime image build")
     parser.add_argument("--notice-prefix", action="append", default=[])
+    parser.add_argument("--hide-prefix", action="append", default=[])
     parser.add_argument("--mode", choices=("auto", "compact", "plain", "verbose"),
                         default="verbose" if os.environ.get("ELESIM_VERBOSE") == "1"
                         else os.environ.get("ELESIM_BUILD_PROGRESS", "auto"))
@@ -197,7 +204,8 @@ def main() -> int:
     try:
         mode = "verbose" if os.environ.get("ELESIM_VERBOSE") == "1" else args.mode
         return run(command, args.log_dir, mode, title=args.title,
-                   notice_prefixes=tuple(args.notice_prefix))
+                   notice_prefixes=tuple(args.notice_prefix),
+                   hidden_prefixes=tuple(args.hide_prefix))
     except OSError as exc:
         print(f"Build progress error: {exc}", file=sys.stderr)
         return 74

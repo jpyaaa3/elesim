@@ -318,14 +318,12 @@ def render_update_wrapper(
         )
         lines.extend(
             (
-                "printf '%s\\n' '[elesim-update] immutable release published.'",
-                "printf '%s\\n' '[elesim-update] registered instances remain pinned; replace a selected system explicitly to adopt it.'",
             )
         )
         if cleanup_images:
             lines.append(
                 f"PYTHONNOUSERSITE=1 PYTHONPATH={shlex.quote(str(prefix / 'maintenance'))} python3 -B -S -m elesim_setup.image_cleanup "
-                f"--prefix {shlex.quote(str(prefix))} --lock-fd 9"
+                f"--prefix {shlex.quote(str(prefix))} --lock-fd 9 >/dev/null"
             )
     lines.append("")
     return "\n".join(lines)
@@ -400,7 +398,11 @@ def _render_release_publish_lines(
         "  printf '\"%s\":%s' \"$release_role\" \"$release_entry\" >>\"$release_evidence\"",
         "done",
         "printf '%s\\n' '}}' >>\"$release_evidence\"",
-        f"{compose_prefix} run --rm --no-deps tools elesim-setup --state \"$release_state\" release publish --source-revision \"$release_source_revision\" --snapshot \"$release_snapshot\" --evidence \"$release_evidence\"",
+        "release_publication_result=\"$("
+        f"{compose_prefix} run --rm --no-deps tools elesim-setup --state \"$release_state\" release publish --source-revision \"$release_source_revision\" --snapshot \"$release_snapshot\" --evidence \"$release_evidence\""
+        ")\"",
+        "release_path=\"$(python3 -c 'import json,sys; value=json.load(sys.stdin); path=value.get(\"release_path\") if isinstance(value, dict) else None; print(path) if isinstance(path, str) and path else sys.exit(2)' <<< \"$release_publication_result\")\"",
+        "printf '[elesim-update] release_path=%s\\n' \"$release_path\"",
         "trap - EXIT",
         "release_evidence_cleanup",
         *(

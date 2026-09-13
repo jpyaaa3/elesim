@@ -380,16 +380,6 @@ def _immutable_commit(ref: str | None, url: str) -> str | None:
     return candidate.lower()
 
 
-def _log_value(value: str) -> str:
-    printable = "".join(character if character.isprintable() else "?" for character in value)
-    return printable[:120]
-
-
-def _log_source(*, ref: str | None, revision: str, status: str) -> None:
-    reference = _log_value(ref) if ref is not None else "custom-archive"
-    print(f"[bootstrap] source ref={reference} revision={revision} status={status}", flush=True)
-
-
 @contextlib.contextmanager
 def _locked_url_cache(cache: Path) -> Iterator[None]:
     cache.mkdir(parents=True, exist_ok=True)
@@ -860,7 +850,6 @@ def download_source(
                 )
             revision = _index_text(index or {}, "revision")
             assert revision is not None
-            _log_source(ref=ref, revision=revision, status="immutable-cache")
             return cached_root
 
         validators: dict[str, str] = {}
@@ -895,7 +884,6 @@ def download_source(
                         updated_index["last_modified"] = last_modified
                     if updated_index != index:
                         _atomic_write_json(cache / "current.json", updated_index)
-                    _log_source(ref=ref, revision=revision, status="validated")
                     return cached_root
                 status, etag, last_modified, digest = _download_archive(
                     url,
@@ -944,7 +932,6 @@ def download_source(
             if last_modified is not None:
                 new_index["last_modified"] = last_modified
             _atomic_write_json(cache / "current.json", new_index)
-            _log_source(ref=ref, revision=revision, status="downloaded")
             return published_root
 
 
@@ -1071,13 +1058,16 @@ def _ensure_bootstrap_pip(python: Path) -> None:
 
 
 def _progress_command(source_root: Path, cache_root: Path, title: str,
-                      command: Sequence[str], *, notices: bool = False) -> tuple[str, ...]:
+                      command: Sequence[str], *, notices: bool = False,
+                      hide_setup_output: bool = False) -> tuple[str, ...]:
     # Execute the stdlib-only helper from the already validated snapshot; do
     # not import the setup package (or install dependencies into host Python).
     helper = source_root / "payload/runtime/docker/setup/app/elesim_setup/build_progress.py"
     return (
         sys.executable, str(helper), "--log-dir", str(cache_root / "logs/setup"),
-        "--mode", os.environ.get("ELESIM_BUILD_PROGRESS", "compact"), "--title", title,
+        "--mode", os.environ.get("ELESIM_BUILD_PROGRESS", "compact"),
+        "--title", f"[Bootstrap] {title}",
+        *(('--hide-prefix', '[') if hide_setup_output else ()),
         *(("--notice-prefix", "[", "--notice-prefix", "$ ") if notices else ()),
         "--", *command,
     )
@@ -1205,7 +1195,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         command = (str(executable), "--source-root", str(source_root), *wizard_args)
         if _setup_command(wizard_args) in {"install", "update"}:
             command = _progress_command(source_root, cache_root, "Generate installation artifacts",
-                                        command, notices=True)
+                                        command, hide_setup_output=True)
         setup_environment = os.environ.copy()
         # Bootstrap owns this value.  Do not forward a potentially stale or
         # forged ELESIM_SOURCE_REVISION from the outer shell/environment.

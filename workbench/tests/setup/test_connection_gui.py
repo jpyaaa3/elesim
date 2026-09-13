@@ -13,8 +13,8 @@ import pytest
 from elesim_setup.connection_gui import (
     ConnectionManagerApplication,
     ConnectionManagerServer,
-    connection_web_root,
-    installer_web_font_root,
+    connection_manager_web_root,
+    setup_web_font_root,
 )
 from elesim_setup.connection_manager import (
     ConnectionTopology,
@@ -366,7 +366,7 @@ def test_start_job_forwards_pilot_and_sim_gpu_options_separately(tmp_path: Path)
 
 
 def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
-    root = connection_web_root()
+    root = connection_manager_web_root()
     catalog = json.loads((root / "i18n.json").read_text(encoding="utf-8"))
     html = (root / "index.html").read_text(encoding="utf-8")
     script = (root / "app.js").read_text(encoding="utf-8")
@@ -389,7 +389,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert '<img src="/icon.svg" alt="">' in html
     assert '<link rel="icon" href="/icon.svg" type="image/svg+xml">' in html
     assert "background: rgb(200 200 100);" in style
-    assert (installer_web_font_root() / "NotoSansCJKkr-Regular.otf").is_file()
+    assert (setup_web_font_root() / "NotoSansCJKkr-Regular.otf").is_file()
     assert 'url("/fonts/NotoSansCJKkr-Regular.otf")' in (
         root / "style.css"
     ).read_text(encoding="utf-8")

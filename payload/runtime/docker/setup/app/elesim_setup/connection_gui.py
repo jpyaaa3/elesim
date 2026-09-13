@@ -71,20 +71,20 @@ class ConnectionJobCancelled(RuntimeError):
     """Raised at a cooperative log boundary after cancellation was requested."""
 
 
-def connection_web_root() -> Path:
-    return Path(__file__).resolve().parent / "connection_web"
+def connection_manager_web_root() -> Path:
+    return Path(__file__).resolve().parent / "connection_manager_web"
 
 
-def installer_web_font_root() -> Path:
+def setup_web_font_root() -> Path:
     """Return the installer-owned font directory shared by both web UIs.
 
     The connection manager must not import or read assets from the runtime UI
-    package. Keeping the browser font under ``elesim_setup/web`` makes the
+    package. Keeping the browser font under ``elesim_setup/setup_web`` makes the
     installer the sole owner of its static assets while allowing the setup
     wizard and connection manager to render Korean text identically.
     """
 
-    return Path(__file__).resolve().parent / "web" / "fonts"
+    return Path(__file__).resolve().parent / "setup_web" / "fonts"
 
 
 @dataclass
@@ -766,35 +766,35 @@ class ConnectionManagerRequestHandler(BaseHTTPRequestHandler):
         relative = request_path.lstrip("/") or "index.html"
         allowed = {
             "index.html": (
-                connection_web_root() / "index.html",
+                connection_manager_web_root() / "index.html",
                 "text/html; charset=utf-8",
             ),
             "app.js": (
-                connection_web_root() / "app.js",
+                connection_manager_web_root() / "app.js",
                 "text/javascript; charset=utf-8",
             ),
             "style.css": (
-                connection_web_root() / "style.css",
+                connection_manager_web_root() / "style.css",
                 "text/css; charset=utf-8",
             ),
             "i18n.json": (
-                connection_web_root() / "i18n.json",
+                connection_manager_web_root() / "i18n.json",
                 "application/json; charset=utf-8",
             ),
             "icon.svg": (
-                connection_web_root() / "icon.svg",
+                connection_manager_web_root() / "icon.svg",
                 "image/svg+xml",
             ),
             "private-key-warning.svg": (
-                connection_web_root() / "private-key-warning.svg",
+                connection_manager_web_root() / "private-key-warning.svg",
                 "image/svg+xml",
             ),
             "pencil.svg": (
-                connection_web_root() / "pencil.svg",
+                connection_manager_web_root() / "pencil.svg",
                 "image/svg+xml",
             ),
             "fonts/NotoSansCJKkr-Regular.otf": (
-                installer_web_font_root() / "NotoSansCJKkr-Regular.otf",
+                setup_web_font_root() / "NotoSansCJKkr-Regular.otf",
                 "font/otf",
             ),
         }
@@ -921,6 +921,6 @@ __all__ = [
     "ConnectionRunner",
     "StatusProvider",
     "run_connection_gui",
-    "connection_web_root",
-    "installer_web_font_root",
+    "connection_manager_web_root",
+    "setup_web_font_root",
 ]

@@ -49,6 +49,7 @@ elif args[0] == 'compose' and 'publish' in args:
     assert set(data['roles']) == {'pilot', 'sim', 'ui'}
     assert evidence.stat().st_mode & 0o777 == 0o600
     Path(os.environ['CAPTURE']).write_text(raw)
+    print(json.dumps({'release_key': 'a' * 64, 'release_path': '/tmp/release'}))
 else:
     raise AssertionError(args)
 ''', encoding="utf-8")
@@ -257,8 +258,9 @@ def test_scoped_release_wrapper_publishes_only_after_complete_build(
     assert "mktemp" in script and "umask 077" in script
     assert script.index("build pilot sim ui tools") < script.index("release publish")
     assert "run elesim-up to apply" not in script
-    assert "registered instances remain pinned" in script
-    assert script.index("release publish") < script.index("immutable release published")
+    assert "release_path=%s" in script
+    assert "registered instances remain pinned" not in script
+    assert "immutable release published" not in script
     assert subprocess.run(
         ("bash", "-n"),
         input=script,

@@ -270,7 +270,7 @@ def build_container_plan(state: InstallState) -> tuple[ContainerAction, ...]:
     state.validate()
     root = state.prefix_path / "containers"
     actions = [
-        ContainerAction("호스트", "기존 Python/APT 환경은 변경하지 않음"),
+        ContainerAction("Host", "Existing Python/APT environment is unchanged"),
         ContainerAction(
             "Compose",
             f"{state.container_network.mode} project: {root / 'compose.yaml'}",
@@ -281,8 +281,8 @@ def build_container_plan(state: InstallState) -> tuple[ContainerAction, ...]:
     # deliberately switches to ``.runtime-build``. Describe both locations
     # so the plan never claims that the legacy path is guaranteed to be used.
     context_detail = (
-        f"격리 이미지 context: {root / 'build' / '{role}'} "
-        f"(쓰기 불가 시 {root / '.runtime-build' / '{role}'})"
+        f"Isolated image context: {root / 'build' / '{role}'} "
+        f"(falls back to {root / '.runtime-build' / '{role}'} if unwritable)"
     )
     actions.extend(
         ContainerAction(role, context_detail.format(role=role))
@@ -291,15 +291,15 @@ def build_container_plan(state: InstallState) -> tuple[ContainerAction, ...]:
     if state.developer_attachment.enabled:
         actions.append(
             ContainerAction(
-                "개발 도구",
-                "현재 설치 namespace의 선택적 developer profile",
+                "Developer tools",
+                "Optional developer profile in the current installation namespace",
             )
         )
     actions.extend(
         (
-            ContainerAction("도구", "elesim-setup/elesim-net 전용 tools image"),
-            ContainerAction("명령", f"Compose 실행 래퍼: {state.bin_path}"),
-            ContainerAction("시작", f"{state.bin_path / 'elesim-up'}"),
+            ContainerAction("Tools", "Dedicated elesim-setup/elesim-net tools image"),
+            ContainerAction("Commands", f"Compose execution wrappers: {state.bin_path}"),
+            ContainerAction("Start", f"{state.bin_path / 'elesim-up'}"),
         )
     )
     return tuple(actions)
@@ -389,10 +389,10 @@ class ContainerInstaller:
             self.log(f"  [{action.title}] {action.detail}")
         self.log("")
         if self.dry_run:
-            self.log("[DRY-RUN] 호스트나 Docker daemon을 변경하지 않았습니다.")
+            self.log("[DRY-RUN] The host and Docker daemon were not changed.")
             return
 
-        self.log("[1/6] 설치 디렉터리와 runtime data 준비")
+        self.log("[1/6] Preparing installation directory and runtime data")
         self._image_fingerprints.clear()
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
@@ -409,18 +409,18 @@ class ContainerInstaller:
         if self._scoped_namespace:
             self._copy_runtime_snapshot()
         generate_role_configs(self.state)
-        self.log("[2/6] 역할별 image context 생성")
+        self.log("[2/6] Creating role image contexts")
         for role in self.state.roles:
             self._write_role_context(role)
         if self.state.developer_attachment.enabled:
             self._write_developer_context()
-        self.log("[3/6] 설치/진단 tools context 생성")
+        self.log("[3/6] Creating installation and diagnostic tools context")
         self._write_tools_context()
-        self.log("[4/6] Compose 구성 생성")
+        self.log("[4/6] Creating Compose configuration")
         self._write_compose()
-        self.log("[5/6] 실행 명령 생성")
+        self.log("[5/6] Creating runtime commands")
         self._write_wrappers(ownership_refresh)
-        self.log("[6/6] 설치 상태와 제거 소유권 저장")
+        self.log("[6/6] Saving installation state and uninstall ownership")
         saved = self.state.save(self.state_path)
         if not self.state.dds.managed_security_pending:
             sync_provisioning_required(self.state)
@@ -434,15 +434,15 @@ class ContainerInstaller:
             prefix_created=prefix_created,
             bin_created=bin_created,
         )
-        self.log(f"[완료] 설치 상태: {saved}")
-        self.log(f"[완료] 제거 소유권: {manifest.path}")
+        self.log(f"[Complete] Installation state: {saved}")
+        self.log(f"[Complete] Uninstall ownership: {manifest.path}")
         if self._scoped_namespace:
             self.log(
-                "[다음] release instance 등록 후 system별 실행: "
+                "[Next] Register a release instance, then run by system: "
                 f"{self.state.bin_path / 'elesim-instance'} <system> <up|down|logs|status|remove>"
             )
         else:
-            self.log(f"[다음] 이미지 빌드 및 시작: {self.state.bin_path / 'elesim-up'}")
+            self.log(f"[Next] Build and start images: {self.state.bin_path / 'elesim-up'}")
 
     def _select_docker_namespace(self, refresh: OwnershipRefresh | None) -> None:
         """Select the immutable Docker boundary for this install refresh.
