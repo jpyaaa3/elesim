@@ -116,7 +116,8 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
 
     try:
         title = _display_text(title)
-        print(f"• {title}\n{_muted(f'  └ Full log: {log_path}', tty)}",
+        heading = title if title.startswith("[Bootstrap]") else f"• {title}"
+        print(f"{heading}\n{_muted(f'  └ Full log: {log_path}', tty)}",
               file=sys.stderr, flush=True)
         environment = {**os.environ, "ELESIM_PROGRESS_ACTIVE": "1", "PYTHONUNBUFFERED": "1"}
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

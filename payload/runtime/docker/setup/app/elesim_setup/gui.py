@@ -30,7 +30,7 @@ class InstallCancelled(RuntimeError):
 
 
 def web_root() -> Path:
-    return Path(__file__).resolve().parent / "web"
+    return Path(__file__).resolve().parent / "setup_web"
 
 
 def _setup_tailscale_interfaces() -> tuple[str, ...]:
