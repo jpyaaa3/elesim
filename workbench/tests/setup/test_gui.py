@@ -56,7 +56,7 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert "mode.developer" not in catalog["ko"]
     assert "roles.developer.title" not in catalog["ko"]
     assert catalog["ko"]["app.title"] == "EleSim 설치 마법사"
-    assert catalog["en"]["app.title"] == "EleSim Install Wizard"
+    assert catalog["en"]["app.title"] == "EleSim Installation Wizard"
     assert 'data-i18n="app.title"' in html
     assert '<img src="/icon.svg" alt="">' in html
     assert '<link rel="icon" href="/icon.svg" type="image/svg+xml">' in html
