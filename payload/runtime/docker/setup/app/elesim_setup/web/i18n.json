@@ -83,7 +83,7 @@
     "error.developer_workspace": "개발자 attachment를 추가하려면 workspace 경로를 지정하십시오."
   },
   "en": {
-    "app.title": "EleSim Install Wizard",
+    "app.title": "EleSim Installation Wizard",
     "step.roles": "Applications",
     "step.paths": "Paths",
     "step.compute": "GPU policy",

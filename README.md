@@ -6,68 +6,76 @@
 
 <br>
 
-## 1. 설치 방법
+## 1. How to Start
 
-### 🧙 설치 마법사 실행
+### 🧙 Installation Wizard
 
-아래 명령어를 실행하십시오.
+Run the following command.
 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/install.sh | bash
    ```
 
-### 🐳 Docker Desktop을 사용 중일 경우
+### 🐳 Tailscale with Docker Desktop
 
-Docker Desktop 사용 중 발급된 Tailscale IP는 DDS 통신을 위한 인터페이스 사용이 제한됩니다.
-
-EleSim의 설치가 끝나면 아래 명령어로 native Docker 기반 Tailscale IP를 생성하십시오.
+While using Docker Desktop, you need to generate a emulated Tailscale IP for DDS communication.
 
    ```bash
    elesim-tailscale login
    ```
 
+### 🐘 Connection Manager
+
+Once the setup is complete with `elesim-connections`, you can start right away by using `elesim-up` next time.
+
+   ```bash
+   elesim-connections
+   ```
+
 <br>
 
-## 2. 어플리케이션
+## 2. Apps and Commands
 
-| 역할 | 하는 일 |
+### 💻 Applications
+
+| Name | Role |
 | --- | --- |
-| Pilot | 로봇의 동작 계산 |
-| UI | 조작 패널 |
-| Sim | Genesis 기반 시뮬레이션 |
-| Robot | Jetson에서 로봇을 실제 조작 |
+| Pilot | Calculator |
+| UI | Control Panel |
+| Sim | Simulation on [Genesis World](https://github.com/Genesis-Embodied-AI/genesis-world) |
+| Robot | On-board Software for Jetson |
 
-영상은 WebRTC로, 그 외 정보는 DDS로 공유됩니다.
+DDS is used by default, while video is sent via WebRTC.
 
-### 💻 주요 명령어
+### ⌨️ Commands
 
 ```bash
-elesim-up                  # EleSim을 시작
+elesim-up                  # Run EleSim
 
-elesim-down                # EleSim을 종료
-elesim-down --purge        # EleSim을 종료 및 연결 관리자(elesim-manager)도 제거
+elesim-down                # Stop EleSim
+elesim-down --purge        # Stop EleSim and remove the connection manager
 
-elesim-update              # EleSim을 업데이트
+elesim-update              # Update EleSim
 
-elesim-connections         # 각 컴퓨터 간 연결 관리 및 EleSim을 시작
+elesim-connections         # Manage the connections between apps and run EleSim
 
-elesim-logs                # EleSim의 로그 확인
-elesim-status              # 이 컴퓨터의 EleSim 실행 정보 확인
+elesim-logs                # Check the logs
+elesim-status              # Check the execution info on this computer
 
-elesim-tailscale login     # native Docker 기반으로 Tailscale에 로그인
-elesim-tailscale update    # Tailscale을 업데이트
+elesim-tailscale login     # Log in to Tailscale with native Docker
+elesim-tailscale update    # Update the emulated Tailscale
 
-elesim-uninstall           # EleSim을 삭제
+elesim-uninstall           # Remove EleSim
 ```
 
 <br>
 
-## 3. 문서
+## 3. Documents
 
-[설치](docs/setup.md) ·
-[배포와 운영](docs/deployment.md) ·
-[구성](docs/configuration.md) ·
-[아키텍처](docs/architecture.md) ·
-[DDS 계약](docs/dds_contracts.md) ·
-[구현 상태](docs/status.md) ·
-[연구와 진단](docs/research.md)
+[Setup](docs/setup.md)  
+[Deployment](docs/deployment.md)  
+[Configuration](docs/configuration.md)  
+[Architecture](docs/architecture.md)  
+[DDS Contracts](docs/dds_contracts.md)  
+[Dev Status](docs/status.md)  
+[Research](docs/research.md)
