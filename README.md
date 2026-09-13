@@ -13,7 +13,7 @@
 Run the following command.
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/install.sh | bash
    ```
 
 ### 🐳 Tailscale with Docker Desktop
