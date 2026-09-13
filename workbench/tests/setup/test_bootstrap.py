@@ -17,8 +17,8 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from installer.bootstrap import bootstrap as bootstrap_module
-from installer.bootstrap.bootstrap import (
+from installer import bootstrap as bootstrap_module
+from installer.bootstrap import (
     BootstrapError,
     _atomic_write_json,
     _ensure_bootstrap_pip,
@@ -101,9 +101,9 @@ def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, b
         "payload/runtime/common/elesim_interfaces/msg/RgbdFrame.msg": b"",
         "payload/runtime/common/elesim_interfaces/srv/OpenSimulationSession.srv": b"",
         "payload/runtime/common/elesim_interfaces/action/RunOperatorWorkflow.action": b"",
-        "installer/bootstrap/bootstrap.py": b"# bootstrap\n",
-        "installer/bootstrap/install.sh": b"#!/bin/sh\n",
-        "installer/bootstrap/bootstrap-contract.json": json.dumps(
+        "installer/bootstrap.py": b"# bootstrap\n",
+        "installer/install.sh": b"#!/bin/sh\n",
+        "installer/bootstrap-contract.json": json.dumps(
             {
                 "schema_version": 1,
                 "bootstrap_api": 1,
@@ -813,7 +813,7 @@ def test_download_source_refresh_repairs_existing_snapshot(
     monkeypatch.setattr(urllib.request, "urlopen", opener)
     url = "https://archives.example/elesim.tar.gz"
     first = download_source(url, tmp_path)
-    contract = first / "installer/bootstrap/bootstrap-contract.json"
+    contract = first / "installer/bootstrap-contract.json"
     contract.unlink()
 
     refreshed = download_source(url, tmp_path, refresh=True)
@@ -1166,7 +1166,7 @@ def test_atomic_index_replace_failure_preserves_previous_file(
 
 def test_bootstrap_contract_and_executing_file_must_match(tmp_path: Path) -> None:
     source = tmp_path / "source"
-    setup = source / "installer/bootstrap"
+    setup = source / "installer"
     setup.mkdir(parents=True)
     contract = {
         "schema_version": 1,
@@ -1190,7 +1190,7 @@ def test_bootstrap_generation_auto_check_requires_shell_marker(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    setup = tmp_path / "installer/bootstrap"
+    setup = tmp_path / "installer"
     setup.mkdir(parents=True)
     (setup / "bootstrap.py").write_text("different generation\n", encoding="utf-8")
 
@@ -1264,7 +1264,7 @@ def test_bootstrap_contract_rejects_incompatible_generation(
     tmp_path: Path,
     contract: dict[str, object],
 ) -> None:
-    setup = tmp_path / "installer/bootstrap"
+    setup = tmp_path / "installer"
     setup.mkdir(parents=True)
     (setup / "bootstrap-contract.json").write_text(json.dumps(contract), encoding="utf-8")
 
@@ -1450,7 +1450,7 @@ def test_bootstrap_revision_handoff_rejects_forged_destination(
 
 
 def test_failed_shell_download_preserves_previous_bootstrap(tmp_path: Path) -> None:
-    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh"
+    script = Path(__file__).resolve().parents[3] / "installer/install.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     docker = fake_bin / "docker"
@@ -1499,7 +1499,7 @@ def test_failed_shell_download_preserves_previous_bootstrap(tmp_path: Path) -> N
 
 
 def test_bootstrap_reports_selected_docker_backend_and_tailscale_interfaces() -> None:
-    script = (Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh").read_text(
+    script = (Path(__file__).resolve().parents[3] / "installer/install.sh").read_text(
         encoding="utf-8"
     )
 
@@ -1523,7 +1523,7 @@ def test_bootstrap_reports_selected_docker_backend_and_tailscale_interfaces() ->
 
 
 def test_shell_bootstrap_rejects_docker_host_override(tmp_path: Path) -> None:
-    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh"
+    script = Path(__file__).resolve().parents[3] / "installer/install.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     docker = fake_bin / "docker"
@@ -1555,7 +1555,7 @@ def test_shell_bootstrap_rejects_docker_host_override(tmp_path: Path) -> None:
 
 
 def test_shell_bootstrap_rejects_remote_docker_context(tmp_path: Path) -> None:
-    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh"
+    script = Path(__file__).resolve().parents[3] / "installer/install.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     docker = fake_bin / "docker"
@@ -1600,8 +1600,8 @@ def test_shell_bootstrap_rejects_remote_docker_context(tmp_path: Path) -> None:
 def test_shell_forwards_custom_archive_without_exposing_it_in_docker_argv(
     tmp_path: Path,
 ) -> None:
-    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh"
-    bootstrap_source = Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.py"
+    script = Path(__file__).resolve().parents[3] / "installer/install.sh"
+    bootstrap_source = Path(__file__).resolve().parents[3] / "installer/bootstrap.py"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     curl = fake_bin / "curl"
@@ -1686,7 +1686,7 @@ def test_shell_forwards_custom_archive_without_exposing_it_in_docker_argv(
 
 
 def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None:
-    script = (Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh").read_text(
+    script = (Path(__file__).resolve().parents[3] / "installer/install.sh").read_text(
         encoding="utf-8"
     )
     assert "python:3.10-slim" in script
@@ -1768,7 +1768,7 @@ def test_bootstrap_package_builds_preserve_validated_cache(
 
 
 def test_bootstrap_venv_pins_ros_build_python_metadata_dependencies() -> None:
-    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.py"
+    script = Path(__file__).resolve().parents[3] / "installer/bootstrap.py"
     text = script.read_text(encoding="utf-8")
 
     assert '"setuptools>=68,<80"' in text
@@ -1778,7 +1778,7 @@ def test_bootstrap_venv_pins_ros_build_python_metadata_dependencies() -> None:
 def test_bootstrap_progress_command_runs_standalone_helper(tmp_path, monkeypatch):
     monkeypatch.delenv("ELESIM_BUILD_PROGRESS", raising=False)
     monkeypatch.delenv("ELESIM_VERBOSE", raising=False)
-    source = Path(bootstrap_module.__file__).resolve().parents[2]
+    source = Path(bootstrap_module.__file__).resolve().parents[1]
     command = bootstrap_module._progress_command(
         source, tmp_path, "Prepare setup dependencies",
         (sys.executable, "-c", "[print('pip output', i) for i in range(300)]"),
@@ -1787,7 +1787,7 @@ def test_bootstrap_progress_command_runs_standalone_helper(tmp_path, monkeypatch
     assert result.returncode == 0, result.stderr
     assert result.stdout == b""
     assert b"Prepare setup dependencies" in result.stderr
-    assert b"297 lines omitted" in result.stderr
+    assert "  │ ...\n".encode() in result.stderr
     log, = (tmp_path / "logs/setup").glob("*.log")
     assert len(log.read_text().splitlines()) == 300
 
@@ -1803,7 +1803,7 @@ def test_setup_command_does_not_mistake_state_path_for_subcommand(args, expected
 
 
 def test_jetson_bootstrap_uses_host_ros_without_exposing_gui() -> None:
-    script = (Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh").read_text(
+    script = (Path(__file__).resolve().parents[3] / "installer/install.sh").read_text(
         encoding="utf-8"
     )
 

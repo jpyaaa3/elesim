@@ -44,9 +44,9 @@ _BOOTSTRAP_ROLE_APPLICATIONS = {
 }
 _BOOTSTRAP_SOURCE_FILES = frozenset(
     {
-        PurePosixPath("installer/bootstrap/bootstrap.py"),
-        PurePosixPath("installer/bootstrap/install.sh"),
-        PurePosixPath("installer/bootstrap/bootstrap-contract.json"),
+        PurePosixPath("installer/bootstrap.py"),
+        PurePosixPath("installer/install.sh"),
+        PurePosixPath("installer/bootstrap-contract.json"),
         PurePosixPath("payload/runtime/docker/setup/app/pyproject.toml"),
         PurePosixPath("payload/runtime/docker/setup/app/requirements.lock"),
         PurePosixPath("payload/runtime/common/protocol/pyproject.toml"),
@@ -949,7 +949,7 @@ def download_source(
 
 
 def validate_bootstrap_contract(source_root: Path) -> dict[str, object]:
-    path = source_root / "installer/bootstrap/bootstrap-contract.json"
+    path = source_root / "installer/bootstrap-contract.json"
     try:
         contract = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -982,9 +982,9 @@ def validate_bootstrap_generation(
         executing_file = Path(candidate)
     if not executing_file.is_file():
         return
-    archived = source_root / "installer/bootstrap/bootstrap.py"
+    archived = source_root / "installer/bootstrap.py"
     if not archived.is_file():
-        raise BootstrapError("Downloaded archive is missing installer/bootstrap/bootstrap.py")
+        raise BootstrapError("Downloaded archive is missing installer/bootstrap.py")
     try:
         executing_digest = hashlib.sha256(executing_file.read_bytes()).digest()
         archived_digest = hashlib.sha256(archived.read_bytes()).digest()

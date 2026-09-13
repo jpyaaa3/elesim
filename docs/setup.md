@@ -39,7 +39,7 @@ elesim-net identity
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/install.sh \
+  https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/install.sh \
   | ELESIM_REF=main bash
 ```
 
@@ -49,7 +49,7 @@ curl -fsSL \
 ```bash
 commit=0123456789abcdef0123456789abcdef01234567
 curl -fsSL \
-  "https://raw.githubusercontent.com/jpyaaa3/elesim/${commit}/installer/bootstrap/install.sh" \
+  "https://raw.githubusercontent.com/jpyaaa3/elesim/${commit}/installer/install.sh" \
   | ELESIM_REF="$commit" bash
 ```
 
@@ -58,6 +58,21 @@ display, NVIDIA GPU, invocation directory, SSH agent, Docker context/Engine
 ID와 host `tailscale*` hint를 조사한다. Docker Desktop과 native Docker를
 구분해 `direct-host` 또는 `tailscale-sidecar`를 선택하고 그 값을 설치
 state에 고정한다.
+
+설치 진입점은 `installer/install.sh`, Python bootstrap은 `installer/bootstrap.py`다.
+이전 `installer/bootstrap/` 경로를 사용하는 기존 설치의 update wrapper는
+새 경로로 한 번 갱신한다. 아래 `prefix`에 기존 설치 경로를 지정한다.
+
+```bash
+prefix="$HOME/ws/newsim"
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/install.sh \
+  | ELESIM_REF=main ELESIM_SCOPED_UPDATE=1 ELESIM_INVOCATION_DIR="$prefix" \
+    bash -s -- --state "$prefix/install-state.json" update
+"$prefix/bin/elesim-update"
+```
+
+첫 명령은 설치 산출물과 wrapper를 갱신하고, 두 번째는 새 wrapper로 release를
+빌드·발행한다. 과거 commit에 고정한 설치는 해당 commit의 기존 경로를 사용한다.
 
 GUI는 host loopback에만 열리고 URL token으로 보호된다. 기본 포트는 `8765`이며
 점유 중이면 제한된 범위에서 다음 포트를 찾는다. 원격 접근은 GUI port를
@@ -247,7 +262,7 @@ curl bootstrap의 venv 생성·packaging 도구·의존성·EleSim 패키지 설
 같은 단계별 transcript 형식을 사용한다. 이 준비 로그는
 `<ELESIM_CACHE_DIR>/logs/setup/` (기본 `~/.cache/elesim/setup/logs/setup/`)에 남는다.
 TTY에서는 현재 출력과 경과 시간을 한 줄로 갱신한다. 성공하면 마지막 3줄,
-생략 줄 수와 완료 시간을 남기고, 실패하면 마지막 12줄과 실패 코드를 남긴다.
+생략 표시(`...`)와 완료 시간을 남기고, 실패하면 마지막 12줄과 실패 코드를 남긴다.
 curl과 새 update/release wrapper는 non-TTY에서도 compact 요약을 기본으로 쓴다.
 `ELESIM_VERBOSE=1`은 원문 출력, `ELESIM_BUILD_PROGRESS=plain`은 애니메이션 없는
 요약을 선택한다. `ELESIM_BUILD_PROGRESS=auto`는 non-TTY 원문 전달을 선택한다.

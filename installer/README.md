@@ -1,6 +1,6 @@
 # Installer and bootstrap
 
-`installer/bootstrap/` is the stdlib-only public bootstrap entrypoint.
+`installer/` is the stdlib-only public bootstrap entrypoint.
 `payload/runtime/docker/setup/app/` is the `elesim-setup` package containing installation,
 connection-management, deployment, security and uninstall operations.
 

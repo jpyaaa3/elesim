@@ -186,7 +186,7 @@ def render_update_wrapper(
         )
         raw_url = (
             '"https://raw.githubusercontent.com/${repository}/${ref}/'
-            'installer/bootstrap/install.sh"'
+            'installer/install.sh"'
         )
         lines.extend(
             (

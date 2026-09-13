@@ -231,15 +231,15 @@ def copy_infrastructure(repository: Path, release_root: Path) -> None:
     setup_destination = destination / "setup"
     setup_destination.mkdir(parents=True, exist_ok=True)
     shutil.copy2(
-        repository / "installer/bootstrap/bootstrap.py",
+        repository / "installer/bootstrap.py",
         setup_destination / "bootstrap.py",
     )
     shutil.copy2(
-        repository / "installer/bootstrap/install.sh",
+        repository / "installer/install.sh",
         setup_destination / "install.sh",
     )
     shutil.copy2(
-        repository / "installer/bootstrap/bootstrap-contract.json",
+        repository / "installer/bootstrap-contract.json",
         setup_destination / "bootstrap-contract.json",
     )
     setup_project = repository / "payload/runtime/docker/setup/app"

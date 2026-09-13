@@ -24,7 +24,7 @@ from elesim_setup.state import ContainerNetworkSettings, DdsSettings, InstallSta
 
 def test_cli_commands_match_bootstrap_contract() -> None:
     contract = json.loads(
-        (ROOT / "installer/bootstrap/bootstrap-contract.json").read_text(encoding="utf-8")
+        (ROOT / "installer/bootstrap-contract.json").read_text(encoding="utf-8")
     )
     subparsers = next(
         action
