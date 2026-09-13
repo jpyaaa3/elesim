@@ -27,7 +27,8 @@ def test_plain_progress_keeps_full_private_log_and_bounded_terminal(tmp_path):
     assert result.returncode == 0, result.stderr
     assert result.stdout == b""
     assert b"Completed" in result.stderr
-    assert b"9997 lines omitted" in result.stderr
+    assert b"...\n" in result.stderr
+    assert b"lines omitted" not in result.stderr
     assert b"build line 9999" in result.stderr
     assert len(result.stderr.splitlines()) == 7
     log, = (tmp_path / "logs").glob("*.log")
@@ -116,6 +117,8 @@ def test_host_bundle_contains_standalone_progress_program(tmp_path):
 def test_terminal_text_removes_escape_sequences_and_respects_wide_characters():
     assert build_progress._display_text("\x1b[31mred\x1b[0m\x1b]0;title\x07") == "red"
     assert build_progress._fit_row("가나다abc", 5) == "가나"
+    assert build_progress._muted("  └ Full log: /tmp/build.log", True).startswith("\x1b[90m")
+    assert build_progress._muted("  └ Full log: /tmp/build.log", False) == "  └ Full log: /tmp/build.log"
 
 
 def test_real_terminal_redraws_instead_of_appending_build_output(tmp_path):
@@ -158,7 +161,7 @@ def test_compact_pipe_does_not_fall_back_to_raw_output(tmp_path):
     result = invoke(tmp_path, "[print('dependency', i) for i in range(100)]", "compact")
     assert result.returncode == 0
     assert result.stdout == b""
-    assert b"97 lines omitted" in result.stderr
+    assert b"...\n" in result.stderr
     assert b"dependency 0\n" not in result.stderr
     assert b"\x1b" not in result.stderr
 
@@ -176,7 +179,7 @@ def test_installer_notices_remain_visible_while_dependency_output_is_folded(tmp_
     assert result.returncode == 0
     assert b"[warning] Review interface settings" in result.stderr
     assert b"$ sudo systemctl daemon-reload" in result.stderr
-    assert b"100 lines omitted" in result.stderr
+    assert b"...\n" in result.stderr
     assert b"dependency" not in result.stderr
     log, = (tmp_path / "logs").glob("*.log")
     assert len(log.read_text().splitlines()) == 102
@@ -215,7 +218,7 @@ def test_updated_compose_catches_old_update_build_without_intercepting_other_com
                                  "ELESIM_BUILD_PROGRESS": "compact", "ELESIM_VERBOSE": "0",
                                  "ELESIM_PROGRESS_ACTIVE": "0"})
     assert result.returncode == 23
-    assert (b"lines omitted" in result.stderr) == wrapped
+    assert (b"...\n" in result.stderr) == wrapped
     assert len(list((prefix / "logs/build").glob("*.log"))) == int(wrapped)
     if wrapped:
         result = subprocess.run(

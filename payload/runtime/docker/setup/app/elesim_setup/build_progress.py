@@ -50,6 +50,11 @@ def _display_text(value: str) -> str:
     return "".join(c for c in _ESCAPES.sub("", value) if c.isprintable())
 
 
+def _muted(value: str, enabled: bool) -> str:
+    """Render secondary transcript metadata in terminal gray only."""
+    return f"\x1b[90m{value}\x1b[0m" if enabled else value
+
+
 def _fit_row(value: str, width: int) -> str:
     end = 0
     for end, char in enumerate(value, 1):
@@ -108,7 +113,8 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
 
     try:
         title = _display_text(title)
-        print(f"• {title}\n  └ Full log: {log_path}", file=sys.stderr, flush=True)
+        print(f"• {title}\n{_muted(f'  └ Full log: {log_path}', tty)}",
+              file=sys.stderr, flush=True)
         environment = {**os.environ, "ELESIM_PROGRESS_ACTIVE": "1", "PYTHONUNBUFFERED": "1"}
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    start_new_session=True, env=environment)
@@ -154,10 +160,11 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
             for line in preview:
                 print(f"  │ {_fit_row(line, max(40, shutil.get_terminal_size().columns - 4))}", file=sys.stderr)
             omitted = max(0, line_count - shown_count - len(preview))
-            print(f"  │ … {omitted} lines omitted", file=sys.stderr)
+            print(_muted("  │ ...", tty), file=sys.stderr)
         label = "Completed" if status == 0 else f"Failed (exit {status})"
-        print(f"  └ {label} in {time.monotonic() - started:.1f}s. Full log: {log_path}",
-              file=sys.stderr, flush=True)
+        print(_muted(
+            f"  └ {label} in {time.monotonic() - started:.1f}s",
+            tty), file=sys.stderr, flush=True)
         return status
     finally:
         if process is not None:
