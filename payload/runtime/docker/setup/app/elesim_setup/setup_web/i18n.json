@@ -7,7 +7,7 @@
     "step.review": "미리보기",
     "step.install": "마무리",
     "host.detected": "감지된 호스트",
-    "roles.developer_attachment": "개발자 attachment 추가",
+    "roles.developer_attachment": "개발자 addon 추가",
     "roles.developer_attachment.help": "소스, SDK와 테스트 도구를 사용할 수 있는 개발 컨테이너를 추가합니다.",
     "roles.developer_workspace": "개발 workspace 경로",
     "roles.developer_workspace.help": "개발 컨테이너에서 사용할 소스 workspace 경로입니다.",
@@ -43,7 +43,7 @@
     "compute.device": "GPU index 또는 UUID",
     "review.title": "미리보기",
     "review.subtitle": "호스트를 변경하기 전에 생성될 구성을 확인하십시오.",
-    "review.attachment": "개발 도구 attachment",
+    "review.attachment": "개발 도구 addon",
     "review.workspace": "개발 workspace",
     "review.roles": "프로그램",
     "review.prefix": "설치 위치",
@@ -80,7 +80,7 @@
     "error.roles": "설치할 프로그램을 하나 이상 선택하십시오.",
     "error.generic": "입력을 확인하십시오.",
     "error.robot_dds_interface": "Robot 설치에는 inter-host EleSim DDS 인터페이스를 지정하십시오.",
-    "error.developer_workspace": "개발자 attachment를 추가하려면 workspace 경로를 지정하십시오."
+    "error.developer_workspace": "개발자 addon을 추가하려면 workspace 경로를 지정하십시오."
   },
   "en": {
     "app.title": "EleSim Installation Wizard",
@@ -90,7 +90,7 @@
     "step.review": "Preview",
     "step.install": "Finish",
     "host.detected": "Detected host",
-    "roles.developer_attachment": "Add developer attachment",
+    "roles.developer_attachment": "Add developer addon",
     "roles.developer_attachment.help": "Add a development container with the source, SDKs, and test tools.",
     "roles.developer_workspace": "Developer workspace path",
     "roles.developer_workspace.help": "Source workspace path to use inside the development container.",
@@ -126,7 +126,7 @@
     "compute.device": "GPU index or UUID",
     "review.title": "Preview",
     "review.subtitle": "Confirm the generated configuration before changing the host.",
-    "review.attachment": "Developer attachment",
+    "review.attachment": "Developer addon",
     "review.workspace": "Developer workspace",
     "review.roles": "Applications",
     "review.prefix": "Installation",
@@ -163,6 +163,6 @@
     "error.roles": "Select at least one application.",
     "error.generic": "Check the entered values.",
     "error.robot_dds_interface": "Specify the inter-host EleSim DDS interface for Robot installation.",
-    "error.developer_workspace": "Specify a workspace path when adding the developer attachment."
+    "error.developer_workspace": "Specify a workspace path when adding the developer addon."
   }
 }

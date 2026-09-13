@@ -41,8 +41,8 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert (root / "fonts/NotoSansCJKkr-Regular.otf").is_file()
     assert set(catalog) == {"ko", "en"}
     assert set(catalog["ko"]) == set(catalog["en"])
-    assert catalog["ko"]["roles.developer_attachment"] == "개발자 attachment 추가"
-    assert catalog["en"]["roles.developer_attachment"] == "Add developer attachment"
+    assert catalog["ko"]["roles.developer_attachment"] == "개발자 addon 추가"
+    assert catalog["en"]["roles.developer_attachment"] == "Add developer addon"
     for section in ("roles", "paths", "compute", "review", "install"):
         assert catalog["ko"][f"step.{section}"] == catalog["ko"][f"{section}.title"]
         assert catalog["en"][f"step.{section}"] == catalog["en"][f"{section}.title"]
