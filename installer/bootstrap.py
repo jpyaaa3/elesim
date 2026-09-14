@@ -132,6 +132,7 @@ _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
         "profiles",
         "releases",
         "release_publication",
+        "readable_names",
         "request",
         "runtime_status",
         "secure_deployment",

@@ -113,6 +113,7 @@ SETUP_PYTHON_MODULES = frozenset(
         "profiles",
         "release_publication",
         "releases",
+        "readable_names",
         "request",
         "runtime_status",
         "secure_deployment",
