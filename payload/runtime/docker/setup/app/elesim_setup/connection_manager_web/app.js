@@ -1401,6 +1401,9 @@ async function initialize() {
       appendRoleCard("pilot", first);
       appendRoleCard("ui", first);
       if (context.local_defaults) {
+        if (context.local_defaults.system_id != null) {
+          byId("system-id").value = context.local_defaults.system_id;
+        }
         if (context.local_defaults.install_root) {
           field(first, "install-root").value = context.local_defaults.install_root;
         }

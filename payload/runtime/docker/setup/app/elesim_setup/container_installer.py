@@ -2756,31 +2756,44 @@ def _manager_wrapper(
         # boundary only accepts the same lower-case ROS-safe alphabet before
         # using the value in a path and Docker name.  The install UUID makes
         # names unique across installations; the exact system suffix makes
-        # concurrent workspaces within one installation distinct.
+        # concurrent workspaces within one installation distinct. An unbound
+        # editor uses a private invocation identity, not a runtime system ID.
         install_scope = install_uuid.replace("-", "")
         scoped_setup = (
             "manager_system=\n"
+            "manager_system_given=0\n"
             "manager_args=()\n"
             "manager_input=(\"$@\")\n"
             "for ((manager_index=0; manager_index<${#manager_input[@]}; manager_index++)); do\n"
             "  manager_arg=\"${manager_input[$manager_index]}\"\n"
             "  case \"$manager_arg\" in\n"
             "    --system=*)\n"
-            "      if [[ -n $manager_system ]]; then printf 'connection manager --system may be specified only once.\\n' >&2; exit 2; fi\n"
+            "      if (( manager_system_given )); then printf 'connection manager --system may be specified only once.\\n' >&2; exit 2; fi\n"
+            "      manager_system_given=1\n"
             "      manager_system=\"${manager_arg#--system=}\"\n"
             "      ;;\n"
             "    --system)\n"
             "      if (( manager_index + 1 >= ${#manager_input[@]} )); then printf 'connection manager --system value is missing.\\n' >&2; exit 2; fi\n"
             "      manager_index=$((manager_index + 1))\n"
-            "      if [[ -n $manager_system ]]; then printf 'connection manager --system may be specified only once.\\n' >&2; exit 2; fi\n"
+            "      if (( manager_system_given )); then printf 'connection manager --system may be specified only once.\\n' >&2; exit 2; fi\n"
+            "      manager_system_given=1\n"
             "      manager_system=\"${manager_input[$manager_index]}\"\n"
             "      ;;\n"
             "    *) manager_args+=(\"$manager_arg\") ;;\n"
             "  esac\n"
             "done\n"
-            "if [[ ! $manager_system =~ ^[a-z][a-z0-9_]{0,62}$ ]]; then\n"
+            "if (( manager_system_given )) && [[ ! $manager_system =~ ^[a-z][a-z0-9_]{0,62}$ ]]; then\n"
             "  printf 'connection manager --system must be a lowercase system ID: %s\\n' \"$manager_system\" >&2\n"
             "  exit 2\n"
+            "fi\n"
+            "manager_workspace_args=()\n"
+            "manager_helper_system=$manager_system\n"
+            "if (( manager_system_given )); then\n"
+            "  manager_workspace_args=(--expected-system-id \"$manager_system\")\n"
+            "else\n"
+            "  manager_system=editor_$(python3 -c 'import secrets; print(secrets.token_hex(12))')\n"
+            "  manager_helper_system='*'\n"
+            f"  manager_workspace_args=(--workspace-root {shlex.quote(str(local_install_root / 'connections'))})\n"
             "fi\n"
             f"manager_container=elesim-{install_scope}-manager-$manager_system\n"
             f"manager_state_path={shlex.quote(str(local_install_root))}/connections/$manager_system/topology.json\n"
@@ -2789,7 +2802,7 @@ def _manager_wrapper(
         manager_lifecycle = manager_identity
         forwarded_args = '"${manager_args[@]}"'
         state_argument = '"$manager_state_path"'
-        expected_system_argument = ' --expected-system-id "$manager_system"'
+        expected_system_argument = ' "${manager_workspace_args[@]}"'
     else:
         scoped_setup = ""
         manager_args_init = 'manager_args=("$@")\n'
@@ -2923,7 +2936,7 @@ def _manager_wrapper(
             compose_argument=shlex.quote(str(compose)),
             bin_dir_argument=shlex.quote(str(local_bin_dir)),
             project=project,
-            instance_system_argument='"$manager_system"' if scoped_systems else "",
+            instance_system_argument='"$manager_helper_system"' if scoped_systems else "",
         )
         + "if [[ -n ${SSH_AUTH_SOCK:-} && -S $SSH_AUTH_SOCK ]]; then\n"
         "  manager_options+=(\n"

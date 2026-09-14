@@ -125,6 +125,7 @@ class ConnectionManagerApplication:
         token: str,
         runner: ConnectionRunner,
         expected_system_id: str | None = None,
+        workspace_root: Path | None = None,
         status_provider: StatusProvider | None = None,
         fingerprint_probe: FingerprintProbe | None = None,
         tailscale_fingerprint_probe: FingerprintProbe | None = None,
@@ -135,6 +136,9 @@ class ConnectionManagerApplication:
         gpu_device: str = "",
     ) -> None:
         self.state_path = state_path.expanduser()
+        self.workspace_root = None if workspace_root is None else secure_absolute(workspace_root)
+        if self.workspace_root is not None and expected_system_id is not None:
+            raise ValueError("workspace_root and expected_system_id are mutually exclusive")
         self.expected_system_id = (
             None if expected_system_id is None else str(expected_system_id).strip()
         )
@@ -212,6 +216,9 @@ class ConnectionManagerApplication:
                 "gpu_policies": local_policies,
             },
             "local_defaults": {
+                "system_id": (
+                    self.expected_system_id if self.workspace_root is None else ""
+                ),
                 "install_root": self.local_install_root,
                 "bin_dir": self.local_bin_dir,
             },
@@ -322,7 +329,11 @@ class ConnectionManagerApplication:
                     "the connection topology cannot be changed during deployment"
                 )
             with self._state_lock:
-                destination = topology.save(self.state_path)
+                target = self.state_path
+                if self.workspace_root is not None:
+                    target = self.workspace_root / topology.system_id / "topology.json"
+                destination = topology.save(target)
+                self.state_path = destination
         response = self._topology_response(topology, saved=True)
         response["mode"] = f"{destination.stat().st_mode & 0o777:04o}"
         return response
@@ -866,6 +877,7 @@ def run_connection_gui(
     state_path: Path,
     runner: ConnectionRunner,
     expected_system_id: str | None = None,
+    workspace_root: Path | None = None,
     status_provider: StatusProvider | None = None,
     host: str = "127.0.0.1",
     port: int = 8766,
@@ -883,6 +895,7 @@ def run_connection_gui(
         token=session_token,
         runner=runner,
         expected_system_id=expected_system_id,
+        workspace_root=workspace_root,
         status_provider=status_provider,
         fingerprint_probe=fingerprint_probe,
         local_install_root=local_install_root,

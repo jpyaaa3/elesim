@@ -796,6 +796,18 @@ def _recv_exact(connection: socket.socket, size: int) -> bytes:
     return bytes(result)
 
 
+def test_editor_helper_accepts_valid_systems_but_not_install_mutation():
+    compose, bin_dir = _paths()
+    kwargs = dict(compose=compose, bin_dir=bin_dir,
+                  project="elesim-runtime-0123456789abcdef", instance_system="*")
+    for system in ("lab", "second"):
+        _validate_command((str(bin_dir / "elesim-instance"), system, "status"), **kwargs)
+    with pytest.raises(HostHelperError):
+        _validate_command((str(bin_dir / "elesim-instance"), "../bad", "up"), **kwargs)
+    with pytest.raises(HostHelperError):
+        _validate_command((str(bin_dir / "elesim-net"), "configure"), **kwargs)
+
+
 def test_host_helper_scoped_dispatcher_is_bound_to_manager_system() -> None:
     compose, bin_dir = _paths()
     instance = str(bin_dir / "elesim-instance")

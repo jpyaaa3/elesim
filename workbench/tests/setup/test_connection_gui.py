@@ -146,6 +146,35 @@ def _application(
     )
 
 
+def test_editor_saves_under_gui_selected_system(tmp_path):
+    root = tmp_path / "connections"
+    app = ConnectionManagerApplication(
+        state_path=tmp_path / "draft.json", workspace_root=root,
+        token="test", runner=lambda *_: None,
+    )
+    assert app.load_topology(required=False) is None
+    first = _topology()
+    app.save_topology(first.to_dict())
+    assert app.state_path == root / first.system_id / "topology.json"
+    second = replace(first, system_id="second")
+    app.save_topology(second.to_dict())
+    assert ConnectionTopology.load(root / first.system_id / "topology.json") == first
+    assert app.load_topology() == second
+    assert not (tmp_path / "draft.json").exists()
+
+
+def test_editor_refuses_symlink_workspace(tmp_path):
+    root = tmp_path / "connections"
+    root.mkdir()
+    (root / "lab_arm").symlink_to(tmp_path, target_is_directory=True)
+    app = ConnectionManagerApplication(
+        state_path=tmp_path / "draft.json", workspace_root=root,
+        token="test", runner=lambda *_: None,
+    )
+    with pytest.raises(ValueError, match="symlink"):
+        app.save_topology(_topology().to_dict())
+
+
 def _wait_for_job(app: ConnectionManagerApplication) -> dict[str, object]:
     deadline = time.monotonic() + 2
     while True:
@@ -414,13 +443,13 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert catalog["ko"]["action.add.host"] == "컴퓨터 추가"
     assert catalog["en"]["action.add.host"] == "Add a computer"
     assert 'data-field="unused"' not in html
-    assert "grid-template-columns: minmax(200px, .65fr) minmax(360px, 1.3fr) minmax(300px, 1.05fr)" in style
-    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in style
+    assert ".drop-zone { position: relative; display: grid; min-height: 304px; grid-template-columns: repeat(2, minmax(0, 1fr))" in style
+    assert "grid-template-columns: minmax(300px, 1.08fr) minmax(260px, .87fr) minmax(300px, 1.05fr)" in style
     assert "min-height: 304px" in style
     assert "grid-auto-rows: 82px" in style
     assert "padding: 8px 8px 34px" in style
-    assert ".robot-host .unit-lanes { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 7px; }" in style
-    assert ".robot-host .runtime-lane .drop-zone { grid-template-columns: repeat(2, minmax(0, 1fr)); }" in style
+    assert ".robot-host .unit-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }" in style
+    assert ".robot-host .runtime-lane .drop-zone { grid-template-columns: 1fr; }" in style
     assert ".robot-lane .drop-zone { border-color: #b2a5ca; grid-template-columns: 1fr; }" in style
     assert ".drop-zone.empty::before" in style
     assert ".drop-guidance" in style

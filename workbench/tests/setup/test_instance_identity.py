@@ -42,6 +42,17 @@ def test_image_reference_has_install_and_fingerprint_scope() -> None:
     assert image_reference(INSTALL, "pilot", "b" * 64) != image
 
 
+def test_readable_image_reference_keeps_validated_internal_identity() -> None:
+    assert image_reference(
+        INSTALL, "sim", "a" * 64,
+        install_name="quiet_otter", image_name="calm_eagle",
+    ) == "elesim/sim:quiet_otter-calm_eagle"
+    with pytest.raises(ValueError):
+        image_reference(INSTALL, "sim", "a" * 64, install_name="quiet_otter")
+    with pytest.raises(ValueError):
+        image_reference(INSTALL, "sim", "bad", install_name="quiet_otter", image_name="calm_eagle")
+
+
 def test_manager_container_name_is_unique_per_system() -> None:
     alpha = manager_container_name(INSTALL, "alpha")
     beta = manager_container_name(INSTALL, "beta")

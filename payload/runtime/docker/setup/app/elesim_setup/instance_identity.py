@@ -83,12 +83,25 @@ def manager_container_name(install_uuid: str, system_id: str) -> str:
     return f"elesim-{scope}-manager-{system}"
 
 
-def image_reference(install_uuid: str, role: str, fingerprint: str) -> str:
+def image_reference(
+    install_uuid: str,
+    role: str,
+    fingerprint: str,
+    *,
+    install_name: str = "",
+    image_name: str = "",
+) -> str:
     """Return an install-scoped immutable image tag (never ``:local``)."""
 
     scope = _uuid_hex(install_uuid)
     role = _checked(role, _IDENTIFIER, "role")
     fingerprint = _checked(fingerprint, _FINGERPRINT, "fingerprint")
+    if install_name or image_name:
+        from .readable_names import NAME_PATTERN
+
+        _checked(install_name, NAME_PATTERN, "install_name")
+        _checked(image_name, NAME_PATTERN, "image_name")
+        return f"elesim/{role}:{install_name}-{image_name}"
     tag = f"{scope}-{fingerprint}"
     if len(tag) > 128:
         raise ValueError("fingerprint is too long for an install-scoped image tag")

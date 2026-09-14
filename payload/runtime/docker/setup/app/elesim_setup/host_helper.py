@@ -409,6 +409,9 @@ def _validate_command(
     argv: Sequence[str], *, compose: Path, bin_dir: Path, project: str,
     instance_system: str = "",
 ) -> None:
+    # An unbound GUI editor may address validated systems in this installation.
+    # Keep it truthy so install-wide mutation prohibitions still apply; an
+    # empty value retains the separate legacy helper behavior.
     net = str(bin_dir / "elesim-net")
     if argv[0] == net and len(argv) >= 2 and argv[1] in {
         "show",
@@ -451,7 +454,7 @@ def _validate_command(
         if len(argv) < 3:
             raise HostHelperError("scoped lifecycle command is incomplete")
         system, action = argv[1], argv[2]
-        if instance_system and system != instance_system:
+        if instance_system not in {"", "*"} and system != instance_system:
             raise HostHelperError("scoped lifecycle system does not match this manager")
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", system):
             raise HostHelperError("scoped lifecycle system is invalid")
@@ -488,12 +491,19 @@ def _validate_command(
                 raise HostHelperError(
                     "scoped registration system is missing or incomplete"
                 )
-            if system != instance_system:
+            if not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", system):
+                raise HostHelperError("scoped registration system is invalid")
+            if instance_system != "*" and system != instance_system:
                 raise HostHelperError(
                     "scoped registration system does not match this manager"
                 )
         if argv[1] == "cleanup-staging":
-            if len(argv) != 6 or argv[2:4] != ("--system", instance_system):
+            if (
+                len(argv) != 6
+                or argv[2] != "--system"
+                or not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", argv[3])
+                or (instance_system != "*" and argv[3] != instance_system)
+            ):
                 raise HostHelperError("staging cleanup command is invalid")
             if argv[4] != "--security-generation" or not re.fullmatch(
                 r"[a-z0-9][a-z0-9_.-]{0,95}", argv[5]

@@ -2556,6 +2556,8 @@ def _parser() -> argparse.ArgumentParser:
         description="EleSim DDS/SROS2 연결관리자 GUI",
     )
     parser.add_argument("--state", type=Path, required=True)
+    parser.add_argument("--workspace-root", type=Path,
+                        help="save GUI-selected systems in separate workspace directories")
     parser.add_argument(
         "--expected-system-id",
         help="reject topology files belonging to another system workspace",
@@ -2624,6 +2626,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         state_path=args.state,
         runner=runner,
         expected_system_id=args.expected_system_id,
+        workspace_root=args.workspace_root,
         status_provider=runner.runtime_status,
         host=args.host,
         port=args.port,

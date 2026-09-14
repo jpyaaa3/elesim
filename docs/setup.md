@@ -396,6 +396,12 @@ DDS UDP discovery 증거가 아니며, SSH/Tailscale nc는 DDS traffic을 relay�
 
 ## 9. 보안과 연결 관리자 경계
 
+`elesim-connections`는 인자 없이 편집 화면을 연다. 시스템 ID는 화면에서
+정하며 저장하면 `connections/<system-id>/topology.json`에 기록된다.
+기존 시스템을 바로 열려면 `elesim-connections --system <id>`를 사용한다.
+명시적으로 선택한 workspace는 다른 시스템 ID로 저장할 수 없다.
+화면을 열거나 저장하는 것만으로 runtime을 시작하지 않는다.
+
 `trusted-network`는 소유 LAN/routed VPN에서만 허용하고, 공유망은 `sros2`
 enforce를 사용한다. managed mode의 Authority private key는 operator laptop에
 남고 각 host에는 common public material과 배정 role enclave만 전달된다.
