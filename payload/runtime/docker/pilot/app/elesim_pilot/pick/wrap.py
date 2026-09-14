@@ -58,7 +58,8 @@ class WrapGraspConfig:
     #: claim rather than a measurement.
     object_geometry: tuple[float, ...] = (0.067, 1.1, 0.368, 0.160, 0.550, 0.0, 0.0)
     #: Motor current and joint torque are not the same units, so the load
-    #: channels are zeroed until they are reconciled.
+    #: channels are zeroed until they are reconciled.  Ignored when the policy
+    #: has no load channels -- the manifest decides that, not this flag.
     zero_load_proxy: bool = True
     #: Seconds allowed for the arm to reach each waypoint.  The training step is
     #: 0.4 s of simulated time; this is a real settle timeout, not that.  The
@@ -249,12 +250,16 @@ class WrapGraspRunner:
         overloaded: Optional[Callable[[], dict]] = None,
         currents: Optional[Callable[[], dict]] = None,
         loaded: Optional[Callable[[], bool]] = None,
+        mapping: Optional[Any] = None,
     ) -> None:
         from .wrap_policy import DeployedPolicy, LiftScript
 
         self.cfg = cfg
         policy, manifest = self._locate(cfg)
-        self.policy = DeployedPolicy(policy, manifest)
+        # Validate against the service's effective mapping, when supplied.
+        # This matters for calibrated hardware: the protocol defaults are not
+        # necessarily the values used by this Pilot instance.
+        self.policy = DeployedPolicy(policy, manifest, mapping=mapping)
         self._LiftScript = LiftScript
         self._read_joints = read_joints
         self._command_waypoint = command_waypoint
@@ -294,7 +299,17 @@ class WrapGraspRunner:
 
     # -- observations ------------------------------------------------------
 
-    def _load_proxy(self) -> Sequence[float]:
+    def _load_proxy(self) -> Optional[Sequence[float]]:
+        """The load channels, or None when the policy has none.
+
+        Whether the policy reads load is the manifest's to say, not this
+        config's: the stage-3 observation dropped the four load channels, and a
+        runner handed them anyway assembles a 16-wide vector for a 12-wide
+        network.  `zero_load_proxy` still decides what to send when the channels
+        do exist.
+        """
+        if not self.policy.iface.expects_load:
+            return None
         if self.cfg.zero_load_proxy or self._read_load is None:
             return self.policy.ZERO_LOAD
         return self._read_load()
@@ -735,6 +750,7 @@ class WrapActions:
             overloaded=overloaded,
             currents=currents,
             loaded=loaded,
+            mapping=self.control_mapping() if hasattr(self, "control_mapping") else None,
         )
         outcome = runner.run()
         _LOG.info(

@@ -22,9 +22,10 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 import elesim_sim.rl  # noqa: F401  # numpy-before-torch ordering
 from .headless_gl import select_offscreen_gl
@@ -325,6 +326,7 @@ def _record_episode(
     macro_steps: int,
     every: int,
     episodes: int,
+    condition: Optional[Mapping[str, float]] = None,
 ) -> Any:
     """Record a rollout, sampling frames per *substep*.
 
@@ -337,10 +339,22 @@ def _record_episode(
 
     Recording spans `episodes` episodes so a policy that terminates early still
     produces something watchable; resets show as cuts.
+
+    `condition` pins the object the way `evaluate_condition` does.  Without it
+    the reset falls through to domain randomisation and the clip shows a size
+    drawn at random instead of the one asked for, under a filename that says
+    otherwise: two clips written for 67 and 100 mm both came back showing the
+    same cylinder -- 24 px wide in both, differing only by position jitter.
     """
     camera = env.scene.cameras["eval"]
     camera.start_recording()
-    env._eval_override = None
+    env._eval_override = dict(condition) if condition is not None else None
+    if condition is not None:
+        # The support follows the object, as it does for a graded condition:
+        # an offset object without it would be recorded falling over.
+        env.move_support_to(
+            float(condition.get("dx_m", 0.0)), float(condition.get("dy_m", 0.0))
+        )
 
     stride = max(1, int(every))
     counter = {"substep": 0}
@@ -370,6 +384,13 @@ def _record_episode(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    # Never put runner scratch logs in an external checkpoint directory.
+    # Cleanup also runs when invoked as a function and evaluation raises.
+    with tempfile.TemporaryDirectory(prefix="elesim-eval-") as directory:
+        return _evaluate(argv, Path(directory))
+
+
+def _evaluate(argv: Optional[Sequence[str]], log_dir: Path) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--config", default=None)
@@ -396,23 +417,73 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--video-out", default=None, help="mp4 path (default: alongside the report)"
     )
+    # The viewpoint is a rendering choice, not a property of the task, and the
+    # default oblique one hides what the wrap actually does: phi is an azimuth
+    # span about the object axis, and an oblique camera foreshortens it.
+    #
+    # Looking straight down needs a distant camera and a narrow field, not a
+    # close one: the object is 1.1 m tall and the arm wraps at z 0.57, so a
+    # nearby overhead camera magnifies the near end of the pole until its
+    # silhouette covers the arm entirely.  Far away with a narrow fov is
+    # nearly orthographic, and the arm -- which wraps outside the object's
+    # radius -- reads as a ring around it.
+    parser.add_argument(
+        "--camera-pos", default=None,
+        help="camera position as x,y,z (default: the oblique view)",
+    )
+    parser.add_argument(
+        "--camera-lookat", default=None,
+        help="camera target as x,y,z (default: the object centre)",
+    )
+    # Genesis defaults `up` to +z, which is degenerate for a view looking
+    # straight down it: the camera's roll is then undefined and the render
+    # comes back as if from somewhere else entirely.  An overhead view has to
+    # say which way is up in the frame.
+    parser.add_argument(
+        "--camera-up", default=None,
+        help="camera up vector as x,y,z (default: +z; set +y for an overhead view)",
+    )
+    parser.add_argument("--camera-fov", type=float, default=40.0)
+    parser.add_argument(
+        "--camera-res", default="960x720", help="render resolution, WxH",
+    )
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config, overlays=args.overlay, overrides=args.overrides)
+
+    # Resolve and validate the external, read-only input before constructing
+    # the Genesis scene.  Relative paths mean the caller's cwd first, then the
+    # repository, consistently with train/export.
+    from .train import resolve_checkpoint
+    ckpt = resolve_checkpoint(args.checkpoint)
 
     camera_specs = []
     if args.render > 0:
         # Cameras must exist before scene.build(), so they are declared here and
         # the scene is constructed with them rather than attached afterwards.
+        def _triple(text, fallback):
+            if text is None:
+                return fallback
+            parts = [float(v) for v in str(text).replace(" ", "").split(",")]
+            if len(parts) != 3:
+                raise ValueError(f"x,y,z 세 개가 필요합니다: {text!r}")
+            return tuple(parts)
+
+        width, _, height = str(args.camera_res).lower().partition("x")
         camera_specs = [
             {
                 "name": "eval",
-                "res": (960, 720),
-                "pos": (1.25, -0.95, 1.05),
-                "lookat": tuple(float(v) for v in cfg.object_center()),
-                "fov": 40,
+                "res": (int(width), int(height)),
+                "pos": _triple(args.camera_pos, (1.25, -0.95, 1.05)),
+                "lookat": _triple(
+                    args.camera_lookat,
+                    tuple(float(v) for v in cfg.object_center()),
+                ),
+                "fov": float(args.camera_fov),
             }
         ]
+        if args.camera_up is not None:
+            camera_specs[0]["up"] = _triple(args.camera_up, (0.0, 0.0, 1.0))
     scene = WrapGraspScene(cfg, camera_specs=camera_specs).build()
     env = WrapGraspEnv(cfg, scene=scene)
     # Evaluation measures the deployed task, which starts at Home.  The reverse
@@ -425,12 +496,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     from rsl_rl.runners import OnPolicyRunner
 
     from .train import build_runner
-
-    ckpt = Path(args.checkpoint)
-    if not ckpt.is_absolute():
-        ckpt = _REPO_ROOT / ckpt
-    log_dir = ckpt.parent / "eval"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    # Loading only needs a runner log directory.  Keep read-only/external run
+    # trees untouched; reports and videos use their explicit output paths below.
     runner: OnPolicyRunner = build_runner(env, cfg, log_dir)
     # Same reason as in train.py: a checkpoint carries the device it was saved
     # on, so evaluating a Mac-trained policy on a CUDA box needs the mapping.
@@ -467,16 +534,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             flush=True,
         )
 
-    if args.render > 0:
+    if args.render > 0 and grid:
         stride = max(1, int(args.render_every))
         # Default to real time: one frame per `stride` substeps of `dt` each.
         fps = args.render_fps or max(1, round(1.0 / (cfg.scene.dt * stride)))
+        # One clip, so one condition -- the grid's first row.  Which one it
+        # is has to be said out loud: the file is named by the caller, and a
+        # clip of a different size than the name claims is worse than none.
+        dx, dy, yaw, radius = grid[0]
+        if len(grid) > 1:
+            print(f"[eval] clip covers condition 1 of {len(grid)}", flush=True)
+        print(
+            f"[eval] recording dx={dx:+.3f} dy={dy:+.3f} yaw={yaw:+.2f} "
+            f"r={radius:.3f}",
+            flush=True,
+        )
         video = _record_episode(
             env,
             policy,
             macro_steps=int(args.render),
             every=stride,
             episodes=int(args.render_episodes or cfg.eval.render_episodes),
+            condition={
+                "dx_m": dx, "dy_m": dy, "yaw_rad": yaw, "radius_m": radius,
+            },
         )
         out_video = Path(args.video_out) if args.video_out else None
         if out_video is None:

@@ -41,6 +41,17 @@ def _git_commit() -> Optional[str]:
         return None
 
 
+def resolve_checkpoint(value: str | Path) -> Path:
+    """Resolve a checkpoint as an input, relative to cwd before the repo."""
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        here = Path.cwd() / path
+        path = here if here.is_file() else _REPO_ROOT / path
+    if not path.is_file():
+        raise SystemExit(f"Checkpoint not found: {path}")
+    return path
+
+
 def observation_layout(cfg: Any) -> list[dict[str, Any]]:
     """The 16 actor observations, in the order the network expects them.
 
@@ -62,12 +73,27 @@ def observation_layout(cfg: Any) -> list[dict[str, Any]]:
              "source": "mean of segment 2's node angles, beta-compensated"},
         ]
     if a.include_object_geometry:
+        # Where these five come from on the robot is not a style choice: it is
+        # whichever source the policy was trained to read.  A `told` policy
+        # learned to work from the pose written into the config while the scene
+        # moved the object away from it, so feeding it a perception estimate
+        # instead hands it a signal it never saw.  Saying "perception" on a
+        # `told` manifest is how a deployment gets wired up wrong.
+        told = str(getattr(a, "object_pose_source", "measured")).strip().lower()
+        src = (
+            "configuration -- the nominal object pose as entered, NOT a "
+            "perception estimate; trained with the object drifting away from "
+            "this value while the policy kept being handed the nominal one"
+            if told == "told"
+            else "perception, robot frame"
+        )
+        geom = ("configuration -- as entered" if told == "told" else "perception")
         out += [
-            {"name": "object/radius", "unit": "m", "source": "perception"},
-            {"name": "object/height", "unit": "m", "source": "perception"},
-            {"name": "object/pos_x", "unit": "m", "source": "perception, robot frame"},
-            {"name": "object/pos_y", "unit": "m", "source": "perception, robot frame"},
-            {"name": "object/pos_z", "unit": "m", "source": "perception, robot frame"},
+            {"name": "object/radius", "unit": "m", "source": geom},
+            {"name": "object/height", "unit": "m", "source": geom},
+            {"name": "object/pos_x", "unit": "m", "source": src},
+            {"name": "object/pos_y", "unit": "m", "source": src},
+            {"name": "object/pos_z", "unit": "m", "source": src},
             {"name": "object/lean_x", "unit": "-",
              "source": "object axis unit vector, x component"},
             {"name": "object/lean_y", "unit": "-",
@@ -193,6 +219,7 @@ def build_manifest(cfg: Any, checkpoint: Path, obs_dim: int, action_dim: int) ->
                 "joint_rad": cfg.observation.actor.noise.joint_rad,
                 "object_pos_m": cfg.observation.actor.noise.object_pos_m,
             },
+            "object_pose_source": cfg.observation.actor.object_pose_source,
         },
     }
 
@@ -201,6 +228,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--out-dir", default="deploy")
+    parser.add_argument(
+        "--overwrite", action="store_true",
+        help="replace an existing policy.pt/policy.npz/interface.json trio",
+    )
     parser.add_argument("--config", default=None)
     parser.add_argument("--overlay", action="append", default=[])
     parser.add_argument("--set", action="append", default=[], dest="overrides")
@@ -222,15 +253,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ]
     cfg = load_config(args.config, overlays=args.overlay,
                       overrides=overrides).resolved_for_curriculum()
-    ckpt = Path(args.checkpoint).expanduser()
-    if not ckpt.is_absolute():
-        here = Path.cwd() / ckpt
-        ckpt = here if here.is_file() else _REPO_ROOT / ckpt
-    if not ckpt.is_file():
-        raise SystemExit(f"Checkpoint not found: {ckpt}")
+    ckpt = resolve_checkpoint(args.checkpoint)
 
     out = Path(args.out_dir).expanduser()
     out.mkdir(parents=True, exist_ok=True)
+    artifacts = tuple(out / name for name in ("policy.pt", "policy.npz", "interface.json"))
+    if not args.overwrite:
+        existing = [str(path) for path in artifacts if path.exists()]
+        if existing:
+            raise SystemExit(
+                "Refusing to overwrite existing export artifact(s): "
+                + ", ".join(existing)
+                + ". Choose a new --out-dir or pass --overwrite."
+            )
 
     # The scene is built because the runner needs an env to size the networks,
     # which is also the only honest way to learn the observation width: it is a
@@ -254,7 +289,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             f"The exported policy produced shape {tuple(acted.shape)}, "
             f"but the action dimension is {action_dim}"
         )
-    torch.jit.save(torch.jit.script(jit), out / "policy.pt")
+    torch.jit.save(torch.jit.script(jit), artifacts[0])
 
     # ...and the same weights as plain arrays, because the control computer is a
     # Jetson AGX Orin.  Matching a torch build to aarch64 and a JetPack version
@@ -280,7 +315,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         arrays[f"w{k}"] = lin.weight.detach().cpu().numpy()
         arrays[f"b{k}"] = lin.bias.detach().cpu().numpy()
     arrays["n_layers"] = np.asarray(len(layers))
-    np.savez(out / "policy.npz", **arrays)
+    np.savez(artifacts[1], **arrays)
 
     # A policy that disagrees with its own weights is worse than no export, so
     # the two paths are compared here rather than trusted.
@@ -290,7 +325,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     probe_batch = rng.normal(size=(64, obs_dim)).astype("float32")
     with torch.no_grad():
         want = jit(torch.from_numpy(probe_batch)).numpy()
-    got = numpy_policy(out / "policy.npz")(probe_batch)
+    got = numpy_policy(artifacts[1])(probe_batch)
     err = float(np.abs(want - got).max())
     if err > 1e-4:
         raise SystemExit(
@@ -298,7 +333,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
 
     manifest = build_manifest(cfg, ckpt, obs_dim, action_dim)
-    (out / "interface.json").write_text(
+    artifacts[2].write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     print(f"[export] policy.pt      관측 {obs_dim} -> 행동 {action_dim}")

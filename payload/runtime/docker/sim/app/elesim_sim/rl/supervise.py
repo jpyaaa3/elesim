@@ -113,7 +113,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     cfg = load_config(args.config, overlays=args.overlay, overrides=args.overrides)
     run_dir = resolve_run_dir(cfg, stamp=args.stamp)
 
-    passthrough: list[str] = ["--stamp", args.stamp]
+    # The supervisor deliberately re-enters the same run directory after a
+    # crash.  The train CLI otherwise requires a new stamp for every process.
+    passthrough: list[str] = ["--stamp", args.stamp, "--continue-run"]
     if args.config:
         passthrough += ["--config", args.config]
     for overlay in args.overlay:

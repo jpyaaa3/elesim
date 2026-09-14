@@ -139,8 +139,8 @@ class UrdfExportConfig:
     prismatic_velocity: Optional[float] = None
     revolute_damping: float = 0.12
     revolute_friction: float = 0.06
-    prismatic_damping: float = 60.0
-    prismatic_friction: float = 20.0
+    prismatic_damping: float = 5.0
+    prismatic_friction: float = 1.0
     mesh_basename_only: bool = False
     part_color_rgba_by_name: dict[str, Tuple[float, float, float, float]] = field(default_factory=dict)
 

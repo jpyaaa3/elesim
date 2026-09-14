@@ -61,9 +61,9 @@ python -m elesim_sim.rl.train \
   --stamp run1
 ```
 
-Runs land in `var/rl/sim/<experiment_name>/stage<N>_<stamp>/`. **Reusing a
-`--stamp` writes into the same directory**, overwriting checkpoints and stacking
-a second tensorboard event file onto the first; give each run its own.
+Runs land in `var/rl/sim/<experiment_name>/stage<N>_<stamp>/`. Run directories are
+exclusive: reusing a `--stamp` fails before simulator construction. Give each
+run its own stamp, including when resuming.
 
 ```bash
 tensorboard --logdir var/rl/sim/wrap_grasp --port 6006
@@ -75,6 +75,13 @@ Resume from a checkpoint:
 ```bash
 python -m elesim_sim.rl.train --resume var/rl/sim/wrap_grasp/stage1_run1/model_200.pt --stamp run2
 ```
+
+Checkpoint paths may be absolute (or relative to the directory where the
+command is run), so existing runs on another volume can be resumed, evaluated,
+or exported without copying them. Checkpoints are read-only inputs. Evaluation
+cleans its temporary logger directory on completion (and on process exit), and
+export refuses to overwrite an existing `policy.pt`, `policy.npz`, or
+`interface.json` unless `--overwrite` is explicitly supplied.
 
 ### Environment count
 

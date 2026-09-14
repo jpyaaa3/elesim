@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 
 from workbench.tools.release.build import build_wheel, copy_infrastructure
+from workbench.tools.release.verify import verify_infrastructure_layout
 
 
 def test_release_infrastructure_contains_dds_aware_installers(tmp_path: Path) -> None:
@@ -66,6 +67,7 @@ def test_release_setup_package_contains_instance_and_publication_modules(
         "release_publication.py",
     }
     assert {path.name for path in package.glob("*.py")} >= expected
+    verify_infrastructure_layout(release_root)
 
 
 def test_setup_wheel_contains_browser_assets_and_cjk_font(tmp_path: Path) -> None:

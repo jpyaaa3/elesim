@@ -44,11 +44,50 @@ def set_seed(seed: int, *, deterministic: bool = False) -> None:
 
 
 def resolve_run_dir(cfg: WrapGraspConfig, *, stamp: str) -> Path:
-    root = Path(cfg.train.log_dir)
+    root = Path(cfg.train.log_dir).expanduser()
     if not root.is_absolute():
         root = _REPO_ROOT / root
     name = cfg.train.run_name or f"stage{cfg.curriculum.stage}_{stamp}"
     return root / cfg.train.experiment_name / name
+
+
+def resolve_checkpoint(value: str | Path) -> Path:
+    """Resolve a checkpoint without ever treating it as an output location."""
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        here = Path.cwd() / path
+        path = here if here.is_file() else _REPO_ROOT / path
+    if not path.is_file():
+        raise SystemExit(f"Checkpoint not found: {path}")
+    return path
+
+
+def create_run_dir(
+    cfg: WrapGraspConfig, *, stamp: str, continue_run: bool = False,
+    resume: Path | None = None,
+) -> Path:
+    """Create a fresh run unless same-run continuation is explicitly requested."""
+    path = resolve_run_dir(cfg, stamp=stamp)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        if not continue_run:
+            raise SystemExit(
+                f"Run directory already exists: {path}. Choose a new --stamp "
+                "(resume checkpoints into a new directory)."
+            )
+        if not path.is_dir():
+            raise SystemExit(f"Run path is not a directory: {path}")
+        # Continuation is intentionally narrow: once a run has content, the
+        # checkpoint must belong to this exact directory.  An external seed
+        # is valid only for the first invocation into an empty directory.
+        if any(path.iterdir()):
+            if resume is None or resume.resolve().parent != path.resolve():
+                raise SystemExit(
+                    f"Continuation requires a checkpoint from the exact run directory: {path}"
+                )
+    else:
+        path.mkdir()
+    return path
 
 
 def build_runner(env: WrapGraspEnv, cfg: WrapGraspConfig, log_dir: Path):
@@ -150,15 +189,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--set", action="append", default=[], dest="overrides")
     parser.add_argument("--iterations", type=int, default=None)
     parser.add_argument("--resume", default=None, help="checkpoint .pt to resume from")
+    parser.add_argument(
+        "--continue-run", action="store_true",
+        help="internal supervisor continuation of an existing run directory",
+    )
     parser.add_argument("--stamp", default="run", help="run-directory suffix")
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config, overlays=args.overlay, overrides=args.overrides)
     set_seed(int(cfg.runtime.seed), deterministic=bool(cfg.runtime.deterministic))
 
+    resume = args.resume or cfg.train.resume
+    resume_path = resolve_checkpoint(resume) if resume else None
+    # Reserve the output before constructing Genesis.  A typo or reused stamp
+    # must not spend GPU time before failing, and a resumed checkpoint remains
+    # an external read-only input.
+    log_dir = create_run_dir(
+        cfg, stamp=args.stamp, continue_run=bool(args.continue_run),
+        resume=resume_path,
+    )
+
     env = WrapGraspEnv(cfg)
-    log_dir = resolve_run_dir(cfg, stamp=args.stamp)
-    log_dir.mkdir(parents=True, exist_ok=True)
     meta = env.metadata()
     # The commit the run was trained at.
     #
@@ -171,9 +222,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # rsl_rl's logger reads env.cfg for its run record.  The environment itself
     # uses that attribute as its typed config throughout, so it is left alone
     # and the readable copy goes to metadata.json instead.
-    (log_dir / "metadata.json").write_text(
-        json.dumps(meta, indent=2, default=str), encoding="utf-8"
-    )
+    metadata_path = log_dir / "metadata.json"
+    if not metadata_path.exists():
+        metadata_path.write_text(
+            json.dumps(meta, indent=2, default=str), encoding="utf-8"
+        )
     print(f"[train] run dir       : {log_dir}")
     print(f"[train] envs          : {env.num_envs} on {env.device}")
     print(f"[train] obs           : policy {env.obs_spec.policy}, "
@@ -184,18 +237,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"[train] beta          : {meta['beta']['source']}")
 
     runner = build_runner(env, cfg, log_dir)
-    resume = args.resume or cfg.train.resume
-    if resume:
-        path = Path(resume).expanduser()
-        if not path.is_absolute():
-            # Try the working directory before the repo root.  `supervise`
-            # resolves its --resume against the cwd and `train` resolved it
-            # against the repo root, so the same string meant two different
-            # files depending on which one you called: run from sim/,
-            # `rl_runs/...` looked for `<repo>/rl_runs/...` and died on a path
-            # that reads as though it should exist.
-            here = Path.cwd() / path
-            path = here if here.is_file() else _REPO_ROOT / path
+    if resume_path:
+        path = resume_path
         print(f"[train] resuming from : {path}")
         # Map to this machine's device.  rsl_rl defaults map_location to None,
         # which restores every tensor to the device recorded in the file, so a

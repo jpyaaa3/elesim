@@ -20,6 +20,8 @@ class Interface:
 
     obs_dim: int
     action_dim: int
+    channel_names: tuple[str, ...]
+    object_pose_source: str
     rate_limit: tuple[float, float, float, float]
     home: tuple[float, float, float, float]
     lower: tuple[float, float, float, float]
@@ -34,6 +36,27 @@ class Interface:
     lift_settle_substeps: int
     lift_hold_substeps: int
     max_steps: int
+
+    @property
+    def expects_load(self) -> bool:
+        """Whether this exported policy consumes load channels."""
+        return any(name.startswith("load/") for name in self.channel_names)
+
+    def validate_mapping(self, mapping: Any) -> None:
+        """Check the exported q-space against one Pilot instance's mapping."""
+        if mapping is None:
+            return
+        names = ("linear_q_min_m", "roll_q_min_rad", "seg1_q_min_rad", "seg2_q_min_rad")
+        highs = ("linear_q_max_m", "roll_q_max_rad", "seg1_q_max_rad", "seg2_q_max_rad")
+        for index, (lo_name, hi_name) in enumerate(zip(names, highs)):
+            lo = float(getattr(mapping, lo_name))
+            hi = float(getattr(mapping, hi_name))
+            if not (math.isfinite(lo) and math.isfinite(hi) and lo <= hi):
+                raise ValueError(f"Pilot mapping has invalid bounds for waypoint channel {index}")
+            if self.lower[index] < lo - 1e-6 or self.upper[index] > hi + 1e-6:
+                raise ValueError(
+                    f"exported waypoint limits are incompatible with Pilot mapping channel {index}"
+                )
 
     @staticmethod
     def from_manifest(path: Path) -> "Interface":
@@ -56,12 +79,53 @@ class Interface:
         linear = tuple(float(v) for v in limits["linear_m"])
         roll = tuple(float(v) for v in limits["roll_rad"])
         theta = tuple(float(v) for v in limits["theta_rad"])
+        for bounds in (linear, roll, theta):
+            if len(bounds) != 2 or not all(math.isfinite(v) for v in bounds) or bounds[0] > bounds[1]:
+                raise ValueError("manifest waypoint bounds must be finite ordered pairs")
+        if len(home) != 4 or not all(math.isfinite(float(v)) for v in home):
+            raise ValueError("manifest home must contain four finite values")
+        if not all(math.isfinite(v) and v >= 0 for v in rate):
+            raise ValueError("manifest action scales must be finite and nonnegative")
         cap = waypoint["coupled_curl_cap"]
         timing = manifest["timing"]
         lift = manifest["lift_script"]
+        obs = manifest["observation"]
+        obs_dim = int(obs["dim"])
+        # Older exports omitted channel metadata.  Preserve their established
+        # 16/12 layouts while making all new exports self-describing.
+        names = tuple(str(c["name"]) for c in obs.get("channels", ()))
+        if not names:
+            names = tuple(
+                ["joint/linear", "joint/roll", "joint/theta1", "joint/theta2"]
+                + [f"object/{name}" for name in
+                   ("radius", "height", "pos_x", "pos_y", "pos_z", "lean_x", "lean_y")]
+                + (["load/linear", "load/roll", "load/bend", "load/bend_repeat"]
+                   if obs_dim == 16 else [])
+                + ["episode/progress"]
+            )
+        expected = (
+            ["joint/linear", "joint/roll", "joint/theta1", "joint/theta2"]
+            + [f"object/{name}" for name in
+               ("radius", "height", "pos_x", "pos_y", "pos_z", "lean_x", "lean_y")]
+            + (["load/linear", "load/roll", "load/bend", "load/bend_repeat"]
+               if any(name.startswith("load/") for name in names) else [])
+            + ["episode/progress"]
+        )
+        if list(names) != expected:
+            raise ValueError("manifest observation channels do not match the supported Pilot order")
+        if obs_dim not in (12, 16):
+            raise ValueError("Pilot supports only the defined legacy 12- or 16-channel layouts")
+        if len(names) != obs_dim:
+            raise ValueError("manifest observation channel count does not match observation.dim")
+        trained = manifest.get("trained_under", {})
+        object_pose_source = str(trained.get("object_pose_source", "measured")).strip().lower()
+        if object_pose_source not in {"measured", "told"}:
+            raise ValueError("manifest trained_under.object_pose_source must be 'measured' or 'told'")
         return Interface(
-            obs_dim=int(manifest["observation"]["dim"]),
+            obs_dim=obs_dim,
             action_dim=int(manifest["action"]["dim"]),
+            channel_names=names,
+            object_pose_source=object_pose_source,
             rate_limit=rate,
             home=tuple(float(v) for v in home),  # type: ignore[arg-type]
             lower=(linear[0], roll[0], theta[0], theta[0]),
@@ -185,11 +249,14 @@ class DeployedPolicy:
 
     ZERO_LOAD = (0.0, 0.0, 0.0, 0.0)
 
-    def __init__(self, policy_path: Path, manifest_path: Path) -> None:
+    def __init__(self, policy_path: Path, manifest_path: Path, *, mapping: Any = None) -> None:
         import torch
 
         self._torch = torch
         self.iface = Interface.from_manifest(Path(manifest_path))
+        self.iface.validate_mapping(mapping)
+        if self.iface.action_dim not in (4, 5):
+            raise ValueError("exported wrap policy action.dim must be 4 or 5")
         self.policy = torch.jit.load(str(policy_path), map_location="cpu").eval()
         self.mapper = _WaypointMapper(self.iface)
         self.step_index = 0
@@ -207,17 +274,29 @@ class DeployedPolicy:
         *,
         joint_estimate: Sequence[float],
         object_geometry: Sequence[float],
-        load_proxy: Sequence[float],
+        load_proxy: Optional[Sequence[float]] = None,
         progress: Optional[float] = None,
     ) -> Any:
+        if len(joint_estimate) != 4 or len(object_geometry) != 7:
+            raise ValueError("wrap policy requires four joint estimates and seven geometry values")
         if progress is None:
             progress = self.step_index / max(self.iface.max_steps, 1)
-        values = list(joint_estimate) + list(object_geometry) + list(load_proxy) + [progress]
+        if self.iface.expects_load:
+            load = list(self.ZERO_LOAD if load_proxy is None else load_proxy)
+        elif load_proxy is not None and len(load_proxy) != 0:
+            raise ValueError("this policy has no load channels; omit load_proxy")
+        else:
+            load = []
+        if self.iface.expects_load and len(load) != 4:
+            raise ValueError("wrap policy load channels require four load values")
+        values = list(joint_estimate) + list(object_geometry) + load + [progress]
         if len(values) != self.iface.obs_dim:
             raise ValueError(
                 f"Policy expects {self.iface.obs_dim} observations, but received {len(values)} "
-                "(4 joints + 7 object values + 4 load values + 1 progress value)"
+                f"({', '.join(self.iface.channel_names)})"
             )
+        if not all(math.isfinite(float(value)) for value in values):
+            raise ValueError("wrap policy observation contains a non-finite value")
         return self._torch.tensor([values], dtype=self._torch.float32)
 
     def act(
@@ -225,7 +304,7 @@ class DeployedPolicy:
         *,
         joint_estimate: Sequence[float],
         object_geometry: Sequence[float],
-        load_proxy: Sequence[float] = ZERO_LOAD,
+        load_proxy: Optional[Sequence[float]] = None,
         progress: Optional[float] = None,
     ) -> tuple[tuple[float, float, float, float], bool]:
         observation = self.observation(
@@ -237,7 +316,12 @@ class DeployedPolicy:
         with self._torch.no_grad():
             output = self.policy(observation)
         action = output[0]
-        self.mapper.apply_action([float(value) for value in action[:4]])
+        if len(action) < self.iface.action_dim:
+            raise ValueError("exported policy returned fewer actions than manifest action.dim")
+        action_values = [float(value) for value in action[:self.iface.action_dim]]
+        if not all(math.isfinite(value) for value in action_values):
+            raise ValueError("exported policy returned a non-finite action")
+        self.mapper.apply_action(action_values[:4])
         lift = bool(action[4] > 0.0) if self.iface.action_dim > 4 else False
         self.step_index += 1
         return self.waypoint, lift

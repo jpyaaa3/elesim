@@ -14,6 +14,7 @@ import elesim_sim.rl  # noqa: F401
 from pathlib import Path  # numpy-before-torch ordering
 
 from elesim_sim.rl.supervise import build_command, latest_checkpoint
+from elesim_sim.rl.train import create_run_dir, resolve_checkpoint, resolve_run_dir
 
 
 def test_the_newest_checkpoint_is_found_numerically_not_alphabetically(tmp_path):
@@ -123,3 +124,45 @@ def test_an_explicit_resume_refuses_to_be_overridden_by_a_reused_stamp(tmp_path)
     # The precondition the guard tests: a seed was given and the directory is
     # not empty, so the seed would never be reached.
     assert (existing.name, at) == ("model_300.pt", 300)
+
+
+def test_run_directory_creation_is_exclusive(tmp_path):
+    from types import SimpleNamespace
+
+    cfg = SimpleNamespace(
+        train=SimpleNamespace(
+            log_dir=str(tmp_path), experiment_name="exp", run_name="",
+        ),
+        curriculum=SimpleNamespace(stage=1),
+    )
+    created = create_run_dir(cfg, stamp="one")
+    assert created == resolve_run_dir(cfg, stamp="one")
+    try:
+        create_run_dir(cfg, stamp="one")
+    except SystemExit as exc:
+        assert "already exists" in str(exc)
+    else:
+        raise AssertionError("reusing a run stamp must fail")
+
+
+def test_supervisor_can_continue_only_with_an_in_run_checkpoint(tmp_path):
+    from types import SimpleNamespace
+
+    cfg = SimpleNamespace(
+        train=SimpleNamespace(log_dir=str(tmp_path), experiment_name="exp", run_name=""),
+        curriculum=SimpleNamespace(stage=1),
+    )
+    run = create_run_dir(cfg, stamp="one")
+    checkpoint = run / "model_10.pt"
+    checkpoint.write_text("checkpoint")
+    assert create_run_dir(
+        cfg, stamp="one", continue_run=True, resume=checkpoint
+    ) == run
+
+
+def test_checkpoint_resolution_prefers_cwd_and_expands_user(tmp_path, monkeypatch):
+    checkpoint = tmp_path / "external" / "model_10.pt"
+    checkpoint.parent.mkdir()
+    checkpoint.write_text("checkpoint")
+    monkeypatch.chdir(tmp_path)
+    assert resolve_checkpoint("external/model_10.pt") == checkpoint

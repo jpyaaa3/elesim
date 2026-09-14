@@ -6,6 +6,34 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### wrap-grasp-rl 로컬 통합 (2026-09-14)
+
+- 로컬 `integrate/wrap-grasp-rl`에서 main `4628bdb`와 PR #3의
+  `437c05c`를 통합한다. 협업 브랜치와 학교 서버는 수정하지 않았다.
+- 현재 main의 Pilot 전용 정책 추론기를 유지하며 관측 채널 계약을 이식한다.
+  구형 정책의 -0.23 m 범위를 현재 -0.166666667 m 범위로 자동 변환하지 않는다.
+  재학습/재평가 없이 manifest만 고쳐 호환성을 주장해서는 안 된다.
+- 공통 시작 자세는 Robot에도 적용되므로 main 값을 보존한다. RL Home은
+  명시적인 학습/동작 설정이다. CAD 부착 위치와 1.5도/mm 보정은 유지한다.
+- 호스트 부분 검증: 프로토콜 137개 및 subtest 5개 통과; 모델/릴리스 도구
+  80개 통과(모델 변환의 기존 gimbal-lock 경고 5개). 중복 집계하지 않는다.
+- Pilot 집중 검증 25개 통과, Torch/실제 export/Shapely가 필요한 23개 skip;
+  Sim 소유권 AST 검사 2개 통과. Python 소스 컴파일과 diff 공백 검사 통과.
+- 임시 경로에 네 역할과 protocol wheel을 생성했다. 실제 infrastructure
+  검증에서 발견한 setup 모듈 목록 누락 13개를 보완하고 산출물 회귀 검사를
+  추가했다. 이후 격리 실행 probe는 호스트의 `python -S`에서 `yaml`을
+  찾지 못해 실패했다. 생성 성공을 실행 검증 성공으로 해석하지 않는다.
+- 학습 출력은 기본적으로 신규 run만 허용한다. supervisor 재시도는 명시적
+  `--continue-run`으로 같은 디렉터리의 checkpoint를 사용하고 기존 metadata를
+  보존한다. export 덮어쓰기는 명시적 `--overwrite`가 필요하다.
+- [RL 전환 절차](rl-integration.md)에 별도 checkout/외부 run 사용과 Pilot
+  artifact 전달 절차를 기록했다. 원격 PR 변경, main 최종 병합·push는 보류한다.
+- `/home/user/ws/newsim/install-state.json`에서 developer addon이 비활성이고
+  `elesim-dev` wrapper가 없음을 확인했다. Docker 조회에도 개발 서비스는 없다.
+  호스트 Sim runtime 테스트는 `genesis` 누락으로 수집 실패했다.
+  정식 required/extended, 생성 릴리스 실행 격리, 실제 TorchScript 추론,
+  Genesis GPU 학습/재개 및 학교 checkpoint 검증은 아직 완료하지 않았다.
+
 ### One-EleSim policy 해체 (2026-09-10, 구현 완료 범위)
 
 현재 goal은 구형 RL 설치를 자동 수정·인수하지 않고 신형 설치와 여러 system의
