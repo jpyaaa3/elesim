@@ -2746,11 +2746,30 @@ def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Pa
     state = local_state(roles=("sim",), install_mode="container")
     ContainerInstaller(state).run()
 
+    ownership = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
+    assert ownership.docker is not None
+
     fake_bin = tmp_path / "fake-docker"
     fake_bin.mkdir()
     _fake_docker(fake_bin)
     environment = os.environ.copy()
     environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+
+    identity = subprocess.run(
+        (state.bin_path / "elesim-net", "identity"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert identity.returncode == 0, identity.stderr
+    assert json.loads(identity.stdout) == {
+        "schema_version": 1,
+        "install_uuid": ownership.install_uuid,
+        "project": ownership.docker.project,
+    }
+    assert identity.stderr == ""
 
     result = subprocess.run(
         (state.bin_path / "elesim-net", "show"),

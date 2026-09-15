@@ -2063,7 +2063,7 @@ class ContainerInstaller:
                     sort_keys=True,
                 )
             )
-            + "  exit 0\n"
+            + "\n  exit 0\n"
             + "fi\n"
             # Scoped installations have no install-wide network configuration
             # surface.  In particular, a legacy connection manager must not
