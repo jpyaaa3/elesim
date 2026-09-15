@@ -27,7 +27,10 @@ Scoped 설치의 정확한 owner identity는 다음 read-only 명령으로 확�
 elesim-net identity
 ```
 
-원격 scoped topology에 이 JSON의 `install_uuid`를 deployment unit별로
+응답에는 enrollment 검증에 필요한 `install_uuid`와 `project`가 들어 있으며,
+최근 설치는 화면 표시용 `install_name`도 함께 반환한다. `install_name`은
+소유권 증명이 아니며, 구형 `schema_version: 1` 3필드 응답도 계속 읽을 수
+있다. 원격 scoped topology에 이 JSON의 `install_uuid`를 deployment unit별로
 등록해야 한다(`project`를 함께 기록할 수도 있다). 연결 관리자는 pinned SSH host key로 인증한 뒤 같은
 명령을 다시 읽어 비교하며, 등록되지 않은 원격 unit에는 lifecycle/security
 작업을 보내지 않는다. 이 enrollment는 설치 UUID를 자동 추정하거나 mutating

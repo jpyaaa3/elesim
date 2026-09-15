@@ -48,6 +48,11 @@ migration, while new publications never create shared aliases. Unchanged image
 IDs and BuildKit layers may therefore be reused under a new role-specific
 release tag.
 
+`elesim-net identity` exposes the exact UUID/project enrollment pair and, on
+updated installations, the readable `install_name` for display. A temporary
+Compose `*-tools-run-*` container is only a setup/update helper and is never an
+installation identity.
+
 An update keeps the UUID, ownership manifest, release pins and an existing
 Compose project unchanged. Each update after successful publication reserves
 a new suffix per role, even when source and build inputs are unchanged.

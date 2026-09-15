@@ -37,7 +37,7 @@ from .connection_manager import (
     SshEndpoint,
     resolve_ssh_identity_path,
 )
-from elesim_setup.instance_identity import is_scoped_project, project_name
+from elesim_setup.instance_identity import parse_scoped_identity, project_name
 from elesim_setup.credentials import (
     _ParamikoProxySocket,
     proxy_failure_detail,
@@ -2109,11 +2109,27 @@ class InstalledElesimLifecycle:
                     f"scoped install identity is not valid JSON on {unit.unit_id!r}"
                 ) from exc
             if not isinstance(identity, Mapping):
-                raise RuntimeError(f"scoped install identity is not an object on {unit.unit_id!r}")
-            if set(identity) != {"schema_version", "install_uuid", "project"}:
-                raise RuntimeError(f"scoped install identity fields are invalid on {unit.unit_id!r}")
-            if identity.get("schema_version") != 1:
-                raise RuntimeError(f"unsupported scoped install identity on {unit.unit_id!r}")
+                raise RuntimeError(
+                    f"scoped install identity is not an object on {unit.unit_id!r}"
+                )
+            if set(identity) not in (
+                {"schema_version", "install_uuid", "project"},
+                {"schema_version", "install_uuid", "project", "install_name"},
+            ):
+                raise RuntimeError(
+                    f"scoped install identity fields are invalid on {unit.unit_id!r}"
+                )
+            if (
+                type(identity.get("schema_version")) is not int
+                or identity["schema_version"] != 1
+            ):
+                raise RuntimeError(
+                    f"unsupported scoped install identity on {unit.unit_id!r}"
+                )
+            # Report an enrollment mismatch before namespace validation.  A
+            # foreign UUID/project pair is precisely the boundary failure we
+            # need to surface, even when its project is not valid for that
+            # foreign UUID.
             if (
                 identity.get("install_uuid") != expected_uuid
                 or identity.get("project") != expected_project
@@ -2122,6 +2138,12 @@ class InstalledElesimLifecycle:
                     f"scoped install identity mismatch on {unit.unit_id!r}: "
                     f"expected UUID/project {expected_uuid}/{expected_project}"
                 )
+            try:
+                parse_scoped_identity(identity)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"scoped install identity is invalid on {unit.unit_id!r}: {exc}"
+                ) from exc
         system_id = self._topology.system_id
         _safe_identifier(system_id, name="system_id")
         prefix = PurePosixPath(unit.install_root)
@@ -2243,23 +2265,16 @@ class InstalledElesimLifecycle:
             raise RuntimeError(
                 f"scoped install identity is invalid on {unit.unit_id!r}"
             ) from exc
-        if not isinstance(value, Mapping):
-            raise RuntimeError(f"scoped install identity is not an object on {unit.unit_id!r}")
-        if set(value) != {"schema_version", "install_uuid", "project"}:
-            raise RuntimeError(f"scoped install identity fields are invalid on {unit.unit_id!r}")
-        if type(value.get("schema_version")) is not int or value["schema_version"] != 1:
+        try:
+            normalized = parse_scoped_identity(value)
+        except ValueError as exc:
             raise RuntimeError(
-                f"scoped install identity schema is unsupported on {unit.unit_id!r}"
-            )
-        install_uuid = value.get("install_uuid")
-        project = value.get("project")
-        if not isinstance(install_uuid, str) or not isinstance(project, str):
-            raise RuntimeError(f"scoped install identity values are invalid on {unit.unit_id!r}")
-        if not is_scoped_project(install_uuid, project):
-            raise RuntimeError(
-                f"scoped install identity project is not a valid EleSim namespace on {unit.unit_id!r}"
-            )
-        return {"install_uuid": install_uuid, "project": project}
+                f"scoped install identity is invalid on {unit.unit_id!r}: {exc}"
+            ) from exc
+        return {
+            "install_uuid": normalized["install_uuid"],
+            "project": normalized["project"],
+        }
 
     def scoped_releases(
         self, session: SshSession, unit: DeploymentUnit

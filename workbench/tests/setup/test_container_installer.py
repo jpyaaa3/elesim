@@ -2752,8 +2752,14 @@ def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Pa
     fake_bin = tmp_path / "fake-docker"
     fake_bin.mkdir()
     _fake_docker(fake_bin)
+    calls = tmp_path / "docker.calls"
     environment = os.environ.copy()
-    environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "ELESIM_FAKE_DOCKER_CALLS": str(calls),
+        }
+    )
 
     identity = subprocess.run(
         (state.bin_path / "elesim-net", "identity"),
@@ -2764,12 +2770,16 @@ def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Pa
     )
 
     assert identity.returncode == 0, identity.stderr
-    assert json.loads(identity.stdout) == {
+    expected_identity = {
         "schema_version": 1,
         "install_uuid": ownership.install_uuid,
         "project": ownership.docker.project,
     }
+    if ownership.docker.install_name:
+        expected_identity["install_name"] = ownership.docker.install_name
+    assert json.loads(identity.stdout) == expected_identity
     assert identity.stderr == ""
+    assert not calls.exists()
 
     result = subprocess.run(
         (state.bin_path / "elesim-net", "show"),

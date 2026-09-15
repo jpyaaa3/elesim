@@ -9,6 +9,7 @@ from elesim_setup.instance_identity import (
     image_reference,
     manager_container_name,
     project_name,
+    parse_scoped_identity,
     service_key,
 )
 
@@ -59,6 +60,24 @@ def test_manager_container_name_is_unique_per_system() -> None:
     assert alpha == "elesim-0123456789abcdef0123456789abcdef-manager-alpha"
     assert beta != alpha
     assert len(alpha) <= 128
+
+
+def test_scoped_identity_accepts_optional_readable_name_and_legacy_shape() -> None:
+    value = {
+        "schema_version": 1,
+        "install_uuid": INSTALL,
+        "project": project_name(INSTALL),
+        "install_name": "quiet_otter",
+    }
+    assert parse_scoped_identity(value) == {
+        "install_uuid": INSTALL,
+        "project": project_name(INSTALL),
+        "install_name": "quiet_otter",
+    }
+    assert parse_scoped_identity({key: value[key] for key in value if key != "install_name"}) == {
+        "install_uuid": INSTALL,
+        "project": project_name(INSTALL),
+    }
 
 
 @pytest.mark.parametrize(

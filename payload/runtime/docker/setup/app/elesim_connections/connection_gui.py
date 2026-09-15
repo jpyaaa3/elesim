@@ -121,7 +121,11 @@ class ConnectionManagerApplication:
     def installation_choices(self, payload: Mapping[str, Any]) -> dict[str, object]:
         """Read one explicitly addressed installation; never deploy or enroll it."""
         from .connection_manager import SshEndpoint
-        from elesim_setup.instance_identity import is_scoped_project, named_image_parts
+        from elesim_setup.instance_identity import (
+            is_scoped_project,
+            named_image_parts,
+            parse_scoped_identity,
+        )
         from elesim_setup.ownership import OwnershipManifest
         from elesim_setup.releases import list_releases, ReleaseManifest, release_key
         from .secure_deployment import ParamikoConnector
@@ -147,10 +151,16 @@ class ConnectionManagerApplication:
                 raise ValueError("remote lookup requires SSH settings")
             endpoint = SshEndpoint.from_dict(payload["ssh"]).validate()
             with ParamikoConnector(command_timeout_s=30).connect(endpoint) as session:
-                identity = json.loads(session.run((str(Path(bin_dir) / "elesim-net"), "identity")).stdout)
-                raw = json.loads(session.run((str(Path(bin_dir) / "elesim-net"), "releases")).stdout)
-            if not isinstance(identity, dict) or set(identity) != {"schema_version", "install_uuid", "project"} or identity["schema_version"] != 1:
-                raise ValueError("invalid installation identity")
+                raw_identity = json.loads(
+                    session.run((str(Path(bin_dir) / "elesim-net"), "identity")).stdout
+                )
+                raw = json.loads(
+                    session.run((str(Path(bin_dir) / "elesim-net"), "releases")).stdout
+                )
+            try:
+                identity = parse_scoped_identity(raw_identity)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("invalid installation identity") from exc
             if not isinstance(raw, list) or len(raw) > 1024:
                 raise ValueError("invalid release list")
             releases = []
@@ -163,10 +173,13 @@ class ConnectionManagerApplication:
                     release = ReleaseManifest(**fields).validate()
                 except TypeError as exc:
                     raise ValueError("invalid release fields") from exc
-                if release.install_uuid != identity["install_uuid"] or release_key(release) != key:
+                if (
+                    release.install_uuid != identity["install_uuid"]
+                    or release_key(release) != key
+                ):
                     raise ValueError("release identity mismatch")
                 releases.append(release)
-            name = identity["project"]
+            name = identity.get("install_name") or identity["project"]
         if not is_scoped_project(identity["install_uuid"], identity["project"]):
             raise ValueError("installation is not scoped")
         choices = []

@@ -2043,6 +2043,16 @@ class ContainerInstaller:
         # readiness invokes ``doctor`` immediately after ``elesim-up`` has
         # already built the tools image; avoid rebuilding it for every host
         # probe while retaining the fallback for a manual first invocation.
+        identity_payload: dict[str, object] = {
+            "schema_version": 1,
+            "install_uuid": self._install_uuid,
+            "project": self._compose_project,
+        }
+        if self._install_name:
+            # The UUID/project pair remains the authenticated enrollment
+            # identity.  The readable name is only a display hint for remote
+            # connection-manager clients (and is optional for legacy installs).
+            identity_payload["install_name"] = self._install_name
         write_executable(
             self.state.bin_path / "elesim-net",
             "#!/usr/bin/env bash\nset -euo pipefail\n"
@@ -2054,11 +2064,7 @@ class ContainerInstaller:
             + "  printf '%s\\n' "
             + shlex.quote(
                 json.dumps(
-                    {
-                        "schema_version": 1,
-                        "install_uuid": self._install_uuid,
-                        "project": self._compose_project,
-                    },
+                    identity_payload,
                     separators=(",", ":"),
                     sort_keys=True,
                 )

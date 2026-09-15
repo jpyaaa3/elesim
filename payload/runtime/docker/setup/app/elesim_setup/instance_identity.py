@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
+from collections.abc import Mapping
 
 
 _IDENTIFIER = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
@@ -19,6 +20,7 @@ _SERVICE_MAX = 128
 _CONTAINER_MAX = 128
 _NAMED_TAG = re.compile(r"([a-z]{2,16}_[a-z]{2,16})-([a-z]{2,16}_[a-z]{2,16})\Z")
 _NAMED_PROJECT = re.compile(r"elesim-([a-z]{2,16}_[a-z]{2,16})\Z")
+_SCOPED_IDENTITY_FIELDS = frozenset({"schema_version", "install_uuid", "project"})
 
 
 def named_image_parts(image: str, role: str) -> tuple[str, str] | None:
@@ -28,6 +30,55 @@ def named_image_parts(image: str, role: str) -> tuple[str, str] | None:
         return None
     match = _NAMED_TAG.fullmatch(image[len(prefix):])
     return match.groups() if match else None
+
+
+def parse_scoped_identity(value: Mapping[str, object]) -> dict[str, str]:
+    """Validate and normalize an ``elesim-net identity`` response.
+
+    ``install_uuid`` and ``project`` are the enrollment proof.  Updated
+    installations additionally expose ``install_name`` for human-facing
+    display; it is deliberately not used as an ownership credential.  The
+    optional field keeps the response backward-compatible with older
+    installations that only returned the two machine identity values.
+    """
+
+    if not isinstance(value, Mapping):
+        raise ValueError("scoped install identity must be an object")
+    fields = set(value)
+    if fields not in {
+        _SCOPED_IDENTITY_FIELDS,
+        _SCOPED_IDENTITY_FIELDS | {"install_name"},
+    }:
+        raise ValueError("scoped install identity fields are invalid")
+    if type(value.get("schema_version")) is not int or value["schema_version"] != 1:
+        raise ValueError("scoped install identity schema is unsupported")
+    install_uuid = value.get("install_uuid")
+    project = value.get("project")
+    if not isinstance(install_uuid, str) or not isinstance(project, str):
+        raise ValueError("scoped install identity values are invalid")
+    if not is_scoped_project(install_uuid, project):
+        raise ValueError(
+            "scoped install identity project is not a valid EleSim namespace"
+        )
+    result = {"install_uuid": install_uuid, "project": project}
+    if "install_name" in value:
+        install_name = value.get("install_name")
+        if not isinstance(install_name, str):
+            raise ValueError("scoped install identity install_name is invalid")
+        from .readable_names import NAME_PATTERN
+
+        if NAME_PATTERN.fullmatch(install_name) is None:
+            raise ValueError("scoped install identity install_name is invalid")
+        # A readable project is self-describing only when it agrees with the
+        # advertised display name. UUID-derived legacy projects are allowed to
+        # acquire the display field during an update without being renamed.
+        named_project = _NAMED_PROJECT.fullmatch(project)
+        if named_project is not None and named_project.group(1) != install_name:
+            raise ValueError(
+                "scoped install identity install_name does not match project"
+            )
+        result["install_name"] = install_name
+    return result
 
 
 def _uuid_hex(install_uuid: str) -> str:
@@ -156,6 +207,7 @@ __all__ = [
     "is_scoped_project",
     "manager_container_name",
     "named_image_parts",
+    "parse_scoped_identity",
     "project_name",
     "service_key",
 ]

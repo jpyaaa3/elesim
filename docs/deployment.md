@@ -196,7 +196,9 @@ Robot assignment를 거부하며, Robot은 host당 하나의 exclusive native gr
 boundary만 사용한다.
 
 Scoped release instance를 원격 host에서 lifecycle 관리할 때는 각 deployment
-unit에 설치기의 `install_uuid`를 명시적으로 등록한다. 필요하면 그 UUID에서
+unit에 설치기의 `install_uuid`를 명시적으로 등록한다. `elesim-net identity`는
+검증용 `install_uuid`/`project`와 선택적인 화면 표시용 `install_name`을
+반환하며, 구형 3필드 응답도 호환된다. 필요하면 그 UUID에서
 유도한 scoped Compose `project`도 함께 기록한다. 연결 관리자는 pinned SSH
 host-key 세션으로 원격
 `elesim-net identity`를 읽어 두 값이 정확히 일치하는지 확인한 뒤에만 scoped

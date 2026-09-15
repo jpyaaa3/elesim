@@ -38,7 +38,10 @@ def test_installation_lookup_rejects_unmounted_local_path(tmp_path):
 
 
 @pytest.mark.parametrize("has_release", [False, True])
-def test_installation_lookup_remote_uses_pinned_endpoint(tmp_path, monkeypatch, has_release):
+@pytest.mark.parametrize("install_name", ["quiet_otter", ""])
+def test_installation_lookup_remote_uses_pinned_endpoint(
+    tmp_path, monkeypatch, has_release, install_name
+):
     from types import SimpleNamespace
     from elesim_connections import secure_deployment
     install_uuid = "64c395aa-c19f-4555-8594-6f9291219eb7"
@@ -61,7 +64,16 @@ def test_installation_lookup_remote_uses_pinned_endpoint(tmp_path, monkeypatch, 
 
         def run(self, command):
             commands.append(command)
-            result = {"schema_version": 1, "install_uuid": install_uuid, "project": project} if command[-1] == "identity" else ([{**release.to_dict(), "release_key": release_key(release)}] if has_release else [])
+            if command[-1] == "identity":
+                result = {
+                    "schema_version": 1,
+                    "install_uuid": install_uuid,
+                    "project": project,
+                }
+                if install_name:
+                    result["install_name"] = install_name
+            else:
+                result = ([{**release.to_dict(), "release_key": release_key(release)}] if has_release else [])
             return SimpleNamespace(stdout=json.dumps(result))
 
     class Connector:
@@ -83,7 +95,12 @@ def test_installation_lookup_remote_uses_pinned_endpoint(tmp_path, monkeypatch, 
         "role_labels": {"sim": "sim: calm_eagle"},
         "roles": ["sim"],
     }] if has_release else []
-    assert result["installations"] == [{"name": project, "install_uuid": install_uuid, "project": project, "releases": choices}]
+    assert result["installations"] == [{
+        "name": install_name or project,
+        "install_uuid": install_uuid,
+        "project": project,
+        "releases": choices,
+    }]
     assert commands == [("/opt/elesim/bin/elesim-net", "identity"), ("/opt/elesim/bin/elesim-net", "releases")]
 
 
