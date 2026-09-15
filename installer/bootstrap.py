@@ -1067,7 +1067,7 @@ def _progress_command(source_root: Path, cache_root: Path, title: str,
     return (
         sys.executable, str(helper), "--log-dir", str(cache_root / "logs/setup"),
         "--mode", os.environ.get("ELESIM_BUILD_PROGRESS", "compact"),
-        "--title", f"[Bootstrap] {title}",
+        "--title", f"[bootstrap] {title}",
         *(('--hide-prefix', '[') if hide_setup_output else ()),
         *(("--notice-prefix", "[", "--notice-prefix", "$ ") if notices else ()),
         "--", *command,

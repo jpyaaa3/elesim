@@ -116,7 +116,7 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
 
     try:
         title = _display_text(title)
-        heading = title if title.startswith("[Bootstrap]") else f"• {title}"
+        heading = title
         print(f"{heading}\n{_muted(f'  └ Full log: {log_path}', tty)}",
               file=sys.stderr, flush=True)
         environment = {**os.environ, "ELESIM_PROGRESS_ACTIVE": "1", "PYTHONUNBUFFERED": "1"}
