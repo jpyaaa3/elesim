@@ -687,8 +687,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--state", default=str(default_state_path()), help="install-state.json path")
     subparsers = parser.add_subparsers(dest="command")
 
-    subparsers.add_parser("wizard", help="대화형 설치 마법사")
-    gui = subparsers.add_parser("gui", help="로컬 브라우저 설치 마법사")
+    subparsers.add_parser("wizard", help="Interactive setup wizard")
+    gui = subparsers.add_parser("gui", help="Setup wizard using local browser")
     gui.add_argument("--host", default=os.environ.get("ELESIM_GUI_HOST", "127.0.0.1"))
     gui.add_argument("--port", type=int, default=int(os.environ.get("ELESIM_GUI_PORT", "8765")))
     gui.add_argument("--token", default=os.environ.get("ELESIM_GUI_TOKEN", ""))

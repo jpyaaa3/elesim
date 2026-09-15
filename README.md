@@ -8,7 +8,7 @@
 
 ## 1. How to Start
 
-### 🧙 Installation Wizard
+### 🧙 Setup Wizard
 
 Run the following command.
 
