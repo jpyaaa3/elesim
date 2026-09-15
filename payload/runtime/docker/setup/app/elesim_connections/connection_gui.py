@@ -171,10 +171,18 @@ class ConnectionManagerApplication:
             raise ValueError("installation is not scoped")
         choices = []
         for index, release in enumerate(releases, 1):
-            tags = [f"{role}: {parts[1]}" for role, image in sorted(release.role_images.items())
-                    if (parts := named_image_parts(image, role))]
-            label = ", ".join(tags) or release.source_revision[:16]
-            choices.append({"key": release_key(release), "label": f"{index}. {label}", "roles": sorted(release.role_images)})
+            role_labels = {}
+            for role, image in sorted(release.role_images.items()):
+                parts = named_image_parts(image, role)
+                alias = parts[1] if parts else release.source_revision[:16]
+                role_labels[role] = f"{role}: {alias}"
+            label = ", ".join(role_labels.values()) or release.source_revision[:16]
+            choices.append({
+                "key": release_key(release),
+                "label": f"{index}. {label}",
+                "role_labels": role_labels,
+                "roles": sorted(release.role_images),
+            })
         return {"installations": [{"name": name, "install_uuid": identity["install_uuid"],
                                    "project": identity["project"], "releases": choices}]}
 

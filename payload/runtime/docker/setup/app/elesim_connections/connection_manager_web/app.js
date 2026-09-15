@@ -351,6 +351,17 @@ function roleReleaseChoices(slot, role) {
   ));
 }
 
+function releaseOptionLabel(release, role) {
+  const roleLabel = release?.role_labels?.[role];
+  if (typeof roleLabel === "string" && roleLabel.trim()) {
+    const prefix = typeof release.label === "string"
+      ? release.label.match(/^\d+\.\s*/)?.[0] || ""
+      : "";
+    return `${prefix}${roleLabel}`;
+  }
+  return typeof release.label === "string" ? release.label : release.key;
+}
+
 function refreshRoleReleaseSelect(roleCard, select) {
   const choices = roleReleaseChoices(roleCard.slot, roleCard.role);
   const catalogReady = Array.isArray(installationCatalogs[roleCard.slot]);
@@ -365,7 +376,10 @@ function refreshRoleReleaseSelect(roleCard, select) {
     ? "install.queryFirst"
     : (choices.length ? "install.chooseRelease" : "install.noReleases");
   const options = [new Option(t(placeholderKey), "")];
-  options.push(...choices.map((release) => new Option(release.label, release.key)));
+  options.push(...choices.map((release) => new Option(
+    releaseOptionLabel(release, roleCard.role),
+    release.key,
+  )));
   if (!catalogReady && selected && !choices.some((release) => release.key === selected)) {
     options.push(new Option(t("install.saved"), selected));
   }

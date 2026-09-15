@@ -77,7 +77,12 @@ def test_installation_lookup_remote_uses_pinned_endpoint(tmp_path, monkeypatch, 
         "local": False, "install_root": "/opt/elesim", "bin_dir": "/opt/elesim/bin",
         "ssh": _ssh("server", 2222).to_dict(),
     })
-    choices = [{"key": release_key(release), "label": "1. sim: calm_eagle", "roles": ["sim"]}] if has_release else []
+    choices = [{
+        "key": release_key(release),
+        "label": "1. sim: calm_eagle",
+        "role_labels": {"sim": "sim: calm_eagle"},
+        "roles": ["sim"],
+    }] if has_release else []
     assert result["installations"] == [{"name": project, "install_uuid": install_uuid, "project": project, "releases": choices}]
     assert commands == [("/opt/elesim/bin/elesim-net", "identity"), ("/opt/elesim/bin/elesim-net", "releases")]
 
@@ -734,6 +739,8 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "let schemaVersion = 5;" in script
     assert "function sshEndpointFromForm(slot)" in script
     assert "error.ssh.host.required" in script
+    assert "function releaseOptionLabel(release, role)" in script
+    assert "role_labels" in script
     assert 'const host = field(slot, "ssh-host").value.trim();' in script
     assert "syncSshAddress" not in script
     assert 'container_network_mode === "tailscale-sidecar"' in script

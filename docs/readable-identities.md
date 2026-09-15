@@ -67,5 +67,7 @@ with **Find installation and releases**, then presents installation and release
 choices. Remote queries use the pinned SSH endpoint; local queries are limited
 to the installation mounted by the manager. This is not a machine-wide scan.
 UUID/project values are stored automatically, and release selections retain the
-full immutable key internally. A newly queried release is not activated or
-automatically selected. Existing saved selections remain intact until edited.
+full immutable key internally. Each role card shows only that role's alias even
+when one immutable release contains several role images. A newly queried release
+is not activated or automatically selected. Existing saved selections remain
+intact until edited.
