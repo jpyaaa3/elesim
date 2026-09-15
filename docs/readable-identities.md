@@ -49,11 +49,11 @@ IDs and BuildKit layers may therefore be reused under a new role-specific
 release tag.
 
 An update keeps the UUID, ownership manifest, release pins and an existing
-Compose project unchanged. Each distinct role release input (authenticated
-source revision, that role's build fingerprint and runtime snapshot) reserves
-one new release suffix. Repeating the exact same role input is idempotent and
-reuses its suffix; a changed role input gets another one without making other
-role aliases equal to it. Existing release tags and pinned image IDs remain
+Compose project unchanged. Each update after successful publication reserves
+a new suffix per role, even when source and build inputs are unchanged.
+Failed builds/publications retain their reservations for retries with the same
+inputs. Reservations are marked complete only after publication and image
+ownership recording succeed. Existing release tags and pinned image IDs remain
 valid and are never retagged or removed merely to shorten a name. A legacy
 UUID-scoped installation receives readable tags on its next generated build
 without renaming its live project; this avoids orphaning running instances.

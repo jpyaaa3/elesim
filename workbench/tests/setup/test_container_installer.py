@@ -214,6 +214,25 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
         assert "docker" not in lifecycle
 
 
+@pytest.mark.parametrize("revision", ("", "invalid"))
+def test_scoped_update_rejects_missing_or_invalid_revision(local_state, monkeypatch, revision):
+    monkeypatch.setenv("ELESIM_SCOPED_UPDATE", "1")
+    monkeypatch.setenv("ELESIM_SOURCE_REVISION", revision)
+    state = local_state(roles=("sim",), install_mode="container")
+    with pytest.raises(ValueError, match="authenticated source revision"):
+        ContainerInstaller(state).run()
+
+
+def test_scoped_update_rejects_snapshot_digest_failure(local_state, monkeypatch):
+    monkeypatch.setenv("ELESIM_SOURCE_REVISION", "git-" + "1" * 40)
+    def fail_digest(path):
+        raise OSError("unreadable snapshot")
+    monkeypatch.setattr("elesim_setup.container_installer.runtime_data_digest", fail_digest)
+    state = local_state(roles=("sim",), install_mode="container")
+    with pytest.raises(ValueError, match="runtime snapshot digest"):
+        ContainerInstaller(state).run()
+
+
 def test_scoped_release_aliases_are_unique_and_advance_per_role_input(
     local_state, monkeypatch: pytest.MonkeyPatch
 ) -> None:

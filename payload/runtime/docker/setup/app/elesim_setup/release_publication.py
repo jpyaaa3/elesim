@@ -24,6 +24,8 @@ from .readable_names import (
     lookup_name,
     release_reservation_identity,
     role_release_reservation_identity,
+    role_release_names,
+    mark_release_names_published,
 )
 from .ownership import OwnershipManifest, append_docker_image_ownership
 from .releases import ReleaseManifest, publish_release, release_key, runtime_data_digest
@@ -236,9 +238,8 @@ def _validated_inputs(
     # all-role reservation as a read-only migration path for an interrupted
     # update produced by the short-lived shared-alias implementation.
     role_release_aliases = {
-        role: lookup_name(
+        role: role_release_names(
             registry,
-            "releases",
             role_release_reservation_identity(
                 source_revision,
                 role,
@@ -281,8 +282,9 @@ def _validated_inputs(
                         role,
                         fingerprint,
                         install_name=docker.install_name,
-                        image_name=release_alias,
+                        image_name=name,
                     )
+                    for name in release_alias
                 }
             elif legacy_release_alias:
                 # Accept only the exact all-role reservation emitted by the
@@ -409,6 +411,16 @@ def publish_from_evidence(
             "release was published but image ownership could not be recorded; "
             f"retry publication to repair ownership ({release_key(manifest)})"
         ) from exc
+    if ownership.docker and ownership.docker.install_name:
+        try:
+            mark_release_names_published(
+                state.prefix_path / "containers/image-names.json",
+                (image.rsplit("-", 1)[-1] for image in images.values()),
+            )
+        except (OSError, ValueError) as exc:
+            raise ReleasePublicationError(
+                "release was published but reservations could not be completed; retry publication"
+            ) from exc
     return PublicationResult(release_key(manifest), destination)
 
 

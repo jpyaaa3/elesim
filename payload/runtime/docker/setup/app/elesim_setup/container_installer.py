@@ -579,19 +579,20 @@ class ContainerInstaller:
         if not self._scoped_namespace or not self._install_name:
             return
         source_revision = os.environ.get("ELESIM_SOURCE_REVISION", "").strip()
-        if _SOURCE_REVISION.fullmatch(source_revision) is None:
+        if not source_revision:
+            if os.environ.get("ELESIM_SCOPED_UPDATE") == "1":
+                raise ValueError("scoped update requires authenticated source revision")
             return
+        if _SOURCE_REVISION.fullmatch(source_revision) is None:
+            raise ValueError("invalid authenticated source revision")
         snapshot = self.container_root / "runtime-snapshot"
         try:
             runtime_digest = runtime_data_digest(snapshot)
-        except (OSError, ValueError):
-            # The normal scoped path always creates this snapshot.  Leave the
-            # old per-fingerprint alias fallback intact for minimal/direct
-            # callers rather than hiding its more useful snapshot diagnostic.
-            return
+        except (OSError, ValueError) as exc:
+            raise ValueError("runtime snapshot digest could not be computed") from exc
         roles = tuple(self.state.roles)
         if not roles or not set(roles) <= _RELEASE_IMAGE_ROLES:
-            return
+            raise ValueError("invalid scoped release roles")
         registry = self.container_root / "image-names.json"
         for role in roles:
             self._release_aliases[role] = reserve_role_release_name(

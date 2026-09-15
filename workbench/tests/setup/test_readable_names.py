@@ -12,7 +12,7 @@ from elesim_setup.readable_names import (
     reserve_image_name,
     reserve_name,
     reserve_role_release_name,
-    reserve_release_name,
+    mark_release_names_published,
     release_reservation_identity,
     role_release_reservation_identity,
 )
@@ -184,12 +184,12 @@ def test_role_release_aliases_are_unique_and_input_bound(tmp_path):
     assert registry["names"]["releases"][
         role_release_reservation_identity(
             "git-" + "1" * 40, "pilot", pilot_fingerprint, digest
-        )
+        ) + ":0"
     ] == "golden_snail"
     assert registry["names"]["releases"][
         role_release_reservation_identity(
             "git-" + "1" * 40, "sim", sim_fingerprint, digest
-        )
+        ) + ":0"
     ] == "silver_pigeon"
 
 
@@ -197,12 +197,10 @@ def test_legacy_release_alias_reservation_remains_readable(tmp_path):
     path = tmp_path / "names.json"
     fingerprints = {"pilot": "a" * 64, "sim": "b" * 64}
     digest = "c" * 64
-    alias = reserve_release_name(
+    alias = reserve_name(
         path,
-        "git-" + "1" * 40,
-        tuple(fingerprints),
-        fingerprints,
-        digest,
+        "releases",
+        release_reservation_identity("git-" + "1" * 40, tuple(fingerprints), fingerprints, digest),
         generate=lambda: "golden_snail",
     )
     assert alias == "golden_snail"
@@ -213,3 +211,18 @@ def test_legacy_release_alias_reservation_remains_readable(tmp_path):
             "git-" + "1" * 40, tuple(fingerprints), fingerprints, digest
         ),
     ) == alias
+
+
+def test_completed_update_advances_but_failed_retry_reuses(tmp_path):
+    path = tmp_path / "names.json"
+    args = (path, "git-" + "1" * 40, "sim", "a" * 64, "b" * 64)
+    first = reserve_role_release_name(*args)
+    assert reserve_role_release_name(*args) == first
+    mark_release_names_published(path, (first,))
+    second = reserve_role_release_name(*args)
+    assert second != first
+    assert reserve_role_release_name(*args) == second
+    mark_release_names_published(path, (first,))
+    assert reserve_role_release_name(*args) == second
+    mark_release_names_published(path, (second,))
+    assert reserve_role_release_name(*args) not in (first, second)

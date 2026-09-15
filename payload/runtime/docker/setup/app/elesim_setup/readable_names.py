@@ -103,7 +103,7 @@ def role_release_reservation_identity(
     set of roles that happened to be built in the same update.  Keeping the
     role in the reservation identity prevents Pilot and Sim (or two other
     roles) from receiving the same alias while still making retries of the
-    same role/input idempotent.
+    same role/input reusable until successful publication.
     """
 
     payload = {
@@ -133,56 +133,53 @@ def reserve_role_release_name(
     """Reserve one installation-wide readable suffix for one role/input.
 
     ``all_scopes`` makes release aliases avoid installation, image, tools and
-    historical reservations as well.  The old ``reserve_release_name`` API is
-    retained below solely so registries written by an intermediate build can
-    still be authenticated during migration.
+    historical reservations as well. Completed publications advance the
+    generation; retries of an unpublished input keep their reservation.
     """
 
+    identity = role_release_reservation_identity(
+        source_revision, role, build_fingerprint, runtime_data_digest,
+    )
+    path = Path(path)
+    _safe_path(path)
     return reserve_name(
         path,
         _RELEASE_SCOPE,
-        role_release_reservation_identity(
-            source_revision,
-            role,
-            build_fingerprint,
-            runtime_data_digest,
-        ),
+        identity,
         unavailable=unavailable,
         generate=generate,
         all_scopes=True,
+        advance_completed=True,
     )
 
 
-def reserve_release_name(
-    path: Path,
-    source_revision: str,
-    roles: Iterable[str],
-    build_fingerprints: Mapping[str, str],
-    runtime_data_digest: str,
-    *,
-    unavailable: Iterable[str] = (),
-    generate: Callable[[], str] = random_name,
-) -> str:
-    """Reserve the legacy all-role suffix used by an intermediate installer.
+def role_release_names(path: Path, identity: str) -> tuple[str, ...]:
+    """Read current and historical reservations for authenticated role inputs."""
+    _safe_path(path)
+    entries = _read(path).get(_RELEASE_SCOPE, {})
+    return tuple(name for key, name in entries.items()
+                 if key == identity or (key.startswith(identity + ":")
+                                       and key[len(identity) + 1:].isdigit()))
 
-    New installations must call :func:`reserve_role_release_name`; this
-    helper remains for reading/replaying a registry written before aliases
-    became role-specific.
-    """
 
-    return reserve_name(
-        path,
-        _RELEASE_SCOPE,
-        release_reservation_identity(
-            source_revision,
-            roles,
-            build_fingerprints,
-            runtime_data_digest,
-        ),
-        unavailable=unavailable,
-        generate=generate,
-        all_scopes=True,
-    )
+def mark_release_names_published(path: Path, aliases: Iterable[str]) -> None:
+    """Complete reservations only after publication and ownership succeed."""
+    _safe_path(path)
+    lock_path = path.with_name(path.name + ".lock")
+    _safe_path(lock_path)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    with os.fdopen(fd, "a+b") as lock:
+        _regular(lock.fileno())
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        names = _read(path)
+        selected = set(aliases)
+        published = names.setdefault("published", {})
+        for identity, name in names.get(_RELEASE_SCOPE, {}).items():
+            if name in selected:
+                published[identity] = name
+        _write(path, names)
+
+
 
 
 def _image_identity(role: str, fingerprint: str) -> str:
@@ -296,6 +293,7 @@ def reserve_name(
     unavailable: Iterable[str] = (),
     generate: Callable[[], str] = random_name,
     all_scopes: bool = False,
+    advance_completed: bool = False,
 ) -> str:
     """Reserve once per identity, serializing collision checks and publication.
 
@@ -317,6 +315,11 @@ def reserve_name(
         _safe_path(path)
         names = _read(path)
         entries = names.setdefault(scope, {})
+        if advance_completed:
+            generation = 0
+            while f"{identity}:{generation}" in names.get("published", {}):
+                generation += 1
+            identity = f"{identity}:{generation}"
         if identity in entries:
             return entries[identity]
         used = (
