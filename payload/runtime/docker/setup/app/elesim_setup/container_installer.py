@@ -821,6 +821,25 @@ class ContainerInstaller:
                 path.mkdir(mode=0o700)
             path.chmod(0o700)
 
+            if name == "releases":
+                lock_path = path / ".publish.lock"
+                fd = os.open(
+                    lock_path,
+                    os.O_CREAT
+                    | os.O_RDWR
+                    | os.O_NOFOLLOW
+                    | os.O_CLOEXEC,
+                    0o600,
+                )
+                try:
+                    info = os.fstat(fd)
+                    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                        raise ValueError(
+                            "release publication lock must be a singly-linked regular file"
+                        )
+                finally:
+                    os.close(fd)
+
     def _prepare_runtime_cache(self) -> Path:
         """Prepare a user-owned cache, tolerating legacy root-owned state.
 

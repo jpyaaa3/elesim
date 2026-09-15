@@ -297,28 +297,27 @@ def _publish_lock(root: Path, *, exclusive: bool) -> Iterator[None]:
         raise ValueError("release root must be a real directory")
     lock_path = root / ".publish.lock"
     try:
+        flags = (
+            os.O_CREAT | os.O_RDWR
+            if exclusive
+            else os.O_RDONLY
+        )
+
         lock_fd = os.open(
             lock_path,
-            os.O_CREAT
-            | os.O_RDWR
+            flags
             | os.O_NOFOLLOW
             | os.O_NONBLOCK
             | os.O_CLOEXEC,
             0o600,
         )
-    except OSError as exc:
-        print(
-            "LOCK OPEN FAILED:",
-            lock_path,
-            "errno =", exc.errno,
-            "error =", repr(exc),
-        )
+    except OSError as exc: 
         raise ValueError("release lock is unsafe") from exc
     try:
         lock_info = os.fstat(lock_fd)
         if not stat.S_ISREG(lock_info.st_mode) or lock_info.st_nlink != 1:
             raise ValueError("release lock path must be a singly-linked regular file")
-        lock = os.fdopen(lock_fd, "a+b")
+        lock = os.fdopen(lock_fd, "a+b" if exclusive else "rb")
     except BaseException:
         os.close(lock_fd)
         raise
