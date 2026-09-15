@@ -40,7 +40,7 @@ from .manager_lifecycle import (
 )
 from .instance_identity import container_name as scoped_container_name
 from .instance_identity import image_reference, project_name
-from .readable_names import random_name, reserve_name
+from .readable_names import random_name, reserve_image_name, reserve_name
 from .ownership import (
     DOCKER_BUILD_FINGERPRINT_LABEL,
     DOCKER_INSTALL_UUID_LABEL,
@@ -561,7 +561,7 @@ class ContainerInstaller:
             ) from exc
         if not self._install_name:
             return image_reference(self._install_uuid, role, fingerprint)
-        version = reserve_name(
+        version = reserve_image_name(
             self.container_root / "image-names.json", role, fingerprint,
         )
         return image_reference(self._install_uuid, role, fingerprint,

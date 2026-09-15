@@ -38,7 +38,10 @@ pony puma quail rabbit raccoon ram raven robin salmon seal shark sheep shrimp
 snail sparrow spider squid stork swan tiger toad trout tuna turkey turtle viper
 walrus wasp weasel whale wolf wombat wren yak zebra""".split())
 NAME_PATTERN = re.compile(r"[a-z]{2,16}_[a-z]{2,16}\Z")
+_IMAGE_ROLE = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
+_IMAGE_FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_BYTES = 4 * 1024 * 1024
+_IMAGE_SCOPE = "images"
 
 
 def random_name() -> str:
@@ -50,6 +53,43 @@ def lookup_name(path: Path, scope: str, identity: str) -> str:
     path = Path(path)
     _safe_path(path)
     return _read(path).get(scope, {}).get(identity, "")
+
+
+def _image_identity(role: str, fingerprint: str) -> str:
+    if not isinstance(role, str) or _IMAGE_ROLE.fullmatch(role) is None:
+        raise ValueError("image role has an invalid format")
+    if not isinstance(fingerprint, str) or _IMAGE_FINGERPRINT.fullmatch(fingerprint) is None:
+        raise ValueError("image fingerprint has an invalid format")
+    return f"{role}:{fingerprint}"
+
+
+def lookup_image_names(path: Path, role: str, fingerprint: str) -> tuple[str, ...]:
+    """Return current and historical aliases for one role/build identity.
+
+    Fresh reservations live in the installation-wide ``images`` scope.  The
+    role-scoped fallback is retained so immutable tags emitted by older
+    installers remain readable after the registry format is upgraded.  The
+    first value is always the preferred alias for newly generated artifacts.
+    """
+
+    identity = _image_identity(role, fingerprint)
+    path = Path(path)
+    _safe_path(path)
+    names = _read(path)
+    values = []
+    preferred = names.get(_IMAGE_SCOPE, {}).get(identity, "")
+    legacy = names.get(role, {}).get(fingerprint, "")
+    for name in (preferred, legacy):
+        if name and name not in values:
+            values.append(name)
+    return tuple(values)
+
+
+def lookup_image_name(path: Path, role: str, fingerprint: str) -> str:
+    """Return the preferred alias for one role/build identity, if reserved."""
+
+    names = lookup_image_names(path, role, fingerprint)
+    return names[0] if names else ""
 
 
 def _safe_path(path: Path) -> None:
@@ -97,6 +137,27 @@ def _read(path: Path) -> dict[str, dict[str, str]]:
     return names
 
 
+def _write(path: Path, names: dict[str, dict[str, str]]) -> None:
+    payload = (json.dumps({"schema_version": 1, "names": names}, sort_keys=True) + "\n").encode()
+    if len(payload) > _MAX_BYTES:
+        raise ValueError("name registry is full")
+    descriptor, temporary = tempfile.mkstemp(prefix=".names-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def reserve_name(
     path: Path,
     scope: str,
@@ -137,22 +198,69 @@ def reserve_name(
         else:
             raise ValueError("no unused readable name available")
         entries[identity] = name
-        payload = (json.dumps({"schema_version": 1, "names": names}, sort_keys=True) + "\n").encode()
-        if len(payload) > _MAX_BYTES:
-            raise ValueError("name registry is full")
-        descriptor, temporary = tempfile.mkstemp(prefix=".names-", dir=path.parent)
-        try:
-            with os.fdopen(descriptor, "wb") as stream:
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, path)
-            directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
+        _write(path, names)
+        return name
+
+
+def reserve_image_name(
+    path: Path,
+    role: str,
+    fingerprint: str,
+    *,
+    unavailable: Iterable[str] = (),
+    generate: Callable[[], str] = random_name,
+) -> str:
+    """Reserve an installation-wide alias for one role/build identity.
+
+    New aliases share one registry scope across every Docker role, tools and
+    the optional development image.  Older registries used one scope per role;
+    those bindings remain immutable history.  A colliding historical binding
+    therefore receives a new shared-scope alias while the old tag stays valid.
+    """
+
+    identity = _image_identity(role, fingerprint)
+    path = Path(path)
+    _safe_path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(path.name + ".lock")
+    _safe_path(lock_path)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    with os.fdopen(fd, "a+b") as lock:
+        _regular(lock.fileno())
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        _safe_path(path)
+        names = _read(path)
+        entries = names.setdefault(_IMAGE_SCOPE, {})
+        if identity in entries:
+            return entries[identity]
+
+        legacy = names.get(role, {}).get(fingerprint, "")
+        if legacy:
+            owners = sum(
+                name == legacy
+                for scope_entries in names.values()
+                for name in scope_entries.values()
+            )
+            if owners == 1:
+                # Promote a non-colliding historical binding into the shared
+                # scope without changing its emitted Docker tag.
+                entries[identity] = legacy
+                _write(path, names)
+                return legacy
+
+        used = {
+            name
+            for scope_entries in names.values()
+            for name in scope_entries.values()
+        } | set(unavailable)
+        for _ in range(4096):
+            name = generate()
+            if not isinstance(name, str) or not NAME_PATTERN.fullmatch(name):
+                raise ValueError("name generator returned an invalid name")
+            if name not in used:
+                break
+        else:
+            raise ValueError("no unused readable name available")
+        entries[identity] = name
+        _write(path, names)
         return name

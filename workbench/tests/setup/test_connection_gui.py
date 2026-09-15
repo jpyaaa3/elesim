@@ -497,7 +497,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert ".drop-zone { position: relative; display: grid; min-height: 320px; grid-template-columns: repeat(2, minmax(0, 1fr))" in style
     assert ".robot-host .unit-lanes { grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr); gap: 7px; }" in style
     assert "min-height: 320px" in style
-    assert "grid-auto-rows: 82px" in style
+    assert "grid-auto-rows: minmax(124px, auto)" in style
     assert "padding: 8px 8px 34px" in style
     assert ".robot-host .runtime-lane .drop-zone { grid-template-columns: 1fr; }" in style
     assert ".robot-lane .drop-zone { border-color: #b2a5ca; grid-template-columns: 1fr; }" in style
@@ -531,6 +531,11 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'data-i18n="ssh.private.warning"' in html
     assert catalog["ko"]["ssh.private.warning"] == "개인키는 외부에 노출하지 마십시오!"
     assert "width: min(190px, 78%)" in style
+    assert 'data-field="install-release"' not in html
+    assert 'releaseSelect.className = "role-release"' in script
+    assert 'release_key' in script
+    assert catalog["ko"]["role.release"] == "릴리즈 / 별칭"
+    assert catalog["en"]["role.release"] == "Release / alias"
     assert catalog["en"]["role.add.guidance"] == "Use the [+] button above to add a role card."
     assert 'warning.hidden = !isActive(slot) || local !== slot;' in script
     assert "nextRoleNumbers = {pilot: 1, ui: 1, sim: 1, robot: 1}" in script

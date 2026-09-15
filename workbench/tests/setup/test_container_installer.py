@@ -126,9 +126,12 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
     assert compose["services"]["sim"]["container_name"] == container_name(
         install_uuid, "sim"
     )
+    aliases = []
     for role in ("pilot", "sim", "tools"):
         parts = named_image_parts(compose["services"][role]["image"], role)
         assert parts is not None and parts[0] == install_name
+        aliases.append(parts[1])
+    assert len(set(aliases)) == len(aliases)
     manifest = json.loads(
         (state.prefix_path / "install-ownership.json").read_text(encoding="utf-8")
     )

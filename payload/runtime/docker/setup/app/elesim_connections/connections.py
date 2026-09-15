@@ -1254,7 +1254,24 @@ class ConnectionDeploymentRunner:
                             gpu_mode=str(compute_raw.get("gpu_mode", "inherit")),
                             gpu_device=str(compute_raw.get("gpu_device", "")),
                         ).validate()
-                requested_release = unit.release_key or self.instance_release_key
+                # New topology saves carry the selected immutable release on
+                # each role card.  Runtime still creates one Compose unit per
+                # host, so resolve that card metadata to one manifest while
+                # retaining the unit/CLI fallbacks for legacy topologies.
+                role_release_keys = {
+                    assignment.release_key
+                    for assignment in unit.assignments
+                    if assignment.release_key
+                }
+                if len(role_release_keys) > 1:
+                    raise ValueError(
+                        f"container unit {host.host_id}/{unit.unit_id} has multiple role release keys"
+                    )
+                requested_release = (
+                    next(iter(role_release_keys), None)
+                    or unit.release_key
+                    or self.instance_release_key
+                )
                 selected = tuple(
                     value for value in releases
                     if requested_release is None or release_key(value) == requested_release

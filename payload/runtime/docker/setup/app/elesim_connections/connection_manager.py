@@ -457,6 +457,10 @@ class TwoHostPreflight:
 class RoleAssignment:
     role: str
     endpoint_id: str
+    # Optional role-card release selection.  The unit-level ``release_key``
+    # remains as a compatibility fallback for schema-v1..v6 topologies, while
+    # new GUI saves persist the selected key next to the role it belongs to.
+    release_key: str = ""
 
     def validate(self) -> "RoleAssignment":
         if self.role not in ROLES:
@@ -466,15 +470,30 @@ class RoleAssignment:
                 "endpoint_id must start with lower-case a-z and contain only "
                 "lower-case letters, digits, '_' or '-'"
             )
+        if not isinstance(self.release_key, str):
+            raise ValueError("role.release_key must be a string")
+        if self.release_key and _RELEASE_KEY.fullmatch(self.release_key) is None:
+            raise ValueError("role.release_key must be a lowercase SHA-256 key")
         return self
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         self.validate()
-        return {"role": self.role, "endpoint_id": self.endpoint_id}
+        result: dict[str, Any] = {
+            "role": self.role,
+            "endpoint_id": self.endpoint_id,
+        }
+        if self.release_key:
+            result["release_key"] = self.release_key
+        return result
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "RoleAssignment":
-        values = _strict_object(raw, required={"role", "endpoint_id"}, name="role")
+        values = _strict_object(
+            raw,
+            required={"role", "endpoint_id"},
+            optional={"release_key"},
+            name="role",
+        )
         legacy_roles = {"controller": "pilot", "simulator": "sim"}
         role = _required_string(values["role"], name="role.role").lower()
         role = legacy_roles.get(role, role)
@@ -485,6 +504,9 @@ class RoleAssignment:
         return cls(
             role=role,
             endpoint_id=endpoint_id,
+            release_key=_optional_string(
+                values.get("release_key", ""), name="role.release_key"
+            ) or "",
         ).validate()
 
 
@@ -559,7 +581,31 @@ class DeploymentUnit:
             )
         if not self.assignments:
             raise ValueError("every deployment unit must own at least one role")
-        roles = [assignment.validate().role for assignment in self.assignments]
+        validated_assignments = tuple(assignment.validate() for assignment in self.assignments)
+        roles = [assignment.role for assignment in validated_assignments]
+        assignment_release_keys = {
+            assignment.release_key
+            for assignment in validated_assignments
+            if assignment.release_key
+        }
+        if len(assignment_release_keys) > 1:
+            raise ValueError(
+                "all roles in one container unit must use the same release key"
+            )
+        if self.install_mode != "container" and assignment_release_keys:
+            raise ValueError("native units must not bind a container release")
+        if self.release_key and assignment_release_keys and self.release_key not in assignment_release_keys:
+            raise ValueError(
+                "unit.release_key must match its role assignment release key"
+            )
+        if assignment_release_keys and not install_uuid:
+            raise ValueError(
+                "role.release_key requires an enrolled install_uuid"
+            )
+        if assignment_release_keys and not project:
+            raise ValueError(
+                "role.release_key requires the enrolled install project"
+            )
         if "robot" in roles:
             if roles != ["robot"]:
                 raise ValueError("the native Robot unit must contain only Robot")
@@ -869,6 +915,34 @@ class ManagedHost:
                     and any(legacy_fields[key] != getattr(unit, key) for key in legacy_fields)
                 )
                 if differs:
+                    # The host-level assignment list is only a compatibility
+                    # mirror.  A pre-v6 editor may change an endpoint there
+                    # without carrying the newer role-card release field;
+                    # preserve the canonical enrollment/release binding while
+                    # honoring that explicit endpoint edit.
+                    if unit is not None:
+                        merged_assignments = []
+                        for index, assignment in enumerate(legacy_assignments):
+                            release = assignment.release_key
+                            if not release and index < len(unit.assignments):
+                                candidate = unit.assignments[index]
+                                if candidate.role == assignment.role:
+                                    release = candidate.release_key or unit.release_key
+                            if not release:
+                                matches = [
+                                    candidate
+                                    for candidate in unit.assignments
+                                    if candidate.role == assignment.role
+                                    and candidate.release_key
+                                ]
+                                if len(matches) == 1:
+                                    release = matches[0].release_key
+                            merged_assignments.append(
+                                replace(assignment, release_key=release)
+                                if release != assignment.release_key
+                                else assignment
+                            )
+                        legacy_assignments = tuple(merged_assignments)
                     units = (
                         DeploymentUnit(
                             unit_id=(unit.unit_id if unit is not None else "runtime"),

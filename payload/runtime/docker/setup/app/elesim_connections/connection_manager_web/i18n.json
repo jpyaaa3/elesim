@@ -47,6 +47,7 @@
     "role.ui": "UI",
     "role.robot": "Robot",
     "role.endpoint": "Endpoint ID",
+    "role.release": "릴리즈 / 별칭",
     "role.add.title": "역할 카드 추가",
     "role.add.kind": "역할",
     "role.add.guidance": "상단의 [+] 버튼을 눌러 역할 카드를 추가하십시오.",
@@ -103,6 +104,7 @@
     "error.local.robot": "Authority를 보관하는 로컬 컴퓨터에는 Robot을 배치할 수 없습니다.",
     "error.local.probe": "로컬 컴퓨터에는 설치용 SSH endpoint가 필요하지 않습니다.",
     "error.workflow.incomplete": "연결 확인과 실행 준비를 먼저 완료하십시오.",
+    "error.release.mixed": "한 컴퓨터의 컨테이너 역할은 같은 릴리즈를 선택해야 합니다.",
     "install.uuid": "Scoped 설치 UUID",
     "install.project": "Scoped Compose project",
     "install.release": "불변 release key"
@@ -155,6 +157,7 @@
     "role.ui": "UI",
     "role.robot": "Robot",
     "role.endpoint": "Endpoint ID",
+    "role.release": "Release / alias",
     "role.add.title": "Add role card",
     "role.add.kind": "Role",
     "role.add.guidance": "Use the [+] button above to add a role card.",
@@ -211,6 +214,7 @@
     "error.local.robot": "Robot cannot be placed on the local Authority computer.",
     "error.local.probe": "The local computer does not need an installation SSH endpoint.",
     "error.workflow.incomplete": "Complete Check Connections and Prepare runtime first.",
+    "error.release.mixed": "Container roles on one computer must use the same release.",
     "install.uuid": "Scoped install UUID",
     "install.project": "Scoped Compose project",
     "install.release": "Immutable release key"

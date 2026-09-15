@@ -3,7 +3,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from elesim_setup.readable_names import NAME_PATTERN, random_name, reserve_name
+from elesim_setup.readable_names import (
+    NAME_PATTERN,
+    lookup_image_name,
+    lookup_image_names,
+    random_name,
+    reserve_image_name,
+    reserve_name,
+)
 
 
 def test_names_are_short_and_readable():
@@ -47,3 +54,81 @@ def test_exhaustion_does_not_reassign_existing_names(tmp_path):
     with pytest.raises(ValueError, match="unused"):
         reserve_name(path, "images", "second", generate=lambda: "quiet_otter")
     assert path.read_bytes() == before
+
+
+def test_image_aliases_are_unique_across_roles(tmp_path):
+    path = tmp_path / "names.json"
+    choices = iter(("quiet_otter", "quiet_otter", "bright_fox"))
+    pilot = reserve_image_name(
+        path,
+        "pilot",
+        "a" * 64,
+        generate=lambda: next(choices),
+    )
+    sim = reserve_image_name(
+        path,
+        "sim",
+        "b" * 64,
+        generate=lambda: next(choices),
+    )
+    assert pilot == "quiet_otter"
+    assert sim == "bright_fox"
+    assert reserve_image_name(
+        path,
+        "pilot",
+        "a" * 64,
+        generate=lambda: pytest.fail("must reuse"),
+    ) == pilot
+    assert lookup_image_name(path, "pilot", "a" * 64) == pilot
+    assert lookup_image_names(path, "sim", "b" * 64) == (sim,)
+
+
+def test_colliding_legacy_aliases_get_new_bindings_without_rewriting_history(tmp_path):
+    path = tmp_path / "names.json"
+    pilot_fingerprint = "a" * 64
+    sim_fingerprint = "b" * 64
+    reserve_name(
+        path,
+        "pilot",
+        pilot_fingerprint,
+        generate=lambda: "quiet_otter",
+    )
+    reserve_name(
+        path,
+        "sim",
+        sim_fingerprint,
+        generate=lambda: "quiet_otter",
+    )
+    before = json.loads(path.read_text())
+
+    pilot = reserve_image_name(
+        path,
+        "pilot",
+        pilot_fingerprint,
+        generate=lambda: "bright_fox",
+    )
+    sim = reserve_image_name(
+        path,
+        "sim",
+        sim_fingerprint,
+        generate=lambda: "golden_eagle",
+    )
+    assert pilot == "bright_fox"
+    assert sim == "golden_eagle"
+    after = json.loads(path.read_text())
+    assert after["names"]["pilot"][pilot_fingerprint] == before["names"]["pilot"][pilot_fingerprint]
+    assert after["names"]["sim"][sim_fingerprint] == before["names"]["sim"][sim_fingerprint]
+    assert after["names"]["images"] == {
+        f"pilot:{pilot_fingerprint}": "bright_fox",
+        f"sim:{sim_fingerprint}": "golden_eagle",
+    }
+
+
+def test_unique_legacy_alias_is_promoted_without_a_tag_change(tmp_path):
+    path = tmp_path / "names.json"
+    fingerprint = "a" * 64
+    reserve_name(path, "pilot", fingerprint, generate=lambda: "quiet_otter")
+    assert reserve_image_name(path, "pilot", fingerprint) == "quiet_otter"
+    assert lookup_image_names(path, "pilot", fingerprint) == ("quiet_otter",)
+    names = json.loads(path.read_text())["names"]
+    assert names["images"][f"pilot:{fingerprint}"] == "quiet_otter"

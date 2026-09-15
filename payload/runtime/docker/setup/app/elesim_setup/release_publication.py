@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Mapping
 
 from .instance_identity import image_reference
-from .readable_names import lookup_name
+from .readable_names import lookup_image_names
 from .ownership import OwnershipManifest, append_docker_image_ownership
 from .releases import ReleaseManifest, publish_release, release_key, runtime_data_digest
 from .state import InstallState
@@ -228,12 +228,24 @@ def _validated_inputs(
             raise ReleasePublicationError(f"{role} evidence belongs to another install/project")
         expected_image = image_reference(install, role, fingerprint)
         if docker.install_name:
-            name = lookup_name(state.prefix_path / "containers/image-names.json", role, fingerprint)
-            if not name:
+            names = lookup_image_names(
+                state.prefix_path / "containers/image-names.json", role, fingerprint
+            )
+            if not names:
                 raise ReleasePublicationError(f"{role} image name reservation is missing")
-            expected_image = image_reference(install, role, fingerprint,
-                                             install_name=docker.install_name, image_name=name)
-        if image != expected_image:
+            expected_images = {
+                image_reference(
+                    install,
+                    role,
+                    fingerprint,
+                    install_name=docker.install_name,
+                    image_name=name,
+                )
+                for name in names
+            }
+        else:
+            expected_images = {expected_image}
+        if image not in expected_images:
             raise ReleasePublicationError(f"{role} image reference does not match its fingerprint")
         normalized[role] = {
             "image_reference": image,

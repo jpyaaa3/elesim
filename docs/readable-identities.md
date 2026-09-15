@@ -14,7 +14,9 @@ provenance evidence; the readable names are presentation identifiers only.
 - Store UUIDs, build fingerprints, image IDs and release content digests as
   internal ownership/provenance evidence; names are not credentials.
 - Persist reservations, including failed builds and retired versions. Same
-  identity reuses its name; a different identity cannot inherit an old name.
+  identity reuses its current name; a different identity cannot inherit an old
+  name. A colliding legacy binding keeps its old tag and receives one new
+  current name.
 - Do not rebuild simply to rename. Preserve old pinned releases, containers,
   ownership manifests and legacy projects. Existing projects must not change
   implicitly during update.
@@ -24,9 +26,16 @@ provenance evidence; the readable names are presentation identifiers only.
 `readable_names.py` reserves identity-to-name mappings under an explicit registry
 path with file locking and atomic publication. It rejects symlinks, malformed
 registries and duplicate reservations. The installer reserves one name for its
-UUID and one name per role/fingerprint, then emits tags such as
+UUID and one installation-wide image name per role/fingerprint, then emits tags such as
 `elesim/sim:quiet_otter-calm_eagle` and a project such as
 `elesim-quiet_otter`.
+
+The installation-wide image namespace covers Pilot, Sim, UI, tools and the
+optional development image, so two roles in one installation cannot receive
+the same new alias. Registries from older releases used role-specific scopes;
+those historical bindings remain readable, including a collision if one was
+already published, while any replacement binding is allocated from the shared
+scope without rewriting the old immutable tag.
 
 An update keeps the UUID, ownership manifest, release pins and an existing
 Compose project unchanged. A legacy UUID-scoped installation receives a

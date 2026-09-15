@@ -182,6 +182,14 @@ deployment unit의 `assignments`는 설치된 역할 전체 목록이 아니다.
 배포 시 `assigned_roles`로 그 부분집합을 기록한다. 따라서 동일한 설치 inventory를
 유지한 채 host 사이에서 Pilot/Sim/UI 배치를 바꿀 수 있다.
 
+설치 이름(UUID)은 host의 Network 섹션에서 조회·선택한다. 조회된 설치의 published
+release/alias 선택은 각 비-Robot 역할 카드의 `Endpoint ID` 아래에 있으며, 저장 시
+해당 assignment에 content-addressed `release_key`로 기록된다. 현재 한 host의
+Compose runtime unit은 여러 endpoint가 하나의 manifest를 공유하므로 같은 unit의
+role 카드들은 같은 release를 선택해야 한다. 다른 설치로 role 카드를 옮기거나
+설치 이름을 바꾸면 이전 release 선택은 대상 설치의 조회 결과로 재검증되며, 없거나
+아직 조회하지 않은 경우 자동으로 비워진다.
+
 graph role ID는 global registry와 instance schema v3에 persist한다. schema v2
 instance는 load 시 v3으로 migrate한다. scoped container registration은 native
 Robot assignment를 거부하며, Robot은 host당 하나의 exclusive native graph

@@ -69,10 +69,10 @@ def _inputs(
         )
     evidence = state.prefix_path / "containers/build-evidence.json"
     role_values = {}
-    from elesim_setup.readable_names import reserve_name
+    from elesim_setup.readable_names import reserve_image_name
     for index, role in enumerate(roles, start=1):
         fingerprint = (chr(ord("a") + index) * 64)
-        image_name = reserve_name(
+        image_name = reserve_image_name(
             state.prefix_path / "containers/image-names.json", role, fingerprint
         ) if install_name else ""
         role_values[role] = {

@@ -10,6 +10,10 @@ const token = sessionStorage.getItem("elesimConnectionToken") || "";
 const computerSlots = [];
 const slots = computerSlots;
 const hostKinds = {};
+// Read-only installation lookup results are kept per COM card.  A release is
+// selected by a role card, so this catalog is deliberately not global: moving
+// a role to another computer must never reuse the source computer's choices.
+const installationCatalogs = {};
 const maximumHosts = 4;
 const applicationRoles = ["pilot", "ui", "sim", "robot"];
 
@@ -78,6 +82,7 @@ function createHost({robot = false, slot = "", operational = false} = {}) {
   hostCard.dataset.slot = selectedSlot;
   hostCard.classList.toggle("robot-host", robot);
   hostKinds[selectedSlot] = robot ? "robot" : "computer";
+  installationCatalogs[selectedSlot] = null;
   computerSlots.push(selectedSlot);
   hostCard.querySelector(".host-name").value = selectedSlot;
   hostCard.querySelector(".robot-badge").hidden = !robot;
@@ -165,6 +170,7 @@ function removeHost(slot) {
     }
     const target = roleCard.role === "sim" ? firstActiveRuntime(slot) : destination;
     roleCard.slot = target || "";
+    if (target) rebindRoleRelease(roleCard, target);
   });
   roleCards = roleCards.filter((roleCard) => roleCard.slot);
   const local = document.querySelector('input[name="local-host"]:checked');
@@ -172,6 +178,7 @@ function removeHost(slot) {
   const index = computerSlots.indexOf(slot);
   if (index >= 0) computerSlots.splice(index, 1);
   delete hostKinds[slot];
+  delete installationCatalogs[slot];
   updateHostOrderButtons();
   if (local?.value === slot && computerSlots.length) {
     const replacement = firstActiveRuntime();
@@ -311,7 +318,7 @@ function defaultEndpointId(role, number) {
   return `${role}-${number}`;
 }
 
-function appendRoleCard(role, slot, endpointId = "") {
+function appendRoleCard(role, slot, endpointId = "", releaseKey = "") {
   const number = nextRoleNumbers[role];
   nextRoleNumbers[role] += 1;
   const roleCard = {
@@ -320,10 +327,71 @@ function appendRoleCard(role, slot, endpointId = "") {
     slot,
     number,
     endpointId: endpointId || defaultEndpointId(role, number),
+    releaseKey: role === "robot" ? "" : String(releaseKey || ""),
   };
   nextCardId += 1;
   roleCards.push(roleCard);
   return roleCard;
+}
+
+function selectedInstallation(slot) {
+  const catalog = installationCatalogs[slot];
+  if (!Array.isArray(catalog)) return null;
+  const uuid = field(slot, "install-uuid").value.trim();
+  return catalog.find((item) => item?.install_uuid === uuid) || null;
+}
+
+function roleReleaseChoices(slot, role) {
+  const installation = selectedInstallation(slot);
+  if (!installation || !Array.isArray(installation.releases)) return [];
+  return installation.releases.filter((release) => (
+    release
+    && typeof release.key === "string"
+    && (!Array.isArray(release.roles) || release.roles.includes(role))
+  ));
+}
+
+function refreshRoleReleaseSelect(roleCard, select) {
+  const choices = roleReleaseChoices(roleCard.slot, roleCard.role);
+  const catalogReady = Array.isArray(installationCatalogs[roleCard.slot]);
+  const installation = selectedInstallation(roleCard.slot);
+  const current = String(roleCard.releaseKey || "");
+  const valid = choices.some((release) => release.key === current);
+  if (catalogReady && (!installation || (current && !valid))) {
+    roleCard.releaseKey = "";
+  }
+  const selected = String(roleCard.releaseKey || "");
+  const placeholderKey = !catalogReady
+    ? "install.queryFirst"
+    : (choices.length ? "install.chooseRelease" : "install.noReleases");
+  const options = [new Option(t(placeholderKey), "")];
+  options.push(...choices.map((release) => new Option(release.label, release.key)));
+  if (!catalogReady && selected && !choices.some((release) => release.key === selected)) {
+    options.push(new Option(t("install.saved"), selected));
+  }
+  select.replaceChildren(...options);
+  select.value = selected;
+}
+
+function refreshRoleReleaseOptions(slot) {
+  roleCards
+    .filter((roleCard) => roleCard.slot === slot && roleCard.role !== "robot")
+    .forEach((roleCard) => {
+      const block = document.querySelector(`[data-card-id="${roleCard.id}"]`);
+      const select = block?.querySelector(".role-release");
+      if (select) refreshRoleReleaseSelect(roleCard, select);
+    });
+}
+
+function rebindRoleRelease(roleCard, target) {
+  if (roleCard.role === "robot") return;
+  const choices = roleReleaseChoices(target, roleCard.role);
+  const catalogReady = Array.isArray(installationCatalogs[target]);
+  if (!catalogReady || !selectedInstallation(target)) {
+    roleCard.releaseKey = "";
+  } else if (!choices.some((release) => release.key === roleCard.releaseKey)) {
+    roleCard.releaseKey = "";
+  }
 }
 
 function roleCardById(cardId) {
@@ -367,6 +435,21 @@ function renderRoleBlocks() {
       markWorkflowDirty();
     });
     endpoint.append(label, input);
+    let release = null;
+    if (role !== "robot") {
+      release = document.createElement("label");
+      const releaseLabel = document.createElement("span");
+      releaseLabel.textContent = t("role.release");
+      const releaseSelect = document.createElement("select");
+      releaseSelect.className = "role-release";
+      releaseSelect.setAttribute("aria-label", t("role.release"));
+      refreshRoleReleaseSelect(roleCard, releaseSelect);
+      releaseSelect.addEventListener("change", () => {
+        roleCard.releaseKey = releaseSelect.value.trim();
+        markWorkflowDirty();
+      });
+      release.append(releaseLabel, releaseSelect);
+    }
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "icon-button remove-role";
@@ -378,7 +461,9 @@ function renderRoleBlocks() {
       renderRoleBlocks();
       updateRoleChoices();
     });
-    block.append(title, endpoint, remove);
+    block.append(title, endpoint);
+    if (release) block.append(release);
+    block.append(remove);
     if (role !== "robot") {
       block.addEventListener("dragstart", (event) => {
         clearDropPreview();
@@ -430,6 +515,7 @@ function moveRole(
   const roleCard = roleCardById(cardId);
   if (!roleCard || roleCard.role === "robot" || !isActive(target)) return;
   const role = roleCard.role;
+  const source = roleCard.slot;
   if (targetUnit === "robot" && role !== "robot") {
     showError(t("error.unit.robot"));
     return;
@@ -440,6 +526,7 @@ function moveRole(
   }
   if (!canPlaceRole(role, target)) return;
   insertRoleInOrder(cardId, target, targetUnit, targetCardId, insertBefore);
+  if (source !== target) rebindRoleRelease(roleCard, target);
   markWorkflowDirty();
   renderRoleBlocks();
 }
@@ -610,13 +697,19 @@ function topologyFromForm() {
     const assignments = cardsForHost.map((roleCard) => ({
       role: roleCard.role,
       endpoint_id: roleCard.endpointId.trim(),
+      ...(roleCard.role !== "robot" && roleCard.releaseKey
+        ? {release_key: roleCard.releaseKey.trim()}
+        : {}),
     }));
     const runtimeRoles = assignments.filter((item) => item.role !== "robot");
     const installRoot = field(slot, "install-root").value.trim();
     const binDir = field(slot, "bin-dir").value.trim();
     const installUuid = field(slot, "install-uuid").value.trim();
     const installProject = field(slot, "install-project").value.trim();
-    const installRelease = field(slot, "install-release").value.trim();
+    const releaseKeys = [...new Set(
+      runtimeRoles.map((assignment) => assignment.release_key).filter(Boolean),
+    )];
+    if (releaseKeys.length > 1) throw new Error(t("error.release.mixed"));
     const units = [];
     if (runtimeRoles.length) {
       units.push({
@@ -628,7 +721,7 @@ function topologyFromForm() {
         lifecycle: "compose",
         ...(installUuid ? {install_uuid: installUuid} : {}),
         ...(installProject ? {project: installProject} : {}),
-        ...(installRelease ? {release_key: installRelease} : {})
+        ...(releaseKeys[0] ? {release_key: releaseKeys[0]} : {})
       });
     }
     const robotAssignments = assignments.filter((item) => item.role === "robot");
@@ -702,7 +795,7 @@ function fillHost(slot, host) {
   field(slot, "install-uuid").value = pathUnit?.install_uuid || "";
   field(slot, "install-project").value = pathUnit?.project || "";
   field(slot, "install-name").replaceChildren(new Option(t("install.saved"), pathUnit?.install_uuid || ""));
-  field(slot, "install-release").replaceChildren(new Option(t("install.saved"), pathUnit?.release_key || ""));
+  installationCatalogs[slot] = null;
   document.querySelector(`input[name="local-host"][value="${slot}"]`).checked = host.local;
   if (host.ssh) {
     field(slot, "ssh-host").value = host.ssh.host;
@@ -717,8 +810,15 @@ function fillHost(slot, host) {
     field(slot, "ssh-tailscale").checked = false;
     updateSshMode(slot);
   }
-  units.flatMap((unit) => unit.assignments || []).forEach((assignment) => {
-    appendRoleCard(assignment.role, slot, assignment.endpoint_id);
+  units.forEach((unit) => {
+    (unit.assignments || []).forEach((assignment) => {
+      appendRoleCard(
+        assignment.role,
+        slot,
+        assignment.endpoint_id,
+        assignment.release_key || (assignment.role === "robot" ? "" : unit.release_key || ""),
+      );
+    });
   });
 }
 
@@ -746,6 +846,7 @@ function applyTopology(topology) {
   byId("host-grid").replaceChildren();
   computerSlots.splice(0);
   Object.keys(hostKinds).forEach((slot) => delete hostKinds[slot]);
+  Object.keys(installationCatalogs).forEach((slot) => delete installationCatalogs[slot]);
   roleCards = [];
   nextCardId = 1;
   nextRoleNumbers = {pilot: 1, ui: 1, sim: 1, robot: 1};
@@ -1251,22 +1352,28 @@ async function lookupInstallation(slot) {
   const hostCard = card(slot);
   const button = hostCard.querySelector(".lookup-installation");
   const body = JSON.stringify(installationQuery(slot));
-  const previousRelease = field(slot, "install-release").value;
+  const previousInstall = field(slot, "install-uuid").value.trim();
   button.disabled = true;
   try {
     const result = await api("/api/installations", {method: "POST", body});
     if (!hostCard.isConnected || body !== JSON.stringify(installationQuery(slot))) return;
+    const installations = Array.isArray(result.installations)
+      ? result.installations.filter((item) => item && typeof item === "object")
+      : [];
+    installationCatalogs[slot] = installations;
     const select = field(slot, "install-name");
-    select.replaceChildren(...result.installations.map((item) => new Option(item.name, item.install_uuid)));
+    const options = installations.length
+      ? installations.map((item) => new Option(item.name || item.project || item.install_uuid, item.install_uuid))
+      : [new Option(t("install.queryFirst"), "")];
+    select.replaceChildren(...options);
+    if (installations.some((item) => item.install_uuid === previousInstall)) {
+      select.value = previousInstall;
+    }
     const choose = () => {
-      const item = result.installations.find((entry) => entry.install_uuid === select.value);
+      const item = installations.find((entry) => entry.install_uuid === select.value);
       field(slot, "install-uuid").value = item?.install_uuid || "";
       field(slot, "install-project").value = item?.project || "";
-      const releases = item?.releases || [];
-      const releaseSelect = field(slot, "install-release");
-      releaseSelect.replaceChildren(new Option(t(releases.length ? "install.chooseRelease" : "install.noReleases"), ""),
-        ...releases.map((release) => new Option(release.label, release.key)));
-      if (releases.some((release) => release.key === previousRelease)) releaseSelect.value = previousRelease;
+      refreshRoleReleaseOptions(slot);
       markWorkflowDirty();
     };
     select.onchange = choose;
@@ -1274,15 +1381,23 @@ async function lookupInstallation(slot) {
   } finally { button.disabled = false; }
 }
 
+function clearInstallationLookup(slot) {
+  installationCatalogs[slot] = null;
+  field(slot, "install-uuid").value = "";
+  field(slot, "install-project").value = "";
+  const select = field(slot, "install-name");
+  select.onchange = null;
+  select.replaceChildren(new Option(t("install.queryFirst"), ""));
+  roleCards
+    .filter((roleCard) => roleCard.slot === slot)
+    .forEach((roleCard) => { roleCard.releaseKey = ""; });
+  refreshRoleReleaseOptions(slot);
+}
+
 function bindHostCardEvents(slot) {
   const hostCard = card(slot);
   hostCard.querySelector(".lookup-installation").addEventListener("click", () => lookupInstallation(slot).catch(showError));
-  const clearInstallation = () => {
-    field(slot, "install-uuid").value = "";
-    field(slot, "install-project").value = "";
-    field(slot, "install-name").onchange = null;
-    ["install-name", "install-release"].forEach((name) => field(slot, name).replaceChildren(new Option(t("install.queryFirst"), "")));
-  };
+  const clearInstallation = () => clearInstallationLookup(slot);
   ["install-root", "bin-dir", "ssh-host", "ssh-port", "ssh-user", "ssh-key", "ssh-fingerprint", "ssh-tailscale"].forEach((name) => {
     field(slot, name).addEventListener("input", clearInstallation);
     field(slot, name).addEventListener("change", clearInstallation);
@@ -1290,13 +1405,7 @@ function bindHostCardEvents(slot) {
   hostCard.querySelectorAll(".drop-zone").forEach(bindDropZone);
   hostCard.querySelector('input[name="local-host"]').addEventListener("change", updateSshVisibility);
   hostCard.querySelector('input[name="local-host"]').addEventListener("change", () => {
-    slots.forEach((other) => {
-      const select = field(other, "install-name");
-      select.onchange = null;
-      field(other, "install-uuid").value = "";
-      field(other, "install-project").value = "";
-      ["install-name", "install-release"].forEach((name) => field(other, name).replaceChildren(new Option(t("install.queryFirst"), "")));
-    });
+    slots.forEach((other) => clearInstallationLookup(other));
   });
   ["ssh-host", "ssh-port"].forEach((name) => {
     field(slot, name).addEventListener("input", () => { field(slot, "ssh-fingerprint").value = ""; });

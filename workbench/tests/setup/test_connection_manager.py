@@ -576,6 +576,39 @@ def test_schema_v6_round_trips_scoped_unit_install_and_release_binding() -> None
     assert scoped.release_key == "a" * 64
 
 
+def test_role_assignment_round_trips_its_optional_release_selection() -> None:
+    assignment = RoleAssignment("sim", "sim-main", "a" * 64)
+
+    restored = RoleAssignment.from_dict(assignment.to_dict())
+
+    assert restored == assignment
+    assert assignment.to_dict() == {
+        "role": "sim",
+        "endpoint_id": "sim-main",
+        "release_key": "a" * 64,
+    }
+
+
+def test_role_assignment_rejects_non_content_addressed_release_selection() -> None:
+    with pytest.raises(ValueError, match="lowercase SHA-256"):
+        RoleAssignment("sim", "sim-main", "calm_eagle").validate()
+
+
+def test_container_unit_rejects_mixed_role_release_selections() -> None:
+    unit = DeploymentUnit(
+        "runtime",
+        (
+            RoleAssignment("sim", "sim-main", "a" * 64),
+            RoleAssignment("ui", "ui-main", "b" * 64),
+        ),
+        install_uuid="11111111-1111-4111-8111-111111111111",
+        project="elesim-runtime-11111111111141118111111111111111",
+    )
+
+    with pytest.raises(ValueError, match="same release key"):
+        unit.validate(jetson=False)
+
+
 def test_schema_v5_migrates_unit_release_binding_and_persists_as_v6() -> None:
     raw = _topology().to_dict()
     raw["schema_version"] = 5
