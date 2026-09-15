@@ -307,6 +307,12 @@ def _publish_lock(root: Path, *, exclusive: bool) -> Iterator[None]:
             0o600,
         )
     except OSError as exc:
+        print(
+            "LOCK OPEN FAILED:",
+            lock_path,
+            "errno =", exc.errno,
+            "error =", repr(exc),
+        )
         raise ValueError("release lock is unsafe") from exc
     try:
         lock_info = os.fstat(lock_fd)
