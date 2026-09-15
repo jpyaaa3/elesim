@@ -44,6 +44,12 @@ def _open_log(root: Path):
 
 
 _ESCAPES = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]")
+_IMAGE_OUTPUT = re.compile(
+    r"(?:naming to|writing image|exporting to)\s+(?:docker\.io/)?"
+    r"(elesim/[a-z][a-z0-9_.-]*:[a-z]{2,16}_[a-z]{2,16}-"
+    r"[a-z]{2,16}_[a-z]{2,16})(?:\s|$)",
+    re.IGNORECASE,
+)
 
 
 def _display_text(value: str) -> str:
@@ -72,6 +78,7 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
     verbose = mode == "verbose" or (mode == "auto" and not tty)
     animate = tty and not verbose and mode != "plain"
     tail: deque[str] = deque(maxlen=12)
+    built_images: dict[str, tuple[str, str]] = {}
     line_count = shown_count = 0
     pending = ""
     decoder = codecs.getincrementaldecoder("utf-8")("replace")
@@ -104,6 +111,14 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
         for line in lines:
             line_count += 1
             safe = _display_text(line[-1024:])
+            image_match = _IMAGE_OUTPUT.search(safe)
+            if image_match:
+                image = image_match.group(1).lower()
+                repository, tag = image.split(":", 1)
+                install_name, alias = tag.split("-", 1)
+                built_images[repository] = (install_name, alias)
+                if not verbose:
+                    continue
             if not verbose and safe.lstrip().startswith(hidden_prefixes):
                 continue
             if not verbose and safe.lstrip().startswith(notice_prefixes):
@@ -148,6 +163,14 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
         pending += decoder.decode(b"", final=True)
         if pending:
             safe = _display_text(pending)
+            image_match = _IMAGE_OUTPUT.search(safe)
+            if image_match:
+                image = image_match.group(1).lower()
+                repository, tag = image.split(":", 1)
+                install_name, alias = tag.split("-", 1)
+                built_images[repository] = (install_name, alias)
+                if not verbose:
+                    safe = ""
             if not verbose and safe.lstrip().startswith(hidden_prefixes):
                 pass
             elif not verbose and safe.lstrip().startswith(notice_prefixes):
@@ -168,6 +191,13 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
                 print(_muted(preview_line, tty), file=sys.stderr)
             omitted = max(0, line_count - shown_count - len(preview))
             print(_muted("  │ ...", tty), file=sys.stderr)
+        if status == 0 and built_images:
+            print("  └ Built images", file=sys.stderr)
+            install_names = {value[0] for value in built_images.values()}
+            if len(install_names) == 1:
+                print(f"    Installation name={next(iter(install_names))}", file=sys.stderr)
+            for repository, (_install_name, alias) in built_images.items():
+                print(f"    {repository}={alias}", file=sys.stderr)
         label = "Completed" if status == 0 else f"Failed (exit {status})"
         print(_muted(
             f"  └ {label} in {time.monotonic() - started:.1f}s",

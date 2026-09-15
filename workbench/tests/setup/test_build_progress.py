@@ -37,6 +37,22 @@ def test_plain_progress_keeps_full_private_log_and_bounded_terminal(tmp_path):
     assert log.parent.stat().st_mode & 0o777 == 0o700
 
 
+def test_build_report_lists_exported_role_images(tmp_path):
+    result = invoke(
+        tmp_path,
+        "print('#52 naming to docker.io/elesim/sim:quick_zebra-ivory_llama 0.0s done'); "
+        "print('#72 naming to docker.io/elesim/pilot:quick_zebra-plain_horse done'); "
+        "print('#73 naming to docker.io/elesim/ui:quick_zebra-silent_lynx done'); "
+        "print('#90 naming to docker.io/elesim/tools:quick_zebra-jolly_canary done')",
+    )
+    assert result.returncode == 0, result.stderr
+    assert b"Installation name=quick_zebra" in result.stderr
+    assert b"elesim/sim=ivory_llama" in result.stderr
+    assert b"elesim/pilot=plain_horse" in result.stderr
+    assert b"elesim/ui=silent_lynx" in result.stderr
+    assert b"elesim/tools=jolly_canary" in result.stderr
+
+
 @pytest.mark.parametrize("mode", ["auto", "verbose"])
 def test_non_tty_stream_is_preserved_for_connection_manager(tmp_path, mode):
     result = invoke(tmp_path, "import os; os.write(1,b'out\\n'); os.write(2,b'err\\n')", mode)
