@@ -38,13 +38,14 @@ def test_developer_attachment_joins_the_canonical_runtime_project(local_state) -
     )
     manifest = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
     assert manifest.docker is not None
-    assert compose["name"] == project_name(manifest.install_uuid)
+    install_name = manifest.docker.install_name
+    assert compose["name"] == project_name(
+        manifest.install_uuid, install_name=install_name
+    )
     assert {"pilot", "sim", "ui", "dev"} <= set(compose["services"])
     dev = compose["services"]["dev"]
     assert dev["profiles"] == ["developer"]
-    assert dev["image"].startswith(
-        f"elesim/dev:{manifest.install_uuid.replace('-', '')}-"
-    )
+    assert dev["image"].startswith(f"elesim/dev:{install_name}-")
     assert dev["container_name"] == container_name(manifest.install_uuid, "dev")
     assert dev["privileged"] is True
     assert dev["working_dir"] == str(ROOT)
@@ -68,7 +69,7 @@ def test_developer_attachment_joins_the_canonical_runtime_project(local_state) -
         check=False,
     ).returncode == 0
 
-    assert manifest.docker.project == project_name(manifest.install_uuid)
+    assert manifest.docker.project == compose["name"]
     assert container_name(manifest.install_uuid, "dev") in manifest.docker.containers
     assert dev["image"] in manifest.docker.local_images
     assert not (state.prefix_path / ".elesim/development").exists()

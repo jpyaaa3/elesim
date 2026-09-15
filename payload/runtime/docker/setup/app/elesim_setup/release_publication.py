@@ -19,7 +19,12 @@ from pathlib import Path
 from typing import Mapping
 
 from .instance_identity import image_reference
-from .readable_names import lookup_image_names
+from .readable_names import (
+    lookup_image_names,
+    lookup_name,
+    release_reservation_identity,
+    role_release_reservation_identity,
+)
 from .ownership import OwnershipManifest, append_docker_image_ownership
 from .releases import ReleaseManifest, publish_release, release_key, runtime_data_digest
 from .state import InstallState
@@ -136,6 +141,8 @@ def _validated_inputs(
     ownership: OwnershipManifest,
     snapshot: Path,
     evidence: Path,
+    *,
+    source_revision: str,
 ) -> tuple[InstallState, OwnershipManifest, Path, Mapping[str, Mapping[str, str]], str]:
     try:
         state = state.validate()
@@ -210,39 +217,102 @@ def _validated_inputs(
     role_values = raw["roles"]
     if not isinstance(role_values, dict) or set(role_values) != set(roles):
         raise ReleasePublicationError("evidence roles must exactly match installed roles")
-    normalized: dict[str, Mapping[str, str]] = {}
+    fingerprints: dict[str, str] = {}
     for role in roles:
         item = role_values[role]
         if not isinstance(item, dict) or set(item) != _ROLE_FIELDS:
             raise ReleasePublicationError(f"evidence for {role} has invalid fields")
-        item_install = _text(item["install_uuid"], f"{role}.install_uuid")
-        item_project = _text(item["project"], f"{role}.project")
-        fingerprint = _text(
+        fingerprints[role] = _text(
             item["build_fingerprint"],
             f"{role}.build_fingerprint",
             pattern=_FINGERPRINT,
         )
+    try:
+        snapshot_digest = runtime_data_digest(snapshot)
+    except (OSError, ValueError) as exc:
+        raise ReleasePublicationError("runtime snapshot digest could not be computed") from exc
+    registry = state.prefix_path / "containers/image-names.json"
+    # New publications reserve one alias per role.  Keep the former
+    # all-role reservation as a read-only migration path for an interrupted
+    # update produced by the short-lived shared-alias implementation.
+    role_release_aliases = {
+        role: lookup_name(
+            registry,
+            "releases",
+            role_release_reservation_identity(
+                source_revision,
+                role,
+                fingerprints[role],
+                snapshot_digest,
+            ),
+        )
+        for role in roles
+    }
+    legacy_release_alias = lookup_name(
+        registry,
+        "releases",
+        release_reservation_identity(
+            source_revision,
+            roles,
+            fingerprints,
+            snapshot_digest,
+        ),
+    )
+    normalized: dict[str, Mapping[str, str]] = {}
+    for role in roles:
+        item = role_values[role]
+        item_install = _text(item["install_uuid"], f"{role}.install_uuid")
+        item_project = _text(item["project"], f"{role}.project")
+        fingerprint = fingerprints[role]
         image = _text(item["image_reference"], f"{role}.image_reference")
         image_id = _text(item["image_id"], f"{role}.image_id", pattern=_IMAGE_ID)
         if item_install != install or item_project != project:
             raise ReleasePublicationError(f"{role} evidence belongs to another install/project")
         expected_image = image_reference(install, role, fingerprint)
         if docker.install_name:
-            names = lookup_image_names(
-                state.prefix_path / "containers/image-names.json", role, fingerprint
-            )
-            if not names:
-                raise ReleasePublicationError(f"{role} image name reservation is missing")
-            expected_images = {
-                image_reference(
-                    install,
-                    role,
-                    fingerprint,
-                    install_name=docker.install_name,
-                    image_name=name,
+            release_alias = role_release_aliases[role]
+            if release_alias:
+                # A current authenticated build must use the suffix reserved
+                # for this exact role/input.  It is intentionally independent
+                # from aliases reserved for the other application roles.
+                expected_images = {
+                    image_reference(
+                        install,
+                        role,
+                        fingerprint,
+                        install_name=docker.install_name,
+                        image_name=release_alias,
+                    )
+                }
+            elif legacy_release_alias:
+                # Accept only the exact all-role reservation emitted by the
+                # intermediate shared-alias implementation.  This branch is
+                # read-only compatibility; new installer runs never create it.
+                expected_images = {
+                    image_reference(
+                        install,
+                        role,
+                        fingerprint,
+                        install_name=docker.install_name,
+                        image_name=legacy_release_alias,
+                    )
+                }
+            else:
+                names = lookup_image_names(
+                    registry, role, fingerprint
                 )
-                for name in names
-            }
+                if not names:
+                    raise ReleasePublicationError(f"{role} image name reservation is missing")
+                expected_images = {
+                    image_reference(
+                        install,
+                        role,
+                        fingerprint,
+                        install_name=docker.install_name,
+                        image_name=name,
+                    )
+                    for name in names
+                }
         else:
             expected_images = {expected_image}
         if image not in expected_images:
@@ -287,10 +357,14 @@ def publish_from_evidence(
     than silently reporting success or deleting a valid immutable artifact.
     """
 
-    state, ownership, snapshot, evidence, platform = _validated_inputs(
-        state, ownership, Path(runtime_snapshot), Path(evidence_path)
-    )
     source_revision = _manifest_source_revision(source_revision)
+    state, ownership, snapshot, evidence, platform = _validated_inputs(
+        state,
+        ownership,
+        Path(runtime_snapshot),
+        Path(evidence_path),
+        source_revision=source_revision,
+    )
     install = ownership.install_uuid
     images = {role: values["image_reference"] for role, values in evidence.items()}
     image_ids = {role: values["image_id"] for role, values in evidence.items()}

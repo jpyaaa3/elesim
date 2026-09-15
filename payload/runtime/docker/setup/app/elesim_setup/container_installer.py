@@ -40,7 +40,12 @@ from .manager_lifecycle import (
 )
 from .instance_identity import container_name as scoped_container_name
 from .instance_identity import image_reference, project_name
-from .readable_names import random_name, reserve_image_name, reserve_name
+from .readable_names import (
+    random_name,
+    reserve_image_name,
+    reserve_name,
+    reserve_role_release_name,
+)
 from .ownership import (
     DOCKER_BUILD_FINGERPRINT_LABEL,
     DOCKER_INSTALL_UUID_LABEL,
@@ -64,6 +69,7 @@ from .shell import operator_home, write_executable
 from .state import ComputeSettings, ContainerNetworkSettings, InstallState
 from .uninstall import UninstallSafetyError, validate_docker_ownership
 from .updater import render_compose_build_progress, render_release_wrapper, render_update_wrapper
+from .releases import runtime_data_digest
 
 
 @dataclass(frozen=True)
@@ -106,6 +112,8 @@ RUNTIME_LOG_RETENTION = 5
 # update advances to the current stable client.
 TAILSCALE_IMAGE = "tailscale/tailscale:stable"
 TAILSCALE_CONTAINER_NAME = "elesim-tailscale"
+_SOURCE_REVISION = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})\Z")
+_RELEASE_IMAGE_ROLES = frozenset(("pilot", "sim", "ui"))
 
 
 def _build_context_fingerprint(
@@ -347,6 +355,10 @@ class ContainerInstaller:
             "dev": "elesim-dev",
         }
         self._image_fingerprints: dict[str, str] = {}
+        # Each application role owns an independent readable release alias.
+        # Tools/developer images retain their own build aliases because they
+        # are infrastructure, not release roles.
+        self._release_aliases: dict[str, str] = {}
         self.shell_bashrc = (
             None
             if shell_bashrc is None
@@ -396,6 +408,7 @@ class ContainerInstaller:
 
         self.log("[1/6] Preparing installation directory and runtime data")
         self._image_fingerprints.clear()
+        self._release_aliases.clear()
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
         self._reserve_install_name()
@@ -418,6 +431,9 @@ class ContainerInstaller:
         self.log("[2/6] Creating role image contexts")
         for role in self.state.roles:
             self._write_role_context(role)
+        self._select_release_aliases()
+        for role in self.state.roles:
+            self._register_role_image_reference(role)
         if self.state.developer_attachment.enabled:
             self._write_developer_context()
         self.log("[3/6] Creating installation and diagnostic tools context")
@@ -550,6 +566,47 @@ class ContainerInstaller:
     def _infra_container_name(self, key: str) -> str:
         return self._special_container_names[key]
 
+    def _select_release_aliases(self) -> None:
+        """Reserve role-specific readable suffixes for scoped release inputs.
+
+        Selection happens only after every role context and the immutable
+        runtime snapshot have been fingerprinted.  Docker can therefore reuse
+        unchanged layers while each application role gets its own short tag.
+        Missing source metadata remains the compatibility path for direct
+        legacy helpers.
+        """
+
+        if not self._scoped_namespace or not self._install_name:
+            return
+        source_revision = os.environ.get("ELESIM_SOURCE_REVISION", "").strip()
+        if _SOURCE_REVISION.fullmatch(source_revision) is None:
+            return
+        snapshot = self.container_root / "runtime-snapshot"
+        try:
+            runtime_digest = runtime_data_digest(snapshot)
+        except (OSError, ValueError):
+            # The normal scoped path always creates this snapshot.  Leave the
+            # old per-fingerprint alias fallback intact for minimal/direct
+            # callers rather than hiding its more useful snapshot diagnostic.
+            return
+        roles = tuple(self.state.roles)
+        if not roles or not set(roles) <= _RELEASE_IMAGE_ROLES:
+            return
+        registry = self.container_root / "image-names.json"
+        for role in roles:
+            self._release_aliases[role] = reserve_role_release_name(
+                registry,
+                source_revision,
+                role,
+                self._image_fingerprints[role],
+                runtime_digest,
+            )
+
+    def _register_role_image_reference(self, role: str) -> None:
+        """Record the selected role tag so Compose label generation can use it."""
+
+        self._image_fingerprints[self._image_name(role)] = self._image_fingerprints[role]
+
     def _image_name(self, role: str) -> str:
         if not self._scoped_namespace:
             return f"elesim/{role}:local"
@@ -561,6 +618,15 @@ class ContainerInstaller:
             ) from exc
         if not self._install_name:
             return image_reference(self._install_uuid, role, fingerprint)
+        release_alias = self._release_aliases.get(role, "")
+        if release_alias and role in _RELEASE_IMAGE_ROLES:
+            return image_reference(
+                self._install_uuid,
+                role,
+                fingerprint,
+                install_name=self._install_name,
+                image_name=release_alias,
+            )
         version = reserve_image_name(
             self.container_root / "image-names.json", role, fingerprint,
         )
@@ -1073,7 +1139,6 @@ class ContainerInstaller:
             build_args=self._role_build_args(role),
         )
         self._image_fingerprints[role] = fingerprint
-        self._image_fingerprints[self._image_name(role)] = fingerprint
 
     def _write_tools_context(self) -> None:
         root = self.state.source_path

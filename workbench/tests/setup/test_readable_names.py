@@ -7,9 +7,14 @@ from elesim_setup.readable_names import (
     NAME_PATTERN,
     lookup_image_name,
     lookup_image_names,
+    lookup_name,
     random_name,
     reserve_image_name,
     reserve_name,
+    reserve_role_release_name,
+    reserve_release_name,
+    release_reservation_identity,
+    role_release_reservation_identity,
 )
 
 
@@ -132,3 +137,79 @@ def test_unique_legacy_alias_is_promoted_without_a_tag_change(tmp_path):
     assert lookup_image_names(path, "pilot", fingerprint) == ("quiet_otter",)
     names = json.loads(path.read_text())["names"]
     assert names["images"][f"pilot:{fingerprint}"] == "quiet_otter"
+
+
+def test_role_release_aliases_are_unique_and_input_bound(tmp_path):
+    path = tmp_path / "names.json"
+    pilot_fingerprint = "a" * 64
+    sim_fingerprint = "b" * 64
+    digest = "c" * 64
+    choices = iter(("golden_snail", "silver_pigeon", "bright_fox"))
+    pilot = reserve_role_release_name(
+        path,
+        "git-" + "1" * 40,
+        "pilot",
+        pilot_fingerprint,
+        digest,
+        generate=lambda: next(choices),
+    )
+    sim = reserve_role_release_name(
+        path,
+        "git-" + "1" * 40,
+        "sim",
+        sim_fingerprint,
+        digest,
+        generate=lambda: next(choices),
+    )
+    assert pilot == "golden_snail"
+    assert sim == "silver_pigeon"
+    assert pilot != sim
+    assert reserve_role_release_name(
+        path,
+        "git-" + "1" * 40,
+        "pilot",
+        pilot_fingerprint,
+        digest,
+        generate=lambda: pytest.fail("must reuse the exact role input"),
+    ) == pilot
+    assert reserve_role_release_name(
+        path,
+        "git-" + "2" * 40,
+        "pilot",
+        pilot_fingerprint,
+        digest,
+        generate=lambda: next(choices),
+    ) == "bright_fox"
+    registry = json.loads(path.read_text())
+    assert registry["names"]["releases"][
+        role_release_reservation_identity(
+            "git-" + "1" * 40, "pilot", pilot_fingerprint, digest
+        )
+    ] == "golden_snail"
+    assert registry["names"]["releases"][
+        role_release_reservation_identity(
+            "git-" + "1" * 40, "sim", sim_fingerprint, digest
+        )
+    ] == "silver_pigeon"
+
+
+def test_legacy_release_alias_reservation_remains_readable(tmp_path):
+    path = tmp_path / "names.json"
+    fingerprints = {"pilot": "a" * 64, "sim": "b" * 64}
+    digest = "c" * 64
+    alias = reserve_release_name(
+        path,
+        "git-" + "1" * 40,
+        tuple(fingerprints),
+        fingerprints,
+        digest,
+        generate=lambda: "golden_snail",
+    )
+    assert alias == "golden_snail"
+    assert lookup_name(
+        path,
+        "releases",
+        release_reservation_identity(
+            "git-" + "1" * 40, tuple(fingerprints), fingerprints, digest
+        ),
+    ) == alias

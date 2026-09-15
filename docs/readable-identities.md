@@ -8,8 +8,14 @@ provenance evidence; the readable names are presentation identifiers only.
 ## Agreed behavior
 
 - Actual installation name: `quiet_otter`; fresh project: `elesim-quiet_otter`.
-- Actual image reference: `elesim/sim:quiet_otter-calm_eagle`.
-- Actual release directory/CLI selector: `silver_pigeon`.
+- Application image references use one suffix per role/input, for example
+  `elesim/pilot:quiet_otter-silver_pigeon` and
+  `elesim/sim:quiet_otter-golden_snail`. The suffix is the readable version /
+  instance selector for that role; the full content-addressed release key
+  remains internal.
+- Release directories and instance CLI selectors continue to use the full
+  immutable SHA-256 release key; a readable image suffix is never proof of
+  ownership.
 - Names are two familiar English words. Collision means retry, never overwrite.
 - Store UUIDs, build fingerprints, image IDs and release content digests as
   internal ownership/provenance evidence; names are not credentials.
@@ -26,22 +32,31 @@ provenance evidence; the readable names are presentation identifiers only.
 `readable_names.py` reserves identity-to-name mappings under an explicit registry
 path with file locking and atomic publication. It rejects symlinks, malformed
 registries and duplicate reservations. The installer reserves one name for its
-UUID and one installation-wide image name per role/fingerprint, then emits tags such as
-`elesim/sim:quiet_otter-calm_eagle` and a project such as
-`elesim-quiet_otter`.
+UUID and one installation-wide image name per role/input, then emits tags such
+as `elesim/sim:quiet_otter-calm_eagle` and a project such as
+`elesim-quiet_otter`. The separate release scope reserves one suffix for each
+application role/input.
 
 The installation-wide image namespace covers Pilot, Sim, UI, tools and the
 optional development image, so two roles in one installation cannot receive
-the same new alias. Registries from older releases used role-specific scopes;
-those historical bindings remain readable, including a collision if one was
-already published, while any replacement binding is allocated from the shared
-scope without rewriting the old immutable tag.
+the same new image alias. Release aliases are reserved in that same registry
+but in a separate release scope; each role gets its own alias, and reservations
+are collision-checked against every scope. This keeps independently selected
+role images distinguishable even when they were built by one update. Registries
+from the intermediate shared-release implementation are still accepted for
+migration, while new publications never create shared aliases. Unchanged image
+IDs and BuildKit layers may therefore be reused under a new role-specific
+release tag.
 
 An update keeps the UUID, ownership manifest, release pins and an existing
-Compose project unchanged. A legacy UUID-scoped installation receives a
-readable tag on its next generated build without renaming its live project;
-this avoids orphaning running instances. Existing release tags and pinned image
-IDs remain valid and are never retagged or removed merely to shorten a name.
+Compose project unchanged. Each distinct role release input (authenticated
+source revision, that role's build fingerprint and runtime snapshot) reserves
+one new release suffix. Repeating the exact same role input is idempotent and
+reuses its suffix; a changed role input gets another one without making other
+role aliases equal to it. Existing release tags and pinned image IDs remain
+valid and are never retagged or removed merely to shorten a name. A legacy
+UUID-scoped installation receives readable tags on its next generated build
+without renaming its live project; this avoids orphaning running instances.
 Ownership, publication, instance lifecycle, connection-manager enrollment,
 uninstall and image cleanup all validate the exact project/labels and accept
 both the historical UUID tags and the reserved readable form.
@@ -67,7 +82,7 @@ with **Find installation and releases**, then presents installation and release
 choices. Remote queries use the pinned SSH endpoint; local queries are limited
 to the installation mounted by the manager. This is not a machine-wide scan.
 UUID/project values are stored automatically, and release selections retain the
-full immutable key internally. Each role card shows only that role's alias even
-when one immutable release contains several role images. A newly queried release
-is not activated or automatically selected. Existing saved selections remain
+full immutable key internally. Each role card shows only that role's alias;
+aliases from other roles are not offered as choices. A newly queried release is
+not activated or automatically selected. Existing saved selections remain
 intact until edited.

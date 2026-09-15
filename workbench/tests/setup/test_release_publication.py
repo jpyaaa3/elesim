@@ -144,6 +144,105 @@ def test_publish_records_new_install_scoped_images_for_uninstall(
     assert result.release_path.is_dir()
 
 
+def test_publish_accepts_role_specific_release_aliases(local_state, tmp_path: Path):
+    source_revision = "git-" + "f" * 40
+    state, ownership, snapshot, evidence = _inputs(
+        local_state,
+        tmp_path,
+        roles=("pilot", "sim"),
+        owned_images=False,
+        install_name="quiet_otter",
+    )
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    fingerprints = {
+        role: values["build_fingerprint"]
+        for role, values in payload["roles"].items()
+    }
+    from elesim_setup.readable_names import reserve_role_release_name
+
+    aliases = {}
+    choices = iter(("silver_pigeon", "bright_fox"))
+    for role, fingerprint in fingerprints.items():
+        aliases[role] = reserve_role_release_name(
+            state.prefix_path / "containers/image-names.json",
+            source_revision,
+            role,
+            fingerprint,
+            release_publication.runtime_data_digest(snapshot),
+            generate=lambda: next(choices),
+        )
+    for role, values in payload["roles"].items():
+        values["image_reference"] = image_reference(
+            INSTALL,
+            role,
+            values["build_fingerprint"],
+            install_name="quiet_otter",
+            image_name=aliases[role],
+        )
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    result = publish_from_evidence(
+        state,
+        ownership,
+        source_revision=source_revision,
+        runtime_snapshot=snapshot,
+        evidence_path=evidence,
+    )
+    assert result.release_path.is_dir()
+    manifest = json.loads((result.release_path / "manifest.json").read_text())
+    assert manifest["role_images"] == {
+        role: f"elesim/{role}:quiet_otter-{aliases[role]}"
+        for role in ("pilot", "sim")
+    }
+
+
+def test_publish_accepts_intermediate_shared_alias_for_migration(local_state, tmp_path: Path):
+    source_revision = "git-" + "e" * 40
+    state, ownership, snapshot, evidence = _inputs(
+        local_state,
+        tmp_path,
+        roles=("pilot", "sim"),
+        owned_images=False,
+        install_name="quiet_otter",
+    )
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    fingerprints = {
+        role: values["build_fingerprint"]
+        for role, values in payload["roles"].items()
+    }
+    from elesim_setup.readable_names import reserve_release_name
+
+    alias = reserve_release_name(
+        state.prefix_path / "containers/image-names.json",
+        source_revision,
+        tuple(payload["roles"]),
+        fingerprints,
+        release_publication.runtime_data_digest(snapshot),
+        generate=lambda: "silver_pigeon",
+    )
+    for role, values in payload["roles"].items():
+        values["image_reference"] = image_reference(
+            INSTALL,
+            role,
+            values["build_fingerprint"],
+            install_name="quiet_otter",
+            image_name=alias,
+        )
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    result = publish_from_evidence(
+        state,
+        ownership,
+        source_revision=source_revision,
+        runtime_snapshot=snapshot,
+        evidence_path=evidence,
+    )
+    assert result.release_path.is_dir()
+    manifest = json.loads((result.release_path / "manifest.json").read_text())
+    assert manifest["role_images"] == {
+        role: f"elesim/{role}:quiet_otter-{alias}"
+        for role in ("pilot", "sim")
+    }
+
+
 def test_publication_failure_does_not_append_image_ownership(
     local_state, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

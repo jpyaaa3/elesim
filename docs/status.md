@@ -133,9 +133,10 @@ host/Tailscale network namespace의 listen/relay port가 충돌하므로 instanc
 Docker가 최종 거부하며 live 공존 gate에서 확인해야 한다.
 외부 TURN은 instance별 credential 경로를 가진다. GPU 선택과 writable runtime
 경로도 instance 설정으로 내려 같은 host의 두 Sim이 설정 파일을 공유하지 않게 한다.
-신규 image tag는 설치 UUID와 build fingerprint를 포함하며, host 설치 단위
-build lock을 둔다. instance 제거는 image를 삭제하지 않고 전체 host uninstall만
-공통 image 제거를 소유한다.
+신규 image tag는 설치 이름과 역할별 readable release alias를 사용하며, 설치 UUID와
+build fingerprint는 소유권·검증 metadata로 보존한다. host 설치 단위 build lock을
+둔다. instance 제거는 image를 삭제하지 않고 전체 host uninstall만 공통 image
+제거를 소유한다.
 
 물리 Robot은 host당 하나의 native 안전 경계와 고정 systemd lifecycle을 유지한다.
 한 Robot host에서 두 system이 Robot을 동시에 활성화하는 것은 거부한다. 초기

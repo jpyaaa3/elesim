@@ -114,7 +114,7 @@ Jetson은 Robot 설치 전에 host ROS 2/Unitree workspace를 준비해야 한�
 
 ```text
 project:     elesim-quiet_otter
-images:      elesim/sim:quiet_otter-calm_eagle
+images:      elesim/sim:quiet_otter-golden_snail
 containers:  install/system/endpoint-scoped service names
 optional:    install-scoped Coturn (Sim host), Tailscale (Docker Desktop), dev service
 ```
@@ -293,11 +293,14 @@ bootstrap cache 로그는 설치 prefix 밖에 있으므로 제거 시에도 보
 
 ### 같은 이미지 이름 아래 여러 태그
 
-Scoped 이미지 이름은 `elesim/<role>:<install name>-<build name>`이다.
-UUID와 전체 fingerprint는 소유권 및 빌드 메타데이터에 보존한다. 기존 UUID
-project는 업데이트해도 유지하고, 새로 생성하는 이미지 태그에 짧은 이름을 쓴다.
-update는 변경된 빌드 입력에 새 태그를 부여한다. 성공한 scoped update/release
-및 `elesim-instance <system> up` 뒤에는 미참조 구버전 이미지를 자동 정리한다.
+Scoped 이미지 이름은 `elesim/<role>:<install name>-<release name>`이다.
+UUID와 전체 fingerprint는 소유권 및 빌드 메타데이터에 보존한다. 한 번의
+scoped update/release가 만드는 각 Pilot·Sim·UI 이미지에는 역할별로 다른 짧은
+release name을 붙인다. 기존 UUID project는 업데이트해도 유지하고, 새로
+생성하는 이미지 태그에 짧은 이름을 쓴다. 변경된 역할 입력에는 새 release
+name을 예약하며, 정확히 같은 입력을 재시도할 때는 기존 name을 재사용한다. 성공한
+scoped update/release 및 `elesim-instance <system> up` 뒤에는 미참조 구버전
+이미지를 자동 정리한다.
 현재 Compose의 최신 이미지, 등록된 instance가 고정한 릴리스 이미지,
 실행·정지 container가 참조하는 이미지와 외부 별칭/registry digest는 보존한다.
 설치 lock 아래 Engine ID·install UUID·project·fingerprint와 소유 목록을 확인하고
@@ -305,7 +308,7 @@ exact image ID만 `docker image rm` (force 없이)으로 제거한다. 미완료
 transaction lease, 소유권 불일치가 있으면 삭제하지 않고 실패를 보고한다.
 BuildKit cache·다른 설치·upstream image는 정리하지 않는다.
 이는 다른 설치를 만드는 것이 아니라, 기존 instance의 릴리스 pin을 유지하는
-버전 보관이다. 동일 입력에는 동일 태그를 사용하며 공통 Docker 레이어는
+버전 보관이다. release name이 바뀌어도 동일한 image ID와 공통 Docker 레이어를
 재사용할 수 있다. Repository 이름만 같은 항목을 중복 설치로 판단하거나
 일괄 삭제하지 않는다. 실행 중 container 및 등록된 release의 참조를 먼저
 확인해야 한다. `<none>` 이미지와 서로 다른 버전 태그는 별도로 구분한다.

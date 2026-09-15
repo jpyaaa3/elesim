@@ -9,6 +9,7 @@ name cannot silently acquire a different meaning later.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,7 +17,7 @@ import re
 import secrets
 import stat
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 
 
 # Keep the vocabulary small, familiar, ASCII-only and independent of installed
@@ -42,6 +43,7 @@ _IMAGE_ROLE = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
 _IMAGE_FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_BYTES = 4 * 1024 * 1024
 _IMAGE_SCOPE = "images"
+_RELEASE_SCOPE = "releases"
 
 
 def random_name() -> str:
@@ -53,6 +55,134 @@ def lookup_name(path: Path, scope: str, identity: str) -> str:
     path = Path(path)
     _safe_path(path)
     return _read(path).get(scope, {}).get(identity, "")
+
+
+def release_reservation_identity(
+    source_revision: str,
+    roles: Iterable[str],
+    build_fingerprints: Mapping[str, str],
+    runtime_data_digest: str,
+) -> str:
+    """Return the legacy all-role identity for one release's build inputs.
+
+    The readable suffix cannot be derived from the final release key because
+    that key includes the suffix itself.  These values are all known before
+    Docker assigns image IDs, so retries of the same update keep one suffix
+    while a source/config/data change receives a new one.
+    This shape is retained only to authenticate registries written by the
+    intermediate shared-alias implementation; new reservations use
+    :func:`role_release_reservation_identity`.
+    """
+
+    payload = {
+        "source_revision": str(source_revision),
+        "roles": sorted(str(role) for role in roles),
+        "build_fingerprints": {
+            str(role): str(fingerprint)
+            for role, fingerprint in sorted(build_fingerprints.items())
+        },
+        "runtime_data_digest": str(runtime_data_digest),
+    }
+    digest = hashlib.sha256(
+        (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    return f"release:{digest}"
+
+
+def role_release_reservation_identity(
+    source_revision: str,
+    role: str,
+    build_fingerprint: str,
+    runtime_data_digest: str,
+) -> str:
+    """Return the stable pre-tag identity for one role's release inputs.
+
+    A release suffix belongs to one application image, not to the complete
+    set of roles that happened to be built in the same update.  Keeping the
+    role in the reservation identity prevents Pilot and Sim (or two other
+    roles) from receiving the same alias while still making retries of the
+    same role/input idempotent.
+    """
+
+    payload = {
+        "source_revision": str(source_revision),
+        "role": str(role),
+        "build_fingerprint": str(build_fingerprint),
+        "runtime_data_digest": str(runtime_data_digest),
+    }
+    digest = hashlib.sha256(
+        (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    return f"release-role:{digest}"
+
+
+def reserve_role_release_name(
+    path: Path,
+    source_revision: str,
+    role: str,
+    build_fingerprint: str,
+    runtime_data_digest: str,
+    *,
+    unavailable: Iterable[str] = (),
+    generate: Callable[[], str] = random_name,
+) -> str:
+    """Reserve one installation-wide readable suffix for one role/input.
+
+    ``all_scopes`` makes release aliases avoid installation, image, tools and
+    historical reservations as well.  The old ``reserve_release_name`` API is
+    retained below solely so registries written by an intermediate build can
+    still be authenticated during migration.
+    """
+
+    return reserve_name(
+        path,
+        _RELEASE_SCOPE,
+        role_release_reservation_identity(
+            source_revision,
+            role,
+            build_fingerprint,
+            runtime_data_digest,
+        ),
+        unavailable=unavailable,
+        generate=generate,
+        all_scopes=True,
+    )
+
+
+def reserve_release_name(
+    path: Path,
+    source_revision: str,
+    roles: Iterable[str],
+    build_fingerprints: Mapping[str, str],
+    runtime_data_digest: str,
+    *,
+    unavailable: Iterable[str] = (),
+    generate: Callable[[], str] = random_name,
+) -> str:
+    """Reserve the legacy all-role suffix used by an intermediate installer.
+
+    New installations must call :func:`reserve_role_release_name`; this
+    helper remains for reading/replaying a registry written before aliases
+    became role-specific.
+    """
+
+    return reserve_name(
+        path,
+        _RELEASE_SCOPE,
+        release_reservation_identity(
+            source_revision,
+            roles,
+            build_fingerprints,
+            runtime_data_digest,
+        ),
+        unavailable=unavailable,
+        generate=generate,
+        all_scopes=True,
+    )
 
 
 def _image_identity(role: str, fingerprint: str) -> str:
@@ -165,6 +295,7 @@ def reserve_name(
     *,
     unavailable: Iterable[str] = (),
     generate: Callable[[], str] = random_name,
+    all_scopes: bool = False,
 ) -> str:
     """Reserve once per identity, serializing collision checks and publication.
 
@@ -188,7 +319,15 @@ def reserve_name(
         entries = names.setdefault(scope, {})
         if identity in entries:
             return entries[identity]
-        used = set(entries.values()) | set(unavailable)
+        used = (
+            {
+                name
+                for scope_entries in names.values()
+                for name in scope_entries.values()
+            }
+            if all_scopes
+            else set(entries.values())
+        ) | set(unavailable)
         for _ in range(4096):
             name = generate()
             if not isinstance(name, str) or not NAME_PATTERN.fullmatch(name):

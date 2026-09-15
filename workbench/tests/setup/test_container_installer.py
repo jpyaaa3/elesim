@@ -131,6 +131,8 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
         parts = named_image_parts(compose["services"][role]["image"], role)
         assert parts is not None and parts[0] == install_name
         aliases.append(parts[1])
+    # Every role receives a distinct installation-wide suffix.  Tools keeps
+    # its independent infrastructure alias in the same collision domain.
     assert len(set(aliases)) == len(aliases)
     manifest = json.loads(
         (state.prefix_path / "install-ownership.json").read_text(encoding="utf-8")
@@ -210,6 +212,49 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
         lifecycle = (state.bin_path / name).read_text(encoding="utf-8")
         assert "has no global runtime" in lifecycle
         assert "docker" not in lifecycle
+
+
+def test_scoped_release_aliases_are_unique_and_advance_per_role_input(
+    local_state, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_uuid = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    monkeypatch.setattr(
+        "elesim_setup.container_installer.ownership_install_uuid",
+        lambda refresh: install_uuid,
+    )
+    state = local_state(roles=("pilot", "sim"), install_mode="container")
+
+    monkeypatch.setenv("ELESIM_SOURCE_REVISION", "git-" + "1" * 40)
+    ContainerInstaller(state).run()
+    first = _compose(state)
+    first_roles = {
+        role: named_image_parts(first["services"][role]["image"], role)[1]
+        for role in ("pilot", "sim")
+    }
+    assert len(set(first_roles.values())) == len(first_roles)
+    first_tools = named_image_parts(first["services"]["tools"]["image"], "tools")[1]
+    assert first_tools not in first_roles.values()
+
+    monkeypatch.setenv("ELESIM_SOURCE_REVISION", "git-" + "2" * 40)
+    ContainerInstaller(state).run()
+    second = _compose(state)
+    second_roles = {
+        role: named_image_parts(second["services"][role]["image"], role)[1]
+        for role in ("pilot", "sim")
+    }
+    assert len(set(second_roles.values())) == len(second_roles)
+    assert all(second_roles[role] != first_roles[role] for role in first_roles)
+    assert named_image_parts(second["services"]["tools"]["image"], "tools")[1] == first_tools
+
+    # An interrupted/retried update with the same authenticated inputs is
+    # idempotent and keeps the release suffix rather than minting duplicates.
+    ContainerInstaller(state).run()
+    third = _compose(state)
+    third_roles = {
+        role: named_image_parts(third["services"][role]["image"], role)[1]
+        for role in ("pilot", "sim")
+    }
+    assert third_roles == second_roles
 
 
 def test_scoped_instance_dispatcher_requires_registered_system_and_execs_exact_wrapper(
