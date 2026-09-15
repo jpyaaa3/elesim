@@ -680,6 +680,35 @@ function sshPort(slot) {
     : Number(field(slot, "ssh-port").value);
 }
 
+function sshHostFromForm(slot) {
+  const host = field(slot, "ssh-host").value.trim();
+  if (!host) throw new Error(`${t("error.ssh.host.required")} (${slot})`);
+  return host;
+}
+
+function sshEndpointFromForm(slot) {
+  const host = sshHostFromForm(slot);
+  const port = sshPort(slot);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`${t("error.ssh.port.invalid")} (${slot})`);
+  }
+  const user = field(slot, "ssh-user").value.trim();
+  if (!user) throw new Error(`${t("error.ssh.user.required")} (${slot})`);
+  const pinnedFingerprint = field(slot, "ssh-fingerprint").value.trim();
+  if (!pinnedFingerprint) {
+    throw new Error(`${t("error.ssh.fingerprint.required")} (${slot})`);
+  }
+  const tailscale = field(slot, "ssh-tailscale").checked;
+  return {
+    host,
+    port,
+    user,
+    identity_file: tailscale ? "" : field(slot, "ssh-key").value.trim(),
+    pinned_fingerprint: pinnedFingerprint,
+    auth_mode: tailscale ? "tailscale" : "openssh",
+  };
+}
+
 function topologyFromForm() {
   const localSlot = document.querySelector('input[name="local-host"]:checked')?.value || "";
   const active = activeSlots();
@@ -738,6 +767,7 @@ function topologyFromForm() {
       });
     }
     const hostId = card(slot).querySelector(".host-name").value.trim().toLowerCase();
+    const ssh = local ? null : sshEndpointFromForm(slot);
     const host = {
       id: hostId,
       local,
@@ -747,21 +777,10 @@ function topologyFromForm() {
         ...(isTailscaleInterface(field(slot, "dds-interface").value)
           ? {address_source: "tailscale"} : {})
       },
-      ssh: null,
+      ssh,
       jetson: isRobotHost(slot),
       units
     };
-    if (!local) {
-      host.ssh = {
-        host: field(slot, "ssh-host").value.trim(),
-        port: sshPort(slot),
-        user: field(slot, "ssh-user").value.trim(),
-        identity_file: field(slot, "ssh-tailscale").checked
-          ? "" : field(slot, "ssh-key").value.trim(),
-        pinned_fingerprint: field(slot, "ssh-fingerprint").value.trim(),
-        auth_mode: field(slot, "ssh-tailscale").checked ? "tailscale" : "openssh"
-      };
-    }
     return host;
   });
   return {
@@ -1109,7 +1128,7 @@ async function probeSsh(slot) {
   if (document.querySelector('input[name="local-host"]:checked')?.value === slot) {
     throw new Error(t("error.local.probe"));
   }
-  const host = field(slot, "ssh-host").value.trim();
+  const host = sshHostFromForm(slot);
   const port = sshPort(slot);
   const result = await api("/api/ssh/fingerprint", {
     method: "POST",
@@ -1339,13 +1358,8 @@ function bindDropZone(zone) {
 function installationQuery(slot) {
   const local = card(slot).querySelector('input[name="local-host"]').checked;
   return {local, install_root: field(slot, "install-root").value.trim(),
-    bin_dir: field(slot, "bin-dir").value.trim(), ssh: local ? null : {
-      host: field(slot, "ssh-host").value.trim(), port: sshPort(slot),
-      user: field(slot, "ssh-user").value.trim(),
-      identity_file: field(slot, "ssh-tailscale").checked ? "" : field(slot, "ssh-key").value.trim(),
-      pinned_fingerprint: field(slot, "ssh-fingerprint").value.trim(),
-      auth_mode: field(slot, "ssh-tailscale").checked ? "tailscale" : "openssh"
-    }};
+    bin_dir: field(slot, "bin-dir").value.trim(),
+    ssh: local ? null : sshEndpointFromForm(slot)};
 }
 
 async function lookupInstallation(slot) {

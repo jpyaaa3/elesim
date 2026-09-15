@@ -732,7 +732,8 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "robot-bin-dir" not in html
     assert 'host.ssh.host' in script
     assert "let schemaVersion = 5;" in script
-    assert 'host: field(slot, "ssh-host").value.trim()' in script
+    assert "function sshEndpointFromForm(slot)" in script
+    assert "error.ssh.host.required" in script
     assert 'const host = field(slot, "ssh-host").value.trim();' in script
     assert "syncSshAddress" not in script
     assert 'container_network_mode === "tailscale-sidecar"' in script
