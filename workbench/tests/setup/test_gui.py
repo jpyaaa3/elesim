@@ -58,6 +58,9 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert catalog["ko"]["app.title"] == "EleSim 설치 마법사"
     assert catalog["en"]["app.title"] == "EleSim Setup Wizard"
     assert 'data-i18n="app.title"' in html
+    assert 'lang="en"' in html
+    assert 'review.security' not in script
+    assert 'review.turn' not in script
     assert '<img src="/icon.svg" alt="">' in html
     assert '<link rel="icon" href="/icon.svg" type="image/svg+xml">' in html
     assert "background: rgb(200 200 100);" in style

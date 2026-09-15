@@ -14,7 +14,7 @@ const roleOrder = ["sim", "pilot", "ui", "robot"];
 const defaultRoles = ["sim", "pilot", "ui"];
 
 let catalog = {};
-let language = "ko";
+let language = "en";
 let context = null;
 let currentStep = 0;
 let pollTimer = null;
@@ -228,10 +228,6 @@ async function prepareReview() {
     ["review.prefix", summary.prefix],
     ["review.bin", summary.bin_dir],
     ["review.gpu", summary.gpu_mode],
-    ["review.security", summary.security_profile === "sros2"
-      ? `${summary.security_profile} (${summary.security_provisioning})`
-      : summary.security_profile],
-    ["review.turn", summary.turn_mode],
     ...(selectedRoles().includes("robot")
       ? [["review.dds_interface", summary.dds_interface]] : []),
     ["review.path", summary.register_path ? t("value.yes") : t("value.no")],

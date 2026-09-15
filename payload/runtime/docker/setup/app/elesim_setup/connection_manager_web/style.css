@@ -63,6 +63,7 @@ button.danger-button:hover { background: #7f2525; }
 button.secondary-button { border-color: var(--line); background: #fff; color: var(--accent-dark); }
 button.secondary-button:hover { border-color: var(--accent); background: var(--accent-soft); }
 button.icon-button { width: 32px; min-height: 32px; border-color: transparent; padding: 0; background: transparent; color: var(--muted); font-size: 20px; }
+button.rename-host { border-color: #1f242b; background: transparent; }
 button.icon-button:hover { border-color: #d7a6aa; background: var(--danger-soft); color: var(--danger); }
 button.rename-host:hover, button.move-host-up:hover, button.move-host-down:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); }
 
@@ -124,20 +125,20 @@ input:hover, select:hover { border-color: #929aa6; }
 input[readonly] { background: #f2f4f3; color: #4f5c56; }
 input[data-field="ssh-port"]:disabled { background: #f2f4f3; color: #4f5c56; opacity: 1; }
 .host-grid { display: grid; gap: 14px; }
-.host-card { display: grid; overflow: hidden; grid-template-columns: minmax(300px, 1.08fr) minmax(260px, .87fr) minmax(300px, 1.05fr); border: 1px solid #aeb4bd; border-radius: 6px; background: var(--surface-2); transition: box-shadow .15s; }
+.host-card { display: grid; overflow: hidden; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid #aeb4bd; border-radius: 6px; background: var(--surface-2); transition: box-shadow .15s; }
 .host-card:hover { box-shadow: 0 3px 10px rgb(25 27 32 / 8%); }
-.host-card > header { display: flex; min-height: 48px; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding: 7px 10px 7px 14px; background: #e3e6eb; }
+.host-card > header { display: flex; min-height: 48px; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding: 7px 10px 7px 13px; background: #e3e6eb; }
 .host-card.robot-host > header { background: #e9e7f1; }
 .host-card > header > div { display: flex; align-items: center; gap: 7px; }
 .host-identity { min-width: 0; }
-.host-name { width: min(220px, 35vw); min-height: 32px; border-color: transparent; padding: 2px 5px; background: transparent; color: var(--ink); font-size: 18px; font-weight: 850; }
+.host-name { width: min(220px, 35vw); min-height: 32px; border-color: transparent; padding: 2px 5px 2px 0; background: transparent; color: var(--ink); font-size: 18px; font-weight: 700; }
 .host-name[readonly] { background: transparent; color: var(--ink); cursor: default; }
 .host-name:not([readonly]) { border-color: var(--accent); background: #fff; }
 .rename-host { display: grid; place-items: center; }
 .rename-host img { display: block; width: 23px; height: 23px; object-fit: contain; opacity: .78; }
 .host-header-actions { flex: 0 0 auto; }
 .host-header-actions .move-host-up, .host-header-actions .move-host-down { font-size: 13px; }
-.robot-badge { border-radius: 999px; padding: 3px 8px; background: #d8d0e8; color: #4f3d72; font-size: var(--font-small); font-weight: 800; }
+.robot-badge { border-radius: 999px; padding: 3px 8px; background: #d8d0e8; color: #4f3d72; font-size: var(--font-small); font-weight: 700; }
 .host-column { min-width: 0; padding: 13px; }
 .host-column + .host-column { border-left: 1px solid var(--line); }
 .column-heading { display: flex; min-height: 32px; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
@@ -152,12 +153,12 @@ input[data-field="ssh-port"]:disabled { background: #f2f4f3; color: #4f5c56; opa
 .robot-host .local-choice { display: none; }
 
 .unit-lanes { display: grid; grid-template-columns: 1fr; gap: 9px; }
-.robot-host .unit-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.robot-host .unit-lanes { grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr); gap: 7px; }
 .unit-lane { min-width: 0; }
 .runtime-lane { background: #fdfefd; }
 .robot-lane { background: #fbf9ff; }
 .robot-lane .drop-zone { background: #fbf9ff; }
-.drop-zone { position: relative; display: grid; min-height: 304px; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 82px; align-content: start; gap: 7px; border: 1px dashed #b7c4bd; border-radius: 6px; padding: 8px 8px 34px; background: #fdfefd; }
+.drop-zone { position: relative; display: grid; min-height: 320px; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 82px; align-content: start; gap: 7px; border: 1px dashed #b7c4bd; border-radius: 6px; padding: 8px 8px 34px; background: #fdfefd; }
 .robot-host .runtime-lane .drop-zone { grid-template-columns: 1fr; }
 .robot-lane .drop-zone { border-color: #b2a5ca; grid-template-columns: 1fr; }
 .drop-zone.empty::before { position: absolute; inset: 0; display: grid; place-items: center; color: #849188; content: "Drag & Drop"; pointer-events: none; }
