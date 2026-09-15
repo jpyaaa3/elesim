@@ -54,6 +54,9 @@ _DOCKER_IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 _RELEASE_KEY = re.compile(r"^[0-9a-f]{64}$")
 _RELEASE_SOURCE_REVISION = re.compile(r"^(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})$")
 _RELEASE_ROLES = frozenset(("pilot", "sim", "ui"))
+_NAMED_RELEASE_IMAGE = re.compile(
+    r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}_[a-z]{2,16})-([a-z]{2,16}_[a-z]{2,16})$"
+)
 _MAX_RELEASE_MANIFEST_BYTES = 256 * 1024
 _INSTANCE_SYSTEM_ID = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
 _INSTANCE_ENDPOINT_ID = re.compile(r"[a-z][a-z0-9_-]{0,62}\Z")
@@ -257,10 +260,20 @@ def _owned_release_image_ids(manifest: OwnershipManifest) -> tuple[str, ...]:
             fingerprint = fingerprints[role]
             image = role_images[role]
             image_id = image_ids[role]
+            named = _NAMED_RELEASE_IMAGE.fullmatch(image) if isinstance(image, str) else None
+            image_valid = image == f"elesim/{role}:{install_hex}-{fingerprint}"
+            if named is not None:
+                install_name = manifest.docker.install_name if manifest.docker else ""
+                image_valid = bool(
+                    install_name
+                    and named.group(1) == install_name
+                    and isinstance(image, str)
+                    and image.startswith(f"elesim/{role}:")
+                )
             if (
                 not isinstance(fingerprint, str)
                 or _RELEASE_KEY.fullmatch(fingerprint) is None
-                or image != f"elesim/{role}:{install_hex}-{fingerprint}"
+                or not image_valid
                 or not isinstance(image_id, str)
                 or _DOCKER_IMAGE_ID.fullmatch(image_id) is None
             ):
@@ -1313,10 +1326,7 @@ def _validate_docker(
                 f"{name}: compose={config_files!r}"
             )
         if alternate_compose in configs:
-            expected_scoped_project = (
-                f"elesim-runtime-{uuid.UUID(ownership.install_uuid).hex}"
-            )
-            if ownership.project != expected_scoped_project:
+            if ownership.project == "elesim-runtime":
                 raise UninstallSafetyError(
                     "Scoped instance Compose cannot be used with a legacy Docker project: "
                     f"{name}"

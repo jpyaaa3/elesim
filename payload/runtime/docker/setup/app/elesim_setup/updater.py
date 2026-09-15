@@ -16,6 +16,10 @@ _LOCAL_IMAGE = re.compile(r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:local$")
 _INSTALL_IMAGE = re.compile(
     r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([0-9a-f]{32})-([0-9a-f]{64})$"
 )
+_NAMED_IMAGE = re.compile(
+    r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}_[a-z]{2,16})-([a-z]{2,16}_[a-z]{2,16})$"
+)
+_READABLE_NAME = re.compile(r"[a-z]{2,16}_[a-z]{2,16}\Z")
 _SOURCE_REVISION = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})$")
 
 
@@ -45,11 +49,14 @@ def render_compose_build_progress(prefix: Path) -> str:
     )
 
 
-def _image_belongs_to_install(image: str, install_uuid: str) -> bool:
+def _image_belongs_to_install(image: str, install_uuid: str, install_name: str = "") -> bool:
     if _LOCAL_IMAGE.fullmatch(image):
         return True
     match = _INSTALL_IMAGE.fullmatch(image)
-    return match is not None and match.group(1) == install_uuid.replace("-", "")
+    if match is not None:
+        return match.group(1) == install_uuid.replace("-", "")
+    named = _NAMED_IMAGE.fullmatch(image)
+    return bool(install_name and named is not None and named.group(1) == install_name)
 
 
 def render_update_wrapper(
@@ -64,6 +71,8 @@ def render_update_wrapper(
     ref: str | None = None,
     runtime_uid: int | None = None,
     install_uuid: str | None = None,
+    install_name: str = "",
+    project: str | None = None,
     owned_images: Sequence[str] = (),
     runtime_snapshot: Path | None = None,
     source_revision: str | None = None,
@@ -83,11 +92,14 @@ def render_update_wrapper(
             for ch in install_uuid
         ):
             raise ValueError("install_uuid must be a non-empty shell-safe value")
+    install_name = str(install_name or "").strip()
+    if install_name and _READABLE_NAME.fullmatch(install_name) is None:
+        raise ValueError("install_name must be two lowercase words separated by an underscore")
     normalized_owned_images = tuple(str(value).strip() for value in owned_images)
     if len(set(normalized_owned_images)) != len(normalized_owned_images):
         raise ValueError("owned_images must not contain duplicates")
     if install_uuid is not None and any(
-        not _image_belongs_to_install(value, install_uuid)
+        not _image_belongs_to_install(value, install_uuid, install_name)
         for value in normalized_owned_images
     ):
         raise ValueError(
@@ -95,6 +107,12 @@ def render_update_wrapper(
         )
     if normalized_owned_images and install_uuid is None:
         raise ValueError("owned_images requires install_uuid")
+    if project is None and install_uuid is not None:
+        project = "elesim-runtime-" + install_uuid.replace("-", "")
+    if project is not None:
+        project = str(project).strip()
+        if not project or any(ch.isspace() or ch in {"'", '"', "\\", "\x00"} for ch in project):
+            raise ValueError("project must be a non-empty shell-safe value")
     normalized_publish_roles = tuple(str(role).strip() for role in publish_roles)
     if runtime_snapshot is not None:
         if install_uuid is None:
@@ -314,6 +332,8 @@ def render_update_wrapper(
                 install_uuid=str(install_uuid),
                 roles=normalized_publish_roles,
                 prefix=prefix,
+                project=project or "",
+                install_name=install_name,
             )
         )
         lines.extend(
@@ -340,6 +360,8 @@ def _render_release_publish_lines(
     install_uuid: str,
     roles: Sequence[str],
     prefix: Path,
+    project: str = "",
+    install_name: str = "",
 ) -> tuple[str, ...]:
     """Render the bounded host-to-tools release publication handoff.
 
@@ -357,7 +379,8 @@ def _render_release_publish_lines(
     )
     compose_prefix = f"{compose_command} -f {shlex.quote(str(compose))}"
     specs = " ".join(shlex.quote(role) for role in roles)
-    project = "elesim-runtime-" + install_uuid.replace("-", "")
+    if not project:
+        project = "elesim-runtime-" + install_uuid.replace("-", "")
     revision_lines: tuple[str, ...]
     if source_revision is not None:
         revision_lines = ("release_source_revision=" + shlex.quote(source_revision),)
@@ -391,7 +414,7 @@ def _render_release_publish_lines(
         "  while IFS= read -r release_candidate; do",
         "    if [[ $release_candidate == \"elesim/$release_role:\"* ]]; then release_image=$release_candidate; break; fi",
         "  done <<< \"$release_compose_images\"",
-        "  if [[ ! $release_image =~ ^elesim/(pilot|sim|ui):[0-9a-f]{32}-[0-9a-f]{64}$ || $release_image != \"elesim/$release_role:\"* ]]; then printf 'invalid scoped image for role %s\\n' \"$release_role\" >&2; exit 70; fi",
+        "  if [[ ! $release_image =~ ^elesim/(pilot|sim|ui):([0-9a-f]{32}-[0-9a-f]{64}|[a-z]{2,16}_[a-z]{2,16}-[a-z]{2,16}_[a-z]{2,16})$ || $release_image != \"elesim/$release_role:\"* ]]; then printf 'invalid scoped image for role %s\\n' \"$release_role\" >&2; exit 70; fi",
         "  release_entry=\"$(docker image inspect --format '{\"image_reference\":\"'\"$release_image\"'\",\"image_id\":{{json .Id}},\"install_uuid\":{{json (index .Config.Labels \"io.elesim.install_uuid\")}},\"build_fingerprint\":{{json (index .Config.Labels \"io.elesim.build_fingerprint\")}},\"project\":{{json (index .Config.Labels \"com.docker.compose.project\")}}}' \"$release_image\")\"",
         "  [[ $release_entry == *'\\n'* ]] && { printf '%s\\n' 'invalid Docker evidence' >&2; exit 70; }",
         "  if (( release_evidence_first )); then release_evidence_first=0; else printf '%s' ',' >>\"$release_evidence\"; fi",
@@ -425,6 +448,8 @@ def render_release_wrapper(
     runtime_snapshot: Path,
     install_uuid: str,
     release_images: Sequence[str],
+    install_name: str = "",
+    project: str | None = None,
     runtime_uid: int | None = None,
     build_progress: bool = False,
     cleanup_images: bool = False,
@@ -443,6 +468,8 @@ def render_release_wrapper(
         preamble=preamble,
         runtime_uid=runtime_uid,
         install_uuid=install_uuid,
+        install_name=install_name,
+        project=project,
         runtime_snapshot=runtime_snapshot,
         source_revision=source_revision,
         publish_roles=roles,

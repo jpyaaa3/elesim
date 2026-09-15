@@ -20,7 +20,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
 from .network import is_tailscale_interface
-from .instance_identity import project_name
+from .instance_identity import is_scoped_project
 
 
 CONNECTION_SCHEMA_VERSION = 6
@@ -535,10 +535,9 @@ class DeploymentUnit:
                 raise ValueError("unit.install_uuid must be a canonical UUID string") from exc
             if str(parsed) != install_uuid:
                 raise ValueError("unit.install_uuid must be a canonical UUID string")
-            expected_project = project_name(install_uuid)
-            if project and project != expected_project:
+            if project and not is_scoped_project(install_uuid, project):
                 raise ValueError(
-                    "unit.project must match the scoped project derived from unit.install_uuid"
+                    "unit.project must be a valid scoped EleSim project"
                 )
         elif project:
             raise ValueError("unit.project requires a scoped install_uuid")

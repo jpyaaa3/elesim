@@ -6,7 +6,7 @@ from copy import deepcopy
 import os
 from typing import Mapping
 
-from .instance_identity import container_name, project_name, service_key
+from .instance_identity import container_name, is_scoped_project, project_name, service_key
 from .instances import InstanceState
 from .releases import ReleaseManifest, release_key
 
@@ -71,7 +71,13 @@ def _overlaps(first: str, second: str) -> bool:
     return left == right or left.startswith(right.rstrip("/") + "/") or right.startswith(left.rstrip("/") + "/")
 
 
-def _validate_runtime_identity(install_uuid: str, key: str, service: Mapping[str, object], seen: set[tuple[str, str]]) -> None:
+def _validate_runtime_identity(
+    install_uuid: str,
+    key: str,
+    service: Mapping[str, object],
+    seen: set[tuple[str, str]],
+    project: str,
+) -> None:
     labels = service.get("labels")
     if not isinstance(labels, Mapping):
         raise ValueError("runtime service labels are required")
@@ -87,8 +93,8 @@ def _validate_runtime_identity(install_uuid: str, key: str, service: Mapping[str
         raise ValueError("role service has an unexpected service kind")
     if service.get("container_name") != container_name(install_uuid, key):
         raise ValueError("runtime service container name is not install-scoped")
-    project = labels.get("com.docker.compose.project")
-    if project is not None and project != project_name(install_uuid):
+    label_project = labels.get("com.docker.compose.project")
+    if label_project is not None and label_project != project:
         raise ValueError("runtime service has a foreign Compose project")
     identity = (system, endpoint)
     if identity in seen:
@@ -258,10 +264,15 @@ def aggregate_compose(
     install_uuid: str,
     instance_service_groups: Mapping[str, Mapping[str, Mapping[str, object]]],
     infrastructure: Mapping[str, Mapping[str, object]],
+    *,
+    project: str | None = None,
 ) -> dict[str, object]:
     """Merge rendered groups and install-scoped infrastructure without collisions."""
 
     project_name(install_uuid)
+    selected_project = project_name(install_uuid) if project is None else project
+    if not is_scoped_project(install_uuid, selected_project) or selected_project == "elesim-runtime":
+        raise ValueError("Compose project is not a valid scoped EleSim namespace")
     services: dict[str, dict[str, object]] = {}
     if not isinstance(instance_service_groups, Mapping) or not isinstance(infrastructure, Mapping):
         raise ValueError("Compose service groups and infrastructure must be objects")
@@ -275,7 +286,7 @@ def aggregate_compose(
                 raise ValueError(f"duplicate Compose service key: {key}")
             if not isinstance(key, str) or not isinstance(service, Mapping):
                 raise ValueError("Compose services must have string names and object values")
-            _validate_runtime_identity(install_uuid, key, service, seen)
+            _validate_runtime_identity(install_uuid, key, service, seen, selected_project)
             network_mode = service.get("network_mode", "host")
             if not isinstance(network_mode, str) or network_mode not in {
                 "host",
@@ -303,7 +314,6 @@ def aggregate_compose(
                             raise ValueError(f"writable source paths overlap: {source}")
                         mounted_sources.append((source, writable))
             services[key] = deepcopy(dict(service))
-    scope = project_name(install_uuid).removeprefix("elesim-runtime-")
     for key, service in infrastructure.items():
         if key in services:
             raise ValueError(f"duplicate Compose service key: {key}")
@@ -311,7 +321,8 @@ def aggregate_compose(
             raise ValueError("Compose infrastructure must have string names and object values")
         item = deepcopy(dict(service))
         container = item.get("container_name")
-        if not isinstance(container, str) or not container.startswith(f"elesim-{scope}-"):
+        expected_prefix = container_name(install_uuid, "tailscale").split("-tailscale-", 1)[0] + "-"
+        if not isinstance(container, str) or not container.startswith(expected_prefix):
             raise ValueError("infrastructure container is not install-scoped")
         labels = item.get("labels")
         if not isinstance(labels, Mapping) or labels.get(_INSTALL_LABEL) != install_uuid:
@@ -342,7 +353,7 @@ def aggregate_compose(
             raise ValueError("runtime service dependencies must be a mapping or list")
         if any(not isinstance(name, str) or name not in services for name in dependency_names):
             raise ValueError("runtime service dependency escapes this scoped Compose project")
-    return {"name": project_name(install_uuid), "services": services}
+    return {"name": selected_project, "services": services}
 
 
 __all__ = ["aggregate_compose", "render_instance_services"]

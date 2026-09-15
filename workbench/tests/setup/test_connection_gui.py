@@ -31,6 +31,57 @@ from elesim_setup.secure_deployment import RuntimeLaunchOptions
 FINGERPRINT = "SHA256:" + "A" * 43
 
 
+def test_installation_lookup_rejects_unmounted_local_path(tmp_path):
+    app = _application(tmp_path)
+    with pytest.raises(ValueError, match="installed paths"):
+        app.installation_choices({"local": True, "install_root": "/other", "bin_dir": "/other/bin", "ssh": None})
+
+
+@pytest.mark.parametrize("has_release", [False, True])
+def test_installation_lookup_remote_uses_pinned_endpoint(tmp_path, monkeypatch, has_release):
+    from types import SimpleNamespace
+    from elesim_setup import secure_deployment
+    install_uuid = "64c395aa-c19f-4555-8594-6f9291219eb7"
+    project = "elesim-quiet_otter"
+    commands = []
+    from elesim_setup.releases import ReleaseManifest, release_key
+    release = ReleaseManifest(
+        install_uuid=install_uuid, source_revision="git-" + "a" * 40,
+        platform="linux/amd64", role_images={"sim": "elesim/sim:quiet_otter-calm_eagle"},
+        image_ids={"sim": "sha256:" + "b" * 64},
+        build_fingerprints={"sim": "c" * 64}, runtime_data_digest="d" * 64,
+    ).validate()
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def run(self, command):
+            commands.append(command)
+            result = {"schema_version": 1, "install_uuid": install_uuid, "project": project} if command[-1] == "identity" else ([{**release.to_dict(), "release_key": release_key(release)}] if has_release else [])
+            return SimpleNamespace(stdout=json.dumps(result))
+
+    class Connector:
+        def __init__(self, **kwargs):
+            pass
+
+        def connect(self, endpoint):
+            assert endpoint.pinned_fingerprint == FINGERPRINT
+            return Session()
+
+    monkeypatch.setattr(secure_deployment, "ParamikoConnector", Connector)
+    result = _application(tmp_path).installation_choices({
+        "local": False, "install_root": "/opt/elesim", "bin_dir": "/opt/elesim/bin",
+        "ssh": _ssh("server", 2222).to_dict(),
+    })
+    choices = [{"key": release_key(release), "label": "1. sim: calm_eagle", "roles": ["sim"]}] if has_release else []
+    assert result["installations"] == [{"name": project, "install_uuid": install_uuid, "project": project, "releases": choices}]
+    assert commands == [("/opt/elesim/bin/elesim-net", "identity"), ("/opt/elesim/bin/elesim-net", "releases")]
+
+
 def _ssh(host: str, port: int) -> SshEndpoint:
     return SshEndpoint(
         host=host,

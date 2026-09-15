@@ -43,7 +43,7 @@ from .secure_deployment import (
     SshHostOperations,
     TopologyRollout,
 )
-from .instance_identity import project_name
+from .instance_identity import is_scoped_project, project_name
 from .instances import InstanceEndpoint, InstanceRegistry, InstanceState
 from .ownership import OwnershipManifest
 from .releases import ReleaseManifest, list_releases, release_key
@@ -736,12 +736,12 @@ class ConnectionDeploymentRunner:
                 f"scoped install identity values are invalid on {unit.unit_id!r}"
             )
         try:
-            expected_project = project_name(install_uuid)
+            project_name(install_uuid)
         except ValueError as exc:
             raise ValueError(
                 f"scoped install identity UUID is invalid on {unit.unit_id!r}"
             ) from exc
-        if project != expected_project:
+        if project == "elesim-runtime" or not is_scoped_project(install_uuid, project):
             raise ValueError(
                 f"scoped install identity project is not derived from UUID on {unit.unit_id!r}"
             )
@@ -1006,7 +1006,7 @@ class ConnectionDeploymentRunner:
                 )
                 local_identity = (
                     manifest.install_uuid,
-                    project_name(manifest.install_uuid),
+                    manifest.docker.project if manifest.docker else "",
                 )
             except (OSError, ValueError) as exc:
                 # A real scoped install always has an existing prefix and an
@@ -1225,7 +1225,7 @@ class ConnectionDeploymentRunner:
                     if local_manifest is None or local_manifest.docker is None:
                         raise ValueError("local scoped deployment requires ownership evidence")
                     install_uuid = local_manifest.install_uuid
-                    project = project_name(install_uuid)
+                    project = local_manifest.docker.project
                     if unit.install_uuid and unit.install_uuid != install_uuid:
                         raise ValueError(f"local unit {unit.unit_id!r} install UUID mismatch")
                     if unit.project and unit.project != project:
@@ -1386,6 +1386,14 @@ class ConnectionDeploymentRunner:
         if topology.security_profile == "sros2":
             generation = new_generation_id()
 
+        local_project = ""
+        if self.local_install_root is not None:
+            local_manifest_path = self.local_install_root / "install-ownership.json"
+            if local_manifest_path.is_file():
+                local_owner = OwnershipManifest.load(local_manifest_path)
+                if local_owner.docker is not None:
+                    local_project = local_owner.docker.project
+
         units = []
         for host, unit, instance, release, previous, previous_release in plans:
             if generation:
@@ -1401,7 +1409,7 @@ class ConnectionDeploymentRunner:
                     # so local release readback is bound to the right install.
                     "install_uuid": release.install_uuid if host.local else unit.install_uuid,
                     "project": (
-                        project_name(release.install_uuid)
+                        (unit.project or local_project or project_name(release.install_uuid))
                         if host.local
                         else unit.project
                     ),
@@ -1680,7 +1688,7 @@ class ConnectionDeploymentRunner:
                 )
                 local_identity = (
                     manifest.install_uuid,
-                    project_name(manifest.install_uuid),
+                    manifest.docker.project if manifest.docker else "",
                 )
             except (OSError, ValueError) as exc:
                 if self.local_install_root.exists():
@@ -2543,6 +2551,8 @@ class ConnectionDeploymentRunner:
         if docker.project == "elesim-runtime":
             return False
         if docker.project == project_name(docker.install_uuid):
+            return True
+        if is_scoped_project(docker.install_uuid, docker.project):
             return True
         raise ValueError(
             "local install ownership has an unsupported Docker scope; "

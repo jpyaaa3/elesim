@@ -20,7 +20,6 @@ from ._security_storage import (
 )
 from .container_installer import ContainerInstaller
 from .installer import Installer, preflight_notes
-from .instance_identity import project_name
 from .instance_runtime import InstanceRuntime
 from .instance_security import stage_instance_security
 from .instances import InstanceEndpoint, InstanceRegistry, InstanceState, instance_turn_secret_path
@@ -65,8 +64,7 @@ def _load_instance_context(state_path: Path) -> tuple[InstallState, OwnershipMan
     docker = manifest.docker
     if manifest.prefix_path != prefix or docker is None or manifest.install_uuid != docker.install_uuid:
         raise ValueError("install-state and ownership manifest do not describe the same installation")
-    expected_project = project_name(manifest.install_uuid)
-    if docker.project != expected_project:
+    if docker.project == "elesim-runtime":
         raise ValueError(
             "instance operations require a scoped installation; "
             "the legacy elesim-runtime namespace is not adopted"

@@ -40,6 +40,7 @@ from .manager_lifecycle import (
 )
 from .instance_identity import container_name as scoped_container_name
 from .instance_identity import image_reference, project_name
+from .readable_names import random_name, reserve_name
 from .ownership import (
     DOCKER_BUILD_FINGERPRINT_LABEL,
     DOCKER_INSTALL_UUID_LABEL,
@@ -328,6 +329,7 @@ class ContainerInstaller:
         self.dry_run = bool(dry_run)
         self.log = log
         self._install_uuid = ""
+        self._install_name = ""
         # Direct helper calls retain the historical literals for compatibility
         # with setup-unit callers.  ``run`` selects the install namespace after
         # ownership has been validated, before any generated artifact exists.
@@ -396,6 +398,10 @@ class ContainerInstaller:
         self._image_fingerprints.clear()
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
+        self._reserve_install_name()
+        # Fresh installs choose their human-readable Compose namespace after
+        # the reservation is durable. Refreshes retain the prior project.
+        self._select_docker_namespace(ownership_refresh)
         self._prepare_manager_roots()
         self._prepare_scoped_roots()
         self._runtime_cache_root = self._prepare_runtime_cache()
@@ -453,14 +459,21 @@ class ContainerInstaller:
         """
 
         previous = None if refresh is None else refresh.docker
+        if previous is not None and previous.install_name:
+            self._install_name = previous.install_name
         if refresh is not None and previous is None:
             raise ValueError(
                 "existing container installation ownership has no Docker namespace"
             )
-        if previous is not None and previous.project not in {
+        allowed_projects = {
             GENERAL_COMPOSE_PROJECT,
             project_name(self._install_uuid),
-        }:
+        }
+        if previous is not None and previous.install_name:
+            allowed_projects.add(
+                project_name(self._install_uuid, install_name=previous.install_name)
+            )
+        if previous is not None and previous.project not in allowed_projects:
             raise ValueError(
                 "existing Docker project is not the current EleSim namespace: "
                 f"{previous.project}"
@@ -468,10 +481,18 @@ class ContainerInstaller:
         self._scoped_namespace = refresh is None or (
             previous is not None and previous.project != GENERAL_COMPOSE_PROJECT
         )
+        # Keep the existing project literal on refresh.  A project rename
+        # would orphan running instances; readable names are an image/release
+        # identity upgrade and are therefore adopted without changing the
+        # established Compose boundary.
         self._compose_project = (
-            project_name(self._install_uuid)
-            if self._scoped_namespace
-            else GENERAL_COMPOSE_PROJECT
+            previous.project
+            if previous is not None and self._scoped_namespace
+            else (
+                project_name(self._install_uuid, install_name=self._install_name)
+                if self._scoped_namespace
+                else GENERAL_COMPOSE_PROJECT
+            )
         )
         if self._scoped_namespace:
             self._role_container_names = {
@@ -486,6 +507,46 @@ class ContainerInstaller:
     def _container_name(self, role: str) -> str:
         return self._role_container_names[role]
 
+    def _reserve_install_name(self) -> None:
+        """Persist the short install name before any generated tag is used.
+
+        The per-user registry is the normal location.  A sibling registry is
+        a safe fallback for locked-down homes (and for the bootstrap's
+        temporary test prefix); it still serializes all installs sharing the
+        same installation parent without requiring Docker access.
+        """
+
+        if not self._scoped_namespace:
+            return
+        candidates = []
+        try:
+            home = self.shell_bashrc.parent if self.shell_bashrc else operator_home()
+            candidates.append(home / ".local/share/elesim/names.json")
+        except (OSError, ValueError):
+            pass
+        candidates.append(self.state.prefix_path.parent / ".elesim-names.json")
+        last_error: OSError | None = None
+        for registry in candidates:
+            try:
+                parent = registry.parent
+                if parent.exists() and not os.access(parent, os.W_OK):
+                    continue
+                reserved = reserve_name(
+                    registry,
+                    "installs",
+                    self._install_uuid,
+                    generate=(lambda: self._install_name) if self._install_name else random_name,
+                )
+                if self._install_name and reserved != self._install_name:
+                    raise ValueError("installation name reservation changed")
+                self._install_name = reserved
+                return
+            except OSError as exc:
+                last_error = exc
+        if last_error is not None:
+            raise ValueError("cannot persist the readable installation name") from last_error
+        raise ValueError("no writable readable-name registry is available")
+
     def _infra_container_name(self, key: str) -> str:
         return self._special_container_names[key]
 
@@ -498,7 +559,13 @@ class ContainerInstaller:
             raise RuntimeError(
                 f"image context fingerprint is unavailable: {role}"
             ) from exc
-        return image_reference(self._install_uuid, role, fingerprint)
+        if not self._install_name:
+            return image_reference(self._install_uuid, role, fingerprint)
+        version = reserve_name(
+            self.container_root / "image-names.json", role, fingerprint,
+        )
+        return image_reference(self._install_uuid, role, fingerprint,
+                               install_name=self._install_name, image_name=version)
 
     def _claimed_paths(self) -> tuple[Path, ...]:
         claims = [
@@ -611,6 +678,7 @@ class ContainerInstaller:
             ),
             context=self.state.container_network.docker_context,
             engine_id=self.state.container_network.docker_engine_id,
+            install_name=self._install_name,
         )
         created_roots = tuple(
             path
@@ -679,6 +747,7 @@ class ContainerInstaller:
             local_images=previous.local_images,
             context=settings.docker_context,
             engine_id=settings.docker_engine_id,
+            install_name=previous.install_name,
         )
         try:
             containers, images = validate_docker_ownership(candidate)
@@ -1817,6 +1886,7 @@ class ContainerInstaller:
                     prefix=self.state.prefix_path,
                     state_path=self.state_path,
                     install_uuid=self._install_uuid,
+                    project=self._compose_project,
                     docker_context=self.state.container_network.docker_context,
                     docker_engine_id=self.state.container_network.docker_engine_id,
                 ),
@@ -2100,6 +2170,8 @@ class ContainerInstaller:
                 ref=self.state.source_ref,
                 runtime_uid=os.getuid(),
                 install_uuid=self._install_uuid,
+                install_name=self._install_name,
+                project=self._compose_project,
                 # A scoped release may still point at an older image ID after
                 # a rebuild.  Keep its history until an explicit,
                 # reference-aware release GC exists; legacy :local updates
@@ -2137,6 +2209,8 @@ class ContainerInstaller:
                     runtime_snapshot=runtime_snapshot,
                     install_uuid=self._install_uuid,
                     release_images=tuple(release_images[role] for role in self.state.roles),
+                    install_name=self._install_name,
+                    project=self._compose_project,
                     runtime_uid=os.getuid(),
                 )
                 if source_revision is not None
@@ -2598,6 +2672,7 @@ def _scoped_instance_dispatcher(
     prefix: Path,
     state_path: Path | None = None,
     install_uuid: str = "",
+    project: str = "",
     docker_context: str = "",
     docker_engine_id: str = "",
 ) -> str:
@@ -2610,6 +2685,7 @@ def _scoped_instance_dispatcher(
     lifecycle target through the public operator command.
     """
 
+    selected_project = project or (project_name(install_uuid) if install_uuid else "")
     root = shlex.quote(str(prefix / "instances"))
     return (
         "#!/usr/bin/env bash\n"
@@ -2687,7 +2763,7 @@ def _scoped_instance_dispatcher(
                 + " --state " + shlex.quote(str(state_path))
                 + " --system-id \"$instance_system\""
                 + " --install-uuid " + shlex.quote(install_uuid)
-                + " --project " + shlex.quote(project_name(install_uuid))
+                + " --project " + shlex.quote(selected_project)
                 + " --docker-context " + shlex.quote(docker_context)
                 + " --docker-engine-id " + shlex.quote(docker_engine_id)
                 + " --compose " + shlex.quote(str(prefix / "containers" / "compose.yaml"))
@@ -3653,7 +3729,7 @@ def _runtime_up_wrapper(
         raise ValueError("runtime image fingerprints must not contain duplicates")
     for image, fingerprint in normalized_fingerprints:
         if not re.fullmatch(
-            r"elesim/[a-z0-9][a-z0-9_.-]{0,127}:(?:local|[0-9a-f]{32}-[0-9a-f]{64})",
+            r"elesim/[a-z0-9][a-z0-9_.-]{0,127}:(?:local|[0-9a-f]{32}-[0-9a-f]{64}|[a-z]{2,16}_[a-z]{2,16}-[a-z]{2,16}_[a-z]{2,16})",
             image,
         ):
             raise ValueError(f"invalid runtime image name: {image!r}")

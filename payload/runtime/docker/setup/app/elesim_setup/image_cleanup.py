@@ -18,6 +18,9 @@ from .operation_lock import _safe_lock
 _ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _KEY = re.compile(r"[0-9a-f]{64}\Z")
 _SYSTEM = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
+_NAMED_IMAGE = re.compile(
+    r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}_[a-z]{2,16})-([a-z]{2,16}_[a-z]{2,16})$"
+)
 
 
 def _docker(context: str, *args: str) -> str:
@@ -37,8 +40,8 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
     boundary = owner.docker
     if owner.prefix_path != prefix or boundary is None:
         raise ValueError("image cleanup requires an owned container installation")
-    project = "elesim-runtime-" + owner.install_uuid.replace("-", "")
-    if boundary.project != project or not boundary.context or not boundary.engine_id:
+    project = boundary.project
+    if project == "elesim-runtime" or not boundary.context or not boundary.engine_id:
         raise ValueError("image cleanup requires a pinned, install-scoped Docker backend")
     call = lambda *args: docker(boundary.context, *args)
     if call("info", "--format", "{{.ID}}").strip() != boundary.engine_id:
@@ -121,10 +124,24 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
         fingerprint = labels.get("io.elesim.build_fingerprint", "")
         if not isinstance(fingerprint, str) or not _KEY.fullmatch(fingerprint):
             raise ValueError("release image fingerprint is invalid")
-        expected = re.compile(r"elesim/[a-z][a-z0-9_-]*:" + owner.install_uuid.replace("-", "")
-                              + "-" + fingerprint + r"\Z")
+        expected_old = re.compile(
+            r"elesim/[a-z][a-z0-9_-]*:"
+            + owner.install_uuid.replace("-", "")
+            + "-"
+            + fingerprint
+            + r"\Z"
+        )
+        expected_named = re.compile(
+            r"elesim/[a-z][a-z0-9_.-]*:"
+            + re.escape(owner.docker.install_name)
+            + r"-[a-z]{2,16}_[a-z]{2,16}\Z"
+        ) if owner.docker.install_name else None
         if (record.get("RepoDigests") or len(tags) > 1 or not tags <= owned_tags
-                or any(not expected.fullmatch(tag) for tag in tags)):
+                or any(
+                    not expected_old.fullmatch(tag)
+                    and (expected_named is None or not expected_named.fullmatch(tag))
+                    for tag in tags
+                )):
             continue  # Preserve additional tags, including foreign aliases.
         plans.append((image, record))
     # No mutation until every registry/provenance check has completed. Docker's

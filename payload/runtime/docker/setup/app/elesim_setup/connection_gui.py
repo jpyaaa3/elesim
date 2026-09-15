@@ -118,6 +118,66 @@ class ConnectionJob:
 class ConnectionManagerApplication:
     """Validate, persist, and deploy one operator-owned connection topology."""
 
+    def installation_choices(self, payload: Mapping[str, Any]) -> dict[str, object]:
+        """Read one explicitly addressed installation; never deploy or enroll it."""
+        from .connection_manager import SshEndpoint
+        from .instance_identity import is_scoped_project, named_image_parts
+        from .ownership import OwnershipManifest
+        from .releases import list_releases, ReleaseManifest, release_key
+        from .secure_deployment import ParamikoConnector
+
+        if not isinstance(payload, dict) or set(payload) != {"local", "install_root", "bin_dir", "ssh"} or type(payload["local"]) is not bool:
+            raise ValueError("invalid installation lookup fields")
+        root, bin_dir = payload["install_root"], payload["bin_dir"]
+        if any(not isinstance(p, str) or not p.startswith("/") or ".." in Path(p).parts or any(ord(c) < 32 for c in p) for p in (root, bin_dir)):
+            raise ValueError("installation paths must be absolute")
+        if payload["local"]:
+            if root != self.local_install_root or bin_dir != self.local_bin_dir:
+                raise ValueError("local lookup requires this manager's installed paths")
+            owner = OwnershipManifest.load(Path(root) / "install-ownership.json")
+            if str(owner.prefix_path) != root or str(owner.bin_path) != bin_dir:
+                raise ValueError("installation paths do not match ownership")
+            if owner.docker is None:
+                raise ValueError("installation has no Docker identity")
+            identity = {"install_uuid": owner.install_uuid, "project": owner.docker.project}
+            name = owner.docker.install_name or owner.docker.project
+            releases = list_releases(Path(root), install_uuid=owner.install_uuid)
+        else:
+            if not isinstance(payload["ssh"], dict):
+                raise ValueError("remote lookup requires SSH settings")
+            endpoint = SshEndpoint.from_dict(payload["ssh"]).validate()
+            with ParamikoConnector(command_timeout_s=30).connect(endpoint) as session:
+                identity = json.loads(session.run((str(Path(bin_dir) / "elesim-net"), "identity")).stdout)
+                raw = json.loads(session.run((str(Path(bin_dir) / "elesim-net"), "releases")).stdout)
+            if not isinstance(identity, dict) or set(identity) != {"schema_version", "install_uuid", "project"} or identity["schema_version"] != 1:
+                raise ValueError("invalid installation identity")
+            if not isinstance(raw, list) or len(raw) > 1024:
+                raise ValueError("invalid release list")
+            releases = []
+            for value in raw:
+                if not isinstance(value, dict):
+                    raise ValueError("invalid release entry")
+                fields = dict(value)
+                key = fields.pop("release_key", None)
+                try:
+                    release = ReleaseManifest(**fields).validate()
+                except TypeError as exc:
+                    raise ValueError("invalid release fields") from exc
+                if release.install_uuid != identity["install_uuid"] or release_key(release) != key:
+                    raise ValueError("release identity mismatch")
+                releases.append(release)
+            name = identity["project"]
+        if not is_scoped_project(identity["install_uuid"], identity["project"]):
+            raise ValueError("installation is not scoped")
+        choices = []
+        for index, release in enumerate(releases, 1):
+            tags = [f"{role}: {parts[1]}" for role, image in sorted(release.role_images.items())
+                    if (parts := named_image_parts(image, role))]
+            label = ", ".join(tags) or release.source_revision[:16]
+            choices.append({"key": release_key(release), "label": f"{index}. {label}", "roles": sorted(release.role_images)})
+        return {"installations": [{"name": name, "install_uuid": identity["install_uuid"],
+                                   "project": identity["project"], "releases": choices}]}
+
     def __init__(
         self,
         *,
@@ -658,6 +718,9 @@ class ConnectionManagerRequestHandler(BaseHTTPRequestHandler):
         if not self._authorized():
             return
         path = urllib.parse.urlsplit(self.path).path
+        if path == "/api/installations":
+            self._call(lambda: self.server.application.installation_choices(self._body()))
+            return
         if path == "/api/validate":
             self._call(
                 lambda: self.server.application.validate_topology(self._body())

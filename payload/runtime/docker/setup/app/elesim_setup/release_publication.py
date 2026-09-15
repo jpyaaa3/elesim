@@ -18,7 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from .instance_identity import image_reference, project_name
+from .instance_identity import image_reference
+from .readable_names import lookup_name
 from .ownership import OwnershipManifest, append_docker_image_ownership
 from .releases import ReleaseManifest, publish_release, release_key, runtime_data_digest
 from .state import InstallState
@@ -148,8 +149,11 @@ def _validated_inputs(
         raise ReleasePublicationError("ownership manifest has no Docker identity")
     if ownership.prefix_path != state.prefix_path:
         raise ReleasePublicationError("install-state and ownership prefix do not match")
-    expected_project = project_name(ownership.install_uuid)
-    if docker.install_uuid != ownership.install_uuid or docker.project != expected_project:
+    expected_project = docker.project
+    if (
+        docker.install_uuid != ownership.install_uuid
+        or docker.project == "elesim-runtime"
+    ):
         raise ReleasePublicationError(
             "install-state and ownership do not identify one scoped install"
         )
@@ -222,7 +226,14 @@ def _validated_inputs(
         image_id = _text(item["image_id"], f"{role}.image_id", pattern=_IMAGE_ID)
         if item_install != install or item_project != project:
             raise ReleasePublicationError(f"{role} evidence belongs to another install/project")
-        if image != image_reference(install, role, fingerprint):
+        expected_image = image_reference(install, role, fingerprint)
+        if docker.install_name:
+            name = lookup_name(state.prefix_path / "containers/image-names.json", role, fingerprint)
+            if not name:
+                raise ReleasePublicationError(f"{role} image name reservation is missing")
+            expected_image = image_reference(install, role, fingerprint,
+                                             install_name=docker.install_name, image_name=name)
+        if image != expected_image:
             raise ReleasePublicationError(f"{role} image reference does not match its fingerprint")
         normalized[role] = {
             "image_reference": image,
@@ -302,7 +313,7 @@ def publish_from_evidence(
             append_docker_image_ownership(
                 manifest_path=ownership.path,
                 install_uuid=ownership.install_uuid,
-                project=project_name(ownership.install_uuid),
+                project=ownership.docker.project if ownership.docker else "",
                 docker_context=ownership.docker.context if ownership.docker else "",
                 docker_engine_id=ownership.docker.engine_id if ownership.docker else "",
                 image=image,

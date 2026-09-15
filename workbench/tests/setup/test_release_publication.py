@@ -22,7 +22,7 @@ import elesim_setup.release_publication as release_publication
 INSTALL = "01234567-89ab-cdef-0123-456789abcdef"
 
 
-def _ownership(state, images):
+def _ownership(state, images, install_name=""):
     state.prefix_path.mkdir(parents=True, exist_ok=True)
     state.bin_path.mkdir(parents=True, exist_ok=True)
     compose = state.prefix_path / "containers/compose.yaml"
@@ -39,7 +39,8 @@ def _ownership(state, images):
         docker=DockerOwnership(
             install_uuid=INSTALL,
             compose_file=str(compose),
-            project=project_name(INSTALL),
+            project=project_name(INSTALL, install_name=install_name),
+            install_name=install_name,
             containers=(),
             local_images=tuple(images),
             context="test-context",
@@ -55,6 +56,7 @@ def _inputs(
     roles=("pilot", "sim"),
     *,
     owned_images: bool = True,
+    install_name: str = "",
 ):
     state = local_state(roles=roles, source_repository="jpyaaa3/elesim")
     snapshot = state.prefix_path / "containers/runtime-snapshot"
@@ -67,21 +69,26 @@ def _inputs(
         )
     evidence = state.prefix_path / "containers/build-evidence.json"
     role_values = {}
+    from elesim_setup.readable_names import reserve_name
     for index, role in enumerate(roles, start=1):
         fingerprint = (chr(ord("a") + index) * 64)
+        image_name = reserve_name(
+            state.prefix_path / "containers/image-names.json", role, fingerprint
+        ) if install_name else ""
         role_values[role] = {
-            "image_reference": image_reference(INSTALL, role, fingerprint),
+            "image_reference": image_reference(INSTALL, role, fingerprint,
+                                               install_name=install_name, image_name=image_name),
             "image_id": "sha256:" + (chr(ord("c") + index) * 64),
             "install_uuid": INSTALL,
             "build_fingerprint": fingerprint,
-            "project": project_name(INSTALL),
+            "project": project_name(INSTALL, install_name=install_name),
         }
     evidence.write_text(
         json.dumps(
             {
                 "schema_version": 1,
                 "install_uuid": INSTALL,
-                "project": project_name(INSTALL),
+                "project": project_name(INSTALL, install_name=install_name),
                 "platform": "linux/amd64",
                 "roles": role_values,
             }
@@ -95,12 +102,14 @@ def _inputs(
             if owned_images
             else ()
         ),
+        install_name=install_name,
     )
     return state, ownership, snapshot, evidence
 
 
-def test_publish_consumes_host_evidence_without_docker(local_state, tmp_path: Path):
-    state, ownership, snapshot, evidence = _inputs(local_state, tmp_path)
+@pytest.mark.parametrize("install_name", ["", "quiet_otter"])
+def test_publish_consumes_host_evidence_without_docker(local_state, tmp_path: Path, install_name):
+    state, ownership, snapshot, evidence = _inputs(local_state, tmp_path, install_name=install_name)
     result = publish_from_evidence(
         state,
         ownership,

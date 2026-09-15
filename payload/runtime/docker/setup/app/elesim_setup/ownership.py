@@ -37,28 +37,36 @@ _LOCAL_IMAGE = re.compile(r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:local$")
 _INSTALL_IMAGE = re.compile(
     r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([0-9a-f]{32})-([0-9a-f]{64})$"
 )
+_NAMED_IMAGE = re.compile(r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}_[a-z]{2,16})-([a-z]{2,16}_[a-z]{2,16})$")
 
 _OWNERSHIP_LOCKS: dict[str, threading.Lock] = {}
 _OWNERSHIP_LOCKS_GUARD = threading.Lock()
 
 
-def _scoped_project_name(install_uuid: str) -> str:
+def _scoped_project_name(install_uuid: str, install_name: str = "") -> str:
     """Derive the scoped project without importing the setup package.
 
     ``ownership.py`` is copied into the stdlib-only host uninstaller bundle,
     where sibling setup modules are intentionally absent.
     """
 
+    if install_name:
+        if re.fullmatch(r"[a-z]{2,16}_[a-z]{2,16}", install_name) is None:
+            raise OwnershipError("invalid readable installation name")
+        return f"elesim-{install_name}"
     return f"elesim-runtime-{uuid.UUID(install_uuid).hex}"
 
 
-def _image_belongs_to_install(image: str, install_uuid: str) -> bool:
+def _image_belongs_to_install(image: str, install_uuid: str, install_name: str = "") -> bool:
     """Accept legacy local tags and only matching immutable install tags."""
 
     if _LOCAL_IMAGE.fullmatch(image):
         return True
     match = _INSTALL_IMAGE.fullmatch(image)
-    return match is not None and match.group(1) == install_uuid.replace("-", "")
+    if match is not None:
+        return match.group(1) == install_uuid.replace("-", "")
+    named = _NAMED_IMAGE.fullmatch(image)
+    return bool(install_name and named and named.group(1) == install_name)
 
 
 class OwnershipError(ValueError):
@@ -147,17 +155,29 @@ class DockerOwnership:
     # operate on a different Docker Desktop/native Engine boundary.
     context: str = ""
     engine_id: str = ""
+    install_name: str = ""
 
     def validate(self) -> "DockerOwnership":
         _validate_uuid(self.install_uuid, name="Docker install UUID")
+        if self.install_name and not re.fullmatch(r"[a-z]{2,16}_[a-z]{2,16}", self.install_name):
+            raise OwnershipError("invalid readable installation name")
         _require_absolute(self.compose_file, name="Docker compose file")
         if not _DOCKER_NAME.fullmatch(self.project):
             raise OwnershipError(f"Unsafe Compose project name: {self.project!r}")
         expected_scoped_project = _scoped_project_name(self.install_uuid)
-        if self.project not in {"elesim-runtime", expected_scoped_project}:
+        named_project = (
+            _scoped_project_name(self.install_uuid, self.install_name)
+            if self.install_name
+            else ""
+        )
+        if self.project not in {"elesim-runtime", expected_scoped_project, named_project}:
             raise OwnershipError(
                 "Docker project is neither an EleSim legacy project nor the current install namespace"
             )
+        if self.project.startswith("elesim-") and self.project not in {
+            "elesim-runtime", expected_scoped_project
+        } and self.project != named_project:
+            raise OwnershipError("Docker project does not match its readable installation name")
         if len(set(self.containers)) != len(self.containers):
             raise OwnershipError("Duplicate Docker container name")
         if any(not _DOCKER_NAME.fullmatch(value) for value in self.containers):
@@ -166,10 +186,10 @@ class DockerOwnership:
             raise OwnershipError("Duplicate Docker image name")
         if any(
             (
-                self.project == expected_scoped_project
+                self.project != "elesim-runtime"
                 and _LOCAL_IMAGE.fullmatch(value) is not None
             )
-            or not _image_belongs_to_install(value, self.install_uuid)
+            or not _image_belongs_to_install(value, self.install_uuid, self.install_name)
             for value in self.local_images
         ):
             raise OwnershipError(
@@ -351,6 +371,7 @@ class OwnershipManifest:
                     local_images=tuple(str(value) for value in values["local_images"]),
                     context=str(values.get("context", "")),
                     engine_id=str(values.get("engine_id", "")),
+                    install_name=str(values.get("install_name", "")),
                 )
             manifest = cls(
                 schema_version=int(raw["schema_version"]),
@@ -749,8 +770,11 @@ def append_instance_docker_ownership(
         raise OwnershipError("install UUID is invalid") from exc
     if str(parsed) != install_uuid:
         raise OwnershipError("install UUID must be a canonical UUID string")
-    expected_project = _scoped_project_name(install_uuid)
-    if project != expected_project:
+    if (
+        not isinstance(project, str)
+        or not _DOCKER_NAME.fullmatch(project)
+        or project == "elesim-runtime"
+    ):
         raise OwnershipError("do not add an instance to a legacy or foreign Docker project")
     if not isinstance(docker_context, str) or not _DOCKER_NAME.fullmatch(docker_context):
         raise OwnershipError("scoped instance ownership requires a valid Docker context")
@@ -774,7 +798,7 @@ def append_instance_docker_ownership(
         if (
             manifest.install_uuid != install_uuid
             or docker.install_uuid != install_uuid
-            or docker.project != expected_project
+            or docker.project != project
             or docker.context != docker_context
             or docker.engine_id != docker_engine_id
         ):
@@ -793,6 +817,7 @@ def append_instance_docker_ownership(
             compose_file=docker.compose_file,
             project=docker.project,
             containers=tuple(sorted({*docker.containers, *names})),
+            install_name=docker.install_name,
             local_images=docker.local_images,
             context=docker.context,
             engine_id=docker.engine_id,
@@ -866,8 +891,11 @@ def append_manager_docker_ownership(
         raise OwnershipError("install UUID is invalid") from exc
     if str(parsed) != install_uuid:
         raise OwnershipError("install UUID must be a canonical UUID string")
-    expected_project = _scoped_project_name(install_uuid)
-    if project != expected_project:
+    if (
+        not isinstance(project, str)
+        or not _DOCKER_NAME.fullmatch(project)
+        or project == "elesim-runtime"
+    ):
         raise OwnershipError("do not add a manager to a legacy or foreign Docker project")
     if not isinstance(docker_context, str) or not _DOCKER_NAME.fullmatch(docker_context):
         raise OwnershipError("scoped manager ownership requires a valid Docker context")
@@ -896,7 +924,7 @@ def append_manager_docker_ownership(
         if (
             manifest.install_uuid != install_uuid
             or docker.install_uuid != install_uuid
-            or docker.project != expected_project
+            or docker.project != project
             or docker.context != docker_context
             or docker.engine_id != docker_engine_id
         ):
@@ -906,6 +934,7 @@ def append_manager_docker_ownership(
             compose_file=docker.compose_file,
             project=docker.project,
             containers=tuple(sorted({*docker.containers, name})),
+            install_name=docker.install_name,
             local_images=docker.local_images,
             context=docker.context,
             engine_id=docker.engine_id,
@@ -981,8 +1010,11 @@ def append_docker_image_ownership(
         raise OwnershipError("install UUID is invalid") from exc
     if str(parsed) != install_uuid:
         raise OwnershipError("install UUID must be a canonical UUID string")
-    expected_project = _scoped_project_name(install_uuid)
-    if project != expected_project:
+    if (
+        not isinstance(project, str)
+        or not _DOCKER_NAME.fullmatch(project)
+        or project == "elesim-runtime"
+    ):
         raise OwnershipError("do not add an image to a legacy or foreign Docker project")
     if not isinstance(docker_context, str) or not _DOCKER_NAME.fullmatch(docker_context):
         raise OwnershipError("scoped image ownership requires a valid Docker context")
@@ -993,11 +1025,11 @@ def append_docker_image_ownership(
         or "\n" in docker_engine_id
     ):
         raise OwnershipError("scoped image ownership requires a valid Docker Engine ID")
-    if not isinstance(image, str) or not _INSTALL_IMAGE.fullmatch(image):
+    if not isinstance(image, str) or not (_INSTALL_IMAGE.fullmatch(image) or _NAMED_IMAGE.fullmatch(image)):
         raise OwnershipError("image ownership accepts only immutable install images")
     if not image.startswith(
         ("elesim/pilot:", "elesim/sim:", "elesim/ui:", "elesim/tools:")
-    ) or not image.split(":", 1)[1].startswith(parsed.hex + "-"):
+    ):
         raise OwnershipError("image does not belong to the current scoped installation")
 
     destination = _canonical(manifest_path)
@@ -1017,16 +1049,19 @@ def append_docker_image_ownership(
         if (
             manifest.install_uuid != install_uuid
             or docker.install_uuid != install_uuid
-            or docker.project != expected_project
+            or docker.project != project
             or docker.context != docker_context
             or docker.engine_id != docker_engine_id
         ):
             raise OwnershipError("foreign or legacy Docker ownership boundary")
+        if not _image_belongs_to_install(image, install_uuid, docker.install_name):
+            raise OwnershipError("image does not belong to the current scoped installation")
         updated_docker = DockerOwnership(
             install_uuid=docker.install_uuid,
             compose_file=docker.compose_file,
             project=docker.project,
             containers=docker.containers,
+            install_name=docker.install_name,
             local_images=tuple(sorted({*docker.local_images, image})),
             context=docker.context,
             engine_id=docker.engine_id,
@@ -1256,6 +1291,7 @@ def _merged_docker(
         return previous
     if (
         previous.install_uuid != current.install_uuid
+        or (previous.install_name and previous.install_name != current.install_name)
         or previous.compose_file != current.compose_file
         or previous.project != current.project
         or (
@@ -1278,6 +1314,7 @@ def _merged_docker(
         local_images=tuple(sorted({*previous.local_images, *current.local_images})),
         context=current.context or previous.context,
         engine_id=current.engine_id or previous.engine_id,
+        install_name=current.install_name or previous.install_name,
     )
 
 
@@ -1392,6 +1429,7 @@ def install_host_uninstaller_bundle(
         "host_helper.py",
         "operation_lock.py",
         "instance_identity.py",
+        "readable_names.py",
         "instance_remove.py",
         "manager_ownership.py",
     ):

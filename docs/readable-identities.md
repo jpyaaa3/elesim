@@ -1,7 +1,9 @@
-# Readable installation and release identities — implementation checkpoint
+# Readable installation and release identities
 
-Status: foundation only; **not enabled in generated installations**. Existing
-Docker resources have not been renamed, rebuilt, retagged or removed.
+Fresh container installations and subsequent updates use short, human-readable
+names in the Compose project and immutable image tags. Full UUIDs, build
+fingerprints, image IDs and release content digests remain the ownership and
+provenance evidence; the readable names are presentation identifiers only.
 
 ## Agreed behavior
 
@@ -17,34 +19,44 @@ Docker resources have not been renamed, rebuilt, retagged or removed.
   ownership manifests and legacy projects. Existing projects must not change
   implicitly during update.
 
-## Implemented foundation
+## Implementation
 
 `readable_names.py` reserves identity-to-name mappings under an explicit registry
 path with file locking and atomic publication. It rejects symlinks, malformed
-registries and duplicate reservations. `image_reference` can render an explicitly
-reserved pair of names while still validating the internal UUID and fingerprint.
-Its existing callers continue to generate the old hash tags.
+registries and duplicate reservations. The installer reserves one name for its
+UUID and one name per role/fingerprint, then emits tags such as
+`elesim/sim:quiet_otter-calm_eagle` and a project such as
+`elesim-quiet_otter`.
 
-## Remaining integration (required before claiming completion)
+An update keeps the UUID, ownership manifest, release pins and an existing
+Compose project unchanged. A legacy UUID-scoped installation receives a
+readable tag on its next generated build without renaming its live project;
+this avoids orphaning running instances. Existing release tags and pinned image
+IDs remain valid and are never retagged or removed merely to shorten a name.
+Ownership, publication, instance lifecycle, connection-manager enrollment,
+uninstall and image cleanup all validate the exact project/labels and accept
+both the historical UUID tags and the reserved readable form.
 
-1. Add versioned persisted installation-name metadata and engine-scoped name
-   reservation. Collision checks must include other prefixes and Docker owners,
-   and must remain safe across concurrent installers and separate host accounts.
-2. Wire installer image selection to persisted per-role fingerprint reservations.
-   Verify exact owner/fingerprint labels before reusing or assigning a Docker tag.
-3. Add versioned named release manifests with separate full content digests;
-   preserve old manifest parsing, old paths and old instance pins. Resolve the
-   readable CLI selector to exact verified release content, not an arbitrary tag.
-4. Update all consumers together: publication evidence, instance registration and
-   lifecycle, Compose project validation, remote identity enrollment, maintenance
-   bundle, image cleanup, uninstall and update wrapper validation. In particular,
-   do not relax ownership regexes without retaining full metadata checks.
-5. Replace manager raw-ID inputs with discovered, confirmed installation/release
-   choices. Store exact canonical identity, not merely a potentially colliding
-   display string.
-6. Test new installs, unchanged and changed updates, legacy fixtures, name
-   collisions, concurrent reservations, corrupted mappings, foreign tags, pinned
-   running/stopped instances and isolated maintenance packaging. A Docker smoke
-   must use disposable resources, never the existing user's runtime containers.
+## Operational constraints
 
-No push or live installation mutation has been performed for this work.
+1. Names are never credentials, release keys, or ownership proof. A display name
+   is accepted only alongside the exact UUID, manifest, project, Docker labels,
+   and build fingerprint checks.
+2. Reservations survive failed builds and retired versions. The same identity
+   reuses its name; a different identity cannot inherit an old name.
+3. Do not rebuild simply to rename, and do not prune or wildcard-delete images.
+   Cleanup remains reference-aware and preserves running/pinned resources.
+4. The connection manager stores exact canonical installation/project identity;
+   it does not ask operators to type a raw image tag as proof.
+
+Live Docker and multi-host acceptance still require a disposable environment;
+this change does not mutate an existing user's daemon during tests.
+# Connection manager selection
+
+The connection manager queries the explicitly configured installation/bin path
+with **Find installation and releases**, then presents installation and release
+choices. Remote queries use the pinned SSH endpoint; local queries are limited
+to the installation mounted by the manager. This is not a machine-wide scan.
+UUID/project values are stored automatically, and release selections retain the
+full immutable key internally. A newly queried release is not activated or
+automatically selected. Existing saved selections remain intact until edited.

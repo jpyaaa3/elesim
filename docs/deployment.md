@@ -43,8 +43,8 @@ prefix/build context를 사용한다. 수동 build는 진단·릴리스 개발�
 
 ## 2. General Compose
 
-신규 General 설치는 install UUID에서 유도한 전용
-`elesim-runtime-<install UUID hex>` project를 사용한다. release manifest가
+신규 General 설치는 install UUID에 예약된 읽기 쉬운 이름의 전용
+`elesim-<install name>` project를 사용한다. 기존 UUID project는 유지한다. release manifest가
 role별 build fingerprint와 image ID를 고정하며, 각 instance lifecycle은 선택한
 exact service만 대상으로 한다. 기존 고정 `elesim-runtime` 설치는 legacy
 namespace로 보존되고 신규 설치가 자동 인수하지 않는다.

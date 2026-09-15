@@ -701,7 +701,8 @@ function fillHost(slot, host) {
   field(slot, "bin-dir").value = pathUnit?.bin_dir || "/opt/elesim/bin";
   field(slot, "install-uuid").value = pathUnit?.install_uuid || "";
   field(slot, "install-project").value = pathUnit?.project || "";
-  field(slot, "install-release").value = pathUnit?.release_key || "";
+  field(slot, "install-name").replaceChildren(new Option(t("install.saved"), pathUnit?.install_uuid || ""));
+  field(slot, "install-release").replaceChildren(new Option(t("install.saved"), pathUnit?.release_key || ""));
   document.querySelector(`input[name="local-host"][value="${slot}"]`).checked = host.local;
   if (host.ssh) {
     field(slot, "ssh-host").value = host.ssh.host;
@@ -1234,10 +1235,69 @@ function bindDropZone(zone) {
   });
 }
 
+function installationQuery(slot) {
+  const local = card(slot).querySelector('input[name="local-host"]').checked;
+  return {local, install_root: field(slot, "install-root").value.trim(),
+    bin_dir: field(slot, "bin-dir").value.trim(), ssh: local ? null : {
+      host: field(slot, "ssh-host").value.trim(), port: sshPort(slot),
+      user: field(slot, "ssh-user").value.trim(),
+      identity_file: field(slot, "ssh-tailscale").checked ? "" : field(slot, "ssh-key").value.trim(),
+      pinned_fingerprint: field(slot, "ssh-fingerprint").value.trim(),
+      auth_mode: field(slot, "ssh-tailscale").checked ? "tailscale" : "openssh"
+    }};
+}
+
+async function lookupInstallation(slot) {
+  const hostCard = card(slot);
+  const button = hostCard.querySelector(".lookup-installation");
+  const body = JSON.stringify(installationQuery(slot));
+  const previousRelease = field(slot, "install-release").value;
+  button.disabled = true;
+  try {
+    const result = await api("/api/installations", {method: "POST", body});
+    if (!hostCard.isConnected || body !== JSON.stringify(installationQuery(slot))) return;
+    const select = field(slot, "install-name");
+    select.replaceChildren(...result.installations.map((item) => new Option(item.name, item.install_uuid)));
+    const choose = () => {
+      const item = result.installations.find((entry) => entry.install_uuid === select.value);
+      field(slot, "install-uuid").value = item?.install_uuid || "";
+      field(slot, "install-project").value = item?.project || "";
+      const releases = item?.releases || [];
+      const releaseSelect = field(slot, "install-release");
+      releaseSelect.replaceChildren(new Option(t(releases.length ? "install.chooseRelease" : "install.noReleases"), ""),
+        ...releases.map((release) => new Option(release.label, release.key)));
+      if (releases.some((release) => release.key === previousRelease)) releaseSelect.value = previousRelease;
+      markWorkflowDirty();
+    };
+    select.onchange = choose;
+    choose();
+  } finally { button.disabled = false; }
+}
+
 function bindHostCardEvents(slot) {
   const hostCard = card(slot);
+  hostCard.querySelector(".lookup-installation").addEventListener("click", () => lookupInstallation(slot).catch(showError));
+  const clearInstallation = () => {
+    field(slot, "install-uuid").value = "";
+    field(slot, "install-project").value = "";
+    field(slot, "install-name").onchange = null;
+    ["install-name", "install-release"].forEach((name) => field(slot, name).replaceChildren(new Option(t("install.queryFirst"), "")));
+  };
+  ["install-root", "bin-dir", "ssh-host", "ssh-port", "ssh-user", "ssh-key", "ssh-fingerprint", "ssh-tailscale"].forEach((name) => {
+    field(slot, name).addEventListener("input", clearInstallation);
+    field(slot, name).addEventListener("change", clearInstallation);
+  });
   hostCard.querySelectorAll(".drop-zone").forEach(bindDropZone);
   hostCard.querySelector('input[name="local-host"]').addEventListener("change", updateSshVisibility);
+  hostCard.querySelector('input[name="local-host"]').addEventListener("change", () => {
+    slots.forEach((other) => {
+      const select = field(other, "install-name");
+      select.onchange = null;
+      field(other, "install-uuid").value = "";
+      field(other, "install-project").value = "";
+      ["install-name", "install-release"].forEach((name) => field(other, name).replaceChildren(new Option(t("install.queryFirst"), "")));
+    });
+  });
   ["ssh-host", "ssh-port"].forEach((name) => {
     field(slot, name).addEventListener("input", () => { field(slot, "ssh-fingerprint").value = ""; });
   });

@@ -108,13 +108,13 @@ host venv로 setup을 실행한다. 이 venv는 `~/.cache/elesim/setup` 아래�
 생성되며 host Python 패키지나 ROS/Apt 상태를 수정하지 않는다. ROS 2가 없는
 Jetson은 Robot 설치 전에 host ROS 2/Unitree workspace를 준비해야 한다.
 
-신규 container 설치의 runtime namespace는 `elesim-runtime-<install UUID hex>`로
+신규 container 설치의 runtime namespace는 `elesim-<install name>`으로
 고정된다. 한 설치의 여러 system instance가 이 project를 공유하지만, 다른
 설치나 legacy 고정 project를 자동으로 인수하지 않는다.
 
 ```text
-project:     elesim-runtime-<install UUID hex>
-images:      install-scoped immutable role tags (release fingerprint 포함)
+project:     elesim-quiet_otter
+images:      elesim/sim:quiet_otter-calm_eagle
 containers:  install/system/endpoint-scoped service names
 optional:    install-scoped Coturn (Sim host), Tailscale (Docker Desktop), dev service
 ```
@@ -280,7 +280,9 @@ bootstrap cache 로그는 설치 prefix 밖에 있으므로 제거 시에도 보
 
 ### 같은 이미지 이름 아래 여러 태그
 
-Scoped 이미지 이름은 `elesim/<role>:<install UUID>-<build fingerprint>`다.
+Scoped 이미지 이름은 `elesim/<role>:<install name>-<build name>`이다.
+UUID와 전체 fingerprint는 소유권 및 빌드 메타데이터에 보존한다. 기존 UUID
+project는 업데이트해도 유지하고, 새로 생성하는 이미지 태그에 짧은 이름을 쓴다.
 update는 변경된 빌드 입력에 새 태그를 부여한다. 성공한 scoped update/release
 및 `elesim-instance <system> up` 뒤에는 미참조 구버전 이미지를 자동 정리한다.
 현재 Compose의 최신 이미지, 등록된 instance가 고정한 릴리스 이미지,

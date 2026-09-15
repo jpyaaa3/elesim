@@ -45,6 +45,13 @@ def random_name() -> str:
     return f"{secrets.choice(ADJECTIVES)}_{secrets.choice(ANIMALS)}"
 
 
+def lookup_name(path: Path, scope: str, identity: str) -> str:
+    """Read a reservation without creating or repairing registry state."""
+    path = Path(path)
+    _safe_path(path)
+    return _read(path).get(scope, {}).get(identity, "")
+
+
 def _safe_path(path: Path) -> None:
     if not path.is_absolute():
         raise ValueError("name registry path must be absolute")

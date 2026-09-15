@@ -90,16 +90,25 @@ class InstanceRuntime:
             raise ValueError(
                 "instance runtime requires a pinned Docker context and engine ID"
             )
-        # project_name performs strict canonical UUID validation.
         self.install_uuid = install_uuid
-        self.project = project_name(install_uuid)
         self.prefix = self._lexical(Path(self.state.prefix))
-        self.compose = self.prefix / "containers" / "compose.instances.yaml"
-        self.base_compose = self.prefix / "containers" / "compose.yaml"
-        self._shared_infrastructure = self._load_shared_infrastructure()
         self.ownership_manifest = (
             None if ownership_manifest is None else self._lexical(Path(ownership_manifest))
         )
+        # Prefer the manifest's exact project so a readable fresh namespace
+        # and a UUID-scoped legacy namespace both remain operable.  Falling
+        # back to the pure UUID derivation keeps direct unit callers safe.
+        self.project = project_name(install_uuid)
+        if self.ownership_manifest is not None and self.ownership_manifest.is_file():
+            from .ownership import OwnershipManifest
+
+            owner = OwnershipManifest.load(self.ownership_manifest)
+            if owner.install_uuid != install_uuid or owner.docker is None:
+                raise ValueError("ownership manifest does not match instance install")
+            self.project = owner.docker.project
+        self.compose = self.prefix / "containers" / "compose.instances.yaml"
+        self.base_compose = self.prefix / "containers" / "compose.yaml"
+        self._shared_infrastructure = self._load_shared_infrastructure()
         # Reuse the registry helper's install-level lock so direct
         # InstanceRegistry readers/writers cannot race this aggregate update.
         self.lock_root = self.prefix / "instances" / ".locks"
@@ -861,6 +870,7 @@ class InstanceRuntime:
             self.install_uuid,
             groups,
             self._shared_infrastructure,
+            project=self.project,
         )
         compose = self._replace_prefix(compose, str(staged), str(self.prefix))
         containers = staged / "containers"

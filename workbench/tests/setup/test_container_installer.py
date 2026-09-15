@@ -27,7 +27,7 @@ from elesim_setup.container_installer import (
     build_container_plan,
     refresh_compose_dds_environment,
 )
-from elesim_setup.instance_identity import container_name, image_reference, project_name
+from elesim_setup.instance_identity import container_name, image_reference, named_image_parts, project_name
 from elesim_setup.ownership import (
     DOCKER_BUILD_FINGERPRINT_LABEL,
     DOCKER_INSTALL_UUID_LABEL,
@@ -72,6 +72,34 @@ def _refresh_as_legacy_install(state) -> None:
     ContainerInstaller(state).run()
 
 
+def test_uuid_scoped_refresh_adopts_stable_short_tags(local_state, tmp_path):
+    from types import SimpleNamespace
+    from elesim_setup.ownership import DockerOwnership
+
+    state = local_state(roles=("pilot",))
+    install_uuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    previous = DockerOwnership(
+        install_uuid=install_uuid,
+        compose_file=str(state.prefix_path / "containers/compose.yaml"),
+        project=project_name(install_uuid), containers=(), local_images=(),
+    )
+    refresh = SimpleNamespace(docker=previous)
+    installer = ContainerInstaller(state, shell_bashrc=tmp_path / ".bashrc")
+    installer._install_uuid = install_uuid
+    installer._select_docker_namespace(refresh)
+    installer._reserve_install_name()
+    installer._select_docker_namespace(refresh)
+    installer._image_fingerprints["pilot"] = "a" * 64
+    first = installer._image_name("pilot")
+    assert named_image_parts(first, "pilot") is not None
+    assert installer._compose_project == previous.project
+    assert installer._image_name("pilot") == first
+    installer._image_fingerprints["pilot"] = "b" * 64
+    assert installer._image_name("pilot") != first
+    installer._image_fingerprints["pilot"] = "a" * 64
+    assert installer._image_name("pilot") == first
+
+
 def test_fresh_container_install_uses_an_install_scoped_namespace(
     local_state, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -89,23 +117,22 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
     assert "--no-build" not in register
 
     compose = _compose(state)
-    assert compose["name"] == project_name(install_uuid)
+    owner = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
+    install_name = owner.docker.install_name
+    assert compose["name"] == project_name(install_uuid, install_name=install_name)
     assert compose["services"]["pilot"]["container_name"] == container_name(
         install_uuid, "pilot"
     )
     assert compose["services"]["sim"]["container_name"] == container_name(
         install_uuid, "sim"
     )
-    assert compose["services"]["pilot"]["image"].startswith(
-        "elesim/pilot:aaaaaaaaaaa"
-    )
-    assert compose["services"]["tools"]["image"].startswith(
-        "elesim/tools:aaaaaaaaaaa"
-    )
+    for role in ("pilot", "sim", "tools"):
+        parts = named_image_parts(compose["services"][role]["image"], role)
+        assert parts is not None and parts[0] == install_name
     manifest = json.loads(
         (state.prefix_path / "install-ownership.json").read_text(encoding="utf-8")
     )
-    assert manifest["docker"]["project"] == project_name(install_uuid)
+    assert manifest["docker"]["project"] == compose["name"]
     assert all(
         image != "elesim/pilot:local" and image != "elesim/tools:local"
         for image in manifest["docker"]["local_images"]
@@ -593,7 +620,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert cache_root.stat().st_mode & 0o777 == 0o700
     assert (cache_root / "genesis").is_dir()
     assert (cache_root / "genesis").stat().st_mode & 0o777 == 0o700
-    assert compose["name"] == project_name(install_uuid)
+    assert compose["name"] == project_name(install_uuid, install_name=install_manifest.docker.install_name)
     assert set(compose["services"]) == {
         "sim",
         "pilot",
@@ -604,7 +631,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     for role in state.roles:
         service = compose["services"][role]
         assert service["image"].startswith(
-            f"elesim/{role}:{install_uuid.replace('-', '')}-"
+            f"elesim/{role}:{install_manifest.docker.install_name}-"
         )
         assert service["container_name"] == container_name(install_uuid, role)
         assert service["logging"] == {
@@ -714,7 +741,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert not (tools / "protocol/tests").exists()
     assert not (tools / "setup/tests").exists()
     assert compose["services"]["tools"]["image"].startswith(
-        f"elesim/tools:{install_uuid.replace('-', '')}-"
+        f"elesim/tools:{install_manifest.docker.install_name}-"
     )
     assert compose["services"]["tools"]["environment"]["ELESIM_HOST_USER"] == (
         _resolve_viewer_user()
@@ -2803,7 +2830,7 @@ def test_container_install_records_host_uninstaller_and_docker_uuid(
     assert manifest.docker is not None
     assert manifest.docker.install_uuid == manifest.install_uuid
     assert manifest.docker.project == compose["name"] == project_name(
-        manifest.install_uuid
+        manifest.install_uuid, install_name=manifest.docker.install_name
     )
     assert manifest.docker.compose_file == str(
         state.prefix_path / "containers/compose.yaml"

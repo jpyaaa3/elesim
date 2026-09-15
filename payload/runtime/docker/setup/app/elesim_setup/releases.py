@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Mapping
 
-from .instance_identity import image_reference
+from .instance_identity import image_reference, named_image_parts
 
 
 _SOURCE_REVISION = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})\Z")
@@ -94,14 +94,24 @@ class ReleaseManifest:
             raise ValueError("role_images, image_ids and build_fingerprints must have the same roles")
         if not roles <= _DOCKER_ROLES:
             raise ValueError("release manifests may contain only pilot, sim, and ui images")
+        installation_names = set()
         for role in sorted(roles):
             fingerprint = fingerprints[role]
             if _DIGEST.fullmatch(fingerprint) is None:
                 raise ValueError(f"build_fingerprints[{role!r}] must be 64 lowercase hex characters")
-            if images[role] != image_reference(install, role, fingerprint):
+            named = named_image_parts(images[role], role)
+            if named:
+                # A readable tag is only a presentation name.  Publication
+                # proves the binding against the install manifest; here we
+                # still require the strict syntax and one install name for
+                # every role in a release.
+                installation_names.add(named[0])
+            if images[role] != image_reference(install, role, fingerprint) and not named:
                 raise ValueError(f"role_images[{role!r}] does not match its install and fingerprint")
             if _IMAGE_ID.fullmatch(ids[role]) is None:
                 raise ValueError(f"image_ids[{role!r}] must be sha256:<64 lowercase hex characters>")
+        if len(installation_names) > 1:
+            raise ValueError("release images have different installation names")
         if not isinstance(self.runtime_data_digest, str) or _DIGEST.fullmatch(self.runtime_data_digest) is None:
             raise ValueError("runtime_data_digest must be 64 lowercase hex characters")
         return ReleaseManifest(

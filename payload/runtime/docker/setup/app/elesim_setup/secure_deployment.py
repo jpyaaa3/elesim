@@ -37,7 +37,7 @@ from .connection_manager import (
     SshEndpoint,
     resolve_ssh_identity_path,
 )
-from .instance_identity import project_name
+from .instance_identity import is_scoped_project, project_name
 from .credentials import (
     _ParamikoProxySocket,
     proxy_failure_detail,
@@ -2255,9 +2255,9 @@ class InstalledElesimLifecycle:
         project = value.get("project")
         if not isinstance(install_uuid, str) or not isinstance(project, str):
             raise RuntimeError(f"scoped install identity values are invalid on {unit.unit_id!r}")
-        if project != project_name(install_uuid):
+        if not is_scoped_project(install_uuid, project):
             raise RuntimeError(
-                f"scoped install identity project is not derived from UUID on {unit.unit_id!r}"
+                f"scoped install identity project is not a valid EleSim namespace on {unit.unit_id!r}"
             )
         return {"install_uuid": install_uuid, "project": project}
 

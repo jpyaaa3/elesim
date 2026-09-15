@@ -76,8 +76,9 @@ primitive뿐이다. typed ROS service/action 정의는 생성되지만 현재 ru
 연결되어 있지 않다. 현재 control/signaling carrier는 protocol major 6의
 bounded `PeerEnvelope`다.
 
-컨테이너 설치는 설치 UUID에서 유도한 전용 Compose project
-`elesim-runtime-<install UUID hex>`와 그 설치에 속한 instance service를 사용한다.
+컨테이너 설치는 설치 UUID에 예약된 이름의 전용 Compose project
+`elesim-<install name>`와 그 설치에 속한 instance service를 사용한다.
+기존 `elesim-runtime-<install UUID hex>` project는 업데이트 시 유지한다.
 각 instance는 등록된 exact service만 lifecycle 대상으로 삼고, 다른 설치의
 legacy 고정 `elesim-runtime` project를 자동 인수하지 않는다. `elesim-update`는
 immutable release를 build/publish하지만 기존 instance release pin을 바꾸지

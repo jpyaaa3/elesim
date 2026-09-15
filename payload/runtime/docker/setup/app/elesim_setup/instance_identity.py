@@ -17,6 +17,17 @@ _ENDPOINT = re.compile(r"[a-z][a-z0-9_-]{0,62}\Z")
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 _SERVICE_MAX = 128
 _CONTAINER_MAX = 128
+_NAMED_TAG = re.compile(r"([a-z]{2,16}_[a-z]{2,16})-([a-z]{2,16}_[a-z]{2,16})\Z")
+_NAMED_PROJECT = re.compile(r"elesim-([a-z]{2,16}_[a-z]{2,16})\Z")
+
+
+def named_image_parts(image: str, role: str) -> tuple[str, str] | None:
+    """Parse a readable tag; this is syntax, never proof of ownership."""
+    prefix = f"elesim/{role}:"
+    if not isinstance(image, str) or not image.startswith(prefix):
+        return None
+    match = _NAMED_TAG.fullmatch(image[len(prefix):])
+    return match.groups() if match else None
 
 
 def _uuid_hex(install_uuid: str) -> str:
@@ -37,10 +48,41 @@ def _checked(value: str, pattern: re.Pattern[str], name: str) -> str:
     return value
 
 
-def project_name(install_uuid: str) -> str:
-    """Return the Compose project name for one installation."""
+def project_name(install_uuid: str, *, install_name: str = "") -> str:
+    """Return the Compose project name for one installation.
 
+    The optional readable name is used by fresh installs.  Omitting it keeps
+    the UUID namespace used by legacy manifests and by callers that only have
+    the canonical internal identity.
+    """
+
+    _uuid_hex(install_uuid)
+    if install_name:
+        from .readable_names import NAME_PATTERN
+
+        _checked(install_name, NAME_PATTERN, "install_name")
+        return f"elesim-{install_name}"
     return f"elesim-runtime-{_uuid_hex(install_uuid)}"
+
+
+def is_scoped_project(install_uuid: str, project: str) -> bool:
+    """Return whether ``project`` is a valid scoped namespace for a UUID.
+
+    UUID-derived projects are cryptographically bound to the installation.
+    Readable projects intentionally carry only a reserved display name, so
+    their UUID binding is proved by the ownership manifest/remote identity
+    rather than by the project spelling alone.  This helper therefore checks
+    only the strict namespace grammar and canonical UUID validity; callers
+    must still compare the exact project returned by their ownership boundary.
+    """
+
+    try:
+        canonical = project_name(install_uuid)
+    except ValueError:
+        return False
+    return isinstance(project, str) and (
+        project == canonical or _NAMED_PROJECT.fullmatch(project) is not None
+    )
 
 
 def service_key(system_id: str, endpoint_id: str) -> str:
@@ -111,7 +153,9 @@ def image_reference(
 __all__ = [
     "container_name",
     "image_reference",
+    "is_scoped_project",
     "manager_container_name",
+    "named_image_parts",
     "project_name",
     "service_key",
 ]

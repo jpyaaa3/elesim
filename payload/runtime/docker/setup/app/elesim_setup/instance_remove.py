@@ -22,7 +22,7 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
-from .instance_identity import container_name, project_name, service_key
+from .instance_identity import container_name, is_scoped_project, service_key
 
 
 _SYSTEM = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
@@ -311,7 +311,7 @@ def remove_instance(
     prefix, state, compose = map(_lexical, (prefix, state, compose))
     if _SYSTEM.fullmatch(system) is None:
         raise InstanceRemovalError("system ID is invalid")
-    if prefix == Path("/") or project != project_name(install_uuid):
+    if prefix == Path("/") or not is_scoped_project(install_uuid, project):
         raise InstanceRemovalError("Docker project is not the scoped install project")
     _check_tree(prefix, allow_missing=False)
     _check_tree(state, allow_missing=False)
