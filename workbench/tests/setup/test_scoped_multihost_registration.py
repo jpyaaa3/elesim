@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from elesim_setup.connection_manager import (
+from elesim_connections.connection_manager import (
     ConnectionTopology,
     DdsEndpoint,
     DdsGraphSettings,
@@ -18,7 +18,7 @@ from elesim_setup.connection_manager import (
     RoleAssignment,
     SshEndpoint,
 )
-from elesim_setup.connections import ConnectionDeploymentRunner, RuntimeRollbackError
+from elesim_connections.connections import ConnectionDeploymentRunner, RuntimeRollbackError
 from elesim_setup.instance_identity import image_reference, project_name
 from elesim_setup.instances import InstanceEndpoint, InstanceState
 from elesim_setup.releases import ReleaseManifest, release_key
@@ -111,9 +111,9 @@ def test_scoped_multihost_planner_uses_each_units_release_and_host_dds(
             pass
 
     runner = ConnectionDeploymentRunner(tmp_path / "authority", local_install_root=local_root)
-    monkeypatch.setattr("elesim_setup.connections.OwnershipManifest.load", lambda _path: Manifest())
+    monkeypatch.setattr("elesim_connections.connections.OwnershipManifest.load", lambda _path: Manifest())
     monkeypatch.setattr(
-        "elesim_setup.connections.list_releases",
+        "elesim_connections.connections.list_releases",
         lambda _prefix, install_uuid: (local_release,) if install_uuid == LOCAL_UUID else (remote_release,),
     )
     monkeypatch.setattr(runner, "_state_for_local_scope", lambda _uuid: state)
@@ -387,10 +387,10 @@ def test_scoped_authority_activation_waits_for_every_host_registration(
     _patch_scoped_runner(
         runner, topology, _registration_plans(topology, release), operations, monkeypatch
     )
-    monkeypatch.setattr("elesim_setup.connections.Sros2Authority", Authority)
-    monkeypatch.setattr("elesim_setup.connections.Sros2BundleIssuer", Issuer)
+    monkeypatch.setattr("elesim_connections.connections.Sros2Authority", Authority)
+    monkeypatch.setattr("elesim_connections.connections.Sros2BundleIssuer", Issuer)
     monkeypatch.setattr(
-        "elesim_setup.connections.new_generation_id",
+        "elesim_connections.connections.new_generation_id",
         lambda: Issued.generation,
     )
 
@@ -609,9 +609,9 @@ def _patch_rotation_security(monkeypatch, topology: ConnectionTopology, events):
             events.append(("authority", "issue"))
             return Issued()
 
-    monkeypatch.setattr("elesim_setup.connections.Sros2Authority", Authority)
-    monkeypatch.setattr("elesim_setup.connections.Sros2BundleIssuer", Issuer)
-    monkeypatch.setattr("elesim_setup.connections.new_generation_id", lambda: generation)
+    monkeypatch.setattr("elesim_connections.connections.Sros2Authority", Authority)
+    monkeypatch.setattr("elesim_connections.connections.Sros2BundleIssuer", Issuer)
+    monkeypatch.setattr("elesim_connections.connections.new_generation_id", lambda: generation)
     return generation
 
 
@@ -1001,7 +1001,7 @@ def test_scoped_recovery_rolls_back_when_authority_is_before_or_null(
         bundle_digest="a" * 64,
     )
     monkeypatch.setattr(
-        "elesim_setup.connections.Sros2Authority",
+        "elesim_connections.connections.Sros2Authority",
         lambda root: _RecoveryAuthority(root, None),
     )
 
@@ -1075,10 +1075,10 @@ def test_scoped_recovery_forward_completes_when_target_authority_is_active(
         bundle_digest=digest,
     )
     monkeypatch.setattr(
-        "elesim_setup.connections.Sros2Authority",
+        "elesim_connections.connections.Sros2Authority",
         lambda root: _RecoveryAuthority(root, "target-generation"),
     )
-    monkeypatch.setattr("elesim_setup.connections.SecurityBundle", Bundle)
+    monkeypatch.setattr("elesim_connections.connections.SecurityBundle", Bundle)
 
     runner._recover_scoped_transaction(
         topology,

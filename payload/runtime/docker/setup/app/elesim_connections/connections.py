@@ -28,7 +28,7 @@ from .connection_manager import (
     operator_home_path,
     resolve_ssh_identity_path,
 )
-from ._security_storage import SecurityAuthorityError, secure_absolute
+from elesim_setup._security_storage import SecurityAuthorityError, secure_absolute
 from .secure_deployment import (
     GenerationRollout,
     HostActivationState,
@@ -43,12 +43,12 @@ from .secure_deployment import (
     SshHostOperations,
     TopologyRollout,
 )
-from .instance_identity import is_scoped_project, project_name
-from .instances import InstanceEndpoint, InstanceRegistry, InstanceState
-from .ownership import OwnershipManifest
-from .releases import ReleaseManifest, list_releases, release_key
+from elesim_setup.instance_identity import is_scoped_project, project_name
+from elesim_setup.instances import InstanceEndpoint, InstanceRegistry, InstanceState
+from elesim_setup.ownership import OwnershipManifest
+from elesim_setup.releases import ReleaseManifest, list_releases, release_key
 from .security_authority import Sros2Authority, new_generation_id
-from .state import InstallState, NetworkSettings, TurnSettings
+from elesim_setup.state import InstallState, NetworkSettings, TurnSettings
 
 
 Log = Callable[[str], None]
@@ -1249,7 +1249,7 @@ class ConnectionDeploymentRunner:
                     compute_raw = raw_state.get("compute")
                     policy = None
                     if isinstance(compute_raw, Mapping):
-                        from .state import ComputeSettings
+                        from elesim_setup.state import ComputeSettings
                         policy = ComputeSettings(
                             gpu_mode=str(compute_raw.get("gpu_mode", "inherit")),
                             gpu_device=str(compute_raw.get("gpu_device", "")),

@@ -86,9 +86,6 @@ SETUP_PYTHON_MODULES = frozenset(
         "capabilities",
         "cli",
         "configuration",
-        "connection_gui",
-        "connection_manager",
-        "connections",
         "container_installer",
         "credentials",
         "developer",
@@ -116,9 +113,6 @@ SETUP_PYTHON_MODULES = frozenset(
         "readable_names",
         "request",
         "runtime_status",
-        "secure_deployment",
-        "security_authority",
-        "security_policy",
         "security_provisioning",
         "security_views",
         "service",
@@ -128,19 +122,34 @@ SETUP_PYTHON_MODULES = frozenset(
         "updater",
     )
 )
+CONNECTION_PYTHON_MODULES = frozenset(
+    f"elesim_connections/{name}.py"
+    for name in (
+        "__init__",
+        "connection_gui",
+        "connection_manager",
+        "connections",
+        "secure_deployment",
+        "security_authority",
+        "security_policy",
+    )
+)
 REQUIRED_SETUP_PACKAGE_FILES = (
     *sorted(SETUP_PYTHON_MODULES),
+    *sorted(CONNECTION_PYTHON_MODULES),
     "elesim_setup/setup_web/index.html",
     "elesim_setup/setup_web/app.js",
     "elesim_setup/setup_web/style.css",
     "elesim_setup/setup_web/i18n.json",
     "elesim_setup/setup_web/icon.svg",
     "elesim_setup/setup_web/fonts/NotoSansCJKkr-Regular.otf",
-    "elesim_setup/connection_manager_web/index.html",
-    "elesim_setup/connection_manager_web/app.js",
-    "elesim_setup/connection_manager_web/style.css",
-    "elesim_setup/connection_manager_web/i18n.json",
-    "elesim_setup/connection_manager_web/icon.svg",
+    "elesim_connections/connection_manager_web/index.html",
+    "elesim_connections/connection_manager_web/app.js",
+    "elesim_connections/connection_manager_web/style.css",
+    "elesim_connections/connection_manager_web/i18n.json",
+    "elesim_connections/connection_manager_web/icon.svg",
+    "elesim_connections/connection_manager_web/pencil.svg",
+    "elesim_connections/connection_manager_web/private-key-warning.svg",
 )
 PUBLIC_CONFIG_TEMPLATES = {
     "pilot": "runtime.public.example.yaml",
@@ -515,7 +524,9 @@ def verify_infrastructure_layout(release_root: Path) -> None:
         _require_path(setup / name)
     package = setup / "package"
     _require_path(package, kind="directory")
-    expected_package = {"pyproject.toml", "requirements.lock", "elesim_setup"}
+    expected_package = {
+        "pyproject.toml", "requirements.lock", "elesim_setup", "elesim_connections"
+    }
     actual_package = {path.name for path in package.iterdir()}
     if actual_package != expected_package:
         raise ReleaseVerificationError(
@@ -535,6 +546,17 @@ def verify_infrastructure_layout(release_root: Path) -> None:
             "unexpected setup Python module manifest: "
             f"missing={sorted(SETUP_PYTHON_MODULES - actual_python)!r}; "
             f"unexpected={sorted(actual_python - SETUP_PYTHON_MODULES)!r}"
+        )
+    _require_path(package / "elesim_connections", kind="directory")
+    actual_connection_python = frozenset(
+        path.relative_to(package).as_posix()
+        for path in (package / "elesim_connections").rglob("*.py")
+    )
+    if actual_connection_python != CONNECTION_PYTHON_MODULES:
+        raise ReleaseVerificationError(
+            "unexpected connection Python module manifest: "
+            f"missing={sorted(CONNECTION_PYTHON_MODULES - actual_connection_python)!r}; "
+            f"unexpected={sorted(actual_connection_python - CONNECTION_PYTHON_MODULES)!r}"
         )
     for relative in REQUIRED_SETUP_PACKAGE_FILES:
         _require_path(package / relative)

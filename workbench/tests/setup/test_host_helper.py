@@ -15,7 +15,7 @@ from elesim_setup.host_helper import (
     _normalize_tailscale_target,
 )
 from elesim_setup.host_proxy import _upload_stdin, main as host_proxy_main
-from elesim_setup.secure_deployment import _run_through_host_helper
+from elesim_connections.secure_deployment import _run_through_host_helper
 
 
 def _paths() -> tuple[Path, Path]:

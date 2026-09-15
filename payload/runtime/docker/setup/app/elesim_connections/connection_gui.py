@@ -27,9 +27,9 @@ from .connection_manager import (
     ConnectionTopology,
     TwoHostPreflight,
 )
-from ._security_storage import SecurityAuthorityError, secure_absolute
+from elesim_setup._security_storage import SecurityAuthorityError, secure_absolute
 from .secure_deployment import RuntimeLaunchOptions
-from .state import ComputeSettings, GPU_MODES
+from elesim_setup.state import ComputeSettings, GPU_MODES
 
 
 ConnectionRunner = Callable[
@@ -84,7 +84,7 @@ def setup_web_font_root() -> Path:
     wizard and connection manager to render Korean text identically.
     """
 
-    return Path(__file__).resolve().parent / "setup_web" / "fonts"
+    return Path(__file__).resolve().parent.parent / "elesim_setup" / "setup_web" / "fonts"
 
 
 @dataclass
@@ -121,9 +121,9 @@ class ConnectionManagerApplication:
     def installation_choices(self, payload: Mapping[str, Any]) -> dict[str, object]:
         """Read one explicitly addressed installation; never deploy or enroll it."""
         from .connection_manager import SshEndpoint
-        from .instance_identity import is_scoped_project, named_image_parts
-        from .ownership import OwnershipManifest
-        from .releases import list_releases, ReleaseManifest, release_key
+        from elesim_setup.instance_identity import is_scoped_project, named_image_parts
+        from elesim_setup.ownership import OwnershipManifest
+        from elesim_setup.releases import list_releases, ReleaseManifest, release_key
         from .secure_deployment import ParamikoConnector
 
         if not isinstance(payload, dict) or set(payload) != {"local", "install_root", "bin_dir", "ssh"} or type(payload["local"]) is not bool:
@@ -249,7 +249,7 @@ class ConnectionManagerApplication:
 
     def context(self) -> dict[str, object]:
         topology = self.load_topology(required=False)
-        from .network import detect_tailscale
+        from elesim_setup.network import detect_tailscale
 
         tailscale = detect_tailscale().to_dict()
         local_policies: dict[str, dict[str, str]] = {}
@@ -924,13 +924,13 @@ def _require_loopback(host: str, *, allow_container_wildcard: bool = False) -> N
 def _default_fingerprint_probe(host: str, port: int) -> str:
     # Keep the non-network topology editor importable with the standard library;
     # Paramiko/protocol credential helpers are needed only when a probe is run.
-    from .credentials import probe_ssh_fingerprint
+    from elesim_setup.credentials import probe_ssh_fingerprint
 
     return probe_ssh_fingerprint(host, port)
 
 
 def _default_tailscale_fingerprint_probe(host: str, port: int) -> str:
-    from .credentials import probe_ssh_fingerprint
+    from elesim_setup.credentials import probe_ssh_fingerprint
 
     return probe_ssh_fingerprint(host, port, force_tailscale_proxy=True)
 

@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ._security_storage import (
+from elesim_setup._security_storage import (
     BundleArtifact,
     BundleManifest,
     EnclaveIdentity,

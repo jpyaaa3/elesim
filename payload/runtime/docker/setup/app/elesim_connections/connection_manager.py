@@ -19,8 +19,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
-from .network import is_tailscale_interface
-from .instance_identity import is_scoped_project
+from elesim_setup.network import is_tailscale_interface
+from elesim_setup.instance_identity import is_scoped_project
 
 
 CONNECTION_SCHEMA_VERSION = 6

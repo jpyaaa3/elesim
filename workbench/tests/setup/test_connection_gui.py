@@ -10,13 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from elesim_setup.connection_gui import (
+from elesim_connections.connection_gui import (
     ConnectionManagerApplication,
     ConnectionManagerServer,
     connection_manager_web_root,
     setup_web_font_root,
 )
-from elesim_setup.connection_manager import (
+from elesim_connections.connection_manager import (
     ConnectionTopology,
     DdsEndpoint,
     DdsGraphSettings,
@@ -24,8 +24,8 @@ from elesim_setup.connection_manager import (
     RoleAssignment,
     SshEndpoint,
 )
-from elesim_setup.connections import _BuildLogForwarder
-from elesim_setup.secure_deployment import RuntimeLaunchOptions
+from elesim_connections.connections import _BuildLogForwarder
+from elesim_connections.secure_deployment import RuntimeLaunchOptions
 
 
 FINGERPRINT = "SHA256:" + "A" * 43
@@ -40,7 +40,7 @@ def test_installation_lookup_rejects_unmounted_local_path(tmp_path):
 @pytest.mark.parametrize("has_release", [False, True])
 def test_installation_lookup_remote_uses_pinned_endpoint(tmp_path, monkeypatch, has_release):
     from types import SimpleNamespace
-    from elesim_setup import secure_deployment
+    from elesim_connections import secure_deployment
     install_uuid = "64c395aa-c19f-4555-8594-6f9291219eb7"
     project = "elesim-quiet_otter"
     commands = []
@@ -494,12 +494,11 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert catalog["ko"]["action.add.host"] == "컴퓨터 추가"
     assert catalog["en"]["action.add.host"] == "Add a computer"
     assert 'data-field="unused"' not in html
-    assert ".drop-zone { position: relative; display: grid; min-height: 304px; grid-template-columns: repeat(2, minmax(0, 1fr))" in style
-    assert "grid-template-columns: minmax(300px, 1.08fr) minmax(260px, .87fr) minmax(300px, 1.05fr)" in style
-    assert "min-height: 304px" in style
+    assert ".drop-zone { position: relative; display: grid; min-height: 320px; grid-template-columns: repeat(2, minmax(0, 1fr))" in style
+    assert ".robot-host .unit-lanes { grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr); gap: 7px; }" in style
+    assert "min-height: 320px" in style
     assert "grid-auto-rows: 82px" in style
     assert "padding: 8px 8px 34px" in style
-    assert ".robot-host .unit-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }" in style
     assert ".robot-host .runtime-lane .drop-zone { grid-template-columns: 1fr; }" in style
     assert ".robot-lane .drop-zone { border-color: #b2a5ca; grid-template-columns: 1fr; }" in style
     assert ".drop-zone.empty::before" in style

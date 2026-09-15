@@ -411,6 +411,13 @@ DDS UDP discovery 증거가 아니며, SSH/Tailscale nc는 DDS traffic을 relay�
 
 ## 9. 보안과 연결 관리자 경계
 
+설치 마법사와 연결 관리자는 같은 `app/` 프로젝트와 wheel에 함께 패키징되지만
+서로 다른 Python 패키지다. 설치·호스트 lifecycle과 설치 자산은
+`elesim_setup/`이 소유하고, 다중 호스트 토폴로지 편집·SROS2 authority/policy와
+연결 관리자 웹 자산은 `elesim_connections/`가 소유한다. 사용자 진입점은 기존과
+같이 `elesim-connections`로 유지되며, 두 패키지 중 어느 쪽도 다른 runtime
+deployment 구현을 import하지 않는다.
+
 `elesim-connections`는 인자 없이 편집 화면을 연다. 시스템 ID는 화면에서
 정하며 저장하면 `connections/<system-id>/topology.json`에 기록된다.
 기존 시스템을 바로 열려면 `elesim-connections --system <id>`를 사용한다.

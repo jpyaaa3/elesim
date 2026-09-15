@@ -36,6 +36,7 @@ def test_payload_is_the_only_deployable_source_layout() -> None:
     assert (ROOT / "payload/data/models/assemblies/zed-mini/bundle.json").is_file()
     assert (ROOT / "payload/runtime/docker/setup/app/pyproject.toml").is_file()
     assert (ROOT / "payload/runtime/docker/setup/app/elesim_setup").is_dir()
+    assert (ROOT / "payload/runtime/docker/setup/app/elesim_connections").is_dir()
     assert (ROOT / "workbench/tests/setup").is_dir()
     assert not (ROOT / "installer/package").exists()
     assert not (ROOT / "payload/roles").exists()

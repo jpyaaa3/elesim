@@ -10,7 +10,7 @@ from pathlib import Path
 
 from elesim_protocol.dds_transport import peer_node_key
 
-from ._security_storage import EnclaveIdentity, SROS2_ROLES, secure_absolute
+from elesim_setup._security_storage import EnclaveIdentity, SROS2_ROLES, secure_absolute
 
 
 _CONTROL_TARGETS = {

@@ -107,9 +107,6 @@ _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
         "capabilities",
         "cli",
         "configuration",
-        "connection_gui",
-        "connection_manager",
-        "connections",
         "container_installer",
         "credentials",
         "developer",
@@ -136,9 +133,6 @@ _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
         "readable_names",
         "request",
         "runtime_status",
-        "secure_deployment",
-        "security_authority",
-        "security_policy",
         "security_provisioning",
         "security_views",
         "service",
@@ -164,6 +158,18 @@ _BOOTSTRAP_PROTOCOL_PYTHON_FILES = frozenset(
         "serde",
         "tracing",
         "transport",
+    )
+)
+_BOOTSTRAP_CONNECTION_PYTHON_FILES = frozenset(
+    PurePosixPath("payload/runtime/docker/setup/app/elesim_connections") / f"{name}.py"
+    for name in (
+        "__init__",
+        "connection_gui",
+        "connection_manager",
+        "connections",
+        "secure_deployment",
+        "security_authority",
+        "security_policy",
     )
 )
 _BOOTSTRAP_ROLE_ENTRYPOINT_FILES = frozenset(
@@ -204,6 +210,7 @@ _BOOTSTRAP_ROLE_CONFIG_FILES = frozenset(
 _BOOTSTRAP_REQUIRED_TREE_FILES = frozenset(
     {
         *_BOOTSTRAP_SETUP_PYTHON_FILES,
+        *_BOOTSTRAP_CONNECTION_PYTHON_FILES,
         *_BOOTSTRAP_PROTOCOL_PYTHON_FILES,
         *_BOOTSTRAP_ROLE_ENTRYPOINT_FILES,
         *_BOOTSTRAP_ROLE_CONFIG_FILES,
@@ -517,6 +524,17 @@ def _validate_source_snapshot(root: Path) -> None:
             "unexpected setup Python module manifest: "
             f"missing={sorted(_BOOTSTRAP_SETUP_PYTHON_FILES - actual_setup_python)!r}; "
             f"unexpected={sorted(actual_setup_python - _BOOTSTRAP_SETUP_PYTHON_FILES)!r}"
+        )
+    connection_root = root / "payload/runtime/docker/setup/app/elesim_connections"
+    actual_connection_python = frozenset(
+        PurePosixPath(path.relative_to(root).as_posix())
+        for path in connection_root.rglob("*.py")
+    )
+    if actual_connection_python != _BOOTSTRAP_CONNECTION_PYTHON_FILES:
+        raise BootstrapError(
+            "unexpected connection Python module manifest: "
+            f"missing={sorted(_BOOTSTRAP_CONNECTION_PYTHON_FILES - actual_connection_python)!r}; "
+            f"unexpected={sorted(actual_connection_python - _BOOTSTRAP_CONNECTION_PYTHON_FILES)!r}"
         )
     protocol_root = root / "payload/runtime/common/protocol/elesim_protocol"
     actual_protocol_python = frozenset(

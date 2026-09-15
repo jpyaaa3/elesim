@@ -9,8 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import elesim_setup.secure_deployment as secure_deployment
-from elesim_setup.connection_manager import (
+import elesim_connections.secure_deployment as secure_deployment
+from elesim_connections.connection_manager import (
     ConnectionTopology,
     DdsEndpoint,
     DdsGraphSettings,
@@ -19,7 +19,7 @@ from elesim_setup.connection_manager import (
     RoleAssignment,
     SshEndpoint,
 )
-from elesim_setup.secure_deployment import (
+from elesim_connections.secure_deployment import (
     GenerationRollout,
     HostActivationState,
     HostKeyVerificationError,
@@ -1226,7 +1226,7 @@ def test_paramiko_connector_uses_tailscale_ssh_auth_none_without_a_key(
 def test_paramiko_connector_reports_tailscale_check_reauth_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import elesim_setup.secure_deployment as secure_deployment
+    import elesim_connections.secure_deployment as secure_deployment
 
     key_bytes = b"tailscale-server-key"
     raw_socket = SimpleNamespace(close=lambda: None)
@@ -1290,7 +1290,7 @@ def test_paramiko_connector_reports_tailscale_check_reauth_failure(
 def test_paramiko_connector_does_not_treat_transport_failure_as_auth_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import elesim_setup.secure_deployment as secure_deployment
+    import elesim_connections.secure_deployment as secure_deployment
 
     key_bytes = b"tailscale-server-key"
     raw_socket = SimpleNamespace(close=lambda: None)

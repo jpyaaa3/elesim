@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from elesim_setup.connection_manager import (
+from elesim_connections.connection_manager import (
     ConnectionTopology,
     DdsEndpoint,
     ManagedHost,
     RoleAssignment,
 )
-from elesim_setup.connections import ConnectionDeploymentRunner
-from elesim_setup.secure_deployment import (
+from elesim_connections.connections import ConnectionDeploymentRunner
+from elesim_connections.secure_deployment import (
     InstalledElesimLifecycle,
     RemoteCommandResult,
     SecurityBundle,
@@ -160,15 +160,15 @@ def test_scoped_provision_prepares_network_then_registers_exact_instance(
         def close(self):
             events.append("close")
 
-    monkeypatch.setattr("elesim_setup.connections.Sros2Authority", Authority)
-    monkeypatch.setattr("elesim_setup.connections.Sros2BundleIssuer", Issuer)
+    monkeypatch.setattr("elesim_connections.connections.Sros2Authority", Authority)
+    monkeypatch.setattr("elesim_connections.connections.Sros2BundleIssuer", Issuer)
     monkeypatch.setattr(
-        "elesim_setup.connections.new_generation_id",
+        "elesim_connections.connections.new_generation_id",
         lambda: "g-20260909t000000000000z-abcdef123456",
     )
-    monkeypatch.setattr("elesim_setup.connections.OwnershipManifest.load", lambda _path: Manifest())
+    monkeypatch.setattr("elesim_connections.connections.OwnershipManifest.load", lambda _path: Manifest())
     monkeypatch.setattr(
-        "elesim_setup.connections.list_releases",
+        "elesim_connections.connections.list_releases",
         lambda *_args, **_kwargs: (release,),
     )
     monkeypatch.setattr(
@@ -234,10 +234,10 @@ def test_scoped_first_provision_rejects_ambiguous_release_set(
         def active():
             return None
 
-    monkeypatch.setattr("elesim_setup.connections.Sros2Authority", Authority)
-    monkeypatch.setattr("elesim_setup.connections.OwnershipManifest.load", lambda _path: Manifest())
+    monkeypatch.setattr("elesim_connections.connections.Sros2Authority", Authority)
+    monkeypatch.setattr("elesim_connections.connections.OwnershipManifest.load", lambda _path: Manifest())
     monkeypatch.setattr(
-        "elesim_setup.connections.list_releases",
+        "elesim_connections.connections.list_releases",
         lambda *_args, **_kwargs: (_release(), _release()),
     )
     monkeypatch.setattr(ConnectionDeploymentRunner, "_local_install_scope", lambda _self: True)

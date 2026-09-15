@@ -21,7 +21,7 @@ test = ["pytest>=8,<9"]
 [project.scripts]
 elesim-setup = "elesim_setup.cli:main"
 elesim-net = "elesim_setup.network:main"
-elesim-connections = "elesim_setup.connections:main"
+elesim-connections = "elesim_connections.connections:main"
 elesim-uninstall = "elesim_setup.uninstall:main"
 elesim-host-proxy = "elesim_setup.host_proxy:main"
 
@@ -36,6 +36,8 @@ elesim_setup = [
   "setup_web/*.json",
   "setup_web/*.svg",
   "setup_web/fonts/*.otf",
+]
+elesim_connections = [
   "connection_manager_web/*.html",
   "connection_manager_web/*.css",
   "connection_manager_web/*.js",

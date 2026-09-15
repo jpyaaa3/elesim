@@ -300,13 +300,16 @@
   - `payload/runtime/native/robot/app/elesim_robot/go2/unitree_ipc*.py` and
     `unitree_bridge_daemon.py`: local bounded UDS boundary, peer credentials,
     replay fencing and bridge-side GO2 deadman stop.
-  - `payload/runtime/docker/setup/app/elesim_setup/`: state schema v11, role-specific DDS
+  - `payload/runtime/docker/setup/app/elesim_setup/` and
+    `payload/runtime/docker/setup/app/elesim_connections/`: state schema v11,
+    role-specific DDS
     generation, connection topology/GUI, SROS2 Authority generation and
     transactional deployment, network doctor, TURN credential validation, and
     the ephemeral schema-v2 `TwoHostPreflight` contract/API.
-    `connection_manager.py` owns mode-free topology schema v6 and v1-v5 read
+    `elesim_connections/connection_manager.py` owns mode-free topology schema v6 and v1-v5 read
     migration; `instances.py` owns instance schema v3 and v2 read migration;
-    `security_policy.py` and `secure_deployment.py` filter SROS2/lifecycle
+    `elesim_connections/security_policy.py` and `elesim_connections/secure_deployment.py`
+    filter SROS2/lifecycle
     operations to the active role set.
     Runtime role keys and source trees are the same names (`pilot` and `sim`).
     Old `controller`/`simulator` values are accepted only while reading legacy

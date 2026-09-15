@@ -14,7 +14,7 @@ from elesim_protocol import (
     EndpointDescriptor,
 )
 from elesim_protocol.dds_transport import peer_node_key
-from elesim_setup.security_policy import render_role_policy, write_role_policy
+from elesim_connections.security_policy import render_role_policy, write_role_policy
 
 
 ENDPOINTS = {

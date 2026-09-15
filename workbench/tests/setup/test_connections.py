@@ -7,21 +7,21 @@ from pathlib import Path
 
 import pytest
 
-from elesim_setup.connection_manager import (
+from elesim_connections.connection_manager import (
     ConnectionTopology,
     DdsEndpoint,
     ManagedHost,
     RoleAssignment,
     SshEndpoint,
 )
-from elesim_setup.connection_gui import ConnectionJobCancelled
-from elesim_setup.connections import (
+from elesim_connections.connection_gui import ConnectionJobCancelled
+from elesim_connections.connections import (
     ConnectionDeploymentRunner,
     OperationCloseError,
     RuntimeRollbackError,
     _exception_detail,
 )
-from elesim_setup.secure_deployment import RuntimeLaunchOptions
+from elesim_connections.secure_deployment import RuntimeLaunchOptions
 
 
 FINGERPRINT = "SHA256:" + "A" * 43
@@ -112,7 +112,7 @@ def test_trusted_network_runner_applies_bundle_free_topology(
             }
         ),
     )
-    monkeypatch.setattr("elesim_setup.connections.TopologyRollout", FakeRollout)
+    monkeypatch.setattr("elesim_connections.connections.TopologyRollout", FakeRollout)
 
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
@@ -187,7 +187,7 @@ def test_trusted_network_runner_ignores_cancel_after_rollout_commit(
             }
         ),
     )
-    monkeypatch.setattr("elesim_setup.connections.TopologyRollout", FakeRollout)
+    monkeypatch.setattr("elesim_connections.connections.TopologyRollout", FakeRollout)
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
     )
@@ -1048,7 +1048,7 @@ def test_deploy_persists_sidecar_address_before_remote_configuration(
             }
         ),
     )
-    monkeypatch.setattr("elesim_setup.connections.TopologyRollout", Rollout)
+    monkeypatch.setattr("elesim_connections.connections.TopologyRollout", Rollout)
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
         topology_state_path=state_path,
@@ -1084,7 +1084,7 @@ def test_deploy_rejects_changed_sidecar_address_without_a_state_path(
         ),
     )
     monkeypatch.setattr(
-        "elesim_setup.connections.TopologyRollout",
+        "elesim_connections.connections.TopologyRollout",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("remote rollout must not begin before persistence")
         ),
@@ -1110,7 +1110,7 @@ def test_sros2_provision_rejects_an_existing_active_generation(
         def active() -> object:
             return object()
 
-    monkeypatch.setattr("elesim_setup.connections.Sros2Authority", FakeAuthority)
+    monkeypatch.setattr("elesim_connections.connections.Sros2Authority", FakeAuthority)
     monkeypatch.setattr(
         ConnectionDeploymentRunner,
         "_operations",
@@ -1157,10 +1157,10 @@ def test_sros2_prepare_selects_create_or_reissue_automatically(
             observed.append((expected_action, generation))
             progress("verify", "operator")
 
-    monkeypatch.setattr("elesim_setup.connections.Sros2Authority", FakeAuthority)
-    monkeypatch.setattr("elesim_setup.connections.GenerationRollout", FakeRollout)
+    monkeypatch.setattr("elesim_connections.connections.Sros2Authority", FakeAuthority)
+    monkeypatch.setattr("elesim_connections.connections.GenerationRollout", FakeRollout)
     monkeypatch.setattr(
-        "elesim_setup.connections.new_generation_id",
+        "elesim_connections.connections.new_generation_id",
         lambda: "g-20260807t000000000000z-abcdef123456",
     )
     monkeypatch.setattr(

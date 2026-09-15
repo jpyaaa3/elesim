@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from elesim_setup.connection_manager import (
+from elesim_connections.connection_manager import (
     ConnectionTopology,
     DdsEndpoint,
     DdsGraphSettings,

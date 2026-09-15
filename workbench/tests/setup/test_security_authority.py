@@ -9,8 +9,8 @@ from typing import Sequence
 
 import pytest
 
-from elesim_setup import security_authority as authority_module
-from elesim_setup.security_authority import (
+from elesim_connections import security_authority as authority_module
+from elesim_connections.security_authority import (
     EnclaveIdentity,
     SecurityAuthorityError,
     Sros2Authority,

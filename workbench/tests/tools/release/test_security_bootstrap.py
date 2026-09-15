@@ -37,6 +37,7 @@ def test_release_infrastructure_contains_dds_aware_installers(tmp_path: Path) ->
         "pyproject.toml",
         "requirements.lock",
         "elesim_setup",
+        "elesim_connections",
     }
     assert not (package / "tests").exists()
     assert not (package / "requirements-media.lock").exists()
@@ -90,15 +91,17 @@ def test_setup_wheel_contains_browser_assets_and_cjk_font(tmp_path: Path) -> Non
     assert "elesim_setup/setup_web/i18n.json" in members
     assert "elesim_setup/setup_web/icon.svg" in members
     assert "elesim_setup/setup_web/fonts/NotoSansCJKkr-Regular.otf" in members
-    assert "elesim_setup/connection_manager_web/index.html" in members
-    assert "elesim_setup/connection_manager_web/app.js" in members
-    assert "elesim_setup/connection_manager_web/i18n.json" in members
-    assert "elesim_setup/connection_manager_web/icon.svg" in members
+    assert "elesim_connections/connection_manager_web/index.html" in members
+    assert "elesim_connections/connection_manager_web/app.js" in members
+    assert "elesim_connections/connection_manager_web/i18n.json" in members
+    assert "elesim_connections/connection_manager_web/icon.svg" in members
+    assert "elesim_connections/connection_manager_web/pencil.svg" in members
+    assert "elesim_connections/connection_manager_web/private-key-warning.svg" in members
     assert "elesim_setup/ownership.py" in members
     assert "elesim_setup/uninstall.py" in members
     assert "elesim_setup/shell.py" in members
     assert "elesim-setup = elesim_setup.cli:main" in entry_points
-    assert "elesim-connections = elesim_setup.connections:main" in entry_points
+    assert "elesim-connections = elesim_connections.connections:main" in entry_points
     assert "elesim-uninstall = elesim_setup.uninstall:main" in entry_points
 
     environment = os.environ.copy()

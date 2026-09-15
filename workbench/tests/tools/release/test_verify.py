@@ -249,7 +249,7 @@ def test_infrastructure_layout_rejects_symlinked_required_path_ancestor(
     (
         "elesim_setup/cli.py",
         "elesim_setup/network.py",
-        "elesim_setup/connections.py",
+        "elesim_connections/connections.py",
         "elesim_setup/uninstall.py",
         "elesim_setup/host_proxy.py",
         "elesim_setup/ownership.py",
@@ -363,6 +363,7 @@ def test_infrastructure_layout_rejects_empty_or_wrongly_typed_material(
         (infra / "development" / name).write_text("", encoding="utf-8")
 
     (package / "elesim_setup").mkdir()
+    (package / "elesim_connections").mkdir()
     with pytest.raises(ReleaseVerificationError, match="__init__.py"):
         verify_infrastructure_layout(tmp_path)
 

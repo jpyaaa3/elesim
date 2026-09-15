@@ -37,8 +37,8 @@ from .connection_manager import (
     SshEndpoint,
     resolve_ssh_identity_path,
 )
-from .instance_identity import is_scoped_project, project_name
-from .credentials import (
+from elesim_setup.instance_identity import is_scoped_project, project_name
+from elesim_setup.credentials import (
     _ParamikoProxySocket,
     proxy_failure_detail,
     tailscale_proxy_command,

@@ -86,7 +86,7 @@ def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, b
         "payload/runtime/docker/setup/app/elesim_setup/__init__.py": b"",
         "payload/runtime/docker/setup/app/elesim_setup/cli.py": b"",
         "payload/runtime/docker/setup/app/elesim_setup/network.py": b"",
-        "payload/runtime/docker/setup/app/elesim_setup/connections.py": b"",
+        "payload/runtime/docker/setup/app/elesim_connections/connections.py": b"",
         "payload/runtime/docker/setup/app/elesim_setup/uninstall.py": b"",
         "payload/runtime/docker/setup/app/elesim_setup/host_proxy.py": b"",
         "payload/runtime/common/protocol/pyproject.toml": b"[project]\n",
@@ -138,6 +138,8 @@ def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, b
     for role in ("pilot", "sim", "ui"):
         members[f"payload/runtime/docker/{role}/entrypoint"] = b"#!/bin/sh\n"
     for relative in bootstrap_module._BOOTSTRAP_SETUP_PYTHON_FILES:
+        members.setdefault(relative.as_posix(), b"")
+    for relative in bootstrap_module._BOOTSTRAP_CONNECTION_PYTHON_FILES:
         members.setdefault(relative.as_posix(), b"")
     for relative in bootstrap_module._BOOTSTRAP_PROTOCOL_PYTHON_FILES:
         members.setdefault(relative.as_posix(), b"")
@@ -222,7 +224,7 @@ def test_source_snapshot_allows_explicitly_excluded_public_examples(
     (
         "payload/runtime/docker/setup/app/elesim_setup/cli.py",
         "payload/runtime/docker/setup/app/elesim_setup/network.py",
-        "payload/runtime/docker/setup/app/elesim_setup/connections.py",
+        "payload/runtime/docker/setup/app/elesim_connections/connections.py",
         "payload/runtime/docker/setup/app/elesim_setup/uninstall.py",
         "payload/runtime/docker/setup/app/elesim_setup/host_proxy.py",
         "payload/runtime/docker/setup/app/elesim_setup/ownership.py",
@@ -499,7 +501,7 @@ def test_safe_extract_rejects_links_inside_install_source_boundary(
     archive = tmp_path / "source-with-source-link.tgz"
     with tarfile.open(archive, "w:gz") as bundle:
         link = tarfile.TarInfo(
-            "elesim-main/payload/runtime/docker/setup/app/elesim_setup/connections.py"
+            "elesim-main/payload/runtime/docker/setup/app/elesim_connections/connections.py"
         )
         link.type = tarfile.SYMTYPE
         link.linkname = "other.py"

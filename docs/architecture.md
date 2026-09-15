@@ -70,6 +70,14 @@ workbench/tools/release ── isolated release contexts
 workbench/tests/system ── cross-process acceptance probes
 ```
 
+설정 도구의 소스는 하나의 `app/` 배포 프로젝트로 빌드하지만 경계를 두 Python
+패키지로 유지한다. `elesim_setup/`은 설치 마법사, host helper, state와 설치
+lifecycle을 소유하고, `elesim_connections/`는 `elesim-connections` CLI와
+연결관리자 GUI/web 자산, topology 및 연결 보안 배포를 소유한다. 연결관리자
+패키지는 설치 패키지의 shared storage 같은 명시된 경계만 사용하며, Pilot·Sim·UI·Robot
+구현을 직접 참조하지 않는다. 따라서 wheel/image를 별도로 만들지 않아도 소스
+소유권과 import graph는 독립적으로 검증할 수 있다.
+
 각 배포 tree는 sibling 구현을 import하지 않는다. 공유 가능한 것은
 `payload/runtime/common/elesim_interfaces`의 ROSIDL type과 `payload/runtime/common/protocol`의 transport
 primitive뿐이다. typed ROS service/action 정의는 생성되지만 현재 runtime에
