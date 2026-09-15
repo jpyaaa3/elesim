@@ -14,10 +14,13 @@ from elesim_setup.ownership import install_host_uninstaller_bundle
 from elesim_setup.updater import render_compose_build_progress
 
 
-def invoke(tmp_path, script, mode="plain"):
+def invoke(tmp_path, script, mode="plain", result_file=None):
+    command = [sys.executable, build_progress.__file__, "--log-dir", str(tmp_path / "logs"),
+               "--mode", mode]
+    if result_file is not None:
+        command.extend(("--result-file", str(result_file)))
     return subprocess.run(
-        [sys.executable, build_progress.__file__, "--log-dir", str(tmp_path / "logs"),
-         "--mode", mode, "--", sys.executable, "-c", script],
+        [*command, "--", sys.executable, "-c", script],
         capture_output=True, timeout=10,
     )
 
@@ -38,19 +41,24 @@ def test_plain_progress_keeps_full_private_log_and_bounded_terminal(tmp_path):
 
 
 def test_build_report_lists_exported_role_images(tmp_path):
+    result_file = tmp_path / "result" / "images.txt"
     result = invoke(
         tmp_path,
         "print('#52 naming to docker.io/elesim/sim:quick_zebra-ivory_llama 0.0s done'); "
         "print('#72 naming to docker.io/elesim/pilot:quick_zebra-plain_horse done'); "
         "print('#73 naming to docker.io/elesim/ui:quick_zebra-silent_lynx done'); "
         "print('#90 naming to docker.io/elesim/tools:quick_zebra-jolly_canary done')",
+        result_file=result_file,
     )
     assert result.returncode == 0, result.stderr
-    assert b"Installation name=quick_zebra" in result.stderr
-    assert b"elesim/sim=ivory_llama" in result.stderr
-    assert b"elesim/pilot=plain_horse" in result.stderr
-    assert b"elesim/ui=silent_lynx" in result.stderr
-    assert b"elesim/tools=jolly_canary" in result.stderr
+    assert result_file.read_text() == (
+        "Installation name=quick_zebra\n"
+        "elesim/pilot=plain_horse\n"
+        "elesim/sim=ivory_llama\n"
+        "elesim/tools=jolly_canary\n"
+        "elesim/ui=silent_lynx\n"
+    )
+    assert b"Built images" not in result.stderr
 
 
 @pytest.mark.parametrize("mode", ["auto", "verbose"])

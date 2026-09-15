@@ -14,6 +14,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import unicodedata
 
@@ -70,9 +71,31 @@ def _fit_row(value: str, width: int) -> str:
     return value[:end]
 
 
+def _write_image_report(path: Path, images: dict[str, tuple[str, str]]) -> None:
+    """Persist the compact image summary for the caller's final report."""
+    path = Path(path)
+    if not path.is_absolute() or path.parent.is_symlink():
+        raise ValueError("image report path must be an absolute non-symlink path")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".build-images-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            names = {value[0] for value in images.values()}
+            if len(names) == 1:
+                stream.write(f"Installation name={next(iter(names))}\n")
+            for repository in sorted(images):
+                stream.write(f"{repository}={images[repository][1]}\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def run(command: list[str], log_dir: Path, mode: str = "auto", *,
         title: str = "Runtime image build", notice_prefixes: tuple[str, ...] = (),
-        hidden_prefixes: tuple[str, ...] = ()) -> int:
+        hidden_prefixes: tuple[str, ...] = (), result_file: Path | None = None) -> int:
     log_path, transcript = _open_log(log_dir)
     tty = sys.stdout.isatty() and sys.stderr.isatty() and os.environ.get("TERM") != "dumb"
     verbose = mode == "verbose" or (mode == "auto" and not tty)
@@ -191,13 +214,8 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
                 print(_muted(preview_line, tty), file=sys.stderr)
             omitted = max(0, line_count - shown_count - len(preview))
             print(_muted("  │ ...", tty), file=sys.stderr)
-        if status == 0 and built_images:
-            print("  └ Built images", file=sys.stderr)
-            install_names = {value[0] for value in built_images.values()}
-            if len(install_names) == 1:
-                print(f"    Installation name={next(iter(install_names))}", file=sys.stderr)
-            for repository, (_install_name, alias) in built_images.items():
-                print(f"    {repository}={alias}", file=sys.stderr)
+        if status == 0 and built_images and result_file is not None:
+            _write_image_report(result_file, built_images)
         label = "Completed" if status == 0 else f"Failed (exit {status})"
         print(_muted(
             f"  └ {label} in {time.monotonic() - started:.1f}s",
@@ -224,6 +242,7 @@ def main() -> int:
     parser.add_argument("--title", default="Runtime image build")
     parser.add_argument("--notice-prefix", action="append", default=[])
     parser.add_argument("--hide-prefix", action="append", default=[])
+    parser.add_argument("--result-file", type=Path)
     parser.add_argument("--mode", choices=("auto", "compact", "plain", "verbose"),
                         default="verbose" if os.environ.get("ELESIM_VERBOSE") == "1"
                         else os.environ.get("ELESIM_BUILD_PROGRESS", "auto"))
@@ -236,7 +255,7 @@ def main() -> int:
         mode = "verbose" if os.environ.get("ELESIM_VERBOSE") == "1" else args.mode
         return run(command, args.log_dir, mode, title=args.title,
                    notice_prefixes=tuple(args.notice_prefix),
-                   hidden_prefixes=tuple(args.hide_prefix))
+                   hidden_prefixes=tuple(args.hide_prefix), result_file=args.result_file)
     except OSError as exc:
         print(f"Build progress error: {exc}", file=sys.stderr)
         return 74

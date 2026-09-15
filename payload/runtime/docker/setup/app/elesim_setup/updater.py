@@ -234,9 +234,12 @@ def render_update_wrapper(
             f"-f {shlex.quote(str(compose))} build{suffix}"
         )
         if build_progress:
+            image_report = prefix / "maintenance/.build-images"
             build_line = (
+                f"rm -f -- {shlex.quote(str(image_report))}; "
                 f"python3 {shlex.quote(str(prefix / 'maintenance/elesim_setup/build_progress.py'))} "
                 f"--log-dir {shlex.quote(str(prefix / 'logs/build'))} "
+                f"--result-file {shlex.quote(str(image_report))} "
                 '--mode "${ELESIM_BUILD_PROGRESS:-compact}" -- ' + build_line
             )
         if normalized_owned_images:
@@ -344,7 +347,18 @@ def render_update_wrapper(
             lines.append(
                 f"PYTHONNOUSERSITE=1 PYTHONPATH={shlex.quote(str(prefix / 'maintenance'))} python3 -B -S -m elesim_setup.image_cleanup "
                 f"--prefix {shlex.quote(str(prefix))} --lock-fd 9 >/dev/null"
+        )
+    if compose is not None and build_progress:
+        image_report = prefix / "maintenance/.build-images"
+        lines.extend(
+            (
+                f"if [[ -s {shlex.quote(str(image_report))} && ! -L {shlex.quote(str(image_report))} ]]; then",
+                "  if [[ -t 1 ]]; then printf '\\033[38;5;216m'; fi",
+                f"  cat -- {shlex.quote(str(image_report))}",
+                "  if [[ -t 1 ]]; then printf '\\033[0m'; fi",
+                "fi",
             )
+        )
     lines.append("")
     return "\n".join(lines)
 
