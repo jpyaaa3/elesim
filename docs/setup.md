@@ -254,6 +254,19 @@ Legacy update는 기존 dangling-image 정리만 유지한다. `--purge`나 down
 
 ### Build cache
 
+Bootstrap은 `~/.cache/elesim/setup/environments-v2/`에 Python 의존성과
+EleSim 패키지 환경을 분리하여 보관한다. Python 버전/플랫폼/실행 경로,
+packaging 도구 조건과 setup `requirements.lock`이 같으면 의존성 설치와
+pip 검사를 다시 실행하지 않는다. 소스 경로나 커밋만 바뀌어도 같은 의존성을
+재사용한다. EleSim 패키지는 protocol/setup 파일 내용별 환경에 설치하며,
+완성된 의존성 환경을 `.pth`로 참조한다. 실행 중인 이전 패키지 환경은 수정하지
+않는다. 새 패키지 빌드는 검증된 소스 복사본에서 수행한다.
+
+캐시별 잠금으로 동시 생성을 직렬화하고 pip 검증 성공 후에만 완료 표시를
+기록한다. 실패/중단된 환경은 재사용하지 않으며 재시도는 새 디렉터리에서
+수행한다. 기존 `venv-*` 캐시는 자동 삭제하지 않는다. 이 변경 후 첫 실행은
+새 캐시를 준비하며, 이후 코드만 바뀌는 업데이트는 라이브러리를 재설치하지 않는다.
+
 `elesim-update`와 첫 릴리스의 `elesim-release`는 이미지 빌드의 stdout/stderr를
 `<prefix>/logs/build/<UTC timestamp>-<random>.log`에 보관한다. 디렉터리는 0700,
 파일은 0600이며 symlink 조상 경로를 거부한다. 로그 파일 생성·쓰기 실패는

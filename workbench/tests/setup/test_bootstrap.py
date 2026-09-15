@@ -7,6 +7,7 @@ import http.client
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -1743,7 +1744,7 @@ def test_bootstrap_package_builds_preserve_validated_cache(
             python = Path(command[-1]) / "bin/python"
             python.parent.mkdir(parents=True)
             python.touch()
-        if "--force-reinstall" in command:
+        if "--no-build-isolation" in command:
             project = Path(command[-1])
             build_paths.append(project)
             assert (project / "pyproject.toml").is_file()
@@ -1773,6 +1774,101 @@ def test_bootstrap_venv_pins_ros_build_python_metadata_dependencies() -> None:
 
     assert '"setuptools>=68,<80"' in text
     assert '"packaging>=24.2,<26"' in text
+
+
+def test_bootstrap_environment_cache_reuses_dependencies_across_source_changes(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    for _, relative in bootstrap_module._SETUP_PROJECTS:
+        project = source / relative
+        project.mkdir(parents=True)
+        (project / "pyproject.toml").write_text("project")
+    lock = source / "payload/runtime/docker/setup/app/requirements.lock"
+    lock.write_text("numpy==1.26.4")
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if "venv" in command:
+            python = Path(command[-1]) / "bin/python"
+            python.parent.mkdir(parents=True)
+            python.touch()
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(bootstrap_module.subprocess, "run", run)
+    monkeypatch.setattr(bootstrap_module, "_ensure_bootstrap_pip", lambda _: None)
+    cache = tmp_path / "cache"
+    first = bootstrap_module.prepare_bootstrap_venv(source, cache)
+    count = len(calls)
+    assert bootstrap_module.prepare_bootstrap_venv(source, cache) == first
+    assert len(calls) == count
+    moved = tmp_path / "other-revision"
+    shutil.copytree(source, moved)
+    assert bootstrap_module.prepare_bootstrap_venv(moved, cache) == first
+    assert len(calls) == count
+    (moved / bootstrap_module._SETUP_PROJECTS[0][1] / "new.py").write_text("new code")
+    second = bootstrap_module.prepare_bootstrap_venv(moved, cache)
+    assert second != first
+    assert not any("--upgrade" in call or "-r" in call for call in calls[count:])
+    count = len(calls)
+    (moved / "payload/runtime/docker/setup/app/requirements.lock").write_text("numpy==2.0.0")
+    assert bootstrap_module.prepare_bootstrap_venv(moved, cache) != second
+    assert any("-r" in call for call in calls[count:])
+
+
+def test_bootstrap_failed_environment_is_not_published(tmp_path):
+    with pytest.raises(RuntimeError):
+        with bootstrap_module._prepared_environment(tmp_path, "test") as (failed, reused):
+            assert not reused
+            raise RuntimeError("interrupted")
+    assert not (tmp_path / "test/ready").exists()
+    with bootstrap_module._prepared_environment(tmp_path, "test") as (retry, reused):
+        assert not reused
+        assert retry != failed
+        (retry / "bin").mkdir()
+        (retry / "bin/python").touch()
+    with bootstrap_module._prepared_environment(tmp_path, "test") as (cached, reused):
+        assert reused and cached == retry
+
+
+def test_bootstrap_application_reads_shared_dependencies_in_real_venv(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    for _, relative in bootstrap_module._SETUP_PROJECTS:
+        (source / relative).mkdir(parents=True)
+    (source / "payload/runtime/docker/setup/app/requirements.lock").write_text("fixture")
+
+    def install_dependencies(source, cache, environment):
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(environment)], check=True)
+        site = bootstrap_module._venv_site(environment)
+        (site / "cached_library.py").write_text("VALUE = 'shared'\n")
+
+    def install_packages(source, cache, environment):
+        result = subprocess.run([str(environment / "bin/python"), "-I", "-c",
+                                 "import cached_library, sys; print(cached_library.VALUE); print(sys.prefix)"],
+                                check=True, capture_output=True, text=True)
+        assert result.stdout.splitlines() == ["shared", str(environment)]
+
+    monkeypatch.setattr(bootstrap_module, "_install_bootstrap_dependencies", install_dependencies)
+    monkeypatch.setattr(bootstrap_module, "_install_bootstrap_packages", install_packages)
+    monkeypatch.setattr(bootstrap_module, "_progress_command", lambda source, cache, title, command: command)
+    bootstrap_module.prepare_bootstrap_venv(source, tmp_path / "cache")
+
+
+def test_bootstrap_concurrent_environment_preparation_publishes_once(tmp_path):
+    barrier = threading.Barrier(2)
+
+    def prepare():
+        barrier.wait(timeout=5)
+        with bootstrap_module._prepared_environment(tmp_path, "shared") as (environment, reused):
+            if not reused:
+                (environment / "bin").mkdir()
+                (environment / "bin/python").touch()
+            return environment, reused
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(prepare) for _ in range(2)]
+        results = [future.result(timeout=10) for future in futures]
+    assert results[0][0] == results[1][0]
+    assert sorted(reused for _, reused in results) == [False, True]
 
 
 def test_bootstrap_progress_command_runs_standalone_helper(tmp_path, monkeypatch):

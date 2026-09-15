@@ -13,6 +13,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import sysconfig
 import tarfile
 import tempfile
 import urllib.error
@@ -1074,9 +1075,87 @@ def _progress_command(source_root: Path, cache_root: Path, title: str,
     )
 
 
+_PACKAGING_REQUIREMENTS = ("pip", "setuptools>=68,<80", "packaging>=24.2,<26", "wheel")
+_SETUP_PROJECTS = (
+    ("protocol", "payload/runtime/common/protocol"),
+    ("setup", "payload/runtime/docker/setup/app"),
+)
+
+
+@contextlib.contextmanager
+def _prepared_environment(cache: Path, key: str) -> Iterator[tuple[Path, bool]]:
+    """Publish only completed environments; never relocate venv shebangs."""
+    entry = cache / key
+    with _locked_url_cache(entry):
+        ready = entry / "ready"
+        if ready.is_file():
+            name = ready.read_text(encoding="utf-8").strip()
+            if not re.fullmatch(r"env-[a-z0-9_]+", name):
+                raise BootstrapError(f"Invalid environment cache marker: {ready}")
+            environment = entry / name
+            if not (environment / "bin/python").is_file():
+                raise BootstrapError(f"Incomplete environment cache: {environment}")
+            yield environment, True
+            return
+        # Failed attempts remain unpublished. A retry gets a fresh directory.
+        environment = Path(tempfile.mkdtemp(prefix="env-", dir=entry))
+        yield environment, False
+        temporary = entry / "ready.tmp"
+        temporary.write_text(environment.name, encoding="utf-8")
+        temporary.replace(ready)
+
+
+def _dependency_key(source_root: Path) -> str:
+    identity = (sys.version, sys.executable, sys.prefix, sysconfig.get_platform(),
+                sysconfig.get_config_var("SOABI"), _PACKAGING_REQUIREMENTS)
+    digest = hashlib.sha256(repr(identity).encode())
+    digest.update((source_root / "payload/runtime/docker/setup/app/requirements.lock").read_bytes())
+    return digest.hexdigest()
+
+
+def _application_key(source_root: Path, dependency_key: str) -> str:
+    digest = hashlib.sha256(dependency_key.encode())
+    for _, relative in _SETUP_PROJECTS:
+        for path in sorted((source_root / relative).rglob("*")):
+            if path.is_file():
+                digest.update(str(path.relative_to(source_root)).encode() + b"\0")
+                digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def _venv_site(environment: Path) -> Path:
+    # Ubuntu's host default is posix_local (dist-packages), while venv uses
+    # posix_prefix (site-packages), including when launched by system Python.
+    return Path(sysconfig.get_path("purelib", scheme="posix_prefix",
+                                   vars={"base": str(environment), "platbase": str(environment)}))
+
+
 def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
-    fingerprint = hashlib.sha256(str(source_root).encode("utf-8")).hexdigest()[:16]
-    venv = cache_root.expanduser().resolve() / f"venv-{fingerprint}"
+    cache = cache_root.expanduser().resolve() / "environments-v2"
+    dependency_key = _dependency_key(source_root)
+    with _prepared_environment(cache, f"deps-{dependency_key}") as (dependencies, reused):
+        if not reused:
+            _install_bootstrap_dependencies(source_root, cache_root, dependencies)
+        else:
+            print("[bootstrap] Reuse setup dependencies", flush=True)
+    application_key = _application_key(source_root, dependency_key)
+    with _prepared_environment(cache, f"app-{application_key}") as (venv, reused):
+        if not reused:
+            subprocess.run(_progress_command(source_root, cache_root, "Create setup package environment",
+                                            (sys.executable, "-m", "venv", "--without-pip", str(venv))), check=True)
+            # Each application generation has its own site-packages and entrypoints.
+            # The completed dependency environment is only read, never pip-mutated.
+            site = _venv_site(venv)
+            dependency_site = str(_venv_site(dependencies))
+            site.mkdir(parents=True, exist_ok=True)
+            (site / "elesim_dependencies.pth").write_text(dependency_site + "\n", encoding="utf-8")
+            _install_bootstrap_packages(source_root, cache_root, venv)
+        else:
+            print("[bootstrap] Reuse setup packages", flush=True)
+    return venv / "bin/elesim-setup"
+
+
+def _install_bootstrap_dependencies(source_root: Path, cache_root: Path, venv: Path) -> None:
     python = venv / "bin/python"
     if not python.is_file():
         print(f"[bootstrap] create venv {venv}", flush=True)
@@ -1091,28 +1170,28 @@ def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
             "--disable-pip-version-check",
             "install",
             "--upgrade",
-            "pip",
-            "setuptools>=68,<80",
-            "packaging>=24.2,<26",
-            "wheel",
+            *_PACKAGING_REQUIREMENTS,
         ),
         (str(python), "-m", "pip", "--disable-pip-version-check", "install", "-r", str(source_root / "payload/runtime/docker/setup/app/requirements.lock")),
     )
     for title, command in zip(("Prepare Python packaging tools", "Install setup dependencies"), commands):
         subprocess.run(_progress_command(source_root, cache_root, title, command), check=True)
+    subprocess.run(_progress_command(source_root, cache_root, "Verify setup dependencies",
+                                    (str(python), "-m", "pip", "check")), check=True)
+
+
+def _install_bootstrap_packages(source_root: Path, cache_root: Path, venv: Path) -> None:
+    python = venv / "bin/python"
     # Local pip builds write build/ and *.egg-info into their input tree.
     # Keep those writes outside the validated download snapshot.
     with tempfile.TemporaryDirectory(prefix=".package-build-", dir=venv.parent) as td:
-        for name, relative in (
-            ("protocol", "payload/runtime/common/protocol"),
-            ("setup", "payload/runtime/docker/setup/app"),
-        ):
+        for name, relative in _SETUP_PROJECTS:
             build_source = Path(td) / name
             shutil.copytree(source_root / relative, build_source)
             subprocess.run(
                 _progress_command(source_root, cache_root, f"Install elesim-{name}",
                                   (str(python), "-m", "pip", "--disable-pip-version-check",
-                                   "install", "--force-reinstall", "--no-deps", str(build_source))),
+                                   "install", "--no-deps", "--no-build-isolation", str(build_source))),
                 check=True,
             )
     subprocess.run(
@@ -1120,7 +1199,6 @@ def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
                           (str(python), "-m", "pip", "--disable-pip-version-check", "check")),
         check=True,
     )
-    return venv / "bin/elesim-setup"
 
 
 def _parser() -> argparse.ArgumentParser:
