@@ -2598,7 +2598,7 @@ class InstalledElesimLifecycle:
             for unit in host.units
         )
         writable = all(
-            session.run(("test", "-w", str(path)), check=False).exit_status == 0
+            self._remote_path_can_create_directory(session, path)
             for path in security_paths
         )
         # The generated wrapper pins the installation's Docker context and
@@ -2652,6 +2652,31 @@ class InstalledElesimLifecycle:
             security_root_writable=writable,
             architecture=architecture_result.stdout.strip(),
         )
+
+    @staticmethod
+    def _remote_path_can_create_directory(
+        session: SshSession, path: PurePosixPath
+    ) -> bool:
+        """Check the directory that staging will create, without creating it.
+
+        A fresh scoped instance has no ``instances/<system>/security`` tree yet.
+        In that case ``test -w`` on the leaf reports false even though its
+        existing parent is the writable bind mount used by the rollout.
+        """
+
+        candidate = path
+        while True:
+            exists = session.run(
+                ("test", "-e", str(candidate)), check=False
+            ).exit_status == 0
+            if exists:
+                return (
+                    session.run(("test", "-d", str(candidate)), check=False).exit_status == 0
+                    and session.run(("test", "-w", str(candidate)), check=False).exit_status == 0
+                )
+            if candidate == candidate.parent:
+                return False
+            candidate = candidate.parent
 
     def runtime_network_check(
         self, session: SshSession, host: ManagedHost
