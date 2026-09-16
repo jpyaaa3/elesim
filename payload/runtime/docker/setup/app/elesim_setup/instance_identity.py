@@ -32,6 +32,30 @@ def named_image_parts(image: str, role: str) -> tuple[str, str] | None:
     return match.groups() if match else None
 
 
+def parse_native_identity(value: Mapping[str, object]) -> dict[str, str]:
+    """Validate native identity without inventing a Compose project."""
+    if not isinstance(value, Mapping) or set(value) != {
+        "schema_version", "install_mode", "install_uuid", "prefix", "bin_dir"
+    }:
+        raise ValueError("invalid native installation identity fields")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        raise ValueError("unsupported native installation identity schema")
+    if value["install_mode"] != "native":
+        raise ValueError("invalid native installation mode")
+    install_uuid = value["install_uuid"]
+    if not isinstance(install_uuid, str) or str(uuid.UUID(install_uuid)) != install_uuid:
+        raise ValueError("invalid native installation UUID")
+    from pathlib import PurePosixPath
+
+    for key in ("prefix", "bin_dir"):
+        path = value[key]
+        if (not isinstance(path, str) or not path.startswith("/")
+                or ".." in PurePosixPath(path).parts
+                or any(ord(char) < 32 for char in path)):
+            raise ValueError("invalid native installation path")
+    return {key: value[key] for key in ("install_uuid", "prefix", "bin_dir")}
+
+
 def parse_scoped_identity(value: Mapping[str, object]) -> dict[str, str]:
     """Validate and normalize an ``elesim-net identity`` response.
 

@@ -223,6 +223,7 @@ def test_native_install_records_host_uninstaller_and_exact_systemd_hashes(
     local_state,
     monkeypatch,
     tmp_path: Path,
+    capsys,
 ) -> None:
     robot_home = tmp_path / "robot-home"
     unitree_workspace = robot_home / "unitree_ros2"
@@ -263,6 +264,17 @@ def test_native_install_records_host_uninstaller_and_exact_systemd_hashes(
     manifest = OwnershipManifest.load(manifest_path)
     assert manifest.path == manifest_path
     assert manifest.docker is None
+    from elesim_setup.network import main as net_main
+    from elesim_setup.instance_identity import parse_native_identity
+    import json
+
+    assert net_main(["--state", str(installer.state_path), "identity"]) == 0
+    native_identity = parse_native_identity(json.loads(capsys.readouterr().out))
+    assert native_identity == {
+        "install_uuid": manifest.install_uuid,
+        "prefix": str(state.prefix_path),
+        "bin_dir": str(state.bin_path),
+    }
     units = {unit.name: unit for unit in manifest.systemd_units}
     assert set(units) == {
         "elesim-robot.service",

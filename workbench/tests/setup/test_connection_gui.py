@@ -104,6 +104,60 @@ def test_installation_lookup_remote_uses_pinned_endpoint(
     assert commands == [("/opt/elesim/bin/elesim-net", "identity"), ("/opt/elesim/bin/elesim-net", "releases")]
 
 
+@pytest.mark.parametrize("invalid", [None, "uuid", "prefix", "schema"])
+def test_native_installation_lookup_skips_docker_releases(tmp_path, monkeypatch, invalid):
+    from types import SimpleNamespace
+    from elesim_connections import secure_deployment
+
+    identity = {
+        "schema_version": 1, "install_mode": "native",
+        "install_uuid": "64c395aa-c19f-4555-8594-6f9291219eb7",
+        "prefix": "/opt/elesim", "bin_dir": "/opt/elesim/bin",
+    }
+    if invalid == "uuid":
+        identity["install_uuid"] = "bad"
+    elif invalid == "prefix":
+        identity["prefix"] = "/other"
+    elif invalid == "schema":
+        identity["schema_version"] = True
+    commands = []
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def run(self, command):
+            commands.append(command)
+            assert command == ("/opt/elesim/bin/elesim-net", "identity")
+            return SimpleNamespace(stdout=json.dumps(identity))
+
+    class Connector:
+        def __init__(self, **kwargs):
+            pass
+
+        def connect(self, endpoint):
+            assert endpoint.pinned_fingerprint == FINGERPRINT
+            return Session()
+
+    monkeypatch.setattr(secure_deployment, "ParamikoConnector", Connector)
+    app = _application(tmp_path)
+    query = {"local": False, "install_root": "/opt/elesim", "bin_dir": "/opt/elesim/bin",
+             "ssh": _ssh("jetson", 22).to_dict()}
+    if invalid:
+        with pytest.raises(ValueError):
+            app.installation_choices(query)
+    else:
+        result = app.installation_choices(query)["installations"][0]
+        assert result["install_uuid"] == identity["install_uuid"]
+        assert result["install_mode"] == "native"
+        assert result["project"] == ""
+        assert result["releases"] == []
+    assert len(commands) == 1
+
+
 def _ssh(host: str, port: int) -> SshEndpoint:
     return SshEndpoint(
         host=host,

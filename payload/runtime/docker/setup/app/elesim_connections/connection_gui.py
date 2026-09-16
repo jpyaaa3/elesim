@@ -124,6 +124,7 @@ class ConnectionManagerApplication:
         from elesim_setup.instance_identity import (
             is_scoped_project,
             named_image_parts,
+            parse_native_identity,
             parse_scoped_identity,
         )
         from elesim_setup.ownership import OwnershipManifest
@@ -154,6 +155,17 @@ class ConnectionManagerApplication:
                 raw_identity = json.loads(
                     session.run((str(Path(bin_dir) / "elesim-net"), "identity")).stdout
                 )
+                if isinstance(raw_identity, dict) and raw_identity.get("install_mode") == "native":
+                    native = parse_native_identity(raw_identity)
+                    if native["prefix"] != root or native["bin_dir"] != bin_dir:
+                        raise ValueError("installation paths do not match ownership")
+                    return {"installations": [{
+                        "name": f"Robot ({root})",
+                        "install_uuid": native["install_uuid"],
+                        "install_mode": "native",
+                        "project": "",
+                        "releases": [],
+                    }]}
                 raw = json.loads(
                     session.run((str(Path(bin_dir) / "elesim-net"), "releases")).stdout
                 )

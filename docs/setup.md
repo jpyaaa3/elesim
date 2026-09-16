@@ -27,6 +27,12 @@ Scoped 설치의 정확한 owner identity는 다음 read-only 명령으로 확�
 elesim-net identity
 ```
 
+Native Robot installations also support this command. Their response contains
+`install_mode: native`, the ownership UUID, `prefix` and `bin_dir`, without a
+Compose project. The connection manager lists that installation with no Docker
+release choices. Both the native setup package and the connection manager must
+be updated to support this response.
+
 응답에는 enrollment 검증에 필요한 `install_uuid`와 `project`가 들어 있으며,
 최근 설치는 화면 표시용 `install_name`도 함께 반환한다. `install_name`은
 소유권 증명이 아니며, 구형 `schema_version: 1` 3필드 응답도 계속 읽을 수

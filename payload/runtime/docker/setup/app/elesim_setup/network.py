@@ -917,6 +917,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("show", help="show the current DDS/TURN configuration")
+    subparsers.add_parser("identity", help="show installation ownership identity")
     subparsers.add_parser(
         "configuration-check",
         help="check installed role-specific DDS/SROS2 artifacts for consistency",
@@ -1030,6 +1031,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     state_path = Path(args.state).expanduser().resolve()
     try:
         state = InstallState.load(state_path)
+        if args.command == "identity":
+            from .ownership import OwnershipManifest
+
+            owner = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
+            if owner.prefix_path != state.prefix_path or owner.bin_path != state.bin_path:
+                raise ValueError("installation paths do not match ownership")
+            if state.install_mode != "native" or owner.docker is not None:
+                raise ValueError("container identity must use the installed container wrapper")
+            print(json.dumps({
+                "schema_version": 1,
+                "install_mode": "native",
+                "install_uuid": owner.install_uuid,
+                "prefix": str(owner.prefix_path),
+                "bin_dir": str(owner.bin_path),
+            }))
+            return 0
         if args.command == "show":
             print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
             return 0
