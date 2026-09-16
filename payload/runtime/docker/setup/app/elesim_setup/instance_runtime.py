@@ -1193,7 +1193,9 @@ class InstanceRuntime:
             if instance.turn.mode == "managed" and existing_secret.exists():
                 self._validate_turn_secret(existing_secret)
             releases = self._validate_release_set(candidate)
-            stage = Path(tempfile.mkdtemp(prefix=f".instance-{instance.system_id}-", dir=self.prefix.parent))
+            # Tools can write the install bind mount, not its host parent.
+            # Stage inside it so publication also stays on the same filesystem.
+            stage = Path(tempfile.mkdtemp(prefix=f".instance-{instance.system_id}-", dir=self.prefix))
             try:
                 self._prepare(
                     stage,
@@ -1268,7 +1270,7 @@ class InstanceRuntime:
             del candidate[system_id]
             self._check_runtime_owned_trees(current)
             releases = self._validate_release_set(candidate)
-            stage = Path(tempfile.mkdtemp(prefix=f".instance-{system_id}-", dir=self.prefix.parent))
+            stage = Path(tempfile.mkdtemp(prefix=f".instance-{system_id}-", dir=self.prefix))
             try:
                 self._prepare(
                     stage,

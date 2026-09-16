@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 import threading
+import tempfile
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -91,7 +92,7 @@ def _write_sidecar_base_compose(state) -> None:
     )
 
 
-def test_instances_coexist_and_removal_preserves_other_system(local_state, tmp_path: Path):
+def test_instances_coexist_and_removal_preserves_other_system(local_state, tmp_path: Path, monkeypatch):
     state = _state(local_state, roles=("pilot", "sim", "ui"))
     state.prefix_path.mkdir(parents=True)
     for role in state.roles:
@@ -99,6 +100,18 @@ def test_instances_coexist_and_removal_preserves_other_system(local_state, tmp_p
     generate_role_configs(state)
     release = _release(state, tmp_path)
     runtime = InstanceRuntime(state, INSTALL)
+    # Model the tools container: only the install bind mount is writable.
+    mkdtemp = tempfile.mkdtemp
+    stages = []
+
+    def scoped_mkdtemp(*args, **kwargs):
+        if Path(kwargs["dir"]) != state.prefix_path:
+            raise PermissionError("staging outside the writable install mount")
+        stage = mkdtemp(*args, **kwargs)
+        stages.append(Path(stage))
+        return stage
+
+    monkeypatch.setattr("elesim_setup.instance_runtime.tempfile.mkdtemp", scoped_mkdtemp)
     runtime.register(_instance("alpha", release, 11))
     compose_bytes = (state.prefix_path / "containers/compose.instances.yaml").read_bytes()
     assert str(state.prefix_path).encode() in compose_bytes and b".instance-" not in compose_bytes
@@ -134,6 +147,8 @@ def test_instances_coexist_and_removal_preserves_other_system(local_state, tmp_p
         if path.is_file()
     }
     assert release_before == (state.prefix_path / "releases" / release_key(release) / "manifest.json").read_bytes()
+    assert len(stages) == 3
+    assert all(not stage.exists() for stage in stages)
 
 
 def test_large_release_data_is_read_only_and_not_staged(local_state, tmp_path: Path):
@@ -150,12 +165,13 @@ def test_large_release_data_is_read_only_and_not_staged(local_state, tmp_path: P
 
     def inject(step: str) -> None:
         if step == "before-commit":
-            observed.extend(state.prefix_path.parent.glob(".instance-alpha-*"))
+            observed.extend(state.prefix_path.glob(".instance-alpha-*"))
             raise RuntimeError(step)
 
     with pytest.raises(RuntimeError, match="before-commit"):
         runtime.register(instance, fail=inject)
     assert observed and all(not (stage / "releases").exists() for stage in observed)
+    assert all(not stage.exists() for stage in observed)
     assert (state.prefix_path / "releases" / release_key(release) / "data" / "data" / "large-sentinel.bin").is_file()
 
 
