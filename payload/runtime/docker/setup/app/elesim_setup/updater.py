@@ -17,9 +17,9 @@ _INSTALL_IMAGE = re.compile(
     r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([0-9a-f]{32})-([0-9a-f]{64})$"
 )
 _NAMED_IMAGE = re.compile(
-    r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}_[a-z]{2,16})-([a-z]{2,16}_[a-z]{2,16})$"
+    r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))-([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))$"
 )
-_READABLE_NAME = re.compile(r"[a-z]{2,16}_[a-z]{2,16}\Z")
+_READABLE_NAME = re.compile(r"[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})\Z")
 _SOURCE_REVISION = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})$")
 
 
@@ -94,7 +94,7 @@ def render_update_wrapper(
             raise ValueError("install_uuid must be a non-empty shell-safe value")
     install_name = str(install_name or "").strip()
     if install_name and _READABLE_NAME.fullmatch(install_name) is None:
-        raise ValueError("install_name must be two lowercase words separated by an underscore")
+        raise ValueError("install_name must be a lowercase word with an optional numeric suffix or a legacy two-word name")
     normalized_owned_images = tuple(str(value).strip() for value in owned_images)
     if len(set(normalized_owned_images)) != len(normalized_owned_images):
         raise ValueError("owned_images must not contain duplicates")
@@ -428,7 +428,7 @@ def _render_release_publish_lines(
         "  while IFS= read -r release_candidate; do",
         "    if [[ $release_candidate == \"elesim/$release_role:\"* ]]; then release_image=$release_candidate; break; fi",
         "  done <<< \"$release_compose_images\"",
-        "  if [[ ! $release_image =~ ^elesim/(pilot|sim|ui):([0-9a-f]{32}-[0-9a-f]{64}|[a-z]{2,16}_[a-z]{2,16}-[a-z]{2,16}_[a-z]{2,16})$ || $release_image != \"elesim/$release_role:\"* ]]; then printf 'invalid scoped image for role %s\\n' \"$release_role\" >&2; exit 70; fi",
+        "  if [[ ! $release_image =~ ^elesim/(pilot|sim|ui):([0-9a-f]{32}-[0-9a-f]{64}|[a-z]{2,16}(_[a-z]{2,16}|[0-9]{0,6})-[a-z]{2,16}(_[a-z]{2,16}|[0-9]{0,6}))$ || $release_image != \"elesim/$release_role:\"* ]]; then printf 'invalid scoped image for role %s\\n' \"$release_role\" >&2; exit 70; fi",
         "  release_entry=\"$(docker image inspect --format '{\"image_reference\":\"'\"$release_image\"'\",\"image_id\":{{json .Id}},\"install_uuid\":{{json (index .Config.Labels \"io.elesim.install_uuid\")}},\"build_fingerprint\":{{json (index .Config.Labels \"io.elesim.build_fingerprint\")}},\"project\":{{json (index .Config.Labels \"com.docker.compose.project\")}}}' \"$release_image\")\"",
         "  [[ $release_entry == *'\\n'* ]] && { printf '%s\\n' 'invalid Docker evidence' >&2; exit 70; }",
         "  if (( release_evidence_first )); then release_evidence_first=0; else printf '%s' ',' >>\"$release_evidence\"; fi",

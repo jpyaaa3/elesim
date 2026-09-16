@@ -47,14 +47,14 @@ def _open_log(root: Path):
 _ESCAPES = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]")
 _IMAGE_OUTPUT = re.compile(
     r"(?:naming to|writing image|exporting to)\s+(?:docker\.io/)?"
-    r"(elesim/[a-z][a-z0-9_.-]*:[a-z]{2,16}_[a-z]{2,16}-"
-    r"[a-z]{2,16}_[a-z]{2,16})(?:\s|$)",
+    r"(elesim/[a-z][a-z0-9_.-]*:[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})-"
+    r"[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))(?:\s|$)",
     re.IGNORECASE,
 )
 _IMAGE_SUMMARY_OUTPUT = re.compile(
     r"Image\s+(?:docker\.io/)?"
-    r"(elesim/[a-z][a-z0-9_.-]*:[a-z]{2,16}_[a-z]{2,16}-"
-    r"[a-z]{2,16}_[a-z]{2,16})\s+Built\b",
+    r"(elesim/[a-z][a-z0-9_.-]*:[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})-"
+    r"[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))\s+Built\b",
     re.IGNORECASE,
 )
 

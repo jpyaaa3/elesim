@@ -3231,10 +3231,26 @@ class InstalledElesimLifecycle:
             self._validate_scoped_target(session, unit, local=host.local)
             if self._scoped and unit.install_mode == "container":
                 if runtime_options is not None:
-                    raise ValueError(
-                        "scoped instance lifecycle does not accept runtime GPU/viewer overrides; "
-                        "configure the instance compute policy at registration"
-                    )
+                    # The GUI sends graph-wide options even to UI-only hosts.
+                    # Accept matching selections as a request to use the saved
+                    # policy, without forwarding legacy flags to instance up.
+                    gpu_roles = set(unit.roles) & {"pilot", "sim"}
+                    if runtime_options.viewer and "sim" in unit.roles:
+                        raise ValueError("scoped Sim instances do not support the legacy Viewer launch option")
+                    if gpu_roles:
+                        saved = self._scoped_instance_state(session, unit).get("compute", {})
+                        if not isinstance(saved, Mapping):
+                            raise ValueError("registered instance compute policy is invalid")
+                        mode = saved.get("gpu_mode", "inherit")
+                        device = saved.get("gpu_device", "")
+                        for role in sorted(gpu_roles):
+                            inherit, selected = runtime_options.role_values(role)
+                            requested = ("cpu", "") if not inherit else (("specific", selected) if selected else ("inherit", ""))
+                            if requested != (mode, device):
+                                raise ValueError(
+                                    f"{host.host_id}/{role}: selected GPU policy differs from the registered instance "
+                                    f"({mode}, {device or 'Free'}); re-register the instance with the desired compute policy"
+                                )
                 session.run(
                     _lifecycle_command(
                         unit,

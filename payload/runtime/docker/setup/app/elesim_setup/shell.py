@@ -183,6 +183,64 @@ def write_executable(path: Path, content: str) -> None:
     temporary.replace(path)
 
 
+def render_operator_wrapper(bin_dir: Path, *, scoped: bool, tailscale: bool = False) -> str:
+    """Render the public command router; installed backends own all operations."""
+    lifecycle = (
+        '    (( $# >= 1 )) || usage_error\n'
+        '    system_id=$1; shift\n'
+        '    exec "$bin_dir/elesim-instance" "$system_id" "$action" "$@"\n'
+        if scoped else
+        '    if [[ $action == remove ]]; then\n'
+        "      printf '%s\\n' 'This installation has no scoped instances; use elesim uninstall to remove the installation.' >&2\n"
+        '      exit 64\n'
+        '    fi\n'
+        '    exec "$bin_dir/elesim-$action" "$@"\n'
+    )
+    return (
+        '#!/usr/bin/env bash\nset -euo pipefail\n'
+        f'bin_dir={shlex.quote(str(bin_dir))}\n'
+        'usage() {\n'
+        "  printf '%s\\n' 'Usage:'\n"
+        + ("  printf '%s\\n' '  elesim {up|down|logs|info|remove} <system> [options]'\n" if scoped else
+           "  printf '%s\\n' '  elesim {up|down|logs|info} [options]'\n")
+        + "  printf '%s\\n' '  elesim connections [options]' '  elesim uninstall [options]' '  elesim update' '  elesim tailscale {login|status} [options]'\n"
+        '}\n'
+        'usage_error() { usage >&2; exit 64; }\n'
+        'require_backend() {\n'
+        '  if [[ ! -x "$bin_dir/$1" ]]; then\n'
+        "    printf 'Command unavailable in this installation: %s\\n' \"$1\" >&2\n"
+        '    exit 78\n'
+        '  fi\n'
+        '}\n'
+        'action=${1:-help}\n'
+        '(( $# == 0 )) || shift\n'
+        'case $action in\n'
+        '  help|-h|--help) usage ;;\n'
+        '  up|down|logs|info|remove)\n'
+        '    [[ $action != info ]] || action=status\n'
+        + lifecycle
+        + '    ;;\n'
+        '  connections|uninstall)\n'
+        '    require_backend "elesim-$action"\n'
+        '    exec "$bin_dir/elesim-$action" "$@" ;;\n'
+        '  update)\n'
+        '    (( $# == 0 )) || usage_error\n'
+        '    require_backend elesim-update\n'
+        + ('    require_backend elesim-tailscale\n    "$bin_dir/elesim-tailscale" update\n' if tailscale else '')
+        + '    exec "$bin_dir/elesim-update" ;;\n'
+        '  tailscale)\n'
+        '    case ${1:-} in\n'
+        '      login|status) ;;\n'
+        "      update) printf '%s\\n' 'Use elesim update to update Tailscale and EleSim together.' >&2; exit 64 ;;\n"
+        '      *) usage_error ;;\n'
+        '    esac\n'
+        '    require_backend elesim-tailscale\n'
+        '    exec "$bin_dir/elesim-tailscale" "$@" ;;\n'
+        '  *) usage_error ;;\n'
+        'esac\n'
+    )
+
+
 def operator_home() -> Path:
     """Resolve the operator HOME mount without accepting relative paths."""
 

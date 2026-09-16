@@ -25,7 +25,7 @@ def test_compose_status_reports_host_runtime_and_sim_media_facts() -> None:
     assert "CUDA_VISIBLE_DEVICES" in rendered
     assert "NVIDIA_VISIBLE_DEVICES" in rendered
     assert "--gpu-devices" in rendered
-    assert "nvidia-smi --query-gpu=index,uuid" in rendered
+    assert '"$gpu_probe" --query-gpu=index,uuid' in rendered
     assert "ROS_DOMAIN_ID" in rendered
     assert "h264 encoder=" in rendered
     assert "h264_nvenc unavailable" in rendered

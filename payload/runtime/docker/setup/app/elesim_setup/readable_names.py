@@ -38,7 +38,7 @@ osprey otter owl ox oyster panda panther parrot peacock pelican penguin pigeon
 pony puma quail rabbit raccoon ram raven robin salmon seal shark sheep shrimp
 snail sparrow spider squid stork swan tiger toad trout tuna turkey turtle viper
 walrus wasp weasel whale wolf wombat wren yak zebra""".split())
-NAME_PATTERN = re.compile(r"[a-z]{2,16}_[a-z]{2,16}\Z")
+NAME_PATTERN = re.compile(r"[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})\Z")
 _IMAGE_ROLE = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
 _IMAGE_FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_BYTES = 4 * 1024 * 1024
@@ -47,7 +47,34 @@ _RELEASE_SCOPE = "releases"
 
 
 def random_name() -> str:
-    return f"{secrets.choice(ADJECTIVES)}_{secrets.choice(ANIMALS)}"
+    return secrets.choice(ANIMALS)
+
+
+def random_install_name() -> str:
+    return secrets.choice(ADJECTIVES)
+
+
+def _unused_name(generate: Callable[[], str], used: set[str]) -> str:
+    base = generate()
+    if not isinstance(base, str) or not NAME_PATTERN.fullmatch(base):
+        raise ValueError("name generator returned an invalid name")
+    if base not in used:
+        return base
+    # Keep old injected two-word generators compatible with their registries.
+    if "_" in base:
+        for _ in range(4095):
+            candidate = generate()
+            if not isinstance(candidate, str) or not NAME_PATTERN.fullmatch(candidate):
+                raise ValueError("name generator returned an invalid name")
+            if candidate not in used:
+                return candidate
+        raise ValueError("no unused readable name available")
+    stem = base.rstrip("0123456789")
+    for number in range(2, 1000000):
+        candidate = f"{stem}{number}"
+        if candidate not in used:
+            return candidate
+    raise ValueError("no unused readable name available")
 
 
 def lookup_name(path: Path, scope: str, identity: str) -> str:
@@ -299,7 +326,7 @@ def reserve_name(
 
     ``unavailable`` contains names already used outside this registry (for
     example existing Docker projects). Existing bindings never get renamed.
-    Exhaustion is an explicit error, never a numeric/hash suffix or overwrite.
+    New single-word names receive a numeric suffix on collision.
     """
     if not isinstance(scope, str) or not scope or not isinstance(identity, str) or not identity:
         raise ValueError("name scope and identity must be non-empty strings")
@@ -331,14 +358,7 @@ def reserve_name(
             if all_scopes
             else set(entries.values())
         ) | set(unavailable)
-        for _ in range(4096):
-            name = generate()
-            if not isinstance(name, str) or not NAME_PATTERN.fullmatch(name):
-                raise ValueError("name generator returned an invalid name")
-            if name not in used:
-                break
-        else:
-            raise ValueError("no unused readable name available")
+        name = _unused_name(generate, used)
         entries[identity] = name
         _write(path, names)
         return name
@@ -395,14 +415,7 @@ def reserve_image_name(
             for scope_entries in names.values()
             for name in scope_entries.values()
         } | set(unavailable)
-        for _ in range(4096):
-            name = generate()
-            if not isinstance(name, str) or not NAME_PATTERN.fullmatch(name):
-                raise ValueError("name generator returned an invalid name")
-            if name not in used:
-                break
-        else:
-            raise ValueError("no unused readable name available")
+        name = _unused_name(generate, used)
         entries[identity] = name
         _write(path, names)
         return name

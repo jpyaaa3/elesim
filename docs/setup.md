@@ -44,11 +44,11 @@ connection cards show native installation lookup without Docker release input.
 
 Image build reports list tools, Sim, Pilot, UI and Robot in that order (only
 images actually built are listed). Native Robot does not emit a Docker image.
-Readable aliases use the bundled 71-adjective/123-animal vocabulary (8,733
-combinations), sampled using Python `secrets`. Full names are reserved under a
-lock and never reused for another identity within the registry; individual
-animal words can repeat. Exhaustion fails explicitly rather than overwriting
-a reservation. Names are labels, not security identifiers.
+New installation names use one of 71 bundled adjectives; image aliases use one
+of 123 animals, sampled using Python `secrets`: `quick-lion`. Collisions add a
+number (`quick2`, `lion2`). Reservations remain locked and persist independently
+of image cleanup. Existing two-word names remain readable and keep their bindings.
+Names are labels, not security identifiers; UUIDs and hashes remain internal.
 
 The SSH fingerprint button requires a username before showing confirmation.
 In OpenSSH mode an empty private-key path selects the forwarded SSH agent;
@@ -264,6 +264,33 @@ Viewer를 끄면 Sim은 여전히 camera render와 WebRTC media worker를 실행
 있다. native 창이 노트북/원격 host 화면으로 전송되는 기능은 없다.
 
 ## 7. 일상 수명주기
+
+사용자 명령의 공통 진입점은 설치된 `bin/elesim`이다. PATH 등록 전에는
+해당 bin 디렉터리에서 `./elesim`으로 실행한다.
+
+```bash
+elesim connections
+elesim up <system>
+elesim down <system>
+elesim logs <system>
+elesim info <system>
+elesim remove <system>
+elesim tailscale login
+elesim tailscale status
+elesim update
+elesim uninstall
+```
+
+각 명령은 기존 설치 wrapper로 전달된다. `info`는 instance `status`에 연결된다.
+`remove`는 기존 instance 제거 규칙을 적용하며 설치 전체 제거는 `uninstall`이다.
+Native Robot과 legacy 설치는 scoped instance가 없으므로 `up/down/logs/info`를
+ID 없이 사용하고 `remove`는 지원하지 않는다. Native Robot 설치에는 연결 관리자와
+Tailscale sidecar wrapper가 없으므로 해당 명령은 사용할 수 없다.
+
+`elesim update`는 sidecar 설치에서 `elesim-tailscale update`를 먼저 실행하고,
+성공하면 `elesim-update`를 실행한다. sidecar 갱신은 네트워크 컨테이너를 재생성할
+수 있다. 실패하면 EleSim 업데이트를 진행하지 않는다. sidecar 없는 설치에서는
+EleSim만 갱신하며 host Tailscale은 변경하지 않는다. 기존 개별 wrapper도 유지한다.
 
 ### Update
 

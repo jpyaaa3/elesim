@@ -19,7 +19,7 @@ _ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _KEY = re.compile(r"[0-9a-f]{64}\Z")
 _SYSTEM = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
 _NAMED_IMAGE = re.compile(
-    r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}_[a-z]{2,16})-([a-z]{2,16}_[a-z]{2,16})$"
+    r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))-([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))$"
 )
 
 
@@ -134,7 +134,7 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
         expected_named = re.compile(
             r"elesim/[a-z][a-z0-9_.-]*:"
             + re.escape(owner.docker.install_name)
-            + r"-[a-z]{2,16}_[a-z]{2,16}\Z"
+            + r"-[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})\Z"
         ) if owner.docker.install_name else None
         if (record.get("RepoDigests") or len(tags) > 1 or not tags <= owned_tags
                 or any(

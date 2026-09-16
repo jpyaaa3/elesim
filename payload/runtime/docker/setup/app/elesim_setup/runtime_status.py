@@ -18,6 +18,22 @@ def _quoted(value: object) -> str:
     return shlex.quote(str(value))
 
 
+def render_gpu_probe() -> str:
+    """Host inventory is independent of a registered runtime instance."""
+    return (
+        'if (( $# == 1 )) && [[ $1 == --gpu-devices ]]; then\n'
+        '  gpu_probe=$(command -v nvidia-smi || true)\n'
+        '  if [[ -z $gpu_probe && -x /usr/lib/wsl/lib/nvidia-smi ]]; then\n'
+        '    gpu_probe=/usr/lib/wsl/lib/nvidia-smi\n'
+        '  fi\n'
+        '  if [[ -n $gpu_probe ]]; then\n'
+        '    exec "$gpu_probe" --query-gpu=index,uuid --format=csv,noheader,nounits\n'
+        '  fi\n'
+        '  exit 0\n'
+        'fi\n'
+    )
+
+
 def render_compose_status_wrapper(
     *,
     compose: Path,
@@ -57,13 +73,8 @@ def render_compose_status_wrapper(
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         "umask 077\n"
+        + render_gpu_probe()
         + guard
-        + "if (( $# == 1 )) && [[ $1 == --gpu-devices ]]; then\n"
-        + "  if command -v nvidia-smi >/dev/null 2>&1; then\n"
-        + "    nvidia-smi --query-gpu=index,uuid --format=csv,noheader,nounits 2>/dev/null || true\n"
-        + "  fi\n"
-        + "  exit 0\n"
-        + "fi\n"
         + "host_name=\"$(hostname -f 2>/dev/null || hostname 2>/dev/null || printf unknown)\"\n"
         "host_ips=\"$(hostname -I 2>/dev/null | tr '\\n' ' ' | xargs 2>/dev/null || true)\"\n"
         "[[ -n $host_ips ]] || host_ips=unknown\n"
@@ -184,13 +195,8 @@ def render_native_status_wrapper(
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         "umask 077\n"
-        "if (( $# == 1 )) && [[ $1 == --gpu-devices ]]; then\n"
-        "  if command -v nvidia-smi >/dev/null 2>&1; then\n"
-        "    nvidia-smi --query-gpu=index,uuid --format=csv,noheader,nounits 2>/dev/null || true\n"
-        "  fi\n"
-        "  exit 0\n"
-        "fi\n"
-        "host_name=\"$(hostname -f 2>/dev/null || hostname 2>/dev/null || printf unknown)\"\n"
+        + render_gpu_probe()
+        + "host_name=\"$(hostname -f 2>/dev/null || hostname 2>/dev/null || printf unknown)\"\n"
         "host_ips=\"$(hostname -I 2>/dev/null | tr '\\n' ' ' | xargs 2>/dev/null || true)\"\n"
         "[[ -n $host_ips ]] || host_ips=unknown\n"
         "printf 'EleSim status (current-host only)\\n'\n"

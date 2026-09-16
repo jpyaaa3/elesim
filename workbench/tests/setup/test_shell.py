@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -9,7 +10,47 @@ from elesim_setup.shell import (
     managed_path_block,
     register_bash_path,
     unregister_bash_path,
+    render_operator_wrapper,
+    write_executable,
 )
+
+
+@pytest.mark.parametrize("action,mapped", [("up", "up"), ("down", "down"), ("logs", "logs"), ("info", "status"), ("remove", "remove")])
+def test_operator_routes_system_and_preserves_arguments(tmp_path, action, mapped):
+    bin_dir = tmp_path / "bin with spaces"
+    write_executable(bin_dir / "elesim", render_operator_wrapper(bin_dir, scoped=True))
+    write_executable(bin_dir / "elesim-instance", '#!/bin/bash\nprintf "%s\\n" "$@"\n')
+    result = subprocess.run([bin_dir / "elesim", action, "alpha", "two words"], capture_output=True, text=True)
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == ["alpha", mapped, "two words"]
+
+
+@pytest.mark.parametrize("sidecar,status", [(False, 0), (True, 0), (True, 17)])
+def test_operator_update_orders_backends_and_stops_on_failure(tmp_path, sidecar, status):
+    write_executable(tmp_path / "elesim", render_operator_wrapper(tmp_path, scoped=True, tailscale=sidecar))
+    write_executable(tmp_path / "elesim-update", '#!/bin/bash\nprintf "source-update\\n"\n')
+    write_executable(tmp_path / "elesim-tailscale", f'#!/bin/bash\nprintf "tailscale-%s\\n" "$1"\nexit {status}\n')
+    result = subprocess.run([tmp_path / "elesim", "update"], capture_output=True, text=True)
+    assert result.returncode == status
+    assert result.stdout.splitlines() == (["tailscale-update"] if sidecar else []) + ([] if status else ["source-update"])
+
+
+def test_operator_rejects_invalid_update_before_mutation(tmp_path):
+    write_executable(tmp_path / "elesim", render_operator_wrapper(tmp_path, scoped=True, tailscale=True))
+    for arguments in [("update", "--bogus"), ("tailscale", "update"), ("up",)]:
+        result = subprocess.run([tmp_path / "elesim", *arguments], capture_output=True, text=True)
+        assert result.returncode == 64
+
+
+def test_operator_native_info_and_remove(tmp_path):
+    write_executable(tmp_path / "elesim", render_operator_wrapper(tmp_path, scoped=False))
+    write_executable(tmp_path / "elesim-status", '#!/bin/bash\nprintf "native-info\\n"\n')
+    result = subprocess.run([tmp_path / "elesim", "info"], capture_output=True, text=True)
+    assert result.returncode == 0
+    assert result.stdout == "native-info\n"
+    result = subprocess.run([tmp_path / "elesim", "remove", "alpha"], capture_output=True, text=True)
+    assert result.returncode == 64
+    assert "elesim uninstall" in result.stderr
 
 
 def test_managed_path_block_quotes_literal_install_path() -> None:

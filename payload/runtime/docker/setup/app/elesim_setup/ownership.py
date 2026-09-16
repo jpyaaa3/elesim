@@ -37,7 +37,7 @@ _LOCAL_IMAGE = re.compile(r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:local$")
 _INSTALL_IMAGE = re.compile(
     r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([0-9a-f]{32})-([0-9a-f]{64})$"
 )
-_NAMED_IMAGE = re.compile(r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}_[a-z]{2,16})-([a-z]{2,16}_[a-z]{2,16})$")
+_NAMED_IMAGE = re.compile(r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))-([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))$")
 
 _OWNERSHIP_LOCKS: dict[str, threading.Lock] = {}
 _OWNERSHIP_LOCKS_GUARD = threading.Lock()
@@ -51,7 +51,7 @@ def _scoped_project_name(install_uuid: str, install_name: str = "") -> str:
     """
 
     if install_name:
-        if re.fullmatch(r"[a-z]{2,16}_[a-z]{2,16}", install_name) is None:
+        if re.fullmatch(r"[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})", install_name) is None:
             raise OwnershipError("invalid readable installation name")
         return f"elesim-{install_name}"
     return f"elesim-runtime-{uuid.UUID(install_uuid).hex}"
@@ -159,7 +159,7 @@ class DockerOwnership:
 
     def validate(self) -> "DockerOwnership":
         _validate_uuid(self.install_uuid, name="Docker install UUID")
-        if self.install_name and not re.fullmatch(r"[a-z]{2,16}_[a-z]{2,16}", self.install_name):
+        if self.install_name and not re.fullmatch(r"[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})", self.install_name):
             raise OwnershipError("invalid readable installation name")
         _require_absolute(self.compose_file, name="Docker compose file")
         if not _DOCKER_NAME.fullmatch(self.project):

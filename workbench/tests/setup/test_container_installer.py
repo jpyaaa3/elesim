@@ -118,6 +118,8 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
 
     compose = _compose(state)
     owner = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
+    assert str(state.bin_path / "elesim") in {wrapper.path for wrapper in owner.wrappers}
+    assert subprocess.run([state.bin_path / "elesim", "--help"], capture_output=True).returncode == 0
     install_name = owner.docker.install_name
     assert compose["name"] == project_name(install_uuid, install_name=install_name)
     assert compose["services"]["pilot"]["container_name"] == container_name(
@@ -208,6 +210,18 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
     assert str(state.prefix_path / "releases") in ownership["managed_roots"]
     assert str(state.prefix_path / "instances") in ownership["managed_roots"]
     assert (state.bin_path / "elesim-instance").is_file()
+    gpu_bin = tmp_path / "gpu-bin"
+    gpu_bin.mkdir()
+    probe = gpu_bin / "nvidia-smi"
+    probe.write_text('#!/bin/bash\nprintf "0, GPU-test\\n"\n')
+    probe.chmod(0o755)
+    gpu_result = subprocess.run(
+        [state.bin_path / "elesim-status", "--gpu-devices"],
+        env={**os.environ, "PATH": f"{gpu_bin}:/usr/bin:/bin"},
+        capture_output=True, text=True,
+    )
+    assert gpu_result.returncode == 0
+    assert gpu_result.stdout == "0, GPU-test\n"
     for name in ("elesim-up", "elesim-down", "elesim-logs", "elesim-status"):
         lifecycle = (state.bin_path / name).read_text(encoding="utf-8")
         assert "has no global runtime" in lifecycle

@@ -18,8 +18,8 @@ _ENDPOINT = re.compile(r"[a-z][a-z0-9_-]{0,62}\Z")
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 _SERVICE_MAX = 128
 _CONTAINER_MAX = 128
-_NAMED_TAG = re.compile(r"([a-z]{2,16}_[a-z]{2,16})-([a-z]{2,16}_[a-z]{2,16})\Z")
-_NAMED_PROJECT = re.compile(r"elesim-([a-z]{2,16}_[a-z]{2,16})\Z")
+_NAMED_TAG = re.compile(r"([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))-([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))\Z")
+_NAMED_PROJECT = re.compile(r"elesim-([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))\Z")
 _SCOPED_IDENTITY_FIELDS = frozenset({"schema_version", "install_uuid", "project"})
 
 

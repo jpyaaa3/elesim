@@ -43,6 +43,17 @@ def test_image_reference_has_install_and_fingerprint_scope() -> None:
     assert image_reference(INSTALL, "pilot", "b" * 64) != image
 
 
+@pytest.mark.parametrize("install_name,image_name", [
+    ("quick", "lion"), ("quick2", "lion123"),
+    ("quiet_otter", "lion2"), ("quiet_otter", "calm_eagle"),
+])
+def test_short_and_legacy_image_names(install_name: str, image_name: str) -> None:
+    assert image_reference(
+        INSTALL, "sim", "a" * 64,
+        install_name=install_name, image_name=image_name,
+    ) == f"elesim/sim:{install_name}-{image_name}"
+
+
 def test_readable_image_reference_keeps_validated_internal_identity() -> None:
     assert image_reference(
         INSTALL, "sim", "a" * 64,

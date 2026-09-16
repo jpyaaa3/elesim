@@ -204,6 +204,33 @@ def _bundle(host_id: str, generation: str = "g2") -> SecurityBundle:
     ).validate()
 
 
+@pytest.mark.parametrize("host_id", ["laptop", "server"])
+def test_scoped_launch_accepts_gui_options_matching_saved_policy(monkeypatch, host_id):
+    topology = _scoped_remote_topology()
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    monkeypatch.setattr(lifecycle, "_validate_scoped_target", lambda *args, **kwargs: None)
+    monkeypatch.setattr(lifecycle, "_scoped_instance_state", lambda *args: {"compute": {"gpu_mode": "inherit", "gpu_device": ""}})
+    commands = []
+
+    class Session:
+        def run(self, argv, **kwargs):
+            commands.append(tuple(argv))
+            return RemoteCommandResult(0)
+
+    lifecycle.launch(Session(), topology.host(host_id), RuntimeLaunchOptions(True, "", False))
+    assert len(commands) == 1
+    assert commands[0][-3:] == ("lab", "up", "--no-build")
+
+
+def test_scoped_launch_rejects_changed_gpu_before_start(monkeypatch):
+    topology = _scoped_remote_topology()
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    monkeypatch.setattr(lifecycle, "_validate_scoped_target", lambda *args, **kwargs: None)
+    monkeypatch.setattr(lifecycle, "_scoped_instance_state", lambda *args: {"compute": {"gpu_mode": "cpu", "gpu_device": ""}})
+    with pytest.raises(ValueError, match="selected GPU policy differs"):
+        lifecycle.launch(None, topology.host("server"), RuntimeLaunchOptions(True, "", False))
+
+
 def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
     host = _topology().host("server")
 

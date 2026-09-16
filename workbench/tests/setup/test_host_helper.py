@@ -800,6 +800,9 @@ def test_editor_helper_accepts_valid_systems_but_not_install_mutation():
     compose, bin_dir = _paths()
     kwargs = dict(compose=compose, bin_dir=bin_dir,
                   project="elesim-runtime-0123456789abcdef", instance_system="*")
+    _validate_command((str(bin_dir / "elesim-status"), "--gpu-devices"), **kwargs)
+    with pytest.raises(HostHelperError):
+        _validate_command((str(bin_dir / "elesim-status"),), **kwargs)
     for system in ("lab", "second"):
         _validate_command((str(bin_dir / "elesim-instance"), system, "status"), **kwargs)
     with pytest.raises(HostHelperError):

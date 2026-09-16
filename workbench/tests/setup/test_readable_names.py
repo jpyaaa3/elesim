@@ -11,6 +11,7 @@ from elesim_setup.readable_names import (
     lookup_image_names,
     lookup_name,
     random_name,
+    random_install_name,
     reserve_image_name,
     reserve_name,
     reserve_role_release_name,
@@ -23,7 +24,17 @@ from elesim_setup.readable_names import (
 def test_readable_name_pool_is_internal_and_large_enough():
     assert len(ADJECTIVES) == len(set(ADJECTIVES)) == 71
     assert len(ANIMALS) == len(set(ANIMALS)) == 123
-    assert len(ADJECTIVES) * len(ANIMALS) == 8733
+    assert random_install_name() in ADJECTIVES
+    assert random_name() in ANIMALS
+
+
+def test_single_word_collisions_receive_numbers(tmp_path):
+    path = tmp_path / "names.json"
+    assert reserve_name(path, "installs", "first", generate=lambda: "quick") == "quick"
+    assert reserve_name(path, "installs", "second", generate=lambda: "quick") == "quick2"
+    assert reserve_image_name(path, "sim", "a" * 64, generate=lambda: "lion") == "lion"
+    assert reserve_image_name(path, "pilot", "b" * 64, generate=lambda: "lion") == "lion2"
+    assert reserve_image_name(path, "ui", "c" * 64, generate=lambda: "lion") == "lion3"
 
 
 def test_names_are_short_and_readable():

@@ -40,7 +40,7 @@ from .security_provisioning import (
 )
 from .security_views import prepare_app_keystore_views
 from .runtime_status import render_native_status_wrapper
-from .shell import write_executable
+from .shell import render_operator_wrapper, write_executable
 from .state import InstallState
 from .updater import render_update_wrapper
 
@@ -565,6 +565,10 @@ class Installer:
         )
 
     def _write_wrappers(self) -> None:
+        write_executable(
+            self.state.bin_path / "elesim",
+            render_operator_wrapper(self.state.bin_path, scoped=False),
+        )
         tool_venv = self.state.prefix_path / "tools/venv/bin"
         state_path = self.state_path
         write_executable(
@@ -655,6 +659,7 @@ class Installer:
 
     def _wrapper_paths(self, *, include_uninstaller: bool = False) -> tuple[Path, ...]:
         names = [
+            "elesim",
             "elesim-setup",
             "elesim-net",
             "elesim-robot",

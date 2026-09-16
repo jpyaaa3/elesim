@@ -55,7 +55,7 @@ _RELEASE_KEY = re.compile(r"^[0-9a-f]{64}$")
 _RELEASE_SOURCE_REVISION = re.compile(r"^(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})$")
 _RELEASE_ROLES = frozenset(("pilot", "sim", "ui"))
 _NAMED_RELEASE_IMAGE = re.compile(
-    r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}_[a-z]{2,16})-([a-z]{2,16}_[a-z]{2,16})$"
+    r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))-([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))$"
 )
 _MAX_RELEASE_MANIFEST_BYTES = 256 * 1024
 _INSTANCE_SYSTEM_ID = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")

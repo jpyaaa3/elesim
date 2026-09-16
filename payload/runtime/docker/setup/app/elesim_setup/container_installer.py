@@ -41,7 +41,7 @@ from .manager_lifecycle import (
 from .instance_identity import container_name as scoped_container_name
 from .instance_identity import image_reference, project_name
 from .readable_names import (
-    random_name,
+    random_install_name,
     reserve_image_name,
     reserve_name,
     reserve_role_release_name,
@@ -64,8 +64,8 @@ from .security_provisioning import (
     sync_provisioning_required,
 )
 from .security_views import prepare_app_keystore_views
-from .runtime_status import render_compose_status_wrapper
-from .shell import operator_home, write_executable
+from .runtime_status import render_compose_status_wrapper, render_gpu_probe
+from .shell import operator_home, render_operator_wrapper, write_executable
 from .state import ComputeSettings, ContainerNetworkSettings, InstallState
 from .uninstall import UninstallSafetyError, validate_docker_ownership
 from .updater import render_compose_build_progress, render_release_wrapper, render_update_wrapper
@@ -551,7 +551,7 @@ class ContainerInstaller:
                     registry,
                     "installs",
                     self._install_uuid,
-                    generate=(lambda: self._install_name) if self._install_name else random_name,
+                    generate=(lambda: self._install_name) if self._install_name else random_install_name,
                 )
                 if self._install_name and reserved != self._install_name:
                     raise ValueError("installation name reservation changed")
@@ -1726,6 +1726,13 @@ class ContainerInstaller:
 
     def _write_wrappers(self, refresh: OwnershipRefresh | None = None) -> None:
         self._remove_legacy_role_wrappers(refresh)
+        write_executable(
+            self.state.bin_path / "elesim",
+            render_operator_wrapper(
+                self.state.bin_path, scoped=self._scoped_namespace,
+                tailscale=self.state.container_network.uses_tailscale_sidecar,
+            ),
+        )
         compose = self.container_root / "compose.yaml"
         compose_wrapper = self.state.bin_path / "elesim-compose"
         command = (
@@ -1990,7 +1997,14 @@ class ContainerInstaller:
                 instance_command=str(self.state.bin_path / "elesim-instance")
             )
             for lifecycle_name in ("elesim-up", "elesim-down", "elesim-logs", "elesim-status"):
-                write_executable(self.state.bin_path / lifecycle_name, scoped_refusal)
+                content = scoped_refusal
+                if lifecycle_name == "elesim-status":
+                    content = content.replace(
+                        "set -euo pipefail\n",
+                        "set -euo pipefail\n" + render_gpu_probe(),
+                        1,
+                    )
+                write_executable(self.state.bin_path / lifecycle_name, content)
         else:
             write_executable(
                 self.state.bin_path / "elesim-up",
@@ -2319,6 +2333,7 @@ class ContainerInstaller:
 
     def _wrapper_paths(self, *, include_uninstaller: bool = False) -> tuple[Path, ...]:
         names = [
+            "elesim",
             "elesim-build",
             "elesim-up",
             "elesim-down",
@@ -3820,7 +3835,7 @@ def _runtime_up_wrapper(
         raise ValueError("runtime image fingerprints must not contain duplicates")
     for image, fingerprint in normalized_fingerprints:
         if not re.fullmatch(
-            r"elesim/[a-z0-9][a-z0-9_.-]{0,127}:(?:local|[0-9a-f]{32}-[0-9a-f]{64}|[a-z]{2,16}_[a-z]{2,16}-[a-z]{2,16}_[a-z]{2,16})",
+            r"elesim/[a-z0-9][a-z0-9_.-]{0,127}:(?:local|[0-9a-f]{32}-[0-9a-f]{64}|[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})-[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))",
             image,
         ):
             raise ValueError(f"invalid runtime image name: {image!r}")

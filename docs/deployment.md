@@ -98,6 +98,13 @@ pull하고, sidecar와 namespace를 공유하며 당시 실행 중이던 role/Co
 
 ## 3. 설치·업데이트·활성화 순서
 
+사용자 진입점은 `elesim`이다. `elesim up/down/logs/info/remove <system>`은
+기존 `elesim-instance <system>` 명령으로 전달되며 `info`는 `status`에 대응한다.
+`elesim connections`와 `elesim uninstall`도 기존 전용 wrapper를 호출한다.
+`elesim update`는 설치된 Tailscale sidecar를 먼저 갱신한 뒤 release update를
+실행한다. sidecar 갱신 실패 시 release update는 실행하지 않는다. 아래 개별
+wrapper는 내부 및 호환 명령으로 계속 제공된다.
+
 ```bash
 # 각 host의 해당 prefix에서
 elesim-update
