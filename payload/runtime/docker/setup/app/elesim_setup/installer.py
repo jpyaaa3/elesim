@@ -82,13 +82,13 @@ class NativeRobotHost:
 def build_install_plan(state: InstallState) -> tuple[InstallAction, ...]:
     state.validate()
     actions = [
-        InstallAction("도구", f"설치/진단 전용 venv: {state.prefix_path / 'tools/venv'}"),
+        InstallAction("Tools", f"Dedicated setup/diagnostics venv: {state.prefix_path / 'tools/venv'}"),
     ]
     for role in state.roles:
         actions.append(
             InstallAction(
                 role,
-                f"독립 venv + config: {app_directory(state, role)}",
+                f"Isolated venv + configuration: {app_directory(state, role)}",
             )
         )
     actions.extend(
@@ -100,15 +100,15 @@ def build_install_plan(state: InstallState) -> tuple[InstallAction, ...]:
                     f"{state.dds.discovery_mode}, {state.dds.security_profile}"
                 ),
             ),
-            InstallAction("명령", f"실행 래퍼: {state.bin_path}"),
-            InstallAction("상태", f"비밀값을 제외한 설치 상태: {state.state_path}"),
+            InstallAction("Commands", f"Command wrappers: {state.bin_path}"),
+            InstallAction("State", f"Installation state (secrets excluded): {state.state_path}"),
         )
     )
     if {"pilot", "sim"}.intersection(state.roles):
         detail = state.compute.gpu_mode
         if state.compute.gpu_mode == "specific":
             detail += f" ({state.compute.gpu_device})"
-        actions.insert(-2, InstallAction("연산", f"GPU 정책: {detail}"))
+        actions.insert(-2, InstallAction("Compute", f"GPU policy: {detail}"))
     return tuple(actions)
 
 
@@ -162,7 +162,7 @@ class Installer:
         bin_created = not os.path.lexists(self.state.bin_path)
         self._show_plan()
         if self.dry_run:
-            self.log("[DRY-RUN] 파일이나 패키지를 변경하지 않았습니다.")
+            self.log("[DRY-RUN] No files or packages were changed.")
             return
 
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
@@ -194,9 +194,9 @@ class Installer:
             prefix_created=prefix_created,
             bin_created=bin_created,
         )
-        self.log(f"[완료] 설치 상태: {state_path}")
-        self.log(f"[완료] 제거 소유권: {manifest.path}")
-        self.log(f"[다음] 연결 점검: {self.state.bin_path / 'elesim-net'} doctor")
+        self.log(f"[complete] Installation state: {state_path}")
+        self.log(f"[complete] Uninstall ownership: {manifest.path}")
+        self.log(f"[next] Check connectivity: {self.state.bin_path / 'elesim-net'} doctor")
         self._log_robot_service_registration(robot_services)
 
     def _claimed_paths(self) -> tuple[Path, ...]:
@@ -315,7 +315,7 @@ class Installer:
             )
 
     def _show_plan(self) -> None:
-        self.log("\n설치 계획")
+        self.log("\nInstallation plan")
         for action in build_install_plan(self.state):
             self.log(f"  [{action.title}] {action.detail}")
         self.log("")
@@ -375,7 +375,7 @@ class Installer:
         root = self.state.source_path
         target = self.state.prefix_path / "tools"
         python = self._ensure_venv(target / "venv", system_site_packages=True)
-        self.log("[도구] elesim-setup / elesim-net 설치")
+        self.log("[tools] Install elesim-setup / elesim-net")
         self._pip(
             python,
             "install",
@@ -411,7 +411,7 @@ class Installer:
         )
         source = runtime / "app"
         target = app_directory(self.state, role)
-        self.log(f"[{role}] 파일 배치")
+        self.log(f"[{role}] Deploy files")
         copy_app_config_tree(
             root / "payload/config" / role,
             target / "config",
@@ -454,7 +454,7 @@ class Installer:
             target / "venv",
             system_site_packages=role == "robot",
         )
-        self.log(f"[{role}] Python dependency 설치")
+        self.log(f"[{role}] Install Python dependencies")
         self._pip(
             python,
             "install",
@@ -744,7 +744,7 @@ class Installer:
 
     def _log_robot_service_registration(self, services: Sequence[Path]) -> None:
         robot_service, bridge_service = tuple(services)
-        self.log("[Robot systemd] 설치기는 sudo/systemd 상태를 변경하지 않았습니다.")
+        self.log("[Robot systemd] The installer did not change sudo/systemd state.")
         self.log(
             "$ sudo groupadd --force --system "
             + shlex.quote(self.robot_host.bridge_user)
@@ -804,8 +804,8 @@ class Installer:
         if self.state.dds.managed_security_pending:
             self.log(f"$ sudo systemctl enable {ROBOT_SYSTEMD_UNIT}")
             self.log(
-                "[Robot systemd] elesim-connections provisioning이 끝나기 전에는 "
-                "서비스를 시작하지 마십시오."
+                "[Robot systemd] Do not start services until elesim-connections "
+                "has completed provisioning."
             )
         else:
             self.log(f"$ sudo systemctl enable --now {ROBOT_SYSTEMD_UNIT}")
@@ -900,20 +900,20 @@ def preflight_notes(
     selected = set(roles)
     notes: list[str] = []
     if install_mode == "container":
-        notes.append("호스트에는 Docker Engine과 Docker Compose plugin만 필요합니다.")
+        notes.append("The host only needs Docker Engine and the Docker Compose plugin.")
         if {"pilot", "sim"}.intersection(selected):
-            notes.append("GPU 모드는 NVIDIA driver와 NVIDIA Container Toolkit이 필요합니다.")
+            notes.append("GPU mode requires an NVIDIA driver and NVIDIA Container Toolkit.")
         if "ui" in selected:
-            notes.append("UI는 호스트 X11 display socket을 컨테이너에 전달합니다.")
-        notes.append("컨테이너 설치는 호스트 APT/Python 환경을 변경하지 않습니다.")
+            notes.append("UI passes the host X11 display socket into the container.")
+        notes.append("Container installation does not change the host APT/Python environment.")
         return tuple(notes)
     if "sim" in selected:
-        notes.append("Sim는 git, Genesis가 지원하는 GPU driver와 graphics runtime이 별도로 필요합니다.")
+        notes.append("Sim separately requires git, a Genesis-supported GPU driver, and a graphics runtime.")
     if "ui" in selected:
-        notes.append("UI는 OpenGL/GLFW와 데스크톱 display 환경이 필요합니다.")
+        notes.append("UI requires OpenGL/GLFW and a desktop display environment.")
     if "robot" in selected:
-        notes.append("Robot은 ROS2 Humble, unitree_ros2, RealSense와 serial 장치 권한이 필요합니다.")
-    notes.append("설치기는 sudo나 방화벽 설정을 자동 실행하지 않습니다.")
+        notes.append("Robot requires ROS2 Humble, unitree_ros2, RealSense, and serial-device permissions.")
+    notes.append("The installer does not automatically run sudo or configure the firewall.")
     return tuple(notes)
 
 

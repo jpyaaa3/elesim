@@ -487,7 +487,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
             "private-key-warning.svg",
         )
     )
-    assert '<title data-i18n="app.title">EleSim 연결 관리자</title>' in html
+    assert '<title data-i18n="app.title">EleSim Connection Manager</title>' in html
     assert '<img src="/icon.svg" alt="">' in html
     assert '<link rel="icon" href="/icon.svg" type="image/svg+xml">' in html
     assert "background: rgb(200 200 100);" in style
@@ -515,6 +515,13 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "text-transform: uppercase" not in style
     assert catalog["ko"]["action.add.host"] == "컴퓨터 추가"
     assert catalog["en"]["action.add.host"] == "Add a computer"
+    assert catalog["ko"]["install.lookup.blocked"] == "먼저 SSH 호스트키 확인을 완료하십시오"
+    assert catalog["en"]["install.lookup.blocked"] == "Verify the SSH host key first"
+    assert 'class="lookup-installation" data-i18n="install.lookup"' in html
+    assert "button.lookup-installation:disabled" in style
+    assert "function installationLookupReady(slot)" in script
+    assert 'button.dataset.i18n = ready ? "install.lookup" : "install.lookup.blocked";' in script
+    assert "if (!installationLookupReady(slot)) return;" in script
     assert 'data-field="unused"' not in html
     assert ".drop-zone { position: relative; display: grid; min-height: 320px; grid-template-columns: repeat(2, minmax(0, 1fr))" in style
     assert ".robot-host .unit-lanes { grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr); gap: 7px; }" in style

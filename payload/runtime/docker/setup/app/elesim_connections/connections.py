@@ -44,7 +44,7 @@ from .secure_deployment import (
     TopologyRollout,
 )
 from elesim_setup.instance_identity import is_scoped_project, project_name
-from elesim_setup.instances import InstanceEndpoint, InstanceRegistry, InstanceState
+from elesim_setup.instances import InstanceEndpoint, InstanceState
 from elesim_setup.ownership import OwnershipManifest
 from elesim_setup.releases import ReleaseManifest, list_releases, release_key
 from .security_authority import Sros2Authority, new_generation_id
@@ -1301,16 +1301,27 @@ class ConnectionDeploymentRunner:
                     turn_urls=self.instance_turn_urls,
                     compute=policy if policy is not None else InstanceState.__dataclass_fields__["compute"].default_factory(),
                 )
+                # Read the prior scoped state through the host-operation
+                # boundary for both local and remote units.  The connection
+                # manager runs in a deliberately read-only ``/home`` mount;
+                # ``InstanceRegistry.load`` is a mutating-looking read which
+                # acquires ``instances/.locks/install.lock`` and therefore
+                # fails with EROFS for the local unit.  The concrete
+                # operation uses the host helper for wrapper commands (and a
+                # read-only state-file probe), while the SSH implementation
+                # performs the same probe remotely.  Keeping one path also
+                # prevents local and remote planning from observing different
+                # state semantics.
                 previous = None
-                if host.local and local_state is not None:
-                    try:
-                        previous = InstanceRegistry(local_state.prefix_path).load(topology.system_id)
-                    except FileNotFoundError:
-                        previous = None
-                elif not host.local:
-                    raw_previous = operation.scoped_instance_state(host, unit, topology.system_id)
-                    if raw_previous is not None:
-                        previous = InstanceState.from_dict(raw_previous)
+                raw_previous = operation.scoped_instance_state(
+                    host, unit, topology.system_id
+                )
+                if raw_previous is not None:
+                    previous = (
+                        raw_previous
+                        if isinstance(raw_previous, InstanceState)
+                        else InstanceState.from_dict(raw_previous)
+                    )
                 previous_release = None
                 if previous is not None:
                     previous_release = next(
@@ -2580,7 +2591,7 @@ class ConnectionDeploymentRunner:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="elesim-connections",
-        description="EleSim DDS/SROS2 연결관리자 GUI",
+        description="EleSim DDS/SROS2 connection manager GUI",
     )
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--workspace-root", type=Path,
@@ -2596,11 +2607,11 @@ def _parser() -> argparse.ArgumentParser:
         "--instance-release",
         "--release",
         dest="instance_release_key",
-        help="scoped first provisioning에서 사용할 이미 publish된 release key",
+        help="already-published release key for scoped first provisioning",
     )
     parser.add_argument(
         "--turn-mode", choices=("none", "managed", "external"), default="none",
-        help="scoped first provisioning의 Sim TURN mode",
+        help="Sim TURN mode for scoped first provisioning",
     )
     parser.add_argument("--turn-url", action="append", default=(), metavar="URL")
     parser.add_argument("--turn-realm", default="", metavar="REALM")

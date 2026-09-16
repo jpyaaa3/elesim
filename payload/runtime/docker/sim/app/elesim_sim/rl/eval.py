@@ -466,7 +466,7 @@ def _evaluate(argv: Optional[Sequence[str]], log_dir: Path) -> int:
                 return fallback
             parts = [float(v) for v in str(text).replace(" ", "").split(",")]
             if len(parts) != 3:
-                raise ValueError(f"x,y,z 세 개가 필요합니다: {text!r}")
+                raise ValueError(f"x,y,z requires exactly three values: {text!r}")
             return tuple(parts)
 
         width, _, height = str(args.camera_res).lower().partition("x")

@@ -78,12 +78,12 @@ def linear_motor_u_limit(cfg: SimMappingConfig) -> float:
 
 
 def _linear_q_forward_m(cfg: SimMappingConfig) -> float:
-    """Fully extended (앞) — motor u=0."""
+    """Fully extended (front) — motor u=0."""
     return float(cfg.linear_q_max_m)
 
 
 def _linear_q_backward_m(cfg: SimMappingConfig) -> float:
-    """Fully retracted (뒤) — motor u=linear_u_max."""
+    """Fully retracted (rear) — motor u=linear_u_max."""
     return float(cfg.linear_q_min_m)
 
 

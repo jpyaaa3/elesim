@@ -29,13 +29,13 @@ def _data(success, phi, curriculum=None):
 def test_a_flat_run_is_told_to_stop():
     flat = [0.11] * 20
     call, _ = verdict(_data(flat, [1.45] * 20, [0.0] * 20), window=5)
-    assert "멈춰도" in call
+    assert "stop" in call
 
 
 def test_a_rising_success_rate_keeps_going():
     rising = [0.02 * i for i in range(20)]
     call, _ = verdict(_data(rising, [1.45] * 20, [0.0] * 20), window=5)
-    assert "계속" in call
+    assert "Continue" in call
 
 
 def test_a_rising_wrap_angle_keeps_going_even_if_success_is_flat():
@@ -47,7 +47,7 @@ def test_a_rising_wrap_angle_keeps_going_even_if_success_is_flat():
     call, _ = verdict(
         _data([0.11] * 20, [1.0 + 0.05 * i for i in range(20)], [0.0] * 20), window=5
     )
-    assert "계속" in call
+    assert "Continue" in call
 
 
 def test_an_unfinished_curriculum_keeps_going_however_flat():
@@ -57,23 +57,23 @@ def test_an_unfinished_curriculum_keeps_going_however_flat():
     is not the task's.
     """
     call, lines = verdict(_data([0.5] * 20, [1.45] * 20, [0.4] * 20), window=5)
-    assert "계속" in call
-    assert "물러나지" in call
+    assert "Continue" in call
+    assert "not retreated" in call
     # ...and the curriculum line says where it got to, not just that it did not.
     assert any("0.40" in line for line in lines)
 
 
 def test_too_little_data_is_reported_as_such_not_as_a_plateau():
     call, _ = verdict(_data([0.11] * 4, [1.45] * 4, [0.0] * 4), window=5)
-    assert "계속" in call
-    assert "모이지" in call
+    assert "Continue" in call
+    assert "not enough" in call
 
 
 def test_a_declining_run_is_not_called_flat():
     """A decline is a change, so it is not convergence."""
     falling = [0.30 - 0.02 * i for i in range(20)]
     call, _ = verdict(_data(falling, [1.45] * 20, [0.0] * 20), window=5)
-    assert "계속" in call
+    assert "Continue" in call
 
 
 def test_log_parsing_picks_up_every_occurrence():

@@ -272,6 +272,7 @@ function applyLanguage(next) {
   });
   renderRoleBlocks();
   updateRoleChoices();
+  updateInstallationLookupButtons();
   updateWorkflow();
 }
 
@@ -672,6 +673,30 @@ function updateSshVisibility() {
     hostCard.classList.toggle("local", local === slot && isActive(slot));
     updateSshMode(slot);
   });
+  updateInstallationLookupButtons();
+}
+
+function installationLookupReady(slot) {
+  if (!isActive(slot)) return false;
+  const local = document.querySelector('input[name="local-host"]:checked')?.value;
+  // Local lookups use the manager's own, already validated installation path;
+  // only remote cards need a pinned SSH host key before they can be queried.
+  return local === slot || Boolean(field(slot, "ssh-fingerprint")?.value.trim());
+}
+
+function updateInstallationLookup(slot) {
+  const button = card(slot)?.querySelector(".lookup-installation");
+  if (!button) return;
+  const ready = installationLookupReady(slot);
+  const busy = button.dataset.lookupBusy === "true";
+  button.dataset.i18n = ready ? "install.lookup" : "install.lookup.blocked";
+  button.textContent = t(button.dataset.i18n);
+  button.disabled = busy || !ready;
+  button.setAttribute("aria-disabled", String(button.disabled));
+}
+
+function updateInstallationLookupButtons() {
+  slots.forEach(updateInstallationLookup);
 }
 
 function updateSshMode(slot) {
@@ -904,7 +929,7 @@ function applyTopology(topology) {
 function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-status")?.dataset.status || "")) {
   // Keep the controls locked across the save request that precedes a job
   // submission.  That request is asynchronous and otherwise re-enables
-  // "전체 시작" before /api/job/start has accepted the job.
+  // "start all" before /api/job/start has accepted the job.
   const busy = running || jobSubmissionPending;
   const initializerComplete = workflowStarted;
   const apply = byId("apply");
@@ -1144,18 +1169,28 @@ async function probeSsh(slot) {
   }
   const host = sshHostFromForm(slot);
   const port = sshPort(slot);
+  const hostCard = card(slot);
+  const tailscale = field(slot, "ssh-tailscale").checked;
   const result = await api("/api/ssh/fingerprint", {
     method: "POST",
     body: JSON.stringify({
       host,
       port,
-      auth_mode: field(slot, "ssh-tailscale").checked ? "tailscale" : "openssh"
+      auth_mode: tailscale ? "tailscale" : "openssh"
     })
   });
+  // Never attach an in-flight result to a replaced card or changed endpoint.
+  if (card(slot) !== hostCard || !isActive(slot)
+      || document.querySelector('input[name="local-host"]:checked')?.value === slot
+      || field(slot, "ssh-tailscale").checked !== tailscale) return;
+  try {
+    if (sshHostFromForm(slot) !== host || sshPort(slot) !== port) return;
+  } catch (_) { return; } // The endpoint may have been cleared while probing.
   const prompt = `${t("ssh.trust")}\n${host}:${port}\n${result.fingerprint}`;
   if (window.confirm(prompt)) {
     field(slot, "ssh-fingerprint").value = result.fingerprint;
     showNotice("notice.fingerprint");
+    updateInstallationLookup(slot);
   }
 }
 
@@ -1379,9 +1414,11 @@ function installationQuery(slot) {
 async function lookupInstallation(slot) {
   const hostCard = card(slot);
   const button = hostCard.querySelector(".lookup-installation");
+  if (!installationLookupReady(slot)) return;
   const body = JSON.stringify(installationQuery(slot));
+  button.dataset.lookupBusy = "true";
   const previousInstall = field(slot, "install-uuid").value.trim();
-  button.disabled = true;
+  updateInstallationLookup(slot);
   try {
     const result = await api("/api/installations", {method: "POST", body});
     if (!hostCard.isConnected || body !== JSON.stringify(installationQuery(slot))) return;
@@ -1406,7 +1443,10 @@ async function lookupInstallation(slot) {
     };
     select.onchange = choose;
     choose();
-  } finally { button.disabled = false; }
+  } finally {
+    delete button.dataset.lookupBusy;
+    updateInstallationLookup(slot);
+  }
 }
 
 function clearInstallationLookup(slot) {
@@ -1420,6 +1460,7 @@ function clearInstallationLookup(slot) {
     .filter((roleCard) => roleCard.slot === slot)
     .forEach((roleCard) => { roleCard.releaseKey = ""; });
   refreshRoleReleaseOptions(slot);
+  updateInstallationLookup(slot);
 }
 
 function bindHostCardEvents(slot) {
@@ -1436,11 +1477,15 @@ function bindHostCardEvents(slot) {
     slots.forEach((other) => clearInstallationLookup(other));
   });
   ["ssh-host", "ssh-port"].forEach((name) => {
-    field(slot, name).addEventListener("input", () => { field(slot, "ssh-fingerprint").value = ""; });
+    field(slot, name).addEventListener("input", () => {
+      field(slot, "ssh-fingerprint").value = "";
+      updateInstallationLookup(slot);
+    });
   });
   field(slot, "ssh-tailscale").addEventListener("change", () => {
     updateSshMode(slot);
     field(slot, "ssh-fingerprint").value = "";
+    updateInstallationLookup(slot);
   });
   hostCard.querySelectorAll("input, select").forEach((control) => {
     control.addEventListener("input", markWorkflowDirty);

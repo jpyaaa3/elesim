@@ -62,6 +62,12 @@ button.danger-button { border-color: var(--danger); background: var(--danger); }
 button.danger-button:hover { background: #7f2525; }
 button.secondary-button { border-color: var(--line); background: #fff; color: var(--accent-dark); }
 button.secondary-button:hover { border-color: var(--accent); background: var(--accent-soft); }
+button.lookup-installation:disabled {
+  border-color: #c5cbd3;
+  background: #c5cbd3;
+  color: #f7f8fa;
+  opacity: 1;
+}
 button.icon-button { width: 32px; min-height: 32px; border-color: transparent; padding: 0; background: transparent; color: var(--muted); font-size: 20px; }
 button.rename-host { border-color: #1f242b; background: transparent; }
 button.icon-button:hover { border-color: #d7a6aa; background: var(--danger-soft); color: var(--danger); }

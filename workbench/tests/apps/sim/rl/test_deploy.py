@@ -288,7 +288,7 @@ def test_handing_load_to_a_load_free_policy_is_refused(tmp_path):
     # Refusing beats padding: the caller believes something untrue about this
     # policy, and a width count alone would not say what.
     stub = _stub(Interface.from_manifest(_load_free_manifest(tmp_path)))
-    with pytest.raises(ValueError, match="부하 채널"):
+    with pytest.raises(ValueError, match="load channels"):
         stub.observation(joint_estimate=[0] * 4, object_geometry=[0] * 7,
                          load_proxy=[0.0] * 4)
 

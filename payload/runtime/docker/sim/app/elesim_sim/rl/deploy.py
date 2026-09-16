@@ -250,16 +250,16 @@ class DeployedPolicy:
             # believes something about this policy that is not true, and the
             # width check alone would report a count without saying why.
             raise ValueError(
-                "이 정책은 부하 채널을 읽지 않습니다 (매니페스트에 load/ 채널이 "
-                "없음). load_proxy 를 넘기지 마세요"
+                "This policy does not read load channels (the manifest has no "
+                "load/ channels). Do not pass load_proxy."
             )
         else:
             load = []
         vec = list(joint_estimate) + list(object_geometry) + load + [progress]
         if len(vec) != self.iface.obs_dim:
             raise ValueError(
-                f"관측이 {len(vec)} 개인데 정책은 {self.iface.obs_dim} 개를 "
-                f"기대합니다: {', '.join(self.iface.channel_names)}"
+                f"The observation has {len(vec)} values, but the policy expects "
+                f"{self.iface.obs_dim}: {', '.join(self.iface.channel_names)}"
             )
         return torch.tensor([vec], dtype=torch.float32)
 

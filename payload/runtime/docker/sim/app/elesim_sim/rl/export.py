@@ -336,11 +336,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     artifacts[2].write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    print(f"[export] policy.pt      관측 {obs_dim} -> 행동 {action_dim}")
-    print(f"[export] policy.npz     numpy 전용, TorchScript 와 최대 오차 {err:.1e}")
-    print(f"[export] interface.json {len(manifest['observation']['channels'])} 채널, "
-          f"들기 회전 {manifest['lift_script']['roll_seconds_for_90deg']:.2f} s / 90 deg")
-    print(f"[export] 위치           {out}")
+    print(f"[export] policy.pt      observation {obs_dim} -> action {action_dim}")
+    print(f"[export] policy.npz     NumPy-only, max TorchScript error {err:.1e}")
+    print(f"[export] interface.json {len(manifest['observation']['channels'])} channels, "
+          f"lift rotation {manifest['lift_script']['roll_seconds_for_90deg']:.2f} s / 90 deg")
+    print(f"[export] output         {out}")
     return 0
 
 

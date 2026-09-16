@@ -28,11 +28,11 @@ def test_native_install_plan_is_robot_only(local_state) -> None:
     actions = build_install_plan(state)
 
     assert [action.title for action in actions] == [
-        "도구",
+        "Tools",
         "robot",
         "DDS",
-        "명령",
-        "상태",
+        "Commands",
+        "State",
     ]
 
 

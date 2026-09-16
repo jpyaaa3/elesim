@@ -601,22 +601,22 @@ def execute_uninstall(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="elesim-uninstall",
-        description="ownership manifest 기반의 안전한 EleSim 제거",
+        description="safe EleSim removal based on the ownership manifest",
     )
     parser.add_argument(
         "--manifest",
         default=str(default_manifest_path()),
-        help="install-ownership.json 경로",
+        help="path to install-ownership.json",
     )
     parser.add_argument(
         "--keep-logs",
         action="store_true",
-        help="기본 삭제되는 runtime text logs를 보존",
+        help="preserve runtime text logs that are removed by default",
     )
     parser.add_argument(
         "--keep-authority",
         action="store_true",
-        help="기본 삭제되는 operator SROS2 Authority를 보존",
+        help="preserve the operator SROS2 Authority that is removed by default",
     )
     return parser
 

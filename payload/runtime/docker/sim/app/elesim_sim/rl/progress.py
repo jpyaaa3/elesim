@@ -108,23 +108,23 @@ def verdict(data: dict[str, list[float]], window: int) -> tuple[str, list[str]]:
     lines: list[str] = []
     success, phi, curr = data["success"], data["phi"], data["curriculum"]
     n = min(len(success), len(phi))
-    lines.append(f"기록된 지점 {n}")
+    lines.append(f"Recorded points: {n}")
 
     curriculum_done = True
     if curr:
         t = curr[-1]
         curriculum_done = t <= 1e-6
         lines.append(
-            f"  커리큘럼 t_hi   {t:.2f}   "
-            + ("끝남 (Home 에서 시작 중)" if curriculum_done
-               else "아직 물러나는 중 — 계속 돌려야 함")
+            f"  Curriculum t_hi   {t:.2f}   "
+            + ("complete (starting from Home)" if curriculum_done
+               else "still retreating — keep running")
         )
     else:
-        lines.append("  커리큘럼 t_hi   기록 없음 (평가 곡선에는 없는 값)")
+        lines.append("  Curriculum t_hi   not recorded (not present in the evaluation curve)")
 
     if n < 2 * window:
-        lines.append(f"  판정에는 {2 * window} 지점이 필요합니다 (지금 {n})")
-        return "계속 — 아직 판정할 만큼 모이지 않았습니다", lines
+        lines.append(f"  Need {2 * window} points to decide (currently {n})")
+        return "Continue — not enough points to decide yet", lines
 
     def mean(v: list[float], a: int, b: int) -> float:
         return statistics.mean(v[a:b])
@@ -134,19 +134,19 @@ def verdict(data: dict[str, list[float]], window: int) -> tuple[str, list[str]]:
     s_flat = abs(s_now - s_prev) < SUCCESS_EPS
     p_flat = abs(p_now - p_prev) < PHI_EPS
     lines.append(
-        f"  성공률   {s_prev:.4f} -> {s_now:.4f}   변화 {(s_now - s_prev) * 100:+.2f}%p"
-        f"   {'평평' if s_flat else '아직 움직임'}"
+        f"  Success rate   {s_prev:.4f} -> {s_now:.4f}   change {(s_now - s_prev) * 100:+.2f}%p"
+        f"   {'flat' if s_flat else 'still moving'}"
     )
     lines.append(
-        f"  Φ        {p_prev:.3f} -> {p_now:.3f} rad   변화 {p_now - p_prev:+.3f}"
-        f"   {'평평' if p_flat else '아직 움직임'}"
+        f"  Φ             {p_prev:.3f} -> {p_now:.3f} rad   change {p_now - p_prev:+.3f}"
+        f"   {'flat' if p_flat else 'still moving'}"
     )
 
     if not curriculum_done:
-        return "계속 — 커리큘럼이 아직 Home 까지 물러나지 않았습니다", lines
+        return "Continue — the curriculum has not retreated to Home yet", lines
     if s_flat and p_flat:
-        return "멈춰도 됩니다 — 더 돌려도 얻을 것이 없습니다", lines
-    return "계속 — 아직 개선 중입니다", lines
+        return "You can stop — more iterations are unlikely to help", lines
+    return "Continue — still improving", lines
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

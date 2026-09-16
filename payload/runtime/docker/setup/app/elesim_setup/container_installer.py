@@ -398,7 +398,7 @@ class ContainerInstaller:
         self._validate_legacy_docker_adoption(ownership_refresh)
         prefix_created = not os.path.lexists(self.state.prefix_path)
         bin_created = not os.path.lexists(self.state.bin_path)
-        self.log("\n컨테이너 설치 계획")
+        self.log("\nContainer installation plan")
         for action in build_container_plan(self.state):
             self.log(f"  [{action.title}] {action.detail}")
         self.log("")

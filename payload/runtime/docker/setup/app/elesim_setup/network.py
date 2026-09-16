@@ -683,7 +683,7 @@ def _prompt(label: str, current: str) -> str:
 
 
 def _configure_interactive(state: InstallState) -> InstallState:
-    print("\nEleSim ROS 2/DDS 설정")
+    print("\nEleSim ROS 2/DDS configuration")
     system_id = _prompt("EleSim system ID", state.dds.system_id)
     sim_id = _prompt("Sim endpoint ID", state.network.sim_id)
     pilot_id = _prompt("Pilot endpoint ID", state.network.pilot_id)
@@ -695,7 +695,7 @@ def _configure_interactive(state: InstallState) -> InstallState:
         state.dds.discovery_mode,
     )
     peers_raw = _prompt(
-        "Static peer hostname/IP (쉼표 구분, 없으면 '-')",
+        "Static peer hostname/IP (comma-separated, '-' for none)",
         ",".join(state.dds.static_peers) or "-",
     )
     static_peers = (
@@ -703,7 +703,7 @@ def _configure_interactive(state: InstallState) -> InstallState:
         if peers_raw == "-"
         else tuple(value.strip() for value in peers_raw.split(",") if value.strip())
     )
-    interface = _prompt("DDS interface (자동이면 '-')", state.dds.interface or "-")
+    interface = _prompt("DDS interface ('-' for automatic)", state.dds.interface or "-")
     interface = "" if interface == "-" else interface
     security_profile = _prompt(
         "DDS security profile (trusted-network/sros2)",
@@ -736,7 +736,7 @@ def _configure_interactive(state: InstallState) -> InstallState:
         keystore = ""
         enclave = ""
     turn_raw = _prompt(
-        "TURN URL (없으면 '-')",
+        "TURN URL ('-' for none)",
         state.network.turn_urls[0] if state.network.turn_urls else "-",
     )
     turn_urls = () if turn_raw == "-" else (turn_raw,)
@@ -916,34 +916,34 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--state", default=str(default_state_path()))
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("show", help="현재 DDS/TURN 설정 출력")
+    subparsers.add_parser("show", help="show the current DDS/TURN configuration")
     subparsers.add_parser(
         "configuration-check",
-        help="설치된 역할별 DDS/SROS2 생성물 일관성 확인",
+        help="check installed role-specific DDS/SROS2 artifacts for consistency",
     )
     namespace_check = subparsers.add_parser(
         "namespace-check",
-        help="런타임 네임스페이스에서 설정된 DDS interface 확인",
+        help="check the configured DDS interface in the runtime namespace",
     )
     namespace_check.add_argument(
         "--dds-interface",
-        help="설치 상태 대신 검사할 pending DDS interface",
+        help="pending DDS interface to check instead of the installation state",
     )
     namespace_check.add_argument(
         "--dds-address",
-        help="선택한 runtime interface에 실제 할당되어야 하는 DDS 주소",
+        help="DDS address that must be assigned to the selected runtime interface",
     )
     namespace_check.add_argument(
         "--dds-peer",
         action="append",
         default=None,
-        help="검사할 직접 연결 DDS peer (반복 가능)",
+        help="directly connected DDS peer to check (repeatable)",
     )
     restore = subparsers.add_parser("restore-snapshot", help=argparse.SUPPRESS)
     restore.add_argument("--payload", required=True, help=argparse.SUPPRESS)
     configure = subparsers.add_parser(
         "configure",
-        help="DDS/TURN 설정을 바꾸고 역할별 YAML/XML을 재생성",
+        help="change DDS/TURN settings and regenerate role-specific YAML/XML",
     )
     configure.add_argument("--dds-system-id", default="")
     configure.add_argument("--dds-domain-id", type=int)
@@ -1001,27 +1001,27 @@ def _parser() -> argparse.ArgumentParser:
 
     doctor = subparsers.add_parser(
         "doctor",
-        help="DDS graph, RGBD topic, TURN과 WebRTC 연결 검사",
+        help="check the DDS graph, RGBD topic, TURN, and WebRTC connections",
     )
-    doctor.add_argument("--active", action="store_true", help="실제 DDS RGBD sample까지 검사")
+    doctor.add_argument("--active", action="store_true", help="also check a live DDS RGBD sample")
     doctor.add_argument(
         "--expect-peer",
         action="append",
         default=[],
-        help="기대하는 EleSim endpoint ID (반복 가능)",
+        help="expected EleSim endpoint ID (repeatable)",
     )
     doctor.add_argument(
         "--strict-peers",
         action="store_true",
-        help="기대 endpoint 미발견을 실패로 반환",
+        help="fail when an expected endpoint is not found",
     )
     doctor.add_argument(
         "--readiness-only",
         action="store_true",
-        help="기대 endpoint descriptor/heartbeat만 검사",
+        help="check only expected endpoint descriptors/heartbeats",
     )
     doctor.add_argument("--timeout", type=float, default=4.0)
-    doctor.add_argument("--json", action="store_true", help="기계 판독용 JSON 출력")
+    doctor.add_argument("--json", action="store_true", help="print machine-readable JSON")
     return parser
 
 

@@ -298,11 +298,11 @@ def _yes_no(prompt: str, default: bool = True, *, input_fn: Input = input) -> bo
         value = input_fn(f"{prompt} [{marker}]: ").strip().lower()
         if not value:
             return default
-        if value in {"y", "yes", "예", "ㅇ"}:
+        if value in {"y", "yes"}:
             return True
-        if value in {"n", "no", "아니오", "ㄴ"}:
+        if value in {"n", "no"}:
             return False
-        print("y 또는 n을 입력하십시오.")
+        print("Enter y or n.")
 
 
 def _ask_roles(*, input_fn: Input = input) -> tuple[str, ...]:
@@ -314,14 +314,14 @@ def _ask_roles(*, input_fn: Input = input) -> tuple[str, ...]:
     request is rejected before any installation work starts.
     """
 
-    print("\n설치할 프로그램을 필요한 만큼 선택하십시오 (쉼표로 구분).")
-    print("  sim  Genesis 시뮬레이션과 RGBD/WebRTC 송신")
-    print("  pilot 인식, IK, Pick/Gaze와 목표 생성")
-    print("  ui         운영자 화면과 원격 조작")
-    print("  robot      Jetson의 실제 장치와 로컬 안전 제어 (단독 설치)")
+    print("\nSelect the programs to install (comma-separated).")
+    print("  sim    Genesis simulation with RGBD/WebRTC streaming")
+    print("  pilot  Perception, IK, Pick/Gaze, and target generation")
+    print("  ui     Operator UI and remote control")
+    print("  robot  Jetson hardware and local safety control (standalone install)")
     while True:
         selected = _ask(
-            "역할 (sim, pilot, ui, robot)",
+            "Roles (sim, pilot, ui, robot)",
             "sim,pilot,ui",
             input_fn=input_fn,
         )
@@ -339,7 +339,7 @@ def _ask_roles(*, input_fn: Input = input) -> tuple[str, ...]:
 def _ask_runtime_text_logs(*, input_fn: Input = input) -> RuntimeTextLogSettings:
     return RuntimeTextLogSettings(
         enabled=_yes_no(
-            "실행 로그를 종료 시와 요청 시 평문 archive로 보관합니까?",
+            "Store runtime logs as plaintext archives on shutdown and on request?",
             default=True,
             input_fn=input_fn,
         )
@@ -356,14 +356,14 @@ def _menu(
     for index, (_value, label) in enumerate(choices, start=1):
         print(f"  {index}. {label}")
     while True:
-        raw = input_fn("선택: ").strip()
+        raw = input_fn("Selection: ").strip()
         try:
             index = int(raw) - 1
         except ValueError:
             index = -1
         if 0 <= index < len(choices):
             return choices[index][0]
-        print(f"1..{len(choices)} 중 하나를 입력하십시오.")
+        print(f"Enter a number from 1 to {len(choices)}.")
 
 
 def run_wizard(
@@ -372,31 +372,31 @@ def run_wizard(
     state_path: Path | None = None,
     input_fn: Input = input,
 ) -> int:
-    print("\nEleSim 설치 마법사")
-    print("선택한 실행 역할과 ROS 2/DDS 구성을 격리된 환경에 설치합니다.")
+    print("\nEleSim Setup Wizard")
+    print("Installs the selected runtime roles and ROS 2/DDS configuration in an isolated environment.")
     profile_name = "custom"
     roles = _ask_roles(input_fn=input_fn)
 
     install_mode = "native" if roles == ("robot",) else "container"
     print(
-        "\n설치 방식: "
+        "\nInstallation mode: "
         + (
             "Robot Jetson native/systemd"
             if install_mode == "native"
-            else "Docker Compose (호스트 환경 보존)"
+            else "Docker Compose (preserves the host environment)"
         )
     )
 
     prefix = Path(
-        _ask("설치 위치", str(DEFAULT_PREFIX), input_fn=input_fn)
+        _ask("Installation path", str(DEFAULT_PREFIX), input_fn=input_fn)
     ).expanduser().resolve()
     bin_dir = Path(
-        _ask("터미널 명령을 둘 위치", str(DEFAULT_BIN_DIR), input_fn=input_fn)
+        _ask("Directory for terminal commands", str(DEFAULT_BIN_DIR), input_fn=input_fn)
     ).expanduser().resolve()
     runtime_text_logs = _ask_runtime_text_logs(input_fn=input_fn)
     developer_attachment = DeveloperAttachmentSettings()
     if install_mode == "container" and _yes_no(
-        "이 설치에 개발 도구 컨테이너를 추가합니까?",
+        "Add a developer-tools container to this installation?",
         default=False,
         input_fn=input_fn,
     ):
@@ -422,27 +422,27 @@ def run_wizard(
     compute = ComputeSettings()
     if {"pilot", "sim"}.intersection(roles):
         gpu_mode = _menu(
-            "GPU 사용 정책",
+            "GPU policy",
             (
-                ("inherit", "외부 CUDA_VISIBLE_DEVICES를 그대로 따름 (권장)"),
-                ("specific", "특정 GPU index 또는 UUID만 사용"),
-                ("cpu", "GPU를 사용하지 않고 CPU로 실행"),
+                ("inherit", "Inherit CUDA_VISIBLE_DEVICES from the host (recommended)"),
+                ("specific", "Use only the selected GPU index or UUID"),
+                ("cpu", "Run on the CPU without a GPU"),
             ),
             input_fn=input_fn,
         )
         gpu_device = (
-            _ask("GPU index 또는 UUID", "0", input_fn=input_fn)
+            _ask("GPU index or UUID", "0", input_fn=input_fn)
             if gpu_mode == "specific"
             else ""
         )
         compute = ComputeSettings(gpu_mode=gpu_mode, gpu_device=gpu_device).validate()
 
-    domain_id = int(_ask("ROS_DOMAIN_ID (모든 기기에서 동일)", "0", input_fn=input_fn))
+    domain_id = int(_ask("ROS_DOMAIN_ID (same on all hosts)", "0", input_fn=input_fn))
     discovery_mode = _menu(
         "DDS discovery",
         (
-            ("multicast", "같은 L2 네트워크에서 multicast 자동 발견"),
-            ("static", "멀티캐스트가 막힌 네트워크의 static peer 목록"),
+            ("multicast", "Automatic multicast discovery on the same L2 network"),
+            ("static", "Static peer list for networks where multicast is blocked"),
         ),
         input_fn=input_fn,
     )
@@ -451,18 +451,18 @@ def run_wizard(
         static_peers = tuple(
             value.strip()
             for value in _ask(
-                "DDS peer hostname/IP (쉼표 구분)",
+                "DDS peer hostname/IP (comma-separated)",
                 "",
                 input_fn=input_fn,
             ).split(",")
             if value.strip()
         )
-    interface = _ask("DDS network interface (자동이면 비움)", "", input_fn=input_fn)
+    interface = _ask("DDS network interface (leave empty for automatic)", "", input_fn=input_fn)
     security_profile = _menu(
-        "DDS 보안 profile",
+        "DDS security profile",
         (
-            ("trusted-network", "격리된 신뢰 네트워크/VPN (DDS 보안 비활성)"),
-            ("sros2", "SROS2 인증·암호화 강제"),
+            ("trusted-network", "Isolated trusted network/VPN (DDS security disabled)"),
+            ("sros2", "Require SROS2 authentication and encryption"),
         ),
         input_fn=input_fn,
     )
@@ -473,8 +473,8 @@ def run_wizard(
         security_provisioning = _menu(
             "SROS2 provisioning",
             (
-                ("managed", "elesim-connections가 role bundle 생성·배포 (권장)"),
-                ("external", "이미 존재하는 외부 keystore 사용"),
+                ("managed", "elesim-connections generates and deploys role bundles (recommended)"),
+                ("external", "Use an existing external keystore"),
             ),
             input_fn=input_fn,
         )
@@ -482,7 +482,7 @@ def run_wizard(
             keystore = str(
                 Path(
                     _ask(
-                        "SROS2 keystore 경로",
+                        "SROS2 keystore path",
                         str(prefix / "sros2"),
                         input_fn=input_fn,
                     )
@@ -536,13 +536,13 @@ def run_wizard(
         install_mode=install_mode,
     ).require_installable_dds()
 
-    print("\n사전 확인")
+    print("\nPreflight checks")
     for note in preflight_notes(roles, install_mode=install_mode):
         print(f"  - {note}")
     if security_profile == "trusted-network":
-        print("  - 경고: DDS 인증·암호화는 비활성입니다. 격리된 사설망/VPN에서만 사용하십시오.")
-    if not _yes_no("이 설정으로 설치를 시작합니까?", input_fn=input_fn):
-        print("설치를 취소했습니다.")
+        print("  - Warning: DDS authentication and encryption are disabled. Use only on an isolated private network/VPN.")
+    if not _yes_no("Start the installation with these settings?", input_fn=input_fn):
+        print("Installation cancelled.")
         return 1
 
     installer_type = ContainerInstaller if install_mode == "container" else Installer
@@ -558,7 +558,7 @@ def _path_note(bin_dir: Path) -> None:
         if value
     }
     if bin_dir not in paths:
-        print(f"\n[shell] {bin_dir}가 PATH에 없습니다. shell 설정에 다음을 한 번 추가하십시오:")
+        print(f"\n[shell] {bin_dir} is not on PATH. Add this once to your shell configuration:")
         print(f'[shell] export PATH="{bin_dir}:$PATH"')
 
 
@@ -703,7 +703,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     gui.add_argument("--ref", default=os.environ.get("ELESIM_REF", DEFAULT_SOURCE_REF))
 
-    install = subparsers.add_parser("install", help="자동화용 비대화형 설치")
+    install = subparsers.add_parser("install", help="Non-interactive installation for automation")
     install.add_argument(
         "--profile",
         choices=tuple(PROFILES),
@@ -714,7 +714,7 @@ def _parser() -> argparse.ArgumentParser:
         "--mode",
         choices=("auto", "native", "container"),
         default="auto",
-        help="auto는 Robot 단독만 native, 나머지는 Docker Compose로 설치",
+        help="auto uses native mode only for standalone Robot; other roles use Docker Compose",
     )
     install.add_argument("--role", action="append", choices=ROLE_ORDER)
     install.add_argument("--prefix", default=str(DEFAULT_PREFIX))
@@ -722,22 +722,22 @@ def _parser() -> argparse.ArgumentParser:
     install.add_argument(
         "--developer-attachment",
         action="store_true",
-        help="동일 elesim-runtime project에 persistent 개발 도구를 추가",
+        help="add a persistent developer-tools service to the install-scoped Compose project",
     )
     install.add_argument(
         "--developer-workspace",
         default=str(Path.cwd()),
-        help="developer attachment가 bind mount할 EleSim Git checkout",
+        help="EleSim Git checkout to bind-mount into the developer attachment",
     )
     install.add_argument(
         "--repository",
         default=os.environ.get("ELESIM_REPOSITORY", DEFAULT_SOURCE_REPOSITORY),
-        help="update가 다시 가져올 GitHub owner/repository",
+        help="GitHub owner/repository for update",
     )
     install.add_argument(
         "--ref",
         default=os.environ.get("ELESIM_REF", DEFAULT_SOURCE_REF),
-        help="update가 다시 가져올 Git ref",
+        help="Git ref for update",
     )
     install.add_argument("--sim-id", default="sim-default")
     install.add_argument("--pilot-id", default="pilot-main")
@@ -790,13 +790,13 @@ def _parser() -> argparse.ArgumentParser:
         "--runtime-text-logs",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="종료 시와 elesim-logs --save에서 로컬 평문 로그 archive 저장",
+        help="save local plaintext log archives on shutdown and with elesim-logs --save",
     )
     install.add_argument("--dry-run", action="store_true")
 
     update = subparsers.add_parser(
         "update",
-        help="기존 ownership 설치를 새 source로 재생성",
+        help="regenerate an existing ownership installation from a new source",
     )
     update.add_argument(
         "--edition",
@@ -806,12 +806,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     update.add_argument("--dry-run", action="store_true")
 
-    subparsers.add_parser("status", help="현재 설치 상태 출력")
-    instances = subparsers.add_parser("instances", help="등록된 release instance 조회")
+    subparsers.add_parser("status", help="show the current installation status")
+    instances = subparsers.add_parser("instances", help="list registered release instances")
     instances.add_argument("--prefix", default=str(DEFAULT_PREFIX))
     instances.add_argument("--system", default=None)
 
-    releases = subparsers.add_parser("releases", help="설치된 immutable release 조회")
+    releases = subparsers.add_parser("releases", help="list installed immutable releases")
     releases.add_argument("--prefix", default=None, help=argparse.SUPPRESS)
     releases.add_argument("--release", default=None, help="release SHA-256 key")
 
@@ -827,13 +827,13 @@ def _parser() -> argparse.ArgumentParser:
 
     instance = subparsers.add_parser(
         "instance",
-        help="scoped immutable release instance 관리",
+        help="manage a scoped immutable release instance",
     )
     instance_actions = instance.add_subparsers(dest="instance_action", required=True)
     for action in ("register", "replace"):
         command = instance_actions.add_parser(
             action,
-            help=("새 instance 등록" if action == "register" else "기존 instance 교체"),
+            help=("register a new instance" if action == "register" else "replace an existing instance"),
         )
         command.add_argument("--system", required=True)
         command.add_argument("--release", required=True)
@@ -861,7 +861,7 @@ def _parser() -> argparse.ArgumentParser:
             action="append",
             default=[],
             metavar="ROLE:ID",
-            help="반복 지정할 endpoint (pilot:pilot-1 등)",
+            help="endpoint assignment; repeat for multiple roles (for example, pilot:pilot-1)",
         )
         command.add_argument(
             "--graph-endpoint",
@@ -874,7 +874,7 @@ def _parser() -> argparse.ArgumentParser:
             "--security-generation",
             default=None,
             metavar="PATH",
-            help="이미 stage/publish된 SROS2 generation directory",
+            help="SROS2 generation directory that has already been staged/published",
         )
         command.add_argument(
             "--security-bundle-root",
@@ -885,17 +885,17 @@ def _parser() -> argparse.ArgumentParser:
             "--gpu-mode",
             choices=("inherit", "specific", "cpu"),
             default=None,
-            help="이 instance의 Pilot/Sim GPU 정책 (생략하면 설치 정책 복사)",
+            help="GPU policy for Pilot/Sim in this instance (defaults to the installation policy)",
         )
         command.add_argument(
             "--gpu-device",
             default=None,
             metavar="INDEX_OR_UUID",
-            help="specific GPU 정책의 단일 index/UUID",
+            help="single index/UUID for the specific GPU policy",
         )
         command.add_argument(
             "--turn-mode", choices=("none", "managed", "external"), default=None,
-            help="이 instance의 Sim WebRTC TURN 정책",
+            help="Sim WebRTC TURN policy for this instance",
         )
         command.add_argument("--turn-url", action="append", default=None, metavar="URL")
         command.add_argument("--turn-realm", default=None, metavar="REALM")
@@ -905,18 +905,18 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--turn-relay-max-port", type=int, default=None)
         command.add_argument(
             "--turn-credential-file", default=None, metavar="PATH",
-            help="external TURN 자격 JSON (외부 파일은 EleSim이 소유하지 않음)",
+            help="external TURN credential JSON (the external file is not owned by EleSim)",
         )
     rotate = instance_actions.add_parser(
         "rotate",
-        help="한 instance의 managed SROS2 generation 교체 (로컬 transaction만 수행)",
+        help="replace one instance's managed SROS2 generation (local transaction only)",
     )
     rotate.add_argument("--system", required=True)
     rotate.add_argument(
         "--security-generation",
         required=True,
         metavar="PATH",
-        help="이미 stage/publish된 SROS2 generation directory",
+        help="SROS2 generation directory that has already been staged/published",
     )
     cleanup_staging = instance_actions.add_parser(
         "cleanup-staging",
@@ -929,7 +929,7 @@ def _parser() -> argparse.ArgumentParser:
         metavar="GENERATION",
         help=argparse.SUPPRESS,
     )
-    remove = instance_actions.add_parser("remove", help="중지된 instance 제거")
+    remove = instance_actions.add_parser("remove", help="remove a stopped instance")
     remove.add_argument("--system", required=True)
     remove.add_argument("--host-lease", default=None, help=argparse.SUPPRESS)
     return parser

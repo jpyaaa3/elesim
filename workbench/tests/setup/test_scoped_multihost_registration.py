@@ -20,7 +20,7 @@ from elesim_connections.connection_manager import (
 )
 from elesim_connections.connections import ConnectionDeploymentRunner, RuntimeRollbackError
 from elesim_setup.instance_identity import image_reference, project_name
-from elesim_setup.instances import InstanceEndpoint, InstanceState
+from elesim_setup.instances import InstanceEndpoint, InstanceRegistry, InstanceState
 from elesim_setup.releases import ReleaseManifest, release_key
 from elesim_setup.state import InstallState
 
@@ -88,6 +88,16 @@ def test_scoped_multihost_planner_uses_each_units_release_and_host_dds(
         profile="custom", roles=("pilot", "sim", "ui"), prefix=str(local_root),
         bin_dir=str(local_root / "bin"), source_root=str(tmp_path),
     )
+    local_previous = InstanceState(
+        system_id="scoped",
+        release_key=release_key(local_release),
+        endpoints=(InstanceEndpoint("pilot", "pilot-a"),),
+        domain_id=0,
+        pilot_id="pilot-a",
+        discovery_mode="static",
+        interface="eth0",
+        security_profile="trusted-network",
+    )
 
     class Manifest:
         install_uuid = LOCAL_UUID
@@ -104,8 +114,8 @@ def test_scoped_multihost_planner_uses_each_units_release_and_host_dds(
         def scoped_install_state(self, _host, _unit):
             return {"compute": {"gpu_mode": "cpu", "gpu_device": ""}}
 
-        def scoped_instance_state(self, _host, _unit, _system):
-            return None
+        def scoped_instance_state(self, host, _unit, _system):
+            return local_previous if host.host_id == "local" else None
 
         def close(self):
             pass
@@ -115,6 +125,13 @@ def test_scoped_multihost_planner_uses_each_units_release_and_host_dds(
     monkeypatch.setattr(
         "elesim_connections.connections.list_releases",
         lambda _prefix, install_uuid: (local_release,) if install_uuid == LOCAL_UUID else (remote_release,),
+    )
+    monkeypatch.setattr(
+        InstanceRegistry,
+        "load",
+        lambda *_args, **_kwargs: pytest.fail(
+            "planner must not acquire the read-only manager-side instance lock"
+        ),
     )
     monkeypatch.setattr(runner, "_state_for_local_scope", lambda _uuid: state)
     fake_remote = RemoteOperation()
@@ -126,6 +143,7 @@ def test_scoped_multihost_planner_uses_each_units_release_and_host_dds(
     plans = runner._scoped_unit_plans(topology, runner._operations(topology))
 
     assert [plan[3].install_uuid for plan in plans] == [LOCAL_UUID, REMOTE_UUID]
+    assert plans[0][4] == local_previous
     assert [plan[2].release_key for plan in plans] == [release_key(local_release), release_key(remote_release)]
     assert plans[0][2].interface == "eth0"
     assert plans[1][2].interface == "tailscale0"

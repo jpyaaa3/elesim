@@ -6,6 +6,24 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### GO2 MPC replacement selection (2026-09-16)
+
+- Selected Quadruped-PyMPC's nominal acados CPU backend for a prototype;
+  see [decision and migration gates](go2-mpc-replacement.md).
+- Selection/documentation only: the current go2-convex-mpc dependency is still
+  enabled. No Genesis, physical Robot or operational milestone is marked passed.
+- Reviewed the current uncommitted diff (English runtime messages, read-only
+  instance planning and SSH lookup gating). Fixed stale SSH probe results being
+  applied to changed endpoints and aligned the lookup button's ARIA disabled
+  state with its actual busy/blocked state; added an executable Node regression.
+- Host fallback: 44 focused installer/scoped-registration/RL-progress/frontend
+  checks and 172 GUI/connection/deployment checks passed. JavaScript syntax and
+  diff whitespace checks passed. The installed `elesim-dev` wrapper is absent
+  and Docker has no development service container; canonical container gates,
+  live multi-host EROFS reproduction and Genesis/MPC behavior remain unverified.
+- The separate RL deployment test could not collect because host Python lacks
+  `torch`; it is not counted among the passing tests. No host packages were added.
+
 ### wrap-grasp-rl 로컬 통합 (2026-09-14)
 
 - 로컬 `integrate/wrap-grasp-rl`에서 main `4628bdb`와 PR #3의

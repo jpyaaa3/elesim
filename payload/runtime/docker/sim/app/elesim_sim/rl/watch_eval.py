@@ -96,14 +96,14 @@ def open_master(host: str, port: Optional[int] = None) -> None:
         capture_output=True, text=True,
     )
     if check.returncode == 0:
-        print(f"[watch] 기존 SSH 연결 재사용: {sock}")
+        print(f"[watch] Reusing existing SSH connection: {sock}")
         return
     where = f"{host}:{port}" if port else host
-    print(f"[watch] {where} 에 연결합니다. 비밀번호 인증이면 여기서 한 번 물어봅니다.")
+    print(f"[watch] Connecting to {where}. Password authentication prompts once here.")
     made = subprocess.run(["ssh", "-MNf", *ssh_options(host, port), host])
     if made.returncode != 0:
         raise SystemExit(f"[watch] SSH connection failed: {where}")
-    print("[watch] 연결됨. 이후 rsync는 이 소켓을 재사용합니다.")
+    print("[watch] Connected. Subsequent rsync calls reuse this socket.")
 
 
 def check_remote_path(remote_run: str) -> None:
@@ -196,7 +196,7 @@ def check_commit(local_run: Path, *, allow_mismatch: bool) -> None:
     """
     meta_path = local_run / "metadata.json"
     if not meta_path.is_file():
-        print("[watch] metadata.json 이 아직 없습니다. 다음 주기에 다시 봅니다.")
+        print("[watch] metadata.json is not available yet. Retrying on the next cycle.")
         raise _NotReady
     meta = json.loads(meta_path.read_text())
     trained = (meta.get("git") or {}).get("commit")
@@ -269,7 +269,7 @@ def evaluate(
     if render > 0:
         cmd += ["--render", str(render), "--render-episodes", "2"]
     cmd += list(extra)
-    print(f"[watch] 평가 {name or ckpt.name} ...", flush=True)
+    print(f"[watch] Evaluating {name or ckpt.name} ...", flush=True)
     result = subprocess.run(cmd, cwd=_REPO_ROOT, capture_output=True, text=True)
     if result.returncode != 0:
         tail = (result.stderr or result.stdout).strip().splitlines()[-3:]
@@ -372,9 +372,9 @@ def sweep_sizes(
         row["diameter_mm"] = int(round(radius * 2000))
         rows.append(row)
         print(
-            f"[watch] 지름 {row['diameter_mm']:4d}mm  성공 {100*row['success_rate']:5.1f}%"
-            f"  토플 {100*row['topple']:5.1f}%  housing {100*row['collision']:5.1f}%"
-            f"  못감음 {100*row['no_wrap']:5.1f}%"
+            f"[watch] diameter {row['diameter_mm']:4d}mm  success {100*row['success_rate']:5.1f}%"
+            f"  topple {100*row['topple']:5.1f}%  housing {100*row['collision']:5.1f}%"
+            f"  no-wrap {100*row['no_wrap']:5.1f}%"
         )
     if not rows:
         return
@@ -387,7 +387,7 @@ def sweep_sizes(
             writer.writeheader()
         for row in rows:
             writer.writerow({k: row.get(k, "") for k in columns})
-    print(f"[watch] 크기별 결과 {csv_path}")
+    print(f"[watch] Size-sweep results: {csv_path}")
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -448,10 +448,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
     lock.write_text(str(os.getpid()))
     where = f"{args.host}:{args.port}" if args.port else args.host
-    print(f"[watch] 서버   {where}  {args.remote_run}")
-    print(f"[watch] 로컬   {local_run}")
-    print(f"[watch] 출력   {out_dir}")
-    print(f"[watch] 간격   {args.interval} iteration 마다, {args.period:.0f}초 주기")
+    print(f"[watch] server  {where}  {args.remote_run}")
+    print(f"[watch] local   {local_run}")
+    print(f"[watch] output  {out_dir}")
+    print(f"[watch] interval {args.interval} iterations, every {args.period:.0f}s")
 
     extra = []
     for item in args.overrides:
@@ -469,7 +469,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if not pending:
                 raise SystemExit("[watch] No checkpoints are available for evaluation.")
             iteration, ckpt = pending[-1]
-            print(f"[watch] 크기 스윕: {ckpt.name} (iteration {iteration})")
+            print(f"[watch] Size sweep: {ckpt.name} (iteration {iteration})")
             sweep_sizes(
                 ckpt, out_dir, radii,
                 n_envs=args.n_envs, episodes=args.episodes,
@@ -499,13 +499,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 if skipped:
                     # Say what was dropped.  A silent skip reads as "nothing to
                     # do" and the gap in the curve looks like a stall.
-                    print(f"[watch] 대기 중 {skipped}개는 건너뜁니다 (--latest-only)")
+                    print(f"[watch] Skipping {skipped} pending checkpoints (--latest-only)")
 
             if not pending:
                 # Only when the count changes: on a quiet poll the line says
                 # exactly what the last one did.
                 if len(already) != last_reported:
-                    print(f"[watch] 새 체크포인트 없음 ({len(already)}개 평가 완료)")
+                    print(f"[watch] No new checkpoints ({len(already)} evaluations complete)")
                     last_reported = len(already)
             for iteration, ckpt in pending:
                 data = evaluate(
@@ -518,16 +518,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 row = summarise(iteration, ckpt, data)
                 append_row(csv_path, row)
                 print(
-                    f"[watch] iter {iteration:6d}  성공 {100*row['success_rate']:5.1f}%  "
-                    f"토플 {100*row['topple']:5.1f}%  housing {100*row['collision']:5.1f}%  "
-                    f"Φ평균 {row['phi_mean_deg']:5.1f}deg"
+                    f"[watch] iter {iteration:6d}  success {100*row['success_rate']:5.1f}%  "
+                    f"topple {100*row['topple']:5.1f}%  housing {100*row['collision']:5.1f}%  "
+                    f"mean Φ {row['phi_mean_deg']:5.1f}deg"
                 )
 
             if args.once:
                 return 0
             time.sleep(args.period)
     except KeyboardInterrupt:
-        print("\n[watch] 중단")
+        print("\n[watch] Stopped")
         return 130
     finally:
         lock.unlink(missing_ok=True)
