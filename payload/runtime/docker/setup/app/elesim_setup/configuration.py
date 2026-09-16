@@ -319,10 +319,23 @@ def generate_instance_configs(
     template_root: Path | None = None,
     security_views: Mapping[str, tuple[Path, str]] | None = None,
     output_prefix: Path | None = None,
+    robot_id: str | None = None,
 ) -> dict[str, Path]:
-    """Generate endpoint-private configs without touching legacy role configs."""
+    """Generate endpoint-private configs without touching legacy role configs.
+
+    ``robot_id`` is a transient graph peer supplied by the connection manager.
+    Native Robot is deliberately not part of the persisted instance record;
+    keeping this value at the preparation boundary lets a mixed Jetson graph
+    address its native peer without creating a fake scoped Robot instance.
+    """
     state.validate()
     instance.validate()
+    effective_robot_id = state.network.robot_id
+    if robot_id is not None:
+        if not isinstance(robot_id, str) or not robot_id:
+            raise ValueError("robot_id must be a non-empty endpoint identifier")
+        effective_robot_id = robot_id
+    replace(state.network, robot_id=effective_robot_id).validate()
     # Capability inventory is the installed role set; manager assignment must
     # not prevent rendering a separately registered instance.
     installed_roles = tuple(state.roles)
@@ -407,6 +420,7 @@ def generate_instance_configs(
                 pilot_id=instance.pilot_id,
                 sim_id=instance.sim_id,
                 ui_id=instance.ui_id,
+                robot_id=effective_robot_id,
             ),
             dds=instance_dds,
         )

@@ -329,6 +329,49 @@ def test_scoped_remote_lifecycle_rejects_unenrolled_legacy_unit() -> None:
         )
 
 
+def test_scoped_native_lifecycle_binds_authenticated_install_identity() -> None:
+    base = _topology()
+    robot_host = base.host("robot")
+    robot_unit = replace(
+        robot_host.primary_unit,
+        install_uuid=SCOPED_INSTALL,
+        install_root="/opt/elesim-robot",
+        bin_dir="/usr/local/bin",
+    )
+    robot_host = replace(robot_host, units=(robot_unit,))
+    topology = replace(
+        base,
+        hosts=tuple(robot_host if host.host_id == "robot" else host for host in base.hosts),
+    ).validate()
+
+    class Session:
+        def __init__(self, payload: str, exit_status: int = 0) -> None:
+            self.payload = payload
+            self.exit_status = exit_status
+
+        def run(self, argv, *, check=True):
+            assert tuple(argv) == ("/usr/local/bin/elesim-net", "identity")
+            return RemoteCommandResult(self.exit_status, self.payload)
+
+    identity = json.dumps(
+        {
+            "schema_version": 1,
+            "install_mode": "native",
+            "install_uuid": SCOPED_INSTALL,
+            "prefix": "/opt/elesim-robot",
+            "bin_dir": "/usr/local/bin",
+        }
+    )
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    lifecycle._validate_scoped_target(Session(identity), robot_unit, local=False)
+
+    with pytest.raises(RemoteCommandError, match="identity"):
+        lifecycle._validate_scoped_target(Session("", exit_status=1), robot_unit, local=False)
+
+    with pytest.raises(RuntimeError, match="identity is invalid"):
+        lifecycle._validate_scoped_target(Session("{}"), robot_unit, local=False)
+
+
 def test_scoped_installed_lifecycle_validates_and_uses_instance_commands() -> None:
     topology = ConnectionTopology(
         "lab",
@@ -637,6 +680,7 @@ def test_mixed_host_lifecycle_commands_remain_unit_scoped() -> None:
                 (RoleAssignment("robot", "robot-main"),),
                 install_mode="native",
                 install_root="/opt/elesim-robot",
+                bin_dir="/opt/elesim-robot/bin",
                 lifecycle="systemd",
             ),
         ),
@@ -661,6 +705,59 @@ def test_mixed_host_lifecycle_commands_remain_unit_scoped() -> None:
         "start",
         "elesim-robot.service",
     )
+
+
+def test_mixed_host_native_view_uses_install_security_root_without_sibling_scope() -> None:
+    host = ManagedHost(
+        "jetson",
+        False,
+        DdsEndpoint("100.64.0.31", "tailscale0"),
+        _ssh("jetson.example"),
+        jetson=True,
+        units=(
+            DeploymentUnit(
+                "runtime",
+                (RoleAssignment("pilot", "pilot-main"),),
+                install_root="/opt/elesim",
+                bin_dir="/usr/local/bin",
+            ),
+            DeploymentUnit(
+                "robot-native",
+                (RoleAssignment("robot", "robot-main"),),
+                install_mode="native",
+                install_root="/opt/elesim-robot",
+                bin_dir="/opt/elesim-robot/bin",
+                lifecycle="systemd",
+            ),
+        ),
+    ).validate()
+    topology = ConnectionTopology(
+        "lab",
+        "sros2",
+        (
+            ManagedHost(
+                "laptop",
+                True,
+                DdsEndpoint("100.64.0.30", "tailscale0"),
+                None,
+                (RoleAssignment("ui", "ui-main"),),
+            ),
+            host,
+        ),
+        dds_graph=DdsGraphSettings(discovery_mode="static"),
+    ).validate()
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    operations = SshHostOperations(
+        secure_deployment._UnavailableConnector(), lifecycle, topology
+    )
+    native = replace(host, units=host.robot_units)
+
+    assert operations._security_root_for(native) == PurePosixPath("/opt/elesim-robot/security")
+    assert operations._security_root_for_unit(
+        native, native.primary_unit
+    ) == PurePosixPath("/opt/elesim-robot/security")
+    with pytest.raises(ValueError, match="does not belong"):
+        operations._security_root_for_unit(native, host.runtime_units[0])
 
 
 def test_bundle_manifest_is_bounded_hashed_and_contains_no_payload() -> None:
@@ -1450,8 +1547,11 @@ class FakeSession:
         self.uploads.append((path, content, mode))
 
 
-def test_scoped_registration_forwards_graph_wide_role_ids() -> None:
+@pytest.mark.parametrize("native_peer", (False, True))
+def test_scoped_registration_forwards_graph_wide_role_ids(native_peer: bool) -> None:
     topology = _scoped_remote_topology()
+    if native_peer:
+        topology = replace(topology, hosts=(*topology.hosts, _topology().host("robot"))).validate()
     host = topology.host("server")
     unit = host.primary_unit
     session = FakeSession()
@@ -1471,6 +1571,7 @@ def test_scoped_registration_forwards_graph_wide_role_ids() -> None:
         security_profile="trusted-network",
         endpoints=(SimpleNamespace(role="sim", endpoint_id="sim-2"),),
         pilot_id="pilot-1",
+        robot_id="robot-custom",
         sim_id="sim-2",
         ui_id="ui-3",
     )
@@ -1489,7 +1590,8 @@ def test_scoped_registration_forwards_graph_wide_role_ids() -> None:
         for index, value in enumerate(command[:-1])
         if value == "--graph-endpoint"
     )
-    assert pairs == ("pilot:pilot-1", "sim:sim-2", "ui:ui-3")
+    robot_id = "robot-main" if native_peer else "robot-custom"
+    assert pairs == ("pilot:pilot-1", f"robot:{robot_id}", "sim:sim-2", "ui:ui-3")
 
 
 def test_colocated_role_launches_keep_pilot_and_sim_gpu_choices_independent() -> None:

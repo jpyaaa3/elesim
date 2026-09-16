@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 
 from elesim_setup.capabilities import HostCapabilities
 from elesim_setup.request import SetupRequest
@@ -43,3 +44,33 @@ def test_general_service_uses_existing_container_installer_contract(
     assert (request.prefix / "containers/compose.yaml").is_file()
     assert (request.bin_dir / "elesim-up").is_file()
     assert any("[setup]" in line for line in logs)
+
+
+def test_mixed_jetson_install_dispatches_independent_owned_installations(tmp_path, monkeypatch):
+    calls = []
+
+    class RecordingInstaller:
+        def __init__(self, state, **kwargs):
+            self.state = state
+
+        def run(self):
+            calls.append(self.state)
+
+    monkeypatch.setattr("elesim_setup.service.ContainerInstaller", RecordingInstaller)
+    monkeypatch.setattr("elesim_setup.service.Installer", RecordingInstaller)
+    request = SetupRequest.from_dict({
+        "roles": ["robot", "pilot", "ui"],
+        "prefix": str(tmp_path / "newsim"),
+        "bin_dir": str(tmp_path / "newsim/bin"),
+        "source_root": str(Path(__file__).resolve().parents[3]),
+        "dds_interface": "tailscale0",
+        "turn_mode": "none",
+    })
+    capabilities = replace(_capabilities(), architecture="aarch64", jetson=True,
+                           robot_installable=True, developer_installable=False)
+    SetupService(capabilities).run(request)
+    assert [state.install_mode for state in calls] == ["container", "native"]
+    assert calls[0].roles == ("pilot", "ui")
+    assert calls[1].roles == ("robot",)
+    assert calls[1].prefix == str(tmp_path / "newsim-robot")
+    assert calls[1].bin_dir == str(tmp_path / "newsim-robot/bin")

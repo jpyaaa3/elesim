@@ -1682,8 +1682,7 @@ class SshHostOperations:
             )
 
     def _security_root_for(self, host: ManagedHost) -> PurePosixPath:
-        if self._topology.host(host.host_id) != host:
-            raise ValueError(f"host {host.host_id!r} does not match the managed topology")
+        self._assert_host_view(host)
         if self._security_root_override is not None:
             return self._security_root_override
         return self._security_root_for_unit(host, host.primary_unit)
@@ -1691,8 +1690,11 @@ class SshHostOperations:
     def _security_root_for_unit(
         self, host: ManagedHost, unit: DeploymentUnit
     ) -> PurePosixPath:
-        if self._topology.host(host.host_id) != host:
-            raise ValueError(f"host {host.host_id!r} does not match the managed topology")
+        self._assert_host_view(host)
+        if unit not in host.units:
+            raise ValueError(
+                f"unit {unit.unit_id!r} does not belong to host {host.host_id!r}"
+            )
         if getattr(self._lifecycle, "scoped", False) and unit.install_mode == "container":
             return (
                 PurePosixPath(unit.install_root)
@@ -1703,6 +1705,28 @@ class SshHostOperations:
         if self._security_root_override is not None and len(host.units) == 1:
             return self._security_root_override
         return _safe_remote_root(str(PurePosixPath(unit.install_root) / "security"))
+
+    def _assert_host_view(self, host: ManagedHost) -> None:
+        """Validate a host or a role-filtered view of that host.
+
+        A Jetson can expose one native Robot unit beside one Compose unit.  A
+        transaction deliberately passes a filtered view to the common
+        lifecycle adapter so that an operation cannot accidentally touch the
+        sibling unit.  Such a view keeps the host identity and paths but has a
+        strict subset of the canonical units; requiring dataclass equality
+        here would reject the safe filtered form before any command runs.
+        """
+
+        canonical = self._topology.host(host.host_id)
+        if (
+            host.local != canonical.local
+            or host.dds != canonical.dds
+            or host.ssh != canonical.ssh
+            or host.jetson != canonical.jetson
+            or not host.units
+            or any(unit not in canonical.units for unit in host.units)
+        ):
+            raise ValueError(f"host {host.host_id!r} does not match the managed topology")
 
     def _connect(self, host: ManagedHost) -> SshSession:
         if host.local or host.ssh is None:
@@ -2089,10 +2113,26 @@ class InstalledElesimLifecycle:
         local ownership boundary; remote targets never receive that fallback.
         """
 
-        # A host may carry the native Robot unit beside a scoped Compose
-        # unit.  Robot remains an install-wide/systemd boundary; it has no
-        # scoped instance dispatcher or ``elesim-net identity`` command.
-        if not self._scoped or unit.install_mode != "container":
+        if not self._scoped:
+            return
+        if unit.install_mode == "native":
+            from elesim_setup.instance_identity import parse_native_identity
+            if not unit.install_uuid:
+                raise RuntimeError("native Robot requires an enrolled install UUID")
+            command = (str(_net_command(unit)), "identity")
+            result = session.run(command, check=False)
+            if result.exit_status != 0:
+                raise RemoteCommandError(command, result)
+            try:
+                raw_identity = json.loads(result.stdout)
+                identity = parse_native_identity(raw_identity)
+            except (TypeError, json.JSONDecodeError, ValueError) as exc:
+                raise RuntimeError(
+                    f"native install identity is invalid on {unit.unit_id!r}"
+                ) from exc
+            if identity != {"install_uuid": unit.install_uuid,
+                            "prefix": unit.install_root, "bin_dir": unit.bin_dir}:
+                raise RuntimeError("native installation identity mismatch")
             return
         expected_uuid = str(unit.install_uuid).strip()
         expected_project = str(unit.project).strip()
@@ -2416,11 +2456,8 @@ class InstalledElesimLifecycle:
         )
         command.extend(
             value
-            for role, endpoint_id in (
-                ("pilot", instance.pilot_id),
-                ("sim", instance.sim_id),
-                ("ui", instance.ui_id),
-            )
+            for role, endpoint_id in self._graph_endpoint_ids(instance).items()
+            if endpoint_id
             for value in ("--graph-endpoint", f"{role}:{endpoint_id}")
         )
         compute = getattr(instance, "compute", None)
@@ -2460,6 +2497,33 @@ class InstalledElesimLifecycle:
         # path it cannot address the host mount reliably, and cleanup belongs
         # to the same host-owned validation boundary as registration.
         session.run(tuple(command))
+
+    def _graph_endpoint_ids(self, instance: Any) -> dict[str, str]:
+        """Resolve graph peers from the current topology, including Robot.
+
+        Robot is a native-only topology peer and is intentionally absent from
+        :class:`InstanceState`.  The instance wrapper still needs its endpoint
+        ID when rendering a container's DDS configuration, so derive it from
+        the manager-owned topology at this command boundary.  The instance
+        attributes are kept only as a compatibility fallback for structural
+        callers from before the topology-derived graph IDs were introduced.
+        """
+
+        robot_id = next(
+            (
+                assignment.endpoint_id
+                for managed_host in self._topology.hosts
+                for assignment in managed_host.assignments
+                if assignment.role == "robot"
+            ),
+            str(getattr(instance, "robot_id", "")),
+        )
+        return {
+            "pilot": str(getattr(instance, "pilot_id", "")),
+            "robot": robot_id,
+            "sim": str(getattr(instance, "sim_id", "")),
+            "ui": str(getattr(instance, "ui_id", "")),
+        }
 
     def remove_scoped_instance(
         self, session: SshSession, host: ManagedHost, unit: DeploymentUnit, system_id: str
@@ -2740,7 +2804,7 @@ class InstalledElesimLifecycle:
                     f"topology assignment is not applied on {host.host_id}/{unit.unit_id}; "
                     "run connection-manager preparation before start"
                 )
-            if not self._scoped:
+            if not self._scoped or unit.install_mode == "native":
                 session.run((str(_net_command(unit)), "configuration-check"))
 
     def prepare_runtime_network(
@@ -2915,7 +2979,7 @@ class InstalledElesimLifecycle:
         generation: str | None,
         security_root: PurePosixPath,
     ) -> None:
-        if self._scoped:
+        if self._scoped and host.runtime_units:
             raise RuntimeError(
                 "scoped instances do not expose install-wide configuration; "
                 "register or replace the exact elesim instance instead"
@@ -3012,7 +3076,7 @@ class InstalledElesimLifecycle:
         host: ManagedHost,
         configuration: Mapping[str, Any],
     ) -> None:
-        if self._scoped:
+        if self._scoped and host.runtime_units:
             raise RuntimeError(
                 "scoped instances do not expose install-wide configuration rollback"
             )
@@ -3527,9 +3591,7 @@ class InstalledElesimLifecycle:
                 ),
                 "units": unit_status,
             }
-        policies, policy_errors = (
-            ({}, []) if self._scoped else self._gpu_policies(session, host)
-        )
+        policies, policy_errors = self._gpu_policies(session, host)
         if policies:
             snapshot["gpu_policy"] = policies
         if policy_errors:

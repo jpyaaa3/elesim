@@ -190,10 +190,14 @@ role 카드들은 같은 release를 선택해야 한다. 다른 설치로 role �
 설치 이름을 바꾸면 이전 release 선택은 대상 설치의 조회 결과로 재검증되며, 없거나
 아직 조회하지 않은 경우 자동으로 비워진다.
 
-graph role ID는 global registry와 instance schema v3에 persist한다. schema v2
-instance는 load 시 v3으로 migrate한다. scoped container registration은 native
-Robot assignment를 거부하며, Robot은 host당 하나의 exclusive native graph
-boundary만 사용한다.
+container graph role ID는 global registry와 instance schema v3에 persist한다.
+native Robot graph ID는 topology/journal 경계에서만 전달한다. schema v2
+instance는 load 시 v3으로 migrate한다. scoped transaction은 native Robot
+assignment를 누락하거나 container로 흉내 내지 않는다. 같은 journal에 native
+Robot의 install-wide/systemd activation snapshot을 기록하고, container instance
+registration과 함께 적용·rollback한다. Robot은 host당 하나의 exclusive native
+graph boundary만 사용하며, instance schema v3에는 native Robot state를 저장하지
+않는다.
 
 Scoped release instance를 원격 host에서 lifecycle 관리할 때는 각 deployment
 unit에 설치기의 `install_uuid`를 명시적으로 등록한다. `elesim-net identity`는
@@ -309,7 +313,7 @@ topics를 Tailscale/LAN으로 노출하지 않는다.
 topology에는 native setup으로 생성한 prefix와 두 unit을 사용하고, standalone
 release layout을 managed host처럼 등록하지 않는다.
 
-Jetson에서 Robot과 Pilot/UI Compose를 함께 운영하려면 서로 다른 prefix와
+Jetson에서 Robot과 Pilot/UI Compose를 함께 운영하면 서로 다른 prefix와
 deployment unit을 사용한다. Robot unit이 mandatory인 Jetson에서 Sim을
 실행하려면 ARM64 이미지/runtime gate를 별도로 통과해야 한다.
 

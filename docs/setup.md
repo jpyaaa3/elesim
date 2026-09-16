@@ -33,6 +33,28 @@ Compose project. The connection manager lists that installation with no Docker
 release choices. Both the native setup package and the connection manager must
 be updated to support this response.
 
+On Jetson, the wizard can select native Robot together with container Pilot/UI.
+The selected prefix/bin belongs to the container installation; Robot receives
+the sibling `<prefix>-robot` directory and its own `bin`, state and ownership
+UUID. The preview shows the Robot path. Only the container bin is registered
+in PATH. Each installation has its own update/uninstall lifecycle. Installation
+is sequential: if the second installation fails, the first remains installed.
+Sim currently requires amd64 and is unavailable on ARM Jetson. Robot-only
+connection cards show native installation lookup without Docker release input.
+
+Image build reports list tools, Sim, Pilot, UI and Robot in that order (only
+images actually built are listed). Native Robot does not emit a Docker image.
+Readable aliases use the bundled 71-adjective/123-animal vocabulary (8,733
+combinations), sampled using Python `secrets`. Full names are reserved under a
+lock and never reused for another identity within the registry; individual
+animal words can repeat. Exhaustion fails explicitly rather than overwriting
+a reservation. Names are labels, not security identifiers.
+
+The SSH fingerprint button requires a username before showing confirmation.
+In OpenSSH mode an empty private-key path selects the forwarded SSH agent;
+implicit key-file discovery is disabled. Tailscale SSH is explicitly keyless
+and ignores neither a missing username nor the required host-key confirmation.
+
 응답에는 enrollment 검증에 필요한 `install_uuid`와 `project`가 들어 있으며,
 최근 설치는 화면 표시용 `install_name`도 함께 반환한다. `install_name`은
 소유권 증명이 아니며, 구형 `schema_version: 1` 3필드 응답도 계속 읽을 수

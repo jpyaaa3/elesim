@@ -57,6 +57,7 @@ Log = Callable[[str], None]
 # startup; UI session/media readiness remains a separate retrying handshake.
 _DDS_READINESS_TIMEOUT_S = 5 * 60.0
 _SCOPED_JOURNAL_SCHEMA = 2
+_SCOPED_NATIVE_JOURNAL_SCHEMA = 3
 _SCOPED_JOURNAL_SCOPE = "scoped-instance"
 _SCOPED_TERMINAL_STATUSES = frozenset({
     "completed",
@@ -499,16 +500,6 @@ class ConnectionDeploymentRunner:
                 )
                 return topology
             if scoped_install and action in {"deploy", "provision", "rotate"}:
-                native_units = [
-                    f"{host.host_id}/{unit.unit_id}"
-                    for host in topology.hosts
-                    for unit in host.robot_units
-                ]
-                if native_units:
-                    raise ValueError(
-                        "scoped container registration cannot silently skip native Robot "
-                        "units: " + ", ".join(native_units)
-                    )
                 journal = self._new_scoped_journal(action, topology)
                 try:
                     result = self._deploy_scoped_units(
@@ -895,17 +886,26 @@ class ConnectionDeploymentRunner:
     def _validate_scoped_journal(
         self, payload: Mapping[str, object], topology: ConnectionTopology
     ) -> None:
-        """Validate the complete schema-v2 journal before trusting it.
+        """Validate the complete scoped journal before trusting it.
 
         Recovery is a mutation boundary.  A partially shaped or cross-system
         journal must therefore be rejected, even when its status happens to
         look terminal and could otherwise bypass the unresolved-journal guard.
         """
 
-        if set(payload) != _SCOPED_JOURNAL_TOP_LEVEL:
+        if set(payload) not in (
+            _SCOPED_JOURNAL_TOP_LEVEL,
+            _SCOPED_JOURNAL_TOP_LEVEL | {"native_units"},
+        ):
             raise RuntimeError("scoped transaction journal fields are invalid")
-        if type(payload.get("schema_version")) is not int or payload.get("schema_version") != _SCOPED_JOURNAL_SCHEMA:
+        if type(payload.get("schema_version")) is not int or payload.get(
+            "schema_version"
+        ) not in {_SCOPED_JOURNAL_SCHEMA, _SCOPED_NATIVE_JOURNAL_SCHEMA}:
             raise RuntimeError("scoped transaction journal schema is unsupported")
+        if (payload["schema_version"] == _SCOPED_NATIVE_JOURNAL_SCHEMA) != (
+            "native_units" in payload
+        ):
+            raise RuntimeError("native journal fields do not match schema")
         if payload.get("scope") != _SCOPED_JOURNAL_SCOPE:
             raise RuntimeError("scoped transaction journal scope is invalid")
         if payload.get("system_id") != topology.system_id:
@@ -985,6 +985,19 @@ class ConnectionDeploymentRunner:
         elif any(value is not None for value in authority.values()):
             raise RuntimeError("trusted-network scoped journal contains Authority state")
 
+        has_native_units = any(host.robot_units for host in topology.hosts)
+        has_native_records = "native_units" in payload
+        if has_native_units != has_native_records:
+            raise RuntimeError(
+                "native journal fields do not match the saved topology"
+            )
+
+        # Native records reference the Authority target generation for managed
+        # SROS2.  Validate them only after the Authority envelope itself has
+        # been checked so malformed journals fail with a bounded schema error,
+        # never a KeyError while inspecting an untrusted mapping.
+        self._validate_native_records(payload, topology)
+
         last_error = payload.get("last_error")
         if last_error is not None and not isinstance(last_error, str):
             raise RuntimeError("scoped transaction journal last_error is invalid")
@@ -1008,7 +1021,8 @@ class ConnectionDeploymentRunner:
         journal_host_id = payload.get("host_id")
         if journal_host_id and journal_host_id not in {
             f"{host.host_id}/{unit.unit_id}"
-            for host, unit in topology_units.values()
+            for host in topology.hosts
+            for unit in host.units
         }:
             raise RuntimeError("scoped transaction journal host ID is invalid")
         local_identity: tuple[str, str] | None = None
@@ -1217,7 +1231,7 @@ class ConnectionDeploymentRunner:
         graph_role_ids: dict[str, str] = {}
         for managed_host in topology.hosts:
             for assignment in managed_host.assignments:
-                if assignment.role not in {"pilot", "sim", "ui"}:
+                if assignment.role not in {"pilot", "sim", "ui", "robot"}:
                     continue
                 if assignment.role in graph_role_ids:
                     raise ValueError(
@@ -1364,6 +1378,260 @@ class ConnectionDeploymentRunner:
             raise ValueError("scoped topology has no container deployment units")
         return plans
 
+    @staticmethod
+    def _native_host(host: ManagedHost) -> ManagedHost:
+        return replace(host, units=host.robot_units)
+
+    @staticmethod
+    def _activation_payload(state: HostActivationState) -> dict[str, object]:
+        return {
+            "generation": state.generation,
+            "runtime_configuration": dict(state.runtime_configuration),
+            "running_roles": list(state.running_roles),
+            "unit_generations": dict(state.unit_generations),
+        }
+
+    @staticmethod
+    def _activation_state(raw: Mapping[str, Any]) -> HostActivationState:
+        return HostActivationState(
+            raw["generation"],
+            raw["runtime_configuration"],
+            tuple(raw["running_roles"]),
+            raw["unit_generations"],
+        )
+
+    @classmethod
+    def _validate_native_records(
+        cls,
+        journal: Mapping[str, object],
+        topology: ConnectionTopology,
+    ) -> None:
+        expected = {
+            host.host_id: host for host in topology.hosts if host.robot_units
+        }
+        records = journal.get("native_units", [])
+        if not isinstance(records, list) or len(records) != len(expected):
+            raise RuntimeError("native journal does not cover the Robot hosts")
+        seen: set[str] = set()
+        for record in records:
+            if not isinstance(record, dict) or set(record) != {
+                "host_id",
+                "unit_id",
+                "install_uuid",
+                "before",
+                "target",
+                "status",
+            }:
+                raise RuntimeError("invalid native journal fields")
+            host_id = record["host_id"]
+            if (
+                not isinstance(host_id, str)
+                or host_id not in expected
+                or host_id in seen
+            ):
+                raise RuntimeError("native journal host mismatch")
+            seen.add(host_id)
+            unit = expected[host_id].robot_units[0]
+            if not unit.install_uuid or (
+                record["unit_id"],
+                record["install_uuid"],
+            ) != (unit.unit_id, unit.install_uuid):
+                raise RuntimeError("native journal identity mismatch")
+            status = record["status"]
+            if not isinstance(status, str) or status not in {
+                "pending", "applying", "recovering", "target", "before"
+            }:
+                raise RuntimeError("invalid native journal status")
+            for key in ("before", "target"):
+                raw = record[key]
+                if raw is None and key == "target":
+                    if status in {"recovering", "target"}:
+                        raise RuntimeError("native journal target snapshot is missing")
+                    continue
+                if not isinstance(raw, dict) or set(raw) != {
+                    "generation", "runtime_configuration", "running_roles", "unit_generations"
+                }:
+                    raise RuntimeError("invalid native activation snapshot")
+                generation = raw["generation"]
+                if generation is not None and (
+                    not isinstance(generation, str)
+                    or not _SAFE_SCOPED_TOKEN_RE.fullmatch(generation)
+                ):
+                    raise RuntimeError("invalid native generation")
+                if (
+                    raw["running_roles"] != []
+                    or raw["unit_generations"] != {unit.unit_id: generation}
+                ):
+                    raise RuntimeError("invalid native snapshot roles or generation")
+                runtime_configuration = raw["runtime_configuration"]
+                if not isinstance(runtime_configuration, Mapping):
+                    raise RuntimeError("invalid native runtime configuration snapshot")
+                try:
+                    state = InstallState.from_dict(runtime_configuration)
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise RuntimeError("invalid native runtime configuration snapshot") from exc
+                if (state.prefix, state.bin_dir, state.install_mode, state.roles) != (
+                    unit.install_root, unit.bin_dir, "native", ("robot",)
+                ):
+                    raise RuntimeError("native snapshot installation mismatch")
+                if key == "target" and (
+                    state.dds.system_id != topology.system_id
+                    or state.dds.security_profile != topology.security_profile
+                    or (
+                        topology.security_profile == "sros2"
+                        and generation != journal["authority"]["target"]
+                    )
+                ):
+                    raise RuntimeError("native target generation or system mismatch")
+
+    def _plan_native_units(
+        self,
+        topology: ConnectionTopology,
+        operations: Mapping[str, Any],
+        action: str,
+    ) -> list[dict[str, object]]:
+        records: list[dict[str, object]] = []
+        for host in topology.hosts:
+            if not host.robot_units:
+                continue
+            native = self._native_host(host)
+            operation = operations[host.host_id]
+            operation.runtime_network_check(native)
+            operation.preflight(native).require_for(native)
+            previous = operation.capture_state(native)
+            if previous.running_roles:
+                raise RuntimeError(
+                    f"stop native Robot on {host.host_id} before preparation"
+                )
+            runtime_configuration = previous.runtime_configuration
+            dds_configuration = (
+                runtime_configuration.get("dds")
+                if isinstance(runtime_configuration, Mapping)
+                else None
+            )
+            if previous.generation and (
+                not isinstance(dds_configuration, Mapping)
+                or dds_configuration.get("system_id") != topology.system_id
+            ):
+                raise RuntimeError("native Robot belongs to another active system")
+            if action == "rotate" and previous.generation is None:
+                raise RuntimeError("native Robot rotation requires an active generation")
+            unit = native.primary_unit
+            if not unit.install_uuid:
+                raise RuntimeError("native Robot requires an enrolled install UUID")
+            records.append(
+                {
+                    "host_id": host.host_id,
+                    "unit_id": unit.unit_id,
+                    "install_uuid": unit.install_uuid,
+                    "before": self._activation_payload(previous),
+                    "target": None,
+                    "status": "pending",
+                }
+            )
+        return records
+
+    def _restore_native_units(
+        self,
+        topology,
+        operations,
+        journal,
+        *,
+        discard_target_generation: bool = True,
+    ):
+        """Restore native Robot snapshots recorded in a scoped journal.
+
+        The operator Authority is the commit marker for a managed SROS2
+        transaction.  If its rollback failed, the target generation must stay
+        available for forward recovery; deleting that generation here would
+        turn a recoverable mixed-host transaction into permanent data loss.
+        """
+
+        errors = []
+        for record in reversed(journal.get("native_units", [])):
+            if record["status"] in {"pending", "before"}:
+                continue
+            host = self._native_host(topology.host(record["host_id"]))
+            operation = operations[host.host_id]
+            try:
+                current = operation.capture_state(host)
+                if current.running_roles:
+                    raise RuntimeError("stop native Robot before recovery")
+                operation.rollback(host, self._activation_state(record["before"]))
+                if self._activation_payload(operation.capture_state(host)) != record["before"]:
+                    raise RuntimeError("native rollback readback mismatch")
+                generation = journal["authority"]["target"]
+                if generation and discard_target_generation:
+                    operation.discard_generation(host, generation)
+                record["status"] = "before"
+                self._write_transaction_journal(topology, journal)
+            except BaseException as exc:
+                errors.append((host.host_id, exc))
+        return errors
+
+    def _apply_native_targets(
+        self,
+        topology,
+        operations,
+        journal,
+        authority,
+        authority_target,
+    ) -> None:
+        """Finish native-unit activation during forward transaction recovery.
+
+        SROS2 Authority activation is the durable commit marker.  A process can
+        therefore be interrupted after the Authority points at the target but
+        before the native unit's final readback is recorded.  Reapply only the
+        exact native target captured in the journal; never infer it from the
+        current install state or touch the sibling Compose unit.
+        """
+
+        for record in journal.get("native_units", []):
+            target = record.get("target")
+            if not isinstance(target, Mapping):
+                raise RuntimeError("native target snapshot is missing during recovery")
+            host = self._native_host(topology.host(str(record["host_id"])))
+            operation = operations[host.host_id]
+            current = operation.capture_state(host)
+            if current.running_roles:
+                raise RuntimeError("stop native Robot before forward recovery")
+            if self._activation_payload(current) == target:
+                record["status"] = "target"
+                continue
+
+            record["status"] = "recovering"
+            journal["phase"] = "recover"
+            journal["host_id"] = f"{host.host_id}/{host.primary_unit.unit_id}"
+            self._write_transaction_journal(topology, journal)
+            if topology.security_profile == "sros2":
+                if authority is None or not isinstance(authority_target, str):
+                    raise RuntimeError("native SROS2 target has no Authority generation")
+                source = (
+                    authority.root
+                    / "generations"
+                    / authority_target
+                    / "bundles"
+                    / host.host_id
+                )
+                bundle = SecurityBundle.from_directory(
+                    system_id=topology.system_id,
+                    host_id=host.host_id,
+                    generation=authority_target,
+                    root=source,
+                ).for_roles(host.roles)
+                operation.stage(host, bundle)
+                operation.activate(host, authority_target)
+                operation.verify(host, authority_target, ())
+            else:
+                operation.configure_topology(host)
+                operation.verify_topology(host, ())
+            if self._activation_payload(operation.capture_state(host)) != target:
+                raise RuntimeError(
+                    f"native forward recovery readback mismatch on {host.host_id}"
+                )
+            record["status"] = "target"
+            self._write_transaction_journal(topology, journal)
+
     def _deploy_scoped_units(
         self,
         topology: ConnectionTopology,
@@ -1375,6 +1643,18 @@ class ConnectionDeploymentRunner:
         journal: dict[str, object],
     ) -> ConnectionTopology:
         plans = self._scoped_unit_plans(topology, operations)
+        native_records = self._plan_native_units(topology, operations, action)
+        if native_records:
+            journal["schema_version"] = _SCOPED_NATIVE_JOURNAL_SCHEMA
+            journal["native_units"] = native_records
+            # A mixed host's scoped container instance may not exist yet.  Do
+            # not ask the scoped status wrapper about the full host before
+            # registration; probe only the independently managed native unit.
+            for record in native_records:
+                native = self._native_host(topology.host(str(record["host_id"])))
+                status = operations[native.host_id].status(native)
+                if status.get("state") not in {"stopped", "inactive"} or self._status_running_roles(native, status):
+                    raise RuntimeError("stop all roles before mixed Robot preparation")
         if action == "rotate":
             missing = [
                 f"{host.host_id}/{unit.unit_id}"
@@ -1504,7 +1784,7 @@ class ConnectionDeploymentRunner:
             journal["phase"] = "issued"
             self._write_transaction_journal(topology, journal)
         else:
-            journal["transaction_id"] = f"trusted-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
+            journal["transaction_id"] = f"trusted-{datetime.now(timezone.utc).strftime('%Y%m%dt%H%M%S%fz')}"
             journal["phase"] = "planned"
             self._write_transaction_journal(topology, journal)
         registered: list[
@@ -1517,6 +1797,22 @@ class ConnectionDeploymentRunner:
             ]
         ] = []
         try:
+            for record in native_records:
+                host = self._native_host(topology.host(record["host_id"]))
+                operation = operations[host.host_id]
+                record["status"] = "applying"
+                self._write_transaction_journal(topology, journal)
+                if generation:
+                    operation.stage(host, bundles[host.host_id].for_roles(host.roles))
+                    operation.activate(host, generation)
+                    operation.verify(host, generation, ())
+                else:
+                    operation.configure_topology(host)
+                    operation.verify_topology(host, ())
+                record["target"] = self._activation_payload(operation.capture_state(host))
+                record["status"] = "target"
+                self._write_transaction_journal(topology, journal)
+                log(f"configure: {host.host_id}/{host.primary_unit.unit_id}")
             for index, (host, unit, instance, release, previous, previous_release) in enumerate(plans):
                 if generation:
                     instance = replace(instance, security_generation=generation)
@@ -1551,13 +1847,15 @@ class ConnectionDeploymentRunner:
                     raise RuntimeError(
                         f"scoped registration readback mismatch on {host.host_id}/{unit.unit_id}"
                     )
-                registered.append(
-                    (host, unit, instance, previous, previous_release)
-                )
+                registered.append((host, unit, instance, previous, previous_release))
                 units[index]["status"] = "target"
                 journal["host_id"] = f"{host.host_id}/{unit.unit_id}"
                 self._write_transaction_journal(topology, journal)
                 log(f"register: {host.host_id}/{unit.unit_id}")
+            for record in native_records:
+                host = self._native_host(topology.host(record["host_id"]))
+                if self._activation_payload(operations[host.host_id].capture_state(host)) != record["target"]:
+                    raise RuntimeError("native final readback mismatch")
             if issued is not None:
                 journal["phase"] = "activate-authority"
                 journal["host_id"] = ""
@@ -1607,10 +1905,12 @@ class ConnectionDeploymentRunner:
                             break
             self._write_transaction_journal(topology, journal)
             rollback_errors: list[tuple[str, BaseException]] = []
+            authority_rollback_succeeded = issued is None
             if issued is not None:
                 try:
                     issued.rollback_authority()
                     journal["authority"]["observed"] = self._authority_generation(authority)  # type: ignore[index]
+                    authority_rollback_succeeded = True
                 except BaseException as rollback_error:
                     rollback_errors.append(("operator-authority", rollback_error))
             for host, unit, instance, previous, previous_release in reversed(registered):
@@ -1645,6 +1945,14 @@ class ConnectionDeploymentRunner:
                     rollback_errors.append(
                         (f"{host.host_id}/{unit.unit_id}", rollback_error)
                     )
+            rollback_errors.extend(
+                self._restore_native_units(
+                    topology,
+                    operations,
+                    journal,
+                    discard_target_generation=authority_rollback_succeeded,
+                )
+            )
             if rollback_errors:
                 journal["status"] = "blocked"
                 journal["rollback_errors"] = [
@@ -1844,6 +2152,16 @@ class ConnectionDeploymentRunner:
                 raise RuntimeError(f"scoped instance readback is neither prior nor target on {host.host_id}/{unit.unit_id}")
             observed[(host.host_id, unit.unit_id)] = current
 
+        native_observed = {}
+        for record in journal.get("native_units", []):
+            host = self._native_host(topology.host(record["host_id"]))
+            current = operations[host.host_id].capture_state(host)
+            if current.running_roles:
+                raise RuntimeError("stop native Robot before recovery")
+            if current.generation not in {record["before"]["generation"], authority_target}:
+                raise RuntimeError("native generation is neither prior nor target")
+            native_observed[host.host_id] = self._activation_payload(current)
+
         if topology.security_profile == "sros2":
             if observed_authority == authority_target:
                 forward = True
@@ -1857,7 +2175,20 @@ class ConnectionDeploymentRunner:
             forward = all(
                 observed[(host.host_id, unit.unit_id)] == target
                 for _raw, host, unit, _before, target in records
+            ) and all(
+                record["target"] is not None
+                and native_observed[record["host_id"]] == record["target"]
+                for record in journal.get("native_units", [])
             )
+        if forward and any(
+            record["target"] is None for record in journal.get("native_units", [])
+        ):
+            # The Authority is the durable commit marker for managed SROS2,
+            # but it cannot reconstruct a native unit target that was never
+            # captured in the transaction intent.  A missing target is
+            # journal corruption; a differing current snapshot is recoverable
+            # through _apply_native_targets below.
+            raise RuntimeError("native target snapshot is missing during forward recovery")
 
         desired = {
             (host.host_id, unit.unit_id): (target if forward else before)
@@ -1907,6 +2238,18 @@ class ConnectionDeploymentRunner:
         journal["authority"]["observed"] = observed_authority  # type: ignore[index]
         self._write_transaction_journal(topology, journal)
         try:
+            if forward:
+                self._apply_native_targets(
+                    topology,
+                    operations,
+                    journal,
+                    authority,
+                    authority_target,
+                )
+            else:
+                native_errors = self._restore_native_units(topology, operations, journal)
+                if native_errors:
+                    raise RuntimeRollbackError(RuntimeError("native recovery failed"), native_errors)
             for index, (raw, host, unit, before, target) in enumerate(records):
                 current = observed[(host.host_id, unit.unit_id)]
                 wanted = desired[(host.host_id, unit.unit_id)]
@@ -2633,7 +2976,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--gpu-mode",
         choices=("inherit", "specific", "cpu"),
-        default=os.environ.get("ELESIM_INSTALL_GPU_MODE", "cpu"),
+        default=os.environ.get("ELESIM_INSTALL_GPU_MODE", "inherit"),
     )
     parser.add_argument(
         "--gpu-device",

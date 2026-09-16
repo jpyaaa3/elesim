@@ -209,7 +209,7 @@ def test_legacy_coturn_fields_are_discarded_on_topology_roundtrip() -> None:
     assert "coturn" not in restored.to_dict()["hosts"][1]
 
 
-def test_jetson_is_an_equal_host_with_shared_paths_and_distinct_lifecycles() -> None:
+def test_jetson_round_trips_independent_units_and_distinct_lifecycles() -> None:
     host = ManagedHost(
         host_id="jetson",
         local=False,
@@ -227,6 +227,7 @@ def test_jetson_is_an_equal_host_with_shared_paths_and_distinct_lifecycles() -> 
                 (RoleAssignment("robot", "robot-main"),),
                 install_mode="native",
                 install_root="/opt/elesim-robot",
+                bin_dir="/opt/elesim-robot/bin",
                 lifecycle="systemd",
             ),
         ),
@@ -236,12 +237,12 @@ def test_jetson_is_an_equal_host_with_shared_paths_and_distinct_lifecycles() -> 
 
     assert restored == host
     assert restored.runtime_units[0].install_root == "/opt/elesim-runtime"
-    assert restored.robot_units[0].install_root == "/opt/elesim-runtime"
+    assert restored.robot_units[0].install_root == "/opt/elesim-robot"
     assert restored.robot_units[0].lifecycle == "systemd"
     assert restored.roles == ("pilot", "ui", "robot")
 
 
-def test_robot_unit_can_share_the_host_installation_path_with_runtime() -> None:
+def test_robot_unit_cannot_share_the_host_installation_path_with_runtime() -> None:
     host = ManagedHost(
         host_id="jetson",
         local=False,
@@ -262,11 +263,12 @@ def test_robot_unit_can_share_the_host_installation_path_with_runtime() -> None:
                 lifecycle="systemd",
             ),
         ),
-    ).validate()
-    assert host.runtime_units[0].install_root == host.robot_units[0].install_root
+    )
+    with pytest.raises(ValueError, match="independent install_root/bin_dir"):
+        host.validate()
 
 
-def test_mixed_units_share_the_host_command_path() -> None:
+def test_mixed_units_cannot_share_the_host_command_path() -> None:
     host = ManagedHost(
         host_id="jetson",
         local=False,
@@ -289,11 +291,12 @@ def test_mixed_units_share_the_host_command_path() -> None:
                 lifecycle="systemd",
             ),
         ),
-    ).validate()
-    assert host.runtime_units[0].bin_dir == host.robot_units[0].bin_dir
+    )
+    with pytest.raises(ValueError, match="independent install_root/bin_dir"):
+        host.validate()
 
 
-def test_legacy_mixed_unit_paths_are_normalized_to_the_runtime_path() -> None:
+def test_legacy_mixed_unit_paths_are_preserved_as_independent_units() -> None:
     host = ManagedHost(
         host_id="jetson",
         local=False,
@@ -304,21 +307,21 @@ def test_legacy_mixed_unit_paths_are_normalized_to_the_runtime_path() -> None:
             DeploymentUnit(
                 "runtime",
                 (RoleAssignment("pilot", "pilot-main"),),
-                install_root="/opt/elesim",
-                bin_dir="/opt/elesim/bin",
+                install_root="/opt/elesim-runtime",
+                bin_dir="/opt/elesim-runtime/bin",
             ),
             DeploymentUnit(
                 "robot-native",
                 (RoleAssignment("robot", "robot-main"),),
                 install_mode="native",
-                install_root="/opt/elesim/robot",
-                bin_dir="/opt/elesim/robot/bin",
+                install_root="/opt/elesim-robot",
+                bin_dir="/opt/elesim-robot/bin",
                 lifecycle="systemd",
             ),
         ),
     ).validate()
-    assert host.robot_units[0].install_root == "/opt/elesim"
-    assert host.robot_units[0].bin_dir == "/opt/elesim/bin"
+    assert host.robot_units[0].install_root == "/opt/elesim-robot"
+    assert host.robot_units[0].bin_dir == "/opt/elesim-robot/bin"
 
 
 def test_current_sim_image_is_not_advertised_for_jetson_units() -> None:

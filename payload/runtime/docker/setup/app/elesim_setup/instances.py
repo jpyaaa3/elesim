@@ -309,9 +309,9 @@ class InstanceState:
             raise ValueError("turn_urls must be a list")
         role_ids = value.get("role_ids", {})
         if not isinstance(role_ids, Mapping) or (
-            role_ids and set(role_ids) != {"pilot", "sim", "ui"}
+            schema == SCHEMA and set(role_ids) != {"pilot", "sim", "ui"}
         ):
-            raise ValueError("role_ids must contain exactly pilot, sim, and ui")
+            raise ValueError("role_ids do not match the instance schema")
         compute_present = "compute" in value
         compute_raw = value.get("compute", {})
         if not isinstance(compute_raw, Mapping):

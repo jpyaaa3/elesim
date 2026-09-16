@@ -18,6 +18,7 @@ from ._security_storage import (
     remove_owned_tree,
     secure_absolute,
 )
+from .capabilities import detect_install_host_capabilities
 from .container_installer import ContainerInstaller
 from .installer import Installer, preflight_notes
 from .instance_runtime import InstanceRuntime
@@ -123,9 +124,41 @@ def _scoped_security_stage_root(
     return candidate
 
 
-def _instance_from_args(args: argparse.Namespace, state: InstallState) -> InstanceState:
+def _graph_endpoint_ids(
+    args: argparse.Namespace,
+) -> dict[str, str]:
+    """Parse graph-wide peers without turning native Robot into an instance."""
+
+    graph_ids: dict[str, str] = {}
+    supplied_roles: set[str] = set()
+    for value in getattr(args, "graph_endpoint", None) or ():
+        role, separator, endpoint_id = str(value).partition(":")
+        if not separator or not role or not endpoint_id:
+            raise ValueError("--graph-endpoint must use the role:endpoint_id format")
+        if role == "robot":
+            # InstanceEndpoint intentionally rejects Robot.  Validate the
+            # native-only graph peer through the same install network rules.
+            replace(NetworkSettings(), robot_id=endpoint_id).validate()
+        else:
+            endpoint = _parse_instance_endpoint(value)
+            role, endpoint_id = endpoint.role, endpoint.endpoint_id
+        if role in supplied_roles:
+            raise ValueError(f"graph endpoint role is duplicated: {role}")
+        supplied_roles.add(role)
+        graph_ids[role] = endpoint_id
+    return graph_ids
+
+
+def _instance_from_args(
+    args: argparse.Namespace,
+    state: InstallState,
+    *,
+    graph_role_ids: Mapping[str, str] | None = None,
+) -> InstanceState:
     if not args.endpoint:
         raise ValueError("an instance requires at least one --endpoint role:endpoint_id")
+    if graph_role_ids is None:
+        graph_role_ids = _graph_endpoint_ids(args)
     endpoints = tuple(_parse_instance_endpoint(value) for value in args.endpoint)
     role_ids = {
         "pilot": state.network.pilot_id,
@@ -133,15 +166,7 @@ def _instance_from_args(args: argparse.Namespace, state: InstallState) -> Instan
         "ui": state.network.ui_id,
     }
     role_ids.update({endpoint.role: endpoint.endpoint_id for endpoint in endpoints})
-    supplied_role_ids: set[str] = set()
-    for value in getattr(args, "graph_endpoint", None) or ():
-        endpoint = _parse_instance_endpoint(value)
-        if endpoint.role in supplied_role_ids:
-            raise ValueError(
-                f"graph endpoint role is duplicated: {endpoint.role}"
-            )
-        supplied_role_ids.add(endpoint.role)
-        role_ids[endpoint.role] = endpoint.endpoint_id
+    role_ids.update(graph_role_ids or {})
     dds = state.dds
     generation = ""
     if args.security_generation:
@@ -310,15 +335,16 @@ def _ask_roles(*, input_fn: Input = input) -> tuple[str, ...]:
 
     ``--profile`` remains a hidden compatibility input for old automation, but
     the interactive wizard has one source of truth: the roles selected here.
-    The Robot constraint mirrors the web checkboxes so a mixed native/container
-    request is rejected before any installation work starts.
+    A Jetson may install native Robot alongside Docker Pilot/UI.  The request
+    coordinator splits that mixed selection into two independent installations
+    before any files are written.
     """
 
     print("\nSelect the programs to install (comma-separated).")
     print("  sim    Genesis simulation with RGBD/WebRTC streaming")
     print("  pilot  Perception, IK, Pick/Gaze, and target generation")
     print("  ui     Operator UI and remote control")
-    print("  robot  Jetson hardware and local safety control (standalone install)")
+    print("  robot  Jetson hardware and local safety control (native install)")
     while True:
         selected = _ask(
             "Roles (sim, pilot, ui, robot)",
@@ -329,9 +355,6 @@ def _ask_roles(*, input_fn: Input = input) -> tuple[str, ...]:
             roles = normalize_roles(value.strip() for value in selected.split(","))
         except ValueError as exc:
             print(f"Error: {exc}")
-            continue
-        if "robot" in roles and roles != ("robot",):
-            print("Error: robot cannot be installed with other roles.")
             continue
         return roles
 
@@ -374,8 +397,9 @@ def run_wizard(
 ) -> int:
     print("\nEleSim Setup Wizard")
     print("Installs the selected runtime roles and ROS 2/DDS configuration in an isolated environment.")
-    profile_name = "custom"
+    capabilities = detect_install_host_capabilities()
     roles = _ask_roles(input_fn=input_fn)
+    mixed_robot = "robot" in roles and roles != ("robot",)
 
     install_mode = "native" if roles == ("robot",) else "container"
     print(
@@ -383,6 +407,8 @@ def run_wizard(
         + (
             "Robot Jetson native/systemd"
             if install_mode == "native"
+            else "Docker Compose + native Robot (two independent installations)"
+            if mixed_robot
             else "Docker Compose (preserves the host environment)"
         )
     )
@@ -407,16 +433,13 @@ def run_wizard(
             enabled=True,
             workspace=str(workspace),
         ).validate()
-        from .capabilities import detect_install_host_capabilities
-
-        attachment_capabilities = detect_install_host_capabilities()
-        if not attachment_capabilities.developer_installable:
+        if not capabilities.developer_installable:
             raise ValueError(
                 "the developer attachment is supported only on Ubuntu/WSL amd64"
             )
         developer_attachment = replace(
             developer_attachment,
-            wslg=attachment_capabilities.wslg_available,
+            wslg=capabilities.wslg_available,
         ).validate()
 
     compute = ComputeSettings()
@@ -517,37 +540,57 @@ def run_wizard(
             secret_file=str(prefix / "secrets/turn.secret"),
         )
 
-    state = InstallState(
-        profile=profile_name,
+    request = SetupRequest(
+        language="en",
         roles=roles,
-        prefix=str(prefix),
-        bin_dir=str(bin_dir),
-        source_root=str(source_root),
-        source_repository=os.environ.get(
+        prefix=prefix,
+        bin_dir=bin_dir,
+        source_root=source_root,
+        repository=os.environ.get(
             "ELESIM_REPOSITORY", DEFAULT_SOURCE_REPOSITORY
         ),
-        source_ref=os.environ.get("ELESIM_REF", DEFAULT_SOURCE_REF),
+        ref=os.environ.get("ELESIM_REF", DEFAULT_SOURCE_REF),
         network=NetworkSettings(turn_urls=turn_urls),
         dds=dds,
         compute=compute,
         turn=turn,
         runtime_text_logs=runtime_text_logs,
         developer_attachment=developer_attachment,
-        install_mode=install_mode,
-    ).require_installable_dds()
+    )
+    request.validate(capabilities)
+    requests = request.installation_requests()
 
     print("\nPreflight checks")
-    for note in preflight_notes(roles, install_mode=install_mode):
-        print(f"  - {note}")
+    for child in requests:
+        child_state = child.to_install_state(capabilities)
+        if len(requests) > 1:
+            print(
+                f"  - {child_state.install_mode.title()} installation: "
+                f"{', '.join(child_state.roles)}"
+            )
+        for note in preflight_notes(
+            child_state.roles,
+            install_mode=child_state.install_mode,
+        ):
+            print(f"  - {note}")
     if security_profile == "trusted-network":
         print("  - Warning: DDS authentication and encryption are disabled. Use only on an isolated private network/VPN.")
     if not _yes_no("Start the installation with these settings?", input_fn=input_fn):
         print("Installation cancelled.")
         return 1
 
-    installer_type = ContainerInstaller if install_mode == "container" else Installer
-    installer_type(state, state_path=state_path).run()
-    _path_note(bin_dir)
+    for child in requests:
+        child_state = child.to_install_state(capabilities)
+        installer_type = (
+            ContainerInstaller
+            if child_state.install_mode == "container"
+            else Installer
+        )
+        installer_type(
+            child_state,
+            state_path=(state_path if len(requests) == 1 else child_state.state_path),
+        ).run()
+        _path_note(child_state.bin_path)
     return 0
 
 
@@ -679,6 +722,59 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
         install_mode=install_mode,
         install_go2_mpc=not args.skip_go2_mpc,
     ).require_installable_dds()
+
+
+def _split_install_args(
+    args: argparse.Namespace,
+) -> tuple[argparse.Namespace, ...]:
+    """Split a mixed Jetson request into independent container/native installs.
+
+    ``InstallState`` intentionally rejects a Robot role in a Compose state, so
+    the non-interactive CLI must perform the same split as the web wizard and
+    :class:`SetupService` before calling ``_build_state``.  The two children
+    have separate prefixes and state files; only the container child retains
+    the caller's PATH registration and TURN/developer options.
+    """
+
+    requested = getattr(args, "role", None)
+    if requested:
+        roles = normalize_roles(requested)
+    else:
+        roles = roles_for_profile(getattr(args, "profile", "local-sim"), ())
+    if "robot" not in roles or roles == ("robot",):
+        return (args,)
+    if getattr(args, "mode", "auto") != "auto":
+        raise ValueError(
+            "a mixed Robot/Pilot/Sim/UI installation requires --mode auto so "
+            "Robot can use its native installation"
+        )
+
+    values = vars(args).copy()
+    container_args = argparse.Namespace(**values)
+    container_args.profile = "custom"
+    container_args.role = [role for role in roles if role != "robot"]
+    container_args.mode = "auto"
+
+    robot_args = argparse.Namespace(**values)
+    robot_args.profile = "custom"
+    robot_args.role = ["robot"]
+    robot_args.mode = "auto"
+    robot_prefix = Path(args.prefix).expanduser().resolve().with_name(
+        Path(args.prefix).expanduser().resolve().name + "-robot"
+    )
+    robot_args.prefix = str(robot_prefix)
+    robot_args.bin_dir = str(robot_prefix / "bin")
+    robot_args.register_path = False
+    robot_args.developer_attachment = False
+    robot_args.developer_workspace = str(robot_prefix)
+    robot_args.turn_mode = "auto"
+    robot_args.turn_url = []
+    robot_args.turn_realm = ""
+    robot_args.turn_public_host = ""
+    robot_args.turn_secret_file = ""
+    if hasattr(robot_args, "turn_credential_file"):
+        robot_args.turn_credential_file = ""
+    return container_args, robot_args
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -1050,7 +1146,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     generation_path,
                 )
                 return 0
-            instance = _instance_from_args(args, state)
+            graph_role_ids = _graph_endpoint_ids(args)
+            instance = _instance_from_args(
+                args,
+                state,
+                graph_role_ids=graph_role_ids,
+            )
             release_path = state.prefix_path / "releases" / instance.release_key
             release = load_release(release_path)
             if release_key(release) != instance.release_key:
@@ -1141,11 +1242,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                         security_result = str(expected_generation)
             operation = runtime.register if args.instance_action == "register" else runtime.replace
             try:
-                operation(
-                    instance,
-                    release,
-                    security_result=security_result,
-                )
+                operation_kwargs: dict[str, object] = {
+                    "security_result": security_result,
+                }
+                if graph_role_ids.get("robot"):
+                    operation_kwargs["robot_id"] = graph_role_ids["robot"]
+                operation(instance, release, **operation_kwargs)
             finally:
                 if validated_security is not None:
                     validated_security.cleanup()
@@ -1193,47 +1295,58 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command in {None, "wizard"}:
             return run_wizard(source_root=source_root, state_path=state_path)
         if args.command == "install":
-            state = _build_state(args, source_root)
-            if state.install_mode == "container" and (
-                not args.dry_run or state.developer_attachment.enabled
-            ):
-                from .capabilities import detect_install_host_capabilities
+            child_args = _split_install_args(args)
+            for install_args in child_args:
+                state = _build_state(install_args, source_root)
+                if state.install_mode == "container" and (
+                    not install_args.dry_run or state.developer_attachment.enabled
+                ):
+                    from .capabilities import detect_install_host_capabilities
 
-                capabilities = detect_install_host_capabilities()
-                if state.developer_attachment.enabled:
-                    if not capabilities.developer_installable:
-                        raise ValueError(
-                            "the developer attachment is supported only on Ubuntu/WSL amd64"
+                    capabilities = detect_install_host_capabilities()
+                    if state.developer_attachment.enabled:
+                        if not capabilities.developer_installable:
+                            raise ValueError(
+                                "the developer attachment is supported only on Ubuntu/WSL amd64"
+                            )
+                        state = replace(
+                            state,
+                            developer_attachment=replace(
+                                state.developer_attachment,
+                                wslg=capabilities.wslg_available,
+                            ),
                         )
-                    state = replace(
-                        state,
-                        developer_attachment=replace(
-                            state.developer_attachment,
-                            wslg=capabilities.wslg_available,
-                        ),
-                    )
-                if not args.dry_run:
-                    state = replace(
-                        state,
-                        container_network=container_network_settings_for_host(
-                            capabilities=capabilities,
-                            install_mode=state.install_mode,
-                            prefix=state.prefix_path,
-                        ),
-                    )
-                state = state.validate()
-            installer_type = (
-                ContainerInstaller
-                if state.install_mode == "container"
-                else Installer
-            )
-            installer_type(
-                state,
-                state_path=state_path,
-                dry_run=bool(args.dry_run),
-            ).run()
-            if not args.dry_run:
-                _path_note(state.bin_path)
+                    if not install_args.dry_run:
+                        state = replace(
+                            state,
+                            container_network=container_network_settings_for_host(
+                                capabilities=capabilities,
+                                install_mode=state.install_mode,
+                                prefix=state.prefix_path,
+                            ),
+                        )
+                    state = state.validate()
+                installer_type = (
+                    ContainerInstaller
+                    if state.install_mode == "container"
+                    else Installer
+                )
+                # A mixed request has one explicit CLI state path for the
+                # Compose child.  Native Robot needs its own state below the
+                # sibling prefix so its generated ``elesim-net`` wrapper can
+                # discover the correct identity without an external override.
+                child_state_path = (
+                    state_path
+                    if len(child_args) == 1 or state.install_mode == "container"
+                    else state.state_path
+                )
+                installer_type(
+                    state,
+                    state_path=child_state_path,
+                    dry_run=bool(install_args.dry_run),
+                ).run()
+                if not install_args.dry_run:
+                    _path_note(state.bin_path)
             return 0
         if args.command == "update":
             current = InstallState.load(state_path)

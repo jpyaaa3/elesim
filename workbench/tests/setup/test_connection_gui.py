@@ -26,6 +26,7 @@ from elesim_connections.connection_manager import (
 )
 from elesim_connections.connections import _BuildLogForwarder
 from elesim_connections.secure_deployment import RuntimeLaunchOptions
+from elesim_setup.ownership import SystemdUnitOwnership, write_ownership_manifest
 
 
 FINGERPRINT = "SHA256:" + "A" * 43
@@ -35,6 +36,58 @@ def test_installation_lookup_rejects_unmounted_local_path(tmp_path):
     app = _application(tmp_path)
     with pytest.raises(ValueError, match="installed paths"):
         app.installation_choices({"local": True, "install_root": "/other", "bin_dir": "/other/bin", "ssh": None})
+
+
+def test_local_native_installation_lookup_skips_docker_releases(tmp_path):
+    root = tmp_path / "robot"
+    bin_dir = root / "bin"
+    root.mkdir()
+    bin_dir.mkdir()
+    install_uuid = "64c395aa-c19f-4555-8594-6f9291219eb7"
+    write_ownership_manifest(
+        prefix=root,
+        bin_dir=bin_dir,
+        edition="general",
+        inventory_roots=(),
+        managed_roots=(),
+        created_roots=(root, bin_dir),
+        wrapper_paths=(),
+        systemd_units=(
+            SystemdUnitOwnership(
+                name="elesim-robot.service",
+                destination="/etc/systemd/system/elesim-robot.service",
+                sha256="a" * 64,
+            ),
+            SystemdUnitOwnership(
+                name="elesim-unitree-bridge.service",
+                destination="/etc/systemd/system/elesim-unitree-bridge.service",
+                sha256="b" * 64,
+            ),
+        ),
+        install_uuid=install_uuid,
+    )
+    app = ConnectionManagerApplication(
+        state_path=tmp_path / "connections.json",
+        token="test-session-token",
+        runner=lambda *_: None,
+        local_install_root=root,
+        local_bin_dir=bin_dir,
+    )
+
+    assert app.installation_choices({
+        "local": True,
+        "install_root": str(root),
+        "bin_dir": str(bin_dir),
+        "ssh": None,
+    }) == {
+        "installations": [{
+            "name": f"Robot ({root})",
+            "install_uuid": install_uuid,
+            "install_mode": "native",
+            "project": "",
+            "releases": [],
+        }]
+    }
 
 
 @pytest.mark.parametrize("has_release", [False, True])
@@ -811,8 +864,17 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "updateCoturnVisibility" not in script
     assert "updateCoturnSecurity" not in script
     assert "host.coturn" not in script
-    assert "robot-install-root" not in html
-    assert "robot-bin-dir" not in html
+    assert 'data-field="robot-install-root"' in html
+    assert 'data-field="robot-bin-dir"' in html
+    assert 'data-field="robot-install-uuid"' in html
+    assert 'data-field="robot-install-name"' in html
+    assert "robot-install-fields" in html
+    assert "const robotInstallationCatalogs = {};" in script
+    assert "function installationOptionLabel(item)" in script
+    assert catalog["ko"]["install.native"] == "네이티브 Robot"
+    assert catalog["en"]["install.native"] == "Native Robot"
+    assert 'lookupInstallation(slot, "robot")' in script
+    assert 'install_mode === "native"' in script
     assert 'host.ssh.host' in script
     assert "let schemaVersion = 5;" in script
     assert "function sshEndpointFromForm(slot)" in script

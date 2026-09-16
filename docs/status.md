@@ -6,6 +6,30 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Mixed native Robot / scoped container preparation (2026-09-16)
+
+- Connection-manager preparation now includes the native Robot unit in the
+  scoped transaction: preflight, configuration/security application, readback,
+  rollback and interrupted recovery. Robot retains its native systemd lifecycle.
+- Jetson cards expose independent native Robot installation lookup and paths;
+  overlapping native/container prefix or wrapper paths are rejected. Container
+  configuration receives the Robot endpoint from the saved topology.
+- Recovery journals accept native-unit progress markers, including a recovery
+  interrupted while applying the native target. Regression coverage exercises
+  managed/trusted preparation, failure rollback and forward recovery.
+- Final host fallback setup suite: **993 passed** (83.75 seconds), including
+  local native lookup, noninteractive mixed installation and GPU policy-arrival
+  regressions. JavaScript/Python syntax and diff whitespace checks passed.
+- Final image reports use tools/Sim/Pilot/UI/Robot order. Alias audit found
+  8,733 internal adjective/animal combinations with secure random selection
+  and full-name collision checks. Language buttons display 한국어/English;
+  SSH confirmation requires a username. An arriving inherit policy restores
+  its checkbox default without overwriting choices on subsequent status polls.
+- The `elesim-dev` wrapper is unavailable and Docker socket access returns
+  permission denied. Host socket tests passed with sandbox escalation; canonical
+  development/release gates, live multi-host SROS2 and Jetson systemd/hardware
+  acceptance remain unrun. No physical deployment or motion was performed.
+
 ### GO2 MPC replacement selection (2026-09-16)
 
 - Selected Quadruped-PyMPC's nominal acados CPU backend for a prototype;
@@ -62,8 +86,10 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 - 신규 설치 project는 `elesim-runtime-<install UUID hex>`이며 한 설치의 여러
   system은 이 project를 공유한다. 구형 설치의 `elesim-runtime`은 자동 인수하지 않는다.
 - connection topology는 schema v1–v5를 읽어 schema v6으로 normalize하고,
-  저장 시에는 항상 v6을 쓴다. graph role ID는 global registry와 instance
-  schema v3에 저장하며 schema v2 입력은 읽을 때 이관한다.
+  저장 시에는 항상 v6을 쓴다. 컨테이너 graph role ID는 global registry와
+  instance schema v3에 저장하며 schema v2 입력은 읽을 때 이관한다. native
+  Robot graph role ID는 topology와 혼합 배포 transaction journal에만 남고
+  native Robot용 scoped instance는 만들지 않는다.
 - 호스트 설치 / 불변 release / system instance 상태를 분리한다. release는 빌드
   입력 fingerprint와 이미지 ID를 기록하고 system별 참조를 고정한다.
 - 서비스·설정·보안 view·쓰기 가능한 cache·로그는 system/endpoint 단위다.
@@ -99,7 +125,7 @@ prefix/bin 및 project를 사용한다. 신규 container 설치는 이 scoped �
 | --- | --- |
 | host 설치 | prefix/bin, Docker context/Engine ID, 설치된 role capability, 공통 build cache, scoped dev/Tailscale, 전체 ownership manifest |
 | 불변 release | source revision, platform, role별 build fingerprint/image ID, runtime data snapshot 및 digest |
-| system instance | schema v3의 global graph role ID, `system_id`, release key, endpoint 배정, DDS/compute/TURN 설정, endpoint별 config와 SROS2 view, 캐시·로그·실행 상태 |
+| system instance | schema v3의 컨테이너 graph role ID, `system_id`, release key, endpoint 배정, DDS/compute/TURN 설정, endpoint별 config와 SROS2 view, 캐시·로그·실행 상태 |
 | graph topology | host와 role 배치, DDS/SSH endpoint, endpoint ID, SROS2 Authority generation과 배포 transaction |
 
 구현은 registry와 생성 설정을 원자적으로 통합하고, 소유권 manifest와
@@ -157,9 +183,11 @@ build fingerprint는 소유권·검증 metadata로 보존한다. host 설치 단
 제거를 소유한다.
 
 물리 Robot은 host당 하나의 native 안전 경계와 고정 systemd lifecycle을 유지한다.
-한 Robot host에서 두 system이 Robot을 동시에 활성화하는 것은 거부한다. 초기
-완료 범위는 여러 Robot 없는 graph의 동시 실행과, Robot을 포함한 graph
-하나가 별도 Robot 없는 graph와 공존하는 경우까지다. templated systemd나
+한 Robot host에서 두 system이 Robot을 동시에 활성화하는 것은 거부한다. native
+Robot과 같은 Jetson의 컨테이너 역할은 하나의 scoped deployment transaction에서
+함께 준비·적용·검증·복구하며, native Robot 자체에는 별도 system instance를 만들지
+않는다. 초기 완료 범위는 여러 Robot 없는 graph의 동시 실행과, Robot을 포함한
+graph 하나가 별도 Robot 없는 graph와 공존하는 경우까지다. templated systemd나
 하나의 물리 Robot을 여러 graph가 공유하는 기능은 요구가 생기기 전에는 만들지 않는다.
 
 #### 다중 system 마일스톤

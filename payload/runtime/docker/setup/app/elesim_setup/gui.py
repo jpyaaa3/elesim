@@ -180,6 +180,9 @@ class WizardApplication:
             )
         self._require_allowed(request.prefix)
         self._require_allowed(request.bin_dir)
+        for child in request.installation_requests():
+            self._require_allowed(child.prefix)
+            self._require_allowed(child.bin_dir)
         developer_workspace = request.developer_attachment.workspace_path
         if developer_workspace is not None:
             self._require_allowed(developer_workspace)
@@ -203,6 +206,8 @@ class WizardApplication:
             "roles": list(request.roles),
             "prefix": str(request.prefix),
             "bin_dir": str(request.bin_dir),
+            "robot_prefix": (str(request.installation_requests()[1].prefix)
+                             if len(request.installation_requests()) > 1 else ""),
             "gpu_mode": request.compute.gpu_mode,
             "security_profile": request.dds.security_profile,
             "security_provisioning": request.dds.security_provisioning,

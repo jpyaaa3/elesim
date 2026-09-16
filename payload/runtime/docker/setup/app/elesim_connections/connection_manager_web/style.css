@@ -194,6 +194,9 @@ input[data-field="ssh-port"]:disabled { background: #f2f4f3; color: #4f5c56; opa
 .local-choice { display: flex; align-items: center; gap: 6px; border-radius: 4px; padding: 5px 7px; background: #edf1f6; white-space: nowrap; }
 .local-choice span { font-size: 11px; }
 .install-fields { margin-top: 9px; padding-top: 0; }
+.robot-install-fields { margin-top: 15px; border-top: 1px solid var(--line); padding-top: 11px; }
+.robot-install-fields[hidden] { display: none; }
+.install-unit-title { margin-bottom: 8px; color: var(--ink); font-size: var(--font-small); font-weight: 700; }
 .ssh-fields { display: flex; min-height: 304px; flex: 1; flex-direction: column; }
 .ssh-fields[hidden] { display: none; }
 .local-security-warning { display: grid; min-height: 309px; flex: 1; place-content: center; justify-items: center; gap: 14px; padding: 20px; text-align: center; }

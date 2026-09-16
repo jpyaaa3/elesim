@@ -51,6 +51,17 @@ _IMAGE_OUTPUT = re.compile(
     r"[a-z]{2,16}_[a-z]{2,16})(?:\s|$)",
     re.IGNORECASE,
 )
+_IMAGE_SUMMARY_OUTPUT = re.compile(
+    r"Image\s+(?:docker\.io/)?"
+    r"(elesim/[a-z][a-z0-9_.-]*:[a-z]{2,16}_[a-z]{2,16}-"
+    r"[a-z]{2,16}_[a-z]{2,16})\s+Built\b",
+    re.IGNORECASE,
+)
+
+
+def _image_output_match(value: str):
+    """Recognize BuildKit exports and Compose's compact ``Image ... Built`` line."""
+    return _IMAGE_OUTPUT.search(value) or _IMAGE_SUMMARY_OUTPUT.search(value)
 
 
 def _display_text(value: str) -> str:
@@ -83,7 +94,10 @@ def _write_image_report(path: Path, images: dict[str, tuple[str, str]]) -> None:
             names = {value[0] for value in images.values()}
             if len(names) == 1:
                 stream.write(f"Installation name={next(iter(names))}\n")
-            for repository in sorted(images):
+            order = {f"elesim/{role}": index for index, role in enumerate(
+                ("tools", "sim", "pilot", "ui", "robot")
+            )}
+            for repository in sorted(images, key=lambda name: (order.get(name, len(order)), name)):
                 stream.write(f"{repository}={images[repository][1]}\n")
             stream.flush()
             os.fsync(stream.fileno())
@@ -134,7 +148,7 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
         for line in lines:
             line_count += 1
             safe = _display_text(line[-1024:])
-            image_match = _IMAGE_OUTPUT.search(safe)
+            image_match = _image_output_match(safe)
             if image_match:
                 image = image_match.group(1).lower()
                 repository, tag = image.split(":", 1)
@@ -186,7 +200,7 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
         pending += decoder.decode(b"", final=True)
         if pending:
             safe = _display_text(pending)
-            image_match = _IMAGE_OUTPUT.search(safe)
+            image_match = _image_output_match(safe)
             if image_match:
                 image = image_match.group(1).lower()
                 repository, tag = image.split(":", 1)
@@ -212,7 +226,6 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
             for line in preview:
                 preview_line = f"  │ {_fit_row(line, max(40, shutil.get_terminal_size().columns - 4))}"
                 print(_muted(preview_line, tty), file=sys.stderr)
-            omitted = max(0, line_count - shown_count - len(preview))
             print(_muted("  │ ...", tty), file=sys.stderr)
         if status == 0 and built_images and result_file is not None:
             _write_image_report(result_file, built_images)

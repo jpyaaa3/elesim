@@ -18,7 +18,11 @@ from elesim_connections.connection_manager import (
     RoleAssignment,
     SshEndpoint,
 )
-from elesim_connections.connections import ConnectionDeploymentRunner, RuntimeRollbackError
+from elesim_connections.connections import (
+    ConnectionDeploymentRunner,
+    HostActivationState,
+    RuntimeRollbackError,
+)
 from elesim_setup.instance_identity import image_reference, project_name
 from elesim_setup.instances import InstanceEndpoint, InstanceRegistry, InstanceState
 from elesim_setup.releases import ReleaseManifest, release_key
@@ -818,14 +822,16 @@ def test_scoped_rotation_surfaces_compensation_failure(
     ("security_profile", "action"),
     (("trusted-network", "deploy"), ("sros2", "provision")),
 )
-def test_scoped_actions_reject_native_robot_unit_explicitly(
-    tmp_path: Path, monkeypatch, security_profile: str, action: str
+@pytest.mark.parametrize("failure", [None, "native-apply", "register", "rollback"])
+def test_scoped_actions_include_native_robot_transaction(
+    tmp_path: Path, monkeypatch, security_profile: str, action: str, failure
 ) -> None:
     prefix = tmp_path / "install"
-    prefix.mkdir()
     runtime = DeploymentUnit(
         "runtime",
         (RoleAssignment("pilot", "pilot-local"),),
+        install_uuid=LOCAL_UUID,
+        project=project_name(LOCAL_UUID),
         install_root=str(prefix),
         bin_dir=str(prefix / "bin"),
     )
@@ -834,6 +840,7 @@ def test_scoped_actions_reject_native_robot_unit_explicitly(
         (RoleAssignment("robot", "robot-local"),),
         install_mode="native",
         lifecycle="systemd",
+        install_uuid=REMOTE_UUID,
         install_root=str(prefix),
         bin_dir=str(prefix / "bin"),
     )
@@ -865,18 +872,127 @@ def test_scoped_actions_reject_native_robot_unit_explicitly(
         ),
     ).validate()
     events: list[tuple[str, str]] = []
+    from elesim_connections.secure_deployment import HostActivationState, RemoteCapabilities
+    from elesim_setup.state import DdsSettings
 
-    class Operations:
+    release = _release(LOCAL_UUID, ("pilot",))
+    local = topology.host("local")
+    instance = InstanceState(
+        "scoped",
+        release_key(release),
+        (InstanceEndpoint("pilot", "pilot-local"),),
+        0,
+        security_profile=security_profile,
+    )
+    plans = [(local, runtime, instance, release, None, None)]
+    native_state = InstallState(profile="custom", roles=("robot",), install_mode="native",
+                               prefix=str(prefix), bin_dir=str(prefix / "bin"),
+                               source_root=str(tmp_path),
+                               dds=DdsSettings(interface="eth0", security_profile="trusted-network"))
+    before = HostActivationState(None, native_state.to_dict(), (),
+                                 {"robot-native": None})
+    current = before
+    active = None
+
+    class Authority:
+        def __init__(self, _root):
+            pass
+
+        def active(self):
+            return SimpleNamespace(generation=active) if active else None
+
+    class Bundle:
+        def for_roles(self, roles):
+            assert tuple(roles) in {("robot",), ("pilot",)}
+            return self
+
+        def manifest_bytes(self):
+            return b"manifest"
+
+    class Issued:
+        bundles = {host.host_id: Bundle() for host in topology.hosts}
+
+        def activate_authority(self):
+            nonlocal active
+            active = "g-test"
+            events.append(("authority", "activate"))
+
+        def rollback_authority(self):
+            nonlocal active
+            active = None
+
+    class Issuer:
+        def __init__(self, _authority):
+            pass
+
+        def issue(self, _topology, _generation):
+            return Issued()
+
+    monkeypatch.setattr("elesim_connections.connections.Sros2Authority", Authority)
+    monkeypatch.setattr("elesim_connections.connections.Sros2BundleIssuer", Issuer)
+    monkeypatch.setattr("elesim_connections.connections.new_generation_id", lambda: "g-test")
+
+    class Operations(_RegistrationOperations):
+        def __init__(self):
+            super().__init__(events)
+
         def prepare_runtime_network(self, host, _output):
             events.append(("network", host.host_id))
 
-        def close(self):
+        def runtime_network_check(self, host):
             pass
+
+        def preflight(self, host):
+            assert host.roles == ("robot",)
+            return RemoteCapabilities(False, True, True, True, "aarch64")
+
+        def capture_state(self, host):
+            assert host.roles == ("robot",)
+            return current
+
+        def stage(self, host, bundle):
+            events.append(("stage", host.host_id))
+
+        def activate(self, host, generation):
+            nonlocal current
+            state = replace(native_state, dds=replace(native_state.dds,
+                            system_id="scoped", security_profile=security_profile,
+                            security_provisioning="managed" if generation else "none"))
+            current = HostActivationState(generation, state.to_dict(), (),
+                                          {"robot-native": generation})
+            events.append(("apply", host.host_id))
+            if failure == "native-apply":
+                raise RuntimeError("native apply failed after mutation")
+
+        def configure_topology(self, host):
+            self.activate(host, None)
+
+        def verify(self, host, generation, running):
+            assert not running
+
+        def verify_topology(self, host, running):
+            assert not running
+
+        def rollback(self, host, previous):
+            nonlocal current
+            events.append(("native-rollback", host.host_id))
+            if failure == "rollback":
+                raise RuntimeError("native restore failed")
+            current = previous
+
+        def discard_generation(self, host, generation):
+            assert current == before
+
+        def register_scoped_instance(self, host, *args, **kwargs):
+            events.append(("register", host.host_id))
+            if failure in {"register", "rollback"}:
+                raise RuntimeError("register failed")
 
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority", local_install_root=prefix
     )
     monkeypatch.setattr(runner, "_local_install_scope", lambda: True)
+    monkeypatch.setattr(runner, "_scoped_unit_plans", lambda *_args: plans)
     monkeypatch.setattr(
         runner,
         "_operations",
@@ -886,13 +1002,21 @@ def test_scoped_actions_reject_native_robot_unit_explicitly(
         },
     )
 
-    with pytest.raises(
-        ValueError,
-        match=r"cannot silently skip native Robot units: robot-host/robot-native",
-    ):
+    if failure:
+        with pytest.raises(RuntimeError, match="failed"):
+            runner(topology, action, lambda _message: None)
+        assert current == before if failure != "rollback" else current != before
+    else:
         runner(topology, action, lambda _message: None)
-
-    assert events == [("network", "local"), ("network", "robot-host")]
+        assert current != before
+        assert ("apply", "robot-host") in events
+        assert ("register", "local") in events
+        if security_profile == "sros2":
+            assert events.index(("register", "local")) < events.index(("authority", "activate"))
+    # Load through the real validator, including snapshots used after restart.
+    journal = runner._load_scoped_journal(topology)
+    assert journal["schema_version"] == 3
+    assert journal["status"] == ("blocked" if failure == "rollback" else "rolled-back" if failure else "completed")
 
 
 def _recovery_journal(
@@ -1113,6 +1237,236 @@ def test_scoped_recovery_forward_completes_when_target_authority_is_active(
         states[host.host_id] == target
         for host, _unit, target, _release_, _before, _prior in plans
     )
+    assert journal["status"] == "completed"
+
+
+def test_scoped_recovery_forward_reapplies_native_robot_target(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An Authority commit must also finish a native Robot unit after restart."""
+
+    local_uuid = LOCAL_UUID
+    remote_uuid = REMOTE_UUID
+    local_unit = DeploymentUnit(
+        "runtime",
+        (RoleAssignment("ui", "ui-local"),),
+        install_uuid=local_uuid,
+        project=project_name(local_uuid),
+    )
+    runtime_unit = DeploymentUnit(
+        "runtime",
+        (RoleAssignment("pilot", "pilot-remote"),),
+        install_uuid=remote_uuid,
+        project=project_name(remote_uuid),
+    )
+    robot_unit = DeploymentUnit(
+        "robot-native",
+        (RoleAssignment("robot", "robot-remote"),),
+        install_mode="native",
+        lifecycle="systemd",
+        install_uuid=remote_uuid,
+        install_root="/opt/elesim-robot",
+        bin_dir="/opt/elesim-robot/bin",
+    )
+    topology = ConnectionTopology(
+        "scoped",
+        "sros2",
+        (
+            ManagedHost(
+                "local",
+                True,
+                DdsEndpoint("100.64.0.1", "tailscale0"),
+                None,
+                units=(local_unit,),
+            ),
+            ManagedHost(
+                "jetson",
+                False,
+                DdsEndpoint("100.64.0.2", "tailscale0"),
+                SshEndpoint(
+                    "jetson.example", 22, "operator", "", "SHA256:" + "A" * 43
+                ),
+                units=(runtime_unit, robot_unit),
+                jetson=True,
+            ),
+        ),
+        dds_graph=DdsGraphSettings(discovery_mode="static"),
+    ).validate()
+
+    old_generation = "old-generation"
+    target_generation = "target-generation"
+    from elesim_setup.state import DdsSettings
+
+    def native_state(generation: str) -> InstallState:
+        return InstallState(
+        profile="custom",
+        roles=("robot",),
+        prefix="/opt/elesim-robot",
+        bin_dir="/opt/elesim-robot/bin",
+            source_root="/home/operator/src",
+            install_mode="native",
+            dds=DdsSettings(
+                system_id="scoped",
+                discovery_mode="static",
+                static_peers=topology.discovery_peers("jetson"),
+                interface="tailscale0",
+                security_profile="sros2",
+                security_provisioning="managed",
+                security_generation=generation,
+                security_bundle="/opt/elesim-robot/security/current/keystore",
+                keystore="/opt/elesim-robot/security/current/keystore",
+                enclave="/elesim/scoped",
+            ),
+        ).validate()
+
+    before_native = HostActivationState(
+        old_generation,
+        native_state(old_generation).to_dict(),
+        (),
+        {"robot-native": old_generation},
+    )
+    target_native = HostActivationState(
+        target_generation,
+        native_state(target_generation).to_dict(),
+        (),
+        {"robot-native": target_generation},
+    )
+
+    releases = {
+        "local": _release(local_uuid, ("ui",), marker="a"),
+        "jetson": _release(remote_uuid, ("pilot",), marker="e"),
+    }
+    targets = {
+        "local": InstanceState(
+            "scoped",
+            release_key(releases["local"]),
+            (InstanceEndpoint("ui", "ui-local"),),
+            0,
+            pilot_id="pilot-remote",
+            sim_id="sim-main",
+            ui_id="ui-local",
+            discovery_mode="static",
+            static_peers=topology.discovery_peers("local"),
+            interface="tailscale0",
+            security_profile="sros2",
+            security_generation=target_generation,
+        ),
+        "jetson": InstanceState(
+            "scoped",
+            release_key(releases["jetson"]),
+            (InstanceEndpoint("pilot", "pilot-remote"),),
+            0,
+            pilot_id="pilot-remote",
+            sim_id="sim-main",
+            ui_id="ui-local",
+            discovery_mode="static",
+            static_peers=topology.discovery_peers("jetson"),
+            interface="tailscale0",
+            security_profile="sros2",
+            security_generation=target_generation,
+        ),
+    }
+    before = {key: replace(value, security_generation=old_generation) for key, value in targets.items()}
+    plans = [
+        (
+            topology.host(host_id),
+            topology.host(host_id).runtime_units[0],
+            targets[host_id],
+            releases[host_id],
+            before[host_id],
+            releases[host_id],
+        )
+        for host_id in ("local", "jetson")
+    ]
+    runner = ConnectionDeploymentRunner(tmp_path / "authority")
+    journal = _recovery_journal(
+        runner,
+        topology,
+        plans,
+        action="rotate",
+        authority_before=old_generation,
+        authority_target=target_generation,
+        authority_observed=target_generation,
+        bundle_digest=hashlib.sha256(b"recovery-bundle").hexdigest(),
+    )
+    journal["schema_version"] = 3
+    journal["native_units"] = [
+        {
+            "host_id": "jetson",
+            "unit_id": "robot-native",
+            "install_uuid": remote_uuid,
+            "before": runner._activation_payload(before_native),
+            "target": runner._activation_payload(target_native),
+            "status": "target",
+        }
+    ]
+
+    events: list[tuple] = []
+
+    class MixedOperations(_RecoveryOperations):
+        def __init__(self) -> None:
+            super().__init__(
+                {"local": before["local"], "jetson": before["jetson"]},
+                {host_id: (release,) for host_id, release in releases.items()},
+                events,
+            )
+            self.native = before_native
+
+        def scoped_identity(self, _host, unit):
+            return {"install_uuid": unit.install_uuid, "project": unit.project}
+
+        def capture_state(self, host):
+            return self.native if host.robot_units else self.states[host.host_id]
+
+        def stage(self, host, _bundle):
+            events.append(("native-stage", host.host_id))
+
+        def activate(self, host, generation):
+            events.append(("native-activate", host.host_id))
+            assert generation == target_generation
+            self.native = target_native
+
+        def verify(self, host, generation, running):
+            events.append(("native-verify", host.host_id))
+            assert generation == target_generation and not running
+
+    # A previous recovery may have stopped while applying the native target.
+    # Its progress marker must remain loadable for the next recovery attempt.
+    journal["host_id"] = "jetson/robot-native"
+    journal["native_units"][0]["status"] = "recovering"
+    runner._validate_scoped_journal(journal, topology)
+
+    operations = MixedOperations()
+
+    class Bundle:
+        @classmethod
+        def from_directory(cls, **_kwargs):
+            return cls()
+
+        def for_roles(self, _roles):
+            return self
+
+        @staticmethod
+        def manifest_bytes():
+            return b"recovery-bundle"
+
+    monkeypatch.setattr(
+        "elesim_connections.connections.Sros2Authority",
+        lambda root: _RecoveryAuthority(root, target_generation),
+    )
+    monkeypatch.setattr("elesim_connections.connections.SecurityBundle", Bundle)
+
+    runner._recover_scoped_transaction(
+        topology,
+        {"local": operations, "jetson": operations},
+        journal,
+        lambda _message: None,
+    )
+
+    assert ("native-stage", "jetson") in events
+    assert ("native-activate", "jetson") in events
+    assert ("native-verify", "jetson") in events
+    assert events[-2:] == [("register", "local", True), ("register", "jetson", True)]
     assert journal["status"] == "completed"
 
 

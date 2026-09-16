@@ -185,9 +185,24 @@ def test_robot_is_native_only_exclusive_and_requires_jetson(tmp_path: Path) -> N
     with pytest.raises(ValueError, match="inter-host EleSim DDS interface"):
         SetupRequest.from_dict(payload).validate(_capabilities(jetson=True))
 
-    payload["roles"] = ["sim", "robot"]
-    with pytest.raises(ValueError, match="standalone"):
-        SetupRequest.from_dict(payload).validate(_capabilities(jetson=True))
+    payload["roles"] = ["pilot", "robot"]
+    payload["dds_interface"] = "tailscale0"
+    payload.update(
+        {
+            "turn_mode": "external",
+            "turn_url": "turn:relay.example:3478?transport=udp",
+        }
+    )
+    mixed = SetupRequest.from_dict(payload).validate(_capabilities(jetson=True))
+    container, robot = mixed.installation_requests()
+    assert container.roles == ("pilot",)
+    assert robot.roles == ("robot",)
+    assert container.prefix != robot.prefix
+    assert container.bin_dir != robot.bin_dir
+    assert robot.to_install_state().install_mode == "native"
+    assert container.to_install_state().install_mode == "container"
+    assert robot.network.turn_urls == ()
+    assert robot.turn.mode == "none"
 
 
 def test_developer_attachment_preserves_runtime_roles_and_one_install_state(

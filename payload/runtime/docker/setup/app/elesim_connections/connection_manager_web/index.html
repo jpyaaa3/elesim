@@ -15,7 +15,7 @@
       <span data-i18n="app.title"></span>
     </div>
     <div class="language-switch" role="group" aria-label="Language">
-      <button type="button" data-language="ko">Korean</button>
+      <button type="button" data-language="ko">한국어</button>
       <button type="button" data-language="en">English</button>
     </div>
   </header>
@@ -84,6 +84,16 @@
               <input data-field="install-uuid" type="hidden"><input data-field="install-project" type="hidden">
               <label><span data-i18n="install.name"></span><select data-field="install-name"><option value="" data-i18n="install.queryFirst"></option></select></label>
             </div></div>
+            <div class="install-fields robot-install-fields" hidden>
+              <div class="install-unit-title" data-i18n="install.robot.title"></div>
+              <div class="host-fields">
+                <label><span data-i18n="install.root"></span><input data-field="robot-install-root" type="text" value="/opt/elesim-robot" spellcheck="false"></label>
+                <label><span data-i18n="install.bin"></span><input data-field="robot-bin-dir" type="text" value="/opt/elesim-robot/bin" spellcheck="false"></label>
+                <button type="button" class="lookup-installation robot-lookup-installation" data-i18n="install.lookup"></button>
+                <input data-field="robot-install-uuid" type="hidden"><input data-field="robot-install-project" type="hidden">
+                <label><span data-i18n="install.name"></span><select data-field="robot-install-name"><option value="" data-i18n="install.queryFirst"></option></select></label>
+              </div>
+            </div>
           </div>
         </div>
         <div class="host-column roles-column">

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -118,7 +118,7 @@ class SetupRequest:
         if turn_mode == "managed" and not secret_file:
             secret_file = str(prefix / "secrets/turn.secret")
         return cls(
-            language=str(raw.get("language", "ko")),
+            language=str(raw.get("language", "en")),
             roles=tuple(str(value) for value in roles_raw),
             prefix=prefix,
             bin_dir=_required_path(raw, "bin_dir"),
@@ -193,6 +193,10 @@ class SetupRequest:
         ):
             raise ValueError("SROS2 profile requires a keystore and enclave")
         roles = normalize_roles(self.roles)
+        if "sim" in roles and capabilities.architecture.lower() not in {"amd64", "x86_64"}:
+            raise ValueError(
+                "Sim currently requires an amd64 host; select Pilot/UI with native Robot on Jetson"
+            )
         if self.developer_attachment.enabled:
             if not capabilities.developer_installable:
                 raise ValueError("developer attachment is supported only on Ubuntu/WSL amd64")
@@ -202,7 +206,9 @@ class SetupRequest:
                 raise ValueError("developer attachment cannot be added to native Robot installation")
         if "robot" in roles:
             if roles != ("robot",):
-                raise ValueError("native Robot installation must be standalone and separate from other roles")
+                for request in self.installation_requests():
+                    request.validate(capabilities)
+                return self
             if not capabilities.robot_installable:
                 raise ValueError("Robot installation requires a detected Jetson/JetPack host")
             if not self.dds.interface.strip():
@@ -211,11 +217,11 @@ class SetupRequest:
                     "EleSim DDS interface"
                 )
         if self.turn.managed:
-            if "sim" not in self.roles:
+            if "sim" not in roles:
                 raise ValueError("managed Coturn requires a Sim installation host")
         if (
             self.turn.mode == "external"
-            and "sim" in self.roles
+            and "sim" in roles
             and self.turn.credential_path is None
         ):
             raise ValueError(
@@ -223,6 +229,26 @@ class SetupRequest:
             )
         self._state(capabilities).validate()
         return self
+
+    def installation_requests(self) -> tuple["SetupRequest", ...]:
+        """Keep native and Compose ownership independent in a mixed install."""
+        roles = normalize_roles(self.roles)
+        if "robot" not in roles or roles == ("robot",):
+            return (self,)
+        robot_prefix = self.prefix.with_name(self.prefix.name + "-robot")
+        return (
+            replace(self, roles=tuple(role for role in roles if role != "robot")),
+            replace(
+                self, roles=("robot",), prefix=robot_prefix,
+                bin_dir=robot_prefix / "bin", register_path=False,
+                # Native Robot has no Sim-owned Coturn runtime.  Strip any
+                # container TURN endpoints from the sibling request as well
+                # as resetting the mode so a mixed install cannot make the
+                # native child fail validation on an unrelated TURN URL.
+                network=replace(self.network, turn_urls=()),
+                turn=TurnSettings(), developer_attachment=DeveloperAttachmentSettings(),
+            ),
+        )
 
     def to_install_state(
         self,
@@ -235,6 +261,8 @@ class SetupRequest:
         capabilities: HostCapabilities | None = None,
     ) -> InstallState:
         roles = normalize_roles(self.roles)
+        if "robot" in roles and roles != ("robot",):
+            raise ValueError("mixed installation requests must be split before creating install state")
         install_mode = "native" if roles == ("robot",) else "container"
         container_network = container_network_settings_for_host(
             capabilities=capabilities,

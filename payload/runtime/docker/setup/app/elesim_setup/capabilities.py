@@ -97,6 +97,15 @@ def detect_host_capabilities(
         if docker_context
         else ""
     )
+    # ``docker context show`` can still return ``default`` when the daemon is
+    # stopped or the socket is inaccessible.  Do not expose that half-result
+    # as a pinned Docker capability: a context without its engine identity and
+    # endpoint is not enough to generate a safe install-scoped binding.
+    if not docker_engine_id or not docker_endpoint:
+        docker_name = ""
+        docker_context = ""
+        docker_engine_id = ""
+        docker_endpoint = ""
     amd64 = architecture in {"amd64", "x86_64"}
     ubuntu = os_release.get("ID", "").lower() == "ubuntu"
     return HostCapabilities(

@@ -28,6 +28,11 @@ class SetupService:
 
     def run(self, request: SetupRequest) -> None:
         request.validate(self.capabilities)
+        requests = request.installation_requests()
+        if len(requests) > 1:
+            for child in requests:
+                self.run(child)
+            return
         self.log(
             f"[setup] prefix={request.prefix} "
             f"developer_attachment={request.developer_attachment.enabled} "

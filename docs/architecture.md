@@ -21,10 +21,11 @@ card-derived topology (1–4 hosts)
 ```
 
 별도 실행 모드는 없다. 저장된 COM과 역할 카드가 곧 토폴로지이며 Robot 없는
-부분집합도 유효하다. graph role ID는 global registry에 기록되고 instance schema
+부분집합도 유효하다. container graph role ID는 global registry와 instance schema
 v3에 보존된다(schema v2는 읽을 때 이관). Robot 카드는 native Jetson unit에만
-둘 수 있으며, 하나의 native Robot graph boundary만 허용한다. scoped container
-registration은 Robot을 거부한다.
+둘 수 있으며, 하나의 native Robot graph boundary만 허용한다. scoped transaction은
+container unit 등록과 native Robot의 install-wide/systemd 설정을 하나의 journal 및
+rollback 경계에서 조정하지만, Robot 자체에는 scoped instance state를 만들지 않는다.
 
 중앙 Router, ZMQ, CurveZMQ, CURVE, ZAP은 현재 구조에 없다. 각 DDS participant는
 필요한 peer와 직접 IP-routable해야 하며, DDS discovery는 애플리케이션

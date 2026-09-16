@@ -516,8 +516,8 @@ class DeploymentUnit:
 
     A physical computer is not an installation boundary.  In particular, a
     Jetson may carry the mandatory native Robot unit and a separate Compose
-    unit for Pilot/UI.  Both units use the host's shared installation and
-    command paths; only their lifecycle/install mode differs.
+    unit for Pilot/UI.  Each unit keeps its own installation and command paths;
+    only the host's network/SSH identity and hardware capability are shared.
     """
 
     unit_id: str
@@ -713,22 +713,6 @@ class ManagedHost:
                 )
                 if tuple(assignments) != flattened:
                     raise ValueError("assignments and units disagree")
-        if units:
-            # Installation and command paths are host-level fields in the GUI.
-            # Normalize legacy mixed-unit records here so an old Robot-specific
-            # path cannot survive as a hidden second configuration.
-            path_unit = next(
-                (unit for unit in units if unit.install_mode == "container"),
-                units[0],
-            )
-            units = tuple(
-                replace(
-                    unit,
-                    install_root=path_unit.install_root,
-                    bin_dir=path_unit.bin_dir,
-                )
-                for unit in units
-            )
         object.__setattr__(self, "host_id", host_id)
         object.__setattr__(self, "local", local)
         object.__setattr__(self, "dds", dds)
@@ -818,11 +802,30 @@ class ManagedHost:
                 "a host may have only one container/Compose unit because the "
                 "install-scoped aggregate owns all container roles on that host"
             )
-        # Installation and command paths belong to the host, not to a role.
-        # A Jetson may therefore expose one shared pair of paths to its native
-        # Robot unit and its optional Compose unit.  The unit records retain
-        # their lifecycle/install mode, but no longer impose artificial path
-        # separation between them.
+        # Deployment units are independent installation boundaries.  In
+        # particular, a Jetson's native Robot and optional Compose unit must
+        # not share a prefix/bin pair: each owns its own install state,
+        # wrappers, ownership manifest and security root.  A shared path would
+        # make one unit's ``elesim-net`` wrapper address the other unit.
+        if len(self.units) > 1:
+            managed_paths = tuple(
+                (PurePosixPath(unit.install_root), PurePosixPath(unit.bin_dir))
+                for unit in self.units
+            )
+            for index, (install_root, bin_dir) in enumerate(managed_paths):
+                for other_install_root, other_bin_dir in managed_paths[index + 1 :]:
+                    if any(
+                        _posix_paths_overlap(left, right)
+                        for left, right in (
+                            (install_root, other_install_root),
+                            (install_root, other_bin_dir),
+                            (bin_dir, other_install_root),
+                            (bin_dir, other_bin_dir),
+                        )
+                    ):
+                        raise ValueError(
+                            "mixed deployment units must use independent install_root/bin_dir paths"
+                        )
         return self
 
     def to_dict(self) -> dict[str, Any]:
@@ -1355,6 +1358,12 @@ def _validate_absolute_posix_path(value: Any, *, name: str) -> None:
     path = PurePosixPath(text)
     if not path.is_absolute() or path == PurePosixPath("/") or ".." in path.parts:
         raise ValueError(f"{name} must be a contained absolute POSIX path")
+
+
+def _posix_paths_overlap(left: PurePosixPath, right: PurePosixPath) -> bool:
+    """Return whether either absolute path contains the other."""
+
+    return left == right or left in right.parents or right in left.parents
 
 
 def _ensure_no_symlink_ancestors(path: Path, *, name: str) -> None:

@@ -14,6 +14,10 @@ const hostKinds = {};
 // selected by a role card, so this catalog is deliberately not global: moving
 // a role to another computer must never reuse the source computer's choices.
 const installationCatalogs = {};
+// Native Robot installations are a separate deployment unit from the
+// container installation on a Jetson.  Keep their lookup state separate too;
+// an installation UUID/project from one unit must never populate the other.
+const robotInstallationCatalogs = {};
 const maximumHosts = 4;
 const applicationRoles = ["pilot", "ui", "sim", "robot"];
 
@@ -66,6 +70,14 @@ function robotSlots() {
   return computerSlots.filter(isRobotHost);
 }
 
+function updateRobotInstallationVisibility(slot) {
+  const section = card(slot)?.querySelector(".robot-install-fields");
+  if (section) section.hidden = !isRobotHost(slot);
+  const runtime = card(slot)?.querySelector(".install-fields");
+  if (runtime) runtime.hidden = isRobotHost(slot)
+    && !roleCards.some((entry) => entry.slot === slot && entry.role !== "robot");
+}
+
 function createHost({robot = false, slot = "", operational = false} = {}) {
   const selectedSlot = slot || nextComputerSlot();
   if (!selectedSlot || computerSlots.includes(selectedSlot)) return "";
@@ -83,6 +95,7 @@ function createHost({robot = false, slot = "", operational = false} = {}) {
   hostCard.classList.toggle("robot-host", robot);
   hostKinds[selectedSlot] = robot ? "robot" : "computer";
   installationCatalogs[selectedSlot] = null;
+  robotInstallationCatalogs[selectedSlot] = null;
   computerSlots.push(selectedSlot);
   hostCard.querySelector(".host-name").value = selectedSlot;
   hostCard.querySelector(".robot-badge").hidden = !robot;
@@ -96,6 +109,7 @@ function createHost({robot = false, slot = "", operational = false} = {}) {
   local.checked = !robot && (operational || computerSlots.length === 1);
   hostCard.querySelector(".probe").dataset.probeSlot = selectedSlot;
   byId("host-grid").append(hostCard);
+  updateRobotInstallationVisibility(selectedSlot);
   bindHostCardEvents(selectedSlot);
   updateHostLimit();
   updateHostOrderButtons();
@@ -179,6 +193,7 @@ function removeHost(slot) {
   if (index >= 0) computerSlots.splice(index, 1);
   delete hostKinds[slot];
   delete installationCatalogs[slot];
+  delete robotInstallationCatalogs[slot];
   updateHostOrderButtons();
   if (local?.value === slot && computerSlots.length) {
     const replacement = firstActiveRuntime();
@@ -335,11 +350,52 @@ function appendRoleCard(role, slot, endpointId = "", releaseKey = "") {
   return roleCard;
 }
 
-function selectedInstallation(slot) {
-  const catalog = installationCatalogs[slot];
+function installationFieldNames(kind = "runtime") {
+  if (kind === "robot") {
+    return {
+      root: "robot-install-root",
+      bin: "robot-bin-dir",
+      uuid: "robot-install-uuid",
+      project: "robot-install-project",
+      name: "robot-install-name",
+    };
+  }
+  return {
+    root: "install-root",
+    bin: "bin-dir",
+    uuid: "install-uuid",
+    project: "install-project",
+    name: "install-name",
+  };
+}
+
+function installationField(slot, kind, name) {
+  return field(slot, installationFieldNames(kind)[name]);
+}
+
+function installationCatalog(slot, kind = "runtime") {
+  return kind === "robot"
+    ? robotInstallationCatalogs[slot]
+    : installationCatalogs[slot];
+}
+
+function setInstallationCatalog(slot, kind, value) {
+  if (kind === "robot") robotInstallationCatalogs[slot] = value;
+  else installationCatalogs[slot] = value;
+}
+
+function selectedInstallation(slot, kind = "runtime") {
+  const catalog = installationCatalog(slot, kind);
   if (!Array.isArray(catalog)) return null;
-  const uuid = field(slot, "install-uuid").value.trim();
+  const uuid = installationField(slot, kind, "uuid").value.trim();
   return catalog.find((item) => item?.install_uuid === uuid) || null;
+}
+
+function installationOptionLabel(item) {
+  const base = item?.name || item?.project || item?.install_uuid || "";
+  return item?.install_mode === "native"
+    ? `${t("install.native")} — ${base}`
+    : base;
 }
 
 function roleReleaseChoices(slot, role) {
@@ -414,6 +470,7 @@ function roleCardById(cardId) {
 }
 
 function renderRoleBlocks() {
+  computerSlots.forEach(updateRobotInstallationVisibility);
   clearDropPreview();
   document.querySelectorAll(".drop-zone").forEach((zone) => {
     zone.replaceChildren();
@@ -676,12 +733,40 @@ function updateSshVisibility() {
   updateInstallationLookupButtons();
 }
 
+function installationLookupReadyFor(slot, kind = "runtime") {
+  if (kind === "runtime") return installationLookupReady(slot);
+  if (!isActive(slot)) return false;
+  if (kind === "robot" && !isRobotHost(slot)) return false;
+  const local = document.querySelector('input[name="local-host"]:checked')?.value;
+  // Local lookups use the manager's own, already validated installation path;
+  // only remote cards need a pinned SSH host key before they can be queried.
+  return local === slot || Boolean(field(slot, "ssh-fingerprint")?.value.trim());
+}
+
 function installationLookupReady(slot) {
   if (!isActive(slot)) return false;
   const local = document.querySelector('input[name="local-host"]:checked')?.value;
   // Local lookups use the manager's own, already validated installation path;
   // only remote cards need a pinned SSH host key before they can be queried.
   return local === slot || Boolean(field(slot, "ssh-fingerprint")?.value.trim());
+}
+
+function updateInstallationLookupFor(slot, kind = "runtime") {
+  if (kind === "runtime") {
+    updateInstallationLookup(slot);
+    return;
+  }
+  const selector = kind === "robot"
+    ? ".robot-lookup-installation"
+    : ".lookup-installation:not(.robot-lookup-installation)";
+  const button = card(slot)?.querySelector(selector);
+  if (!button) return;
+  const ready = installationLookupReadyFor(slot, kind);
+  const busy = button.dataset.lookupBusy === "true";
+  button.dataset.i18n = ready ? "install.lookup" : "install.lookup.blocked";
+  button.textContent = t(button.dataset.i18n);
+  button.disabled = busy || !ready;
+  button.setAttribute("aria-disabled", String(button.disabled));
 }
 
 function updateInstallationLookup(slot) {
@@ -696,7 +781,10 @@ function updateInstallationLookup(slot) {
 }
 
 function updateInstallationLookupButtons() {
-  slots.forEach(updateInstallationLookup);
+  slots.forEach((slot) => {
+    updateInstallationLookup(slot);
+    updateInstallationLookupFor(slot, "robot");
+  });
 }
 
 function updateSshMode(slot) {
@@ -770,10 +858,10 @@ function topologyFromForm() {
         : {}),
     }));
     const runtimeRoles = assignments.filter((item) => item.role !== "robot");
-    const installRoot = field(slot, "install-root").value.trim();
-    const binDir = field(slot, "bin-dir").value.trim();
-    const installUuid = field(slot, "install-uuid").value.trim();
-    const installProject = field(slot, "install-project").value.trim();
+    const installRoot = installationField(slot, "runtime", "root").value.trim();
+    const binDir = installationField(slot, "runtime", "bin").value.trim();
+    const installUuid = installationField(slot, "runtime", "uuid").value.trim();
+    const installProject = installationField(slot, "runtime", "project").value.trim();
     const releaseKeys = [...new Set(
       runtimeRoles.map((assignment) => assignment.release_key).filter(Boolean),
     )];
@@ -794,15 +882,21 @@ function topologyFromForm() {
     }
     const robotAssignments = assignments.filter((item) => item.role === "robot");
     if (robotAssignments.length) {
+      const robotInstallRoot = installationField(slot, "robot", "root").value.trim();
+      const robotBinDir = installationField(slot, "robot", "bin").value.trim();
+      const robotInstallUuid = installationField(slot, "robot", "uuid").value.trim();
+      if (!robotInstallUuid) throw new Error(`${t("error.robot.installation")} (${slot})`);
       units.push({
         id: "robot-native",
         assignments: robotAssignments,
         install_mode: "native",
-        install_root: installRoot,
-        bin_dir: binDir,
+        install_root: robotInstallRoot,
+        bin_dir: robotBinDir,
         lifecycle: "systemd",
-        ...(installUuid ? {install_uuid: installUuid} : {}),
-        ...(installProject ? {project: installProject} : {})
+        install_uuid: robotInstallUuid,
+        ...(installationField(slot, "robot", "project").value.trim()
+          ? {project: installationField(slot, "robot", "project").value.trim()}
+          : {})
       });
     }
     const hostId = card(slot).querySelector(".host-name").value.trim().toLowerCase();
@@ -847,13 +941,26 @@ function fillHost(slot, host) {
     bin_dir: host.bin_dir || "/opt/elesim/bin",
     lifecycle: host.lifecycle || "compose"
   }];
-  const pathUnit = units.find((unit) => unit.install_mode === "container") || units[0];
-  field(slot, "install-root").value = pathUnit?.install_root || "/opt/elesim";
-  field(slot, "bin-dir").value = pathUnit?.bin_dir || "/opt/elesim/bin";
-  field(slot, "install-uuid").value = pathUnit?.install_uuid || "";
-  field(slot, "install-project").value = pathUnit?.project || "";
-  field(slot, "install-name").replaceChildren(new Option(t("install.saved"), pathUnit?.install_uuid || ""));
+  const runtimeUnit = units.find((unit) => unit.install_mode === "container");
+  const robotUnit = units.find((unit) => unit.install_mode === "native" || (unit.assignments || []).some((assignment) => assignment.role === "robot"));
+  const installationUnits = [
+    ["runtime", runtimeUnit],
+    ["robot", robotUnit],
+  ];
+  installationUnits.forEach(([kind, unit]) => {
+    installationField(slot, kind, "root").value = unit?.install_root
+      || (kind === "robot" ? "/opt/elesim-robot" : "/opt/elesim");
+    installationField(slot, kind, "bin").value = unit?.bin_dir
+      || (kind === "robot" ? "/opt/elesim-robot/bin" : "/opt/elesim/bin");
+    installationField(slot, kind, "uuid").value = unit?.install_uuid || "";
+    installationField(slot, kind, "project").value = unit?.project || "";
+    installationField(slot, kind, "name").replaceChildren(
+      new Option(t("install.saved"), unit?.install_uuid || ""),
+    );
+  });
   installationCatalogs[slot] = null;
+  robotInstallationCatalogs[slot] = null;
+  updateRobotInstallationVisibility(slot);
   document.querySelector(`input[name="local-host"][value="${slot}"]`).checked = host.local;
   if (host.ssh) {
     field(slot, "ssh-host").value = host.ssh.host;
@@ -905,6 +1012,7 @@ function applyTopology(topology) {
   computerSlots.splice(0);
   Object.keys(hostKinds).forEach((slot) => delete hostKinds[slot]);
   Object.keys(installationCatalogs).forEach((slot) => delete installationCatalogs[slot]);
+  Object.keys(robotInstallationCatalogs).forEach((slot) => delete robotInstallationCatalogs[slot]);
   roleCards = [];
   nextCardId = 1;
   nextRoleNumbers = {pilot: 1, ui: 1, sim: 1, robot: 1};
@@ -1096,6 +1204,14 @@ function applyRuntimeGpuPolicies(hosts) {
     });
   });
   ["pilot", "sim"].forEach((role) => {
+    const previous = gpuPolicies[role];
+    // Unknown/CPU policy disables and clears the checkbox. Restore the
+    // installed inherit default when its policy arrives, but preserve the
+    // operator's choice across subsequent status polls.
+    if (next[role].mode === "inherit" && previous?.mode !== "inherit") {
+      const inherit = byId(`${role}-gpu-inherit`);
+      if (inherit) inherit.checked = true;
+    }
     gpuPolicies[role] = next[role];
     gpuDevices[role] = nextDevices[role];
   });
@@ -1170,6 +1286,8 @@ async function probeSsh(slot) {
   const host = sshHostFromForm(slot);
   const port = sshPort(slot);
   const hostCard = card(slot);
+  const user = field(slot, "ssh-user").value.trim();
+  if (!user) throw new Error(`${t("error.ssh.user.required")} (${slot})`);
   const tailscale = field(slot, "ssh-tailscale").checked;
   const result = await api("/api/ssh/fingerprint", {
     method: "POST",
@@ -1184,7 +1302,8 @@ async function probeSsh(slot) {
       || document.querySelector('input[name="local-host"]:checked')?.value === slot
       || field(slot, "ssh-tailscale").checked !== tailscale) return;
   try {
-    if (sshHostFromForm(slot) !== host || sshPort(slot) !== port) return;
+    if (sshHostFromForm(slot) !== host || sshPort(slot) !== port
+        || field(slot, "ssh-user").value.trim() !== user) return;
   } catch (_) { return; } // The endpoint may have been cleared while probing.
   const prompt = `${t("ssh.trust")}\n${host}:${port}\n${result.fingerprint}`;
   if (window.confirm(prompt)) {
@@ -1404,31 +1523,39 @@ function bindDropZone(zone) {
   });
 }
 
-function installationQuery(slot) {
+function installationQuery(slot, kind = "runtime") {
   const local = card(slot).querySelector('input[name="local-host"]').checked;
-  return {local, install_root: field(slot, "install-root").value.trim(),
-    bin_dir: field(slot, "bin-dir").value.trim(),
+  return {local,
+    install_root: installationField(slot, kind, "root").value.trim(),
+    bin_dir: installationField(slot, kind, "bin").value.trim(),
     ssh: local ? null : sshEndpointFromForm(slot)};
 }
 
-async function lookupInstallation(slot) {
+async function lookupInstallation(slot, kind = "runtime") {
   const hostCard = card(slot);
-  const button = hostCard.querySelector(".lookup-installation");
-  if (!installationLookupReady(slot)) return;
-  const body = JSON.stringify(installationQuery(slot));
+  const button = kind === "robot"
+    ? hostCard.querySelector(".robot-lookup-installation")
+    : hostCard.querySelector(".lookup-installation");
+  if (kind === "runtime") {
+    if (!installationLookupReady(slot)) return;
+  } else if (!installationLookupReadyFor(slot, kind)) return;
+  const body = JSON.stringify(installationQuery(slot, kind));
   button.dataset.lookupBusy = "true";
-  const previousInstall = field(slot, "install-uuid").value.trim();
-  updateInstallationLookup(slot);
+  const previousInstall = installationField(slot, kind, "uuid").value.trim();
+  updateInstallationLookupFor(slot, kind);
   try {
     const result = await api("/api/installations", {method: "POST", body});
-    if (!hostCard.isConnected || body !== JSON.stringify(installationQuery(slot))) return;
-    const installations = Array.isArray(result.installations)
+    if (!hostCard.isConnected || body !== JSON.stringify(installationQuery(slot, kind))) return;
+    let installations = Array.isArray(result.installations)
       ? result.installations.filter((item) => item && typeof item === "object")
       : [];
-    installationCatalogs[slot] = installations;
-    const select = field(slot, "install-name");
+    installations = installations.filter((item) => kind === "robot"
+      ? item.install_mode === "native"
+      : item.install_mode !== "native");
+    setInstallationCatalog(slot, kind, installations);
+    const select = installationField(slot, kind, "name");
     const options = installations.length
-      ? installations.map((item) => new Option(item.name || item.project || item.install_uuid, item.install_uuid))
+      ? installations.map((item) => new Option(installationOptionLabel(item), item.install_uuid))
       : [new Option(t("install.queryFirst"), "")];
     select.replaceChildren(...options);
     if (installations.some((item) => item.install_uuid === previousInstall)) {
@@ -1436,45 +1563,62 @@ async function lookupInstallation(slot) {
     }
     const choose = () => {
       const item = installations.find((entry) => entry.install_uuid === select.value);
-      field(slot, "install-uuid").value = item?.install_uuid || "";
-      field(slot, "install-project").value = item?.project || "";
-      refreshRoleReleaseOptions(slot);
+      installationField(slot, kind, "uuid").value = item?.install_uuid || "";
+      installationField(slot, kind, "project").value = item?.project || "";
+      if (kind === "runtime") refreshRoleReleaseOptions(slot);
       markWorkflowDirty();
     };
     select.onchange = choose;
     choose();
   } finally {
     delete button.dataset.lookupBusy;
-    updateInstallationLookup(slot);
+    updateInstallationLookupFor(slot, kind);
   }
 }
 
-function clearInstallationLookup(slot) {
-  installationCatalogs[slot] = null;
-  field(slot, "install-uuid").value = "";
-  field(slot, "install-project").value = "";
-  const select = field(slot, "install-name");
+function clearInstallationLookup(slot, kind = "runtime") {
+  setInstallationCatalog(slot, kind, null);
+  installationField(slot, kind, "uuid").value = "";
+  installationField(slot, kind, "project").value = "";
+  const select = installationField(slot, kind, "name");
   select.onchange = null;
   select.replaceChildren(new Option(t("install.queryFirst"), ""));
-  roleCards
-    .filter((roleCard) => roleCard.slot === slot)
-    .forEach((roleCard) => { roleCard.releaseKey = ""; });
-  refreshRoleReleaseOptions(slot);
-  updateInstallationLookup(slot);
+  if (kind === "runtime") {
+    roleCards
+      .filter((roleCard) => roleCard.slot === slot)
+      .forEach((roleCard) => { roleCard.releaseKey = ""; });
+    refreshRoleReleaseOptions(slot);
+  }
+  updateInstallationLookupFor(slot, kind);
+}
+
+function clearAllInstallationLookups(slot) {
+  clearInstallationLookup(slot, "runtime");
+  clearInstallationLookup(slot, "robot");
 }
 
 function bindHostCardEvents(slot) {
   const hostCard = card(slot);
   hostCard.querySelector(".lookup-installation").addEventListener("click", () => lookupInstallation(slot).catch(showError));
-  const clearInstallation = () => clearInstallationLookup(slot);
-  ["install-root", "bin-dir", "ssh-host", "ssh-port", "ssh-user", "ssh-key", "ssh-fingerprint", "ssh-tailscale"].forEach((name) => {
-    field(slot, name).addEventListener("input", clearInstallation);
-    field(slot, name).addEventListener("change", clearInstallation);
+  hostCard.querySelector(".robot-lookup-installation").addEventListener("click", () => lookupInstallation(slot, "robot").catch(showError));
+  const clearRuntimeInstallation = () => clearInstallationLookup(slot, "runtime");
+  const clearRobotInstallation = () => clearInstallationLookup(slot, "robot");
+  ["install-root", "bin-dir"].forEach((name) => {
+    field(slot, name).addEventListener("input", clearRuntimeInstallation);
+    field(slot, name).addEventListener("change", clearRuntimeInstallation);
+  });
+  ["robot-install-root", "robot-bin-dir"].forEach((name) => {
+    field(slot, name).addEventListener("input", clearRobotInstallation);
+    field(slot, name).addEventListener("change", clearRobotInstallation);
+  });
+  ["ssh-host", "ssh-port", "ssh-user", "ssh-key", "ssh-fingerprint", "ssh-tailscale"].forEach((name) => {
+    field(slot, name).addEventListener("input", () => clearAllInstallationLookups(slot));
+    field(slot, name).addEventListener("change", () => clearAllInstallationLookups(slot));
   });
   hostCard.querySelectorAll(".drop-zone").forEach(bindDropZone);
   hostCard.querySelector('input[name="local-host"]').addEventListener("change", updateSshVisibility);
   hostCard.querySelector('input[name="local-host"]').addEventListener("change", () => {
-    slots.forEach((other) => clearInstallationLookup(other));
+    slots.forEach((other) => clearAllInstallationLookups(other));
   });
   ["ssh-host", "ssh-port"].forEach((name) => {
     field(slot, name).addEventListener("input", () => {

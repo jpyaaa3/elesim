@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from elesim_setup.readable_names import (
+    ADJECTIVES,
+    ANIMALS,
     NAME_PATTERN,
     lookup_image_name,
     lookup_image_names,
@@ -16,6 +18,12 @@ from elesim_setup.readable_names import (
     release_reservation_identity,
     role_release_reservation_identity,
 )
+
+
+def test_readable_name_pool_is_internal_and_large_enough():
+    assert len(ADJECTIVES) == len(set(ADJECTIVES)) == 71
+    assert len(ANIMALS) == len(set(ANIMALS)) == 123
+    assert len(ADJECTIVES) * len(ANIMALS) == 8733
 
 
 def test_names_are_short_and_readable():

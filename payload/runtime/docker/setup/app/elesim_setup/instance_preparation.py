@@ -32,6 +32,7 @@ def prepare_instance_services(
     *,
     output_prefix: Path | None = None,
     security_views: dict[str, tuple[Path, str]] | None = None,
+    robot_id: str | None = None,
 ) -> dict[str, dict[str, object]]:
     """Validate a pinned release, render private configs, and return services.
 
@@ -41,6 +42,12 @@ def prepare_instance_services(
     """
     state.validate()
     instance.validate()
+    effective_robot_id = state.network.robot_id
+    if robot_id is not None:
+        if not isinstance(robot_id, str) or not robot_id:
+            raise ValueError("robot_id must be a non-empty endpoint identifier")
+        effective_robot_id = robot_id
+    replace(state.network, robot_id=effective_robot_id).validate()
     if "robot" in state.roles or not set(e.role for e in instance.endpoints).issubset(state.roles):
         raise ValueError("instance roles are not installed or include Robot")
     turn = scoped_turn_settings(instance, install_uuid)
@@ -160,6 +167,7 @@ def prepare_instance_services(
         network=replace(
             state.network,
             turn_urls=turn_urls,
+            robot_id=effective_robot_id,
         ),
         assigned_roles=tuple(endpoint.role for endpoint in instance.endpoints),
     )
@@ -176,6 +184,7 @@ def prepare_instance_services(
         template_root=template_root,
         security_views=security_views or None,
         output_prefix=output_prefix,
+        robot_id=effective_robot_id,
     )
     installer = ContainerInstaller(scoped, state_path=state.state_path, dry_run=True)
     installer._install_uuid = install_uuid

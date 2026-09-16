@@ -118,8 +118,9 @@ connection topology schema v6는 다음을 분리한다.
 `topology_mode`는 호환성 검증 후 폐기한다. DDS 주소와 SSH 주소가 같아도 한
 필드에서 다른 필드를 추론하지 않는다.
 
-graph role ID는 설치 전역 registry와 instance schema v3에 저장한다. schema v2
-instance는 읽을 때 role ID를 이관하며 저장 시 v3을 사용한다. instance는
+container graph role ID는 설치 전역 registry와 instance schema v3에 저장한다.
+native Robot graph ID는 topology/journal 경계에서만 전달하며 instance state에는
+저장하지 않는다. schema v2 instance는 읽을 때 role ID를 이관하며 저장 시 v3을 사용한다. instance는
 immutable `release_key`를 가리키고, `elesim-update`가 새 release를 publish해도
 자동으로 repin되지 않는다. scoped lifecycle은
 `elesim-instance <system> up|down|logs|status|remove`만 사용한다. scoped

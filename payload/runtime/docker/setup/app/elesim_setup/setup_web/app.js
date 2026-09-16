@@ -83,7 +83,9 @@ function renderRoles() {
   const container = byId("role-options");
   container.replaceChildren();
   roleOrder.forEach((role) => {
-    const unavailable = role === "robot" && !context.capabilities.robot_installable;
+    const simUnavailable = role === "sim"
+      && !["amd64", "x86_64"].includes(context.capabilities.architecture);
+    const unavailable = simUnavailable || (role === "robot" && !context.capabilities.robot_installable);
     const label = document.createElement("label");
     label.className = `role-option${unavailable ? " disabled" : ""}`;
     const input = document.createElement("input");
@@ -93,13 +95,6 @@ function renderRoles() {
     input.checked = selected.has(role) && !unavailable;
     input.disabled = unavailable;
     input.addEventListener("change", () => {
-      if (role === "robot" && input.checked) {
-        roleOrder.filter((item) => item !== "robot").forEach((item) => {
-          byId(`role-${item}`).checked = false;
-        });
-      } else if (input.checked && byId("role-robot")) {
-        byId("role-robot").checked = false;
-      }
       updateConditionalControls();
       updateTailscaleLoginCommand();
     });
@@ -107,7 +102,8 @@ function renderRoles() {
     const title = document.createElement("strong");
     title.textContent = t(`role.${role}`);
     const help = document.createElement("small");
-    help.textContent = unavailable ? t("role.robot.unavailable") : t(`role.${role}.help`);
+    help.textContent = simUnavailable ? t("role.sim.unavailable")
+      : unavailable ? t("role.robot.unavailable") : t(`role.${role}.help`);
     text.append(title, help);
     label.append(input, text);
     container.append(label);
@@ -227,6 +223,7 @@ async function prepareReview() {
     ["review.roles", summary.roles.length ? summary.roles.join(", ") : "—"],
     ["review.prefix", summary.prefix],
     ["review.bin", summary.bin_dir],
+    ...(summary.robot_prefix ? [["review.robot_prefix", summary.robot_prefix]] : []),
     ["review.gpu", summary.gpu_mode],
     ...(selectedRoles().includes("robot")
       ? [["review.dds_interface", summary.dds_interface]] : []),
@@ -437,7 +434,6 @@ async function initialize() {
       fetch("/i18n.json").then((response) => response.json()),
       api("/api/context")
     ]);
-    language = navigator.language.toLowerCase().startsWith("ko") ? "ko" : "en";
     byId("prefix").value = context.defaults.prefix;
     byId("bin-dir").value = context.defaults.bin_dir;
     byId("developer-workspace").value = context.defaults.developer_workspace || context.defaults.prefix;

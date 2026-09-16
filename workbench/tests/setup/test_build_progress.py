@@ -53,12 +53,32 @@ def test_build_report_lists_exported_role_images(tmp_path):
     assert result.returncode == 0, result.stderr
     assert result_file.read_text() == (
         "Installation name=quick_zebra\n"
-        "elesim/pilot=plain_horse\n"
-        "elesim/sim=ivory_llama\n"
         "elesim/tools=jolly_canary\n"
+        "elesim/sim=ivory_llama\n"
+        "elesim/pilot=plain_horse\n"
         "elesim/ui=silent_lynx\n"
     )
     assert b"Built images" not in result.stderr
+
+
+def test_build_report_accepts_compose_image_summary_lines(tmp_path):
+    result_file = tmp_path / "result" / "images.txt"
+    result = invoke(
+        tmp_path,
+        "print(' Image elesim/tools:quick_zebra-jolly_canary Built'); "
+        "print(' Image elesim/sim:quick_zebra-ivory_llama Built'); "
+        "print(' Image elesim/pilot:quick_zebra-plain_horse Built'); "
+        "print(' Image elesim/ui:quick_zebra-silent_lynx Built')",
+        result_file=result_file,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result_file.read_text() == (
+        "Installation name=quick_zebra\n"
+        "elesim/tools=jolly_canary\n"
+        "elesim/sim=ivory_llama\n"
+        "elesim/pilot=plain_horse\n"
+        "elesim/ui=silent_lynx\n"
+    )
 
 
 @pytest.mark.parametrize("mode", ["auto", "verbose"])

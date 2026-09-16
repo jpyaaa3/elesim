@@ -565,6 +565,59 @@ def test_noninteractive_install_mode_defaults_from_roles(tmp_path: Path) -> None
     assert cli._build_state(robot_args, ROOT).install_mode == "native"
 
 
+def test_noninteractive_mixed_roles_split_into_container_and_native_children(
+    tmp_path: Path,
+) -> None:
+    args = cli._parser().parse_args(
+        (
+            "install",
+            "--role",
+            "pilot",
+            "--role",
+            "robot",
+            "--prefix",
+            str(tmp_path / "install"),
+            "--bin-dir",
+            str(tmp_path / "bin"),
+            "--dds-interface",
+            "eth0",
+        )
+    )
+
+    children = cli._split_install_args(args)
+
+    assert [child.role for child in children] == [["pilot"], ["robot"]]
+    assert [child.mode for child in children] == ["auto", "auto"]
+    assert children[0].prefix == str(tmp_path / "install")
+    assert getattr(children[0], "register_path", False) is False
+    assert children[1].prefix == str(tmp_path / "install-robot")
+    assert children[1].bin_dir == str(tmp_path / "install-robot" / "bin")
+    assert children[1].register_path is False
+    assert children[1].turn_url == []
+    assert children[1].developer_attachment is False
+
+
+def test_noninteractive_mixed_roles_require_automatic_mode(tmp_path: Path) -> None:
+    args = cli._parser().parse_args(
+        (
+            "install",
+            "--role",
+            "pilot",
+            "--role",
+            "robot",
+            "--mode",
+            "container",
+            "--prefix",
+            str(tmp_path / "install"),
+            "--bin-dir",
+            str(tmp_path / "bin"),
+        )
+    )
+
+    with pytest.raises(ValueError, match="requires --mode auto"):
+        cli._split_install_args(args)
+
+
 def test_noninteractive_roles_override_legacy_profile_default(tmp_path: Path) -> None:
     args = cli._parser().parse_args(
         (

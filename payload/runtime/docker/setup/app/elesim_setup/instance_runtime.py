@@ -831,6 +831,7 @@ class InstanceRuntime:
         remove: bool,
         security_result: object | None = None,
         previous: InstanceState | None = None,
+        robot_id: str | None = None,
     ) -> Path:
         staged_instances = staged / "instances"
         staged_instances.mkdir(mode=0o700, parents=True)
@@ -860,6 +861,7 @@ class InstanceRuntime:
                 releases[system],
                 output_prefix=staged,
                 security_views=views,
+                robot_id=(robot_id if system == target_system else None),
             )
             groups[system] = group
             services = tuple(sorted(group))
@@ -1166,6 +1168,7 @@ class InstanceRuntime:
         replace_existing: bool = False,
         security_result: object | None = None,
         fail: Callable[[str], None] | None = None,
+        robot_id: str | None = None,
     ) -> InstanceState:
         """Register or replace one instance, publishing the full aggregate."""
 
@@ -1205,6 +1208,7 @@ class InstanceRuntime:
                     remove=False,
                     security_result=security_result,
                     previous=previous,
+                    robot_id=robot_id,
                 )
                 if self.ownership_manifest is not None:
                     append_instance_docker_ownership(
@@ -1234,6 +1238,7 @@ class InstanceRuntime:
         *,
         security_result: object | None = None,
         fail: Callable[[str], None] | None = None,
+        robot_id: str | None = None,
     ) -> InstanceState:
         return self.register(
             instance,
@@ -1241,6 +1246,7 @@ class InstanceRuntime:
             replace_existing=True,
             security_result=security_result,
             fail=fail,
+            robot_id=robot_id,
         )
 
     def remove(

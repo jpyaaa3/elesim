@@ -143,7 +143,25 @@ class ConnectionManagerApplication:
             if str(owner.prefix_path) != root or str(owner.bin_path) != bin_dir:
                 raise ValueError("installation paths do not match ownership")
             if owner.docker is None:
-                raise ValueError("installation has no Docker identity")
+                # Native Robot installations deliberately have no Compose
+                # project or release catalog.  They are still first-class
+                # installation choices for a Robot card; returning the
+                # native marker lets the browser keep Docker release lookup
+                # out of this path instead of treating a valid Jetson install
+                # as an invalid/foreign installation.
+                if len(owner.systemd_units) != 2:
+                    raise ValueError(
+                        "installation has no Docker identity or complete native Robot identity"
+                    )
+                return {
+                    "installations": [{
+                        "name": f"Robot ({root})",
+                        "install_uuid": owner.install_uuid,
+                        "install_mode": "native",
+                        "project": "",
+                        "releases": [],
+                    }]
+                }
             identity = {"install_uuid": owner.install_uuid, "project": owner.docker.project}
             name = owner.docker.install_name or owner.docker.project
             releases = list_releases(Path(root), install_uuid=owner.install_uuid)
@@ -225,7 +243,7 @@ class ConnectionManagerApplication:
         local_install_root: Path | None = None,
         local_bin_dir: Path | None = None,
         authority_root: Path | None = None,
-        gpu_mode: str = "cpu",
+        gpu_mode: str = "inherit",
         gpu_device: str = "",
     ) -> None:
         self.state_path = state_path.expanduser()
@@ -982,7 +1000,7 @@ def run_connection_gui(
     local_install_root: Path | None = None,
     local_bin_dir: Path | None = None,
     authority_root: Path | None = None,
-    gpu_mode: str = "cpu",
+    gpu_mode: str = "inherit",
     gpu_device: str = "",
 ) -> int:
     session_token = token or secrets.token_urlsafe(32)

@@ -7,6 +7,36 @@ import subprocess
 import pytest
 
 
+def test_inherit_policy_arrival_restores_default_without_overwriting_user_choice():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is required for the frontend behavioral check")
+    script = Path(__file__).resolve().parents[3] / (
+        "payload/runtime/docker/setup/app/elesim_connections/"
+        "connection_manager_web/app.js"
+    )
+    subprocess.run([node, "-e", r'''
+const fs = require("node:fs"), vm = require("node:vm");
+const assert = require("node:assert/strict");
+const source = fs.readFileSync(process.argv[1], "utf8");
+const controls = {"pilot-gpu-inherit": {checked: false}, "sim-gpu-inherit": {checked: false}};
+const context = vm.createContext({
+  gpuPolicies: {pilot: {mode: "unknown"}, sim: {mode: "cpu"}},
+  gpuDevices: {}, byId: id => controls[id], updateRuntimeOptions() {}
+});
+vm.runInContext(source.match(/function applyRuntimeGpuPolicies\([^]*?\n}/)[0], context);
+const hosts = [{roles: ["pilot", "sim"], gpu_policy: {
+  pilot: {mode: "inherit"}, sim: {mode: "inherit"}
+}}];
+context.applyRuntimeGpuPolicies(hosts);
+assert.equal(controls["pilot-gpu-inherit"].checked, true);
+assert.equal(controls["sim-gpu-inherit"].checked, true);
+controls["pilot-gpu-inherit"].checked = false;
+context.applyRuntimeGpuPolicies(hosts);
+assert.equal(controls["pilot-gpu-inherit"].checked, false);
+''', str(script)], check=True)
+
+
 def test_lookup_gate_and_stale_ssh_probe():
     node = shutil.which("node")
     if not node:
@@ -20,9 +50,10 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const assert = require("node:assert/strict");
 const source = fs.readFileSync(process.argv[1], "utf8");
-const names = ["installationLookupReady", "updateInstallationLookup", "probeSsh"];
+const names = ["installationLookupReady", "updateInstallationLookup", "installationOptionLabel", "probeSsh"];
 let local = "other", active = true, host = "old", port = 22, resolve;
-const fields = {"ssh-fingerprint": {value: ""}, "ssh-tailscale": {checked: false}};
+const fields = {"ssh-fingerprint": {value: ""}, "ssh-tailscale": {checked: false},
+  "ssh-user": {value: "operator"}};
 const button = {dataset: {}, setAttribute(k, v) {this[k] = v;}};
 let hostCard = {querySelector: () => button};
 let confirmations = 0;
@@ -44,6 +75,8 @@ for (const name of names) {
   context.updateInstallationLookup("com1");
   assert.equal(button.disabled, true);
   assert.equal(button.textContent, "install.lookup.blocked");
+  assert.equal(context.installationOptionLabel({install_mode: "native", name: "Robot (/opt/robot)"}),
+    "install.native — Robot (/opt/robot)");
   local = "com1";
   context.updateInstallationLookup("com1");
   assert.equal(button.disabled, false);
@@ -52,12 +85,18 @@ for (const name of names) {
   assert.equal(button["aria-disabled"], "true");
   delete button.dataset.lookupBusy;
   local = "other";
+  fields["ssh-user"].value = "";
+  await assert.rejects(context.probeSsh("com1"), /error.ssh.user.required/);
+  assert.equal(confirmations, 0);
+  fields["ssh-user"].value = "operator";
   for (const change of [() => host = "new", () => port = 23,
+      () => fields["ssh-user"].value = "different",
       () => fields["ssh-tailscale"].checked = true,
       () => hostCard = {querySelector: () => button},
       () => local = "com1", () => active = false, () => host = ""]) {
     host = "old"; port = 22; local = "other"; active = true;
     fields["ssh-tailscale"].checked = false;
+    fields["ssh-user"].value = "operator";
     const pending = context.probeSsh("com1");
     change(); resolve({fingerprint: "stale"}); await pending;
     assert.equal(fields["ssh-fingerprint"].value, "");
