@@ -2029,6 +2029,20 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     ) in compose_commands
 
 
+@pytest.mark.parametrize(
+    "capabilities, message",
+    [
+        (RemoteCapabilities(False, True, False, False, "x86_64"), "requires Docker"),
+        (RemoteCapabilities(True, True, False, False, "aarch64"), "requires an amd64"),
+    ],
+)
+def test_runtime_read_only_security_does_not_bypass_runtime_requirements(
+    capabilities: RemoteCapabilities, message: str
+) -> None:
+    with pytest.raises(RuntimeError, match=message):
+        capabilities.require_for(_topology().host("server"), require_security_write=False)
+
+
 def test_preflight_checks_writable_security_mount_not_read_only_install_prefix() -> None:
     topology = _topology()
     host = topology.host("server")

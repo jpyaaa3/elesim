@@ -571,7 +571,7 @@ class ConnectionDeploymentRunner:
                         # selected runtime backend is started.
                         operations[host.host_id].runtime_network_check(host)
                         capabilities = operations[host.host_id].preflight(host)
-                        capabilities.require_for(host)
+                        capabilities.require_for(host, require_security_write=False)
                         operations[host.host_id].runtime_launch_preflight(host)
                 if action == "start":
                     for host in hosts:
@@ -2231,7 +2231,7 @@ class ConnectionDeploymentRunner:
             try:
                 operations[host.host_id].runtime_network_check(host)
                 capabilities = operations[host.host_id].preflight(host)
-                capabilities.require_for(host)
+                capabilities.require_for(host, require_security_write=False)
                 status = dict(operations[host.host_id].status(host))
                 state = str(status.get("state", "unknown"))
                 running = status.get("running_roles", ())

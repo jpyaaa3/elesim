@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from elesim_connections.connection_manager import (
     ConnectionTopology,
     DdsEndpoint,
@@ -276,7 +278,8 @@ def test_scoped_first_provision_rejects_ambiguous_release_set(
         raise AssertionError("ambiguous releases must fail closed")
 
 
-def test_scoped_preflight_reads_instance_security_boundary(tmp_path: Path) -> None:
+@pytest.mark.parametrize("writable", [True, False])
+def test_scoped_preflight_reads_instance_security_boundary(tmp_path: Path, writable: bool) -> None:
     topology = _topology(tmp_path / "install")
     topology = ConnectionTopology(
         topology.system_id,
@@ -308,7 +311,9 @@ def test_scoped_preflight_reads_instance_security_boundary(tmp_path: Path) -> No
                 )
             if values[0:2] == ("test", "-e"):
                 return RemoteCommandResult(1 if "provisioning-required" in values[-1] else 0)
-            if values[0:2] in {("test", "-x"), ("test", "-w"), ("test", "-f")}:
+            if values[0:2] == ("test", "-w"):
+                return RemoteCommandResult(0 if writable else 1)
+            if values[0:2] in {("test", "-x"), ("test", "-f")}:
                 return RemoteCommandResult(0)
             if values[0] == "cat":
                 return RemoteCommandResult(
@@ -338,9 +343,13 @@ def test_scoped_preflight_reads_instance_security_boundary(tmp_path: Path) -> No
     capabilities = lifecycle.preflight(
         session,
         topology.local_host,
-        Path("/tmp/install/security"),
+        tmp_path / "install" / "instances" / "lab" / "security",
     )
-    assert capabilities.security_root_writable
+    assert capabilities.security_root_writable == writable
+    capabilities.require_for(topology.local_host, require_security_write=False)
+    if not writable:
+        with pytest.raises(RuntimeError, match="cannot write its security root"):
+            capabilities.require_for(topology.local_host)
     assert any(
         command
             == (

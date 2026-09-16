@@ -21,7 +21,7 @@ from elesim_connections.connections import (
     RuntimeRollbackError,
     _exception_detail,
 )
-from elesim_connections.secure_deployment import RuntimeLaunchOptions
+from elesim_connections.secure_deployment import RemoteCapabilities, RuntimeLaunchOptions
 
 
 FINGERPRINT = "SHA256:" + "A" * 43
@@ -247,12 +247,8 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
         def preflight(self, _host):
             events.append(f"preflight:{self.host_id}")
 
-            class Capabilities:
-                @staticmethod
-                def require_for(_managed_host) -> None:
-                    return None
-
-            return Capabilities()
+            # The manager's security view may be read-only during runtime use.
+            return RemoteCapabilities(True, True, True, False, "x86_64")
 
         def runtime_network_check(self, _host) -> None:
             events.append(f"network-check:{self.host_id}")
@@ -407,12 +403,8 @@ def test_runtime_start_reports_dds_readiness_after_launch(
             return None
 
         def preflight(self, _host):
-            class Capabilities:
-                @staticmethod
-                def require_for(_managed_host) -> None:
-                    return None
-
-            return Capabilities()
+            # The manager's security view may be read-only during runtime use.
+            return RemoteCapabilities(True, True, True, False, "x86_64")
 
         def runtime_network_check(self, _host) -> None:
             return None
@@ -522,12 +514,8 @@ def test_runtime_launch_preflight_fails_before_build_or_start(
 
     class Operations(_NoopNetworkPreparation):
         def preflight(self, _host):
-            class Capabilities:
-                @staticmethod
-                def require_for(_managed_host) -> None:
-                    return None
-
-            return Capabilities()
+            # The manager's security view may be read-only during runtime use.
+            return RemoteCapabilities(True, True, True, False, "x86_64")
 
         def runtime_network_check(self, host) -> None:
             events.append(f"network:{host.host_id}")
@@ -571,12 +559,8 @@ def test_runtime_readiness_fails_on_malformed_results_payload(
             return None
 
         def preflight(self, _host):
-            class Capabilities:
-                @staticmethod
-                def require_for(_managed_host) -> None:
-                    return None
-
-            return Capabilities()
+            # The manager's security view may be read-only during runtime use.
+            return RemoteCapabilities(True, True, True, False, "x86_64")
 
         def runtime_network_check(self, _host) -> None:
             return None
@@ -624,12 +608,8 @@ def test_runtime_readiness_preserves_compensating_stop_failures(
             self.stop_calls = 0
 
         def preflight(self, _host):
-            class Capabilities:
-                @staticmethod
-                def require_for(_managed_host) -> None:
-                    return None
-
-            return Capabilities()
+            # The manager's security view may be read-only during runtime use.
+            return RemoteCapabilities(True, True, True, False, "x86_64")
 
         def runtime_network_check(self, _host) -> None:
             return None
@@ -693,12 +673,8 @@ def test_runtime_launch_failure_rolls_back_the_partially_started_current_host(
             self.host_id = host_id
 
         def preflight(self, _host):
-            class Capabilities:
-                @staticmethod
-                def require_for(_managed_host) -> None:
-                    return None
-
-            return Capabilities()
+            # The manager's security view may be read-only during runtime use.
+            return RemoteCapabilities(True, True, True, False, "x86_64")
 
         def runtime_network_check(self, _host) -> None:
             return None
@@ -752,12 +728,8 @@ def test_runtime_second_host_partial_launch_rolls_back_both_in_reverse_order(
             self.host_id = host_id
 
         def preflight(self, _host):
-            class Capabilities:
-                @staticmethod
-                def require_for(_managed_host) -> None:
-                    return None
-
-            return Capabilities()
+            # The manager's security view may be read-only during runtime use.
+            return RemoteCapabilities(True, True, True, False, "x86_64")
 
         def runtime_network_check(self, _host) -> None:
             return None
@@ -802,12 +774,8 @@ def test_runtime_start_rejects_mixed_running_state_before_build(
 
     class Operations(_NoopNetworkPreparation):
         def preflight(self, _host):
-            class Capabilities:
-                @staticmethod
-                def require_for(_managed_host) -> None:
-                    return None
-
-            return Capabilities()
+            # The manager's security view may be read-only during runtime use.
+            return RemoteCapabilities(True, True, True, False, "x86_64")
 
         def runtime_network_check(self, _host) -> None:
             return None
@@ -930,7 +898,8 @@ def test_host_check_combines_network_preflight_and_runtime_status(
 
     class Capabilities:
         @staticmethod
-        def require_for(_host) -> None:
+        def require_for(_host, *, require_security_write=True) -> None:
+            assert not require_security_write
             events.append("require")
 
     class Operations:

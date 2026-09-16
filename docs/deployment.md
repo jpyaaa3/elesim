@@ -214,6 +214,12 @@ RGB-D를 inter-host consumer가 직접 구독하지 않는다.
 
 ### Check와 preflight
 
+Runtime `start`/`check` validate installed security material without requiring
+the manager session to write the security root. Its local scoped-instance view
+is intentionally read-only. Security deployment/rotation retain the separate
+writability requirement; runtime checks still enforce identity, generation,
+role, Docker, architecture and Robot host constraints.
+
 `check`는 SSH 및 namespace interface/address/route를 읽기 전용으로 확인한다.
 two-host preflight는 Jetson 없이 정확히 두 COM endpoint를 검사하며 topology,
 key, generation 또는 role deployment를 저장하지 않는다. 성공해도 DDS

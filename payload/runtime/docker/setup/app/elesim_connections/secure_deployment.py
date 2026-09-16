@@ -471,8 +471,13 @@ class RemoteCapabilities:
     security_root_writable: bool
     architecture: str = ""
 
-    def require_for(self, host: ManagedHost) -> None:
-        if not self.security_root_writable:
+    def require_for(
+        self, host: ManagedHost, *, require_security_write: bool = True
+    ) -> None:
+        # Runtime start/check consume validated security material; only security
+        # deployment requires this session to write it. In particular, the local
+        # manager intentionally sees scoped instance security read-only.
+        if require_security_write and not self.security_root_writable:
             raise RuntimeError(f"host {host.host_id!r} cannot write its security root")
         if host.runtime_units and not self.docker:
             raise RuntimeError(f"host {host.host_id!r} requires Docker")
