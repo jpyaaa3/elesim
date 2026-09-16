@@ -1175,6 +1175,7 @@ def test_scoped_journal_validation_rejects_unknown_fields_even_if_terminal(
         authority_observed=None,
     )
     journal["status"] = "completed"
+    journal["phase"] = "complete"
     journal["unexpected"] = True
     runner._write_transaction_journal(topology, journal)
 
@@ -1202,6 +1203,29 @@ def test_scoped_unresolved_failed_journal_refuses_new_deployment(
 
     with pytest.raises(RuntimeError, match="unresolved scoped transaction journal"):
         runner._refuse_unresolved_scoped_journal(topology)
+
+
+def test_completed_scoped_journal_from_previous_topology_is_ignored(
+    tmp_path: Path,
+) -> None:
+    topology = _registration_topology(tmp_path, "trusted-network")
+    release = _release(LOCAL_UUID, ("pilot", "sim", "ui"))
+    runner = ConnectionDeploymentRunner(tmp_path / "authority")
+    journal = _recovery_journal(
+        runner,
+        topology,
+        _registration_plans(topology, release),
+        action="deploy",
+        authority_before=None,
+        authority_target=None,
+        authority_observed=None,
+    )
+    journal["status"] = "completed"
+    journal["phase"] = "complete"
+    runner._write_transaction_journal(topology, journal)
+    changed = replace(topology, dds_graph=replace(topology.dds_graph, domain_id=7))
+
+    runner._refuse_unresolved_scoped_journal(changed)
 
 
 def test_scoped_transaction_lock_serializes_same_system_managers(

@@ -914,6 +914,19 @@ class ConnectionDeploymentRunner:
         if not isinstance(digest, str) or _SHA256_HEX_RE.fullmatch(digest) is None:
             raise RuntimeError("scoped transaction journal topology digest is invalid")
         if digest != ConnectionDeploymentRunner._scoped_topology_digest(topology):
+            # A completed/rolled-back journal is historical evidence, not an
+            # outstanding recovery obligation.  The operator may legitimately
+            # edit the topology before the next transaction; keeping the old
+            # digest must not block that new transaction.  Incomplete journals
+            # remain fail-closed because recovery must use the exact topology
+            # that was journaled.
+            if (
+                payload.get("status") in _SCOPED_TERMINAL_STATUSES
+                and payload.get("phase") == "complete"
+                and payload.get("action") in {"deploy", "provision", "rotate"}
+                and payload.get("security_profile") == topology.security_profile
+            ):
+                return
             raise RuntimeError(
                 "scoped transaction journal topology does not match the saved topology"
             )
