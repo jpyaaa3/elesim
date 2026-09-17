@@ -764,6 +764,11 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "function setRuntimeOptionsLocked(locked)" in script
     assert "function restoreRuntimeOptions(job)" in script
     assert "restoreRuntimeOptions(job);" in script
+    assert 'if (job.status === "cancelled") {' in script
+    cancelled = script.split('if (job.status === "cancelled") {', 1)[1].split("\n    }", 1)[0]
+    assert "runtimeOptionsLocked = false;" in cancelled
+    assert "markWorkflowDirty();" in cancelled
+    assert 'if (job.status === "cancelled") byId("save").focus();' in script
     assert 'job.action !== "start"' in script
     assert "if (locksRuntimeOptions) setRuntimeOptionsLocked(true);" in script
     assert "if (!running && runtimeOptionsLocked) setRuntimeOptionsLocked(false);" not in script

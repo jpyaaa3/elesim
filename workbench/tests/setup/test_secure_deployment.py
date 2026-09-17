@@ -2322,10 +2322,38 @@ def test_runtime_doctor_explains_non_json_remote_output() -> None:
             return RemoteCommandResult(2, "build progress\n", "docker failed\n")
 
     topology = _topology()
-    with pytest.raises(RuntimeError, match="invalid JSON.*server"):
+    with pytest.raises(RuntimeError, match="invalid JSON.*server") as error:
         InstalledElesimLifecycle(topology).runtime_doctor(
             DoctorSession(), topology.host("server"), (), 4.0
         )
+    assert "exit=2" in str(error.value)
+    assert "stdout='build progress'" in str(error.value)
+    assert "stderr='docker failed'" in str(error.value)
+
+
+@pytest.mark.parametrize("status,stdout,failed", [
+    (0, '{"ok": true, "results": []}', False),
+    (1, '{"ok": false, "results": []}', False),
+    (2, '{"ok": true}', True),
+    (1, '{"ok": true}', True),
+    (0, '', True),
+    (0, 'build progress\n{"ok": true}', True),
+])
+def test_doctor_separates_compose_warnings_and_execution_failures(status, stdout, failed):
+    class DoctorSession:
+        def run(self, argv, *, check=True):
+            return RemoteCommandResult(status, stdout, "Found orphan containers\nNo services to build\n")
+
+    topology = _topology()
+    def probe():
+        return InstalledElesimLifecycle(topology).runtime_doctor(
+            DoctorSession(), topology.host("server"), (), 4.0
+        )
+    if failed:
+        with pytest.raises(RuntimeError):
+            probe()
+    else:
+        assert probe() == json.loads(stdout)
 
 
 def test_runtime_network_check_never_mixes_ssh_ports_into_dds_preflight() -> None:

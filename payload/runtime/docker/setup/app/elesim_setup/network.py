@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import base64
 import ipaddress
 import json
@@ -1150,14 +1151,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Running processes must be restarted to read the new configuration.")
             return 0
         if args.command == "doctor":
-            report = NetworkDoctor(
-                state,
-                timeout_s=args.timeout,
-                active=args.active,
-                expected_peers=args.expect_peer,
-                strict_peers=args.strict_peers,
-                readiness_only=args.readiness_only,
-            ).run()
+            # Probe diagnostics must not contaminate the machine-readable reply.
+            with contextlib.redirect_stdout(sys.stderr) if args.json else contextlib.nullcontext():
+                report = NetworkDoctor(
+                    state,
+                    timeout_s=args.timeout,
+                    active=args.active,
+                    expected_peers=args.expect_peer,
+                    strict_peers=args.strict_peers,
+                    readiness_only=args.readiness_only,
+                ).run()
             print(
                 json.dumps(report.to_dict(), ensure_ascii=False, indent=2)
                 if args.json

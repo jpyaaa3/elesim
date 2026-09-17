@@ -2153,7 +2153,7 @@ class ContainerInstaller:
             + "    fi\n"
             + "  fi\n"
             + "fi\n"
-            + f"exec {command} run --rm -T \"$net_service\" elesim-net "
+            + f"exec {command} run --rm -T --no-build \"$net_service\" elesim-net "
             + f"--state {shlex.quote(str(self.state_path))}"
             + ' "$@"\n',
         )

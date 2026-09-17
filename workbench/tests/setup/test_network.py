@@ -1,11 +1,33 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+from types import SimpleNamespace
 
 import pytest
 
 from elesim_setup.container_installer import refresh_compose_dds_environment
 from elesim_setup.network import _snapshot
+
+
+def test_doctor_json_keeps_probe_prints_on_stderr(local_state, monkeypatch, capsys):
+    from elesim_setup import network
+
+    monkeypatch.setattr(network.InstallState, "load", lambda path: local_state())
+    class Doctor:
+        def __init__(self, *args, **kwargs):
+            print("probe initialization")
+
+        def run(self):
+            print("probe progress")
+            return SimpleNamespace(ok=True, to_dict=lambda: {"ok": True, "results": []})
+
+    monkeypatch.setattr(network, "NetworkDoctor", Doctor)
+    assert network.main(["doctor", "--json"]) == 0
+    output = capsys.readouterr()
+    assert json.loads(output.out) == {"ok": True, "results": []}
+    assert "probe initialization" in output.err
+    assert "probe progress" in output.err
 
 
 def test_compose_refresh_rejects_broken_symlink(local_state) -> None:

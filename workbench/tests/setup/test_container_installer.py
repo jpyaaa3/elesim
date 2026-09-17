@@ -414,7 +414,8 @@ def _fake_docker(path: Path) -> Path:
         "  printf 'build progress that must not reach stdout\\n'\n"
         "  exit 0\n"
         "fi\n"
-        "if [[ $arguments == *' run --rm -T tools elesim-net '* || $arguments == *' run --rm -T runtime-tools elesim-net '* ]]; then\n"
+        "if [[ $arguments == *' run --rm -T --no-build tools elesim-net '* || $arguments == *' run --rm -T --no-build runtime-tools elesim-net '* ]]; then\n"
+        "  printf 'Found orphan containers; No services to build\\n' >&2\n"
         "  printf '{\"schema_version\":1}\\n'\n"
         "  exit 0\n"
         "fi\n"
@@ -1179,7 +1180,7 @@ def test_sidecar_down_then_up_starts_persisted_identity_before_namespace_check(
         login_start,
     )
     namespace_check = rendered.index(
-        "run --rm -T runtime-tools elesim-net", login_status
+        "run --rm -T --no-build runtime-tools elesim-net", login_status
     )
     runtime_start = rendered.index(
             "up -d --build ui", namespace_check
@@ -2809,7 +2810,7 @@ def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Pa
     wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     assert "build --quiet tools >/dev/null" in wrapper
     assert "net_service=tools" in wrapper
-    assert 'run --rm -T "$net_service" elesim-net' in wrapper
+    assert 'run --rm -T --no-build "$net_service" elesim-net' in wrapper
     assert "run --rm --build tools elesim-net" not in wrapper
 
 

@@ -3379,19 +3379,35 @@ class InstalledElesimLifecycle:
                 if value:
                     argv.extend(("--expect-peer", value))
             result = session.run(tuple(argv), check=False)
+
+            def excerpt(value: str) -> str:
+                value = value.strip()
+                if len(value) > 240:
+                    value = value[:100] + " ... " + value[-140:]
+                return repr(value)
+
+            diagnostic = (
+                f"exit={result.exit_status}; stdout={excerpt(result.stdout)}; "
+                f"stderr={excerpt(result.stderr)}"
+            )
             try:
                 payload = json.loads(result.stdout)
             except json.JSONDecodeError as exc:
-                detail = result.stderr.strip() or result.stdout.strip()
                 raise RuntimeError(
                     f"elesim-net doctor returned invalid JSON on "
-                    f"{host.host_id}/{unit.unit_id!r}"
-                    + (f": {detail[:512]}" if detail else "")
+                    f"{host.host_id}/{unit.unit_id!r}: {diagnostic}"
                 ) from exc
             if not isinstance(payload, Mapping):
                 raise RuntimeError(
                     f"elesim-net doctor returned a non-object on "
-                    f"{host.host_id}/{unit.unit_id!r}"
+                    f"{host.host_id}/{unit.unit_id!r}: {diagnostic}"
+                )
+            if result.exit_status not in (0, 1) or (
+                result.exit_status == 1 and payload.get("ok") is not False
+            ):
+                raise RuntimeError(
+                    f"elesim-net doctor execution failed on "
+                    f"{host.host_id}/{unit.unit_id!r}: {diagnostic}"
                 )
             payloads[unit.unit_id] = dict(payload)
         if len(payloads) == 1:

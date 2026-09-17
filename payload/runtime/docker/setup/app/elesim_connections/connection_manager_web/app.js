@@ -1483,8 +1483,15 @@ async function pollJob() {
         setWorkflowStepState("start", "pending");
       }
     }
+    if (job.status === "cancelled") {
+      // Wait for backend cancellation/rollback to finish before reopening
+      // the workflow. Preserve the form and diagnostic log for the retry.
+      runtimeOptionsLocked = false;
+      markWorkflowDirty();
+    }
     setJobRunning(running);
     updateWorkflow(running);
+    if (job.status === "cancelled") byId("save").focus();
     if (
       !running
       && ["check", "prepare", "provision", "deploy", "rotate", "start"].includes(job.action)
