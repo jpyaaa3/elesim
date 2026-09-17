@@ -8,7 +8,7 @@ import shlex
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from .operation_lock import render_lock_preamble
+from .operation_lock import LOCK_MARKER, render_lock_preamble
 from .state import DEFAULT_SOURCE_REF, DEFAULT_SOURCE_REPOSITORY
 
 
@@ -221,6 +221,17 @@ def render_update_wrapper(
                 f"--state {shlex.quote(str(state_path))} update",
             )
         )
+    if fetch_source and runtime_snapshot is not None:
+        # Bootstrap has replaced the generated release command. Never finish
+        # publication with this process's pre-update role/tag/schema rules.
+        # Carry the already-held lock through exec to avoid reacquiring it.
+        lines.append(
+            "exec " + shlex.quote(str(prefix / "bin" / "elesim-release")
+                                    if compose_wrapper is None
+                                    else str(compose_wrapper.parent / "elesim-release"))
+            + " " + shlex.quote(LOCK_MARKER) + " 9"
+        )
+        return "\n".join(lines) + "\n"
     if compose is not None:
         compose_command = (
             shlex.quote(str(compose_wrapper))

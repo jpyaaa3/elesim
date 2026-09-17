@@ -294,6 +294,14 @@ EleSim만 갱신하며 host Tailscale은 변경하지 않는다. 기존 개별 w
 
 ### Update
 
+Scoped updates hand off to the freshly generated `elesim-release` command after
+bootstrap completes, preserving the installation lock. This keeps publication
+rules aligned with the new installation artifacts. An updater predating this
+handoff may fail with `invalid scoped image for role sim` after refreshing to a
+new tag format. In that case, run `./elesim-release` from the installation's
+`bin` directory to finish building/publishing with the refreshed command; it
+does not fetch source again and reuses the Docker build cache.
+
 ```bash
 elesim-update
 ```
@@ -311,6 +319,16 @@ Legacy update는 기존 dangling-image 정리만 유지한다. `--purge`나 down
 지우거나 foreign resource를 prune하지 않는다.
 
 ### Build cache
+
+Sim and development images pin Genesis World 1.4.1 and NumPy 1.26.4.
+Sim uses `opencv-python==4.11.0.86`, matching Genesis's distribution dependency;
+OpenCV 4.12 requires NumPy 2 on Python 3.10. Development retains the same-version
+contrib distribution for Pilot and also pins Genesis's OpenCV dependency.
+The shared Sim and development builds check imports and the NumPy/Torch bridge
+after dependency installation. Genesis's Madrona 0.0.10 dependency installs CUDA
+12 NVRTC/nvJitLink packages on Linux amd64 even with CPU compute selected; their
+presence does not select GPU execution. Full GPU/rendering acceptance remains
+a separate runtime check.
 
 Bootstrap은 `~/.cache/elesim/setup/environments-v2/`에 Python 의존성과
 EleSim 패키지 환경을 분리하여 보관한다. Python 버전/플랫폼/실행 경로,

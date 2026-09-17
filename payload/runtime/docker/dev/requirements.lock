@@ -4,7 +4,7 @@ shapely==2.1.2
 PyYAML==6.0.2
 pyserial==3.5
 dynamixel-sdk==4.0.5
-genesis-world==1.2.0
+genesis-world==1.4.1
 imgui==2.0.0
 glfw==2.10.0
 PyOpenGL==3.1.10
@@ -12,6 +12,8 @@ PyOpenGL-accelerate==3.1.10
 torch==2.12.1
 torchvision==0.27.1
 opencv-contrib-python==4.11.0.86
+# Genesis requires this distribution; keep its cv2 ABI aligned with contrib.
+opencv-python==4.11.0.86
 pyrealsense2==2.58.2.10647
 ultralytics==8.4.75
 casadi==3.7.2

@@ -81,9 +81,10 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip ins
     fi && \
     python3 -m pip install --upgrade-strategy only-if-needed \
       -r /tmp/requirements.lock && \
-    python3 -m pip install \
+    python3 -m pip install -c /tmp/requirements.lock \
       "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git@1c63c6a762779887ab0431fd60db681dede6cb32" && \
-    python3 -m pip check
+    python3 -m pip check && \
+    python3 -c 'import importlib.metadata as m; import numpy as np, cv2, torch, pinocchio, genesis; assert np.__version__ == "1.26.4"; assert m.version("genesis-world") == "1.4.1"; assert cv2.__version__ == "4.11.0"; torch.from_numpy(np.zeros(1, dtype=np.float32))'
 
 # aiortc needs a current cryptography release, while Humble's SROS2 CLI uses
 # Ubuntu's patched 3.4 ABI.  Keep both: normal applications resolve /usr/local;

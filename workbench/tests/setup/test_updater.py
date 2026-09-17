@@ -4,6 +4,7 @@ import os
 import json
 import sys
 import subprocess
+import shlex
 from pathlib import Path
 
 import pytest
@@ -287,10 +288,11 @@ def test_scoped_update_reads_only_fresh_authenticated_revision_handoff(
     assert "rm -f -- \"$release_revision_file\"" in script
     assert "ELESIM_SCOPED_UPDATE=1" in script
     assert "ELESIM_SOURCE_REVISION_FILE=\"$release_revision_file\"" in script
-    assert "authenticated source revision handoff is missing" in script
-    assert "authenticated source revision handoff is invalid" in script
-    # The outer wrapper must not accept a stale or forged ambient value after
-    # bootstrap exits; only its exact private handoff is consulted.
+    assert "elesim-release __elesim_operation_lock_held_v1 9" in script
+    assert "invalid scoped image" not in script
+    assert "docker compose" not in script
+    # Publication uses the freshly generated release wrapper's authenticated
+    # revision, never the updater's old embedded rules or ambient revision.
     assert "ELESIM_SOURCE_REVISION:-" not in script
     assert "docker image rm" not in script
     assert subprocess.run(
@@ -300,6 +302,44 @@ def test_scoped_update_reads_only_fresh_authenticated_revision_handoff(
         capture_output=True,
         check=False,
     ).returncode == 0
+
+
+def test_update_executes_refreshed_release_with_existing_lock(tmp_path: Path) -> None:
+    prefix = tmp_path / "install"
+    bin_dir = tmp_path / "custom bin"
+    bin_dir.mkdir()
+    (prefix / "maintenance").mkdir(parents=True)
+    lock = prefix / "instances/.locks/install.lock"
+    lock.parent.mkdir(parents=True)
+    release = bin_dir / "elesim-release"
+    release.write_text("#!/bin/bash\nexit 99\n")
+    release.chmod(0o755)
+    fresh = tmp_path / "fresh"
+    fresh.write_text(
+        '#!/bin/bash\nset -eu\n'
+        '[[ $1 == __elesim_operation_lock_held_v1 && $2 == 9 ]]\n'
+        f'[[ $(readlink /proc/$$/fd/9) == {shlex.quote(str(lock))} ]]\n'
+        'printf "fresh-release\\n"\n'
+    )
+    curl = bin_dir / "curl"
+    # Fake bootstrap replaces the release script while the old updater runs.
+    bootstrap = f"cp {shlex.quote(str(fresh))} {shlex.quote(str(release))}"
+    curl.write_text("#!/bin/bash\nprintf '%s\\n' " + shlex.quote(bootstrap) + "\n")
+    curl.chmod(0o755)
+    updater = bin_dir / "elesim-update"
+    updater.write_text(render_update_wrapper(
+        prefix=prefix, state_path=prefix / "install-state.json",
+        compose=prefix / "compose.yaml", compose_wrapper=bin_dir / "elesim-compose",
+        install_uuid="01234567-89ab-cdef-0123-456789abcdef",
+        runtime_snapshot=prefix / "snapshot", publish_roles=("sim",),
+    ))
+    result = subprocess.run(
+        ["bash", "-c", f"exec 9>{shlex.quote(str(lock))}; bash {shlex.quote(str(updater))} __elesim_operation_lock_held_v1 9"],
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "fresh-release" in result.stdout
 
 
 def test_release_wrapper_requires_an_embedded_revision(tmp_path: Path) -> None:
