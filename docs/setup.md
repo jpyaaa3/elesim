@@ -18,8 +18,14 @@
 - 선택한 security/TURN/config state와 bounded log archive
 - 선택 시 같은 Compose project에 붙는 persistent `elesim-dev` 개발 attachment
 
-설치 자체는 image build나 runtime start를 하지 않는다. 첫 release build/publish는
-`elesim-update`, 등록된 system의 실행은 `elesim-instance <system> up`이 담당한다.
+설치 작업은 먼저 파일과 구성을 생성한다. curl 설치마법사에서 성공 후 종료를
+누르면 호스트 터미널에서 `elesim-release`가 자동 실행되어 첫 이미지를 빌드하고
+릴리스를 발행한다. 실패·취소 또는 Robot 단독 native 설치는 이 단계를 실행하지
+않는다. 수동 재시도는 설치 bin의 `./elesim-release`, 등록된 system의 실행은
+`elesim up <system>`을 사용한다. 자동 발행은 runtime 역할을 시작하지 않는다.
+임시 설치 컨테이너는 `--rm`으로 정리되며, 고정 이름 `elesim-manager`를 삭제하는
+명령은 필요하지 않다. 부모 터미널의 디렉터리와 PATH는 변경할 수 없으므로 필요시
+`cd <prefix>/bin` 또는 `source ~/.bashrc`를 직접 실행한다.
 
 Scoped 설치의 정확한 owner identity는 다음 read-only 명령으로 확인할 수 있다.
 

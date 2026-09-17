@@ -4,12 +4,53 @@ import json
 import http.client
 import threading
 import time
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
 
 from elesim_setup.capabilities import HostCapabilities
 from elesim_setup.gui import WizardApplication, WizardServer, web_root
+
+
+@pytest.mark.parametrize("status,roles,closed,expected", [
+    ("completed", ("sim",), True, True),
+    ("completed", ("pilot", "robot"), True, True),
+    ("completed", ("robot",), True, False),
+    ("failed", ("sim",), True, False),
+    ("cancelled", ("sim",), True, False),
+    ("completed", ("sim",), False, False),
+])
+def test_quit_hands_successful_container_install_to_host(
+    tmp_path, monkeypatch, status, roles, closed, expected,
+):
+    from elesim_setup import gui
+    handoff = tmp_path / "handoff"
+    handoff.touch()
+    monkeypatch.setenv("ELESIM_GUI_RELEASE_HANDOFF", str(handoff))
+    custom_bin = tmp_path / "custom bin"
+
+    class Server:
+        def __init__(self, address, application):
+            self.server_address = address
+            self.application = application
+
+        def serve_forever(self, **kwargs):
+            app = self.application
+            if status == "completed":
+                app._run_install(SimpleNamespace(roles=roles, bin_dir=custom_bin))
+            else:
+                app.job.status = status
+            app.close_requested = closed
+
+        def server_close(self):
+            pass
+
+    monkeypatch.setattr(gui, "WizardServer", Server)
+    assert gui.run_gui(source_root=tmp_path, invocation_dir=tmp_path,
+                       repository="owner/repo", ref="main", capabilities=_capabilities(),
+                       runner=lambda request, log: None) == 0
+    assert handoff.read_text() == (str(custom_bin / "elesim-release") + "\n" if expected else "")
 
 
 def _capabilities() -> HostCapabilities:
@@ -101,7 +142,9 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert ".command-row code" in style and "white-space: pre-wrap;" in style
     assert "elesim-connections</code>" in html
     assert '`${binDir}/elesim-connections && source ~/.bashrc && ${managerCleanup}`' not in script
-    assert '`cd ${shellQuote(binDir)} && source ~/.bashrc && ${managerCleanup}`' in script
+    assert '`cd ${shellQuote(binDir)} && source ~/.bashrc${release}`' in script
+    assert '" && ./elesim-release"' in script
+    assert 'docker rm elesim-manager' not in script
     assert "function updateTailscaleLoginCommand()" in script
     assert "usesDockerDesktop" in script
     assert "const shellQuote =" in script

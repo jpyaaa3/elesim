@@ -320,11 +320,11 @@ async function pollJob() {
       byId("install-status").textContent = t("install.completed");
       byId("completion").hidden = false;
       const binDir = byId("bin-dir").value.trim();
-      const managerCleanup =
-        'if [ "$(docker inspect -f \'{{.State.Running}}\' elesim-manager 2>/dev/null)" = false ]; then docker rm elesim-manager; fi';
+      const release = selectedRoles().some((role) => ["sim", "pilot", "ui"].includes(role))
+        ? " && ./elesim-release" : "";
       byId("start-command").textContent =
-        `cd ${shellQuote(binDir)} && source ~/.bashrc && ${managerCleanup}`;
-      byId("post-install-command").textContent = "elesim-connections";
+        `cd ${shellQuote(binDir)} && source ~/.bashrc${release}`;
+      byId("post-install-command").textContent = `cd ${shellQuote(binDir)} && ./elesim connections`;
     } else if (job.status === "failed") {
       window.clearInterval(pollTimer);
       byId("cancel-install").disabled = true;
@@ -423,8 +423,14 @@ function initializeEvents() {
     byId("directory-dialog").close();
   });
   byId("close-installer").addEventListener("click", async () => {
-    await api("/api/shutdown", {method: "POST", body: "{}"});
-    window.close();
+    byId("close-installer").disabled = true;
+    try {
+      await api("/api/shutdown", {method: "POST", body: "{}"});
+      window.close();
+    } catch (error) {
+      byId("close-installer").disabled = false;
+      setError(error);
+    }
   });
 }
 

@@ -14,6 +14,7 @@ bootstrap_tmp=""
 bootstrap_publish_tmp=""
 archive_env_file=""
 browser_pid=""
+gui_release_handoff=""
 
 fail() {
   printf 'EleSim bootstrap error: %s\n' "$*" >&2
@@ -21,6 +22,9 @@ fail() {
 }
 
 cleanup() {
+  if [[ -n "$gui_release_handoff" ]]; then
+    rm -f -- "$gui_release_handoff"
+  fi
   if [[ -n "$bootstrap_tmp" ]]; then
     rm -f -- "$bootstrap_tmp" >/dev/null 2>&1 || true
   fi
@@ -245,6 +249,10 @@ for argument in "$@"; do
   fi
 done
 
+if ((gui_mode)); then
+  gui_release_handoff="$(mktemp "$cache_dir/.gui-release.XXXXXX")"
+fi
+
 docker_args=(
   run --rm -i
   --user "$(id -u):$(id -g)"
@@ -266,6 +274,7 @@ docker_args=(
   --env "ELESIM_GUI_HOST=0.0.0.0"
   --env "ELESIM_GUI_PORT=$gui_port"
   --env "ELESIM_GUI_TOKEN=$gui_token"
+  --env "ELESIM_GUI_RELEASE_HANDOFF=$gui_release_handoff"
   --env "ELESIM_VERIFY_BOOTSTRAP_SOURCE=1"
   --env "ELESIM_HOST_ARCH=$host_arch"
   --env "ELESIM_HOST_OS_ID=$host_os_id"
@@ -292,6 +301,7 @@ if [[ -n "$archive_env_file" ]]; then
   docker_args+=(--env-file "$archive_env_file")
 fi
 if ((gui_mode)); then
+  docker_args+=(--volume "$gui_release_handoff:$gui_release_handoff")
   docker_args+=(--publish "127.0.0.1:${gui_port}:${gui_port}")
 elif [[ -r /dev/tty ]]; then
   docker_args+=(--tty)
@@ -316,6 +326,7 @@ if [[ -n "${SSH_AUTH_SOCK:-}" && -S "${SSH_AUTH_SOCK}" ]]; then
 fi
 
 host_bootstrap_env=(
+  "ELESIM_GUI_RELEASE_HANDOFF=$gui_release_handoff"
   "HOME=$HOME"
   "USER=$host_user"
   "LOGNAME=$host_user"
@@ -407,6 +418,12 @@ if ((gui_mode)); then
         --invocation-dir "$invocation_dir" \
         --repo "$repository" \
         --ref "$ref"
+  fi
+  if [[ -s "$gui_release_handoff" ]]; then
+    IFS= read -r release_command < "$gui_release_handoff"
+    [[ "$release_command" == /*/elesim-release && -x "$release_command" ]] || fail "Invalid release command handoff"
+    printf '%s\n' '[bootstrap] Building and publishing the first runtime release.'
+    "$release_command"
   fi
 elif [[ -r /dev/tty ]]; then
   if ((host_bootstrap)); then

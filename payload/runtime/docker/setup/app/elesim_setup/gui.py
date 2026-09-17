@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 import secrets
+import subprocess
 import threading
 import time
 import urllib.parse
@@ -99,6 +100,8 @@ class WizardApplication:
         self.job = InstallJob()
         self._job_lock = threading.Lock()
         self._cancel_event = threading.Event()
+        self.release_command: Path | None = None
+        self.close_requested = False
 
     def context(self) -> dict[str, object]:
         return {
@@ -229,6 +232,7 @@ class WizardApplication:
             if self.job.status in {"running", "cancelling"}:
                 raise RuntimeError("an installation is already running")
             self._cancel_event.clear()
+            self.release_command = None
             self.job = InstallJob(status="running", started_at=time.time())
         thread = threading.Thread(
             target=self._run_install,
@@ -274,6 +278,8 @@ class WizardApplication:
                 self.job.finished_at = time.time()
             return
         with self._job_lock:
+            if any(role in {"sim", "pilot", "ui"} for role in request.roles):
+                self.release_command = request.bin_dir / "elesim-release"
             self.job.status = "completed"
             self.job.finished_at = time.time()
 
@@ -342,6 +348,11 @@ class WizardRequestHandler(BaseHTTPRequestHandler):
             self._call(self.server.application.cancel_install)
             return
         if parsed.path == "/api/shutdown":
+            with self.server.application._job_lock:
+                if self.server.application.job.status in {"running", "cancelling"}:
+                    self._json({"error": "installation is still running"}, status=HTTPStatus.CONFLICT)
+                    return
+                self.server.application.close_requested = True
             self._json({"status": "closing"})
             threading.Thread(target=self.server.shutdown, daemon=True).start()
             return
@@ -473,6 +484,17 @@ def run_gui(
         return 130
     finally:
         server.server_close()
+    if application.close_requested and application.release_command is not None:
+        handoff = os.environ.get("ELESIM_GUI_RELEASE_HANDOFF", "")
+        if handoff:
+            # Only the successfully installed request supplies this path;
+            # shutdown accepts no command/path from the browser.
+            command = str(application.release_command)
+            if "\n" in command or "\r" in command:
+                raise ValueError("release command path must be a single line")
+            Path(handoff).write_text(command + "\n", encoding="utf-8")
+        else:
+            return subprocess.run([str(application.release_command)], check=False).returncode
     return 0
 
 
