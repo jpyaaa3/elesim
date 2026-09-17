@@ -48,7 +48,7 @@ from elesim_setup.instances import InstanceEndpoint, InstanceState
 from elesim_setup.ownership import OwnershipManifest
 from elesim_setup.releases import ReleaseManifest, list_releases, release_key
 from .security_authority import Sros2Authority, new_generation_id
-from elesim_setup.state import InstallState, NetworkSettings, TurnSettings
+from elesim_setup.state import ComputeSettings, InstallState, NetworkSettings, TurnSettings
 
 
 Log = Callable[[str], None]
@@ -280,6 +280,7 @@ class ConnectionDeploymentRunner:
             self.local_install_root is not None
             and self._local_install_scope() is True
         )
+        prepare_only = scoped_install and action == "prepare"
         role_counts = {
             role: sum(
                 assignment.role == role
@@ -313,7 +314,11 @@ class ConnectionDeploymentRunner:
             pass
         authority: Sros2Authority | None = None
         active = None
-        if action not in {"start", "stop", "check", "recover"}:
+        if prepare_only:
+            # Preparation validates enrollment/releases without freezing the
+            # compute choices that the operator makes in the next UI step.
+            pass
+        elif action not in {"start", "stop", "check", "recover"}:
             if topology.security_profile == "trusted-network":
                 if action == "prepare":
                     action = "deploy"
@@ -351,14 +356,14 @@ class ConnectionDeploymentRunner:
         scoped_lock: int | None = None
 
         if scoped_install and action in {
-            "deploy", "provision", "rotate", "recover",
+            "deploy", "provision", "rotate", "recover", "prepare", "start",
         }:
             # The check must happen while holding the same per-system lock as
             # the subsequent journal writes.  Otherwise two manager windows
             # can both observe a clean journal and interleave registrations.
             scoped_lock = self._acquire_scoped_transaction_lock(topology)
             try:
-                if action in {"deploy", "provision", "rotate"}:
+                if action in {"deploy", "provision", "rotate", "prepare", "start"}:
                     self._refuse_unresolved_scoped_journal(topology)
                 if (
                     scoped_install
@@ -405,6 +410,7 @@ class ConnectionDeploymentRunner:
                 "deploy",
                 "rotate",
                 "start",
+                "prepare",
             }:
                 log("Preparing runtime network infrastructure on each host.")
                 discovered_addresses: dict[str, str] = {}
@@ -482,6 +488,33 @@ class ConnectionDeploymentRunner:
             # host networking has been prepared and any newly discovered DDS
             # address has been persisted.  They must never fall through to
             # the install-wide topology/security writers below.
+            if prepare_only:
+                self._scoped_unit_plans(topology, operations)
+                self._plan_native_units(topology, operations, "deploy")
+                for host in topology.hosts:
+                    operations[host.host_id].runtime_network_check(host)
+                    inventory = operations[host.host_id].runtime_inventory(host)
+                    if inventory.get("gpu_policy_error"):
+                        raise RuntimeError(f"{host.host_id}: {inventory['gpu_policy_error']}")
+                    log(f"validated: {host.host_id}")
+                log("Connection preparation completed. Choose GPU/Viewer options; instances will be registered when starting.")
+                return topology
+            if scoped_install and action == "start":
+                authority = (
+                    Sros2Authority(self.authority_root / topology.system_id)
+                    if topology.security_profile == "sros2" else None
+                )
+                registration_action = (
+                    "rotate" if authority is not None and authority.active() is not None
+                    else "provision" if authority is not None else "deploy"
+                )
+                journal = self._new_scoped_journal(registration_action, topology)
+                self._deploy_scoped_units(
+                    topology, action=registration_action, authority=authority,
+                    operations=operations, log=log, journal=journal,
+                    runtime_options=runtime_options, starting=True,
+                )
+                log("All scoped instance registrations completed atomically.")
             if scoped_install and action == "recover":
                 journal = self._load_scoped_journal(topology)
                 if journal is None:
@@ -625,7 +658,7 @@ class ConnectionDeploymentRunner:
                             # later unit fails. Record the attempt first so the
                             # compensating stop also covers that partial host.
                             launched.append(host)
-                            if runtime_options is None:
+                            if runtime_options is None or scoped_install:
                                 operations[host.host_id].launch(host)
                             else:
                                 operations[host.host_id].launch(host, runtime_options)
@@ -1641,8 +1674,45 @@ class ConnectionDeploymentRunner:
         operations: Mapping[str, Any],
         log: Log,
         journal: dict[str, object],
+        runtime_options: RuntimeLaunchOptions | None = None,
+        starting: bool = False,
     ) -> ConnectionTopology:
         plans = self._scoped_unit_plans(topology, operations)
+        if starting and runtime_options is None:
+            plans = [
+                (host, unit, replace(instance, compute=previous.compute, compute_is_explicit=previous.compute_is_explicit,
+                                     role_compute=previous.role_compute, viewer=previous.viewer) if previous else instance,
+                 release, previous, previous_release)
+                for host, unit, instance, release, previous, previous_release in plans
+            ]
+        if runtime_options is not None:
+            selected_plans = []
+            for host, unit, instance, release, previous, previous_release in plans:
+                policies = {}
+                for role in set(unit.roles) & {"pilot", "sim"}:
+                    inherit, device = runtime_options.role_values(role)
+                    policies[role] = (
+                        ComputeSettings("specific" if device else "inherit", device)
+                        if inherit else ComputeSettings("cpu", "")
+                    ) if instance.compute.gpu_mode == "inherit" else instance.compute
+                instance = replace(instance, role_compute=policies, viewer=runtime_options.viewer and "sim" in unit.roles)
+                selected_plans.append((host, unit, instance, release, previous, previous_release))
+            plans = selected_plans
+        if starting:
+            # Reject any already-running participant before registration can
+            # replace another host, or before the first runtime is launched.
+            for host in topology.hosts:
+                if any(item[0].host_id == host.host_id and item[4] is not None for item in plans):
+                    status = operations[host.host_id].status(host)
+                    if status.get("state") not in {"stopped", "inactive"} or self._status_running_roles(host, status):
+                        raise RuntimeError(f"stop all roles on {host.host_id} before starting")
+            generation = self._authority_generation(authority) if authority is not None else ""
+            if plans and (authority is None or generation) and not any(host.robot_units for host in topology.hosts) and all(
+                previous is not None and previous == replace(instance, security_generation=generation or "")
+                for _host, _unit, instance, _release, previous, _previous_release in plans
+            ):
+                log("Registered instance settings unchanged; reusing all registrations.")
+                return topology
         native_records = self._plan_native_units(topology, operations, action)
         if native_records:
             journal["schema_version"] = _SCOPED_NATIVE_JOURNAL_SCHEMA
@@ -1655,7 +1725,7 @@ class ConnectionDeploymentRunner:
                 status = operations[native.host_id].status(native)
                 if status.get("state") not in {"stopped", "inactive"} or self._status_running_roles(native, status):
                     raise RuntimeError("stop all roles before mixed Robot preparation")
-        if action == "rotate":
+        if action == "rotate" and not starting:
             missing = [
                 f"{host.host_id}/{unit.unit_id}"
                 for host, unit, _instance, _release, previous, _prior_release in plans
@@ -2738,8 +2808,14 @@ class ConnectionDeploymentRunner:
         hosts: list[dict[str, object]] = []
         try:
             for host in topology.hosts:
+                inventory: dict[str, object] = {}
                 try:
+                    inventory_probe = getattr(operations[host.host_id], "runtime_inventory", None)
+                    if callable(inventory_probe):
+                        inventory = dict(inventory_probe(host))
+                        inventory["inventory_ready"] = not bool(inventory.get("gpu_policy_error"))
                     value = dict(operations[host.host_id].status(host))
+                    value.update(inventory)
                     # Runtime status is keyed by the stable host ID; discard
                     # labels returned by an older remote helper.
                     value.pop("display_name", None)
@@ -2749,6 +2825,7 @@ class ConnectionDeploymentRunner:
                 except Exception as exc:
                     hosts.append(
                         {
+                            **inventory,
                             "host_id": host.host_id,
                             "roles": list(host.roles),
                             "reachable": False,

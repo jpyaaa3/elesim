@@ -2884,6 +2884,7 @@ def _scoped_instance_dispatcher(
             + (
                 'if [[ $instance_action == up ]]; then\n'
                 '  "$instance_wrapper" "$@"\n'
+                '  if [[ ${1:-} == --preflight ]]; then exit 0; fi\n'
                 f'  PYTHONNOUSERSITE=1 PYTHONPATH={shlex.quote(str(prefix / "maintenance"))} python3 -B -S -m elesim_setup.image_cleanup '
                 f'--prefix {shlex.quote(str(prefix))}\n'
                 '  exit 0\n'

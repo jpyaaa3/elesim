@@ -532,6 +532,10 @@ class SshConnector(Protocol):
 class RemoteLifecycle(Protocol):
     """Host-specific runtime operations executed over an authenticated session."""
 
+    def runtime_inventory(
+        self, session: SshSession, host: ManagedHost
+    ) -> Mapping[str, Any]: ...
+
     def preflight(
         self, session: SshSession, host: ManagedHost, security_root: PurePosixPath
     ) -> RemoteCapabilities: ...
@@ -616,6 +620,8 @@ class RemoteLifecycle(Protocol):
 
 
 class HostOperations(Protocol):
+    def runtime_inventory(self, host: ManagedHost) -> Mapping[str, Any]: ...
+
     def preflight(self, host: ManagedHost) -> RemoteCapabilities: ...
 
     def runtime_network_check(self, host: ManagedHost) -> None: ...
@@ -1544,6 +1550,10 @@ class SshHostOperations:
         result.setdefault("roles", list(host.roles))
         return result
 
+    def runtime_inventory(self, host: ManagedHost) -> Mapping[str, Any]:
+        with self._connect(host) as session:
+            return self._lifecycle.runtime_inventory(session, host)
+
     def verify(
         self,
         host: ManagedHost,
@@ -2465,6 +2475,12 @@ class InstalledElesimLifecycle:
             command.extend(("--gpu-mode", str(compute.gpu_mode)))
             if str(compute.gpu_device):
                 command.extend(("--gpu-device", str(compute.gpu_device)))
+        for role, policy in getattr(instance, "role_compute", {}).items():
+            command.extend((f"--{role}-gpu-mode", policy.gpu_mode))
+            if policy.gpu_device:
+                command.extend((f"--{role}-gpu-device", policy.gpu_device))
+        if getattr(instance, "viewer", False):
+            command.append("--viewer")
         turn = getattr(instance, "turn", None)
         turn_mode = str(getattr(turn, "mode", "none"))
         command.extend(("--turn-mode", turn_mode))
@@ -2806,6 +2822,8 @@ class InstalledElesimLifecycle:
                 )
             if not self._scoped or unit.install_mode == "native":
                 session.run((str(_net_command(unit)), "configuration-check"))
+            elif scoped_state.get("viewer", False):
+                session.run((str(PurePosixPath(unit.bin_dir) / "elesim-instance"), self._topology.system_id, "up", "--preflight"))
 
     def prepare_runtime_network(
         self,
@@ -3235,15 +3253,18 @@ class InstalledElesimLifecycle:
                     # Accept matching selections as a request to use the saved
                     # policy, without forwarding legacy flags to instance up.
                     gpu_roles = set(unit.roles) & {"pilot", "sim"}
-                    if runtime_options.viewer and "sim" in unit.roles:
-                        raise ValueError("scoped Sim instances do not support the legacy Viewer launch option")
+                    instance_state = self._scoped_instance_state(session, unit)
+                    if "sim" in unit.roles and runtime_options.viewer != instance_state.get("viewer", False):
+                        raise ValueError("selected Viewer policy differs from the registered instance")
                     if gpu_roles:
-                        saved = self._scoped_instance_state(session, unit).get("compute", {})
+                        saved = instance_state.get("compute", {})
                         if not isinstance(saved, Mapping):
                             raise ValueError("registered instance compute policy is invalid")
                         mode = saved.get("gpu_mode", "inherit")
                         device = saved.get("gpu_device", "")
                         for role in sorted(gpu_roles):
+                            role_saved = instance_state.get("role_compute", {}).get(role, saved)
+                            mode, device = role_saved.get("gpu_mode", "inherit"), role_saved.get("gpu_device", "")
                             inherit, selected = runtime_options.role_values(role)
                             requested = ("cpu", "") if not inherit else (("specific", selected) if selected else ("inherit", ""))
                             if requested != (mode, device):
@@ -3616,6 +3637,14 @@ class InstalledElesimLifecycle:
         if devices:
             snapshot["gpu_devices"] = devices
         return snapshot
+
+    def runtime_inventory(self, session: SshSession, host: ManagedHost) -> Mapping[str, Any]:
+        """Query installed compute capabilities before any instance exists."""
+        policies, errors = self._gpu_policies(session, host)
+        result: dict[str, Any] = {"gpu_policy": policies, "gpu_devices": self._gpu_devices(session, host)}
+        if errors:
+            result["gpu_policy_error"] = "; ".join(errors)[:512]
+        return result
 
     @staticmethod
     def _gpu_devices(

@@ -225,6 +225,28 @@ RGB-D를 inter-host consumer가 직접 구독하지 않는다.
 
 ### Check와 preflight
 
+The connection manager's scoped three-step workflow saves the topology, prepares
+connections, then boots. Step 2 (`prepare`) validates installation identities,
+selected releases, networking, native prerequisites and GPU inventory without
+registering container instances. GPU inventory is installation-scoped and does
+not require an existing system instance.
+
+Step 3 (`start`) captures the selected Pilot/Sim GPU policies and Sim Viewer
+setting, then completes the existing all-host registration/security transaction
+before launch preflights or runtime startup. Unchanged stopped registrations are
+reused; changed settings use the explicit replacement transaction. Registration
+failure cannot leave another host already booted. Explicit provision/rotation
+commands retain their existing transaction behavior. The UI keeps Start disabled
+until preparation and the subsequent inventory refresh complete.
+
+Instance schema v3 accepts optional `role_compute` (assigned Pilot/Sim policies)
+and `viewer` (Sim only) fields. Older records retain their instance-wide compute
+policy and headless default. Registration wrappers accept per-role GPU flags and
+`--viewer`; generated services persist exact device reservations and Viewer mode.
+Viewer X11/GL preflight runs for every selected Sim before any host is launched;
+its temporary ACL is cleaned after preflight, on launch failure and on down.
+Both operator and runtime installations must be updated for these fields.
+
 Runtime `start`/`check` validate installed security material without requiring
 the manager session to write the security root. Its local scoped-instance view
 is intentionally read-only. Security deployment/rotation retain the separate

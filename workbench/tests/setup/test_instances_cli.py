@@ -10,6 +10,7 @@ import pytest
 from elesim_setup.cli import (
     _docker_instance_service_verifier,
     _instance_from_args,
+    _parser,
     _scoped_security_stage_root,
     main,
 )
@@ -19,6 +20,25 @@ from elesim_setup.state import DdsSettings, InstallState, NetworkSettings
 
 def _state(system: str, domain: int) -> InstanceState:
     return InstanceState(system, "a" * 64, (InstanceEndpoint("pilot", f"{system}-ep"),), domain)
+
+
+@pytest.mark.parametrize("action", ["register", "replace"])
+def test_registration_cli_preserves_independent_gpu_and_viewer_options(tmp_path, action):
+    args = _parser().parse_args([
+        "instance", action, "--system", "test", "--release", "a" * 64,
+        "--endpoint", "pilot:pilot-1", "--endpoint", "sim:sim-1",
+        "--pilot-gpu-mode", "specific", "--pilot-gpu-device", "0",
+        "--sim-gpu-mode", "specific", "--sim-gpu-device", "1", "--viewer",
+    ])
+    state = InstallState(
+        profile="custom", roles=("pilot", "sim"), prefix=str(tmp_path),
+        bin_dir=str(tmp_path / "bin"), source_root=str(tmp_path),
+    )
+    instance = _instance_from_args(args, state)
+    assert instance.role_compute["pilot"].gpu_device == "0"
+    assert instance.role_compute["sim"].gpu_device == "1"
+    assert instance.viewer is True
+    assert InstanceState.from_dict(instance.to_dict()) == instance
 
 
 def test_instances_cli_lists_all_and_selects_one(tmp_path, capsys):

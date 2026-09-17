@@ -6,6 +6,7 @@ import shutil
 import threading
 import tempfile
 import time
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
@@ -73,6 +74,45 @@ def _instance(system: str, release: ReleaseManifest, domain: int) -> InstanceSta
         tuple(InstanceEndpoint(role, f"{system}-{role}") for role in ("pilot", "sim", "ui")),
         domain,
     )
+
+
+@pytest.mark.parametrize("preflight", [True, False])
+@pytest.mark.parametrize("probe_result", [0, 7])
+def test_scoped_viewer_checks_before_up_and_cleans_failed_or_probe_grant(local_state, tmp_path, monkeypatch, preflight, probe_result):
+    state = _state(local_state, roles=("sim",))
+    runtime = InstanceRuntime(state, INSTALL)
+    instance = InstanceState("viewer", "a" * 64, (InstanceEndpoint("sim", "sim-one"),), 0, viewer=True)
+    target = tmp_path / "wrappers"
+    events = tmp_path / "events"
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        '#!/bin/bash\nprintf "%s\\n" "$*" >> "$TEST_EVENTS"\n'
+        f'if [[ "$*" == *--elesim-viewer-preflight* ]]; then exit {probe_result}; fi\n'
+    )
+    docker.chmod(0o755)
+    monkeypatch.setenv("PATH", str(fake_bin) + ":/usr/bin:/bin")
+    monkeypatch.setenv("TEST_EVENTS", str(events))
+    monkeypatch.setattr("elesim_setup.instance_runtime._docker_backend_guard", lambda *args: "")
+    monkeypatch.setattr("elesim_setup.instance_runtime.compose_owner_guard", lambda *args, **kwargs: "")
+    monkeypatch.setattr(runtime, "_with_operation_lock", lambda script, *args: script)
+    monkeypatch.setattr("elesim_setup.instance_runtime._viewer_xhost_function", lambda *args, **kwargs:
+        'viewer_xhost_cleanup_on_failure=1\nviewer_xhost_enable() { echo enable >> "$TEST_EVENTS"; }\n'
+        'viewer_xhost_cleanup() { echo cleanup >> "$TEST_EVENTS"; }\n')
+    runtime._write_wrappers(target, instance, (service_key("viewer", "sim-one"),))
+    script = target / "bin/up"
+    subprocess.run(["bash", "-n", str(script)], check=True)
+    result = subprocess.run(["bash", str(script), "--preflight" if preflight else "--no-build"], check=False)
+    assert result.returncode == probe_result
+    lines = events.read_text().splitlines()
+    assert lines[0] == "enable"
+    assert "--elesim-viewer-preflight" in lines[1]
+    if preflight or probe_result:
+        assert lines[-1] == "cleanup"
+        assert not any(" up -d " in line for line in lines)
+    else:
+        assert " up -d --no-build " in lines[-1]
 
 
 def _write_sidecar_base_compose(state) -> None:

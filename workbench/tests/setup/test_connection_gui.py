@@ -749,7 +749,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert '`${role}_gpu_device`' in script
     assert 'viewer: Boolean(byId("use-viewer")?.checked)' in script
     assert "const workflowReady = workflowSaved && workflowApplied;" in script
-    assert "const optionsLocked = runtimeOptionsLocked || !workflowReady;" in script
+    assert "const optionsLocked = runtimeOptionsLocked || !workflowReady || !runtimeReady;" in script
     assert 'bootOptions.classList.toggle("runtime-options-locked", optionsLocked);' in script
     assert "let runtimeOptionsLocked = false;" in script
     assert "let gpuInheritAvailable = null;" in script

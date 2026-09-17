@@ -30,6 +30,8 @@ from .container_installer import (
     _docker_backend_guard,
     _runtime_down_wrapper,
     _runtime_logs_wrapper,
+    _resolve_viewer_user,
+    _viewer_xhost_function,
 )
 from .instance_compose import aggregate_compose
 from .instance_identity import container_name, project_name, service_key
@@ -762,6 +764,11 @@ class InstanceRuntime:
                 alternate_composes=(self.base_compose,),
             )
         guard = backend_guard + owner_guard
+        viewer_state = (
+            self.prefix / "instances" / instance.system_id / "cache" / "viewer-xhost"
+            if any(endpoint.role == "sim" for endpoint in instance.endpoints) else None
+        )
+        viewer_user = _resolve_viewer_user()
         down = _runtime_down_wrapper(
             compose=self.compose,
             logs_root=logs_root,
@@ -770,6 +777,8 @@ class InstanceRuntime:
             guard=guard,
             project=self.project,
             instance_scoped=True,
+            viewer_state=viewer_state,
+            viewer_user=viewer_user,
         )
         logs = _runtime_logs_wrapper(
             compose=self.compose,
@@ -780,13 +789,33 @@ class InstanceRuntime:
             project=self.project,
         )
         rendered = " ".join(shlex.quote(service) for service in services)
+        compose_command = f"docker compose -p {shlex.quote(self.project)} -f {shlex.quote(str(self.compose))}"
+        viewer_setup = ""
+        if instance.viewer:
+            sim_endpoint = next(endpoint for endpoint in instance.endpoints if endpoint.role == "sim")
+            sim_service = shlex.quote(service_key(instance.system_id, sim_endpoint.endpoint_id))
+            viewer_setup = (
+                _viewer_xhost_function(viewer_state, xhost_user=viewer_user)
+                + "viewer_xhost_enable\n"
+                + "viewer_result=0\n"
+                + f"{compose_command} run --rm -T --no-deps --no-build {sim_service} --elesim-viewer-preflight || viewer_result=$?\n"
+                + "if (( viewer_result != 0 || preflight_only )); then\n"
+                + "  if (( viewer_xhost_cleanup_on_failure )); then viewer_xhost_cleanup || viewer_result=$?; fi\n"
+                + "  exit \"$viewer_result\"\nfi\n"
+            )
         up = (
             "#!/usr/bin/env bash\nset -euo pipefail\n"
             + guard
-            + "if (( $# != 0 )) && [[ $1 != --no-build ]]; then\n"
-            "  printf 'usage: elesim-instance-up [--no-build]\\n' >&2; exit 64\nfi\n"
+            + "if (( $# > 1 )) || { (( $# == 1 )) && [[ $1 != --no-build && $1 != --preflight ]]; }; then\n"
+            "  printf 'usage: elesim-instance-up [--no-build|--preflight]\\n' >&2; exit 64\nfi\n"
+            "preflight_only=0\n[[ ${1:-} != --preflight ]] || preflight_only=1\n"
             "if (( $# == 1 )); then shift; fi\n"
-            f"exec docker compose -p {shlex.quote(self.project)} -f {shlex.quote(str(self.compose))} up -d --no-build {rendered}\n"
+            + viewer_setup
+            + "if (( preflight_only )); then exit 0; fi\n"
+            + (f"compose_status=0\n{compose_command} up -d --no-build {rendered} || compose_status=$?\n"
+               "if (( compose_status != 0 && viewer_xhost_cleanup_on_failure )); then viewer_xhost_cleanup || compose_status=$?; fi\n"
+               "exit \"$compose_status\"\n" if instance.viewer else
+               f"exec {compose_command} up -d --no-build {rendered}\n")
         )
         operation_lock = self.prefix / "instances" / ".locks" / f"{instance.system_id}.lock"
         maintenance_root = self.prefix / "maintenance"

@@ -425,6 +425,11 @@ BuildKit `CACHED` output. Static ordering tests are not proof of cache hits.
 
 ### Scoped instance lifecycle
 
+In the connection manager, step 2 prepares connections and reads GPU inventory.
+Step 3 registers or replaces the selected instances with the chosen per-role GPU
+and Viewer settings before starting any host. Selecting different GPUs for Pilot
+and Sim on the same host is supported. Use updated installations on every host.
+
 ```bash
 elesim-instance <system> up [--no-build]
 elesim-instance <system> down

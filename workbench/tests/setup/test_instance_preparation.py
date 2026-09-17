@@ -140,6 +140,27 @@ def test_prepare_applies_per_instance_compute_policy_to_pilot_and_sim(tmp_path: 
     assert cpu_roles["sim"]["environment"]["CUDA_VISIBLE_DEVICES"] == ""
 
 
+def test_role_gpu_and_viewer_choices_survive_registration_rendering(tmp_path: Path):
+    state = _state(tmp_path)
+    source = tmp_path / "data"
+    source.mkdir()
+    (source / "model.bin").write_bytes(b"model")
+    release = _release(state, source)
+    instance = replace(
+        _instance("alpha", release),
+        role_compute={"pilot": ComputeSettings("specific", "0"), "sim": ComputeSettings("specific", "1")},
+        viewer=True,
+    )
+    restored = InstanceState.from_dict(instance.to_dict())
+    assert restored == instance
+    services = prepare_instance_services(state, INSTALL, restored, release)
+    by_role = {service["labels"]["io.elesim.role"]: service for service in services.values()}
+    assert by_role["pilot"]["deploy"]["resources"]["reservations"]["devices"][0]["device_ids"] == ("0",)
+    assert by_role["sim"]["deploy"]["resources"]["reservations"]["devices"][0]["device_ids"] == ("1",)
+    assert by_role["sim"]["environment"]["ELESIM_SIM_VIEWER"] == "1"
+    assert "CUDA_VISIBLE_DEVICES" not in by_role["sim"]["environment"]
+
+
 def test_bad_release_fails_before_instance_tree(tmp_path: Path):
     state = _state(tmp_path)
     source = tmp_path / "data"; source.mkdir(); (source / "x").write_text("x")

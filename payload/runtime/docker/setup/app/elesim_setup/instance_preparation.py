@@ -205,8 +205,10 @@ def prepare_instance_services(
             keystore_root=(security_views[role][0] if security_views else None),
             enclave=(security_views[role][1] if security_views else None),
             instance_scoped=True,
-            compute=scoped.compute,
+            compute=instance.role_compute.get(role, scoped.compute),
         )
+        if role == "sim":
+            service["environment"]["ELESIM_SIM_VIEWER"] = "1" if instance.viewer else "0"
         endpoint_services[endpoint] = service
     rendered = render_instance_services(install_uuid, instance, release, endpoint_services)
     if turn.mode == "managed":

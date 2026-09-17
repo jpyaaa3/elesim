@@ -42,6 +42,8 @@ let gpuDevices = {pilot: [], sim: []};
 let jobSubmissionPending = false;
 let workflowSaved = false;
 let workflowApplied = false;
+let runtimeReady = false;
+let runtimeRevision = 0;
 let workflowStarted = false;
 // A browser session always revalidates the loaded form before it can proceed.
 // The topology fields are still restored from disk, but a previous session's
@@ -1042,13 +1044,17 @@ function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-s
   const initializerComplete = workflowStarted;
   const apply = byId("apply");
   apply.textContent = t("action.prepare");
+  const start = byId("runtime-start");
+  const waiting = !initializerComplete && (!workflowApplied || !runtimeReady);
+  start.dataset.i18n = waiting ? "action.wait" : "action.start";
+  start.textContent = t(start.dataset.i18n);
   setWorkflowStepEnabled("save", !busy && !initializerComplete && !workflowSaved);
   setWorkflowStepEnabled(
     "apply",
     !busy && !initializerComplete && workflowSaved && !workflowApplied,
   );
   setWorkflowButtonsEnabled("start", {
-    "runtime-start": !busy && !initializerComplete && workflowSaved && workflowApplied,
+    "runtime-start": !busy && !initializerComplete && workflowSaved && workflowApplied && runtimeReady,
   });
   updateRuntimeOptions();
 }
@@ -1122,7 +1128,7 @@ function updateGpuDeviceOptions(role) {
 function updateRuntimeOptions() {
   const viewer = byId("use-viewer");
   const workflowReady = workflowSaved && workflowApplied;
-  const optionsLocked = runtimeOptionsLocked || !workflowReady;
+  const optionsLocked = runtimeOptionsLocked || !workflowReady || !runtimeReady;
   const bootOptions = document.querySelector(".boot-options");
   if (bootOptions) {
     bootOptions.classList.toggle("runtime-options-locked", optionsLocked);
@@ -1269,6 +1275,8 @@ async function saveTopology({quiet = false, invalidate = true} = {}) {
   if (invalidate) {
     workflowStarted = false;
     workflowApplied = false;
+    runtimeReady = false;
+    runtimeRevision += 1;
   }
   if (invalidate) {
     setWorkflowStepState("apply", "pending");
@@ -1325,12 +1333,14 @@ async function startJob(action) {
   let submitted = false;
   let step = "";
   try {
-    if (locksRuntimeOptions && (!workflowSaved || !workflowApplied)) {
+    if (locksRuntimeOptions && (!workflowSaved || !workflowApplied || !runtimeReady)) {
       throw new Error(t("error.workflow.incomplete"));
     }
     await saveTopology({quiet: true, invalidate: false});
     if (["prepare", "provision", "deploy", "rotate"].includes(action)) {
       workflowApplied = false;
+      runtimeReady = false;
+      runtimeRevision += 1;
       setWorkflowStepState("start", "pending");
       updateRuntimeOptions();
     }
@@ -1359,11 +1369,12 @@ async function startJob(action) {
 }
 
 async function runApplyJob() {
-  const action = byId("security").value === "sros2" ? "prepare" : "deploy";
-  await startJob(action);
+  await startJob("prepare");
 }
 
 function markWorkflowDirty() {
+  runtimeReady = false;
+  runtimeRevision += 1;
   workflowStarted = false;
   workflowSaved = false;
   workflowRequiresFreshSave = true;
@@ -1375,6 +1386,7 @@ function markWorkflowDirty() {
 }
 
 function renderRuntimeStatus(result) {
+  runtimeReady = false;
   if (!result?.available) {
     updateWorkflow();
     byId("runtime-status").textContent = result?.reason || t("runtime.unavailable");
@@ -1382,6 +1394,10 @@ function renderRuntimeStatus(result) {
   }
   const hosts = Array.isArray(result.hosts) ? result.hosts : [];
   applyRuntimeGpuPolicies(hosts);
+  runtimeReady = workflowApplied && hosts.length > 0 && hosts.every((host) =>
+    (host.inventory_ready ?? host.reachable) && (host.roles || []).every((role) =>
+      !["pilot", "sim"].includes(role)
+      || ["inherit", "specific", "cpu"].includes(host.gpu_policy?.[role]?.mode)));
   const rows = hosts.map((host) => {
     const roles = (host.roles || []).join(", ");
     const state = host.reachable ? (host.state || "unknown") : t("runtime.unreachable");
@@ -1406,9 +1422,14 @@ function renderRuntimeStatus(result) {
 async function pollRuntimeStatus() {
   if (runtimePollInFlight || ["running", "cancelling"].includes(byId("job-status").dataset.status)) return;
   runtimePollInFlight = true;
+  const revision = runtimeRevision;
+  const applied = workflowApplied;
   try {
-    renderRuntimeStatus(await api("/api/runtime"));
+    const result = await api("/api/runtime");
+    if (revision === runtimeRevision && applied === workflowApplied) renderRuntimeStatus(result);
   } catch (error) {
+    if (revision !== runtimeRevision || applied !== workflowApplied) return;
+    runtimeReady = false;
     byId("runtime-status").textContent = error instanceof Error ? error.message : String(error);
     updateWorkflow();
   } finally {

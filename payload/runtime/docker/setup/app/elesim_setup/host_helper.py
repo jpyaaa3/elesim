@@ -464,8 +464,8 @@ def _validate_command(
             raise HostHelperError("scoped lifecycle action is invalid")
         remainder = tuple(argv[3:])
         if action == "up":
-            if remainder not in {(), ("--no-build",)}:
-                raise HostHelperError("scoped up accepts only --no-build")
+            if remainder not in {(), ("--no-build",), ("--preflight",)}:
+                raise HostHelperError("scoped up accepts only --no-build or --preflight")
         elif remainder:
             raise HostHelperError("scoped lifecycle command has unsupported options")
         return

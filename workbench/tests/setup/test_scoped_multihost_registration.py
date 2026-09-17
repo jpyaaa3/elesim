@@ -301,6 +301,127 @@ class _RegistrationOperations:
         pass
 
 
+class _BootOperations(_RegistrationOperations):
+    def __init__(self, events, **kwargs):
+        super().__init__(events, **kwargs)
+        self.registered = []
+
+    def runtime_inventory(self, host):
+        return {"gpu_policy": {role: {"mode": "inherit", "device": ""} for role in host.roles if role in {"pilot", "sim"}}}
+
+    def runtime_network_check(self, host):
+        self.events.append(("network-check", host.host_id))
+
+    def preflight(self, host):
+        return SimpleNamespace(require_for=lambda *args, **kwargs: None)
+
+    def runtime_launch_preflight(self, host):
+        self.events.append(("preflight", host.host_id))
+
+    def build(self, host, output):
+        self.events.append(("build", host.host_id))
+
+    def launch(self, host):
+        self.events.append(("launch", host.host_id))
+
+    def register_scoped_instance(self, host, unit, instance, release, bundle=None, **kwargs):
+        super().register_scoped_instance(host, unit, instance, release, bundle, **kwargs)
+        self.registered.append(instance)
+
+
+@pytest.mark.parametrize("fail_host", [None, "remote"])
+def test_prepare_defers_registration_and_start_persists_selected_options(tmp_path, monkeypatch, fail_host):
+    from elesim_connections.secure_deployment import RuntimeLaunchOptions
+
+    topology = _registration_topology(tmp_path, "trusted-network")
+    local, remote = topology.hosts
+    local = replace(local, units=(replace(local.primary_unit, install_uuid=LOCAL_UUID, project=project_name(LOCAL_UUID)),))
+    topology = replace(topology, hosts=(local, remote))
+    release = _release(LOCAL_UUID, ("pilot", "sim", "ui"))
+    events = []
+    operations = {host.host_id: _BootOperations(events, fail_host=fail_host) for host in topology.hosts}
+    runner = ConnectionDeploymentRunner(tmp_path / "authority", local_install_root=tmp_path / "local")
+    _patch_scoped_runner(runner, topology, _registration_plans(topology, release), operations, monkeypatch)
+    monkeypatch.setattr(runner, "_report_runtime_readiness", lambda *args: None)
+
+    runner(topology, "prepare", lambda message: None)
+    assert not any(event == "register" for event, host in events)
+    events.clear()
+    runner.set_runtime_launch_options(RuntimeLaunchOptions.from_payload({
+        "pilot_gpu_inherit": True, "pilot_gpu_device": "0",
+        "sim_gpu_inherit": True, "sim_gpu_device": "1", "viewer": True,
+    }))
+    if fail_host:
+        with pytest.raises(RuntimeError, match="register failed"):
+            runner(topology, "start", lambda message: None)
+        assert not any(event == "launch" for event, host in events)
+        assert ("remove", "local") in events
+    else:
+        runner(topology, "start", lambda message: None)
+        last_register = max(i for i, (event, host) in enumerate(events) if event == "register")
+        first_preflight = min(i for i, (event, host) in enumerate(events) if event == "preflight")
+        first_launch = min(i for i, (event, host) in enumerate(events) if event == "launch")
+        assert last_register < first_preflight < first_launch
+        for operation in operations.values():
+            for instance in operation.registered:
+                for endpoint in instance.endpoints:
+                    if endpoint.role in {"pilot", "sim"}:
+                        assert instance.role_compute[endpoint.role].gpu_device == ("0" if endpoint.role == "pilot" else "1")
+                assert instance.viewer == any(endpoint.role == "sim" for endpoint in instance.endpoints)
+        # A repeated start with the same choices must not replace registrations.
+        plans = _registration_plans(topology, release)
+        plans = [(host, unit, target, manifest, operations[host.host_id].registered[-1], manifest)
+                 for host, unit, target, manifest, _, _ in plans]
+        monkeypatch.setattr(runner, "_scoped_unit_plans", lambda *args: plans)
+        events.clear()
+        runner.set_runtime_launch_options(RuntimeLaunchOptions.from_payload({
+            "pilot_gpu_inherit": True, "pilot_gpu_device": "0",
+            "sim_gpu_inherit": True, "sim_gpu_device": "1", "viewer": True,
+        }))
+        runner(topology, "start", lambda message: None)
+        assert not any(event == "register" for event, host in events)
+        assert sum(event == "launch" for event, host in events) == len(topology.hosts)
+
+
+def test_gpu_inventory_is_available_before_instance_registration(tmp_path, monkeypatch):
+    topology = _registration_topology(tmp_path, "trusted-network")
+    runner = ConnectionDeploymentRunner(tmp_path / "authority")
+
+    class Unregistered(_BootOperations):
+        def status(self, host):
+            raise RuntimeError("instance is not registered")
+
+    monkeypatch.setattr(runner, "_operations", lambda topology: {host.host_id: Unregistered([]) for host in topology.hosts})
+    result = runner.runtime_status(topology)
+    assert all(host["inventory_ready"] for host in result["hosts"])
+    assert all(not host["reachable"] for host in result["hosts"])
+    assert any(host["gpu_policy"] for host in result["hosts"])
+
+
+@pytest.mark.parametrize("active_authority", [False, True])
+def test_managed_start_registers_before_launch_not_during_prepare(tmp_path, monkeypatch, active_authority):
+    topology = _registration_topology(tmp_path, "sros2")
+    release = _release(LOCAL_UUID, ("pilot", "sim", "ui"))
+    events = []
+    operations = {host.host_id: _BootOperations(events) for host in topology.hosts}
+    runner = ConnectionDeploymentRunner(tmp_path / "authority", local_install_root=tmp_path / "local")
+    _patch_scoped_runner(runner, topology, _registration_plans(topology, release), operations, monkeypatch)
+    generation = _patch_rotation_security(monkeypatch, topology, events)
+    if not active_authority:
+        monkeypatch.setattr("elesim_connections.connections.Sros2Authority.active", lambda self: None)
+    monkeypatch.setattr(runner, "_report_runtime_readiness", lambda *args: None)
+
+    runner(topology, "prepare", lambda message: None)
+    assert not any(event in {"register", "authority", "launch"} for event, _ in events)
+    runner(topology, "start", lambda message: None)
+    last_register = max(i for i, (event, _) in enumerate(events) if event == "register")
+    first_launch = min(i for i, (event, _) in enumerate(events) if event == "launch")
+    assert last_register < first_launch
+    assert ("authority", "activate") in events
+    assert all(instance.security_generation == generation
+               for operation in operations.values() for instance in operation.registered)
+
+
 def _patch_scoped_runner(
     runner: ConnectionDeploymentRunner,
     topology: ConnectionTopology,

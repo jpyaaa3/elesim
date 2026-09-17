@@ -135,6 +135,10 @@ class InstanceState:
     # Internal migration marker: schema-v2 records published before compute
     # existed must continue to use the install-wide fixed GPU policy.
     compute_is_explicit: bool = field(default=True, repr=False, compare=False)
+    # Optional schema-v3 extension: independent role choices and Sim viewer.
+    # Missing fields preserve the original instance-wide policy/headless mode.
+    role_compute: Mapping[str, ComputeSettings] = field(default_factory=dict)
+    viewer: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.system_id, str) or not _SYSTEM.fullmatch(self.system_id):
@@ -227,6 +231,18 @@ class InstanceState:
                 raise ValueError("instance gpu_device is valid only in specific mode")
         if type(self.compute_is_explicit) is not bool:
             raise ValueError("compute_is_explicit must be boolean")
+        if not isinstance(self.role_compute, Mapping) or set(self.role_compute) - ({e.role for e in self.endpoints} & {"pilot", "sim"}):
+            raise ValueError("role_compute must contain only assigned Pilot/Sim roles")
+        for policy in self.role_compute.values():
+            if not isinstance(policy, ComputeSettings):
+                raise ValueError("role_compute values must be ComputeSettings")
+            policy.validate()
+            if policy.gpu_mode == "specific" and not _GPU_SELECTOR.fullmatch(policy.gpu_device):
+                raise ValueError("role GPU policy requires one index or UUID")
+            if policy.gpu_mode != "specific" and policy.gpu_device:
+                raise ValueError("role gpu_device is valid only in specific mode")
+        if type(self.viewer) is not bool or (self.viewer and "sim" not in {e.role for e in self.endpoints}):
+            raise ValueError("viewer must be boolean and requires Sim")
         if self.turn.mode == "none" and self.turn_urls:
             raise ValueError("TURN URLs require managed or external TURN")
         if self.turn.mode == "external" and not self.turn.credential_file.strip():
@@ -275,6 +291,13 @@ class InstanceState:
                 "gpu_mode": self.compute.gpu_mode,
                 "gpu_device": self.compute.gpu_device,
             }
+        if self.role_compute:
+            payload["role_compute"] = {
+                role: {"gpu_mode": policy.gpu_mode, "gpu_device": policy.gpu_device}
+                for role, policy in self.role_compute.items()
+            }
+        if self.viewer:
+            payload["viewer"] = True
         return payload
 
     @classmethod
@@ -287,7 +310,7 @@ class InstanceState:
             "security_profile", "security_generation",
         }
         schema = value.get("schema_version")
-        optional = {"turn", "turn_urls", "compute", "role_ids"}
+        optional = {"turn", "turn_urls", "compute", "role_ids", "role_compute", "viewer"}
         if (
             not set(value).issubset(required | optional)
             or not required.issubset(value)
@@ -326,6 +349,12 @@ class InstanceState:
         }
         if set(compute_raw) - {"gpu_mode", "gpu_device"}:
             raise ValueError("compute contains unsupported fields")
+        role_compute = value.get("role_compute", {})
+        if not isinstance(role_compute, Mapping) or any(
+            not isinstance(policy, Mapping) or set(policy) != {"gpu_mode", "gpu_device"}
+            for policy in role_compute.values()
+        ):
+            raise ValueError("invalid role_compute policy")
         return cls(
             system_id=_string(value["system_id"], "system_id"),
             release_key=_string(value["release_key"], "release_key"),
@@ -353,6 +382,8 @@ class InstanceState:
             turn_urls=tuple(_string(url, "turn_url") for url in turn_urls),
             compute=ComputeSettings(**compute_values),
             compute_is_explicit=compute_present,
+            role_compute={role: ComputeSettings(**policy) for role, policy in role_compute.items()},
+            viewer=value.get("viewer", False),
         )
 
 
