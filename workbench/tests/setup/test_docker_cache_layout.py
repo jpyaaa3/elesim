@@ -117,3 +117,11 @@ def test_developer_identity_does_not_invalidate_dependencies():
     for arg in ("USERNAME", "UID", "GID"):
         assert text.index("python3-cffi python3-cryptography") < text.index(f"ARG {arg}=")
     assert text.index("cmake --install") < text.index("ARG COMPUTE_MODE")
+
+
+def test_developer_optional_mpc_matches_runtime_build_switch():
+    text = (ROOT / "dev/Dockerfile").read_text()
+    assert "ARG INSTALL_GO2_MPC=1" in text
+    assert 'if [ "$INSTALL_GO2_MPC" = 1 ]; then' in text
+    assert "go2-convex-mpc.git@" in text
+    assert "COPY runtime-contract/ /opt/elesim/runtime-contract/" in text

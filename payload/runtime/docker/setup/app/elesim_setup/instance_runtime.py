@@ -798,7 +798,11 @@ class InstanceRuntime:
                 _viewer_xhost_function(viewer_state, xhost_user=viewer_user)
                 + "viewer_xhost_enable\n"
                 + "viewer_result=0\n"
-                + f"{compose_command} run --rm -T --no-deps --no-build {sim_service} --elesim-viewer-preflight || viewer_result=$?\n"
+                # ``docker compose run`` has no ``--no-build`` option.  The
+                # instance release is immutable and the following ``up`` also
+                # uses ``--no-build``, so this preflight must simply omit the
+                # unsupported run flag.
+                + f"{compose_command} run --rm -T --no-deps {sim_service} --elesim-viewer-preflight || viewer_result=$?\n"
                 + "if (( viewer_result != 0 || preflight_only )); then\n"
                 + "  if (( viewer_xhost_cleanup_on_failure )); then viewer_xhost_cleanup || viewer_result=$?; fi\n"
                 + "  exit \"$viewer_result\"\nfi\n"

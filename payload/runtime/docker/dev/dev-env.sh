@@ -6,6 +6,15 @@ if [[ "${1:-}" == "--prepare" ]]; then
   prepare=1
   shift
 fi
+runtime_parity=0
+if [[ "${1:-}" == "--runtime-parity" ]]; then
+  runtime_parity=1
+  shift
+fi
+if (( runtime_parity )) && [[ $# -ne 0 ]]; then
+  printf 'runtime-parity does not accept arguments\n' >&2
+  exit 64
+fi
 if [[ $# -eq 0 ]]; then
   set -- bash
 fi
@@ -60,6 +69,28 @@ done < <(
 for project in "${projects[@]}"; do
   fingerprint_inputs+=("$project/pyproject.toml")
 done
+# The development environment is intentionally broader than any one runtime
+# role, but its persistent preparation must still notice deployable contract
+# changes. Otherwise a source checkout can update a role lock/entrypoint while
+# the long-lived dev container keeps validating an older runtime contract.
+runtime_contract_inputs=(
+  "$workspace/payload/runtime/docker/shared/Dockerfile.app"
+  "$workspace/payload/runtime/docker/pilot/requirements.lock"
+  "$workspace/payload/runtime/docker/pilot/entrypoint"
+  "$workspace/payload/runtime/docker/pilot/Dockerfile.release"
+  "$workspace/payload/runtime/docker/sim/requirements.lock"
+  "$workspace/payload/runtime/docker/sim/entrypoint"
+  "$workspace/payload/runtime/docker/sim/Dockerfile.release"
+  "$workspace/payload/runtime/docker/ui/requirements.lock"
+  "$workspace/payload/runtime/docker/ui/entrypoint"
+  "$workspace/payload/runtime/docker/ui/Dockerfile.release"
+  "$workspace/payload/runtime/native/robot/requirements.lock"
+)
+for input in "${runtime_contract_inputs[@]}"; do
+  if [[ -f "$input" ]]; then
+    fingerprint_inputs+=("$input")
+  fi
+done
 input_fingerprint="$({
   printf 'dev-env-script\0'
   sha256sum /usr/local/bin/elesim-dev-env
@@ -101,5 +132,22 @@ source /opt/ros/humble/setup.bash
 source "$ros_overlay/install/setup.bash"
 set -u
 export PATH="$venv/bin:$PATH"
+
+if (( runtime_parity )); then
+  parity_tool="$workspace/workbench/tools/release/runtime_parity.py"
+  build_tool="$workspace/workbench/tools/release/build.py"
+  verify_tool="$workspace/workbench/tools/release/verify.py"
+  if [[ ! -f "$parity_tool" || ! -f "$build_tool" || ! -f "$verify_tool" ]]; then
+    printf 'runtime parity tools are missing from workspace: %s\n' "$workspace" >&2
+    exit 2
+  fi
+  (
+    cd "$workspace"
+    python3 "$parity_tool"
+    python3 "$build_tool"
+    python3 "$verify_tool" "$workspace/dist/releases"
+  )
+  exit 0
+fi
 
 exec "$@"

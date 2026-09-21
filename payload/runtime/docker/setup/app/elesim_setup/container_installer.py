@@ -66,7 +66,12 @@ from .security_provisioning import (
 from .security_views import prepare_app_keystore_views
 from .runtime_status import render_compose_status_wrapper, render_gpu_probe
 from .shell import operator_home, render_operator_wrapper, write_executable
-from .state import ComputeSettings, ContainerNetworkSettings, InstallState
+from .state import (
+    ComputeSettings,
+    ContainerNetworkSettings,
+    InstallState,
+    docker_build_compute_mode,
+)
 from .uninstall import UninstallSafetyError, validate_docker_ownership
 from .updater import render_compose_build_progress, render_release_wrapper, render_update_wrapper
 from .releases import runtime_data_digest
@@ -1113,7 +1118,7 @@ class ContainerInstaller:
         return {
             "ROLE": role,
             "BASE_IMAGE": self._ROS_BASE_IMAGE,
-            "COMPUTE_MODE": self.state.compute.gpu_mode,
+            "COMPUTE_MODE": docker_build_compute_mode(self.state.compute.gpu_mode),
             "INSTALL_GO2_MPC": "1" if self.state.install_go2_mpc else "0",
         }
 
@@ -1159,14 +1164,22 @@ class ContainerInstaller:
 
     def _write_developer_context(self) -> None:
         context = self._build_root / "development"
-        write_developer_context(source_root=self.state.source_path, context=context)
+        workspace = self.state.developer_attachment.workspace_path
+        if workspace is None:
+            raise ValueError("developer image context requires an active workspace")
+        # The attachment executes the separately selected checkout mounted at
+        # ``ELESIM_WORKSPACE``.  Build its tool image from that same checkout;
+        # using the installer/update source here would let dev dependencies and
+        # runtime contracts silently drift from the code being tested.
+        write_developer_context(source_root=workspace, context=context)
         fingerprint = _build_context_fingerprint(
             context,
             build_args={
                 "USERNAME": resolve_developer_username(),
                 "UID": str(os.getuid()),
                 "GID": str(os.getgid()),
-                "COMPUTE_MODE": self.state.compute.gpu_mode,
+                "COMPUTE_MODE": docker_build_compute_mode(self.state.compute.gpu_mode),
+                "INSTALL_GO2_MPC": "1" if self.state.install_go2_mpc else "0",
             },
         )
         self._image_fingerprints["dev"] = fingerprint
@@ -2038,6 +2051,10 @@ class ContainerInstaller:
                 "set -euo pipefail\n"
                 + guard
                 + f"{command} --profile developer up -d --build dev\n"
+                + "if [[ ${1:-} == runtime-parity ]]; then\n"
+                + "  shift\n"
+                + f"  exec {command} exec dev /usr/local/bin/elesim-dev-env --runtime-parity \"$@\"\n"
+                + "fi\n"
                 + "if [[ $# -eq 0 ]]; then set -- bash; fi\n"
                 + f"exec {command} exec dev /usr/local/bin/elesim-dev-env \"$@\"\n",
             )
@@ -2153,7 +2170,12 @@ class ContainerInstaller:
             + "    fi\n"
             + "  fi\n"
             + "fi\n"
-            + f"exec {command} run --rm -T --no-build \"$net_service\" elesim-net "
+            # ``docker compose run`` has a ``--build`` opt-in, but no
+            # ``--no-build`` switch.  The tools image was already checked and
+            # built above, so keep the one-shot invocation build-free simply by
+            # omitting that unsupported flag.  Passing it here makes remote
+            # ``elesim-net show`` fail before the command reaches the tool.
+            + f"exec {command} run --rm -T \"$net_service\" elesim-net "
             + f"--state {shlex.quote(str(self.state_path))}"
             + ' "$@"\n',
         )

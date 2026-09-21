@@ -108,6 +108,8 @@ def test_scoped_viewer_checks_before_up_and_cleans_failed_or_probe_grant(local_s
     lines = events.read_text().splitlines()
     assert lines[0] == "enable"
     assert "--elesim-viewer-preflight" in lines[1]
+    assert " run --rm -T --no-deps " in lines[1]
+    assert " run --rm -T --no-deps --no-build " not in lines[1]
     if preflight or probe_result:
         assert lines[-1] == "cleanup"
         assert not any(" up -d " in line for line in lines)

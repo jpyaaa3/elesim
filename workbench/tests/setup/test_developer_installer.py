@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ from elesim_setup.developer import (
 )
 from elesim_setup.instance_identity import container_name, project_name
 from elesim_setup.ownership import OwnershipManifest
-from elesim_setup.state import DeveloperAttachmentSettings
+from elesim_setup.state import ComputeSettings, DeveloperAttachmentSettings
 
 
 def _attachment(workspace: Path, *, wslg: bool = False) -> DeveloperAttachmentSettings:
@@ -50,6 +51,12 @@ def test_developer_attachment_joins_the_canonical_runtime_project(local_state) -
     assert dev["privileged"] is True
     assert dev["working_dir"] == str(ROOT)
     assert f"{ROOT}:{ROOT}:rw" in dev["volumes"]
+    assert dev["build"]["args"]["INSTALL_GO2_MPC"] == "1"
+    assert dev["environment"]["ELESIM_RUNTIME_ROLES"] == "pilot,sim,ui"
+    assert dev["environment"]["ELESIM_GO2_MPC_ENABLED"] == "1"
+    development_context = state.prefix_path / "containers/build/development"
+    assert (development_context / "runtime-contract/sim/requirements.lock").is_file()
+    assert (development_context / "runtime-contract/shared/Dockerfile.app").is_file()
 
     # A development shell is tooling, not a runtime role or DDS identity.
     assert "ROS_DOMAIN_ID" not in dev["environment"]
@@ -60,6 +67,7 @@ def test_developer_attachment_joins_the_canonical_runtime_project(local_state) -
     wrapper = (state.bin_path / "elesim-dev").read_text(encoding="utf-8")
     assert "--profile developer up -d --build dev" in wrapper
     assert "exec dev /usr/local/bin/elesim-dev-env" in wrapper
+    assert "runtime-parity" in wrapper
     assert "--remove-orphans" not in wrapper
     assert subprocess.run(
         ("bash", "-n"),
@@ -73,6 +81,46 @@ def test_developer_attachment_joins_the_canonical_runtime_project(local_state) -
     assert container_name(manifest.install_uuid, "dev") in manifest.docker.containers
     assert dev["image"] in manifest.docker.local_images
     assert not (state.prefix_path / ".elesim/development").exists()
+
+
+@pytest.mark.parametrize("gpu_mode", ("inherit", "specific"))
+def test_developer_image_build_does_not_split_runtime_gpu_policies(
+    local_state, gpu_mode: str
+) -> None:
+    state = local_state(
+        roles=("sim",),
+        compute=ComputeSettings(
+            gpu_mode=gpu_mode,
+            gpu_device="GPU-test" if gpu_mode == "specific" else "",
+        ),
+        developer_attachment=_attachment(ROOT),
+    )
+
+    ContainerInstaller(state).run()
+
+    compose = yaml.safe_load(
+        (state.prefix_path / "containers/compose.yaml").read_text(encoding="utf-8")
+    )
+    assert compose["services"]["dev"]["build"]["args"]["COMPUTE_MODE"] == "cuda"
+    assert compose["services"]["dev"]["build"]["args"]["INSTALL_GO2_MPC"] == "1"
+
+
+def test_developer_mpc_build_policy_matches_runtime_state(local_state) -> None:
+    state = replace(
+        local_state(
+            roles=("sim",),
+            developer_attachment=_attachment(ROOT),
+        ),
+        install_go2_mpc=False,
+    )
+
+    ContainerInstaller(state).run()
+
+    compose = yaml.safe_load(
+        (state.prefix_path / "containers/compose.yaml").read_text(encoding="utf-8")
+    )
+    assert compose["services"]["dev"]["build"]["args"]["INSTALL_GO2_MPC"] == "0"
+    assert compose["services"]["dev"]["environment"]["ELESIM_GO2_MPC_ENABLED"] == "0"
 
 
 def test_attachment_workspace_must_be_an_existing_complete_checkout(

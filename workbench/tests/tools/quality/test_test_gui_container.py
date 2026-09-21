@@ -53,4 +53,18 @@ def test_developer_environment_fingerprints_interfaces_and_project_metadata() ->
     assert 'fingerprint_file="$state_root/dev-env.fingerprint"' in source
     assert '"$interfaces/msg" "$interfaces/srv" "$interfaces/action"' in source
     assert 'fingerprint_inputs+=("$project/pyproject.toml")' in source
+    assert 'runtime_contract_inputs=(' in source
+    assert '"$workspace/payload/runtime/docker/sim/requirements.lock"' in source
+    assert '"$workspace/payload/runtime/docker/shared/Dockerfile.app"' in source
     assert '[[ "$input_fingerprint" != "$stored_fingerprint" ]]' in source
+
+
+def test_developer_runtime_parity_runs_isolated_release_gate() -> None:
+    source = (ROOT / "payload/runtime/docker/dev/dev-env.sh").read_text(encoding="utf-8")
+
+    assert '[[ "${1:-}" == "--runtime-parity" ]]' in source
+    assert 'python3 "$build_tool"' in source
+    assert 'python3 "$verify_tool" "$workspace/dist/releases"' in source
+    parity = (ROOT / "workbench/tools/release/runtime_parity.py").read_text(encoding="utf-8")
+    assert "ELESIM_RUNTIME_ROLES" in parity
+    assert "importlib.metadata.version" in parity

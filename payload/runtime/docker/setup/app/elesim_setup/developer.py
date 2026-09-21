@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Mapping
 
 from .ownership import DOCKER_BUILD_FINGERPRINT_LABEL, DOCKER_INSTALL_UUID_LABEL
-from .state import InstallState
+from .state import InstallState, docker_build_compute_mode
 
 
 _REQUIRED_PROJECTS = (
@@ -25,6 +25,19 @@ _REQUIRED_PROJECTS = (
     ("payload/runtime/docker/ui/app", "pyproject.toml"),
     ("payload/runtime/docker/sim/app", "pyproject.toml"),
     ("payload/runtime/native/robot/app", "pyproject.toml"),
+)
+_RUNTIME_CONTRACT_FILES = (
+    ("payload/runtime/docker/shared/Dockerfile.app", "shared/Dockerfile.app"),
+    ("payload/runtime/docker/pilot/requirements.lock", "pilot/requirements.lock"),
+    ("payload/runtime/docker/pilot/entrypoint", "pilot/entrypoint"),
+    ("payload/runtime/docker/pilot/Dockerfile.release", "pilot/Dockerfile.release"),
+    ("payload/runtime/docker/sim/requirements.lock", "sim/requirements.lock"),
+    ("payload/runtime/docker/sim/entrypoint", "sim/entrypoint"),
+    ("payload/runtime/docker/sim/Dockerfile.release", "sim/Dockerfile.release"),
+    ("payload/runtime/docker/ui/requirements.lock", "ui/requirements.lock"),
+    ("payload/runtime/docker/ui/entrypoint", "ui/entrypoint"),
+    ("payload/runtime/docker/ui/Dockerfile.release", "ui/Dockerfile.release"),
+    ("payload/runtime/native/robot/requirements.lock", "robot/requirements.lock"),
 )
 _DEVELOPER_USERNAME = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 
@@ -64,7 +77,7 @@ def write_developer_context(*, source_root: Path, context: Path) -> None:
     names = ("Dockerfile", "requirements.lock", "entrypoint.sh", "dev-env.sh")
     required = tuple(source / name for name in names) + (
         source_root / "payload/runtime/docker/shared/robotpkg.asc",
-    )
+    ) + tuple(source_root / relative for relative, _ in _RUNTIME_CONTRACT_FILES)
     missing = tuple(path for path in required if not path.is_file())
     if missing:
         rendered = "\n".join(f"  - {path}" for path in missing)
@@ -80,6 +93,11 @@ def write_developer_context(*, source_root: Path, context: Path) -> None:
         source_root / "payload/runtime/docker/shared/robotpkg.asc",
         context / "robotpkg.asc",
     )
+    runtime_contract = context / "runtime-contract"
+    for relative, destination in _RUNTIME_CONTRACT_FILES:
+        target = runtime_contract / destination
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_root / relative, target)
 
 
 def developer_service(
@@ -113,6 +131,8 @@ def developer_service(
         "LOGNAME": username,
         "ELESIM_HOST_USER": username,
         "ELESIM_WORKSPACE": str(workspace),
+        "ELESIM_RUNTIME_ROLES": ",".join(state.roles),
+        "ELESIM_GO2_MPC_ENABLED": "1" if state.install_go2_mpc else "0",
         "DISPLAY": "${DISPLAY:-:0}",
         "WAYLAND_DISPLAY": "${WAYLAND_DISPLAY:-}",
         "XDG_RUNTIME_DIR": "${XDG_RUNTIME_DIR:-}",
@@ -129,7 +149,8 @@ def developer_service(
                 "USERNAME": username,
                 "UID": str(os.getuid()),
                 "GID": str(os.getgid()),
-                "COMPUTE_MODE": state.compute.gpu_mode,
+                "COMPUTE_MODE": docker_build_compute_mode(state.compute.gpu_mode),
+                "INSTALL_GO2_MPC": "1" if state.install_go2_mpc else "0",
             },
         },
         "profiles": ("developer",),

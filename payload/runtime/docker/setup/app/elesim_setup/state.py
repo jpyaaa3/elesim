@@ -40,6 +40,20 @@ _SECURITY_GENERATION = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,95}$")
 _TAILSCALE_HOSTNAME = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
+def docker_build_compute_mode(gpu_mode: str) -> str:
+    """Collapse runtime GPU policies to the image's CPU/CUDA dependency choice.
+
+    ``inherit`` and ``specific`` differ only when Compose exposes devices to a
+    running container.  They require the same CUDA-capable image, so keeping
+    them distinct in Docker build arguments would needlessly invalidate the
+    dependency layers and the resulting image fingerprint.
+    """
+
+    if gpu_mode not in GPU_MODES:
+        raise ValueError(f"Unsupported GPU mode: {gpu_mode!r}")
+    return "cpu" if gpu_mode == "cpu" else "cuda"
+
+
 @dataclass(frozen=True)
 class NetworkSettings:
     """Application identities and WebRTC relay endpoints, not DDS locators."""

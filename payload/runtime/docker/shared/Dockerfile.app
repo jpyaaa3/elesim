@@ -72,7 +72,9 @@ RUN set -eu; if [ "$ROLE" = sim ]; then \
       rm -rf /tmp/casadi /tmp/casadi-build; \
     fi
 
-ARG COMPUTE_MODE=inherit
+# Image dependencies only distinguish CPU-only Torch from CUDA-capable Torch.
+# Runtime inherit/specific device selection is applied by Compose below.
+ARG COMPUTE_MODE=cuda
 RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -m pip install --upgrade "pip<26" "setuptools>=68,<80" wheel && \
     if [ "$ROLE" = pilot ] || [ "$ROLE" = sim ]; then \
       if [ "$COMPUTE_MODE" = cpu ]; then \

@@ -185,10 +185,18 @@ checkout을 생성·갱신·소유하지 않는다. `pilot`/`sim`/`ui` 컨테이
 ```bash
 elesim-instance <system> up
 elesim-dev            # developer profile 시작 후 Compose exec
+elesim-dev runtime-parity  # role별 release를 격리 검증
 ```
 
 반복해서 `docker compose run --rm` 개발 컨테이너를 만들지 않는다. attachment는
 source checkout을 ownership deletion boundary로 삼지 않는다.
+
+`runtime-parity`는 dev의 통합 editable 환경을 그대로 신뢰하지 않고, 네 역할의
+immutable release context를 다시 생성한 뒤 isolated wheel/import/config/model
+검증을 수행한다. 이 검사는 실제 다중 호스트 DDS/SROS2, GPU/display, WebRTC
+media 또는 Jetson hardware gate를 대신하지 않는다. Sim의 선택적
+`go2-convex-mpc` 의존성은 일반 runtime과 같은 설치 상태 build arg를 사용하므로,
+dev에서만 우연히 import 가능한 상태를 만들지 않는다.
 
 ## 4. 생성된 prefix와 PATH
 

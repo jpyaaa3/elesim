@@ -287,6 +287,7 @@ function applyLanguage(next) {
   document.querySelectorAll("[data-language]").forEach((button) => {
     button.classList.toggle("active", button.dataset.language === language);
   });
+  slots.forEach(updateSshMode);
   renderRoleBlocks();
   updateRoleChoices();
   updateInstallationLookupButtons();
@@ -796,7 +797,11 @@ function updateSshMode(slot) {
   const key = field(slot, "ssh-key");
   if (tailscale) {
     port.value = "22";
+    key.value = t("ssh.key.notRequired");
+    key.dataset.tailscaleLabel = "true";
+  } else if (key.dataset.tailscaleLabel === "true") {
     key.value = "";
+    delete key.dataset.tailscaleLabel;
   }
   port.disabled = !active || tailscale;
   key.disabled = !active || tailscale;

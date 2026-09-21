@@ -622,6 +622,8 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "text-transform: uppercase" not in style
     assert catalog["ko"]["action.add.host"] == "컴퓨터 추가"
     assert catalog["en"]["action.add.host"] == "Add a computer"
+    assert catalog["ko"]["ssh.key.notRequired"] == "필요 없음"
+    assert catalog["en"]["ssh.key.notRequired"] == "Not required"
     assert catalog["ko"]["install.lookup.blocked"] == "먼저 SSH 호스트키 확인을 완료하십시오"
     assert catalog["en"]["install.lookup.blocked"] == "Verify the SSH host key first"
     assert 'class="lookup-installation" data-i18n="install.lookup"' in html

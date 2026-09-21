@@ -331,7 +331,9 @@ def remove_instance(
         )
         command = _docker_command(
             context, "compose", "--project-name", project, "--file", str(compose),
-            "run", "--rm", "--no-deps", "--no-build", "tools", "elesim-setup",
+            # Compose run only exposes ``--build``; omitting it is the
+            # build-free form and avoids forwarding an unsupported flag.
+            "run", "--rm", "--no-deps", "tools", "elesim-setup",
             "--state", str(state), "instance", "remove", "--system", system,
             "--host-lease", token,
         )

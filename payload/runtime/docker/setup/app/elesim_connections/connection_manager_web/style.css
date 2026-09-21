@@ -129,7 +129,8 @@ input, select {
 }
 input:hover, select:hover { border-color: #929aa6; }
 input[readonly] { background: #f2f4f3; color: #4f5c56; }
-input[data-field="ssh-port"]:disabled { background: #f2f4f3; color: #4f5c56; opacity: 1; }
+input[data-field="ssh-port"]:disabled,
+input[data-field="ssh-key"]:disabled { background: #f2f4f3; color: #4f5c56; opacity: 1; }
 .host-grid { display: grid; gap: 14px; }
 .host-card { display: grid; overflow: hidden; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid #aeb4bd; border-radius: 6px; background: var(--surface-2); transition: box-shadow .15s; }
 .host-card:hover { box-shadow: 0 3px 10px rgb(25 27 32 / 8%); }

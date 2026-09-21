@@ -69,8 +69,12 @@ RUN git clone --depth 1 --branch "$CASADI_GIT_REF" \
     python3 -c 'import casadi as ca; assert ca.__version__ == "3.7.2", ca.__version__; assert ca.has_conic("osqp"), ca.CasadiMeta_plugins()' && \
     rm -rf /tmp/casadi /tmp/casadi-build
 
-ARG COMPUTE_MODE=inherit
+# Image dependencies only distinguish CPU-only Torch from CUDA-capable Torch.
+# Runtime inherit/specific device selection is applied by Compose.
+ARG COMPUTE_MODE=cuda
+ARG INSTALL_GO2_MPC=1
 COPY requirements.lock /tmp/requirements.lock
+COPY runtime-contract/ /opt/elesim/runtime-contract/
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip install --upgrade "pip<26" "setuptools>=68,<80" wheel && \
     python3 -m pip install "numpy==1.26.4" && \
     if [ "$COMPUTE_MODE" = cpu ]; then \
@@ -81,8 +85,10 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip ins
     fi && \
     python3 -m pip install --upgrade-strategy only-if-needed \
       -r /tmp/requirements.lock && \
-    python3 -m pip install -c /tmp/requirements.lock \
-      "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git@1c63c6a762779887ab0431fd60db681dede6cb32" && \
+    if [ "$INSTALL_GO2_MPC" = 1 ]; then \
+      python3 -m pip install -c /tmp/requirements.lock \
+        "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git@1c63c6a762779887ab0431fd60db681dede6cb32"; \
+    fi && \
     python3 -m pip check && \
     python3 -c 'import importlib.metadata as m; import numpy as np, cv2, torch, pinocchio, genesis; assert np.__version__ == "1.26.4"; assert m.version("genesis-world") == "1.4.1"; assert cv2.__version__ == "4.11.0"; torch.from_numpy(np.zeros(1, dtype=np.float32))'
 
