@@ -177,13 +177,15 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
     assert (state.bin_path / "elesim-release").is_file()
     release_wrapper = (state.bin_path / "elesim-release").read_text(encoding="utf-8")
     assert "release publish" in release_wrapper
-    for name in ("elesim-release", "elesim-update"):
+    for name in ("elesim-release",):
         progress_wrapper = (state.bin_path / name).read_text()
         assert "maintenance/elesim_setup/build_progress.py" in progress_wrapper
         assert f"--log-dir {state.prefix_path}/logs/build " in progress_wrapper
         assert '--mode "${ELESIM_BUILD_PROGRESS:-compact}" -- ' in progress_wrapper
         assert progress_wrapper.index("release publish") < progress_wrapper.index("-m elesim_setup.image_cleanup")
         assert "--lock-fd 9" in progress_wrapper
+    assert "elesim_requested_build_services=(pilot sim tools)" in release_wrapper
+    assert "elesim_reuse_image()" in release_wrapper
     assert (state.prefix_path / "maintenance/elesim_setup/build_progress.py").is_file()
     assert (state.prefix_path / "maintenance/elesim_setup/image_cleanup.py").is_file()
     assert "maintenance/.release-evidence" in release_wrapper
@@ -907,8 +909,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     for role in state.roles:
         assert not (state.bin_path / f"elesim-{role}").exists()
     assert "--edition" not in update_wrapper
-    assert "build sim pilot ui tools" in update_wrapper
-    assert "release publish" in update_wrapper
+    assert "elesim-release" in update_wrapper
     assert "elesim_cleanup_owned_dangling_image" not in update_wrapper
     assert "docker image prune" not in update_wrapper
     assert (state.prefix_path / "security").stat().st_mode & 0o777 == 0o700
@@ -1054,7 +1055,6 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     assert "configuration-check|namespace-check|doctor" not in net_wrapper
     assert not (state.bin_path / "elesim-pilot").exists()
     assert "pull tailscale" not in update_wrapper
-    assert "build pilot ui tools" in update_wrapper
     assert "elesim-tailscale login" not in update_wrapper
     # The sidecar update pulls/recreates the rolling stable image. An
     # in-container ``tailscale update`` would be lost on recreation.

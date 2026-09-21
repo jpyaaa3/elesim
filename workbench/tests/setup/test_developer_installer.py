@@ -52,6 +52,7 @@ def test_developer_attachment_joins_the_canonical_runtime_project(local_state) -
     assert dev["working_dir"] == str(ROOT)
     assert f"{ROOT}:{ROOT}:rw" in dev["volumes"]
     assert dev["build"]["args"]["INSTALL_GO2_MPC"] == "1"
+    assert dev["build"]["labels"]["com.docker.compose.project"] == compose["name"]
     assert dev["environment"]["ELESIM_RUNTIME_ROLES"] == "pilot,sim,ui"
     assert dev["environment"]["ELESIM_GO2_MPC_ENABLED"] == "1"
     development_context = state.prefix_path / "containers/build/development"

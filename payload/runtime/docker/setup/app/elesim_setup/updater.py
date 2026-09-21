@@ -21,6 +21,7 @@ _NAMED_IMAGE = re.compile(
 )
 _READABLE_NAME = re.compile(r"[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})\Z")
 _SOURCE_REVISION = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})$")
+_BUILD_FINGERPRINT = re.compile(r"[0-9a-f]{64}$")
 
 
 def render_compose_build_progress(prefix: Path) -> str:
@@ -66,6 +67,7 @@ def render_update_wrapper(
     compose: Path | None = None,
     compose_wrapper: Path | None = None,
     build_services: Sequence[str] = (),
+    build_image_specs: Mapping[str, tuple[str, str]] | None = None,
     preamble: str = "",
     repository: str | None = None,
     ref: str | None = None,
@@ -107,6 +109,41 @@ def render_update_wrapper(
         )
     if normalized_owned_images and install_uuid is None:
         raise ValueError("owned_images requires install_uuid")
+    normalized_build_services = tuple(str(value).strip() for value in build_services)
+    if any(not value or any(ch.isspace() or ch in {"'", '"', "\\", "\x00"} for ch in value)
+           for value in normalized_build_services):
+        raise ValueError("build_services must contain shell-safe service names")
+    if len(set(normalized_build_services)) != len(normalized_build_services):
+        raise ValueError("build_services must not contain duplicates")
+    normalized_build_image_specs: tuple[tuple[str, str, str], ...] = ()
+    if build_image_specs:
+        specs: list[tuple[str, str, str]] = []
+        for service, raw_spec in build_image_specs.items():
+            service = str(service).strip()
+            if not service or any(ch.isspace() or ch in {"'", '"', "\\", "\x00"} for ch in service):
+                raise ValueError("build_image_specs contains an invalid service name")
+            try:
+                image, fingerprint = raw_spec
+            except (TypeError, ValueError) as exc:
+                raise ValueError("build_image_specs values must be (image, fingerprint) pairs") from exc
+            image = str(image).strip()
+            fingerprint = str(fingerprint).strip()
+            if not _BUILD_FINGERPRINT.fullmatch(fingerprint):
+                raise ValueError(f"invalid build fingerprint for {service!r}")
+            if not image.startswith(f"elesim/{service}:") or not (
+                _LOCAL_IMAGE.fullmatch(image)
+                or _INSTALL_IMAGE.fullmatch(image)
+                or _NAMED_IMAGE.fullmatch(image)
+            ):
+                raise ValueError(f"invalid build image for {service!r}: {image!r}")
+            if install_uuid is not None and not _image_belongs_to_install(
+                image, install_uuid, install_name
+            ):
+                raise ValueError(
+                    f"build image does not belong to the current install for {service!r}"
+                )
+            specs.append((service, image, fingerprint))
+        normalized_build_image_specs = tuple(specs)
     if project is None and install_uuid is not None:
         project = "elesim-runtime-" + install_uuid.replace("-", "")
     if project is not None:
@@ -238,13 +275,105 @@ def render_update_wrapper(
             if compose_wrapper is not None
             else "docker compose"
         )
-        services = " ".join(shlex.quote(value) for value in build_services)
+        services = " ".join(shlex.quote(value) for value in normalized_build_services)
         suffix = f" {services}" if services else ""
         build_line = (
             f"{compose_command} --progress plain "
             f"-f {shlex.quote(str(compose))} build{suffix}"
         )
-        if build_progress:
+        if normalized_build_image_specs:
+            # A readable release alias is deliberately new for every completed
+            # publication.  That alias is metadata, not a reason to rebuild a
+            # byte-identical image.  Reuse an image only when all ownership
+            # labels and the role-specific context fingerprint match exactly.
+            rendered_specs = " ".join(
+                shlex.quote("|".join(spec)) for spec in normalized_build_image_specs
+            )
+            rendered_services = " ".join(
+                shlex.quote(value) for value in normalized_build_services
+            )
+            image_project = project or ""
+            lines.extend(
+                (
+                    f"elesim_expected_install_uuid={shlex.quote(install_uuid or '')}",
+                    f"elesim_expected_project={shlex.quote(image_project)}",
+                    f"elesim_reuse_specs=({rendered_specs})",
+                    f"elesim_requested_build_services=({rendered_services})",
+                    "elesim_build_services=()",
+                    "elesim_reuse_image() {",
+                    "  local elesim_service=\"$1\"",
+                    "  local elesim_target=\"$2\"",
+                    "  local elesim_fingerprint=\"$3\"",
+                    "  local elesim_candidate elesim_candidate_fp elesim_candidate_uuid elesim_candidate_project elesim_candidate_tags",
+                    "  local elesim_target_id",
+                    "  while IFS= read -r elesim_candidate; do",
+                    "    [[ -n \"$elesim_candidate\" ]] || continue",
+                    "    elesim_candidate_fp=\"$(docker image inspect \"$elesim_candidate\" --format '{{if .Config.Labels}}{{index .Config.Labels \"io.elesim.build_fingerprint\"}}{{end}}' 2>/dev/null || true)\"",
+                    "    [[ \"$elesim_candidate_fp\" == \"$elesim_fingerprint\" ]] || continue",
+                    "    elesim_candidate_uuid=\"$(docker image inspect \"$elesim_candidate\" --format '{{if .Config.Labels}}{{index .Config.Labels \"io.elesim.install_uuid\"}}{{end}}' 2>/dev/null || true)\"",
+                    "    [[ \"$elesim_candidate_uuid\" == \"$elesim_expected_install_uuid\" ]] || continue",
+                    "    if [[ -n \"$elesim_expected_project\" && \"$elesim_expected_project\" != elesim-runtime ]]; then",
+                    "      elesim_candidate_project=\"$(docker image inspect \"$elesim_candidate\" --format '{{if .Config.Labels}}{{index .Config.Labels \"com.docker.compose.project\"}}{{end}}' 2>/dev/null || true)\"",
+                    "      [[ \"$elesim_candidate_project\" == \"$elesim_expected_project\" ]] || continue",
+                    "    fi",
+                    "    elesim_candidate_tags=\"$(docker image inspect \"$elesim_candidate\" --format '{{range .RepoTags}}{{println .}}{{end}}' 2>/dev/null || true)\"",
+                    "    grep -Fqx -- \"$elesim_target\" <<< \"$elesim_candidate_tags\" 2>/dev/null || {",
+                    "      grep -Fq -- \"elesim/$elesim_service:\" <<< \"$elesim_candidate_tags\" 2>/dev/null || continue",
+                    "    }",
+                    "    elesim_target_id=\"$(docker image inspect \"$elesim_target\" --format '{{.Id}}' 2>/dev/null || true)\"",
+                    "    if [[ \"$elesim_target_id\" != \"$elesim_candidate\" ]]; then",
+                    "      if ! docker tag \"$elesim_candidate\" \"$elesim_target\"; then",
+                    "        printf '[elesim-update] failed to reuse image: %s=%s\\n' \"$elesim_service\" \"$elesim_target\" >&2",
+                    "        return 1",
+                    "      fi",
+                    "    fi",
+                    "    printf '[elesim-update] reused unchanged image: %s=%s\\n' \"$elesim_service\" \"$elesim_target\"",
+                    "    return 0",
+                    "  done < <(docker image ls --quiet --no-trunc --filter \"label=io.elesim.install_uuid=$elesim_expected_install_uuid\" --filter \"label=io.elesim.build_fingerprint=$elesim_fingerprint\" 2>/dev/null | sort -u)",
+                    "  return 1",
+                    "}",
+                    "for elesim_service in \"${elesim_requested_build_services[@]}\"; do",
+                    "  elesim_spec=",
+                    "  for elesim_candidate_spec in \"${elesim_reuse_specs[@]}\"; do",
+                    "    if [[ ${elesim_candidate_spec%%|*} == \"$elesim_service\" ]]; then elesim_spec=$elesim_candidate_spec; break; fi",
+                    "  done",
+                    "  if [[ -n \"$elesim_spec\" ]]; then",
+                    "    elesim_target=${elesim_spec#*|}; elesim_target=${elesim_target%%|*}",
+                    "    elesim_fingerprint=${elesim_spec##*|}",
+                    "    if elesim_reuse_image \"$elesim_service\" \"$elesim_target\" \"$elesim_fingerprint\"; then continue; fi",
+                    "  fi",
+                    "  elesim_build_services+=(\"$elesim_service\")",
+                    "done",
+                )
+            )
+            if build_progress:
+                image_report = prefix / "maintenance/.build-images"
+                lines.extend(
+                    (
+                        f"rm -f -- {shlex.quote(str(image_report))}",
+                        "if (( ${#elesim_build_services[@]} )); then",
+                        f"  python3 {shlex.quote(str(prefix / 'maintenance/elesim_setup/build_progress.py'))} "
+                        f"--log-dir {shlex.quote(str(prefix / 'logs/build'))} "
+                        f"--result-file {shlex.quote(str(image_report))} "
+                        '--mode "${ELESIM_BUILD_PROGRESS:-compact}" -- '
+                        f"{compose_command} --progress plain -f {shlex.quote(str(compose))} build \"${{elesim_build_services[@]}}\"",
+                        "else",
+                        "  printf '%s\\n' '[elesim-update] all unchanged images were reused; skipping Docker build.'",
+                        "fi",
+                    )
+                )
+            else:
+                lines.extend(
+                    (
+                        "if (( ${#elesim_build_services[@]} )); then",
+                        f"  {compose_command} --progress plain -f {shlex.quote(str(compose))} build \"${{elesim_build_services[@]}}\"",
+                        "else",
+                        "  printf '%s\\n' '[elesim-update] all unchanged images were reused; skipping Docker build.'",
+                        "fi",
+                    )
+                )
+            build_line = None
+        elif build_progress:
             image_report = prefix / "maintenance/.build-images"
             build_line = (
                 f"rm -f -- {shlex.quote(str(image_report))}; "
@@ -304,7 +433,8 @@ def render_update_wrapper(
                     "}",
                 )
             )
-        lines.append(build_line)
+        if build_line is not None:
+            lines.append(build_line)
         if normalized_owned_images:
             lines.extend(
                 (
@@ -468,6 +598,7 @@ def render_release_wrapper(
     compose: Path,
     compose_wrapper: Path | None,
     build_services: Sequence[str],
+    build_image_specs: Mapping[str, tuple[str, str]] | None = None,
     preamble: str = "",
     source_revision: str | None,
     runtime_snapshot: Path,
@@ -490,6 +621,7 @@ def render_release_wrapper(
         compose=compose,
         compose_wrapper=compose_wrapper,
         build_services=build_services,
+        build_image_specs=build_image_specs,
         preamble=preamble,
         runtime_uid=runtime_uid,
         install_uuid=install_uuid,

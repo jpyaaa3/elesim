@@ -118,6 +118,92 @@ def test_general_update_wrapper_fetches_regenerates_and_builds_incrementally(
     ).returncode == 0
 
 
+def test_release_build_reuses_matching_owned_images_without_compose_build(
+    tmp_path: Path,
+) -> None:
+    install_uuid = "01234567-89ab-cdef-0123-456789abcdef"
+    project = "elesim-quick-lion"
+    specs = {
+        "pilot": ("elesim/pilot:quick-lion", "a" * 64),
+        "tools": ("elesim/tools:quick-otter", "b" * 64),
+    }
+    prefix = tmp_path / "install"
+    (prefix / "bin").mkdir(parents=True)
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        f"#!{sys.executable}\n"
+        + f"import sys\nfrom pathlib import Path\n"
+        + f"uid = {install_uuid!r}\nproject = {project!r}\n"
+        + f"fingerprints = { {role: fingerprint for role, (_, fingerprint) in specs.items()}!r}\n"
+        + f"targets = { {role: image for role, (image, _) in specs.items()}!r}\n"
+        + f"ids = {{role: 'sha256:' + chr(97 + index) * 64 for index, role in enumerate(fingerprints)}}\n"
+        + "args = sys.argv[1:]\n"
+        + "if args[:2] == ['image', 'ls']:\n"
+        + "    marker = next(value for value in args if value.startswith('label=io.elesim.build_fingerprint='))\n"
+        + "    fingerprint = marker.rsplit('=', 1)[1]\n"
+        + "    for role, value in fingerprints.items():\n"
+        + "        if value == fingerprint:\n"
+        + "            print(ids[role])\n"
+        + "            break\n"
+        + "elif args[:2] == ['image', 'inspect']:\n"
+        + "    image = args[2]\n"
+        + "    template = args[args.index('--format') + 1]\n"
+        + "    role = next((role for role, value in ids.items() if image == value), None)\n"
+        + "    role = role or next((role for role, value in targets.items() if image == value), None)\n"
+        + "    if 'build_fingerprint' in template:\n"
+        + "        print(fingerprints.get(role, ''))\n"
+        + "    elif 'install_uuid' in template:\n"
+        + "        print(uid)\n"
+        + "    elif 'com.docker.compose.project' in template:\n"
+        + "        print(project)\n"
+        + "    elif 'RepoTags' in template:\n"
+        + "        print(f'elesim/{role}:old-{role}')\n"
+        + "    elif '{{.Id}}' in template:\n"
+        + "        print('')\n"
+        + "elif args[:1] == ['tag']:\n"
+        + f"    Path({str(tmp_path / 'tags')!r}).write_text(' '.join(args[2:]) + '\\n', encoding='utf-8')\n"
+        + "else:\n"
+        + "    raise SystemExit(f'unexpected fake docker call: {args!r}')\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    compose = prefix / "containers/compose.yaml"
+    compose.parent.mkdir()
+    compose.write_text("services: {}\n", encoding="utf-8")
+    compose_wrapper = prefix / "bin/elesim-compose"
+    compose_wrapper.write_text(
+        f"#!{sys.executable}\nfrom pathlib import Path\n"
+        f"Path({str(tmp_path / 'built')!r}).write_text('build\\n', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    compose_wrapper.chmod(0o755)
+    script = render_update_wrapper(
+        prefix=prefix,
+        state_path=prefix / "install-state.json",
+        compose=compose,
+        compose_wrapper=compose_wrapper,
+        build_services=tuple(specs),
+        build_image_specs=specs,
+        install_uuid=install_uuid,
+        install_name="quick",
+        project=project,
+        fetch_source=False,
+    )
+    result = subprocess.run(
+        ("bash", "-c", script),
+        env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "reused unchanged image: pilot=elesim/pilot:quick-lion" in result.stdout
+    assert "reused unchanged image: tools=elesim/tools:quick-otter" in result.stdout
+    assert not (tmp_path / "built").exists()
+    assert (tmp_path / "tags").is_file()
+
+
 def test_explicit_update_source_is_recorded_and_runtime_override_remains_available(
     monkeypatch,
     tmp_path: Path,

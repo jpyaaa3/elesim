@@ -1202,6 +1202,7 @@ class ContainerInstaller:
                 build_fingerprint=self._image_fingerprints["dev"],
                 image=self._image_name("dev"),
                 container_name=self._infra_container_name("dev"),
+                project=(self._compose_project if self._scoped_namespace else None),
             )
         services["tools"] = self._tools_service()
         if self.state.container_network.uses_tailscale_sidecar:
@@ -2292,6 +2293,14 @@ class ContainerInstaller:
                     "tools",
                     *(("dev",) if self.state.developer_attachment.enabled else ()),
                 ),
+                build_image_specs={
+                    role: (self._image_name(role), self._image_fingerprints[role])
+                    for role in (
+                        *self.state.roles,
+                        "tools",
+                        *(("dev",) if self.state.developer_attachment.enabled else ()),
+                    )
+                },
                 preamble=guard,
                 repository=self.state.source_repository,
                 ref=self.state.source_ref,
@@ -2331,6 +2340,10 @@ class ContainerInstaller:
                     compose=compose,
                     compose_wrapper=compose_wrapper,
                     build_services=(*self.state.roles, "tools"),
+                    build_image_specs={
+                        role: (self._image_name(role), self._image_fingerprints[role])
+                        for role in (*self.state.roles, "tools")
+                    },
                     preamble=guard,
                     source_revision=source_revision,
                     runtime_snapshot=runtime_snapshot,

@@ -411,7 +411,12 @@ system이 있다면 그 이미지는 계속 남는다. 정리 실패는 완료�
 Dockerfiles use BuildKit cache mounts for pip downloads/wheels; these caches
 are not included in the runtime image. Cache misses must still be buildable
 from the declared dependencies. Do not purge Docker caches during an ordinary
-update. Runtime APT/CasADi/Torch and pinned MPC installation precede app source
+update. Before invoking Compose, a scoped update compares each requested role's
+install UUID, Compose project, build-fingerprint label and role tag against
+existing local images. An exact match is retagged to the new readable alias and
+the role is omitted from `docker compose build`; only roles with no exact match
+are built. This keeps aliases immutable as release metadata without making a
+no-op update redownload Torch/CUDA dependencies. Runtime APT/CasADi/Torch and pinned MPC installation precede app source
 copies; tools ABI repair precedes protocol/app copies. Release dependency
 installation precedes application wheels and runtime config/data. Developer
 UID/GID arguments are declared after dependency installation so a different

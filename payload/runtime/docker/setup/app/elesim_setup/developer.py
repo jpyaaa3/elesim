@@ -109,6 +109,7 @@ def developer_service(
     build_fingerprint: str,
     image: str = "elesim/dev:local",
     container_name: str = "elesim-dev",
+    project: str | None = None,
 ) -> dict[str, object]:
     """Return the optional dev shell service for one install namespace."""
 
@@ -125,6 +126,11 @@ def developer_service(
         DOCKER_INSTALL_UUID_LABEL: install_uuid,
         DOCKER_BUILD_FINGERPRINT_LABEL: build_fingerprint,
     }
+    if project is not None:
+        labels = {
+            **labels,
+            "com.docker.compose.project": project,
+        }
     environment: dict[str, object] = {
         "HOME": str(home),
         "USER": username,
