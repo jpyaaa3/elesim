@@ -143,6 +143,18 @@ def prepare_instance_services(
             "keystore": "",
             "enclave": "",
         }
+    # The transaction renders Compose and endpoint configuration below a
+    # temporary staging prefix.  The service bind mounts are intentionally
+    # rewritten to the published prefix at commit time, but the DDS settings
+    # are also serialized into each role's YAML file and are not part of the
+    # Compose document.  Keep those settings pointed at the eventual
+    # published generation; otherwise a successful registration leaves the
+    # containers referring to the deleted ``.instance-*`` staging tree.
+    config_security_views = _published_security_views(
+        security_views,
+        output_prefix=output_prefix,
+        published_prefix=state.prefix_path,
+    )
     scoped = replace(
         state,
         # New instance records carry an immutable per-instance policy.  Older
@@ -182,7 +194,7 @@ def prepare_instance_services(
         scoped,
         instance,
         template_root=template_root,
-        security_views=security_views or None,
+        security_views=config_security_views or None,
         output_prefix=output_prefix,
         robot_id=effective_robot_id,
     )
@@ -220,6 +232,39 @@ def prepare_instance_services(
             turn=turn,
         )
     return rendered
+
+
+def _published_security_views(
+    security_views: dict[str, tuple[Path, str]] | None,
+    *,
+    output_prefix: Path | None,
+    published_prefix: Path,
+) -> dict[str, tuple[Path, str]] | None:
+    """Point serialized DDS settings at the post-transaction prefix.
+
+    ``security_views`` is also used for the host-side bind mount.  During an
+    instance transaction those mounts must initially reference the staged
+    tree, while the YAML consumed inside the container must reference the
+    final tree after the staged directory is renamed into place.
+    """
+
+    if not security_views or output_prefix is None:
+        return security_views
+    staging = Path(output_prefix).expanduser()
+    published = Path(published_prefix).expanduser()
+    result: dict[str, tuple[Path, str]] = {}
+    for role, (keystore, enclave) in security_views.items():
+        candidate = Path(keystore)
+        try:
+            relative = candidate.relative_to(staging)
+        except ValueError:
+            # Callers may intentionally supply an already-published view.  Do
+            # not rewrite paths outside this transaction's staging prefix.
+            final_keystore = candidate
+        else:
+            final_keystore = published / relative
+        result[role] = (final_keystore, enclave)
+    return result
 
 
 def _instance_security_views(

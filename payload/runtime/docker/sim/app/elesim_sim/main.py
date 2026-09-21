@@ -201,7 +201,7 @@ def _run() -> None:
             streams[stream] = _webrtc_descriptor(endpoint_id, stream)
 
     mock_object_state = MockObjectState(
-        MockObjectCatalog(resolve_mock_object_catalog_root(_ROOT))
+        MockObjectCatalog(resolve_mock_object_catalog_root(_CONFIG_ROOT))
     )
     state = SimulationStateSource(bundle.mapping_config, mock_object_state=mock_object_state)
     runtime_ready_event = threading.Event()

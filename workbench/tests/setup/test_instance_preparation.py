@@ -11,7 +11,11 @@ from elesim_setup.configuration import generate_role_configs
 from elesim_setup.instance_compose import aggregate_compose
 from elesim_setup.instance_identity import image_reference
 from elesim_setup.instance_preparation import prepare_instance_services
-from elesim_setup.instance_security import activate_instance_security, stage_instance_security
+from elesim_setup.instance_security import (
+    activate_instance_security,
+    active_instance_security_path,
+    stage_instance_security,
+)
 from elesim_setup.instances import InstanceEndpoint, InstanceState
 from elesim_setup.releases import (
     ReleaseManifest,
@@ -247,6 +251,79 @@ def test_instance_uses_pinned_release_data_and_managed_sros2_view(
     )
     prepare_instance_services(managed, INSTALL, instance, release)
     assert generated.read_bytes() == before
+
+
+def test_staged_sros2_config_uses_published_keystore_prefix(
+    tmp_path: Path,
+) -> None:
+    state = _state(tmp_path)
+    source = tmp_path / "data"
+    source.mkdir()
+    (source / "model.bin").write_bytes(b"model")
+    release = _release(state, source)
+    instance = replace(_instance("alpha", release), security_profile="sros2", security_generation="g1")
+    managed = replace(
+        state,
+        dds=replace(
+            state.dds,
+            security_profile="sros2",
+            security_provisioning="managed",
+            security_generation="g1",
+            security_bundle=str(
+                state.prefix_path
+                / "instances/alpha/security/generations/g1/apps/pilot/keystore"
+            ),
+            keystore=str(
+                state.prefix_path
+                / "instances/alpha/security/generations/g1/apps/pilot/keystore"
+            ),
+            enclave="/elesim/alpha/pilot/alpha_p",
+        ),
+    )
+    staged = tmp_path / "instance-staging"
+    views = _security_views(tmp_path, instance)
+    stage_instance_security(staged, INSTALL, instance, "g1", views)
+    activate_instance_security(staged, INSTALL, instance, "g1")
+    staged_views = {
+        endpoint.role: (
+            active_instance_security_path(
+                staged,
+                INSTALL,
+                instance.system_id,
+                endpoint.endpoint_id,
+            ).resolve(),
+            f"/elesim/{instance.system_id}/{endpoint.role}/"
+            f"{endpoint.endpoint_id.replace('-', '_')[:63]}",
+        )
+        for endpoint in instance.endpoints
+    }
+
+    services = prepare_instance_services(
+        managed,
+        INSTALL,
+        instance,
+        release,
+        output_prefix=staged,
+        security_views=staged_views,
+    )
+    generated = staged / "instances/alpha/endpoints/alpha-p/config/runtime.installed.yaml"
+    payload = yaml.safe_load(generated.read_text(encoding="utf-8"))
+    published_keystore = (
+        state.prefix_path
+        / "instances/alpha/security/generations/g1/apps/pilot/keystore"
+    )
+    staged_keystore = (
+        staged
+        / "instances/alpha/security/generations/g1/apps/pilot/keystore"
+    )
+    assert payload["dds"]["keystore"] == str(published_keystore)
+    assert str(staged_keystore) not in generated.read_text(encoding="utf-8")
+    pilot = next(
+        service
+        for service in services.values()
+        if service["labels"]["io.elesim.role"] == "pilot"
+    )
+    assert f"{staged_keystore}:{staged_keystore}:ro" in pilot["volumes"]
 
 
 def test_missing_active_sros2_generation_fails_before_instance_mutation(
