@@ -437,7 +437,7 @@ def _fake_docker(path: Path) -> Path:
         "  printf 'build progress that must not reach stdout\\n'\n"
         "  exit 0\n"
         "fi\n"
-        "if [[ $arguments == *' run --rm -T tools elesim-net '* || $arguments == *' run --rm -T runtime-tools elesim-net '* ]]; then\n"
+        "if [[ $arguments == *' run --rm -T '* && ( $arguments == *' tools elesim-net '* || $arguments == *' runtime-tools elesim-net '* ) ]]; then\n"
         "  printf 'Found orphan containers; No services to build\\n' >&2\n"
         "  printf '{\"schema_version\":1}\\n'\n"
         "  exit 0\n"
@@ -2783,9 +2783,17 @@ def test_viewer_cleanup_rejects_unsafe_legacy_recovery_provenance(
     assert not (tmp_path / "xhost.called").exists()
 
 
-def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Path) -> None:
+@pytest.mark.parametrize("sidecar", (False, True))
+def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Path, sidecar: bool) -> None:
     state = local_state(roles=("sim",), install_mode="container")
+    if sidecar:
+        state = replace(state, container_network=ContainerNetworkSettings(
+            mode="tailscale-sidecar", docker_context="default",
+            docker_engine_id="test-engine", tailscale_hostname="elesim-test",
+            tailscale_state_dir=str(state.prefix_path / "secrets/tailscale"),
+        ))
     ContainerInstaller(state).run()
+    (state.prefix_path / "instances/lab").mkdir(parents=True)
 
     ownership = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
     assert ownership.docker is not None
@@ -2799,6 +2807,7 @@ def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Pa
         {
             "PATH": f"{fake_bin}:{environment['PATH']}",
             "ELESIM_FAKE_DOCKER_CALLS": str(calls),
+            "ELESIM_FAKE_ENGINE_ID": "test-engine" if sidecar else "",
         }
     )
 
@@ -2839,6 +2848,29 @@ def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Pa
     assert 'run --rm -T "$net_service" elesim-net' in wrapper
     assert 'run --rm -T --no-build "$net_service" elesim-net' not in wrapper
     assert "run --rm --build tools elesim-net" not in wrapper
+
+    for role in ("pilot", "sim", "ui"):
+        probe = subprocess.run(
+            (state.bin_path / "elesim-net", "doctor", "--instance-system", "lab",
+             "--instance-role", role, "--json", "--readiness-only"),
+            env=environment, text=True, capture_output=True,
+        )
+        assert probe.returncode == 0, probe.stderr
+        assert json.loads(probe.stdout) == {"schema_version": 1}
+    if sidecar:
+        instance_root = state.prefix_path / "instances/lab"
+        assert f"--volume {instance_root}:{instance_root}:ro runtime-tools" in calls.read_text()
+
+    for action in ("run", "exec"):
+        for target, expected in (("tools", 0), ("runtime-tools", 0), ("sim", 78)):
+            command = (
+                state.bin_path / "elesim-compose", "-f",
+                str(state.prefix_path / "containers/compose.yaml"), action,
+                "-T", "--env", "sim", "--user", "ui", target,
+                "elesim-net", "doctor", "--instance-role", "pilot",
+            )
+            result = subprocess.run(command, env=environment, text=True, capture_output=True)
+            assert result.returncode == expected, result.stderr
 
 
 def test_scoped_net_releases_uses_validated_maintenance_registry_without_docker(

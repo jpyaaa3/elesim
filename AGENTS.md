@@ -1,5 +1,17 @@
 # EleSim Maintenance Guide
 
+## Workspace and Git permissions
+
+- In the Codex workspace, `.git` may be exposed as a read-only mount even
+  when the WSL filesystem itself is healthy and mounted `rw`. Do not infer an
+  ext4/VHDX failure from `.git` alone; check the kernel log and the parent
+  filesystem first.
+- When the user authorizes a commit or push, perform the direct Git operation
+  with the approved elevated filesystem/network permission if the sandbox
+  blocks `.git` writes. Do not create a temporary clone or use an alternate
+  repository as a workaround; preserve the configured remote and commit
+  history.
+
 ## Current Work Handoff
 
 - Updated: 2026-09-10
