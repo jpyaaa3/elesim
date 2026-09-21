@@ -81,6 +81,34 @@ def test_build_report_accepts_compose_image_summary_lines(tmp_path):
     )
 
 
+def test_complete_image_report_includes_reused_expected_images(tmp_path):
+    result_file = tmp_path / "result" / "images.txt"
+    result = subprocess.run(
+        (
+            sys.executable,
+            str(build_progress.__file__),
+            "--write-report",
+            "--result-file",
+            str(result_file),
+            "--expected-image",
+            "elesim/ui:quick_zebra-silent_lynx",
+            "--expected-image",
+            "elesim/tools:quick_zebra-jolly_canary",
+            "--expected-image",
+            "elesim/sim:quick_zebra-ivory_llama",
+        ),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result_file.read_text() == (
+        "Installation name=quick_zebra\n"
+        "elesim/tools=jolly_canary\n"
+        "elesim/sim=ivory_llama\n"
+        "elesim/ui=silent_lynx\n"
+    )
+
+
 @pytest.mark.parametrize("mode", ["auto", "verbose"])
 def test_non_tty_stream_is_preserved_for_connection_manager(tmp_path, mode):
     result = invoke(tmp_path, "import os; os.write(1,b'out\\n'); os.write(2,b'err\\n')", mode)

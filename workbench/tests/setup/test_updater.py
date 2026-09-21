@@ -204,6 +204,29 @@ def test_release_build_reuses_matching_owned_images_without_compose_build(
     assert (tmp_path / "tags").is_file()
 
 
+def test_update_report_contains_reused_and_rebuilt_images(tmp_path: Path) -> None:
+    specs = {
+        "pilot": ("elesim/pilot:quick-plain_horse", "a" * 64),
+        "sim": ("elesim/sim:quick-ivory_llama", "b" * 64),
+        "tools": ("elesim/tools:quick-jolly_canary", "c" * 64),
+    }
+    script = render_update_wrapper(
+        prefix=tmp_path / "install",
+        state_path=tmp_path / "install/install-state.json",
+        compose=tmp_path / "install/containers/compose.yaml",
+        build_services=tuple(specs),
+        build_image_specs=specs,
+        install_uuid="01234567-89ab-cdef-0123-456789abcdef",
+        install_name="quick",
+        build_progress=True,
+        fetch_source=False,
+    )
+    assert "--write-report" in script
+    assert "--expected-image elesim/pilot:quick-plain_horse" in script
+    assert "--expected-image elesim/sim:quick-ivory_llama" in script
+    assert "--expected-image elesim/tools:quick-jolly_canary" in script
+
+
 def test_explicit_update_source_is_recorded_and_runtime_override_remains_available(
     monkeypatch,
     tmp_path: Path,

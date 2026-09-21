@@ -435,6 +435,27 @@ def render_update_wrapper(
             )
         if build_line is not None:
             lines.append(build_line)
+        if compose is not None and build_progress and normalized_build_image_specs:
+            # BuildKit reports only services it actually rebuilt.  Reused
+            # services still have a new readable tag in the generated
+            # Compose file, so replace the transient build report with the
+            # complete selected image set before the final summary is shown.
+            report_images = tuple(
+                image
+                for _service, image, _fingerprint in normalized_build_image_specs
+                if _NAMED_IMAGE.fullmatch(image)
+            )
+            if report_images:
+                image_report = prefix / "maintenance/.build-images"
+                report_arguments = " ".join(
+                    f"--expected-image {shlex.quote(image)}"
+                    for image in report_images
+                )
+                lines.append(
+                    f"python3 {shlex.quote(str(prefix / 'maintenance/elesim_setup/build_progress.py'))} "
+                    f"--write-report --result-file {shlex.quote(str(image_report))} "
+                    f"{report_arguments}"
+                )
         if normalized_owned_images:
             lines.extend(
                 (

@@ -57,6 +57,12 @@ _IMAGE_SUMMARY_OUTPUT = re.compile(
     r"[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))\s+Built\b",
     re.IGNORECASE,
 )
+_IMAGE_REFERENCE = re.compile(
+    r"^(elesim/[a-z][a-z0-9_.-]*):"
+    r"([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))-"
+    r"([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))$",
+    re.IGNORECASE,
+)
 
 
 def _image_output_match(value: str):
@@ -105,6 +111,27 @@ def _write_image_report(path: Path, images: dict[str, tuple[str, str]]) -> None:
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def _parse_expected_images(values: list[str]) -> dict[str, tuple[str, str]]:
+    """Parse the complete image set selected by the generated Compose file.
+
+    BuildKit output only mentions services that were rebuilt.  The updater
+    supplies the target references separately so a report also includes
+    images that were safely retagged and reused.
+    """
+    images: dict[str, tuple[str, str]] = {}
+    for value in values:
+        match = _IMAGE_REFERENCE.fullmatch(value.strip())
+        if match is None:
+            raise ValueError(f"invalid expected image reference: {value!r}")
+        repository = match.group(1).lower()
+        identity = (match.group(2).lower(), match.group(3).lower())
+        previous = images.get(repository)
+        if previous is not None and previous != identity:
+            raise ValueError(f"duplicate expected image repository: {repository}")
+        images[repository] = identity
+    return images
 
 
 def run(command: list[str], log_dir: Path, mode: str = "auto", *,
@@ -251,16 +278,35 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--log-dir", required=True, type=Path)
+    parser.add_argument("--log-dir", type=Path)
     parser.add_argument("--title", default="Runtime image build")
     parser.add_argument("--notice-prefix", action="append", default=[])
     parser.add_argument("--hide-prefix", action="append", default=[])
     parser.add_argument("--result-file", type=Path)
+    parser.add_argument(
+        "--write-report", action="store_true",
+        help="write a complete image report without running a build command",
+    )
+    parser.add_argument(
+        "--expected-image", action="append", default=[],
+        help="image reference to include in a complete report",
+    )
     parser.add_argument("--mode", choices=("auto", "compact", "plain", "verbose"),
                         default="verbose" if os.environ.get("ELESIM_VERBOSE") == "1"
                         else os.environ.get("ELESIM_BUILD_PROGRESS", "auto"))
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.write_report:
+        if args.result_file is None:
+            parser.error("--write-report requires --result-file")
+        try:
+            _write_image_report(args.result_file, _parse_expected_images(args.expected_image))
+        except (OSError, ValueError) as exc:
+            print(f"Build progress error: {exc}", file=sys.stderr)
+            return 74
+        return 0
+    if args.log_dir is None:
+        parser.error("--log-dir is required when running a build")
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("a build command is required")
