@@ -2315,6 +2315,41 @@ def test_runtime_doctor_requests_strict_peer_json() -> None:
     assert check is False
 
 
+def test_scoped_runtime_doctor_selects_registered_instance_view() -> None:
+    class DoctorSession:
+        def __init__(self) -> None:
+            self.commands: list[tuple[str, ...]] = []
+
+        def run(self, argv, *, check=True) -> RemoteCommandResult:
+            command = tuple(argv)
+            self.commands.append(command)
+            return RemoteCommandResult(0, json.dumps({"ok": True, "results": []}), "")
+
+    topology = _scoped_remote_topology()
+    session = DoctorSession()
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    lifecycle._validate_scoped_target = lambda *args, **kwargs: None
+
+    report = lifecycle.runtime_doctor(
+        session,
+        topology.host("server"),
+        ("ui-main",),
+        8.0,
+    )
+
+    assert report == {"ok": True, "results": []}
+    assert len(session.commands) == 1
+    command = session.commands[0]
+    assert command[0:2] == ("/usr/local/bin/elesim-net", "doctor")
+    assert command[command.index("--instance-system") : command.index("--instance-system") + 4] == (
+        "--instance-system",
+        "lab",
+        "--instance-role",
+        "sim",
+    )
+    assert command[-2:] == ("--expect-peer", "ui-main")
+
+
 def test_runtime_doctor_explains_non_json_remote_output() -> None:
     class DoctorSession:
         @staticmethod

@@ -7,6 +7,7 @@ import socket
 import struct
 import time
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import parse_qs, urlsplit
 
@@ -256,7 +257,18 @@ def udp_stun_probe(target: TurnTarget, *, timeout_s: float) -> None:
     validate_stun_response(response, transaction_id)
 
 
-def _prepare_dds_environment(state: InstallState) -> None:
+def _prepare_dds_environment(
+    state: InstallState,
+    *,
+    vendor_config_path: str | os.PathLike[str] | None = None,
+) -> None:
+    """Prepare the process environment for one validated DDS view.
+
+    A scoped instance has its own generated CycloneDDS XML and keystore.  The
+    install-wide state is still used as the immutable capability boundary, so
+    callers may provide only the already-validated instance XML here rather
+    than changing the process-wide installation configuration.
+    """
     expected_rmw = state.dds.rmw_implementation
     current_rmw = os.environ.get("RMW_IMPLEMENTATION", "").strip()
     if current_rmw and current_rmw != expected_rmw:
@@ -268,14 +280,18 @@ def _prepare_dds_environment(state: InstallState) -> None:
     os.environ["ROS_DOMAIN_ID"] = str(state.dds.domain_id)
     os.environ["ROS_LOCALHOST_ONLY"] = "0"
     config_role = state.runtime_roles[0]
-    vendor_config = generated_dds_config_path(state, config_role)
+    vendor_config = (
+        generated_dds_config_path(state, config_role)
+        if vendor_config_path is None
+        else Path(vendor_config_path).expanduser()
+    )
     if vendor_config.is_file():
         os.environ["CYCLONEDDS_URI"] = f"file://{vendor_config}"
     if state.dds.security_profile == "sros2":
         os.environ["ROS_SECURITY_ENABLE"] = "true"
         os.environ["ROS_SECURITY_STRATEGY"] = "Enforce"
         os.environ["ROS_SECURITY_KEYSTORE"] = str(
-            app_keystore_path(state, config_role)
+            state.dds.keystore_path or app_keystore_path(state, config_role)
         )
         os.environ["ROS_SECURITY_ENCLAVE_OVERRIDE"] = dds_enclave(
             state, config_role
@@ -291,10 +307,11 @@ def probe_dds_graph(
     *,
     timeout_s: float,
     import_rclpy: Callable[[], Any] | None = None,
+    vendor_config_path: str | os.PathLike[str] | None = None,
 ) -> DdsGraphSnapshot:
     """Join the configured domain and snapshot nodes, topics, and services."""
 
-    _prepare_dds_environment(state)
+    _prepare_dds_environment(state, vendor_config_path=vendor_config_path)
     rclpy = _rclpy_import() if import_rclpy is None else import_rclpy()
     context = _rclpy_context(rclpy, state)
     node = None
@@ -354,6 +371,7 @@ def probe_dds_peers(
     *,
     timeout_s: float,
     import_rclpy: Callable[[], Any] | None = None,
+    vendor_config_path: str | os.PathLike[str] | None = None,
 ) -> tuple[str, ...]:
     """Collect endpoint IDs advertised on the EleSim discovery carrier.
 
@@ -369,6 +387,7 @@ def probe_dds_peers(
         state,
         timeout_s=timeout_s,
         import_rclpy=import_rclpy,
+        vendor_config_path=vendor_config_path,
     ).descriptors
 
 
@@ -378,6 +397,7 @@ def probe_dds_peer_state(
     timeout_s: float,
     expected_peers: Sequence[str] = (),
     import_rclpy: Callable[[], Any] | None = None,
+    vendor_config_path: str | os.PathLike[str] | None = None,
 ) -> DdsPeerProbe:
     """Observe descriptors and live heartbeats on the application carrier.
 
@@ -388,7 +408,7 @@ def probe_dds_peer_state(
     healthy.
     """
 
-    _prepare_dds_environment(state)
+    _prepare_dds_environment(state, vendor_config_path=vendor_config_path)
     try:
         from elesim_interfaces.msg import EndpointDescriptor, EndpointHeartbeat
         from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -512,10 +532,11 @@ def probe_rgbd_frame(
     *,
     timeout_s: float,
     encoded: bool = False,
+    vendor_config_path: str | os.PathLike[str] | None = None,
 ) -> dict[str, int]:
     """Wait for one typed DDS RGBD sample on the configured Sim topic."""
 
-    _prepare_dds_environment(state)
+    _prepare_dds_environment(state, vendor_config_path=vendor_config_path)
     try:
         import rclpy
         from elesim_interfaces.msg import EncodedRgbdFrame, RgbdFrame
@@ -595,9 +616,15 @@ class NetworkDoctor:
         expected_peers: Sequence[str] = (),
         strict_peers: bool = False,
         readiness_only: bool = False,
+        vendor_config_path: str | os.PathLike[str] | None = None,
     ) -> None:
         self.state = state.require_runnable_dds()
         self.timeout_s = max(0.2, float(timeout_s))
+        self.vendor_config_path = (
+            None
+            if vendor_config_path is None
+            else Path(vendor_config_path).expanduser()
+        )
         self.active = bool(active)
         self.expected_peers = tuple(
             sorted({str(value).strip() for value in expected_peers if str(value).strip()})
@@ -647,7 +674,10 @@ class NetworkDoctor:
         )
         self._turn_results(report)
         try:
-            graph = probe_dds_graph(self.state, timeout_s=self.timeout_s)
+            graph_kwargs: dict[str, object] = {"timeout_s": self.timeout_s}
+            if self.vendor_config_path is not None:
+                graph_kwargs["vendor_config_path"] = self.vendor_config_path
+            graph = probe_dds_graph(self.state, **graph_kwargs)
         except Exception as exc:
             report.add(
                 "DDS graph",
@@ -678,11 +708,13 @@ class NetworkDoctor:
             report.add("DDS peers", SKIP, "no expected endpoint was specified")
             return
         try:
-            probe = probe_dds_peer_state(
-                self.state,
-                timeout_s=self.timeout_s,
-                expected_peers=self.expected_peers,
-            )
+            peer_kwargs: dict[str, object] = {
+                "timeout_s": self.timeout_s,
+                "expected_peers": self.expected_peers,
+            }
+            if self.vendor_config_path is not None:
+                peer_kwargs["vendor_config_path"] = self.vendor_config_path
+            probe = probe_dds_peer_state(self.state, **peer_kwargs)
         except Exception as exc:
             report.add(
                 "DDS peers",
@@ -802,11 +834,13 @@ class NetworkDoctor:
             report.add("RGBD frame", SKIP, "live sample checks require --active")
             return
         try:
-            metadata = probe_rgbd_frame(
-                self.state,
-                timeout_s=max(self.timeout_s, 5.0),
-                encoded=expected_type == ENCODED_RGBD_TYPE,
-            )
+            frame_kwargs: dict[str, object] = {
+                "timeout_s": max(self.timeout_s, 5.0),
+                "encoded": expected_type == ENCODED_RGBD_TYPE,
+            }
+            if self.vendor_config_path is not None:
+                frame_kwargs["vendor_config_path"] = self.vendor_config_path
+            metadata = probe_rgbd_frame(self.state, **frame_kwargs)
             report.add(
                 "RGBD frame",
                 PASS,

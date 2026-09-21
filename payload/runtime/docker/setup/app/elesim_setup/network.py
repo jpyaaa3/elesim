@@ -30,6 +30,7 @@ from .configuration import (
     app_keystore_path,
 )
 from .doctor import NetworkDoctor
+from .instances import InstanceState
 from .security_provisioning import (
     provisioning_required_path,
     sync_provisioning_required,
@@ -38,6 +39,8 @@ from .state import DdsSettings, InstallState, NetworkSettings, TurnSettings, def
 
 
 _TAILSCALE_INTERFACE = re.compile(r"^tailscale[0-9]+$")
+_SCOPED_SYSTEM = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+_SCOPED_ROLE = frozenset({"pilot", "sim", "ui"})
 
 
 def is_tailscale_interface(value: object) -> bool:
@@ -169,6 +172,125 @@ def detect_tailscale(
         addresses=tuple(addresses),
         detail="read-only Tailscale address hint; no installation or login was performed",
     )
+
+
+def _scoped_doctor_state(
+    state: InstallState,
+    system_id: str,
+    role: str = "",
+) -> tuple[InstallState, Path]:
+    """Build a read-only DDS view for one registered runtime instance.
+
+    Install state deliberately remains pending while the connection manager
+    owns scoped SROS2 provisioning.  Readiness must therefore select the
+    instance's state, generated CycloneDDS XML and endpoint keystore instead
+    of asking the install-wide doctor to validate an unrelated pending bundle.
+    The returned state is ephemeral and is never written back.
+    """
+
+    if _SCOPED_SYSTEM.fullmatch(str(system_id).strip()) is None:
+        raise ValueError("instance system ID must be a safe identifier")
+    system = str(system_id).strip()
+    if role and role not in _SCOPED_ROLE:
+        raise ValueError("instance doctor role must be pilot, sim, or ui")
+    instance_root = state.prefix_path / "instances" / system
+    state_path = instance_root / "state.json"
+    if instance_root.is_symlink() or state_path.is_symlink() or not state_path.is_file():
+        raise ValueError(f"scoped instance state is unavailable: {state_path}")
+    try:
+        raw = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"scoped instance state is not valid JSON: {state_path}") from exc
+    if not isinstance(raw, Mapping):
+        raise ValueError("scoped instance state must be an object")
+    instance = InstanceState.from_dict(raw)
+    if instance.system_id != system:
+        raise ValueError("scoped instance state system ID does not match the request")
+    endpoint_roles = {endpoint.role: endpoint for endpoint in instance.endpoints}
+    selected_role = role.strip() if role else ""
+    if not selected_role:
+        if len(endpoint_roles) != 1:
+            raise ValueError("instance doctor role is required when a system has multiple endpoints")
+        selected_role = next(iter(endpoint_roles))
+    endpoint = endpoint_roles.get(selected_role)
+    if endpoint is None or selected_role not in state.roles:
+        raise ValueError(f"instance doctor role is not assigned on this host: {selected_role}")
+    endpoint_config = (
+        instance_root / "endpoints" / endpoint.endpoint_id / "config" / "cyclonedds.xml"
+    )
+    if endpoint_config.is_symlink() or not endpoint_config.is_file():
+        raise ValueError(f"scoped DDS configuration is unavailable: {endpoint_config}")
+
+    if instance.security_profile == "sros2":
+        if not instance.security_generation:
+            raise ValueError("scoped SROS2 instance has no security generation")
+        security_current = instance_root / "security" / "current"
+        if not security_current.is_symlink():
+            raise ValueError("scoped SROS2 current generation is not a symlink")
+        generation_root = security_current.resolve()
+        generations_root = (security_current.parent / "generations").resolve()
+        if generations_root not in generation_root.parents or generation_root.name != instance.security_generation:
+            raise ValueError("scoped SROS2 current generation does not match instance state")
+        manifest_path = generation_root / "manifest.json"
+        if manifest_path.is_symlink() or not manifest_path.is_file():
+            raise ValueError("scoped SROS2 security manifest is unavailable")
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("scoped SROS2 security manifest is invalid") from exc
+        if not isinstance(manifest, Mapping) or manifest.get("system_id") != system:
+            raise ValueError("scoped SROS2 security manifest identity mismatch")
+        keystore = security_current / "apps" / selected_role / "keystore"
+        if keystore.is_symlink() or not keystore.is_dir():
+            raise ValueError(f"scoped SROS2 keystore is unavailable: {keystore}")
+        dds = replace(
+            state.dds,
+            system_id=instance.system_id,
+            domain_id=instance.domain_id,
+            rmw_implementation=instance.rmw_implementation,
+            discovery_mode=instance.discovery_mode,
+            static_peers=instance.static_peers,
+            interface=instance.interface,
+            security_profile="sros2",
+            security_provisioning="managed",
+            security_generation=instance.security_generation,
+            security_bundle=str(keystore),
+            keystore=str(keystore),
+            enclave=f"/elesim/{system}",
+        )
+    elif instance.security_profile == "trusted-network":
+        dds = replace(
+            state.dds,
+            system_id=instance.system_id,
+            domain_id=instance.domain_id,
+            rmw_implementation=instance.rmw_implementation,
+            discovery_mode=instance.discovery_mode,
+            static_peers=instance.static_peers,
+            interface=instance.interface,
+            security_profile="trusted-network",
+            security_provisioning="none",
+            security_generation="",
+            security_bundle="",
+            keystore="",
+            enclave="",
+        )
+    else:
+        raise ValueError(f"unsupported scoped security profile: {instance.security_profile!r}")
+    network = replace(
+        state.network,
+        turn_urls=(),
+        pilot_id=instance.pilot_id,
+        sim_id=instance.sim_id,
+        ui_id=instance.ui_id,
+    )
+    effective = replace(
+        state,
+        network=network,
+        dds=dds,
+        turn=TurnSettings(),
+        assigned_roles=(selected_role,),
+    ).require_runnable_dds()
+    return effective, endpoint_config
 
 
 def require_runtime_network_namespace(
@@ -1022,6 +1144,17 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="check only expected endpoint descriptors/heartbeats",
     )
+    doctor.add_argument(
+        "--instance-system",
+        default="",
+        help="use the registered scoped instance DDS/security view",
+    )
+    doctor.add_argument(
+        "--instance-role",
+        default="",
+        choices=tuple(sorted(_SCOPED_ROLE)),
+        help="role endpoint whose scoped DDS/security view should be probed",
+    )
     doctor.add_argument("--timeout", type=float, default=4.0)
     doctor.add_argument("--json", action="store_true", help="print machine-readable JSON")
     return parser
@@ -1151,15 +1284,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Running processes must be restarted to read the new configuration.")
             return 0
         if args.command == "doctor":
+            doctor_state = state
+            vendor_config_path: Path | None = None
+            if args.instance_system:
+                doctor_state, vendor_config_path = _scoped_doctor_state(
+                    state,
+                    args.instance_system,
+                    args.instance_role,
+                )
             # Probe diagnostics must not contaminate the machine-readable reply.
             with contextlib.redirect_stdout(sys.stderr) if args.json else contextlib.nullcontext():
                 report = NetworkDoctor(
-                    state,
+                    doctor_state,
                     timeout_s=args.timeout,
                     active=args.active,
                     expected_peers=args.expect_peer,
                     strict_peers=args.strict_peers,
                     readiness_only=args.readiness_only,
+                    vendor_config_path=vendor_config_path,
                 ).run()
             print(
                 json.dumps(report.to_dict(), ensure_ascii=False, indent=2)

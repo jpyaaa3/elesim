@@ -2149,6 +2149,51 @@ class ContainerInstaller:
                 if self.state.container_network.uses_tailscale_sidecar
                 else ""
             )
+            # A scoped readiness probe needs to read only the selected
+            # instance's state/security/configuration.  The sidecar's
+            # runtime-tools service intentionally does not mount the whole
+            # installation, so add one exact read-only instance mount for the
+            # validated system argument.  Direct-host tools already mount the
+            # install prefix and need no extra bind.
+            + "doctor_instance_system=\n"
+            + "doctor_instance_role=\n"
+            + "doctor_instance_root=\n"
+            + "if [[ ${1:-} == doctor ]]; then\n"
+            + "  doctor_args=(\"$@\")\n"
+            + "  doctor_arg_index=1\n"
+            + "  while (( doctor_arg_index < $# )); do\n"
+            + "    doctor_arg_value=${doctor_args[$doctor_arg_index]}\n"
+            + "    case $doctor_arg_value in\n"
+            + "      --instance-system)\n"
+            + "        (( doctor_arg_index + 1 < $# )) || { printf '%s\\n' 'doctor --instance-system requires a value' >&2; exit 64; }\n"
+            + "        doctor_instance_system=${doctor_args[$((doctor_arg_index + 1))]}\n"
+            + "        doctor_arg_index=$((doctor_arg_index + 2))\n"
+            + "        continue\n"
+            + "        ;;\n"
+            + "      --instance-system=*) doctor_instance_system=${doctor_arg_value#*=} ;;\n"
+            + "      --instance-role)\n"
+            + "        (( doctor_arg_index + 1 < $# )) || { printf '%s\\n' 'doctor --instance-role requires a value' >&2; exit 64; }\n"
+            + "        doctor_instance_role=${doctor_args[$((doctor_arg_index + 1))]}\n"
+            + "        doctor_arg_index=$((doctor_arg_index + 2))\n"
+            + "        continue\n"
+            + "        ;;\n"
+            + "      --instance-role=*) doctor_instance_role=${doctor_arg_value#*=} ;;\n"
+            + "    esac\n"
+            + "    doctor_arg_index=$((doctor_arg_index + 1))\n"
+            + "  done\n"
+            + "  if [[ -n $doctor_instance_system ]]; then\n"
+            + "    [[ $doctor_instance_system =~ ^[a-z][a-z0-9_]{0,62}$ ]] || { printf '%s\\n' 'doctor instance system is invalid' >&2; exit 64; }\n"
+            + "    [[ -z $doctor_instance_role || $doctor_instance_role == pilot || $doctor_instance_role == sim || $doctor_instance_role == ui ]] || { printf '%s\\n' 'doctor instance role is invalid' >&2; exit 64; }\n"
+            + (
+                "    if [[ $net_service == runtime-tools ]]; then\n"
+                + f"      doctor_instance_root={shlex.quote(str(self.state.prefix_path))}/instances/$doctor_instance_system\n"
+                + "      [[ -d $doctor_instance_root && ! -L $doctor_instance_root ]] || { printf '%s\\n' 'scoped doctor instance root is unavailable' >&2; exit 78; }\n"
+                + "    fi\n"
+                if self.state.container_network.uses_tailscale_sidecar
+                else ""
+            )
+            + "  fi\n"
+            + "fi\n"
             + f"expected_tools_build_fingerprint={shlex.quote(self._image_fingerprints['tools'])}\n"
             + f"expected_tools_install_uuid={shlex.quote(self._install_uuid)}\n"
             + "tools_image_fingerprint=\"$(docker image inspect "
@@ -2176,6 +2221,11 @@ class ContainerInstaller:
             # built above, so keep the one-shot invocation build-free simply by
             # omitting that unsupported flag.  Passing it here makes remote
             # ``elesim-net show`` fail before the command reaches the tool.
+            + "if [[ -n $doctor_instance_root ]]; then\n"
+            + f"  exec {command} run --rm -T --volume \"$doctor_instance_root:$doctor_instance_root:ro\" \"$net_service\" elesim-net "
+            + f"--state {shlex.quote(str(self.state_path))}"
+            + ' "$@"\n'
+            + "fi\n"
             + f"exec {command} run --rm -T \"$net_service\" elesim-net "
             + f"--state {shlex.quote(str(self.state_path))}"
             + ' "$@"\n',

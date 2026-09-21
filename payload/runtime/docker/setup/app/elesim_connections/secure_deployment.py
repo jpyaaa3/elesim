@@ -3374,6 +3374,18 @@ class InstalledElesimLifecycle:
                 "--strict-peers",
                 "--readiness-only",
             ]
+            if self._scoped and unit.install_mode == "container":
+                # The install-wide state intentionally remains pending while
+                # the connection manager owns scoped SROS2 provisioning.  Tell
+                # the remote doctor which registered instance/role to inspect;
+                # otherwise it rejects a valid scoped bundle before DDS is
+                # even evaluated.
+                argv.extend((
+                    "--instance-system",
+                    self._topology.system_id,
+                    "--instance-role",
+                    str(unit.roles[0]),
+                ))
             for endpoint_id in expected_peer_ids:
                 value = str(endpoint_id).strip()
                 if value:

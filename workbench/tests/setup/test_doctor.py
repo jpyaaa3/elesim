@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import struct
 import sys
 import types
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -24,7 +26,8 @@ from elesim_setup.doctor import (
     probe_dds_peer_state,
     validate_stun_response,
 )
-from elesim_setup.network import detect_tailscale
+from elesim_setup.network import _scoped_doctor_state, detect_tailscale
+from elesim_setup.instances import InstanceEndpoint, InstanceState
 from elesim_setup.state import DdsSettings, NetworkSettings, TurnSettings
 
 
@@ -73,6 +76,94 @@ def test_tailscale_probe_accepts_reconnect_suffixes_and_prefers_tailscale0() -> 
     assert detection.available is True
     assert detection.interface == "tailscale0"
     assert detection.addresses == ("100.100.0.1", "100.100.0.2")
+
+
+def test_scoped_doctor_uses_registered_instance_view_while_install_is_pending(
+    local_state,
+) -> None:
+    state = local_state(
+        roles=("sim",),
+        dds=DdsSettings(
+            security_profile="sros2",
+            security_provisioning="managed",
+        ),
+    )
+    instance = InstanceState(
+        "lab",
+        "a" * 64,
+        (InstanceEndpoint("sim", "sim-lab"),),
+        17,
+        sim_id="sim-lab",
+        discovery_mode="static",
+        static_peers=("100.64.0.2",),
+        interface="tailscale0",
+        security_profile="trusted-network",
+    )
+    instance_root = state.prefix_path / "instances" / "lab"
+    config = instance_root / "endpoints" / "sim-lab" / "config" / "cyclonedds.xml"
+    config.parent.mkdir(parents=True)
+    config.write_text("<CycloneDDS/>", encoding="utf-8")
+    state_file = instance_root / "state.json"
+    state_file.write_text(json.dumps(instance.to_dict()), encoding="utf-8")
+
+    scoped, vendor_config = _scoped_doctor_state(state, "lab", "sim")
+
+    assert scoped.dds.system_id == "lab"
+    assert scoped.dds.domain_id == 17
+    assert scoped.dds.discovery_mode == "static"
+    assert scoped.dds.static_peers == ("100.64.0.2",)
+    assert scoped.dds.security_profile == "trusted-network"
+    assert scoped.runtime_roles == ("sim",)
+    assert vendor_config == config
+
+
+def test_scoped_doctor_accepts_registered_sros2_generation(
+    local_state,
+) -> None:
+    state = local_state(
+        roles=("sim",),
+        dds=DdsSettings(
+            security_profile="sros2",
+            security_provisioning="managed",
+        ),
+    )
+    instance = InstanceState(
+        "lab",
+        "b" * 64,
+        (InstanceEndpoint("sim", "sim-lab"),),
+        17,
+        sim_id="sim-lab",
+        discovery_mode="static",
+        static_peers=("100.64.0.2",),
+        interface="tailscale0",
+        security_profile="sros2",
+        security_generation="g-test",
+    )
+    instance_root = state.prefix_path / "instances" / "lab"
+    config = instance_root / "endpoints" / "sim-lab" / "config" / "cyclonedds.xml"
+    config.parent.mkdir(parents=True)
+    config.write_text("<CycloneDDS/>", encoding="utf-8")
+    state_file = instance_root / "state.json"
+    state_file.write_text(json.dumps(instance.to_dict()), encoding="utf-8")
+    generation = instance_root / "security" / "generations" / "g-test"
+    (generation / "apps" / "sim" / "keystore").mkdir(parents=True)
+    (generation / "manifest.json").write_text(
+        json.dumps({"system_id": "lab"}),
+        encoding="utf-8",
+    )
+    current = instance_root / "security" / "current"
+    current.parent.mkdir(parents=True, exist_ok=True)
+    current.symlink_to(Path("generations") / "g-test")
+
+    scoped, _vendor_config = _scoped_doctor_state(state, "lab", "sim")
+
+    assert scoped.dds.security_profile == "sros2"
+    assert scoped.dds.security_provisioning == "managed"
+    assert scoped.dds.security_generation == "g-test"
+    assert scoped.dds.keystore_path == (
+        generation / "apps" / "sim" / "keystore"
+    ).resolve()
+    assert scoped.dds.enclave == "/elesim/lab"
 
 
 @pytest.mark.parametrize(
