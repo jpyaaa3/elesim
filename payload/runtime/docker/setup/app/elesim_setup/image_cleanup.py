@@ -23,6 +23,47 @@ _NAMED_IMAGE = re.compile(
 )
 
 
+def _has_only_self_repo_digests(
+    image_id: str,
+    tags: set[str],
+    repo_digests: object,
+) -> bool:
+    """Accept Docker's self-referential local digest, but no foreign one.
+
+    Recent Docker/BuildKit daemons can attach ``repository@sha256:<image-id>``
+    to a locally loaded image.  That is not an external ownership reference:
+    it is another spelling of the exact local image.  A digest for another
+    repository, or a digest that does not equal the inspected image ID, still
+    means the cleanup boundary cannot prove that removing this image is safe.
+    """
+
+    if not repo_digests:
+        return True
+    if not isinstance(repo_digests, list) or not all(
+        isinstance(value, str) for value in repo_digests
+    ):
+        return False
+    image_digest = image_id.removeprefix("sha256:")
+    repositories = {
+        tag.rsplit(":", 1)[0]
+        for tag in tags
+        if ":" in tag
+    }
+    if not repositories:
+        return False
+    expected_digest = f"sha256:{image_digest}"
+    for value in repo_digests:
+        repository, separator, digest = value.rpartition("@")
+        if (
+            separator != "@"
+            or not repository
+            or digest != expected_digest
+            or repository not in repositories
+        ):
+            return False
+    return True
+
+
 def _docker(context: str, *args: str) -> str:
     result = subprocess.run(("docker", "--context", context, *args),
                             capture_output=True, text=True, check=True)
@@ -136,13 +177,18 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
             + re.escape(owner.docker.install_name)
             + r"-[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})\Z"
         ) if owner.docker.install_name else None
-        if (record.get("RepoDigests") or len(tags) > 1 or not tags <= owned_tags
-                or any(
-                    not expected_old.fullmatch(tag)
-                    and (expected_named is None or not expected_named.fullmatch(tag))
-                    for tag in tags
-                )):
-            continue  # Preserve additional tags, including foreign aliases.
+        if (
+            not _has_only_self_repo_digests(
+                record.get("Id", ""), tags, record.get("RepoDigests")
+            )
+            or not tags <= owned_tags
+            or any(
+                not expected_old.fullmatch(tag)
+                and (expected_named is None or not expected_named.fullmatch(tag))
+                for tag in tags
+            )
+        ):
+            continue  # Preserve foreign or otherwise unowned aliases.
         plans.append((image, record))
     # No mutation until every registry/provenance check has completed. Docker's
     # non-force removal is the final fence against a newly created container.

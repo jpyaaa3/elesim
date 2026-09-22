@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 from pathlib import Path
 import shutil
 
@@ -334,6 +335,10 @@ def test_staged_sros2_config_uses_published_keystore_prefix(
         if service["labels"]["io.elesim.role"] == "sim"
     )
     assert f"{staged_sim_cache}:/tmp/elesim-cache:rw" in sim["volumes"]
+    final_sim_cache = state.prefix_path / "instances/alpha/endpoints/alpha-s/cache"
+    assert sim["environment"]["ELESIM_CACHE_NAMESPACE"] == hashlib.sha256(
+        str(final_sim_cache).encode("utf-8")
+    ).hexdigest()[:16]
 
 
 def test_missing_active_sros2_generation_fails_before_instance_mutation(

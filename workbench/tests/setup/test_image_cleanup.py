@@ -1,12 +1,13 @@
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from elesim_setup import image_cleanup
 from elesim_setup.instance_identity import image_reference, project_name
-from elesim_setup.ownership import DockerOwnership, write_ownership_manifest
+from elesim_setup.ownership import DockerOwnership, OwnershipManifest, write_ownership_manifest
 from elesim_setup.releases import ReleaseManifest, publish_release, release_key, runtime_data_digest
 
 
@@ -172,6 +173,40 @@ def test_replacing_last_instance_pin_allows_collection(scenario):
 def test_repository_digest_is_preserved(scenario):
     scenario["images"][scenario["releases"][0].image_ids["pilot"]]["RepoDigests"] = ["backup@sha256:" + "e" * 64]
     assert collect(scenario) == ()
+
+
+def test_local_self_repository_digest_does_not_block_collection(scenario):
+    old = scenario["releases"][0]
+    image = scenario["images"][old.image_ids["pilot"]]
+    repository = image["RepoTags"][0].rsplit(":", 1)[0]
+    image["RepoDigests"] = [repository + "@" + old.image_ids["pilot"]]
+    assert collect(scenario) == (old.image_ids["pilot"],)
+
+
+def test_owned_historical_aliases_do_not_block_collection(scenario):
+    old = scenario["releases"][0]
+    image = scenario["images"][old.image_ids["pilot"]]
+    alias = "elesim/pilot:quiet_otter-amber_falcon"
+    image["RepoTags"].append(alias)
+
+    manifest_path = scenario["prefix"] / "install-ownership.json"
+    manifest = OwnershipManifest.load(manifest_path)
+    assert manifest.docker is not None
+    project = project_name(INSTALL, install_name="quiet_otter")
+    for record in scenario["images"].values():
+        record["Config"]["Labels"]["com.docker.compose.project"] = project
+    updated = replace(
+        manifest,
+        docker=replace(
+            manifest.docker,
+            project=project,
+            install_name="quiet_otter",
+            local_images=(*manifest.docker.local_images, alias),
+        ),
+    ).validate()
+    manifest_path.write_text(json.dumps(updated.to_dict(), indent=2) + "\n")
+
+    assert collect(scenario) == (old.image_ids["pilot"],)
 
 
 def test_metadata_race_refuses_removal(scenario):

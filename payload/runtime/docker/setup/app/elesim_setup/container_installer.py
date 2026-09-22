@@ -1360,6 +1360,14 @@ class ContainerInstaller:
                     "HOME": "/tmp",
                     "XDG_CACHE_HOME": "/tmp/elesim-cache",
                     "NUMBA_CACHE_DIR": "/tmp/elesim-cache/numba",
+                    # If a legacy/root-owned bind mount is unusable, Sim's
+                    # stdlib cache bootstrap derives a stable private fallback
+                    # from this host-side cache identity.  Keeping it stable
+                    # prevents every restart from leaking another /tmp tree,
+                    # while distinct instance cache roots remain isolated.
+                    "ELESIM_CACHE_NAMESPACE": hashlib.sha256(
+                        str(selected_cache).encode("utf-8")
+                    ).hexdigest()[:16],
                     "ELESIM_WEBRTC_ENCODER": "${ELESIM_WEBRTC_ENCODER:-}",
                     # Keep H.264 RTP packets below the effective Tailscale /
                     # TURN path MTU.  The host may override this only within

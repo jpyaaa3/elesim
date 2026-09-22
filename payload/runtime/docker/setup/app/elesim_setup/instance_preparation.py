@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 import json
 import os
 import stat
@@ -230,6 +231,21 @@ def prepare_instance_services(
         )
         if role == "sim":
             service["environment"]["ELESIM_SIM_VIEWER"] = "1" if instance.viewer else "0"
+            # The transaction may render under a temporary prefix which is
+            # replaced with the installed prefix only after Compose is staged.
+            # Derive the fallback identity from the final endpoint cache path
+            # so repeated registrations do not leak a new /tmp cache.
+            final_cache_root = (
+                state.prefix_path
+                / "instances"
+                / instance.system_id
+                / "endpoints"
+                / endpoint
+                / "cache"
+            )
+            service["environment"]["ELESIM_CACHE_NAMESPACE"] = hashlib.sha256(
+                str(final_cache_root).encode("utf-8")
+            ).hexdigest()[:16]
         endpoint_services[endpoint] = service
     rendered = render_instance_services(install_uuid, instance, release, endpoint_services)
     if turn.mode == "managed":

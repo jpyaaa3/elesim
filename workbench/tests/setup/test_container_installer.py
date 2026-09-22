@@ -754,6 +754,9 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
             assert service["environment"]["HOME"] == "/tmp"
             assert service["environment"]["XDG_CACHE_HOME"] == "/tmp/elesim-cache"
             assert service["environment"]["NUMBA_CACHE_DIR"] == "/tmp/elesim-cache/numba"
+            assert service["environment"]["ELESIM_CACHE_NAMESPACE"] == hashlib.sha256(
+                str(cache_root).encode("utf-8")
+            ).hexdigest()[:16]
             assert service["environment"]["ELESIM_WEBRTC_ENCODER"] == (
                 "${ELESIM_WEBRTC_ENCODER:-}"
             )
