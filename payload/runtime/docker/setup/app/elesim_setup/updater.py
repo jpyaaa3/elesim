@@ -25,10 +25,12 @@ _BUILD_FINGERPRINT = re.compile(r"[0-9a-f]{64}$")
 
 
 def render_compose_build_progress(prefix: Path) -> str:
-    """Catch builds from an already-running old update wrapper after refresh.
+    """Catch Compose image builds from an already-running old wrapper.
 
     Keep non-TTY manager streams raw by default; new update/release wrappers
-    explicitly choose compact mode. Never intercept run/exec/login commands.
+    explicitly choose compact mode. ``up --build`` is included for the
+    persistent developer attachment, whose generated wrapper starts its
+    service with that form. Never intercept run/exec/login commands.
     """
     helper = shlex.quote(str(prefix / "maintenance/elesim_setup/build_progress.py"))
     logs = shlex.quote(str(prefix / "logs/build"))
@@ -43,6 +45,14 @@ def render_compose_build_progress(prefix: Path) -> str:
         '        progress_args=("${progress_args[@]:1}") ;;\n'
         '      build)\n'
         f'        exec python3 {helper} --log-dir {logs} -- docker compose "$@" ;;\n'
+        '      up)\n'
+        '        for progress_arg in "${progress_args[@]:1}"; do\n'
+        '          if [[ $progress_arg == --build ]]; then\n'
+        f'            exec python3 {helper} --log-dir {logs} -- docker compose "$@"\n'
+        '          fi\n'
+        '        done\n'
+        '        break\n'
+        '        ;;\n'
         '      *) break ;;\n'
         '    esac\n'
         '  done\n'

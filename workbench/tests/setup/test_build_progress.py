@@ -291,6 +291,7 @@ def test_verbose_environment_overrides_explicit_compact(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("arguments,wrapped", [
     (["--progress", "plain", "-f", "compose.yaml", "build", "pilot"], True),
+    (["--profile", "developer", "up", "-d", "--build", "dev"], True),
     (["--file", "build", "config"], False),
     (["--file=compose.yaml", "build", "ui"], True),
     (["exec", "tools", "echo", "build"], False),
