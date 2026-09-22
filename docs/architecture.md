@@ -93,8 +93,11 @@ legacy 고정 `elesim-runtime` project를 자동 인수하지 않는다. `elesim
 immutable release를 build/publish하지만 기존 instance release pin을 바꾸지
 않는다. Robot은
 native-only다. 개발 도구를 선택하면 같은 설치 project에 profile-scoped 영속
-`elesim-dev`가 attachment로 추가된다. 이 도구 컨테이너는 런타임 역할이나
-DDS/SROS2 identity가 아니며 별도 observability 컨테이너도 두지 않는다.
+`elesim-<install name>-dev`가 attachment로 추가된다. 등록된 runtime instance의
+role container는 `elesim-<install name>-<system_id>-pilot|sim|ui` alias를
+사용하고 managed Coturn은 `elesim-<install name>-<system_id>-coturn`을 사용한다.
+이 도구 컨테이너는 런타임
+역할이나 DDS/SROS2 identity가 아니며 별도 observability 컨테이너도 두지 않는다.
 
 ## 4. 통신 경계
 

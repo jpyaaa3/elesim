@@ -34,7 +34,16 @@ from .container_installer import (
     _viewer_xhost_function,
 )
 from .instance_compose import aggregate_compose
-from .instance_identity import container_name, project_name, service_key
+from .instance_identity import (
+    CONTAINER_NAMING_HASH,
+    CONTAINER_NAMING_SYSTEM,
+    container_name,
+    installation_container_name,
+    instance_container_name,
+    project_name,
+    service_key,
+    validate_container_naming,
+)
 from .instance_preparation import prepare_instance_services
 from .instance_security import (
     _rename_noreplace,
@@ -97,6 +106,8 @@ class InstanceRuntime:
         self.ownership_manifest = (
             None if ownership_manifest is None else self._lexical(Path(ownership_manifest))
         )
+        self.container_naming = CONTAINER_NAMING_HASH
+        self.install_name = ""
         # Prefer the manifest's exact project so a readable fresh namespace
         # and a UUID-scoped legacy namespace both remain operable.  Falling
         # back to the pure UUID derivation keeps direct unit callers safe.
@@ -108,6 +119,8 @@ class InstanceRuntime:
             if owner.install_uuid != install_uuid or owner.docker is None:
                 raise ValueError("ownership manifest does not match instance install")
             self.project = owner.docker.project
+            self.container_naming = validate_container_naming(owner.docker.container_naming)
+            self.install_name = owner.docker.install_name
         self.compose = self.prefix / "containers" / "compose.instances.yaml"
         self.base_compose = self.prefix / "containers" / "compose.yaml"
         self._shared_infrastructure = self._load_shared_infrastructure()
@@ -128,6 +141,35 @@ class InstanceRuntime:
         if isinstance(value, (list, tuple)):
             return [InstanceRuntime._normalize_compose_value(item) for item in value]
         return value
+
+    def _install_container_name(self, component: str) -> str:
+        if self.container_naming == CONTAINER_NAMING_SYSTEM and self.install_name:
+            return installation_container_name(self.install_name, component)
+        return container_name(self.install_uuid, component)
+
+    def _instance_container_name(self, instance: InstanceState, service: str) -> str:
+        if service == turn_service_key(instance.system_id):
+            return instance_container_name(
+                self.install_uuid,
+                instance.system_id,
+                "coturn",
+                "coturn",
+                install_name=self.install_name,
+                naming=self.container_naming,
+            )
+        endpoint = next(
+            endpoint
+            for endpoint in instance.endpoints
+            if service_key(instance.system_id, endpoint.endpoint_id) == service
+        )
+        return instance_container_name(
+            self.install_uuid,
+            instance.system_id,
+            endpoint.role,
+            endpoint.endpoint_id,
+            install_name=self.install_name,
+            naming=self.container_naming,
+        )
 
     def _load_shared_infrastructure(self) -> dict[str, Mapping[str, object]]:
         """Load the one install-owned sidecar from the immutable base Compose.
@@ -164,8 +206,10 @@ class InstanceRuntime:
         # touched by this dry-run helper.
         installer = ContainerInstaller(self.state, state_path=self.state.state_path, dry_run=True)
         installer._install_uuid = self.install_uuid
-        installer._special_container_names["tailscale"] = container_name(
-            self.install_uuid, "tailscale"
+        installer._container_naming = self.container_naming
+        installer._install_name = self.install_name
+        installer._special_container_names["tailscale"] = self._install_container_name(
+            "tailscale"
         )
         expected = installer._tailscale_service()
         if self._normalize_compose_value(service) != self._normalize_compose_value(expected):
@@ -750,7 +794,9 @@ class InstanceRuntime:
         owner_guard = compose_owner_guard(
             self.compose,
             project=self.project,
-            containers=tuple(container_name(self.install_uuid, service) for service in services),
+            containers=tuple(
+                self._instance_container_name(instance, service) for service in services
+            ),
         )
         if self.state.container_network.uses_tailscale_sidecar:
             # The sidecar is created by the install-level Compose file and is
@@ -760,7 +806,7 @@ class InstanceRuntime:
             owner_guard += compose_owner_guard(
                 self.compose,
                 project=self.project,
-                containers=(container_name(self.install_uuid, "tailscale"),),
+                containers=(self._install_container_name("tailscale"),),
                 alternate_composes=(self.base_compose,),
             )
         guard = backend_guard + owner_guard
@@ -895,6 +941,8 @@ class InstanceRuntime:
                 output_prefix=staged,
                 security_views=views,
                 robot_id=(robot_id if system == target_system else None),
+                install_name=self.install_name,
+                container_naming=self.container_naming,
             )
             groups[system] = group
             services = tuple(sorted(group))
@@ -906,6 +954,8 @@ class InstanceRuntime:
             groups,
             self._shared_infrastructure,
             project=self.project,
+            install_name=self.install_name,
+            container_naming=self.container_naming,
         )
         compose = self._replace_prefix(compose, str(staged), str(self.prefix))
         containers = staged / "containers"

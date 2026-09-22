@@ -5,12 +5,16 @@ import hashlib
 import pytest
 
 from elesim_setup.instance_identity import (
+    CONTAINER_NAMING_SYSTEM,
     container_name,
     image_reference,
+    installation_container_name,
+    instance_container_name,
     manager_container_name,
     project_name,
     parse_scoped_identity,
     service_key,
+    system_container_name,
 )
 
 
@@ -34,6 +38,27 @@ def test_service_key_is_readable_and_contains_full_tuple_digest() -> None:
     assert key.endswith(expected)
     assert len(key) <= 128
     assert service_key("pilot_a", "camera_left") != key
+
+
+def test_system_container_aliases_are_readable_and_role_scoped() -> None:
+    assert system_container_name(
+        "test", "pilot", install_name="quick_fox"
+    ) == "elesim-quick_fox-test-pilot"
+    assert installation_container_name("quick", "dev") == "elesim-quick-dev"
+    assert instance_container_name(
+        INSTALL,
+        "test",
+        "pilot",
+        "pilot-main",
+        install_name="quick_fox",
+        naming=CONTAINER_NAMING_SYSTEM,
+    ) == "elesim-quick_fox-test-pilot"
+    assert instance_container_name(
+        INSTALL,
+        "test",
+        "pilot",
+        "pilot-main",
+    ) == container_name(INSTALL, service_key("test", "pilot-main"))
 
 
 def test_image_reference_has_install_and_fingerprint_scope() -> None:

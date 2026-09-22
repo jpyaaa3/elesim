@@ -13,7 +13,7 @@ from elesim_setup.developer import (
     resolve_developer_username,
     validate_developer_workspace,
 )
-from elesim_setup.instance_identity import container_name, project_name
+from elesim_setup.instance_identity import installation_container_name, project_name
 from elesim_setup.ownership import OwnershipManifest
 from elesim_setup.state import ComputeSettings, DeveloperAttachmentSettings
 
@@ -47,7 +47,7 @@ def test_developer_attachment_joins_the_canonical_runtime_project(local_state) -
     dev = compose["services"]["dev"]
     assert dev["profiles"] == ["developer"]
     assert dev["image"].startswith(f"elesim/dev:{install_name}-")
-    assert dev["container_name"] == container_name(manifest.install_uuid, "dev")
+    assert dev["container_name"] == installation_container_name(install_name, "dev")
     assert dev["privileged"] is True
     assert dev["working_dir"] == str(ROOT)
     assert f"{ROOT}:{ROOT}:rw" in dev["volumes"]
@@ -79,7 +79,7 @@ def test_developer_attachment_joins_the_canonical_runtime_project(local_state) -
     ).returncode == 0
 
     assert manifest.docker.project == compose["name"]
-    assert container_name(manifest.install_uuid, "dev") in manifest.docker.containers
+    assert installation_container_name(install_name, "dev") in manifest.docker.containers
     assert dev["image"] in manifest.docker.local_images
     assert not (state.prefix_path / ".elesim/development").exists()
 

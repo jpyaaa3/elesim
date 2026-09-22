@@ -18,7 +18,11 @@ from .instances import (
     turn_service_key,
 )
 from .credentials import validate_external_turn_credentials, _resolve_non_symlink_path
-from .instance_identity import service_key
+from .instance_identity import (
+    CONTAINER_NAMING_HASH,
+    validate_container_naming,
+    service_key,
+)
 from .releases import ReleaseManifest, load_release, release_key, runtime_data_digest
 from .instance_compose import render_instance_services
 from .instance_security import active_instance_security_path
@@ -34,6 +38,8 @@ def prepare_instance_services(
     output_prefix: Path | None = None,
     security_views: dict[str, tuple[Path, str]] | None = None,
     robot_id: str | None = None,
+    install_name: str = "",
+    container_naming: str = CONTAINER_NAMING_HASH,
 ) -> dict[str, dict[str, object]]:
     """Validate a pinned release, render private configs, and return services.
 
@@ -43,6 +49,9 @@ def prepare_instance_services(
     """
     state.validate()
     instance.validate()
+    validate_container_naming(container_naming)
+    if container_naming != CONTAINER_NAMING_HASH and not install_name:
+        raise ValueError("system-v1 instance preparation requires install_name")
     effective_robot_id = state.network.robot_id
     if robot_id is not None:
         if not isinstance(robot_id, str) or not robot_id:
@@ -201,6 +210,8 @@ def prepare_instance_services(
     )
     installer = ContainerInstaller(scoped, state_path=state.state_path, dry_run=True)
     installer._install_uuid = install_uuid
+    installer._install_name = install_name
+    installer._container_naming = container_naming
     installer._image_fingerprints = {
         f"elesim/{role}:local": manifest.build_fingerprints[role]
         for role in manifest.build_fingerprints
@@ -247,7 +258,14 @@ def prepare_instance_services(
                 str(final_cache_root).encode("utf-8")
             ).hexdigest()[:16]
         endpoint_services[endpoint] = service
-    rendered = render_instance_services(install_uuid, instance, release, endpoint_services)
+    rendered = render_instance_services(
+        install_uuid,
+        instance,
+        release,
+        endpoint_services,
+        install_name=install_name,
+        container_naming=container_naming,
+    )
     if turn.mode == "managed":
         key = turn_service_key(instance.system_id)
         rendered[key] = installer._coturn_service(

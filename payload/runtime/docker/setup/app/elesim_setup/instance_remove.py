@@ -22,7 +22,14 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
-from .instance_identity import container_name, is_scoped_project, service_key
+from .instance_identity import (
+    CONTAINER_NAMING_HASH,
+    installation_container_name,
+    instance_container_name,
+    is_scoped_project,
+    service_key,
+    validate_container_naming,
+)
 
 
 _SYSTEM = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
@@ -229,11 +236,32 @@ def _read_target(prefix: Path, system: str) -> tuple[dict[str, str], ...]:
     return tuple(result)
 
 
-def _expected_container(install_uuid: str, service: str) -> str:
-    return container_name(install_uuid, service)
+def _expected_container(
+    install_uuid: str,
+    system_id: str,
+    role: str,
+    endpoint_id: str,
+    install_name: str = "",
+    naming: str = CONTAINER_NAMING_HASH,
+) -> str:
+    return instance_container_name(
+        install_uuid,
+        system_id,
+        role,
+        endpoint_id,
+        install_name=install_name,
+        naming=naming,
+    )
 
 
-def _verify_manifest(prefix: Path, install_uuid: str, project: str, context: str, engine: str, names: set[str]) -> None:
+def _verify_manifest(
+    prefix: Path,
+    install_uuid: str,
+    project: str,
+    context: str,
+    engine: str,
+    names: set[str] | None,
+) -> tuple[str, str]:
     path = prefix / "install-ownership.json"
     _check_tree(path, allow_missing=False)
     try:
@@ -252,9 +280,29 @@ def _verify_manifest(prefix: Path, install_uuid: str, project: str, context: str
         or docker.get("engine_id") != engine
     ):
         raise InstanceRemovalError("ownership manifest does not match this Docker backend")
+    naming = str(docker.get("container_naming", CONTAINER_NAMING_HASH))
+    try:
+        validate_container_naming(naming)
+    except ValueError as exc:
+        raise InstanceRemovalError("ownership manifest has an invalid container naming scheme") from exc
     recorded = docker.get("containers")
-    if not isinstance(recorded, list) or not names.issubset(set(recorded)):
+    if not isinstance(recorded, list):
         raise InstanceRemovalError("target containers are not recorded as install-owned")
+    if names is not None and not names.issubset(set(recorded)):
+        raise InstanceRemovalError("target containers are not recorded as install-owned")
+    install_name = str(docker.get("install_name", ""))
+    if naming != CONTAINER_NAMING_HASH and not install_name:
+        raise InstanceRemovalError(
+            "system-v1 ownership is missing the readable installation name"
+        )
+    if naming != CONTAINER_NAMING_HASH:
+        try:
+            installation_container_name(install_name, "dev")
+        except ValueError as exc:
+            raise InstanceRemovalError(
+                "system-v1 ownership has an invalid readable installation name"
+            ) from exc
+    return naming, install_name
 
 
 def _verify_and_remove_containers(
@@ -264,12 +312,40 @@ def _verify_and_remove_containers(
     actual_engine = _run(_docker_command(context, "info", "--format", "{{.ID}}"))
     if actual_engine.stdout.strip() != engine:
         raise InstanceRemovalError("Docker Engine does not match the installed backend")
-    names = {_expected_container(install_uuid, item["service"]) for item in target}
+    # Read the manifest's naming version before deriving names.  Old manifests
+    # omit the field and intentionally remain on the hash-compatible rule.
+    naming, install_name = _verify_manifest(
+        prefix,
+        install_uuid,
+        project,
+        context,
+        engine,
+        None,
+    )
+    names = {
+        _expected_container(
+            install_uuid,
+            system,
+            item["role"],
+            item["endpoint_id"],
+            install_name,
+            naming,
+        )
+        for item in target
+    }
     _verify_manifest(prefix, install_uuid, project, context, engine, names)
     existing: list[str] = []
     aggregate = str(_lexical(compose))
     for item in target:
-        service, name = item["service"], _expected_container(install_uuid, item["service"])
+        service = item["service"]
+        name = _expected_container(
+            install_uuid,
+            system,
+            item["role"],
+            item["endpoint_id"],
+            install_name,
+            naming,
+        )
         inspected = _inspect(context, name)
         if inspected is None:
             continue

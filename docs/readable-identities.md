@@ -8,6 +8,15 @@ provenance evidence; the readable names are presentation identifiers only.
 ## Agreed behavior
 
 - Actual installation name: `quiet_otter`; fresh project: `elesim-quiet_otter`.
+- Fresh runtime instance containers use the registered system alias and role:
+  `elesim-<install_name>-<system_id>-pilot`,
+  `elesim-<install_name>-<system_id>-sim`, or
+  `elesim-<install_name>-<system_id>-ui`; managed instance Coturn uses
+  `elesim-<install_name>-<system_id>-coturn`.
+- Installation-wide containers use the installation alias instead, for example
+  `elesim-quiet_otter-dev` and `elesim-quiet_otter-tailscale`. The development
+  attachment is shared by the installation and deliberately has no
+  `system_id`/DDS identity.
 - Application image references use one suffix per role/input, for example
   `elesim/pilot:quiet_otter-silver_pigeon` and
   `elesim/sim:quiet_otter-golden_snail`. The suffix is the readable version /
@@ -52,6 +61,13 @@ release tag.
 updated installations, the readable `install_name` for display. A temporary
 Compose `*-tools-run-*` container is only a setup/update helper and is never an
 installation identity.
+
+The ownership manifest records `container_naming: system-v1` for a fresh scoped
+installation. Runtime names are therefore easy to read in Docker logs while
+the UUID, Compose project and identity labels remain the authoritative checks.
+Older scoped manifests omit this field and continue using their historical
+`hash-v1` container names; refresh, instance removal and uninstall retain that
+scheme rather than renaming live containers.
 
 An update keeps the UUID, ownership manifest, release pins and an existing
 Compose project unchanged. Each update after successful publication reserves

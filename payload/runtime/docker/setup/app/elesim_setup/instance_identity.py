@@ -18,6 +18,9 @@ _ENDPOINT = re.compile(r"[a-z][a-z0-9_-]{0,62}\Z")
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 _SERVICE_MAX = 128
 _CONTAINER_MAX = 128
+CONTAINER_NAMING_HASH = "hash-v1"
+CONTAINER_NAMING_SYSTEM = "system-v1"
+CONTAINER_NAMING_SCHEMES = frozenset((CONTAINER_NAMING_HASH, CONTAINER_NAMING_SYSTEM))
 _NAMED_TAG = re.compile(r"([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))-([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))\Z")
 _NAMED_PROJECT = re.compile(r"elesim-([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))\Z")
 _SCOPED_IDENTITY_FIELDS = frozenset({"schema_version", "install_uuid", "project"})
@@ -123,6 +126,14 @@ def _checked(value: str, pattern: re.Pattern[str], name: str) -> str:
     return value
 
 
+def validate_container_naming(value: str) -> str:
+    """Validate the persisted container naming scheme identifier."""
+
+    if value not in CONTAINER_NAMING_SCHEMES:
+        raise ValueError(f"unsupported container naming scheme: {value!r}")
+    return value
+
+
 def project_name(install_uuid: str, *, install_name: str = "") -> str:
     """Return the Compose project name for one installation.
 
@@ -183,6 +194,66 @@ def container_name(install_uuid: str, service: str) -> str:
     return f"{prefix}{service[:readable_budget]}{suffix}"
 
 
+def system_container_name(
+    system_id: str,
+    component: str,
+    *,
+    install_name: str = "",
+) -> str:
+    """Return the human-facing name for one system-owned component.
+
+    The readable name is only a presentation alias.  Ownership remains proved
+    by the install UUID, Compose project and identity labels.  The installation
+    alias keeps equal system IDs in different installs from colliding on one
+    Docker Engine.  ``component`` distinguishes the role containers belonging
+    to that system.
+    """
+
+    system = _checked(system_id, _IDENTIFIER, "system_id")
+    component = _checked(component, _IDENTIFIER, "component")
+    prefix = "elesim-"
+    if install_name:
+        from .readable_names import NAME_PATTERN
+
+        install = _checked(install_name, NAME_PATTERN, "install_name")
+        prefix += f"{install}-"
+    result = f"{prefix}{system}-{component}"
+    if len(result) > _CONTAINER_MAX:
+        raise ValueError("system container name exceeds Docker's 128-byte limit")
+    return result
+
+
+def installation_container_name(install_name: str, component: str) -> str:
+    """Return the human-facing name for one install-owned component."""
+
+    from .readable_names import NAME_PATTERN
+
+    name = _checked(install_name, NAME_PATTERN, "install_name")
+    component = _checked(component, _IDENTIFIER, "component")
+    result = f"elesim-{name}-{component}"
+    if len(result) > _CONTAINER_MAX:
+        raise ValueError("installation container name exceeds Docker's 128-byte limit")
+    return result
+
+
+def instance_container_name(
+    install_uuid: str,
+    system_id: str,
+    role: str,
+    endpoint_id: str,
+    *,
+    install_name: str = "",
+    naming: str = CONTAINER_NAMING_HASH,
+) -> str:
+    """Return the exact container name for one registered instance endpoint."""
+
+    validate_container_naming(naming)
+    _checked(endpoint_id, _ENDPOINT, "endpoint_id")
+    if naming == CONTAINER_NAMING_SYSTEM:
+        return system_container_name(system_id, role, install_name=install_name)
+    return container_name(install_uuid, service_key(system_id, endpoint_id))
+
+
 def manager_container_name(install_uuid: str, system_id: str) -> str:
     """Return the transient connection-manager name for one system workspace.
 
@@ -226,7 +297,12 @@ def image_reference(
 
 
 __all__ = [
+    "CONTAINER_NAMING_HASH",
+    "CONTAINER_NAMING_SCHEMES",
+    "CONTAINER_NAMING_SYSTEM",
     "container_name",
+    "installation_container_name",
+    "instance_container_name",
     "image_reference",
     "is_scoped_project",
     "manager_container_name",
@@ -234,4 +310,6 @@ __all__ = [
     "parse_scoped_identity",
     "project_name",
     "service_key",
+    "system_container_name",
+    "validate_container_naming",
 ]

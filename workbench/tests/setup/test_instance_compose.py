@@ -5,7 +5,7 @@ import copy
 import pytest
 
 from elesim_setup.instance_compose import aggregate_compose, render_instance_services
-from elesim_setup.instance_identity import image_reference
+from elesim_setup.instance_identity import CONTAINER_NAMING_SYSTEM, image_reference
 from elesim_setup.instances import InstanceEndpoint, InstanceState
 from elesim_setup.releases import ReleaseManifest, release_key
 
@@ -54,6 +54,19 @@ def test_render_preserves_compose_null_environment_value() -> None:
     )
     service = next(iter(rendered.values()))
     assert service["environment"]["CUDA_VISIBLE_DEVICES"] is None
+
+
+def test_render_uses_system_aliases_for_runtime_containers() -> None:
+    rendered = render_instance_services(
+        INSTALL,
+        _instance(),
+        _release(),
+        {"pilot_ep": {"role": "pilot"}},
+        install_name="quick_fox",
+        container_naming=CONTAINER_NAMING_SYSTEM,
+    )
+    service = next(iter(rendered.values()))
+    assert service["container_name"] == "elesim-quick_fox-lab_a-pilot"
 
 
 def test_aggregate_rejects_unscoped_infrastructure() -> None:

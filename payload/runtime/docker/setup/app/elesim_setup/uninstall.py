@@ -61,6 +61,9 @@ _MAX_RELEASE_MANIFEST_BYTES = 256 * 1024
 _INSTANCE_SYSTEM_ID = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
 _INSTANCE_ENDPOINT_ID = re.compile(r"[a-z][a-z0-9_-]{0,62}\Z")
 _INSTANCE_ROLES = frozenset(("pilot", "sim", "ui"))
+_INSTANCE_COMPONENTS = _INSTANCE_ROLES | {"coturn"}
+_INSTALL_NAME = re.compile(r"[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})\Z")
+_CONTAINER_NAMING_SCHEMES = frozenset(("hash-v1", "system-v1"))
 _INSTANCE_INSTALL_LABELS = (
     "io.elesim.system_id",
     "io.elesim.endpoint_id",
@@ -93,8 +96,31 @@ def _instance_service_key(system_id: str, endpoint_id: str) -> str:
     return f"svc-{system_id[:24]}-{endpoint_id[:24]}-{digest}"[:128]
 
 
+def _instance_readable_container_name(
+    install_name: str,
+    system_id: str,
+    component: str,
+) -> str:
+    if (
+        _INSTALL_NAME.fullmatch(install_name) is None
+        or not install_name
+        or _INSTANCE_SYSTEM_ID.fullmatch(system_id) is None
+        or component not in _INSTANCE_COMPONENTS
+    ):
+        raise UninstallSafetyError("scoped instance identity is invalid")
+    name = f"elesim-{install_name}-{system_id}-{component}"
+    if len(name) > 128:
+        raise UninstallSafetyError("scoped instance container name is too long")
+    return name
+
+
 def _validate_scoped_instance_labels(
-    *, name: str, labels: Mapping[str, object], install_uuid: str
+    *,
+    name: str,
+    labels: Mapping[str, object],
+    install_uuid: str,
+    install_name: str = "",
+    container_naming: str = "hash-v1",
 ) -> None:
     """Validate the identity labels used by ``compose.instances.yaml``.
 
@@ -113,8 +139,25 @@ def _validate_scoped_instance_labels(
         raise UninstallSafetyError(
             f"scoped instance container role label is unknown: {name}: {role!r}"
         )
-    expected = _scoped_container_name(
-        install_uuid, _instance_service_key(system_id, endpoint_id)
+    if container_naming not in _CONTAINER_NAMING_SCHEMES:
+        raise UninstallSafetyError("scoped instance container naming scheme is invalid")
+    if _INSTANCE_ENDPOINT_ID.fullmatch(endpoint_id) is None:
+        raise UninstallSafetyError("scoped instance endpoint_id label is invalid")
+    if endpoint_id == "coturn":
+        if role != "sim" or labels.get("io.elesim.service_kind") != "coturn":
+            raise UninstallSafetyError("scoped Coturn service identity is incomplete")
+    elif labels.get("io.elesim.service_kind") is not None:
+        raise UninstallSafetyError("role service has an unexpected service kind")
+    expected = (
+        _instance_readable_container_name(
+            install_name,
+            system_id,
+            "coturn" if endpoint_id == "coturn" else role,
+        )
+        if container_naming == "system-v1"
+        else _scoped_container_name(
+            install_uuid, _instance_service_key(system_id, endpoint_id)
+        )
     )
     if name != expected:
         raise UninstallSafetyError(
@@ -126,7 +169,7 @@ def _sim_container_name(ownership: DockerOwnership) -> str:
     return (
         SIM_CONTAINER
         if ownership.project == "elesim-runtime"
-        else _scoped_container_name(ownership.install_uuid, "sim")
+        else _install_scoped_container_name(ownership, "sim")
     )
 
 
@@ -134,8 +177,19 @@ def _tailscale_container_name(ownership: DockerOwnership) -> str:
     return (
         TAILSCALE_SIDECAR_CONTAINER
         if ownership.project == "elesim-runtime"
-        else _scoped_container_name(ownership.install_uuid, "tailscale")
+        else _install_scoped_container_name(ownership, "tailscale")
     )
+
+
+def _install_scoped_container_name(ownership: DockerOwnership, component: str) -> str:
+    if (
+        ownership.container_naming == "system-v1"
+        and ownership.install_name
+    ):
+        if re.fullmatch(r"[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})", ownership.install_name) is None:
+            raise UninstallSafetyError("install readable name is invalid")
+        return f"elesim-{ownership.install_name}-{component}"
+    return _scoped_container_name(ownership.install_uuid, component)
 
 
 class UninstallSafetyError(RuntimeError):
@@ -1332,7 +1386,11 @@ def _validate_docker(
                     f"{name}"
                 )
             _validate_scoped_instance_labels(
-                name=name, labels=labels, install_uuid=ownership.install_uuid
+                name=name,
+                labels=labels,
+                install_uuid=ownership.install_uuid,
+                install_name=ownership.install_name,
+                container_naming=ownership.container_naming,
             )
         elif any(key in labels for key in _INSTANCE_INSTALL_LABELS):
             raise UninstallSafetyError(

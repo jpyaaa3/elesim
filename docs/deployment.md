@@ -70,11 +70,17 @@ Compose manifest를 교체하지 않으며, 배정되지 않은 실행 중 역�
 
 | 역할 | image | container | 실행 경계 |
 | --- | --- | --- | --- |
-| Pilot | install-scoped immutable release image | instance-scoped service | Docker |
-| Sim | install-scoped immutable release image | instance-scoped service | Docker, amd64 GPU/CPU profile |
-| UI | install-scoped immutable release image | instance-scoped service | Docker |
-| Coturn | upstream pinned image | instance-scoped service | Sim host의 선택적 WebRTC media service |
+| Pilot | install-scoped immutable release image | `elesim-<install_name>-<system_id>-pilot` | Docker |
+| Sim | install-scoped immutable release image | `elesim-<install_name>-<system_id>-sim` | Docker, amd64 GPU/CPU profile |
+| UI | install-scoped immutable release image | `elesim-<install_name>-<system_id>-ui` | Docker |
+| Coturn | upstream pinned image | `elesim-<install_name>-<system_id>-coturn` | Sim host의 선택적 WebRTC media service |
 | Robot | 별도 native release | systemd units | Jetson only |
+
+설치 공용 attachment는 system identity가 없으므로 install alias를 사용한다.
+예를 들어 dev는 `elesim-<install_name>-dev`, Docker Desktop Tailscale은
+`elesim-<install_name>-tailscale`이다. UUID, Compose project와 Docker identity
+label은 이 readable alias와 별도로 ownership 경계를 이룬다. 구형 ownership
+manifest의 hash형 container 이름은 refresh/uninstall 때 보존한다.
 
 설치기는 source config를 prefix에 복사하고 role-specific read-only mount,
 Sim model bundle mount, DDS/security 환경을 생성한다. Compose bind path는

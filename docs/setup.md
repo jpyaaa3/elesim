@@ -156,6 +156,15 @@ containers:  install/system/endpoint-scoped service names
 optional:    install-scoped Coturn (Sim host), Tailscale (Docker Desktop), dev service
 ```
 
+새 scoped runtime instance의 실제 Docker 이름은
+`elesim-<install name>-<system_id>-<role>`이다
+(`pilot`, `sim`, `ui`; managed Coturn은 `...-coturn`). 설치 전체에서 공유하는
+dev/Tailscale 같은 attachment는 `elesim-<install name>-<component>`을 사용한다.
+`system_id` alias는 로그 표시용이며 ownership UUID, Compose project와 exact label
+검증을 대신하지 않는다. 기존 manifest가 기록한 hash형 이름은 호환을 위해
+그대로 유지한다. installation alias가 포함되므로 서로 다른 설치의 같은
+`system_id`도 Docker 이름에서 구분된다.
+
 동일 host에서도 서로 다른 prefix와 install UUID는 독립 namespace를 갖는다.
 기존 `elesim-runtime`을 사용하는 legacy 설치는 별도 prefix/bin과 ownership
 증거를 유지하며 신규 설치가 자동 변경하지 않는다. 새 prefix/bin을 기존

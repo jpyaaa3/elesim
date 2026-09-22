@@ -156,11 +156,16 @@ class DockerOwnership:
     context: str = ""
     engine_id: str = ""
     install_name: str = ""
+    # ``hash-v1`` is the compatibility default for manifests written before
+    # human-readable system container aliases were introduced.
+    container_naming: str = "hash-v1"
 
     def validate(self) -> "DockerOwnership":
         _validate_uuid(self.install_uuid, name="Docker install UUID")
         if self.install_name and not re.fullmatch(r"[a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6})", self.install_name):
             raise OwnershipError("invalid readable installation name")
+        if self.container_naming not in {"hash-v1", "system-v1"}:
+            raise OwnershipError("invalid Docker container naming scheme")
         _require_absolute(self.compose_file, name="Docker compose file")
         if not _DOCKER_NAME.fullmatch(self.project):
             raise OwnershipError(f"Unsafe Compose project name: {self.project!r}")
@@ -170,6 +175,12 @@ class DockerOwnership:
             if self.install_name
             else ""
         )
+        if self.container_naming == "system-v1" and (
+            not self.install_name or self.project != named_project
+        ):
+            raise OwnershipError(
+                "system-v1 Docker ownership requires the readable install project"
+            )
         if self.project not in {"elesim-runtime", expected_scoped_project, named_project}:
             raise OwnershipError(
                 "Docker project is neither an EleSim legacy project nor the current install namespace"
@@ -372,6 +383,7 @@ class OwnershipManifest:
                     context=str(values.get("context", "")),
                     engine_id=str(values.get("engine_id", "")),
                     install_name=str(values.get("install_name", "")),
+                    container_naming=str(values.get("container_naming", "hash-v1")),
                 )
             manifest = cls(
                 schema_version=int(raw["schema_version"]),
@@ -758,7 +770,7 @@ def append_instance_docker_ownership(
     still be cleaned by the host uninstaller.  No Docker API is consulted.
     """
 
-    from .instance_identity import container_name, service_key
+    from .instance_identity import instance_container_name
     from .instances import InstanceState
 
     if not isinstance(instance, InstanceState):
@@ -803,14 +815,27 @@ def append_instance_docker_ownership(
             or docker.engine_id != docker_engine_id
         ):
             raise OwnershipError("foreign or legacy Docker ownership boundary")
-
         names = tuple(
-            container_name(install_uuid, service_key(instance.system_id, endpoint.endpoint_id))
+            instance_container_name(
+                install_uuid,
+                instance.system_id,
+                endpoint.role,
+                endpoint.endpoint_id,
+                install_name=docker.install_name,
+                naming=docker.container_naming,
+            )
             for endpoint in instance.endpoints
         )
         if instance.turn.mode == "managed":
             names += (
-                container_name(install_uuid, service_key(instance.system_id, "coturn")),
+                instance_container_name(
+                    install_uuid,
+                    instance.system_id,
+                    "coturn",
+                    "coturn",
+                    install_name=docker.install_name,
+                    naming=docker.container_naming,
+                ),
             )
         updated_docker = DockerOwnership(
             install_uuid=docker.install_uuid,
@@ -821,6 +846,7 @@ def append_instance_docker_ownership(
             local_images=docker.local_images,
             context=docker.context,
             engine_id=docker.engine_id,
+            container_naming=docker.container_naming,
         ).validate()
         updated = OwnershipManifest(
             schema_version=manifest.schema_version,
@@ -938,6 +964,7 @@ def append_manager_docker_ownership(
             local_images=docker.local_images,
             context=docker.context,
             engine_id=docker.engine_id,
+            container_naming=docker.container_naming,
         ).validate()
         updated = OwnershipManifest(
             schema_version=manifest.schema_version,
@@ -1065,6 +1092,7 @@ def append_docker_image_ownership(
             local_images=tuple(sorted({*docker.local_images, image})),
             context=docker.context,
             engine_id=docker.engine_id,
+            container_naming=docker.container_naming,
         ).validate()
         updated = OwnershipManifest(
             schema_version=manifest.schema_version,
@@ -1315,6 +1343,7 @@ def _merged_docker(
         context=current.context or previous.context,
         engine_id=current.engine_id or previous.engine_id,
         install_name=current.install_name or previous.install_name,
+        container_naming=current.container_naming,
     )
 
 

@@ -6,7 +6,17 @@ from copy import deepcopy
 import os
 from typing import Mapping
 
-from .instance_identity import container_name, is_scoped_project, project_name, service_key
+from .instance_identity import (
+    CONTAINER_NAMING_HASH,
+    CONTAINER_NAMING_SYSTEM,
+    container_name,
+    installation_container_name,
+    instance_container_name,
+    is_scoped_project,
+    project_name,
+    service_key,
+    validate_container_naming,
+)
 from .instances import InstanceState
 from .releases import ReleaseManifest, release_key
 
@@ -77,6 +87,8 @@ def _validate_runtime_identity(
     service: Mapping[str, object],
     seen: set[tuple[str, str]],
     project: str,
+    install_name: str,
+    container_naming: str,
 ) -> None:
     labels = service.get("labels")
     if not isinstance(labels, Mapping):
@@ -91,8 +103,16 @@ def _validate_runtime_identity(
             raise ValueError("scoped Coturn service identity is incomplete")
     elif labels.get("io.elesim.service_kind") is not None:
         raise ValueError("role service has an unexpected service kind")
-    if service.get("container_name") != container_name(install_uuid, key):
-        raise ValueError("runtime service container name is not install-scoped")
+    expected_container = instance_container_name(
+        install_uuid,
+        system,
+        "coturn" if endpoint == "coturn" else role,
+        endpoint,
+        install_name=install_name,
+        naming=container_naming,
+    )
+    if service.get("container_name") != expected_container:
+        raise ValueError("runtime service container name does not match its identity")
     label_project = labels.get("com.docker.compose.project")
     if label_project is not None and label_project != project:
         raise ValueError("runtime service has a foreign Compose project")
@@ -116,13 +136,22 @@ def _writable_volume(value: object) -> tuple[str, bool] | None:
 
 
 def _validate_tailscale_infrastructure(
-    install_uuid: str, service: Mapping[str, object]
+    install_uuid: str,
+    service: Mapping[str, object],
+    *,
+    install_name: str = "",
+    container_naming: str = CONTAINER_NAMING_HASH,
 ) -> None:
     """Validate the immutable shape of the install-owned sidecar service."""
 
     if service.get("image") != _TAILSCALE_IMAGE:
         raise ValueError("tailscale infrastructure image is not the official stable image")
-    if service.get("container_name") != container_name(install_uuid, "tailscale"):
+    expected_container = (
+        installation_container_name(install_name, "tailscale")
+        if container_naming == CONTAINER_NAMING_SYSTEM and install_name
+        else container_name(install_uuid, "tailscale")
+    )
+    if service.get("container_name") != expected_container:
         raise ValueError("tailscale infrastructure container name is not install-scoped")
     labels = service.get("labels")
     if not isinstance(labels, Mapping) or dict(labels) != {_INSTALL_LABEL: install_uuid}:
@@ -190,11 +219,17 @@ def render_instance_services(
     instance: InstanceState,
     release: ReleaseManifest,
     endpoint_services: Mapping[str, Mapping[str, object]],
+    *,
+    install_name: str = "",
+    container_naming: str = CONTAINER_NAMING_HASH,
 ) -> dict[str, dict[str, object]]:
     """Pin generated endpoint services to one validated release."""
 
     if not isinstance(endpoint_services, Mapping):
         raise ValueError("endpoint_services must be an object")
+    validate_container_naming(container_naming)
+    if container_naming == CONTAINER_NAMING_SYSTEM and not install_name:
+        raise ValueError("system-v1 instance rendering requires install_name")
     instance.validate()
     release.validate()
     if release.install_uuid != install_uuid:
@@ -234,7 +269,14 @@ def render_instance_services(
         key = service_key(instance.system_id, endpoint_id)
         if key in rendered:
             raise ValueError("rendered service keys collide")
-        service["container_name"] = container_name(install_uuid, key)
+        service["container_name"] = instance_container_name(
+            install_uuid,
+            instance.system_id,
+            role,
+            endpoint_id,
+            install_name=install_name,
+            naming=container_naming,
+        )
         raw_labels = service.get("labels", {})
         if not isinstance(raw_labels, Mapping):
             raise ValueError("service labels must be an object")
@@ -266,9 +308,14 @@ def aggregate_compose(
     infrastructure: Mapping[str, Mapping[str, object]],
     *,
     project: str | None = None,
+    install_name: str = "",
+    container_naming: str = CONTAINER_NAMING_HASH,
 ) -> dict[str, object]:
     """Merge rendered groups and install-scoped infrastructure without collisions."""
 
+    validate_container_naming(container_naming)
+    if container_naming == CONTAINER_NAMING_SYSTEM and not install_name:
+        raise ValueError("system-v1 aggregate requires install_name")
     project_name(install_uuid)
     selected_project = project_name(install_uuid) if project is None else project
     if not is_scoped_project(install_uuid, selected_project) or selected_project == "elesim-runtime":
@@ -286,7 +333,15 @@ def aggregate_compose(
                 raise ValueError(f"duplicate Compose service key: {key}")
             if not isinstance(key, str) or not isinstance(service, Mapping):
                 raise ValueError("Compose services must have string names and object values")
-            _validate_runtime_identity(install_uuid, key, service, seen, selected_project)
+            _validate_runtime_identity(
+                install_uuid,
+                key,
+                service,
+                seen,
+                selected_project,
+                install_name,
+                container_naming,
+            )
             network_mode = service.get("network_mode", "host")
             if not isinstance(network_mode, str) or network_mode not in {
                 "host",
@@ -321,8 +376,12 @@ def aggregate_compose(
             raise ValueError("Compose infrastructure must have string names and object values")
         item = deepcopy(dict(service))
         container = item.get("container_name")
-        expected_prefix = container_name(install_uuid, "tailscale").split("-tailscale-", 1)[0] + "-"
-        if not isinstance(container, str) or not container.startswith(expected_prefix):
+        expected_container = (
+            installation_container_name(install_name, "tailscale")
+            if container_naming == CONTAINER_NAMING_SYSTEM and install_name
+            else container_name(install_uuid, "tailscale")
+        )
+        if container != expected_container:
             raise ValueError("infrastructure container is not install-scoped")
         labels = item.get("labels")
         if not isinstance(labels, Mapping) or labels.get(_INSTALL_LABEL) != install_uuid:
@@ -336,7 +395,12 @@ def aggregate_compose(
             raise ValueError(
                 "instance aggregate infrastructure may contain only the exact tailscale service"
             )
-        _validate_tailscale_infrastructure(install_uuid, item)
+        _validate_tailscale_infrastructure(
+            install_uuid,
+            item,
+            install_name=install_name,
+            container_naming=container_naming,
+        )
         services[key] = item
     # Dependencies must resolve within this aggregate.  This catches a role
     # service that tries to join an install-global tools/dev/Coturn service

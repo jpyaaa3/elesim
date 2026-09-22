@@ -19,7 +19,13 @@ from elesim_setup.ownership import (
     sha256_file,
     write_ownership_manifest,
 )
-from elesim_setup.instance_identity import container_name, project_name, service_key
+from elesim_setup.instance_identity import (
+    CONTAINER_NAMING_SYSTEM,
+    container_name,
+    project_name,
+    service_key,
+    system_container_name,
+)
 from elesim_setup.releases import ReleaseManifest
 from elesim_setup.shell import managed_path_block
 from elesim_setup.uninstall import (
@@ -1200,6 +1206,42 @@ def test_scoped_instance_container_accepts_exact_instance_compose_identity(
         project=project_name(install_uuid),
         containers=(instance_name,),
         local_images=(),
+    )
+    manifest, *_ = _manifest(tmp_path, docker=docker)
+    _write(instance_compose)
+    runner = _DockerRunner(
+        docker,
+        container_compose=str(instance_compose),
+        container_labels={
+            "io.elesim.system_id": system_id,
+            "io.elesim.endpoint_id": endpoint_id,
+            "io.elesim.role": "pilot",
+        },
+    )
+
+    plan = plan_uninstall(manifest.path, runner=runner)
+
+    assert tuple(item.name for item in plan.containers) == (instance_name,)
+
+
+def test_system_alias_instance_container_accepts_exact_identity(
+    tmp_path: Path,
+) -> None:
+    install_uuid = "55555555-5555-4555-8555-555555555555"
+    compose = tmp_path / "install/containers/compose.yaml"
+    instance_compose = compose.with_name("compose.instances.yaml")
+    system_id, endpoint_id = "alpha", "pilot-1"
+    instance_name = system_container_name(
+        system_id, "pilot", install_name="quick_fox"
+    )
+    docker = DockerOwnership(
+        install_uuid=install_uuid,
+        compose_file=str(compose),
+        project=project_name(install_uuid, install_name="quick_fox"),
+        containers=(instance_name,),
+        local_images=(),
+        install_name="quick_fox",
+        container_naming=CONTAINER_NAMING_SYSTEM,
     )
     manifest, *_ = _manifest(tmp_path, docker=docker)
     _write(instance_compose)

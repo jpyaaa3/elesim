@@ -38,8 +38,16 @@ from .manager_lifecycle import (
     host_helper_fragment,
     manager_lifecycle_fragment,
 )
-from .instance_identity import container_name as scoped_container_name
-from .instance_identity import image_reference, project_name
+from .instance_identity import (
+    CONTAINER_NAMING_HASH,
+    CONTAINER_NAMING_SYSTEM,
+    container_name as scoped_container_name,
+    installation_container_name,
+    image_reference,
+    project_name,
+    system_container_name,
+    validate_container_naming,
+)
 from .readable_names import (
     random_install_name,
     reserve_image_name,
@@ -352,6 +360,7 @@ class ContainerInstaller:
         # does claim them so stale trees fail closed.
         self._claim_scoped_roots = True
         self._compose_project = GENERAL_COMPOSE_PROJECT
+        self._container_naming = CONTAINER_NAMING_HASH
         self._role_container_names = dict(ROLE_CONTAINER_NAMES)
         self._special_container_names = {
             "tailscale": TAILSCALE_CONTAINER_NAME,
@@ -502,6 +511,15 @@ class ContainerInstaller:
         self._scoped_namespace = refresh is None or (
             previous is not None and previous.project != GENERAL_COMPOSE_PROJECT
         )
+        self._container_naming = (
+            CONTAINER_NAMING_HASH
+            if not self._scoped_namespace
+            else (
+                CONTAINER_NAMING_SYSTEM
+                if previous is None
+                else validate_container_naming(previous.container_naming)
+            )
+        )
         # Keep the existing project literal on refresh.  A project rename
         # would orphan running instances; readable names are an image/release
         # identity upgrade and are therefore adopted without changing the
@@ -517,11 +535,21 @@ class ContainerInstaller:
         )
         if self._scoped_namespace:
             self._role_container_names = {
-                role: scoped_container_name(self._install_uuid, role)
+                role: (
+                    installation_container_name(self._install_name, role)
+                    if self._container_naming == CONTAINER_NAMING_SYSTEM
+                    and self._install_name
+                    else scoped_container_name(self._install_uuid, role)
+                )
                 for role in ROLE_CONTAINER_NAMES
             }
             self._special_container_names = {
-                key: scoped_container_name(self._install_uuid, key)
+                key: (
+                    installation_container_name(self._install_name, key)
+                    if self._container_naming == CONTAINER_NAMING_SYSTEM
+                    and self._install_name
+                    else scoped_container_name(self._install_uuid, key)
+                )
                 for key in self._special_container_names
             }
 
@@ -751,6 +779,7 @@ class ContainerInstaller:
             context=self.state.container_network.docker_context,
             engine_id=self.state.container_network.docker_engine_id,
             install_name=self._install_name,
+            container_naming=self._container_naming,
         )
         created_roots = tuple(
             path
@@ -820,6 +849,7 @@ class ContainerInstaller:
             context=settings.docker_context,
             engine_id=settings.docker_engine_id,
             install_name=previous.install_name,
+            container_naming=previous.container_naming,
         )
         try:
             containers, images = validate_docker_ownership(candidate)
@@ -1491,7 +1521,14 @@ class ContainerInstaller:
                 "io.elesim.role": "sim",
                 "io.elesim.service_kind": "coturn",
             }
-            container = scoped_container_name(self._install_uuid, service_key)
+            if self._container_naming == CONTAINER_NAMING_SYSTEM:
+                container = system_container_name(
+                    self.state.dds.system_id,
+                    "coturn",
+                    install_name=self._install_name,
+                )
+            else:
+                container = scoped_container_name(self._install_uuid, service_key)
         else:
             labels = {DOCKER_INSTALL_UUID_LABEL: self._install_uuid}
             container = self._infra_container_name("coturn")

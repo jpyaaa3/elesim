@@ -27,7 +27,13 @@ from elesim_setup.container_installer import (
     build_container_plan,
     refresh_compose_dds_environment,
 )
-from elesim_setup.instance_identity import container_name, image_reference, named_image_parts, project_name
+from elesim_setup.instance_identity import (
+    container_name,
+    image_reference,
+    installation_container_name,
+    named_image_parts,
+    project_name,
+)
 from elesim_setup.ownership import (
     DOCKER_BUILD_FINGERPRINT_LABEL,
     DOCKER_INSTALL_UUID_LABEL,
@@ -89,6 +95,7 @@ def _refresh_as_legacy_install(state) -> None:
     manifest_path = state.prefix_path / "install-ownership.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["docker"]["project"] = "elesim-runtime"
+    manifest["docker"]["container_naming"] = "hash-v1"
     manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
     ContainerInstaller(state).run()
 
@@ -143,11 +150,12 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
     assert subprocess.run([state.bin_path / "elesim", "--help"], capture_output=True).returncode == 0
     install_name = owner.docker.install_name
     assert compose["name"] == project_name(install_uuid, install_name=install_name)
-    assert compose["services"]["pilot"]["container_name"] == container_name(
-        install_uuid, "pilot"
+    assert owner.docker.container_naming == "system-v1"
+    assert compose["services"]["pilot"]["container_name"] == installation_container_name(
+        install_name, "pilot"
     )
-    assert compose["services"]["sim"]["container_name"] == container_name(
-        install_uuid, "sim"
+    assert compose["services"]["sim"]["container_name"] == installation_container_name(
+        install_name, "sim"
     )
     aliases = []
     for role in ("pilot", "sim", "tools"):
@@ -377,6 +385,7 @@ def test_legacy_manifest_refresh_keeps_the_fixed_namespace(
     manifest_path = state.prefix_path / "install-ownership.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["docker"]["project"] = "elesim-runtime"
+    manifest["docker"]["container_naming"] = "hash-v1"
     manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
 
     ContainerInstaller(state).run()
@@ -738,7 +747,9 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
         assert service["image"].startswith(
             f"elesim/{role}:{install_manifest.docker.install_name}-"
         )
-        assert service["container_name"] == container_name(install_uuid, role)
+        assert service["container_name"] == installation_container_name(
+            install_manifest.docker.install_name, role
+        )
         assert service["logging"] == {
             "driver": "json-file",
             "options": {"max-size": "10m", "max-file": "4"},
@@ -967,7 +978,9 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     tailscale = services["tailscale"]
     assert tailscale["image"] == TAILSCALE_IMAGE
     assert tailscale["image"] == "tailscale/tailscale:stable"
-    assert tailscale["container_name"] == container_name(install_uuid, "tailscale")
+    assert tailscale["container_name"] == installation_container_name(
+        install_manifest.docker.install_name, "tailscale"
+    )
     assert tailscale["devices"] == ["/dev/net/tun:/dev/net/tun"]
     assert tailscale["cap_add"] == ["NET_ADMIN", "NET_RAW"]
     assert tailscale["entrypoint"] == ["tailscaled"]
@@ -1071,7 +1084,9 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
 
     manifest = OwnershipManifest.load(prefix / "install-ownership.json")
     assert manifest.docker is not None
-    assert container_name(install_uuid, "tailscale") in manifest.docker.containers
+    assert installation_container_name(
+        install_manifest.docker.install_name, "tailscale"
+    ) in manifest.docker.containers
     assert TAILSCALE_IMAGE not in manifest.docker.local_images
     assert manifest.docker.context == "default"
     assert manifest.docker.engine_id == "desktop-engine-id"
@@ -3010,8 +3025,8 @@ def test_container_install_records_host_uninstaller_and_docker_uuid(
         state.prefix_path / "containers/compose.yaml"
     )
     assert set(manifest.docker.containers) == {
-        container_name(manifest.install_uuid, "pilot"),
-        container_name(manifest.install_uuid, "ui"),
+        installation_container_name(manifest.docker.install_name, "pilot"),
+        installation_container_name(manifest.docker.install_name, "ui"),
     }
     assert set(manifest.docker.local_images) == {
         compose["services"]["pilot"]["image"],
@@ -3098,8 +3113,8 @@ def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
     assert compose["services"]["coturn"]["depends_on"] == ["sim"]
     manifest = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
     assert manifest.docker is not None
-    assert compose["services"]["coturn"]["container_name"] == container_name(
-        manifest.install_uuid, "coturn"
+    assert compose["services"]["coturn"]["container_name"] == installation_container_name(
+        manifest.docker.install_name, "coturn"
     )
     assert compose["services"]["coturn"]["user"] == f"{os.getuid()}:{os.getgid()}"
     assert compose["services"]["coturn"]["logging"] == {

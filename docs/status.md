@@ -83,7 +83,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 공통 mutable `:local` image** 결정은 다음 계약으로 대체됐다. 구현된 격리·상태
 경계와 실제 Docker/RL 통합 수용시험은 별개다.
 
-- 신규 설치 project는 `elesim-runtime-<install UUID hex>`이며 한 설치의 여러
+- 신규 설치 project는 `elesim-<install name>`이며 한 설치의 여러
   system은 이 project를 공유한다. 구형 설치의 `elesim-runtime`은 자동 인수하지 않는다.
 - connection topology는 schema v1–v5를 읽어 schema v6으로 normalize하고,
   저장 시에는 항상 v6을 쓴다. 컨테이너 graph role ID는 global registry와
@@ -95,7 +95,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 - 서비스·설정·보안 view·쓰기 가능한 cache·로그는 system/endpoint 단위다.
   서로 다른 ID의 이름 변환 충돌을 허용하지 않는다. 같은 system의 중복 role
   실행 거부는 control/media 검증 전까지 유지한다.
-- fresh container install의 project는 `elesim-runtime-<install UUID hex>`다.
+- fresh container install의 project는 `elesim-<install name>`다.
   release는 immutable이며 `elesim-update`는 새 release를 build/publish하지만
   등록된 instance를 새 release로 repin하지 않는다. instance는
   `elesim-instance <system> up|down|logs|status|remove`로 exact service만
@@ -152,10 +152,12 @@ instance별 config/cache/log/security/TURN/GPU 경계를 기록한다. legacy �
   authority/<system_id>/
 ```
 
-공통 dev/tools/Tailscale은 설치당 한 번 생성한다. application service는
-system/endpoint와 전체 SHA-256로, container는 설치 UUID 및 service digest로
-구분한다. install/system/endpoint/role exact label을 검증하고 실행 image는
-불변 image ID로 pin한다. instance 삭제는 공통 image를 삭제하지 않는다.
+공통 dev/tools/Tailscale은 설치당 한 번 생성한다. fresh runtime container는
+`elesim-<install name>-<system_id>-<role>` alias를, 설치 공용 container는
+`elesim-<install name>-<component>` alias를 사용한다. application service key,
+설치 UUID, endpoint/role exact label을 함께 검증하고 실행 image는 불변 image ID로
+pin한다. 기존 manifest의 hash형 naming은 호환을 위해 유지하며 instance 삭제는
+공통 image를 삭제하지 않는다.
 
 운영 명령은 `elesim-instance <system> <up|down|logs|status|remove>`를 사용한다.
 scoped generic wrapper는 fail-closed하고 legacy fixed project wrapper는 기존
@@ -273,8 +275,8 @@ timeout 1건이며 제품 성공으로 바꾸어 세지 않는다. 이후 추가
   설치는 `elesim-instance <system> up`으로 exact assignment만 시작한다. Pilot만
   시작할 때 다른 system의 Sim/Coturn을 끄지 않는다.
 - 동일 host에서 여러 graph를 동시에 실행하는 instance namespace 분리와
-  per-instance lifecycle은 구현됐다. Compose project는 install UUID로 고정하고
-  service/resource는 system/endpoint로 구분한다.
+  per-instance lifecycle은 구현됐다. Compose project는 install alias로 고정하고
+  container alias는 system/role, service/resource는 system/endpoint로 구분한다.
 - `elesim-dev`는 Docker daemon에 존재하지 않아 canonical container gate를
   실행하지 못했다. 호스트 setup suite를 소켓 허용 구간과 일반 구간으로 나눠
   **612 passed**로 확인했고 bootstrap **73 passed**, 관련 상태/배포/실행 회귀
