@@ -489,11 +489,17 @@ def execute_uninstall(
     )
     if current.manifest_sha256 != plan.manifest_sha256:
         raise UninstallSafetyError("ownership manifest changed after preflight validation")
+    # An owned Docker image may disappear between the initial preflight and
+    # this revalidation (for example, a concurrent update can remove an old
+    # release).  That is an idempotent part of uninstall.  A newly appearing
+    # image, or an existing tag resolving to a different image, is still a
+    # state change and must fail closed.
+    current_images_are_compatible = set(current.images).issubset(set(plan.images))
     if (
         current.remove_paths != plan.remove_paths
         or current.remove_roots != plan.remove_roots
         or current.containers != plan.containers
-        or current.images != plan.images
+        or not current_images_are_compatible
         or current.viewer_cleanup != plan.viewer_cleanup
         or current.tailscale_state_cleanup != plan.tailscale_state_cleanup
         or current.remove_shell_path != plan.remove_shell_path
@@ -600,7 +606,7 @@ def execute_uninstall(
                 ("docker", "image", "rm", image.name),
             )
         )
-        _require_command(result, action=f"remove local image {image.name}")
+        _require_image_remove(result, image_name=image.name)
 
     filesystem_protection = (*current.preserve_paths, current.manifest.path)
     for root in sorted(current.remove_roots, key=lambda path: len(path.parts), reverse=True):
@@ -1670,6 +1676,31 @@ def _require_command(
 ) -> None:
     if result.returncode != 0:
         raise UninstallSafetyError(f"{action} failed: {result.stderr.strip()}")
+
+
+def _require_image_remove(
+    result: subprocess.CompletedProcess[str],
+    *,
+    image_name: str,
+) -> None:
+    """Require image removal unless Docker confirms it is already absent.
+
+    Ownership is validated before this mutation.  Docker can still race with
+    another cleanup between validation and ``image rm``; treating only its
+    explicit ``No such image`` response as success keeps uninstall idempotent
+    without weakening failures such as foreign ownership or tag conflicts.
+    """
+
+    if result.returncode == 0:
+        return
+    output = "\n".join(
+        value.strip()
+        for value in (result.stderr, result.stdout)
+        if value and value.strip()
+    )
+    if "no such image" in output.lower():
+        return
+    _require_command(result, action=f"remove local image {image_name}")
 
 
 if __name__ == "__main__":

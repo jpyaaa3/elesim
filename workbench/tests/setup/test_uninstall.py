@@ -1192,6 +1192,79 @@ def test_docker_deletes_only_exact_manifest_objects(tmp_path: Path) -> None:
     assert not any("prune" in command for values in runner.commands for command in values)
 
 
+class _MissingImageOnRemoveRunner(_DockerRunner):
+    def __call__(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        values = tuple(command)
+        result = super().__call__(command)
+        if values[:3] == ("docker", "image", "rm"):
+            return subprocess.CompletedProcess(
+                values,
+                1,
+                stdout="",
+                stderr="Error response from daemon: No such image: " + values[-1],
+            )
+        return result
+
+
+def test_uninstall_treats_owned_image_missing_during_remove_as_success(
+    tmp_path: Path,
+) -> None:
+    docker = DockerOwnership(
+        install_uuid="22222222-2222-4222-8222-222222222222",
+        compose_file=str(tmp_path / "install/containers/compose.yaml"),
+        project="elesim-runtime",
+        containers=(),
+        local_images=("elesim/sim:local",),
+    )
+    manifest, *_ = _manifest(tmp_path, docker=docker)
+    runner = _MissingImageOnRemoveRunner(docker)
+
+    plan = plan_uninstall(manifest.path, runner=runner)
+    tombstone = execute_uninstall(
+        plan,
+        confirm_prefix=manifest.prefix,
+        runner=runner,
+    )
+
+    assert tombstone.is_file()
+    assert not manifest.path.exists()
+    assert ("docker", "image", "rm", "elesim/sim:local") in runner.commands
+
+
+def test_uninstall_rejects_other_owned_image_remove_failures(tmp_path: Path) -> None:
+    docker = DockerOwnership(
+        install_uuid="33333333-3333-4333-8333-333333333333",
+        compose_file=str(tmp_path / "install/containers/compose.yaml"),
+        project="elesim-runtime",
+        containers=(),
+        local_images=("elesim/sim:local",),
+    )
+    manifest, *_ = _manifest(tmp_path, docker=docker)
+
+    class FailingImageRemoveRunner(_DockerRunner):
+        def __call__(
+            self, command: Sequence[str]
+        ) -> subprocess.CompletedProcess[str]:
+            values = tuple(command)
+            result = super().__call__(command)
+            if values[:3] == ("docker", "image", "rm"):
+                return subprocess.CompletedProcess(
+                    values,
+                    1,
+                    stdout="",
+                    stderr="Error response from daemon: conflict: image is referenced",
+                )
+            return result
+
+    runner = FailingImageRemoveRunner(docker)
+    plan = plan_uninstall(manifest.path, runner=runner)
+
+    with pytest.raises(UninstallSafetyError, match="remove local image"):
+        execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+
+    assert manifest.path.is_file()
+
+
 def test_scoped_instance_container_accepts_exact_instance_compose_identity(
     tmp_path: Path,
 ) -> None:
