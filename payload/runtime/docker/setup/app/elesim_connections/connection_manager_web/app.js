@@ -45,6 +45,10 @@ let workflowApplied = false;
 let runtimeReady = false;
 let runtimeRevision = 0;
 let workflowStarted = false;
+// Do not let a click race the initial context/topology load.  The static page
+// is rendered before the API context arrives, so the form is not a valid save
+// source until initialization has completed.
+let pageReady = false;
 // A browser session always revalidates the loaded form before it can proceed.
 // The topology fields are still restored from disk, but a previous session's
 // visual stage must never unlock Booting just because the local Authority has
@@ -269,9 +273,12 @@ function showError(value) {
   setBannerVisible(banner, true);
 }
 
-function showNotice(key) {
+function showNotice(key, detail = "") {
   const banner = byId("notice-banner");
-  banner.querySelector(".banner-message").textContent = t(key);
+  const message = t(key);
+  banner.querySelector(".banner-message").textContent = detail
+    ? `${message}\n${detail}`
+    : message;
   setBannerVisible(banner, true);
 }
 
@@ -1004,9 +1011,21 @@ function applyLocalTailscaleHint(context) {
   if (!isActive(local)) return;
   const address = field(local, "dds-address");
   const iface = field(local, "dds-interface");
-  if (!address.value.trim()) address.value = String(hint.addresses[0]);
-  if (!iface.value.trim()) iface.value = String(hint.interface || "tailscale0");
-  showNotice("notice.tailscale.prefill");
+  let changed = false;
+  if (!address.value.trim()) {
+    address.value = String(hint.addresses[0]);
+    changed = true;
+  }
+  if (!iface.value.trim()) {
+    iface.value = String(hint.interface || "tailscale0");
+    changed = true;
+  }
+  if (changed) {
+    // A detected address is only a form suggestion.  It must still be
+    // validated and explicitly saved by the operator.
+    markWorkflowDirty();
+    showNotice("notice.tailscale.prefill");
+  }
 }
 
 function isTailscaleInterface(value) {
@@ -1053,7 +1072,10 @@ function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-s
   const waiting = !initializerComplete && (!workflowApplied || !runtimeReady);
   start.dataset.i18n = waiting ? "action.wait" : "action.start";
   start.textContent = t(start.dataset.i18n);
-  setWorkflowStepEnabled("save", !busy && !initializerComplete && !workflowSaved);
+  setWorkflowStepEnabled(
+    "save",
+    pageReady && !busy && !initializerComplete && !workflowSaved,
+  );
   setWorkflowStepEnabled(
     "apply",
     !busy && !initializerComplete && workflowSaved && !workflowApplied,
@@ -1288,7 +1310,12 @@ async function saveTopology({quiet = false, invalidate = true} = {}) {
     setWorkflowStepState("start", "pending");
   }
   updateWorkflow();
-  if (!quiet) showNotice("notice.saved");
+  if (!quiet) {
+    const savedPath = typeof result?.saved_path === "string"
+      ? result.saved_path.trim()
+      : "";
+    showNotice("notice.saved", savedPath ? `${t("notice.saved.path")}: ${savedPath}` : "");
+  }
   return result;
 }
 
@@ -1782,7 +1809,19 @@ function bindEvents() {
     byId("add-role-dialog").close();
   });
   byId("security").addEventListener("change", updateWorkflow);
-  byId("save").addEventListener("click", () => saveTopology().catch(showError));
+  byId("save").addEventListener("click", async () => {
+    if (jobSubmissionPending || !pageReady) return;
+    jobSubmissionPending = true;
+    updateWorkflow();
+    try {
+      await saveTopology();
+    } catch (error) {
+      showError(error);
+    } finally {
+      jobSubmissionPending = false;
+      updateWorkflow();
+    }
+  });
   byId("apply").addEventListener("click", () => runApplyJob().catch(showError));
   byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError));
   byId("cancel").addEventListener("click", async () => {
@@ -1838,11 +1877,14 @@ async function initialize() {
     renderRoleBlocks();
     updateRoleChoices();
     updateHostLimit();
+    pageReady = true;
+    updateWorkflow();
     await pollJob();
     await pollRuntimeStatus();
     if (runtimePollTimer) window.clearInterval(runtimePollTimer);
     runtimePollTimer = window.setInterval(pollRuntimeStatus, 10000);
   } catch (error) {
+    pageReady = false;
     showError(error);
   }
 }

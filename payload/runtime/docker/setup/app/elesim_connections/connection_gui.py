@@ -373,6 +373,18 @@ class ConnectionManagerApplication:
     def load_topology(self, *, required: bool = True) -> ConnectionTopology | None:
         with self._state_lock:
             if not self.state_path.exists() and not self.state_path.is_symlink():
+                # A scoped editor invocation without ``--system`` receives a
+                # fresh, private ``editor_*`` state path on every launch.
+                # The actual save is intentionally system-scoped under
+                # ``workspace_root/<system>/topology.json``.  Resume the
+                # newest valid saved topology so reopening the GUI restores
+                # the form instead of presenting a blank editor.  Explicit
+                # ``--system`` invocations do not set ``workspace_root`` and
+                # therefore retain their exact-state-path semantics.
+                if self.workspace_root is not None:
+                    resumed = self._load_latest_workspace_topology()
+                    if resumed is not None:
+                        return resumed
                 if required:
                     raise FileNotFoundError(
                         "save a valid connection topology before starting deployment"
@@ -381,6 +393,51 @@ class ConnectionManagerApplication:
             topology = ConnectionTopology.load(self.state_path)
             self._validate_expected_system(topology)
             return topology
+
+    def _load_latest_workspace_topology(self) -> ConnectionTopology | None:
+        """Load the most recently saved valid topology in an unbound workspace.
+
+        The workspace can contain several independently named systems.  An
+        unbound GUI session has no system selector before its first context
+        response, so resuming the most recently written topology gives the
+        operator the expected edit-and-save flow while preserving explicit
+        ``--system`` selection for multi-system workspaces.
+        """
+
+        root = self.workspace_root
+        if root is None or root.is_symlink() or not root.is_dir():
+            return None
+        candidates: list[tuple[int, str, Path, ConnectionTopology]] = []
+        try:
+            entries = tuple(root.iterdir())
+        except OSError:
+            return None
+        for entry in entries:
+            if (
+                entry.is_symlink()
+                or not entry.is_dir()
+                or re.fullmatch(r"[a-z][a-z0-9_]{0,62}", entry.name) is None
+            ):
+                continue
+            candidate = entry / "topology.json"
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+            try:
+                topology = ConnectionTopology.load(candidate)
+                modified = candidate.stat().st_mtime_ns
+            except (OSError, ValueError):
+                # Ignore stale/partial workspace entries and continue looking
+                # for a valid saved system.  Explicit paths still surface
+                # their validation errors through the normal load path.
+                continue
+            candidates.append((modified, entry.name, candidate, topology))
+        if not candidates:
+            return None
+        _, _, selected, topology = max(
+            candidates, key=lambda value: (value[0], value[1])
+        )
+        self.state_path = selected
+        return topology
 
     def validate_topology(self, payload: Mapping[str, Any]) -> dict[str, object]:
         topology = ConnectionTopology.from_dict(payload)
@@ -447,6 +504,11 @@ class ConnectionManagerApplication:
                 self.state_path = destination
         response = self._topology_response(topology, saved=True)
         response["mode"] = f"{destination.stat().st_mode & 0o777:04o}"
+        # The editor may be opened without --system and therefore saves into
+        # a system-specific workspace.  Return the exact destination so the
+        # operator can verify which topology was persisted instead of having
+        # to guess between the draft path and connections/<system>/.
+        response["saved_path"] = str(destination)
         return response
 
     def _validate_expected_system(self, topology: ConnectionTopology) -> None:

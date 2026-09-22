@@ -207,12 +207,21 @@ def prepare_instance_services(
     endpoint_services: dict[str, dict[str, object]] = {}
     for role in scoped.assigned_roles or ():
         endpoint = endpoint_by_role[role]
+        endpoint_cache_root = (
+            state.prefix_path if output_prefix is None else Path(output_prefix).expanduser()
+        ) / "instances" / instance.system_id / "endpoints" / endpoint / "cache"
+        # Compose creates a missing bind source as root.  Sim deliberately
+        # runs as the installing operator, so leave the endpoint cache in the
+        # transaction-owned tree before Compose ever sees it.
+        for parent in (endpoint_cache_root, *endpoint_cache_root.parents):
+            if parent.is_symlink():
+                raise ValueError("instance cache path contains a symlink ancestor")
+        endpoint_cache_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        endpoint_cache_root.chmod(0o700)
         service = installer._role_service(
             role,
             config_root=configs[role].parent,
-            cache_root=(
-                state.prefix_path if output_prefix is None else Path(output_prefix).expanduser()
-            ) / "instances" / instance.system_id / "endpoints" / endpoint / "cache",
+            cache_root=endpoint_cache_root,
             data_root=data_root,
             keystore_root=(security_views[role][0] if security_views else None),
             enclave=(security_views[role][1] if security_views else None),

@@ -8,33 +8,107 @@ import csv
 import json
 import os
 from pathlib import Path
+import sys
+import tempfile
 import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 import xml.etree.ElementTree as ET
 
-def _configure_numba_cache_dir() -> None:
-    """Give Numba a writable cache before importing Genesis.
 
-    Genesis decorates several functions with ``cache=True``.  The general
-    runtime runs Sim as the installing operator, while the Genesis package is
-    installed under ``/usr/local/lib`` and is therefore not writable.  Without
-    an explicit user cache Numba attempts an in-tree ``__pycache__`` and aborts
-    the entire Sim process with ``no locator available``.
+def _prepare_cache_dir(path: Path, *, private: bool) -> None:
+    """Create a cache directory and prove that this process can write it."""
+
+    if path.is_symlink():
+        raise PermissionError(f"cache path must not be a symlink: {path}")
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if private:
+        # A stale bind mount may be owned by root.  chmod is deliberately part
+        # of the check so that a directory which can be traversed but cannot be
+        # made private is not selected for Numba/Genesis state.
+        path.chmod(0o700)
+    with tempfile.NamedTemporaryFile(
+        mode="wb", prefix=".elesim-cache-probe-", dir=path, delete=True
+    ):
+        pass
+
+
+def _new_private_cache_root() -> Path:
+    """Return a process-owned cache root even when an old bind mount is bad."""
+
+    errors: list[OSError] = []
+    # Do not trust TMPDIR here: a legacy installation can point it at the same
+    # root-owned /tmp/elesim-cache tree that caused startup to fail.
+    for parent in (Path("/tmp"), Path.home()):
+        try:
+            parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+            root = Path(tempfile.mkdtemp(prefix="elesim-cache-", dir=parent))
+            root.chmod(0o700)
+            return root
+        except OSError as error:
+            errors.append(error)
+    detail = "; ".join(str(error) for error in errors) or "unknown error"
+    raise PermissionError(f"unable to create a private Sim cache: {detail}")
+
+
+def _warn_cache_fallback(requested: Path, fallback: Path, error: OSError) -> None:
+    print(
+        "[sim-cache] requested cache is not writable "
+        f"({requested}: {error}); using private cache {fallback}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _configure_numba_cache_dir() -> None:
+    """Give Numba and Genesis writable cache directories before Genesis loads.
+
+    Older installations mounted ``/tmp/elesim-cache`` after running Sim as a
+    root container.  The current Sim process runs as the installing operator,
+    so that stale mount can be unreadable even though the DDS/SROS2 setup is
+    healthy.  Keep the configured cache when it is usable; otherwise switch to
+    a private process-owned directory instead of crashing during import.
     """
 
-    configured = os.environ.get("NUMBA_CACHE_DIR", "").strip()
-    if configured:
-        cache_dir = Path(configured).expanduser()
-    else:
-        cache_root = os.environ.get("XDG_CACHE_HOME", "").strip()
-        cache_dir = (
-            Path(cache_root).expanduser() / "numba"
-            if cache_root
-            else Path.home() / ".cache" / "numba"
-        )
-        os.environ["NUMBA_CACHE_DIR"] = str(cache_dir)
-    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    configured_root = os.environ.get("XDG_CACHE_HOME", "").strip()
+    requested_root = (
+        Path(configured_root).expanduser()
+        if configured_root
+        else Path.home() / ".cache"
+    )
+    try:
+        _prepare_cache_dir(requested_root, private=False)
+        cache_root = requested_root
+    except OSError as error:
+        cache_root = _new_private_cache_root()
+        _warn_cache_fallback(requested_root, cache_root, error)
+    os.environ["XDG_CACHE_HOME"] = str(cache_root)
+
+    configured_numba = os.environ.get("NUMBA_CACHE_DIR", "").strip()
+    requested_numba = (
+        Path(configured_numba).expanduser()
+        if configured_numba
+        else cache_root / "numba"
+    )
+    try:
+        _prepare_cache_dir(requested_numba, private=True)
+        numba_cache = requested_numba
+    except OSError as error:
+        # If only NUMBA_CACHE_DIR was stale, keep the already validated XDG
+        # root and put Numba below it.  Should that also fail, allocate one
+        # more private root and use it for both caches.
+        fallback_root = cache_root
+        fallback_numba = fallback_root / "numba"
+        try:
+            _prepare_cache_dir(fallback_numba, private=True)
+        except OSError:
+            fallback_root = _new_private_cache_root()
+            fallback_numba = fallback_root / "numba"
+            _prepare_cache_dir(fallback_numba, private=True)
+            os.environ["XDG_CACHE_HOME"] = str(fallback_root)
+        numba_cache = fallback_numba
+        _warn_cache_fallback(requested_numba, numba_cache, error)
+    os.environ["NUMBA_CACHE_DIR"] = str(numba_cache)
 
 
 _configure_numba_cache_dir()
@@ -124,7 +198,14 @@ def _ensure_genesis_cache_dir() -> None:
         cache_dir = Path(cache_root).expanduser() / "genesis"
     else:
         cache_dir = Path.home() / ".cache" / "genesis"
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        _prepare_cache_dir(cache_dir, private=True)
+    except OSError as error:
+        fallback_root = _new_private_cache_root()
+        fallback_dir = fallback_root / "genesis"
+        _prepare_cache_dir(fallback_dir, private=True)
+        os.environ["XDG_CACHE_HOME"] = str(fallback_root)
+        _warn_cache_fallback(cache_dir, fallback_dir, error)
 
 
 def _advance_capture_deadline(previous: float, current: float, period: float) -> float:

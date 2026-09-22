@@ -343,6 +343,29 @@ def test_editor_saves_under_gui_selected_system(tmp_path):
     assert not (tmp_path / "draft.json").exists()
 
 
+def test_unbound_editor_resumes_latest_saved_system(tmp_path):
+    root = tmp_path / "connections"
+    first = _topology()
+    writer = ConnectionManagerApplication(
+        state_path=tmp_path / "editor-first.json",
+        workspace_root=root,
+        token="test",
+        runner=lambda *_: None,
+    )
+    writer.save_topology(first.to_dict())
+
+    # A fresh unbound invocation gets a new editor state path.  It must still
+    # restore the system-scoped file saved by the previous invocation.
+    reopened = ConnectionManagerApplication(
+        state_path=tmp_path / "editor-second.json",
+        workspace_root=root,
+        token="test",
+        runner=lambda *_: None,
+    )
+    assert reopened.load_topology(required=False) == first
+    assert reopened.state_path == root / first.system_id / "topology.json"
+
+
 def test_editor_refuses_symlink_workspace(tmp_path):
     root = tmp_path / "connections"
     root.mkdir()
@@ -912,6 +935,7 @@ def test_application_validates_and_atomically_saves_mode_0600(tmp_path: Path) ->
 
     assert validated["valid"] is True and validated["saved"] is False
     assert saved["saved"] is True and saved["mode"] == "0600"
+    assert saved["saved_path"] == str(app.state_path)
     assert app.state_path.stat().st_mode & 0o777 == 0o600
     assert context["topology"] == topology.to_dict()
     assert context["manager_transport"]["containerized"] is False

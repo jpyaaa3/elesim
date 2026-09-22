@@ -316,14 +316,24 @@ def test_staged_sros2_config_uses_published_keystore_prefix(
         staged
         / "instances/alpha/security/generations/g1/apps/pilot/keystore"
     )
+    staged_cache = staged / "instances/alpha/endpoints/alpha-p/cache"
+    staged_sim_cache = staged / "instances/alpha/endpoints/alpha-s/cache"
     assert payload["dds"]["keystore"] == str(published_keystore)
     assert str(staged_keystore) not in generated.read_text(encoding="utf-8")
+    assert staged_cache.is_dir()
+    assert staged_cache.stat().st_mode & 0o777 == 0o700
     pilot = next(
         service
         for service in services.values()
         if service["labels"]["io.elesim.role"] == "pilot"
     )
     assert f"{staged_keystore}:{staged_keystore}:ro" in pilot["volumes"]
+    sim = next(
+        service
+        for service in services.values()
+        if service["labels"]["io.elesim.role"] == "sim"
+    )
+    assert f"{staged_sim_cache}:/tmp/elesim-cache:rw" in sim["volumes"]
 
 
 def test_missing_active_sros2_generation_fails_before_instance_mutation(
