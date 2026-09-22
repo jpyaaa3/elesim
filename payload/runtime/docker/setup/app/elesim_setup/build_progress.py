@@ -5,6 +5,7 @@ import argparse
 import codecs
 from collections import deque
 from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import re
@@ -63,6 +64,88 @@ _IMAGE_REFERENCE = re.compile(
     r"([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))$",
     re.IGNORECASE,
 )
+_DOCKER_CONFIG_MAX_BYTES = 1024 * 1024
+
+
+def _is_windows_credential_helper(value: object) -> bool:
+    """Return whether a Docker credential helper is a Windows executable.
+
+    WSL commonly inherits Docker Desktop's ``desktop.exe`` helper from the
+    Windows-side Docker config. The Linux Docker CLI resolves that name to a
+    ``docker-credential-*.exe`` executable and then fails with ``Exec format
+    error`` before BuildKit can pull a public base image.
+    """
+
+    return isinstance(value, str) and value.strip().lower().endswith(".exe")
+
+
+def _prepare_docker_environment(
+    environment: dict[str, str],
+) -> tuple[dict[str, str], Path | None]:
+    """Use a temporary config when the inherited Docker config is WSL-hostile.
+
+    Keep the caller's config untouched and retain ordinary ``auths`` entries
+    plus non-Windows per-registry helpers. A build only needs a disposable
+    config because the broken helper is used for registry pulls; local image
+    inspection/tagging remains on the same Docker daemon and is unaffected.
+    """
+
+    configured_root = environment.get("DOCKER_CONFIG", "").strip()
+    config_root = (
+        Path(configured_root).expanduser()
+        if configured_root
+        else Path.home() / ".docker"
+    )
+    config_path = config_root / "config.json"
+    try:
+        if not config_path.is_file() or config_path.stat().st_size > _DOCKER_CONFIG_MAX_BYTES:
+            return environment, None
+        with config_path.open("r", encoding="utf-8") as stream:
+            config = json.load(stream)
+    except (OSError, UnicodeError, ValueError):
+        # Let Docker report malformed/unreadable configurations in the usual
+        # way. This helper must not turn an unrelated config error into a
+        # different failure before the build process starts.
+        return environment, None
+    if not isinstance(config, dict):
+        return environment, None
+
+    sanitized = dict(config)
+    changed = False
+    if _is_windows_credential_helper(sanitized.get("credsStore")):
+        sanitized.pop("credsStore", None)
+        changed = True
+    helpers = sanitized.get("credHelpers")
+    if isinstance(helpers, dict):
+        filtered_helpers = {
+            registry: helper
+            for registry, helper in helpers.items()
+            if not _is_windows_credential_helper(helper)
+        }
+        if len(filtered_helpers) != len(helpers):
+            changed = True
+            if filtered_helpers:
+                sanitized["credHelpers"] = filtered_helpers
+            else:
+                sanitized.pop("credHelpers", None)
+    if not changed:
+        return environment, None
+
+    temporary_root = Path(tempfile.mkdtemp(prefix="elesim-docker-config-"))
+    temporary_config = temporary_root / "config.json"
+    try:
+        temporary_config.write_text(
+            json.dumps(sanitized, ensure_ascii=False, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        temporary_root.chmod(0o700)
+        temporary_config.chmod(0o600)
+    except BaseException:
+        shutil.rmtree(temporary_root, ignore_errors=True)
+        raise
+    prepared = dict(environment)
+    prepared["DOCKER_CONFIG"] = str(temporary_root)
+    return prepared, temporary_root
 
 
 def _image_output_match(value: str):
@@ -150,6 +233,7 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
     cancelled = 0
     cancel_time = 0.0
     process = None
+    temporary_docker_config: Path | None = None
     handlers = {}
 
     def stop(signum, _frame):
@@ -199,6 +283,7 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
         print(f"{heading}\n{_muted(f'  └ Full log: {log_path}', tty)}",
               file=sys.stderr, flush=True)
         environment = {**os.environ, "ELESIM_PROGRESS_ACTIVE": "1", "PYTHONUNBUFFERED": "1"}
+        environment, temporary_docker_config = _prepare_docker_environment(environment)
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    start_new_session=True, env=environment)
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -273,6 +358,8 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
             process.stdout.close()
         for sig, handler in handlers.items():
             signal.signal(sig, handler)
+        if temporary_docker_config is not None:
+            shutil.rmtree(temporary_docker_config, ignore_errors=True)
         transcript.close()
 
 

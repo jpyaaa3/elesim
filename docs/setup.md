@@ -572,7 +572,7 @@ legacy generated path가 manifest 없이 남아 있으면 자동 adopt하지 않
 | `managed SROS2 pending` | manager에서 generation `provision`/`rotate`/`recover` | generation transaction을 끝내기 전 role을 임의로 up하지 않는다. |
 | `elesim-update` 후 옛 동작 | update는 container나 instance pin을 교체하지 않음 | 새 release를 명시적으로 register/replace한 뒤 `elesim-instance <system> up`한다. |
 | `No module named pip` bootstrap | host venv/cache를 직접 고치지 않음 | `install.sh`를 새 source ref로 다시 실행해 setup cache snapshot을 재생성한다. |
-| WSL에서 `docker-credential-*.exe: exec format error` | `~/.docker/config.json`의 Windows credential helper와 Linux Docker CLI 조합 | bootstrap은 공개 `python:3.10-slim` pull에 일회성 빈 Docker config를 사용한다. 최신 `install.sh`를 다시 실행하면 사용자 Docker credentials를 바꾸지 않고 진행한다. |
+| WSL에서 `docker-credential-*.exe: exec format error` | `~/.docker/config.json`의 Windows credential helper와 Linux Docker CLI 조합 | bootstrap과 EleSim 이미지 build/update/release transcript helper가 깨진 `.exe` helper만 제거한 일회성 Docker config를 사용한다. 사용자 Docker credentials는 변경하지 않는다. 직접 `docker compose build`를 실행할 때는 Linux용 `DOCKER_CONFIG`를 지정한다. |
 | `The current Docker daemon differs from the one pinned` | `docker info --format '{{.ID}}'`와 설치 state의 `docker_engine_id` | Docker Desktop/Engine을 재생성하면 ID가 바뀐다. 기존 설치는 다른 daemon에 자동 재바인드하지 않고 fail-closed한다. 설치 소유권을 확인한 뒤 명시적인 재설치/복구 절차를 선택해야 한다. |
 
 curl bootstrap은 runtime에 필요하지 않은 `payload/runtime/docker/sim/app/elesim_sim/rl` 연구/학습

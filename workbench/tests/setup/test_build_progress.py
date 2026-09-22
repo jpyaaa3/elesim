@@ -1,4 +1,4 @@
-from pathlib import Path
+import json
 import os
 import pty
 import select
@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -147,6 +148,30 @@ def test_shared_log_directory_refused(tmp_path):
     result = invoke(tmp_path, "print('must not execute')")
     assert result.returncode == 74
     assert not list(logs.iterdir())
+
+
+def test_wsl_windows_credential_helper_is_removed_for_build_child(tmp_path, monkeypatch):
+    docker_config = tmp_path / "docker"
+    docker_config.mkdir()
+    docker_config.joinpath("config.json").write_text(json.dumps({
+        "auths": {"registry.example": {"auth": "keep-me"}},
+        "credsStore": "desktop.exe",
+        "credHelpers": {"registry.example": "desktop.exe", "other.example": "pass"},
+    }))
+    monkeypatch.setenv("DOCKER_CONFIG", str(docker_config))
+    result = invoke(
+        tmp_path,
+        "from pathlib import Path; import os; "
+        "print(Path(os.environ['DOCKER_CONFIG'], 'config.json').read_text())",
+    )
+    assert result.returncode == 0, result.stderr
+    log, = (tmp_path / "logs").glob("*.log")
+    sanitized = json.loads(log.read_text())
+    assert sanitized == {
+        "auths": {"registry.example": {"auth": "keep-me"}},
+        "credHelpers": {"other.example": "pass"},
+    }
+    assert json.loads(docker_config.joinpath("config.json").read_text())["credsStore"] == "desktop.exe"
 
 
 def test_signal_reaches_child_and_keeps_transcript(tmp_path):
