@@ -26,7 +26,10 @@ While using Docker Desktop, you need to generate a emulated Tailscale IP for DDS
 
 ### 🐘 Connection Manager
 
-Once the setup is complete with `./elesim connections`, register a system there. Use `./elesim up <system>` next time to start it.
+Once the setup is complete with `./elesim connections`, register a system there. The
+value entered as **System ID** (stored internally as `system_id`, defaulting to
+`elesim`) is used as `<system-id>` below. Use `./elesim up <system-id>` next time to
+start it.
 
    ```bash
    ./elesim connections
@@ -52,11 +55,11 @@ DDS is used by default, while video is sent via WebRTC.
 ```bash
 ./elesim connections         # Manage topology and system registrations
 
-./elesim up <system>         # Start a registered system
-./elesim down <system>       # Stop a registered system
-./elesim logs <system>       # Check its logs
-./elesim info <system>       # Show its status
-./elesim remove <system>     # Remove the system registration
+./elesim up <system-id>      # Start a registered system
+./elesim down <system-id>    # Stop a registered system
+./elesim logs <system-id>    # Check its logs
+./elesim info <system-id>    # Show its status
+./elesim remove <system-id>  # Remove the system registration
 
 ./elesim update              # Update/build/publish EleSim
 
