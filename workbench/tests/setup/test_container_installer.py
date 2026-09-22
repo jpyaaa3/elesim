@@ -1021,6 +1021,7 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
     assert "export DOCKER_CONTEXT=\"$expected_docker_context\"" in compose_wrapper
     assert "expected_docker_engine_id=desktop-engine-id" in compose_wrapper
+    assert "automatic rebind is disabled" in compose_wrapper
     assert "for _docker_guard_attempt in {1..5}" in compose_wrapper
     assert "[[ -n $candidate_docker_engine_id ]]" in compose_wrapper
     assert "--elesim-cuda-visible-devices" in compose_wrapper

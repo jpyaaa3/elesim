@@ -1636,6 +1636,9 @@ def test_shell_forwards_custom_archive_without_exposing_it_in_docker_argv(
         "case \"$1\" in\n"
         "  info|compose) exit 0 ;;\n"
         "esac\n"
+        "if [ \"$1\" = \"--config\" ]; then\n"
+        "  cp \"$2/config.json\" \"$DOCKER_LOG.config\"\n"
+        "fi\n"
         "printf '%s\\n' \"$@\" >\"$DOCKER_LOG.args\"\n"
         "while [ \"$#\" -gt 0 ]; do\n"
         "  if [ \"$1\" = \"--env-file\" ]; then\n"
@@ -1683,6 +1686,9 @@ def test_shell_forwards_custom_archive_without_exposing_it_in_docker_argv(
     assert "LOGNAME=dev" in docker_args
     assert "USERNAME=dev" in docker_args
     assert "ELESIM_HOST_USER=dev" in docker_args
+    assert docker_args[0] == "--config"
+    assert (tmp_path / "docker.config").read_text(encoding="utf-8") == "{}\n"
+    assert not tuple((home / ".cache/elesim/setup").glob(".docker-config.*"))
     assert (tmp_path / "docker.env").read_text(encoding="utf-8") == (
         f"ELESIM_ARCHIVE_URL={archive_url}\n"
     )
@@ -1694,6 +1700,9 @@ def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None
     )
     assert "python:3.10-slim" in script
     assert '"${docker_cmd[@]}" compose version' in script
+    assert "docker-credential-desktop.exe" in script
+    assert 'bootstrap_docker_cmd+=(--config "$bootstrap_docker_config_dir")' in script
+    assert '"${bootstrap_docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim' in script
     assert "pip install" not in script
     assert 'docker_args+=(--publish "127.0.0.1:${gui_port}:${gui_port}")' in script
     assert '--workdir "$invocation_dir"' in script

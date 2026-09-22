@@ -13,6 +13,7 @@ bootstrap_file="$cache_dir/bootstrap.py"
 bootstrap_tmp=""
 bootstrap_publish_tmp=""
 archive_env_file=""
+bootstrap_docker_config_dir=""
 browser_pid=""
 gui_release_handoff=""
 
@@ -33,6 +34,10 @@ cleanup() {
   fi
   if [[ -n "$archive_env_file" ]]; then
     rm -f -- "$archive_env_file" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$bootstrap_docker_config_dir" ]]; then
+    rm -f -- "$bootstrap_docker_config_dir/config.json" >/dev/null 2>&1 || true
+    rmdir -- "$bootstrap_docker_config_dir" >/dev/null 2>&1 || true
   fi
   if [[ -n "$browser_pid" ]]; then
     kill "$browser_pid" >/dev/null 2>&1 || true
@@ -325,6 +330,23 @@ if [[ -n "${SSH_AUTH_SOCK:-}" && -S "${SSH_AUTH_SOCK}" ]]; then
   )
 fi
 
+# The bootstrap image is public and is pulled by the host Docker CLI.  A WSL
+# Docker CLI may inherit a Windows credential helper such as
+# `docker-credential-desktop.exe` from ~/.docker/config.json; Linux then tries
+# to execute that PE binary and fails with `Exec format error` before the
+# Python bootstrap can even start.  Pull this one public image through an
+# isolated, empty Docker config instead of mutating or deleting the user's
+# credentials.  The config is passed as a Docker CLI global option, so it also
+# covers the temporary `sudo docker` fallback.
+bootstrap_docker_cmd=("${docker_cmd[@]}")
+if (( !host_bootstrap )); then
+  bootstrap_docker_config_dir="$(mktemp -d "$cache_dir/.docker-config.XXXXXX")"
+  printf '%s\n' '{}' >"$bootstrap_docker_config_dir/config.json"
+  chmod 700 "$bootstrap_docker_config_dir"
+  chmod 600 "$bootstrap_docker_config_dir/config.json"
+  bootstrap_docker_cmd+=(--config "$bootstrap_docker_config_dir")
+fi
+
 host_bootstrap_env=(
   "ELESIM_GUI_RELEASE_HANDOFF=$gui_release_handoff"
   "HOME=$HOME"
@@ -409,7 +431,7 @@ if ((gui_mode)); then
       --repo "$repository" \
       --ref "$ref"
   else
-    "${docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
+    "${bootstrap_docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
       python /tmp/elesim-bootstrap.py \
         "${gui_arguments[@]}" \
         --host 0.0.0.0 \
@@ -429,14 +451,14 @@ elif [[ -r /dev/tty ]]; then
   if ((host_bootstrap)); then
     env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_tmp" "$@" </dev/tty
   else
-    "${docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
+    "${bootstrap_docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
       python /tmp/elesim-bootstrap.py "$@" </dev/tty
   fi
 else
   if ((host_bootstrap)); then
     env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_tmp" "$@"
   else
-    "${docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
+    "${bootstrap_docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
       python /tmp/elesim-bootstrap.py "$@"
   fi
 fi

@@ -2833,6 +2833,7 @@ def _docker_backend_guard(settings: ContainerNetworkSettings) -> str:
         "  printf 'The current Docker daemon differs from the one pinned for this installation.\\n' >&2\n"
         "  printf '  expected: context=%s engine=%s\\n' \"$expected_docker_context\" \"$expected_docker_engine_id\" >&2\n"
         "  printf '  actual:   context=%s engine=%s\\n' \"$DOCKER_CONTEXT\" \"${actual_docker_engine_id:-unknown}\" >&2\n"
+        "  printf '  A daemon reset/recreation requires an explicit reinstall or ownership recovery; automatic rebind is disabled.\\n' >&2\n"
         "  exit 78\n"
         "fi\n"
     )
