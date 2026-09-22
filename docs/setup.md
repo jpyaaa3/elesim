@@ -104,7 +104,7 @@ state에 고정한다.
 prefix="$HOME/ws/newsim"
 curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/install.sh \
   | ELESIM_REF=main ELESIM_SCOPED_UPDATE=1 ELESIM_INVOCATION_DIR="$prefix" \
-    bash -s -- --state "$prefix/install-state.json" update
+    bash -s -- --refresh --state "$prefix/install-state.json" update
 "$prefix/bin/elesim-update"
 ```
 
