@@ -293,7 +293,9 @@ def test_verbose_environment_overrides_explicit_compact(tmp_path, monkeypatch):
     (["--progress", "plain", "-f", "compose.yaml", "build", "pilot"], True),
     (["--profile", "developer", "up", "-d", "--build", "dev"], True),
     (["-f", "compose.yaml", "pull", "tailscale"], True),
+    (["-f", "compose.yaml", "run", "--rm", "--build", "manager"], True),
     (["--file", "build", "config"], False),
+    (["run", "--rm", "manager"], False),
     (["--file=compose.yaml", "build", "ui"], True),
     (["exec", "tools", "echo", "build"], False),
 ])

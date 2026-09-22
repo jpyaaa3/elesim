@@ -29,8 +29,9 @@ def render_compose_build_progress(prefix: Path) -> str:
 
     Keep non-TTY manager streams raw by default; new update/release wrappers
     explicitly choose compact mode. ``pull`` and ``up --build`` are included
-    for sidecar updates and the persistent developer attachment. Never
-    intercept run/exec/login commands.
+    for sidecar updates and the persistent developer attachment. ``run
+    --build`` is included for the connection manager. Plain run/exec/login
+    commands remain untouched.
     """
     helper = shlex.quote(str(prefix / "maintenance/elesim_setup/build_progress.py"))
     logs = shlex.quote(str(prefix / "logs/build"))
@@ -51,6 +52,14 @@ def render_compose_build_progress(prefix: Path) -> str:
         '        for progress_arg in "${progress_args[@]:1}"; do\n'
         '          if [[ $progress_arg == --build ]]; then\n'
         f'            exec python3 {helper} --log-dir {logs} -- docker compose "$@"\n'
+        '          fi\n'
+        '        done\n'
+        '        break\n'
+        '        ;;\n'
+        '      run)\n'
+        '        for progress_arg in "${progress_args[@]:1}"; do\n'
+        '          if [[ $progress_arg == --build ]]; then\n'
+        f'            exec python3 {helper} --log-dir {logs} --title "Connection manager image build" -- docker compose "$@"\n'
         '          fi\n'
         '        done\n'
         '        break\n'
