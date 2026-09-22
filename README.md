@@ -26,10 +26,8 @@ While using Docker Desktop, you need to generate a emulated Tailscale IP for DDS
 
 ### 🐘 Connection Manager
 
-Once the setup is complete with `./elesim connections`, register a system there. The
-value entered as **System ID** (stored internally as `system_id`, defaulting to
-`elesim`) is used as `<system-id>` below. Use `./elesim up <system-id>` next time to
-start it.
+1. Run `./elesim connections` to configure your system ID and launch EleSim for the first time or after changing your environment.
+2. For future sessions, simply use `./elesim up <system-id>` to start it.
 
    ```bash
    ./elesim connections
