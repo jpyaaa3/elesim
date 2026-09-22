@@ -189,14 +189,20 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
             )
         ):
             continue  # Preserve foreign or otherwise unowned aliases.
-        plans.append((image, record))
+        plans.append((image, record, tags))
     # No mutation until every registry/provenance check has completed. Docker's
     # non-force removal is the final fence against a newly created container.
     removed = []
-    for image, expected in plans:
+    for image, expected, tags in plans:
         if json.loads(call("image", "inspect", image))[0] != expected:
             raise ValueError("Docker image metadata changed before cleanup")
-        call("image", "rm", image)
+        # Docker refuses ``image rm <id>`` when the same image has multiple
+        # repository tags.  Remove each already-validated owned tag instead;
+        # the final tag removal deletes the image without force, while any
+        # race or unexpected reference still fails closed.
+        references = tuple(sorted(tags)) or (image,)
+        for reference in references:
+            call("image", "rm", reference)
         removed.append(image)
         print(f"[cleanup] removed unreferenced image: {image}", flush=True)
     return tuple(removed)

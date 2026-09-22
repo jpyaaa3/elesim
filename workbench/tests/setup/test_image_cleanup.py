@@ -70,8 +70,16 @@ def scenario(tmp_path):
                 record = next(record for record in images.values() if args[2] in record["RepoTags"])
             return json.dumps([record])
         assert args[:2] == ("image", "rm") and len(args) == 3
-        state["removed"].append(args[2])
-        del images[args[2]]
+        reference = args[2]
+        if reference in images:
+            state["removed"].append(reference)
+            del images[reference]
+            return ""
+        record = next(record for record in images.values() if reference in record["RepoTags"])
+        state["removed"].append(reference)
+        record["RepoTags"].remove(reference)
+        if not record["RepoTags"]:
+            del images[record["Id"]]
         return ""
 
     state["docker"] = docker
@@ -207,6 +215,8 @@ def test_owned_historical_aliases_do_not_block_collection(scenario):
     manifest_path.write_text(json.dumps(updated.to_dict(), indent=2) + "\n")
 
     assert collect(scenario) == (old.image_ids["pilot"],)
+    assert len(scenario["removed"]) == 2
+    assert all(value.startswith("elesim/pilot:") for value in scenario["removed"])
 
 
 def test_metadata_race_refuses_removal(scenario):
