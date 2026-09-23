@@ -225,6 +225,9 @@ def copy_infrastructure(repository: Path, release_root: Path) -> None:
     containers.mkdir(parents=True, exist_ok=True)
     shutil.copy2(docker_payload / "shared/Dockerfile.app", containers / "Dockerfile.app")
     shutil.copy2(docker_payload / "shared/robotpkg.asc", containers / "robotpkg.asc")
+    for name in ("install_go2_pympc.sh", "generate_go2_pympc.py"):
+        shutil.copy2(docker_payload / "shared" / name, containers / name)
+        shutil.copy2(docker_payload / "shared" / name, destination / "development" / name)
     shutil.copy2(docker_payload / "setup/Dockerfile", containers / "Dockerfile.tools")
     shutil.copy2(docker_payload / "setup/tools-entrypoint", containers / "tools-entrypoint")
     shutil.copy2(docker_payload / "README.md", containers / "README.md")

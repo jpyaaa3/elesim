@@ -192,7 +192,7 @@ robot:
         joint_damping: 0.1
         joint_frictionloss: 0.2
       general:
-        mode: convex_mpc
+        mode: pympc
         gait_hz: 2.2
 
 world:

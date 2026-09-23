@@ -1043,6 +1043,8 @@ class ContainerInstaller:
             root / "payload/runtime/common/elesim_interfaces/msg/EncodedRgbdFrame.msg",
             root / "payload/runtime/docker/setup/app/pyproject.toml",
             root / "payload/runtime/docker/shared/Dockerfile.app",
+            root / "payload/runtime/docker/shared/install_go2_pympc.sh",
+            root / "payload/runtime/docker/shared/generate_go2_pympc.py",
             root / "payload/runtime/docker/setup/Dockerfile",
             root / "payload/runtime/docker/setup/tools-entrypoint",
             root / "payload/runtime/docker/shared/robotpkg.asc",
@@ -1150,6 +1152,7 @@ class ContainerInstaller:
             "BASE_IMAGE": self._ROS_BASE_IMAGE,
             "COMPUTE_MODE": docker_build_compute_mode(self.state.compute.gpu_mode),
             "INSTALL_GO2_MPC": "1" if self.state.install_go2_mpc else "0",
+            "INSTALL_GO2_PYMPC": "1" if self.state.install_go2_mpc else "0",
         }
 
     def _write_role_context(self, role: str) -> None:
@@ -1160,6 +1163,8 @@ class ContainerInstaller:
         _copy_source_tree(source, context)
         shutil.copy2(root / "payload/runtime/docker/shared/Dockerfile.app", context / "Dockerfile")
         shutil.copy2(root / "payload/runtime/docker/shared/robotpkg.asc", context / "robotpkg.asc")
+        for name in ("install_go2_pympc.sh", "generate_go2_pympc.py"):
+            shutil.copy2(root / "payload/runtime/docker/shared" / name, context / name)
         _copy_source_tree(root / "payload/runtime/common/protocol", context / "protocol")
         _copy_source_tree(
             root / "payload/runtime/common/elesim_interfaces",
@@ -1210,6 +1215,7 @@ class ContainerInstaller:
                 "GID": str(os.getgid()),
                 "COMPUTE_MODE": docker_build_compute_mode(self.state.compute.gpu_mode),
                 "INSTALL_GO2_MPC": "1" if self.state.install_go2_mpc else "0",
+                "INSTALL_GO2_PYMPC": "1" if self.state.install_go2_mpc else "0",
             },
         )
         self._image_fingerprints["dev"] = fingerprint

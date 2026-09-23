@@ -32,6 +32,7 @@ def test_sim_configs_load_with_role_owned_schema(name: str) -> None:
     assert bundle.sim_config.camera_execution == "async_process"
     assert bundle.sim_config.camera_first_frame_timeout_s == 30.0
     assert bundle.sim_config.visualizer_max_hz == 30.0
+    assert bundle.go2_locomotion_config.mode == "pympc"
     assert not hasattr(bundle, "pick_config")
     assert not hasattr(bundle, "perception_config")
     assert not hasattr(bundle, "gaze_stabilizer_config")

@@ -77,6 +77,8 @@ def write_developer_context(*, source_root: Path, context: Path) -> None:
     names = ("Dockerfile", "requirements.lock", "entrypoint.sh", "dev-env.sh")
     required = tuple(source / name for name in names) + (
         source_root / "payload/runtime/docker/shared/robotpkg.asc",
+        source_root / "payload/runtime/docker/shared/install_go2_pympc.sh",
+        source_root / "payload/runtime/docker/shared/generate_go2_pympc.py",
     ) + tuple(source_root / relative for relative, _ in _RUNTIME_CONTRACT_FILES)
     missing = tuple(path for path in required if not path.is_file())
     if missing:
@@ -93,6 +95,8 @@ def write_developer_context(*, source_root: Path, context: Path) -> None:
         source_root / "payload/runtime/docker/shared/robotpkg.asc",
         context / "robotpkg.asc",
     )
+    for name in ("install_go2_pympc.sh", "generate_go2_pympc.py"):
+        shutil.copy2(source_root / "payload/runtime/docker/shared" / name, context / name)
     runtime_contract = context / "runtime-contract"
     for relative, destination in _RUNTIME_CONTRACT_FILES:
         target = runtime_contract / destination
@@ -157,6 +161,7 @@ def developer_service(
                 "GID": str(os.getgid()),
                 "COMPUTE_MODE": docker_build_compute_mode(state.compute.gpu_mode),
                 "INSTALL_GO2_MPC": "1" if state.install_go2_mpc else "0",
+                "INSTALL_GO2_PYMPC": "1" if state.install_go2_mpc else "0",
             },
         },
         "profiles": ("developer",),

@@ -368,7 +368,7 @@ class Installer:
             and shutil.which("git") is None
         ):
             raise RuntimeError(
-                "Installing the Sim go2-convex-mpc dependency requires the git command"
+                "Installing the Sim GO2 MPC dependencies requires the git command"
             )
 
     def _install_tools(self) -> None:

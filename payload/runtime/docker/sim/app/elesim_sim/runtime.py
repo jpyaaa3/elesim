@@ -401,7 +401,7 @@ def _world_offset(
 
 
 class Go2Locomotion:
-    """GO2 locomotion adapter (Raibert trot, convex MPC, or host pose mirror)."""
+    """GO2 locomotion adapter (Raibert, convex MPC, PyMPC, or host mirror)."""
 
     def __init__(
         self,
@@ -443,9 +443,8 @@ class Go2Locomotion:
             return
 
         mode = str(config.mode).strip().lower()
-        if mode == "convex_mpc":
+        if mode in {"convex_mpc", "pympc"}:
             from elesim_sim.robot.go2.mpc.config import Go2MpcConfig
-            from elesim_sim.robot.go2.mpc.controller import ConvexMpcGenesisController
 
             mpc_cfg = Go2MpcConfig(
                 gait_hz=float(config.gait_hz),
@@ -483,7 +482,15 @@ class Go2Locomotion:
                 pitch_trim_z_ref_m=float(config.mpc_pitch_trim_z_ref_m),
                 pitch_trim_max_rad=float(config.mpc_pitch_trim_max_rad),
             )
-            self._controller = ConvexMpcGenesisController(
+            if mode == "pympc":
+                from elesim_sim.robot.go2.pympc_controller import PyMpcGenesisController
+
+                controller_type = PyMpcGenesisController
+            else:
+                from elesim_sim.robot.go2.mpc.controller import ConvexMpcGenesisController
+
+                controller_type = ConvexMpcGenesisController
+            self._controller = controller_type(
                 entity,
                 dt=float(dt),
                 config=mpc_cfg,

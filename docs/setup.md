@@ -350,6 +350,14 @@ Legacy update는 기존 dangling-image 정리만 유지한다. `--purge`나 down
 ### Build cache
 
 Sim and development images pin Genesis World 1.4.1 and NumPy 1.26.4.
+The GO2 Sim profile now selects `pympc`: image builds with GO2 MPC enabled
+install pinned Quadruped-PyMPC/acados and generate the nominal 12-step solver
+before the container starts. This uses no learned policy or training step.
+The previous `convex_mpc` mode remains selectable for rollback. Existing
+installed profiles and running containers do not switch on source update alone;
+publish and activate a new release explicitly. The new solver must still pass
+an actual Genesis GPU/WASD walking and frame-time check before its locomotion
+quality or speed can be treated as verified.
 Sim uses `opencv-python==4.11.0.86`, matching Genesis's distribution dependency;
 OpenCV 4.12 requires NumPy 2 on Python 3.10. Development retains the same-version
 contrib distribution for Pilot and also pins Genesis's OpenCV dependency.

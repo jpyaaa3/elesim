@@ -63,6 +63,8 @@ EXPECTED_INFRA_FILES = {
             "Dockerfile.app",
             "Dockerfile.tools",
             "README.md",
+            "generate_go2_pympc.py",
+            "install_go2_pympc.sh",
             "robotpkg.asc",
             "tools-entrypoint",
         )
@@ -71,6 +73,8 @@ EXPECTED_INFRA_FILES = {
         (
             "Dockerfile",
             "README.md",
+            "generate_go2_pympc.py",
+            "install_go2_pympc.sh",
             "requirements.lock",
             "entrypoint.sh",
             "dev-env.sh",

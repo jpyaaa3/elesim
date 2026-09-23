@@ -11,7 +11,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONNOUSERSITE=1 \
     PATH=/opt/openrobots/bin:$PATH \
     PKG_CONFIG_PATH=/opt/openrobots/lib/pkgconfig:$PKG_CONFIG_PATH \
-    LD_LIBRARY_PATH=/opt/openrobots/lib:$LD_LIBRARY_PATH \
+    LD_LIBRARY_PATH=/opt/acados/lib:/opt/openrobots/lib:$LD_LIBRARY_PATH \
+    ACADOS_SOURCE_DIR=/opt/acados \
     PYTHONPATH=/opt/openrobots/lib/python3.10/site-packages:$PYTHONPATH \
     CMAKE_PREFIX_PATH=/opt/openrobots:$CMAKE_PREFIX_PATH
 
@@ -73,6 +74,7 @@ RUN git clone --depth 1 --branch "$CASADI_GIT_REF" \
 # Runtime inherit/specific device selection is applied by Compose.
 ARG COMPUTE_MODE=cuda
 ARG INSTALL_GO2_MPC=1
+ARG INSTALL_GO2_PYMPC=0
 COPY requirements.lock /tmp/requirements.lock
 COPY runtime-contract/ /opt/elesim/runtime-contract/
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip install --upgrade "pip<26" "setuptools>=68,<80" wheel && \
@@ -91,6 +93,14 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip ins
     fi && \
     python3 -m pip check && \
     python3 -c 'import importlib.metadata as m; import numpy as np, cv2, torch, pinocchio, genesis; assert np.__version__ == "1.26.4"; assert m.version("genesis-world") == "1.4.1"; assert cv2.__version__ == "4.11.0"; torch.from_numpy(np.zeros(1, dtype=np.float32))'
+
+COPY install_go2_pympc.sh /tmp/elesim/install_go2_pympc.sh
+COPY generate_go2_pympc.py /tmp/elesim/generate_go2_pympc.py
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    if [ "$INSTALL_GO2_PYMPC" = 1 ]; then \
+      sh /tmp/elesim/install_go2_pympc.sh \
+        /tmp/requirements.lock /tmp/elesim/generate_go2_pympc.py; \
+    fi
 
 # aiortc needs a current cryptography release, while Humble's SROS2 CLI uses
 # Ubuntu's patched 3.4 ABI.  Keep both: normal applications resolve /usr/local;

@@ -9,7 +9,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/var/lib/elesim \
     PATH=/opt/openrobots/bin:$PATH \
     PKG_CONFIG_PATH=/opt/openrobots/lib/pkgconfig \
-    LD_LIBRARY_PATH=/opt/openrobots/lib \
+    LD_LIBRARY_PATH=/opt/acados/lib:/opt/openrobots/lib \
+    ACADOS_SOURCE_DIR=/opt/acados \
     PYTHONPATH=/opt/openrobots/lib/python3.10/site-packages \
     CMAKE_PREFIX_PATH=/opt/openrobots
 
@@ -18,7 +19,7 @@ RUN set -eux; \
     case "$ROLE" in \
       pilot) packages="$packages libgl1 libglib2.0-0 libgomp1" ;; \
       ui) packages="$packages libgl1 libgl1-mesa-dri libglx-mesa0 libglu1-mesa libglfw3 libx11-6 libxcursor1 libxi6 libxinerama1 libxrandr2 libxxf86vm1 libfontconfig1" ;; \
-      sim) packages="$packages build-essential cmake git python3-dev swig python3-pip python-is-python3 libgl1 libegl1 libglx-mesa0 libglu1-mesa libosmesa6 libglfw3 libglib2.0-0 libx11-6 libxext6 libxrender1" ;; \
+      sim) packages="$packages build-essential cmake curl git python3-dev swig python3-pip python-is-python3 libgl1 libegl1 libglx-mesa0 libosmesa6 libglfw3 libglib2.0-0 libx11-6 libxext6 libxrender1" ;; \
       *) echo "unsupported role: $ROLE" >&2; exit 2 ;; \
     esac; \
     apt-get update; \
@@ -95,6 +96,15 @@ RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -
 
 COPY requirements.lock /opt/elesim/requirements.lock
 RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -m pip install -r /opt/elesim/requirements.lock
+
+ARG INSTALL_GO2_PYMPC=0
+COPY install_go2_pympc.sh /tmp/elesim/install_go2_pympc.sh
+COPY generate_go2_pympc.py /tmp/elesim/generate_go2_pympc.py
+RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked \
+    if [ "$ROLE" = sim ] && [ "$INSTALL_GO2_PYMPC" = 1 ]; then \
+      sh /tmp/elesim/install_go2_pympc.sh \
+        /opt/elesim/requirements.lock /tmp/elesim/generate_go2_pympc.py; \
+    fi
 
 ARG INSTALL_GO2_MPC=1
 RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked if [ "$ROLE" = sim ] && [ "$INSTALL_GO2_MPC" = 1 ]; then \

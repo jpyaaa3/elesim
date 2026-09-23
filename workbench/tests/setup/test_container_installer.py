@@ -70,6 +70,7 @@ def test_image_build_collapses_runtime_gpu_selection(
     args = ContainerInstaller(state)._role_build_args("sim")
 
     assert args["COMPUTE_MODE"] == build_mode
+    assert args["INSTALL_GO2_PYMPC"] == "1"
 
 
 def test_prepacked_role_entrypoints_match_the_runtime_contract() -> None:
