@@ -65,6 +65,7 @@ _IMAGE_REFERENCE = re.compile(
     re.IGNORECASE,
 )
 _DOCKER_CONFIG_MAX_BYTES = 1024 * 1024
+_CONNECTION_MANAGER_URL = re.compile(r"https?://[^\s]+")
 
 
 def _is_windows_credential_helper(value: object) -> bool:
@@ -160,6 +161,17 @@ def _display_text(value: str) -> str:
 def _muted(value: str, enabled: bool) -> str:
     """Render secondary transcript metadata in terminal gray only."""
     return f"\x1b[90m{value}\x1b[0m" if enabled else value
+
+
+def _color_connection_manager_link(value: str, enabled: bool) -> str:
+    """Highlight the connection URL in the live terminal notice only."""
+    if not enabled or not value.lstrip().startswith("[connection-manager]"):
+        return value
+    return _CONNECTION_MANAGER_URL.sub(
+        lambda match: f"\x1b[36;4m{match.group(0)}\x1b[0m",
+        value,
+        count=1,
+    )
 
 
 def _fit_row(value: str, width: int) -> str:
@@ -272,7 +284,8 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
             if not verbose and safe.lstrip().startswith(notice_prefixes):
                 if animate:
                     print("\r\x1b[2K", end="", file=sys.stderr)
-                print(f"  │ {safe}", file=sys.stderr, flush=True)
+                notice = _color_connection_manager_link(safe, tty)
+                print(f"  │ {notice}", file=sys.stderr, flush=True)
                 shown_count += 1
             elif safe.strip():
                 tail.append(safe)
@@ -325,7 +338,8 @@ def run(command: list[str], log_dir: Path, mode: str = "auto", *,
             elif not verbose and safe.lstrip().startswith(notice_prefixes):
                 if animate:
                     print("\r\x1b[2K", end="", file=sys.stderr)
-                print(f"  │ {safe}", file=sys.stderr)
+                notice = _color_connection_manager_link(safe, tty)
+                print(f"  │ {notice}", file=sys.stderr)
                 shown_count += 1
             else:
                 tail.append(safe)
