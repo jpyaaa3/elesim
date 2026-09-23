@@ -404,7 +404,7 @@ function selectedInstallation(slot, kind = "runtime") {
 function installationOptionLabel(item) {
   const base = item?.name || item?.project || item?.install_uuid || "";
   return item?.install_mode === "native"
-    ? `${t("install.native")} — ${base}`
+    ? `${t("install.native")} - ${base}`
     : base;
 }
 
@@ -1449,19 +1449,19 @@ function renderRuntimeStatus(result) {
     const policyDetail = policies ? `; ${policies}` : "";
     const policyError = host.gpu_policy_error ? `; gpu-policy=${host.gpu_policy_error}` : "";
     const detail = host.detail
-      ? ` — ${host.detail}${policyDetail}${policyError}`
-      : (policyDetail || policyError) ? ` —${policyDetail}${policyError}` : "";
+      ? ` - ${host.detail}${policyDetail}${policyError}`
+      : (policyDetail || policyError) ? ` -${policyDetail}${policyError}` : "";
     return `${host.host_id}: ${state} [${roles}]${detail}`;
   });
-  byId("runtime-status").textContent = rows.join("\n") || "—";
+  byId("runtime-status").textContent = rows.join("\n") || "-";
   updateWorkflow();
 }
 
 function renderRuntimeJobStatus(job) {
   runtimeRevision += 1;
   runtimeReady = false;
-  const action = job.action ? ` · ${t(`action.${job.action}`)}` : "";
-  byId("runtime-status").textContent = `${t(`job.${job.status}`)}${action} — ${t("runtime.updating")}`;
+  const action = job.action ? ` - ${t(`action.${job.action}`)}` : "";
+  byId("runtime-status").textContent = `${t(`job.${job.status}`)}${action} - ${t("runtime.updating")}`;
 }
 
 async function pollRuntimeStatus() {
@@ -1497,7 +1497,7 @@ async function pollJob() {
     const wasRunning = ["running", "cancelling"].includes(byId("job-status").dataset.status);
     const key = `job.${job.status}`;
     byId("job-status").dataset.status = job.status;
-    byId("job-status").textContent = `${t(key)}${job.action ? ` · ${t(`action.${job.action}`)}` : ""}`;
+    byId("job-status").textContent = `${t(key)}${job.action ? ` - ${t(`action.${job.action}`)}` : ""}`;
     byId("job-log").textContent = [...job.logs, job.error].filter(Boolean).join("\n");
     const running = ["running", "cancelling"].includes(job.status);
     if (running) renderRuntimeJobStatus(job);

@@ -2505,7 +2505,7 @@ class ConnectionDeploymentRunner:
         )
         if not expected:
             for host in hosts:
-                log(f"DDS readiness: {host.host_id} — no endpoint to check")
+                log(f"DDS readiness: {host.host_id} - no endpoint to check")
             return
 
         def check_host(host: ManagedHost) -> object:
@@ -2538,7 +2538,7 @@ class ConnectionDeploymentRunner:
                     f"{host.host_id}: readiness probe error: {detail[:768]}"
                 )
                 log(
-                    f"DDS readiness probe: {host.host_id} — "
+                    f"DDS readiness probe: {host.host_id} - "
                     f"probe call failed before DDS evaluation: {detail[:768]}"
                 )
                 continue
@@ -2546,20 +2546,20 @@ class ConnectionDeploymentRunner:
                 detail = f"{host.host_id}: probe result has an invalid format"
                 failures.append(detail)
                 log(
-                    f"DDS readiness: {host.host_id} — "
+                    f"DDS readiness: {host.host_id} - "
                     "failed: probe result has an invalid format; inspect container logs"
                 )
                 continue
             if ConnectionDeploymentRunner._runtime_report_ok(report):
                 log(
-                    f"DDS readiness: {host.host_id} — "
+                    f"DDS readiness: {host.host_id} - "
                     f"checking endpoint descriptors/heartbeats: {', '.join(expected)}"
                 )
                 continue
             detail = ConnectionDeploymentRunner._runtime_report_detail(report)
             failures.append(f"{host.host_id}: {detail[:768]}")
             log(
-                f"DDS readiness: {host.host_id} — "
+                f"DDS readiness: {host.host_id} - "
                 f"failed: {detail[:768]}; inspect the DDS descriptor/heartbeat path and "
                 "the Docker Desktop/WSL network namespace "
                 "(the Sim scene/media session is a separate gate)"
@@ -2650,16 +2650,16 @@ class ConnectionDeploymentRunner:
                 state = str(status.get("state", "unknown"))
                 running = status.get("running_roles", ())
                 if isinstance(running, (list, tuple)):
-                    role_text = ", ".join(str(role) for role in running) or "—"
+                    role_text = ", ".join(str(role) for role in running) or "-"
                 else:
-                    role_text = ", ".join(host.roles) or "—"
+                    role_text = ", ".join(host.roles) or "-"
                 log(f"status: {host.host_id} = {state} [{role_text}]")
             except ConnectionJobCancelled:
                 raise
             except Exception as exc:
                 detail = str(exc).strip() or exc.__class__.__name__
                 failures.append(f"{host.host_id}: {detail}")
-                log(f"check failed: {host.host_id} — {detail}")
+                log(f"check failed: {host.host_id} - {detail}")
         if failures:
             raise RuntimeError("Host checks failed: " + "; ".join(failures))
 
