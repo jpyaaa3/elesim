@@ -101,6 +101,7 @@ class WizardApplication:
         self._job_lock = threading.Lock()
         self._cancel_event = threading.Event()
         self.release_command: Path | None = None
+        self.developer_command: Path | None = None
         self.close_requested = False
 
     def context(self) -> dict[str, object]:
@@ -233,6 +234,7 @@ class WizardApplication:
                 raise RuntimeError("an installation is already running")
             self._cancel_event.clear()
             self.release_command = None
+            self.developer_command = None
             self.job = InstallJob(status="running", started_at=time.time())
         thread = threading.Thread(
             target=self._run_install,
@@ -280,6 +282,8 @@ class WizardApplication:
         with self._job_lock:
             if any(role in {"sim", "pilot", "ui"} for role in request.roles):
                 self.release_command = request.bin_dir / "elesim-release"
+                if request.developer_attachment.enabled:
+                    self.developer_command = request.bin_dir / "elesim-dev"
             self.job.status = "completed"
             self.job.finished_at = time.time()
 
@@ -485,16 +489,25 @@ def run_gui(
     finally:
         server.server_close()
     if application.close_requested and application.release_command is not None:
+        commands = [application.release_command]
+        if application.developer_command is not None:
+            commands.append(application.developer_command)
         handoff = os.environ.get("ELESIM_GUI_RELEASE_HANDOFF", "")
         if handoff:
             # Only the successfully installed request supplies this path;
             # shutdown accepts no command/path from the browser.
-            command = str(application.release_command)
-            if "\n" in command or "\r" in command:
-                raise ValueError("release command path must be a single line")
-            Path(handoff).write_text(command + "\n", encoding="utf-8")
+            rendered = [str(command) for command in commands]
+            if any("\n" in command or "\r" in command for command in rendered):
+                raise ValueError("post-install command paths must be single-line")
+            Path(handoff).write_text(
+                "".join(command + "\n" for command in rendered),
+                encoding="utf-8",
+            )
         else:
-            return subprocess.run([str(application.release_command)], check=False).returncode
+            for command in commands:
+                result = subprocess.run([str(command)], check=False)
+                if result.returncode:
+                    return result.returncode
     return 0
 
 

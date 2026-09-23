@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 import json
 import io
+import os
+import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
@@ -31,6 +33,7 @@ from elesim_connections.secure_deployment import (
     RemoteCommandResult,
     RolloutError,
     RuntimeLaunchOptions,
+    ScopedInstanceNotRegisteredError,
     SecurityBundle,
     SecurityFile,
     SshHostOperations,
@@ -342,6 +345,127 @@ def test_scoped_remote_lifecycle_binds_authenticated_install_identity() -> None:
             topology.host("server").primary_unit,
             local=False,
         )
+
+
+def test_scoped_remote_lifecycle_distinguishes_unregistered_instance() -> None:
+    topology = _scoped_remote_topology()
+    unit = topology.host("server").primary_unit
+    identity = json.dumps(
+        {
+            "schema_version": 1,
+            "install_uuid": SCOPED_INSTALL,
+            "project": SCOPED_PROJECT,
+        }
+    )
+    instance_root = str(
+        PurePosixPath(unit.install_root) / "instances" / topology.system_id
+    )
+
+    class Session:
+        def run(self, argv, *, check=True):
+            values = tuple(str(value) for value in argv)
+            if values[:2] == ("/usr/local/bin/elesim-net", "identity"):
+                return RemoteCommandResult(0, identity)
+            if values[:2] == ("test", "-L"):
+                return RemoteCommandResult(1)
+            if values[:2] == ("test", "-e"):
+                return RemoteCommandResult(1 if values[2] == instance_root else 0)
+            if values[:2] == ("python3", "-c"):
+                return RemoteCommandResult(3)
+            return RemoteCommandResult(0)
+
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    with pytest.raises(ScopedInstanceNotRegisteredError, match="not registered"):
+        lifecycle._validate_scoped_target(Session(), unit, local=False)
+
+
+@pytest.mark.parametrize("probe_status", [1, 2, 126, 127, 255])
+def test_scoped_absence_probe_errors_are_not_unregistered(probe_status):
+    topology = _scoped_remote_topology()
+    unit = topology.host("server").primary_unit
+
+    class Session:
+        def run(self, argv, *, check=True):
+            if argv[1] == "identity":
+                return RemoteCommandResult(0, json.dumps({
+                    "schema_version": 1, "install_uuid": SCOPED_INSTALL,
+                    "project": SCOPED_PROJECT,
+                }))
+            if argv[:2] == ("test", "-L"):
+                return RemoteCommandResult(1)
+            if argv[:2] == ("test", "-e"):
+                return RemoteCommandResult(int(str(argv[2]).endswith("/instances/lab")))
+            if argv[:2] == ("python3", "-c"):
+                return RemoteCommandResult(probe_status, stderr="probe unavailable")
+            return RemoteCommandResult(0)
+
+    with pytest.raises(RemoteCommandError, match="probe unavailable"):
+        InstalledElesimLifecycle(topology, scoped=True)._validate_scoped_target(
+            Session(), unit,
+        )
+
+
+def test_instance_absence_probe_checks_parent_and_dangling_symlink(tmp_path):
+    parent = tmp_path / "instances"
+    target = parent / "lab"
+
+    def probe():
+        return subprocess.run(
+            [sys.executable, "-c", secure_deployment._INSTANCE_ABSENCE_PROBE, str(target)],
+            capture_output=True, text=True,
+        )
+
+    assert probe().returncode == 1  # A missing parent is a broken installation.
+    parent.mkdir()
+    assert probe().returncode == 3
+    if os.geteuid() != 0:
+        parent.chmod(0)
+        try:
+            denied = probe()
+            assert denied.returncode == 1
+            assert "PermissionError" in denied.stderr
+        finally:
+            parent.chmod(0o700)
+    target.symlink_to(parent / "missing")
+    assert probe().returncode == 0  # Never classify a dangling link as absent.
+    target.unlink()
+    target.mkdir()
+    assert probe().returncode == 0
+
+
+def test_scoped_status_preserves_running_native_unit_when_runtime_unregistered(monkeypatch):
+    topology = _scoped_remote_topology()
+    host = topology.host("server")
+    robot = DeploymentUnit(
+        "robot-native", (RoleAssignment("robot", "robot-main"),),
+        install_mode="native", lifecycle="systemd",
+        install_uuid=SCOPED_INSTALL, install_root="/opt/elesim-robot",
+        bin_dir="/opt/elesim-robot/bin",
+    )
+    runtime = replace(host.primary_unit, assignments=(RoleAssignment("pilot", "pilot-main"),))
+    host = replace(host, units=(runtime, robot), jetson=True)
+    topology = replace(topology, hosts=(topology.host("laptop"), host)).validate()
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+
+    def validate(session, unit, **kwargs):
+        if unit.install_mode == "container":
+            raise ScopedInstanceNotRegisteredError("missing runtime instance")
+
+    monkeypatch.setattr(lifecycle, "_validate_scoped_target", validate)
+    monkeypatch.setattr(lifecycle, "_gpu_policies", lambda *args: ({}, []))
+    monkeypatch.setattr(lifecycle, "_gpu_devices", lambda *args: [])
+
+    class Session:
+        def run(self, argv, **kwargs):
+            assert argv[:4] == ("sudo", "-n", "systemctl", "is-active")
+            return RemoteCommandResult(0, "active\n")
+
+    status = lifecycle.status(Session(), host)
+    assert status["state"] == "degraded"
+    assert status["running_roles"] == ["robot"]
+    assert status["registered"] is False
+    assert status["units"]["runtime"]["state"] == "unregistered"
+    assert status["units"]["robot-native"]["state"] == "running"
 
 
 def test_scoped_remote_lifecycle_rejects_unenrolled_legacy_unit() -> None:

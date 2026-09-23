@@ -684,7 +684,17 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'class="column-heading"><h3 data-i18n="ssh.title"></h3><label class="local-choice"' in html
     assert 'data-i18n="ssh.local"' not in html
     assert 'data-field="ssh-user" type="text"' in html
-    assert 'input[data-field="ssh-port"]:disabled { background: #f2f4f3; color: #4f5c56; opacity: 1; }' in style
+    disabled_rules = [
+        declarations for selectors, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", style)
+        if 'input[data-field="ssh-port"]:disabled' in {
+            selector.strip() for selector in selectors.split(",")
+        }
+    ]
+    assert any(
+        all(value in declarations for value in (
+            "background: #f2f4f3", "color: #4f5c56", "opacity: 1",
+        )) for declarations in disabled_rules
+    )
     assert '<img src="/private-key-warning.svg" alt="">' in html
     assert 'class="private-key-local" data-i18n="ssh.private.local"' in html
     assert catalog["ko"]["ssh.private.local"] == "이 기기에서 개인키를 생성합니다."

@@ -374,6 +374,11 @@ def aggregate_compose(
             raise ValueError(f"duplicate Compose service key: {key}")
         if not isinstance(key, str) or not isinstance(service, Mapping):
             raise ValueError("Compose infrastructure must have string names and object values")
+        # Reject unsupported services before validating a Tailscale identity.
+        if key != "tailscale":
+            raise ValueError(
+                "instance aggregate infrastructure may contain only the exact tailscale service"
+            )
         item = deepcopy(dict(service))
         container = item.get("container_name")
         expected_container = (
@@ -391,10 +396,6 @@ def aggregate_compose(
         # infrastructure (in particular managed/external TURN).  The
         # caller validates the service against the immutable base Compose
         # entry; keep this final boundary narrow as well.
-        if key != "tailscale":
-            raise ValueError(
-                "instance aggregate infrastructure may contain only the exact tailscale service"
-            )
         _validate_tailscale_infrastructure(
             install_uuid,
             item,

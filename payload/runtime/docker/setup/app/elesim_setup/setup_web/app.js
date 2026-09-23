@@ -322,8 +322,10 @@ async function pollJob() {
       const binDir = byId("bin-dir").value.trim();
       const release = selectedRoles().some((role) => ["sim", "pilot", "ui"].includes(role))
         ? " && ./elesim-release" : "";
+      const developer = byId("developer-attachment").checked
+        ? " && ./elesim-dev" : "";
       byId("start-command").textContent =
-        `cd ${shellQuote(binDir)} && source ~/.bashrc${release}`;
+        `cd ${shellQuote(binDir)} && source ~/.bashrc${release}${developer}`;
       byId("post-install-command").textContent = `cd ${shellQuote(binDir)} && ./elesim connections`;
     } else if (job.status === "failed") {
       window.clearInterval(pollTimer);

@@ -13,16 +13,17 @@ from elesim_setup.capabilities import HostCapabilities
 from elesim_setup.gui import WizardApplication, WizardServer, web_root
 
 
-@pytest.mark.parametrize("status,roles,closed,expected", [
-    ("completed", ("sim",), True, True),
-    ("completed", ("pilot", "robot"), True, True),
-    ("completed", ("robot",), True, False),
-    ("failed", ("sim",), True, False),
-    ("cancelled", ("sim",), True, False),
-    ("completed", ("sim",), False, False),
+@pytest.mark.parametrize("status,roles,developer,closed,expected", [
+    ("completed", ("sim",), False, True, True),
+    ("completed", ("sim",), True, True, True),
+    ("completed", ("pilot", "robot"), True, True, True),
+    ("completed", ("robot",), False, True, False),
+    ("failed", ("sim",), True, True, False),
+    ("cancelled", ("sim",), True, True, False),
+    ("completed", ("sim",), True, False, False),
 ])
 def test_quit_hands_successful_container_install_to_host(
-    tmp_path, monkeypatch, status, roles, closed, expected,
+    tmp_path, monkeypatch, status, roles, developer, closed, expected,
 ):
     from elesim_setup import gui
     handoff = tmp_path / "handoff"
@@ -38,7 +39,11 @@ def test_quit_hands_successful_container_install_to_host(
         def serve_forever(self, **kwargs):
             app = self.application
             if status == "completed":
-                app._run_install(SimpleNamespace(roles=roles, bin_dir=custom_bin))
+                app._run_install(SimpleNamespace(
+                    roles=roles,
+                    bin_dir=custom_bin,
+                    developer_attachment=SimpleNamespace(enabled=developer),
+                ))
             else:
                 app.job.status = status
             app.close_requested = closed
@@ -50,7 +55,12 @@ def test_quit_hands_successful_container_install_to_host(
     assert gui.run_gui(source_root=tmp_path, invocation_dir=tmp_path,
                        repository="owner/repo", ref="main", capabilities=_capabilities(),
                        runner=lambda request, log: None) == 0
-    assert handoff.read_text() == (str(custom_bin / "elesim-release") + "\n" if expected else "")
+    expected_commands = ""
+    if expected:
+        expected_commands = str(custom_bin / "elesim-release") + "\n"
+        if developer:
+            expected_commands += str(custom_bin / "elesim-dev") + "\n"
+    assert handoff.read_text() == expected_commands
 
 
 def _capabilities() -> HostCapabilities:
@@ -142,8 +152,9 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert ".command-row code" in style and "white-space: pre-wrap;" in style
     assert "elesim-connections</code>" in html
     assert '`${binDir}/elesim-connections && source ~/.bashrc && ${managerCleanup}`' not in script
-    assert '`cd ${shellQuote(binDir)} && source ~/.bashrc${release}`' in script
+    assert '`cd ${shellQuote(binDir)} && source ~/.bashrc${release}${developer}`' in script
     assert '" && ./elesim-release"' in script
+    assert '" && ./elesim-dev"' in script
     assert 'docker rm elesim-manager' not in script
     assert "function updateTailscaleLoginCommand()" in script
     assert "usesDockerDesktop" in script

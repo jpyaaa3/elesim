@@ -22,6 +22,11 @@ fail() {
   exit 2
 }
 
+has_terminal() {
+  # /dev/tty can exist and be readable without a controlling terminal.
+  ( : </dev/tty ) 2>/dev/null
+}
+
 cleanup() {
   if [[ -n "$gui_release_handoff" ]]; then
     rm -f -- "$gui_release_handoff"
@@ -69,7 +74,7 @@ if ! command -v docker >/dev/null 2>&1; then
     fail "Docker is missing. Install Docker Engine and the Compose plugin first."
   fi
   answer="n"
-  if [[ -r /dev/tty ]]; then
+  if has_terminal; then
     read -r -p "Docker is missing. Do you want to install Docker? [y/N]: " answer </dev/tty
   fi
   if [[ "$answer" =~ ^[Yy]$ ]]; then
@@ -442,12 +447,33 @@ if ((gui_mode)); then
         --ref "$ref"
   fi
   if [[ -s "$gui_release_handoff" ]]; then
-    IFS= read -r release_command < "$gui_release_handoff"
+    mapfile -t post_install_commands < "$gui_release_handoff"
+    (( ${#post_install_commands[@]} >= 1 && ${#post_install_commands[@]} <= 2 )) || \
+      fail "Invalid post-install command handoff"
+    release_command="${post_install_commands[0]}"
     [[ "$release_command" == /*/elesim-release && -x "$release_command" ]] || fail "Invalid release command handoff"
+    developer_command=""
+    if (( ${#post_install_commands[@]} == 2 )); then
+      developer_command="${post_install_commands[1]}"
+      release_bin_dir="${release_command%/*}"
+      [[ "$developer_command" == "$release_bin_dir/elesim-dev" && -x "$developer_command" ]] || \
+        fail "Invalid developer command handoff"
+    fi
     printf '%s\n' '[bootstrap] Building and publishing the first runtime release.'
     "$release_command"
+    if [[ -n "$developer_command" ]]; then
+      printf '%s\n' '[bootstrap] Starting the persistent development container.'
+      if has_terminal; then
+        "$developer_command" </dev/tty
+      else
+        # Non-interactive bootstrap still builds and starts the persistent
+        # service, but cannot keep an attached shell open.
+        "$developer_command" true
+        printf '%s\n' '[bootstrap] Run elesim-dev from the installation bin to open its shell.'
+      fi
+    fi
   fi
-elif [[ -r /dev/tty ]]; then
+elif has_terminal; then
   if ((host_bootstrap)); then
     env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_tmp" "$@" </dev/tty
   else

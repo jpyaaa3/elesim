@@ -1432,7 +1432,11 @@ function renderRuntimeStatus(result) {
       || ["inherit", "specific", "cpu"].includes(host.gpu_policy?.[role]?.mode)));
   const rows = hosts.map((host) => {
     const roles = (host.roles || []).join(", ");
-    const state = host.reachable ? (host.state || "unknown") : t("runtime.unreachable");
+    const state = !host.reachable
+      ? t("runtime.unreachable")
+      : host.state === "unregistered"
+        ? t("runtime.unregistered")
+        : (host.state || "unknown");
     const policies = host.gpu_policy && typeof host.gpu_policy === "object"
       ? ["pilot", "sim"].filter((role) => host.gpu_policy[role]).map((role) => {
         const policy = host.gpu_policy[role];

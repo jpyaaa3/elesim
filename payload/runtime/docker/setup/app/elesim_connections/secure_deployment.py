@@ -273,6 +273,26 @@ class SshConnectionError(RuntimeError):
     """The manager could not reach an SSH endpoint before authentication."""
 
 
+class ScopedInstanceNotRegisteredError(RuntimeError):
+    """The enrolled installation is reachable but has no instance registration."""
+
+
+_INSTANCE_ABSENCE_PROBE = """\
+import os, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+# Opening the parent separately keeps a missing/inaccessible parent an error.
+fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    try:
+        os.stat(path.name, dir_fd=fd, follow_symlinks=False)
+    except FileNotFoundError:
+        sys.exit(3)
+finally:
+    os.close(fd)
+"""
+
+
 class RemoteCommandError(RuntimeError):
     def __init__(self, argv: Sequence[str], result: "RemoteCommandResult") -> None:
         super().__init__(
@@ -2215,12 +2235,24 @@ class InstalledElesimLifecycle:
         )
         for path in paths:
             linked = session.run(("test", "-L", str(path)), check=False)
+            if linked.exit_status not in (0, 1):
+                raise RemoteCommandError(("test", "-L", str(path)), linked)
             if linked.exit_status == 0:
                 raise RuntimeError(
                     f"scoped lifecycle path is a symlink on {unit.unit_id}: {path}"
                 )
             exists = session.run(("test", "-e", str(path)), check=False)
             if exists.exit_status != 0:
+                if path == instance_root and exists.exit_status == 1:
+                    command = ("python3", "-c", _INSTANCE_ABSENCE_PROBE, str(path))
+                    probe = session.run(command, check=False)
+                    if probe.exit_status == 3:
+                        raise ScopedInstanceNotRegisteredError(
+                            f"scoped instance is not registered on "
+                            f"{unit.unit_id}: missing {path}"
+                        )
+                    if probe.exit_status != 0:
+                        raise RemoteCommandError(command, probe)
                 raise RuntimeError(
                     f"scoped lifecycle scope is not established on "
                     f"{unit.unit_id}: missing {path}"
@@ -3483,7 +3515,17 @@ class InstalledElesimLifecycle:
         for unit in host.units:
             if unit.install_mode == "container":
                 if self._scoped:
-                    self._validate_scoped_target(session, unit, local=host.local)
+                    try:
+                        self._validate_scoped_target(session, unit, local=host.local)
+                    except ScopedInstanceNotRegisteredError as exc:
+                        unit_status[unit.unit_id] = {
+                            "state": "unregistered",
+                            "registered": False,
+                            "running_roles": [],
+                            "containers_present": False,
+                            "detail": str(exc),
+                        }
+                        continue
                     command = _lifecycle_command(
                         unit,
                         action="status",
@@ -3646,6 +3688,7 @@ class InstalledElesimLifecycle:
             state = (
                 "running"
                 if states == {"running"}
+                else "unregistered" if states == {"unregistered"}
                 else ("stopped" if states <= {"stopped", "inactive"} else "degraded")
             )
             snapshot = {
@@ -3655,7 +3698,14 @@ class InstalledElesimLifecycle:
                     bool(value.get("containers_present")) for value in unit_status.values()
                 ),
                 "units": unit_status,
+                "detail": "; ".join(
+                    f"{unit_id}: {value['detail']}"
+                    for unit_id, value in unit_status.items() if value.get("detail")
+                )[:512],
             }
+        snapshot["registered"] = all(
+            value.get("registered", True) for value in unit_status.values()
+        )
         policies, policy_errors = self._gpu_policies(session, host)
         if policies:
             snapshot["gpu_policy"] = policies

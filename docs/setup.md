@@ -20,9 +20,15 @@
 
 설치 작업은 먼저 파일과 구성을 생성한다. curl 설치마법사에서 성공 후 종료를
 누르면 호스트 터미널에서 `elesim-release`가 자동 실행되어 첫 이미지를 빌드하고
-릴리스를 발행한다. 실패·취소 또는 Robot 단독 native 설치는 이 단계를 실행하지
-않는다. 수동 재시도는 설치 bin의 `./elesim-release`, 등록된 system의 실행은
-`elesim up <system>`을 사용한다. 자동 발행은 runtime 역할을 시작하지 않는다.
+릴리스를 발행한다. 개발 attachment를 선택했다면 그 뒤 `elesim-dev`도 실행해
+개발 이미지를 빌드하고 영속 개발 컨테이너 셸을 연다. 실패·취소 또는 Robot 단독
+native 설치는 이 단계를 실행하지 않는다. 수동 재시도는 설치 bin에서
+`./elesim-release`를 실행하고, 개발 attachment는 이어서 `./elesim-dev`를 실행한다.
+등록된 system의 실행은 `elesim up <system>`을 사용한다. 자동 발행은 runtime 역할을
+시작하지 않는다.
+제어 터미널이 없는 자동 설치에서는 개발 컨테이너를 시작한 뒤 종료한다.
+이후 `elesim-dev`로 셸에 접속할 수 있다. Release 발행이 실패하면 dev 실행도
+진행하지 않으며 발행 오류를 먼저 해결해야 한다.
 임시 설치 컨테이너는 `--rm`으로 정리되며, 고정 이름 `elesim-manager`를 삭제하는
 명령은 필요하지 않다. 부모 터미널의 디렉터리와 PATH는 변경할 수 없으므로 필요시
 `cd <prefix>/bin` 또는 `source ~/.bashrc`를 직접 실행한다.

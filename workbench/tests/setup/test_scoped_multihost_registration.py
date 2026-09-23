@@ -23,6 +23,7 @@ from elesim_connections.connections import (
     HostActivationState,
     RuntimeRollbackError,
 )
+from elesim_connections.secure_deployment import ScopedInstanceNotRegisteredError
 from elesim_setup.instance_identity import image_reference, project_name
 from elesim_setup.instances import InstanceEndpoint, InstanceRegistry, InstanceState
 from elesim_setup.releases import ReleaseManifest, release_key
@@ -389,13 +390,32 @@ def test_gpu_inventory_is_available_before_instance_registration(tmp_path, monke
 
     class Unregistered(_BootOperations):
         def status(self, host):
-            raise RuntimeError("instance is not registered")
+            raise ScopedInstanceNotRegisteredError("instance is not registered")
 
     monkeypatch.setattr(runner, "_operations", lambda topology: {host.host_id: Unregistered([]) for host in topology.hosts})
     result = runner.runtime_status(topology)
     assert all(host["inventory_ready"] for host in result["hosts"])
-    assert all(not host["reachable"] for host in result["hosts"])
+    assert all(host["reachable"] for host in result["hosts"])
+    assert all(not host["registered"] for host in result["hosts"])
+    assert all(host["state"] == "unregistered" for host in result["hosts"])
     assert any(host["gpu_policy"] for host in result["hosts"])
+
+
+def test_runtime_status_preserves_partial_registration(tmp_path, monkeypatch):
+    topology = _registration_topology(tmp_path, "trusted-network")
+    runner = ConnectionDeploymentRunner(tmp_path / "authority")
+
+    class Partial(_BootOperations):
+        def status(self, host):
+            return {"state": "degraded", "registered": False,
+                    "running_roles": list(host.roles[:1])}
+
+    monkeypatch.setattr(runner, "_operations", lambda topology: {
+        host.host_id: Partial([]) for host in topology.hosts
+    })
+    result = runner.runtime_status(topology)
+    assert all(host["reachable"] and not host["registered"] for host in result["hosts"])
+    assert all(host["running_roles"] for host in result["hosts"])
 
 
 @pytest.mark.parametrize("active_authority", [False, True])

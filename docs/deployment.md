@@ -241,6 +241,15 @@ selected releases, networking, native prerequisites and GPU inventory without
 registering container instances. GPU inventory is installation-scoped and does
 not require an existing system instance.
 
+Runtime status distinguishes a reachable host without a registered instance from
+an unreachable host. A missing exact `instances/<system>` scope is reported as
+`unregistered`; SSH, installation-identity and other lifecycle inspection
+failures remain `unreachable`.
+The absence probe must be able to open the parent directory; permission errors
+and failed probes are not registration absence. Status is collected per unit:
+a mixed host with a missing container instance and a running native Robot is
+`degraded`, preserves the running Robot role, and reports the missing unit.
+
 Step 3 (`start`) captures the selected Pilot/Sim GPU policies and Sim Viewer
 setting, then completes the existing all-host registration/security transaction
 before launch preflights or runtime startup. Unchanged stopped registrations are

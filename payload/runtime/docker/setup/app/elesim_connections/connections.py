@@ -39,6 +39,7 @@ from .secure_deployment import (
     RolloutError,
     RuntimeLaunchOptions,
     SecurityBundle,
+    ScopedInstanceNotRegisteredError,
     Sros2BundleIssuer,
     SshHostOperations,
     TopologyRollout,
@@ -2822,6 +2823,20 @@ class ConnectionDeploymentRunner:
                     value.setdefault("host_id", host.host_id)
                     value.setdefault("roles", list(host.roles))
                     value["reachable"] = True
+                    value.setdefault("registered", True)
+                except ScopedInstanceNotRegisteredError:
+                    hosts.append(
+                        {
+                            **inventory,
+                            "host_id": host.host_id,
+                            "roles": list(host.roles),
+                            "reachable": True,
+                            "registered": False,
+                            "state": "unregistered",
+                            "running_roles": [],
+                        }
+                    )
+                    continue
                 except Exception as exc:
                     hosts.append(
                         {

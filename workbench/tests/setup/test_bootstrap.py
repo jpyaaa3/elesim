@@ -1736,6 +1736,37 @@ def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None
     assert '"PYTHONNOUSERSITE=1"' in script
 
 
+@pytest.mark.parametrize("release_status", [0, 7])
+def test_post_install_handoff_without_controlling_terminal(tmp_path, release_status):
+    script = (Path(__file__).resolve().parents[3] / "installer/install.sh").read_text()
+    # Run the actual post-install branch without downloading or running Docker.
+    terminal_function = script.split("has_terminal() {", 1)[1].split("\n}", 1)[0]
+    branch = script.split('  if [[ -s "$gui_release_handoff" ]]; then', 1)[1]
+    branch = 'if [[ -s "$gui_release_handoff" ]]; then' + branch.split(
+        "\nelif has_terminal; then", 1
+    )[0]
+    events = tmp_path / "events"
+    for name, body in (
+        ("elesim-release", f'printf "release\\n" >> "$EVENTS"\nexit {release_status}\n'),
+        ("elesim-dev", 'printf "dev:%s\\n" "$*" >> "$EVENTS"\n'),
+    ):
+        wrapper = tmp_path / name
+        wrapper.write_text("#!/bin/bash\n" + body)
+        wrapper.chmod(0o755)
+    handoff = tmp_path / "handoff"
+    handoff.write_text(f"{tmp_path}/elesim-release\n{tmp_path}/elesim-dev\n")
+    result = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\n"
+         "fail() { exit 2; }\nhas_terminal() {" + terminal_function + "\n}\n" + branch],
+        env={**os.environ, "gui_release_handoff": str(handoff), "EVENTS": str(events)},
+        start_new_session=True, capture_output=True, text=True,
+    )
+    assert result.returncode == release_status, result.stderr
+    assert events.read_text().splitlines() == (
+        ["release", "dev:true"] if release_status == 0 else ["release"]
+    )
+
+
 @pytest.mark.parametrize("build_fails", [False, True])
 def test_bootstrap_package_builds_preserve_validated_cache(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, build_fails: bool,

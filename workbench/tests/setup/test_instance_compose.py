@@ -72,7 +72,7 @@ def test_render_uses_system_aliases_for_runtime_containers() -> None:
 def test_aggregate_rejects_unscoped_infrastructure() -> None:
     rendered = render_instance_services(INSTALL, _instance(), _release(), {"pilot_ep": {"role": "pilot"}})
     with pytest.raises(ValueError, match="install-scoped"):
-        aggregate_compose(INSTALL, {"one": rendered}, {"turn": {"container_name": "elesim-coturn", "labels": {"io.elesim.install_uuid": INSTALL}}})
+        aggregate_compose(INSTALL, {"one": rendered}, {"tailscale": {"container_name": "elesim-tailscale", "labels": {"io.elesim.install_uuid": INSTALL}}})
 
 
 def test_aggregate_checks_cross_system_writable_mount_overlap(tmp_path) -> None:
