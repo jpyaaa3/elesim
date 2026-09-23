@@ -59,7 +59,7 @@ def render_compose_build_progress(prefix: Path) -> str:
         '      run)\n'
         '        for progress_arg in "${progress_args[@]:1}"; do\n'
         '          if [[ $progress_arg == --build ]]; then\n'
-        f'            exec python3 {helper} --log-dir {logs} --title "Connection manager image build" -- docker compose "$@"\n'
+        f'            exec python3 {helper} --log-dir {logs} --title "Connection manager image build" --notice-prefix "[connection-manager]" -- docker compose "$@"\n'
         '          fi\n'
         '        done\n'
         '        break\n'
