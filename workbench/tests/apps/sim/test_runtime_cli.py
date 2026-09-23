@@ -76,7 +76,7 @@ def test_gpu_genesis_init_enables_performance_mode(monkeypatch) -> None:
     assert captured["performance_mode"] is True
 
 
-def test_convex_mpc_physics_morph_skips_genesis_ik_without_merging_links(
+def test_physics_morph_preserves_named_fixed_links_without_deprecated_ik_option(
     monkeypatch,
 ) -> None:
     captured = {}
@@ -94,22 +94,11 @@ def test_convex_mpc_physics_morph_skips_genesis_ik_without_merging_links(
         (0.0, 0.0, 0.32),
         (0.0, 0.0, 0.0),
         fixed=False,
-        requires_jac_and_IK=False,
         merge_fixed_links=False,
     )
 
-    assert captured["requires_jac_and_IK"] is False
+    assert "requires_jac_and_IK" not in captured
     assert captured["merge_fixed_links"] is False
-
-
-def test_only_legacy_raibert_controller_requires_genesis_ik() -> None:
-    convex = runtime.Go2LocomotionConfig(mode="convex_mpc")
-    raibert = runtime.Go2LocomotionConfig()
-    mirror = runtime.Go2LocomotionConfig(mirror_from_host=True)
-
-    assert runtime._requires_genesis_ik(convex) is False
-    assert runtime._requires_genesis_ik(raibert) is True
-    assert runtime._requires_genesis_ik(mirror) is False
 
 
 def test_async_runtime_builds_physics_before_starting_visual_worker(monkeypatch) -> None:

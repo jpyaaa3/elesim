@@ -73,7 +73,8 @@ class ArmPayloadCompensator:
                 and id(link) not in self._link_ids
             ):
                 continue
-            mass = link.inertial_mass
+            inertial = link.desc
+            mass = inertial.mass
             if mass is None or float(mass) <= 1e-9:
                 continue
 
@@ -82,7 +83,7 @@ class ArmPayloadCompensator:
             quat_xyzw = _quat_wxyz_to_xyzw(_to_numpy_1d(link.get_quat())[:4])
             rot = Rot.from_quat(quat_xyzw)
             rot_m = rot.as_matrix()
-            inertial_pos = link.inertial_pos
+            inertial_pos = inertial.inertial_pos
             if inertial_pos is None:
                 offset = np.zeros(3, dtype=float)
             else:
@@ -95,8 +96,8 @@ class ArmPayloadCompensator:
             vel_com = vel + np.cross(ang, offset_world)
 
             inertia_local = None
-            if link.inertial_i is not None:
-                inertia_local = rot_m @ np.asarray(link.inertial_i, dtype=float).reshape(3, 3) @ rot_m.T
+            if inertial.inertia is not None:
+                inertia_local = rot_m @ np.asarray(inertial.inertia, dtype=float).reshape(3, 3) @ rot_m.T
 
             link_samples.append((mass, com_world, vel_com, inertia_local))
 

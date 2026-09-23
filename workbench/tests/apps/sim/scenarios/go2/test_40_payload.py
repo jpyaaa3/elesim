@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 import sys
 import types
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -32,11 +33,17 @@ from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
 
 
 class _FakeLink:
-    def __init__(self, name: str, mass: float, pos) -> None:
+    def __init__(self, name: str, mass: float, pos, *, inertial_pos=None, inertia=None) -> None:
         self.name = name
-        self.inertial_mass = float(mass)
-        self.inertial_pos = np.zeros(3, dtype=float)
-        self.inertial_i = None
+        self.desc = SimpleNamespace(
+            mass=float(mass),
+            inertial_pos=(
+                np.zeros(3, dtype=float)
+                if inertial_pos is None
+                else np.asarray(inertial_pos, dtype=float)
+            ),
+            inertia=None if inertia is None else np.asarray(inertia, dtype=float),
+        )
         self._pos = np.asarray(pos, dtype=float)
 
     def get_pos(self):
@@ -62,6 +69,28 @@ class _FakeEntity:
 
 
 class PayloadModelTests(unittest.TestCase):
+    def test_payload_measurement_reads_genesis_link_description_inertia(self) -> None:
+        expected_inertia = np.diag([0.2, 0.3, 0.4])
+        entity = _FakeEntity(
+            [
+                _FakeLink(
+                    "plate",
+                    2.0,
+                    [1.0, 0.0, 0.0],
+                    inertial_pos=[0.5, 0.0, 0.0],
+                    inertia=expected_inertia,
+                )
+            ]
+        )
+
+        snap = ArmPayloadCompensator(entity).measure()
+
+        self.assertIsNotNone(snap)
+        assert snap is not None
+        self.assertEqual(snap.mass_kg, 2.0)
+        self.assertTrue(np.allclose(snap.com_world, np.array([1.5, 0.0, 0.0])))
+        self.assertTrue(np.allclose(snap.inertia_world, expected_inertia))
+
     def test_payload_measurement_filters_merged_go2_links(self) -> None:
         entity = _FakeEntity(
             [

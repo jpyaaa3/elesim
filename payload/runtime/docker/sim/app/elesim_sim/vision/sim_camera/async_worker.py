@@ -34,7 +34,6 @@ class CameraRenderSpec:
     urdf_path: str
     robot_pos: tuple[float, float, float]
     robot_euler_deg: tuple[float, float, float]
-    requires_jac_and_ik: bool
     use_gpu: bool
     gpu_convert: bool
     dt: float
@@ -199,7 +198,6 @@ def _make_urdf_morph(
     euler_deg: tuple[float, float, float],
     *,
     fixed: bool,
-    requires_jac_and_ik: bool,
 ) -> Any:
     common = dict(
         file=str(urdf_path),
@@ -213,8 +211,7 @@ def _make_urdf_morph(
         # is disabled, makes the first camera frame take tens of seconds.
         collision=False,
         prioritize_urdf_material=True,
-        merge_fixed_links=not bool(requires_jac_and_ik),
-        requires_jac_and_IK=bool(requires_jac_and_ik),
+        merge_fixed_links=True,
         default_armature=0.0,
     )
     return gs.morphs.URDF(**common)
@@ -423,7 +420,6 @@ def _camera_render_process_main(
                 # replica avoids allocating a dynamic base while retaining
                 # the URDF joint DOFs used to pose the arm.
                 fixed=True,
-                requires_jac_and_ik=bool(spec.requires_jac_and_ik),
             )
         )
 

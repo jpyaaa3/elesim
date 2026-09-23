@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from elesim_sim.robot.go2.locomotion.kinematics import GO2_READY_Q
+from elesim_sim.robot.go2.locomotion.kinematics import GO2_STAND_Q
 from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
 from elesim_sim.runtime import _set_go2_initial_leg_pose
 
@@ -12,7 +12,7 @@ class _Go2Entity:
     def __init__(self, missing: str = "") -> None:
         self.joints = {
             name: SimpleNamespace(dofs_idx_local=[index])
-            for index, name in enumerate(GO2_READY_Q)
+            for index, name in enumerate(GO2_STAND_Q)
             if name != missing
         }
         self.position = None
@@ -33,11 +33,14 @@ def test_initial_pose_requires_every_named_go2_joint() -> None:
         _set_go2_initial_leg_pose(_Go2Entity(missing="FL_calf_joint"))
 
 
-def test_initial_pose_sets_all_twelve_dofs() -> None:
+def test_initial_pose_sets_standard_stand_on_all_twelve_dofs() -> None:
     entity = _Go2Entity()
     _set_go2_initial_leg_pose(entity)
     assert entity.position is not None and entity.position[1] == list(range(12))
     assert entity.control is not None and entity.control[1] == list(range(12))
+    expected = np.asarray(tuple(GO2_STAND_Q.values()), dtype=float)
+    np.testing.assert_allclose(entity.position[0], expected)
+    np.testing.assert_allclose(entity.control[0], expected)
 
 
 def test_explicit_payload_links_must_exist() -> None:

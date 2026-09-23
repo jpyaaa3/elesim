@@ -18,6 +18,7 @@ from elesim_sim.vision.sim_camera.async_worker import (
     SharedRgbdMailbox,
     _apply_snapshot,
     _genesis_init_kwargs,
+    _make_urdf_morph,
     _put_latest_frame_result,
     movable_urdf_joint_names,
     resolve_single_dof_indices,
@@ -322,13 +323,34 @@ def test_visual_worker_avoids_static_performance_compile_on_gpu() -> None:
     assert "performance_mode" not in kwargs
 
 
+def test_visual_morph_merges_fixed_links_without_deprecated_ik_option() -> None:
+    captured = {}
+
+    class Morphs:
+        @staticmethod
+        def URDF(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+    fake_genesis = type("Genesis", (), {"morphs": Morphs()})()
+    _make_urdf_morph(
+        fake_genesis,
+        "/model/visual.urdf",
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 0.0),
+        fixed=True,
+    )
+
+    assert captured["merge_fixed_links"] is True
+    assert "requires_jac_and_IK" not in captured
+
+
 def test_render_spec_rejects_missing_urdf() -> None:
     with pytest.raises(ValueError, match="URDF"):
         CameraRenderSpec(
             urdf_path="",
             robot_pos=(0.0, 0.0, 0.0),
             robot_euler_deg=(0.0, 0.0, 0.0),
-            requires_jac_and_ik=False,
             use_gpu=False,
             gpu_convert=False,
             dt=0.02,
@@ -346,7 +368,6 @@ def test_hand_eye_worker_uses_the_arm_visual_tree() -> None:
         urdf_path=str(robot_urdf),
         robot_pos=(0.0, 0.0, 0.4),
         robot_euler_deg=(0.0, 0.0, 0.0),
-        requires_jac_and_ik=False,
         use_gpu=False,
         gpu_convert=False,
         dt=0.02,
@@ -383,7 +404,6 @@ def test_camera_worker_reports_a_dead_render_process() -> None:
             urdf_path="visual.urdf",
             robot_pos=(0.0, 0.0, 0.0),
             robot_euler_deg=(0.0, 0.0, 0.0),
-            requires_jac_and_ik=False,
             use_gpu=False,
             gpu_convert=False,
             dt=0.02,
@@ -416,7 +436,6 @@ def test_camera_worker_marks_frame_complete_after_dispatch_callback() -> None:
             urdf_path="visual.urdf",
             robot_pos=(0.0, 0.0, 0.0),
             robot_euler_deg=(0.0, 0.0, 0.0),
-            requires_jac_and_ik=False,
             use_gpu=False,
             gpu_convert=False,
             dt=0.02,
@@ -457,7 +476,6 @@ def test_camera_worker_rejects_invalid_render_timing() -> None:
             urdf_path="visual.urdf",
             robot_pos=(0.0, 0.0, 0.0),
             robot_euler_deg=(0.0, 0.0, 0.0),
-            requires_jac_and_ik=False,
             use_gpu=False,
             gpu_convert=False,
             dt=0.02,
@@ -685,7 +703,6 @@ def test_real_async_camera_worker_delivers_latest_observer_frame() -> None:
             urdf_path=str(urdf),
             robot_pos=(0.0, 0.0, 0.0),
             robot_euler_deg=(0.0, 0.0, 0.0),
-            requires_jac_and_ik=False,
             use_gpu=False,
             gpu_convert=False,
             dt=0.02,
@@ -756,7 +773,6 @@ def test_real_async_camera_workers_keep_hand_eye_and_observer_live() -> None:
             urdf_path=str(robot_urdf),
             robot_pos=(0.0, 0.0, 0.42),
             robot_euler_deg=(0.0, 0.0, 0.0),
-            requires_jac_and_ik=False,
             use_gpu=True,
             gpu_convert=True,
             dt=0.02,

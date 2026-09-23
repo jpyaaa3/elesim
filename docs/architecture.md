@@ -171,8 +171,11 @@ Physics scene만 정상상태 step 처리량을 위해 Genesis `performance_mode
 않으므로 dynamic-array 모드로 시작해, 같은 GPU에서 physics scene의 cold build와
 두 번째 정적 커널 컴파일이 경쟁하지 않게 한다. 두 Genesis process의 cold build는
 겹치지 않으며 physics scene을 먼저 완성한 뒤 visual replica를 만든다. Convex MPC는 Pinocchio가
-kinematics를 소유하므로 physics URDF도 Genesis IK/Jacobian 생성을 끄되, arm mount와
-feedback에서 사용하는 고정 link 이름을 보존하기 위해 fixed-link 병합은 끈다.
+kinematics를 소유한다. GO2 physics URDF는 arm mount, feedback, collision policy가 사용하는
+이름 있는 link를 보존하기 위해 fixed-link 병합을 끈다. Genesis 1.4.1의 URDF morph
+`requires_jac_and_IK` 옵션은 deprecated no-op이므로 전달하지 않으며, 이 옵션으로 Genesis
+내부의 IK/Jacobian 준비를 끈다고 가정하지 않는다. Visual replica는 애플리케이션 코드에서
+IK/Jacobian을 호출하지 않고 이름 있는 관절 자세만 적용한다.
 
 물리 scene의 floating-base 엔티티와 카메라 scene의 fixed-base 복제본은 로컬
 DOF 번호를 공유하지 않는다. Snapshot은 URDF의 이름 있는 movable joint 순서로

@@ -883,34 +883,18 @@ def _make_urdf_morph(
     euler: Tuple[float, float, float],
     *,
     fixed: bool,
-    requires_jac_and_IK: bool = False,
-    merge_fixed_links: Optional[bool] = None,
+    merge_fixed_links: bool = True,
 ):
-    merge_links = (
-        not bool(requires_jac_and_IK)
-        if merge_fixed_links is None
-        else bool(merge_fixed_links)
-    )
     common = dict(
         file=urdf_path,
         pos=pos,
         euler=euler,
         fixed=bool(fixed),
         prioritize_urdf_material=True,
-        requires_jac_and_IK=bool(requires_jac_and_IK),
         default_armature=0.0,
-        merge_fixed_links=merge_links,
+        merge_fixed_links=bool(merge_fixed_links),
     )
     return gs.morphs.URDF(**common)
-
-
-def _requires_genesis_ik(config: Go2LocomotionConfig) -> bool:
-    """Return whether the selected GO2 controller calls Genesis IK."""
-
-    return (
-        str(config.mode).strip().lower() != "convex_mpc"
-        and not bool(config.mirror_from_host)
-    )
 
 
 def _prepare_go2_urdf_with_config_colors(
@@ -981,18 +965,14 @@ def _prepare_go2_urdf_with_config_colors(
     return out
 
 
-def _set_go2_initial_leg_pose(go2_entity, *, pose_name: str = "ready") -> None:
-    """Set GO2 leg joints after Genesis build so calf joints start within limits."""
+def _set_go2_initial_leg_pose(go2_entity) -> None:
+    """Place GO2 in its standard standing pose after the Genesis scene build."""
     kinematics = Go2KinematicsModel.from_entity(go2_entity)
     dof_idxs = kinematics.all_leg_dof_idx
-    q_arr = (
-        kinematics.ready_q
-        if str(pose_name).strip().lower() == "ready"
-        else kinematics.stand_q
-    )
+    q_arr = kinematics.stand_q
     go2_entity.set_dofs_position(q_arr, dofs_idx_local=dof_idxs)
     go2_entity.control_dofs_position(q_arr, dofs_idx_local=dof_idxs)
-    print(f"[runtime] GO2 initial leg pose set: {pose_name} ({len(dof_idxs)} dofs)")
+    print(f"[runtime] GO2 initial leg pose set: stand ({len(dof_idxs)} dofs)")
 
 
 @dataclass
@@ -2865,9 +2845,6 @@ class RuntimePrep:
             urdf_path=str(urdf_path),
             robot_pos=robot_pos,
             robot_euler_deg=robot_euler,
-            # The replica only applies named joint positions from snapshots;
-            # it never evaluates IK or Jacobians.
-            requires_jac_and_ik=False,
             use_gpu=bool(a.cfg.use_gpu),
             gpu_convert=bool(a.cfg.camera_gpu_convert),
             dt=float(a.params.dt),
@@ -3044,20 +3021,15 @@ class RuntimePrep:
             floor_ent = None
 
         if use_go2:
-            requires_genesis_ik = _requires_genesis_ik(a.go2_locomotion_config)
             ent = a.sim_scene.scene.add_entity(
                 _make_urdf_morph(
                     urdf_path,
                     go2_pos,
                     go2_euler,
                     fixed=False,
-                    # Convex MPC owns its kinematics in Pinocchio and the
-                    # mirror path only applies named poses.  Keep Genesis IK
-                    # solely for the legacy Raibert controller that calls it.
-                    requires_jac_and_IK=requires_genesis_ik,
-                    # The combined GO2+arm runtime resolves fixed link names
-                    # for mounts, feedback and collision policy even when IK
-                    # kernels are unnecessary.
+                    # Preserve named links used by arm mounts, feedback and
+                    # collision policy. Genesis 1.4.1's deprecated
+                    # requires_jac_and_IK option has no effect.
                     merge_fixed_links=False,
                 )
             )
@@ -3128,7 +3100,7 @@ class RuntimePrep:
         print("[runtime] scene built in %.2fs" % (time.time() - t_build))
 
         if use_go2 and go2_entity is not None:
-            _set_go2_initial_leg_pose(go2_entity, pose_name="ready")
+            _set_go2_initial_leg_pose(go2_entity)
             go2_mirror = bool(a.go2_locomotion_config.mirror_from_host)
             from elesim_sim.observability.walking_metrics import WalkingMetricsLogger
 
