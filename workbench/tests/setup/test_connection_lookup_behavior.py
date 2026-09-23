@@ -7,6 +7,15 @@ import subprocess
 import pytest
 
 
+def test_runtime_status_during_jobs():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is required for the frontend behavioral check")
+    subprocess.run([
+        node, "--test", str(Path(__file__).with_name("connection_runtime_status.test.cjs")),
+    ], check=True)
+
+
 def test_inherit_policy_arrival_restores_default_without_overwriting_user_choice():
     node = shutil.which("node")
     if not node:

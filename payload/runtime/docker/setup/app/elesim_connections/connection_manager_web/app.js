@@ -1383,6 +1383,8 @@ async function startJob(action) {
       : {};
     await api(`/api/job/${action}`, {method: "POST", body: JSON.stringify(payload)});
     submitted = true;
+    byId("job-status").dataset.status = "running";
+    renderRuntimeJobStatus({status: "running", action});
     setJobRunning(true);
     if (pollTimer) window.clearInterval(pollTimer);
     pollTimer = window.setInterval(pollJob, 500);
@@ -1455,6 +1457,13 @@ function renderRuntimeStatus(result) {
   updateWorkflow();
 }
 
+function renderRuntimeJobStatus(job) {
+  runtimeRevision += 1;
+  runtimeReady = false;
+  const action = job.action ? ` · ${t(`action.${job.action}`)}` : "";
+  byId("runtime-status").textContent = `${t(`job.${job.status}`)}${action} — ${t("runtime.updating")}`;
+}
+
 async function pollRuntimeStatus() {
   if (runtimePollInFlight || ["running", "cancelling"].includes(byId("job-status").dataset.status)) return;
   runtimePollInFlight = true;
@@ -1470,6 +1479,9 @@ async function pollRuntimeStatus() {
     updateWorkflow();
   } finally {
     runtimePollInFlight = false;
+    if (revision !== runtimeRevision && !["running", "cancelling"].includes(byId("job-status").dataset.status)) {
+      pollRuntimeStatus();
+    }
   }
 }
 
@@ -1482,11 +1494,17 @@ function setJobRunning(running) {
 async function pollJob() {
   try {
     const job = await api("/api/job");
+    const wasRunning = ["running", "cancelling"].includes(byId("job-status").dataset.status);
     const key = `job.${job.status}`;
     byId("job-status").dataset.status = job.status;
     byId("job-status").textContent = `${t(key)}${job.action ? ` · ${t(`action.${job.action}`)}` : ""}`;
     byId("job-log").textContent = [...job.logs, job.error].filter(Boolean).join("\n");
     const running = ["running", "cancelling"].includes(job.status);
+    if (running) renderRuntimeJobStatus(job);
+    else if (wasRunning) {
+      runtimeRevision += 1;
+      byId("runtime-status").textContent = t("runtime.refreshing");
+    }
     restoreRuntimeOptions(job);
     const step = workflowStepForAction(job.action);
     const topologyAppliedByThisJob =
@@ -1530,7 +1548,7 @@ async function pollJob() {
     if (job.status === "cancelled") byId("save").focus();
     if (
       !running
-      && ["check", "prepare", "provision", "deploy", "rotate", "start"].includes(job.action)
+      && (wasRunning || ["check", "prepare", "provision", "deploy", "rotate", "start"].includes(job.action))
     ) {
       pollRuntimeStatus();
     }
