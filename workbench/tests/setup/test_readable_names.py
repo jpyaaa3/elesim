@@ -232,16 +232,26 @@ def test_legacy_release_alias_reservation_remains_readable(tmp_path):
     ) == alias
 
 
-def test_completed_update_advances_but_failed_retry_reuses(tmp_path):
+def test_completed_update_reuses_the_published_alias(tmp_path):
     path = tmp_path / "names.json"
     args = (path, "git-" + "1" * 40, "sim", "a" * 64, "b" * 64)
-    first = reserve_role_release_name(*args)
+    first = reserve_role_release_name(*args, generate=lambda: "calm_eagle")
     assert reserve_role_release_name(*args) == first
     mark_release_names_published(path, (first,))
-    second = reserve_role_release_name(*args)
-    assert second != first
-    assert reserve_role_release_name(*args) == second
-    mark_release_names_published(path, (first,))
-    assert reserve_role_release_name(*args) == second
-    mark_release_names_published(path, (second,))
-    assert reserve_role_release_name(*args) not in (first, second)
+    assert reserve_role_release_name(
+        *args, generate=lambda: pytest.fail("published inputs must keep their alias")
+    ) == first
+
+
+def test_role_release_alias_reuses_latest_legacy_generation(tmp_path):
+    path = tmp_path / "names.json"
+    args = (path, "git-" + "1" * 40, "sim", "a" * 64, "b" * 64)
+    identity = role_release_reservation_identity(*args[1:])
+    reserve_name(path, "releases", identity + ":0", generate=lambda: "calm_eagle")
+    mark_release_names_published(path, ("calm_eagle",))
+    reserve_name(path, "releases", identity + ":1", generate=lambda: "silver_fox")
+    mark_release_names_published(path, ("silver_fox",))
+
+    assert reserve_role_release_name(
+        *args, generate=lambda: pytest.fail("legacy published alias must be reused")
+    ) == "silver_fox"

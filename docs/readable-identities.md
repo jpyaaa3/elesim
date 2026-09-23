@@ -70,14 +70,17 @@ Older scoped manifests omit this field and continue using their historical
 scheme rather than renaming live containers.
 
 An update keeps the UUID, ownership manifest, release pins and an existing
-Compose project unchanged. Each update after successful publication reserves
-a new suffix per role, even when source and build inputs are unchanged.
-Failed builds/publications retain their reservations for retries with the same
-inputs. Reservations are marked complete only after publication and image
-ownership recording succeed. Existing release tags and pinned image IDs remain
-valid and are never retagged or removed merely to shorten a name. A legacy
-UUID-scoped installation receives readable tags on its next generated build
-without renaming its live project; this avoids orphaning running instances.
+Compose project unchanged. The same authenticated source revision, role build
+fingerprints and runtime-data digest reuse the same per-role suffix, including
+after successful publication. Repeating that unchanged update reuses the
+existing immutable release instead of creating another tag or release.
+Changed inputs receive new reservations; failed builds/publications retain
+their reservations for retries. Reservations are marked complete only after
+publication and image ownership recording succeed. Existing release tags and
+pinned image IDs remain valid and are never retagged or removed merely to
+shorten a name. A legacy UUID-scoped installation receives readable tags on
+its next generated build without renaming its live project; this avoids
+orphaning running instances.
 Ownership, publication, instance lifecycle, connection-manager enrollment,
 uninstall and image cleanup all validate the exact project/labels and accept
 both the historical UUID tags and the reserved readable form.

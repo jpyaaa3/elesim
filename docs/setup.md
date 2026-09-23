@@ -428,10 +428,12 @@ are not included in the runtime image. Cache misses must still be buildable
 from the declared dependencies. Do not purge Docker caches during an ordinary
 update. Before invoking Compose, a scoped update compares each requested role's
 install UUID, Compose project, build-fingerprint label and role tag against
-existing local images. An exact match is retagged to the new readable alias and
-the role is omitted from `docker compose build`; only roles with no exact match
-are built. This keeps aliases immutable as release metadata without making a
-no-op update redownload Torch/CUDA dependencies. Runtime APT/CasADi/Torch and pinned MPC installation precede app source
+existing local images. An exact match is retagged only if needed to the
+selected readable alias, and the role is omitted from `docker compose build`;
+only roles with no exact match are built. If all authenticated release inputs
+are unchanged, the same alias is retained and the existing immutable release
+is reported as already current instead of publishing a duplicate. Runtime
+APT/CasADi/Torch and pinned MPC installation precede app source
 copies; tools ABI repair precedes protocol/app copies. Release dependency
 installation precedes application wheels and runtime config/data. Developer
 UID/GID arguments are declared after dependency installation so a different

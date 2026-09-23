@@ -118,8 +118,18 @@ def test_publish_consumes_host_evidence_without_docker(local_state, tmp_path: Pa
         evidence_path=evidence,
     )
     assert result.release_key == result.release_path.name
+    assert result.already_published is False
     assert result.release_path.parent == state.prefix_path / "releases"
     assert (result.release_path / "data/data/model.json").is_file()
+    replay = publish_from_evidence(
+        state,
+        ownership,
+        source_revision="git-" + "d" * 40,
+        runtime_snapshot=snapshot,
+        evidence_path=evidence,
+    )
+    assert replay.release_key == result.release_key
+    assert replay.already_published is True
 
 
 def test_publish_records_new_install_scoped_images_for_uninstall(
@@ -193,20 +203,22 @@ def test_publish_accepts_role_specific_release_aliases(local_state, tmp_path: Pa
         role: f"elesim/{role}:quiet_otter-{aliases[role]}"
         for role in ("pilot", "sim")
     }
-    # A successful publication completes the update even if no source changed.
+    # Successful publication keeps its reservation stable, so replay remains
+    # the same immutable release rather than minting another tag.
     for role, fingerprint in fingerprints.items():
         next_alias = reserve_role_release_name(
             state.prefix_path / "containers/image-names.json",
             source_revision, role, fingerprint,
             release_publication.runtime_data_digest(snapshot),
         )
-        assert next_alias not in aliases.values()
+        assert next_alias == aliases[role]
     # Replaying publication repairs/reports the existing release, not a new one.
     replay = publish_from_evidence(
         state, ownership, source_revision=source_revision,
         runtime_snapshot=snapshot, evidence_path=evidence,
     )
     assert replay.release_key == result.release_key
+    assert replay.already_published is True
 
 
 def test_publish_accepts_intermediate_shared_alias_for_migration(local_state, tmp_path: Path):

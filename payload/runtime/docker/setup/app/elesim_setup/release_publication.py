@@ -53,9 +53,14 @@ class ReleasePublicationError(ValueError):
 class PublicationResult:
     release_key: str
     release_path: Path
+    already_published: bool = False
 
-    def to_dict(self) -> dict[str, str]:
-        return {"release_key": self.release_key, "release_path": str(self.release_path)}
+    def to_dict(self) -> dict[str, str | bool]:
+        return {
+            "release_key": self.release_key,
+            "release_path": str(self.release_path),
+            "already_published": self.already_published,
+        }
 
 
 def _reject_symlink_ancestors(path: Path) -> None:
@@ -388,10 +393,13 @@ def publish_from_evidence(
         ) from exc
     # Publish the immutable release first.  A failed publication must not
     # leave image ownership pointing at a release that does not exist.
+    key = release_key(manifest)
+    expected_destination = state.prefix_path / "releases" / key
+    already_published = expected_destination.exists()
     destination = publish_release(state.prefix_path, manifest, snapshot)
 
-    # A changed build receives a new install-scoped tag.  Record that exact
-    # tag after publication so an ownership write failure leaves a complete,
+    # Changed release inputs may receive a new install-scoped tag. Record that
+    # exact tag after publication so an ownership write failure leaves a complete,
     # discoverable release that can be repaired by rerunning this operation.
     # The evidence has already proved the install UUID/project and
     # image-reference shape above; this helper adds the manifest's atomic
@@ -421,7 +429,7 @@ def publish_from_evidence(
             raise ReleasePublicationError(
                 "release was published but reservations could not be completed; retry publication"
             ) from exc
-    return PublicationResult(release_key(manifest), destination)
+    return PublicationResult(key, destination, already_published)
 
 
 publish_release_from_evidence = publish_from_evidence

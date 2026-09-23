@@ -1023,12 +1023,12 @@ def append_docker_image_ownership(
 ) -> OwnershipManifest:
     """Record one newly published immutable image in the install manifest.
 
-    Scoped ``elesim-update`` intentionally creates a new readable release tag
-    for every changed build.  The initial install manifest cannot predict
-    that tag, so publication appends it after the host evidence has been
-    validated and the immutable release has been written.  This is a
-    file-only operation; Docker labels and the release publisher remain the
-    authority that the image actually belongs to this install.
+    A changed release input may create a new readable release tag. The initial
+    install manifest cannot predict that tag, so publication appends it after
+    host evidence has been validated and the immutable release has been
+    written. Replaying an unchanged publication appends no duplicate image.
+    This is a file-only operation; Docker labels and the release publisher
+    remain the authority that the image actually belongs to this install.
     """
 
     try:

@@ -303,10 +303,9 @@ def render_update_wrapper(
             f"-f {shlex.quote(str(compose))} build{suffix}"
         )
         if normalized_build_image_specs:
-            # A readable release alias is deliberately new for every completed
-            # publication.  That alias is metadata, not a reason to rebuild a
-            # byte-identical image.  Reuse an image only when all ownership
-            # labels and the role-specific context fingerprint match exactly.
+            # Release aliases are stable for the same authenticated inputs.
+            # Reuse an image only when all ownership labels and the
+            # role-specific context fingerprint match exactly.
             rendered_specs = " ".join(
                 shlex.quote("|".join(spec)) for spec in normalized_build_image_specs
             )
@@ -622,7 +621,12 @@ def _render_release_publish_lines(
         f"{compose_prefix} run --rm --no-deps tools elesim-setup --state \"$release_state\" release publish --source-revision \"$release_source_revision\" --snapshot \"$release_snapshot\" --evidence \"$release_evidence\""
         ")\"",
         "release_path=\"$(python3 -c 'import json,sys; value=json.load(sys.stdin); path=value.get(\"release_path\") if isinstance(value, dict) else None; print(path) if isinstance(path, str) and path else sys.exit(2)' <<< \"$release_publication_result\")\"",
-        "printf '[elesim-update] release_path=%s\\n' \"$release_path\"",
+        "release_already_published=\"$(python3 -c 'import json,sys; value=json.load(sys.stdin); print(\"yes\" if isinstance(value, dict) and value.get(\"already_published\") is True else \"no\")' <<< \"$release_publication_result\")\"",
+        "if [[ $release_already_published == yes ]]; then",
+        "  printf '[elesim-update] already current: unchanged inputs; existing immutable release reused (no new release published): %s\\n' \"$release_path\"",
+        "else",
+        "  printf '[elesim-update] release published: %s\\n' \"$release_path\"",
+        "fi",
         "trap - EXIT",
         "release_evidence_cleanup",
         *(

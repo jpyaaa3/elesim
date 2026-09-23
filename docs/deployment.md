@@ -49,12 +49,13 @@ role별 build fingerprint와 image ID를 고정하며, 각 instance lifecycle은
 exact service만 대상으로 한다. 기존 고정 `elesim-runtime` 설치는 legacy
 namespace로 보존되고 신규 설치가 자동 인수하지 않는다.
 
-release는 immutable publication이다. `elesim-update`는 새 release를
-build/publish하지만 이미 등록된 instance의 release pin을 바꾸지 않는다.
-새 readable alias가 예약되어도 설치 UUID·Compose project·role·build fingerprint가
-정확히 일치하는 기존 로컬 이미지는 새 alias로만 retag한다. 따라서 입력이
-변하지 않은 role은 Compose build에서 제외되고, fingerprint가 달라진 role만
-재빌드된다.
+release는 immutable publication이다. `elesim-update`는 이미 등록된 instance의
+release pin을 바꾸지 않는다. 같은 인증 source revision, role별 build
+fingerprint와 runtime-data digest라면 기존 readable alias와 immutable release를
+재사용하고 새 tag/release를 만들지 않는다. 역할별 ownership label과 build
+fingerprint가 일치하는 기존 이미지는 그대로 재사용해 Compose build에서도
+제외한다. 입력이 달라진 role만 재빌드되고, 변경 입력은 새 alias/release로
+발행된다.
 성공한 update/release 및 공개 instance `up` 경로는 설치 lock 아래 미참조
 구버전 이미지를 자동 정리한다. 최신 Compose 이미지, 등록된 모든 instance의
 pin, 실행/정지 container 참조 및 외부 image 별칭은 보존한다. Release

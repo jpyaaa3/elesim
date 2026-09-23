@@ -50,7 +50,7 @@ elif args[0] == 'compose' and 'publish' in args:
     assert set(data['roles']) == {'pilot', 'sim', 'ui'}
     assert evidence.stat().st_mode & 0o777 == 0o600
     Path(os.environ['CAPTURE']).write_text(raw)
-    print(json.dumps({'release_key': 'a' * 64, 'release_path': '/tmp/release'}))
+    print(json.dumps({'release_key': 'a' * 64, 'release_path': '/tmp/release', 'already_published': True}))
 else:
     raise AssertionError(args)
 ''', encoding="utf-8")
@@ -68,6 +68,7 @@ else:
         env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "CAPTURE": str(capture)},
     )
     assert result.returncode == 0, result.stderr
+    assert "already current: unchanged inputs" in result.stdout
     evidence = json.loads(capture.read_text())
     for role, record in evidence["roles"].items():
         assert record["image_reference"].startswith(f"elesim/{role}:")
@@ -368,7 +369,8 @@ def test_scoped_release_wrapper_publishes_only_after_complete_build(
     assert "mktemp" in script and "umask 077" in script
     assert script.index("build pilot sim ui tools") < script.index("release publish")
     assert "run elesim-up to apply" not in script
-    assert "release_path=%s" in script
+    assert "already current: unchanged inputs" in script
+    assert "release published: %s" in script
     assert "registered instances remain pinned" not in script
     assert "immutable release published" not in script
     assert subprocess.run(

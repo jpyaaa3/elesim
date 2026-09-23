@@ -129,8 +129,8 @@ def role_release_reservation_identity(
     A release suffix belongs to one application image, not to the complete
     set of roles that happened to be built in the same update.  Keeping the
     role in the reservation identity prevents Pilot and Sim (or two other
-    roles) from receiving the same alias while still making retries of the
-    same role/input reusable until successful publication.
+    roles) from receiving the same alias while making the same role/input
+    reusable after both failed and successful publications.
     """
 
     payload = {
@@ -160,8 +160,10 @@ def reserve_role_release_name(
     """Reserve one installation-wide readable suffix for one role/input.
 
     ``all_scopes`` makes release aliases avoid installation, image, tools and
-    historical reservations as well. Completed publications advance the
-    generation; retries of an unpublished input keep their reservation.
+    historical reservations as well. A completed publication does not advance
+    the generation: repeating the same authenticated source/build inputs must
+    keep the exact tag and immutable release. Existing generated reservations
+    from older registries are reused at their highest generation.
     """
 
     identity = role_release_reservation_identity(
@@ -176,7 +178,7 @@ def reserve_role_release_name(
         unavailable=unavailable,
         generate=generate,
         all_scopes=True,
-        advance_completed=True,
+        reuse_existing_generations=True,
     )
 
 
@@ -321,6 +323,7 @@ def reserve_name(
     generate: Callable[[], str] = random_name,
     all_scopes: bool = False,
     advance_completed: bool = False,
+    reuse_existing_generations: bool = False,
 ) -> str:
     """Reserve once per identity, serializing collision checks and publication.
 
@@ -342,6 +345,8 @@ def reserve_name(
         _safe_path(path)
         names = _read(path)
         entries = names.setdefault(scope, {})
+        if advance_completed and reuse_existing_generations:
+            raise ValueError("cannot advance and reuse name generations together")
         if advance_completed:
             generation = 0
             while f"{identity}:{generation}" in names.get("published", {}):
@@ -349,6 +354,18 @@ def reserve_name(
             identity = f"{identity}:{generation}"
         if identity in entries:
             return entries[identity]
+        if reuse_existing_generations:
+            prefix = identity + ":"
+            generations = [
+                (int(key[len(prefix):]), name)
+                for key, name in entries.items()
+                if key.startswith(prefix) and key[len(prefix):].isdigit()
+            ]
+            if generations:
+                return max(generations, key=lambda item: item[0])[1]
+            # Release aliases historically used a numeric generation even
+            # for the first reservation. Keep that persisted shape intact.
+            identity = f"{identity}:0"
         used = (
             {
                 name
