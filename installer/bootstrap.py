@@ -54,6 +54,8 @@ _BOOTSTRAP_SOURCE_FILES = frozenset(
         PurePosixPath("payload/runtime/common/elesim_interfaces/CMakeLists.txt"),
         PurePosixPath("payload/runtime/common/elesim_interfaces/package.xml"),
         PurePosixPath("payload/runtime/docker/shared/Dockerfile.app"),
+        PurePosixPath("payload/runtime/docker/shared/install_go2_pympc.sh"),
+        PurePosixPath("payload/runtime/docker/shared/generate_go2_pympc.py"),
         PurePosixPath("payload/runtime/docker/setup/Dockerfile"),
         PurePosixPath("payload/runtime/docker/setup/tools-entrypoint"),
         PurePosixPath("payload/runtime/docker/shared/robotpkg.asc"),
@@ -214,6 +216,8 @@ _BOOTSTRAP_REQUIRED_TREE_FILES = frozenset(
         *_BOOTSTRAP_PROTOCOL_PYTHON_FILES,
         *_BOOTSTRAP_ROLE_ENTRYPOINT_FILES,
         *_BOOTSTRAP_ROLE_CONFIG_FILES,
+        PurePosixPath("payload/runtime/docker/shared/install_go2_pympc.sh"),
+        PurePosixPath("payload/runtime/docker/shared/generate_go2_pympc.py"),
         PurePosixPath("payload/runtime/common/elesim_interfaces/msg/RgbdFrame.msg"),
         PurePosixPath(
             "payload/runtime/common/elesim_interfaces/srv/OpenSimulationSession.srv"

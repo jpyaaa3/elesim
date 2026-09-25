@@ -605,7 +605,8 @@ legacy generated path가 manifest 없이 남아 있으면 자동 adopt하지 않
 
 curl bootstrap은 runtime에 필요하지 않은 `payload/runtime/docker/sim/app/elesim_sim/rl` 연구/학습
 스택을 source snapshot에서 제외한다. 이 디렉터리는 저장소에는 남아 있으므로
-연구 코드를 별도로 실행할 때는 checkout을 사용한다.
+연구 코드를 별도로 실행할 때는 checkout을 사용한다. GO2 `pympc` 이미지 빌드에
+필요한 shared 설치 스크립트와 solver 생성기는 bootstrap source snapshot에 포함된다.
 
 ## 12. 자동 검증과 수동 gate
 

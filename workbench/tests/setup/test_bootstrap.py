@@ -112,6 +112,8 @@ def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, b
             }
         ).encode("utf-8"),
         "payload/runtime/docker/shared/Dockerfile.app": b"FROM scratch\n",
+        "payload/runtime/docker/shared/install_go2_pympc.sh": b"#!/bin/sh\n",
+        "payload/runtime/docker/shared/generate_go2_pympc.py": b"#!/usr/bin/env python3\n",
         "payload/runtime/docker/setup/Dockerfile": b"FROM scratch\n",
         "payload/runtime/docker/setup/tools-entrypoint": b"#!/bin/sh\n",
         "payload/runtime/docker/shared/robotpkg.asc": b"public key\n",
@@ -233,6 +235,26 @@ def test_source_snapshot_allows_explicitly_excluded_public_examples(
     ),
 )
 def test_source_snapshot_requires_every_setup_console_target(
+    tmp_path: Path,
+    relative: str,
+) -> None:
+    snapshot = tmp_path / "snapshot"
+    _write_valid_snapshot(snapshot)
+    root = snapshot / "elesim-main"
+    (root / relative).unlink()
+
+    with pytest.raises(BootstrapError, match=Path(relative).name):
+        bootstrap_module._validate_source_snapshot(root)
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "payload/runtime/docker/shared/install_go2_pympc.sh",
+        "payload/runtime/docker/shared/generate_go2_pympc.py",
+    ),
+)
+def test_source_snapshot_requires_shared_pympc_build_inputs(
     tmp_path: Path,
     relative: str,
 ) -> None:
@@ -447,11 +469,15 @@ def test_safe_extract_returns_valid_source_root(tmp_path: Path) -> None:
         {
             "elesim-main/payload/runtime/docker/setup/app/pyproject.toml": b"[project]\n",
             "elesim-main/payload/runtime/common/protocol/pyproject.toml": b"[project]\n",
+            "elesim-main/payload/runtime/docker/shared/install_go2_pympc.sh": b"#!/bin/sh\n",
+            "elesim-main/payload/runtime/docker/shared/generate_go2_pympc.py": b"#!/usr/bin/env python3\n",
         },
     )
     root = safe_extract_archive(archive, tmp_path / "out")
     assert root.name == "elesim-main"
     assert (root / "payload/runtime/docker/setup/app/pyproject.toml").is_file()
+    assert (root / "payload/runtime/docker/shared/install_go2_pympc.sh").is_file()
+    assert (root / "payload/runtime/docker/shared/generate_go2_pympc.py").is_file()
 
 
 def test_curl_snapshot_excludes_build_test_doubles(tmp_path: Path) -> None:
