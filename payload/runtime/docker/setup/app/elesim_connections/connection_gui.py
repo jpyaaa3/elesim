@@ -128,7 +128,8 @@ class ConnectionManagerApplication:
             parse_scoped_identity,
         )
         from elesim_setup.ownership import OwnershipManifest
-        from elesim_setup.releases import list_releases, ReleaseManifest, release_key
+        from elesim_setup.releases import ReleaseManifest, release_key
+        from elesim_setup.image_cleanup import recorded_available_releases
         from .secure_deployment import ParamikoConnector
 
         if not isinstance(payload, dict) or set(payload) != {"local", "install_root", "bin_dir", "ssh"} or type(payload["local"]) is not bool:
@@ -164,7 +165,7 @@ class ConnectionManagerApplication:
                 }
             identity = {"install_uuid": owner.install_uuid, "project": owner.docker.project}
             name = owner.docker.install_name or owner.docker.project
-            releases = list_releases(Path(root), install_uuid=owner.install_uuid)
+            releases = recorded_available_releases(Path(root))
         else:
             if not isinstance(payload["ssh"], dict):
                 raise ValueError("remote lookup requires SSH settings")

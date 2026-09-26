@@ -108,7 +108,8 @@ def test_general_update_wrapper_fetches_regenerates_and_builds_incrementally(
     assert "docker image rm \"$elesim_image_id\"" in script
     assert "docker image prune" not in script
     assert "ancestor=$elesim_image_id" in script
-    assert 'filter "label=io.elesim.install_uuid=$elesim_expected_install_uuid"' in script
+    assert 'dangling=true' not in script
+    assert 'elesim_owned_dangling_ids' not in script
     assert "bootstrap-source-revision" not in script
     assert subprocess.run(
         ("bash", "-n"),
@@ -289,6 +290,17 @@ def test_update_wrapper_requires_install_identity_for_owned_image_cleanup(
         assert "install_uuid" in str(exc)
     else:
         raise AssertionError("owned image cleanup must require an install UUID")
+
+
+def test_update_wrapper_never_auto_cleans_development_images(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="development images"):
+        render_update_wrapper(
+            prefix=tmp_path / "install",
+            state_path=tmp_path / "install/install-state.json",
+            compose=tmp_path / "install/containers/compose.yaml",
+            install_uuid="01234567-89ab-cdef-0123-456789abcdef",
+            owned_images=("elesim/dev:local",),
+        )
 
 
 def test_update_wrapper_accepts_matching_immutable_image_and_rejects_foreign(

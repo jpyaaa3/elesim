@@ -37,6 +37,34 @@ def test_single_word_collisions_receive_numbers(tmp_path):
     assert reserve_image_name(path, "ui", "c" * 64, generate=lambda: "lion") == "lion3"
 
 
+def test_default_image_names_use_free_words_before_numbering(tmp_path, monkeypatch):
+    monkeypatch.setattr("elesim_setup.readable_names.secrets.choice", lambda words: words[0])
+    path = tmp_path / "names.json"
+    assert reserve_image_name(path, "sim", "a" * 64) == ANIMALS[0]
+    assert reserve_image_name(path, "pilot", "b" * 64) == ANIMALS[1]
+    assert reserve_role_release_name(path, "git-" + "1" * 40, "ui", "c" * 64, "d" * 64) == ANIMALS[2]
+
+
+def test_reclaimed_default_image_name_becomes_eligible_again(tmp_path, monkeypatch):
+    from elesim_setup.readable_names import reclaim_unused_image_names
+
+    monkeypatch.setattr("elesim_setup.readable_names.secrets.choice", lambda words: words[0])
+    path = tmp_path / "names.json"
+    old = reserve_role_release_name(path, "git-" + "1" * 40, "sim", "a" * 64, "d" * 64)
+    live = reserve_role_release_name(path, "git-" + "2" * 40, "pilot", "b" * 64, "d" * 64)
+    assert (old, live) == ANIMALS[:2]
+    assert reclaim_unused_image_names(path, (live,)) == (old,)
+    assert reserve_role_release_name(path, "git-" + "3" * 40, "ui", "c" * 64, "d" * 64) == old
+
+
+def test_default_image_name_is_numbered_only_after_all_animals_are_used(tmp_path, monkeypatch):
+    monkeypatch.setattr("elesim_setup.readable_names.secrets.choice", lambda words: words[0])
+    path = tmp_path / "names.json"
+    for index, animal in enumerate(ANIMALS):
+        assert reserve_name(path, "images", f"existing:{index}", generate=lambda value=animal: value) == animal
+    assert reserve_image_name(path, "sim", "a" * 64) == f"{ANIMALS[0]}2"
+
+
 def test_names_are_short_and_readable():
     for _ in range(100):
         assert NAME_PATTERN.fullmatch(random_name())
@@ -241,6 +269,65 @@ def test_completed_update_reuses_the_published_alias(tmp_path):
     assert reserve_role_release_name(
         *args, generate=lambda: pytest.fail("published inputs must keep their alias")
     ) == first
+
+
+def test_reclaimed_release_alias_is_reusable_without_changing_other_scopes(tmp_path):
+    from elesim_setup.readable_names import reclaim_unused_image_names
+
+    path = tmp_path / "names.json"
+    old = (path, "git-" + "1" * 40, "sim", "a" * 64, "b" * 64)
+    live = (path, "git-" + "2" * 40, "sim", "c" * 64, "b" * 64)
+    assert reserve_role_release_name(*old, generate=lambda: "amber_falcon") == "amber_falcon"
+    assert reserve_role_release_name(*live, generate=lambda: "silver_fox") == "silver_fox"
+    mark_release_names_published(path, ("amber_falcon", "silver_fox"))
+    assert reclaim_unused_image_names(path, ("silver_fox",)) == ("amber_falcon",)
+    names = json.loads(path.read_text())["names"]
+    assert "amber_falcon" not in names["releases"].values()
+    assert "amber_falcon" not in names["published"].values()
+    assert "silver_fox" in names["releases"].values()
+    assert reclaim_unused_image_names(path, ("silver_fox",)) == ()
+    assert reserve_role_release_name(
+        path, "git-" + "3" * 40, "sim", "d" * 64, "b" * 64,
+        generate=lambda: "amber_falcon",
+    ) == "amber_falcon"
+
+
+def test_image_scope_reservation_is_reclaimed_only_without_a_live_tag(tmp_path):
+    from elesim_setup.readable_names import reclaim_unused_image_names
+
+    path = tmp_path / "names.json"
+    old = reserve_image_name(path, "sim", "a" * 64, generate=lambda: "calm_otter")
+    live = reserve_image_name(path, "ui", "b" * 64, generate=lambda: "silver_owl")
+    assert reclaim_unused_image_names(path, (live,)) == (old,)
+    assert lookup_image_name(path, "sim", "a" * 64) == ""
+    assert lookup_image_name(path, "ui", "b" * 64) == live
+
+
+def test_development_image_aliases_are_not_auto_reclaimed(tmp_path):
+    from elesim_setup.readable_names import reclaim_unused_image_names
+
+    path = tmp_path / "names.json"
+    current = reserve_image_name(path, "dev", "a" * 64, generate=lambda: "wolf")
+    previous = reserve_name(path, "dev", "b" * 64, generate=lambda: "wolf2")
+    old_role = reserve_image_name(path, "sim", "c" * 64, generate=lambda: "otter")
+
+    assert reclaim_unused_image_names(path, ()) == (old_role,)
+    assert lookup_image_name(path, "dev", "a" * 64) == current
+    assert lookup_name(path, "dev", "b" * 64) == previous
+    assert lookup_image_name(path, "sim", "c" * 64) == ""
+
+
+def test_legacy_role_alias_is_reclaimed_only_after_its_tag_disappears(tmp_path, monkeypatch):
+    from elesim_setup.readable_names import reclaim_unused_image_names
+
+    monkeypatch.setattr("elesim_setup.readable_names.secrets.choice", lambda words: words[0])
+    path = tmp_path / "names.json"
+    old = reserve_name(path, "sim", "a" * 64, generate=lambda: ANIMALS[0])
+    live = reserve_name(path, "pilot", "b" * 64, generate=lambda: ANIMALS[1])
+    assert reclaim_unused_image_names(path, (live,)) == (old,)
+    assert lookup_image_names(path, "sim", "a" * 64) == ()
+    assert lookup_image_names(path, "pilot", "b" * 64) == (live,)
+    assert reserve_image_name(path, "ui", "c" * 64) == old
 
 
 def test_role_release_alias_reuses_latest_legacy_generation(tmp_path):

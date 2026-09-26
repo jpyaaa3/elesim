@@ -9,10 +9,12 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 
 from .ownership import OwnershipManifest
-from .releases import list_releases, release_key, _reject_symlinked_ancestors
+from .releases import ReleaseManifest, list_releases, release_key, _reject_symlinked_ancestors
 from .operation_lock import _safe_lock
+from .readable_names import reclaim_unused_image_names
 
 
 _ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -70,6 +72,87 @@ def _docker(context: str, *args: str) -> str:
     return result.stdout
 
 
+def available_releases(prefix: Path, *, docker=_docker) -> tuple[ReleaseManifest, ...]:
+    """Return only releases whose exact role tags still name their image IDs."""
+    _reject_symlinked_ancestors(prefix)
+    owner = OwnershipManifest.load(prefix / "install-ownership.json")
+    boundary = owner.docker
+    if owner.prefix_path != prefix or boundary is None or not boundary.context or not boundary.engine_id:
+        raise ValueError("available releases require an owned, pinned Docker installation")
+    call = lambda *args: docker(boundary.context, *args)
+    if call("info", "--format", "{{.ID}}").strip() != boundary.engine_id:
+        raise ValueError("Docker Engine identity changed; refusing release lookup")
+    found = []
+    for release in list_releases(prefix, install_uuid=owner.install_uuid):
+        for role, tag in release.role_images.items():
+            try:
+                records = json.loads(call("image", "inspect", tag))
+            except subprocess.CalledProcessError as exc:
+                if "No such image" not in (exc.stderr or "") and "No such object" not in (exc.stderr or ""):
+                    raise
+                break
+            if (not isinstance(records, list) or len(records) != 1
+                    or records[0].get("Id") != release.image_ids[role]):
+                break
+        else:
+            found.append(release)
+    return tuple(found)
+
+
+def recorded_available_releases(prefix: Path) -> tuple[ReleaseManifest, ...]:
+    """Read the host cleanup result from a GUI without a Docker socket."""
+    _reject_symlinked_ancestors(prefix)
+    owner = OwnershipManifest.load(prefix / "install-ownership.json")
+    releases = list_releases(prefix, install_uuid=owner.install_uuid)
+    path = prefix / "maintenance/available-releases.json"
+    _reject_symlinked_ancestors(path)
+    if not path.exists():
+        return releases  # Older installations have no host-produced index yet.
+    if not path.is_file() or path.stat().st_size > 1024 * 1024:
+        raise ValueError("invalid available release index")
+    data = json.loads(path.read_text())
+    expected_engine = owner.docker.engine_id if owner.docker is not None else ""
+    if (not isinstance(data, dict) or set(data) != {"schema_version", "install_uuid", "engine_id", "release_keys"}
+            or type(data["schema_version"]) is not int or data["schema_version"] != 1
+            or data["install_uuid"] != owner.install_uuid
+            or data["engine_id"] != expected_engine or not isinstance(data["release_keys"], list)
+            or not all(isinstance(key, str) and _KEY.fullmatch(key) for key in data["release_keys"])):
+        raise ValueError("invalid available release index")
+    keys = set(data["release_keys"])
+    return tuple(item for item in releases if release_key(item) in keys)
+
+
+def _record_available_releases(prefix: Path, releases: tuple[ReleaseManifest, ...], owner: OwnershipManifest) -> None:
+    path = prefix / "maintenance/available-releases.json"
+    _reject_symlinked_ancestors(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and not path.is_file():
+        raise ValueError("invalid available release index")
+    payload = {
+        "schema_version": 1,
+        "install_uuid": owner.install_uuid,
+        "engine_id": owner.docker.engine_id if owner.docker is not None else "",
+        "release_keys": [release_key(item) for item in releases],
+    }
+    fd, temporary = tempfile.mkstemp(prefix=".available-releases-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            json.dump(payload, stream, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
     """Caller holds the installation lock. Never delete by prefix or prune.
 
@@ -102,6 +185,7 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
     if not current_releases:
         raise ValueError("current build has no published release; refusing image cleanup")
     protected = {value for item in current_releases for value in item.image_ids.values()}
+    pinned_release_keys = set()
     instances = prefix / "instances"
     _reject_symlinked_ancestors(instances)
     for child in instances.iterdir():
@@ -127,6 +211,7 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
         if (state.get("schema_version") not in (2, 3) or state.get("system_id") != child.name
                 or not isinstance(key, str) or not _KEY.fullmatch(key) or key not in releases):
             raise ValueError("invalid instance release pin; refusing image cleanup")
+        pinned_release_keys.add(key)
         protected.update(releases[key].image_ids.values())
 
     # Inspect all containers, including stopped/foreign ones; label filtering
@@ -140,7 +225,8 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
     owned_tags = set(boundary.local_images)
     release_ids = {image for item in releases.values() for image in item.image_ids.values()}
     candidates = set(release_ids)
-    # Include old tools/dev images, but only with both inventory and labels.
+    # Include old tools images, but only with both inventory and labels.
+    # Dev images may outlive a runtime update and are never auto-collected.
     for image in call("image", "ls", "--quiet", "--no-trunc", "--filter",
                       f"label=io.elesim.install_uuid={owner.install_uuid}").splitlines():
         if not _ID.fullmatch(image):
@@ -155,7 +241,8 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
         tags = set(record.get("RepoTags") or ())
         if record.get("Id") != image:
             raise ValueError("Docker image identity changed")
-        if image in protected or tags & current_tags:
+        if (image in protected or tags & current_tags
+                or any(tag.startswith("elesim/dev:") for tag in tags)):
             continue
         if not tags and image not in release_ids:
             continue  # An intermediate/cache image is not a published release.
@@ -205,6 +292,27 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
             call("image", "rm", reference)
         removed.append(image)
         print(f"[cleanup] removed unreferenced image: {image}", flush=True)
+    if boundary.install_name:
+        # Query the daemon after removals. A historical manifest is not an
+        # ownership claim on a tag that no longer exists; the pinned instance
+        # and all container references were already protected above.
+        live_tags = set(call("image", "ls", "--format", "{{.Repository}}:{{.Tag}}").splitlines())
+        prefix_tag = f"{boundary.install_name}-"
+        live_aliases = {
+            tag.rsplit("-", 1)[-1]
+            for tag in live_tags
+            if tag.startswith("elesim/") and tag.partition(":")[2].startswith(prefix_tag)
+        }
+        live_aliases.update(
+            tag.rsplit("-", 1)[-1]
+            for key in pinned_release_keys
+            for tag in releases[key].role_images.values()
+            if tag.startswith("elesim/") and tag.partition(":")[2].startswith(prefix_tag)
+        )
+        reclaimed = reclaim_unused_image_names(prefix / "containers/image-names.json", live_aliases)
+        for alias in reclaimed:
+            print(f"[cleanup] reclaimed image alias: {alias}", flush=True)
+    _record_available_releases(prefix, available_releases(prefix, docker=docker), owner)
     return tuple(removed)
 
 

@@ -2189,7 +2189,7 @@ class ContainerInstaller:
             )
             # A scoped connection manager selects a release independently on
             # every deployment unit.  Keep this query read-only and emit the
-            # published manifest bodies; the manager re-validates the
+            # still-installed manifest bodies; the manager re-validates the
             # content-addressed key before using one.
             + "if [[ ${1:-} == releases ]]; then\n"
             + "  if (( $# != 1 )); then printf '%s\\n' 'releases accepts no options' >&2; exit 64; fi\n"
@@ -2198,16 +2198,14 @@ class ContainerInstaller:
             + " PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1"
             + " python3 -B -S -c "
             + shlex.quote(
-                "import json, sys; "
-                "from elesim_setup.releases import list_releases; "
+                "import json, sys; from pathlib import Path; "
+                "from elesim_setup.image_cleanup import recorded_available_releases; "
                 "print(json.dumps([value.to_dict() for value in "
-                "list_releases(sys.argv[1], install_uuid=sys.argv[2])], "
+                "recorded_available_releases(Path(sys.argv[1]))], "
                 "sort_keys=True, separators=(',', ':')))"
             )
             + " "
             + shlex.quote(str(self.state.prefix_path))
-            + " "
-            + shlex.quote(self._install_uuid)
             + "\n"
             + "fi\n"
             + guard
@@ -2432,14 +2430,13 @@ class ContainerInstaller:
                 # A scoped release may still point at an older image ID after
                 # a rebuild.  Keep its history until an explicit,
                 # reference-aware release GC exists; legacy :local updates
-                # retain their historical bounded dangling-image cleanup.
+                # only clean known previous non-dev image IDs after rebuilding.
                 owned_images=(
                     ()
                     if self._scoped_namespace
                     else (
                         *(self._image_name(role) for role in self.state.roles),
                         self._image_name("tools"),
-                        *((self._image_name("dev"),) if self.state.developer_attachment.enabled else ()),
                     )
                 ),
                 runtime_snapshot=(runtime_snapshot if self._scoped_namespace else None),

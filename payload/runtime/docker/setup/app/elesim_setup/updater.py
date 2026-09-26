@@ -121,6 +121,8 @@ def render_update_wrapper(
     normalized_owned_images = tuple(str(value).strip() for value in owned_images)
     if len(set(normalized_owned_images)) != len(normalized_owned_images):
         raise ValueError("owned_images must not contain duplicates")
+    if any(value.startswith("elesim/dev:") for value in normalized_owned_images):
+        raise ValueError("development images must not enter automatic update cleanup")
     if install_uuid is not None and any(
         not _image_belongs_to_install(value, install_uuid, install_name)
         for value in normalized_owned_images
@@ -404,12 +406,12 @@ def render_update_wrapper(
             )
         if normalized_owned_images:
             # Compose retags a rebuilt service image and leaves the previous
-            # image ID dangling.  Capture only the exact tagged IDs that
-            # existed before this update, then remove an old ID only when it
-            # carries this install's label, has no remaining repository tag,
-            # and no container (running or stopped) still references it.
-            # This deliberately avoids image-prune and cannot touch foreign
-            # projects or untracked build layers.
+            # image ID dangling. Capture only the exact non-dev tagged IDs
+            # that existed before this update, then remove an old ID only when
+            # it carries this install's label, has no remaining repository
+            # tag, and no container (running or stopped) still references it.
+            # A daemon-wide dangling sweep cannot distinguish historical dev
+            # images from release images, so never perform one here.
             rendered_images = " ".join(
                 shlex.quote(value) for value in normalized_owned_images
             )
@@ -488,12 +490,6 @@ def render_update_wrapper(
                     "  fi",
                     "  elesim_cleanup_owned_dangling_image \"$elesim_old_image_id\"",
                     "done",
-                    "if elesim_owned_dangling_ids=\"$(docker image ls --all --no-trunc --filter \"dangling=true\" --filter \"label=io.elesim.install_uuid=$elesim_expected_install_uuid\" --format '{{.ID}}' 2>/dev/null)\"; then",
-                    "  while IFS= read -r elesim_dangling_id; do",
-                    "    [[ -n \"$elesim_dangling_id\" ]] || continue",
-                    "    elesim_cleanup_owned_dangling_image \"$elesim_dangling_id\"",
-                    "  done <<< \"$elesim_owned_dangling_ids\"",
-                    "fi",
                 )
             )
     if compose is None:

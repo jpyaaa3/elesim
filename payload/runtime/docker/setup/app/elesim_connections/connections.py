@@ -47,7 +47,7 @@ from .secure_deployment import (
 from elesim_setup.instance_identity import is_scoped_project, project_name
 from elesim_setup.instances import InstanceEndpoint, InstanceState
 from elesim_setup.ownership import OwnershipManifest
-from elesim_setup.releases import ReleaseManifest, list_releases, release_key
+from elesim_setup.releases import ReleaseManifest, release_key
 from .security_authority import Sros2Authority, new_generation_id
 from elesim_setup.state import ComputeSettings, InstallState, NetworkSettings, TurnSettings
 
@@ -1291,7 +1291,8 @@ class ConnectionDeploymentRunner:
                         raise ValueError(f"local unit {unit.unit_id!r} install UUID mismatch")
                     if unit.project and unit.project != project:
                         raise ValueError(f"local unit {unit.unit_id!r} project mismatch")
-                    releases = list_releases(self.local_install_root, install_uuid=install_uuid)
+                    from elesim_setup.image_cleanup import recorded_available_releases
+                    releases = recorded_available_releases(self.local_install_root)
                     policy = local_state.compute if local_state is not None else None
                 else:
                     if not unit.install_uuid or not unit.project:

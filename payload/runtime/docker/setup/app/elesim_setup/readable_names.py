@@ -2,8 +2,9 @@
 
 Names are never credentials or ownership proofs. Callers provide an exact
 registry path inside an owned installation and perform Docker label checks
-before assigning any tag. Reservations survive failed builds and cleanup so a
-name cannot silently acquire a different meaning later.
+before assigning any tag. Release reservations are reclaimed only after the
+corresponding Docker tags are gone; historical manifests must not be offered
+as runnable releases without verifying their image IDs.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ _IMAGE_FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_BYTES = 4 * 1024 * 1024
 _IMAGE_SCOPE = "images"
 _RELEASE_SCOPE = "releases"
+_LEGACY_IMAGE_SCOPES = frozenset(("pilot", "sim", "ui", "tools", "dev"))
 
 
 def random_name() -> str:
@@ -60,6 +62,14 @@ def _unused_name(generate: Callable[[], str], used: set[str]) -> str:
         raise ValueError("name generator returned an invalid name")
     if base not in used:
         return base
+    # A collision in the bundled vocabulary is not exhaustion. Prefer any
+    # still-free word before allocating a numbered name. Explicit/injected
+    # generators retain their historical collision behavior.
+    vocabulary = ANIMALS if generate is random_name else ()
+    if vocabulary:
+        free = tuple(name for name in vocabulary if name not in used)
+        if free:
+            return secrets.choice(free)
     # Keep old injected two-word generators compatible with their registries.
     if "_" in base:
         for _ in range(4095):
@@ -209,6 +219,44 @@ def mark_release_names_published(path: Path, aliases: Iterable[str]) -> None:
         _write(path, names)
 
 
+def reclaim_unused_image_names(path: Path, live_aliases: Iterable[str]) -> tuple[str, ...]:
+    """Free release, image, and legacy role suffixes with no Docker tag.
+
+    The caller must hold the installation lock and prove the live tag set on
+    the pinned Docker Engine. This registry lock also serializes concurrent
+    reservations. The installation name lives in a separate registry. Dev
+    image aliases are never reclaimed by automatic release cleanup.
+    """
+    path = Path(path)
+    _safe_path(path)
+    live = set(live_aliases)
+    if any(not isinstance(name, str) or not NAME_PATTERN.fullmatch(name) for name in live):
+        raise ValueError("invalid live release alias")
+    lock_path = path.with_name(path.name + ".lock")
+    _safe_path(lock_path)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    with os.fdopen(fd, "a+b") as lock:
+        _regular(lock.fileno())
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        names = _read(path)
+        retired = {}
+        for scope in (_RELEASE_SCOPE, _IMAGE_SCOPE, *_LEGACY_IMAGE_SCOPES):
+            retired[scope] = {
+                identity: alias
+                for identity, alias in names.get(scope, {}).items()
+                if alias not in live
+                and scope != "dev"
+                and not (scope == _IMAGE_SCOPE and identity.startswith("dev:"))
+            }
+        if not any(retired.values()):
+            return ()
+        for scope, entries in retired.items():
+            for identity in entries:
+                del names[scope][identity]
+                if scope == _RELEASE_SCOPE:
+                    names.get("published", {}).pop(identity, None)
+        _write(path, names)
+        return tuple(sorted({alias for entries in retired.values() for alias in entries.values()}))
 
 
 def _image_identity(role: str, fingerprint: str) -> str:

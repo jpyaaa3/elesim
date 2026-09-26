@@ -6,6 +6,7 @@ __pycache__/
 .agents/
 .codex/
 .pytest_cache/
+.vscode/
 build/
 dist/
 # ROS/colcon generated install prefix.

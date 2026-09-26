@@ -72,10 +72,11 @@
     no Router role.
   - Development is an optional attachment to the normal container install,
     not a separate edition. It adds one profile-scoped privileged Ubuntu/WSL
-    amd64 dev service to the install-UUID Compose project. The operator wrapper
-    remains `elesim-dev`, while its container identity is install-scoped. It
-    receives no runtime DDS/SROS2 identity. Do not create a second Compose
-    project or a separate tracing service.
+    amd64 dev service to the install-UUID Compose project. Its image is
+    `elesim/dev:<generated tag>`; `elesim-dev` is the generated host wrapper,
+    not an image or a fixed container name. The container identity is
+    install-scoped. It receives no runtime DDS/SROS2 identity. Do not create
+    a second Compose project or a separate tracing service.
   - Fresh General Compose uses `elesim-runtime-<install UUID hex>`, immutable
     `elesim/<role>:<install UUID hex>-<fingerprint>` release images, and
     system/endpoint-scoped services and containers. A manifest-owned legacy
@@ -255,7 +256,9 @@
   - The optional development attachment remains one persistent privileged
     install-scoped dev service with persistent home/venv, WSLg forwarding and
     no separate observability container. The `elesim-dev` wrapper uses
-    Compose `exec`; it must not create random `run --rm` containers.
+    Compose `exec`; it must not create random `run --rm` containers. Automatic
+    runtime image collection must not remove `elesim/dev` images or reclaim
+    their readable aliases; explicit uninstall retains its ownership boundary.
   - Ownership refresh must fail closed when legacy generated paths exist
     without a manifest. Never auto-adopt them. Managed roots are exact
     EleSim-only subtrees, never the whole external checkout, home, or bin
@@ -290,8 +293,8 @@
     bundles for laptop, compute, and Robot hosts; this proves file generation
     and isolation, not live multi-host enforce-mode authorization.
   - A host-only standalone verification could not see NumPy after
-    `PYTHONNOUSERSITE=1`; the generated `elesim-dev` image pins NumPy 1.26.4
-    and is now the canonical isolated verification environment.
+    `PYTHONNOUSERSITE=1`; the optional `elesim/dev` image pins NumPy 1.26.4
+    and provides the canonical isolated verification environment when built.
 - Last transport correction (keep this invariant): a real CycloneDDS smoke
   exposed an asymmetric startup-discovery race. A peer must not accept traffic
   until it has the exact source endpoint ID **and boot ID**, but it must also
@@ -334,31 +337,35 @@
 - Canonical test environment and commands:
   - The host shell deliberately lacks much of the scientific/ROS test stack;
     do not install it into host Python merely to make a test pass.
-  - Before running tests, always check whether the persistent `elesim-dev`
-    container is available. If it is available, do not substitute host-Python
-    tests for the canonical container test run.
-  - If the generated `elesim-dev` service is stopped, start/enter it with the
-    installed `elesim-dev` wrapper when verification is part of the requested
-    work, then run tests through `elesim-dev python3 ...`. Do not merely assume
-    that the container is unavailable.
-  - Host-only checks are permitted only when the development container was
-    actually unavailable or failed to start. In that case, report the exact
-    container failure and clearly identify every verification gate that was
-    not run; host checks are partial evidence, not a successful substitute.
-  - Use the setup-generated persistent `elesim-dev` container. Its entrypoint
-    builds a persistent ROSIDL overlay, creates the system-site-packages venv,
-    and installs every project editable. Do not add dependencies to host Python
-    or reference an external Compose file.
-  - Start or enter it with `elesim-dev`. The topology invocation is:
+  - The development attachment is optional. Only an installation with it
+    enabled generates `<prefix>/bin/elesim-dev` and a Compose `dev` service;
+    invoking the wrapper builds/starts the `elesim/dev:<generated tag>` image
+    and enters the persistent service. This source checkout does not itself
+    provide that wrapper, image, or container.
+  - If the current installation is known and its generated wrapper exists, run
+    canonical tests through `<prefix>/bin/elesim-dev` (or `./elesim-dev` from
+    `<prefix>/bin`). The examples below assume the shell is in that bin
+    directory. Do not search the PATH, other installations, or Docker for
+    a historical `elesim-dev` container. Do not build a separate development
+    image just to satisfy a verification instruction.
+  - If there is no usable generated wrapper or the pinned Docker daemon is
+    unavailable, run relevant host-only tests and report them as partial
+    evidence. Name the canonical gates not run and the concrete reason; do
+    not repeatedly retry or search for the missing attachment. Do not install
+    missing scientific/ROS dependencies into host Python.
+  - When available, the development image prepares a persistent ROSIDL overlay,
+    a system-site-packages venv, and editable project installs. Do not use an
+    external Compose file or ad hoc `docker run` as a substitute.
+  - With the generated wrapper available, the topology invocation is:
 
     ```bash
-    elesim-dev python3 workbench/tests/system/smoke_topology.py
+    ./elesim-dev python3 workbench/tests/system/smoke_topology.py
     ```
 
   - The isolated-release verification invocation is:
 
     ```bash
-    elesim-dev python3 workbench/tools/release/verify.py dist/releases
+    ./elesim-dev python3 workbench/tools/release/verify.py dist/releases
     ```
 
   - `dist/releases/` contains four application trees (`pilot`, `ui`,
@@ -445,10 +452,10 @@
     NIC/domain confinement, UDS peer credentials, bridge loss/malformed packet
     stop deadlines, arm cleanup despite IPC failure, and physical safety.
 - Next commands in the optional development attachment:
-  - `elesim-dev python3 workbench/tools/quality/check.py --group required`
-  - `elesim-dev python3 workbench/tools/quality/check.py --group extended`
-  - `elesim-dev python3 workbench/tools/release/build.py`
-  - `elesim-dev python3 workbench/tools/release/verify.py dist/releases`
+  - `./elesim-dev python3 workbench/tools/quality/check.py --group required`
+  - `./elesim-dev python3 workbench/tools/quality/check.py --group extended`
+  - `./elesim-dev python3 workbench/tools/release/build.py`
+  - `./elesim-dev python3 workbench/tools/release/verify.py dist/releases`
 
 Read `docs/architecture.md` before changing behavior that crosses a process,
 protocol, media, configuration, model, or deployment boundary. Read
@@ -586,18 +593,21 @@ fifth application and not part of inter-host DDS.
 
 ## Verification
 
-For normal changes, run the canonical gate:
+For normal changes, run the canonical gate when the current installation has
+the generated development wrapper. Otherwise run the owning host tests and
+report the canonical gate as unrun:
 
 ```bash
-elesim-dev python3 workbench/tools/quality/check.py --group required
+./elesim-dev python3 workbench/tools/quality/check.py --group required
 ```
 
-For structural, installer, protocol, or release changes also run:
+For structural, installer, protocol, or release changes also run these when the
+wrapper is available; otherwise report each omitted gate:
 
 ```bash
-elesim-dev python3 workbench/tools/quality/check.py --group extended
-elesim-dev python3 workbench/tools/release/build.py
-elesim-dev python3 workbench/tools/release/verify.py dist/releases
+./elesim-dev python3 workbench/tools/quality/check.py --group extended
+./elesim-dev python3 workbench/tools/release/build.py
+./elesim-dev python3 workbench/tools/release/verify.py dist/releases
 ```
 
 The detailed per-package matrix is in `docs/architecture.md`. At minimum,

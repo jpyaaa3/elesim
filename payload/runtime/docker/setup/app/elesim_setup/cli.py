@@ -26,7 +26,7 @@ from .instance_security import stage_instance_security
 from .instances import InstanceEndpoint, InstanceRegistry, InstanceState, instance_turn_secret_path
 from .ownership import OwnershipManifest, default_manifest_path
 from .profiles import PROFILES, ROLE_ORDER, normalize_roles, roles_for_profile
-from .releases import list_releases, load_release, release_key
+from .releases import load_release, release_key
 from .request import SetupRequest, container_network_settings_for_host
 from .state import (
     ComputeSettings,
@@ -1064,13 +1064,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
             return 0
         if args.command == "releases":
+            from .image_cleanup import available_releases
+
             state, manifest = _load_instance_context(state_path)
             prefix = state.prefix_path if args.prefix is None else Path(args.prefix).expanduser().resolve()
             if prefix != state.prefix_path:
                 raise ValueError("release prefix must match install-state prefix")
             found = [
                 loaded.to_dict()
-                for loaded in list_releases(prefix, install_uuid=manifest.install_uuid)
+                for loaded in available_releases(prefix)
             ]
             if args.release is not None:
                 selected = next(

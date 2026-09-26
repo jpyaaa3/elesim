@@ -60,6 +60,10 @@ fingerprint가 일치하는 기존 이미지는 그대로 재사용해 Compose b
 구버전 이미지를 자동 정리한다. 최신 Compose 이미지, 등록된 모든 instance의
 pin, 실행/정지 container 참조 및 외부 image 별칭은 보존한다. Release
 manifest/data는 이력이며, 미등록 구버전 이미지는 재빌드가 필요할 수 있다.
+Docker 이미지가 없어진 릴리즈는 선택지에서 제외하고 미사용 readable 별칭
+(구형 역할별 예약 포함)은 회수한다. 새 이미지 별칭은 빈 동물 이름을 먼저 고르고,
+모두 사용 중일 때만 숫자를 붙인다. 등록된 instance가 고정한 릴리즈 별칭은 이미지가 일시적으로 없어도
+보존한다. 이력 manifest를 다시 실행하려면 정확한 이미지 ID를 복구해야 한다.
 다른 install UUID와 upstream/cache 이미지를 prune하지 않는다.
 새 release 적용은 명시적인 per-system register/replace transaction으로 한다.
 
@@ -341,6 +345,7 @@ elesim-dev python3 workbench/tools/quality/check.py --group required
 별도 observability 컨테이너는 배포하지 않는다. runtime role image나
 다중 호스트 production artifact로 개발 image를 사용하지 않는다. 개발 셸은
 DDS participant가 아니므로 role keystore/enclave를 자동 mount하지 않는다.
+릴리스 이미지 자동 정리는 `elesim/dev` 이미지와 개발 이미지 이름 예약을 건드리지 않는다.
 
 ## 7. Native Robot Jetson
 

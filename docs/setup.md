@@ -57,9 +57,15 @@ connection cards show native installation lookup without Docker release input.
 Image build reports list tools, Sim, Pilot, UI and Robot in that order (only
 images actually built are listed). Native Robot does not emit a Docker image.
 New installation names use one of 71 bundled adjectives; image aliases use one
-of 123 animals, sampled using Python `secrets`: `quick-lion`. Collisions add a
-number (`quick2`, `lion2`). Reservations remain locked and persist independently
-of image cleanup. Existing two-word names remain readable and keep their bindings.
+of 123 animals, sampled using Python `secrets`: `quick-lion`. Installation
+name collisions add a number (`quick2`). Image alias collisions select another
+unused animal first, adding a number (`lion2`) only after all bundled animals
+are reserved. Installation names remain locked. Image alias
+reservations are reclaimed after their Docker tags disappear,
+unless a registered instance still pins that release. Historical release
+manifests remain on disk but are not offered as runnable choices when their
+exact image IDs are unavailable. Existing two-word names remain readable
+while their images or instance pins exist.
 Names are labels, not security identifiers; UUIDs and hashes remain internal.
 
 The SSH fingerprint button requires a username before showing confirmation.
@@ -347,7 +353,9 @@ release pin, security generation, credentials, model cache와 logs는 보존하�
 `elesim-update`는 source/Dockerfile 결함을 고치는 재빌드 경계이지 자동
 restart가 아니다. 성공한 scoped update는 현재 설치의 이전 이미지 중 어느
 instance나 container도 참조하지 않는 이미지만 ownership 조건 아래 정리한다.
-Legacy update는 기존 dangling-image 정리만 유지한다. `--purge`나 down은 image layer를
+개발 attachment의 `elesim/dev` 이미지와 이름 예약은 자동 정리에서 제외한다.
+Legacy update도 확인된 이전 non-dev 이미지 ID만 정리하며, 전체 dangling image를
+훑지 않는다. `--purge`나 down은 image layer를
 지우거나 foreign resource를 prune하지 않는다.
 
 ### Build cache

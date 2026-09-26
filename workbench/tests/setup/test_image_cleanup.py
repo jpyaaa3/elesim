@@ -9,6 +9,7 @@ from elesim_setup import image_cleanup
 from elesim_setup.instance_identity import image_reference, project_name
 from elesim_setup.ownership import DockerOwnership, OwnershipManifest, write_ownership_manifest
 from elesim_setup.releases import ReleaseManifest, publish_release, release_key, runtime_data_digest
+from elesim_setup.readable_names import reserve_role_release_name, role_release_reservation_identity, lookup_name
 
 
 INSTALL = "01234567-89ab-cdef-0123-456789abcdef"
@@ -63,11 +64,15 @@ def scenario(tmp_path):
         if args[:2] == ("container", "inspect"):
             return json.dumps([{"Image": state["containers"][args[2]]}])
         if args[:2] == ("image", "ls"):
+            if args[2:] == ("--format", "{{.Repository}}:{{.Tag}}"):
+                return "\n".join(tag for record in images.values() for tag in record["RepoTags"])
             return "\n".join(images)
         if args[:2] == ("image", "inspect"):
             record = images.get(args[2])
             if record is None:
-                record = next(record for record in images.values() if args[2] in record["RepoTags"])
+                record = next((record for record in images.values() if args[2] in record["RepoTags"]), None)
+            if record is None:
+                raise subprocess.CalledProcessError(1, args, stderr="No such image")
             return json.dumps([record])
         assert args[:2] == ("image", "rm") and len(args) == 3
         reference = args[2]
@@ -98,6 +103,57 @@ def test_collect_only_previous_unreferenced_image_and_repeat_is_safe(scenario):
     assert (scenario["prefix"] / "releases" / release_key(old) / "manifest.json").is_file()
 
 
+def test_available_releases_excludes_collected_historical_manifest(scenario):
+    assert {release_key(item) for item in image_cleanup.available_releases(scenario["prefix"], docker=scenario["docker"])} == {
+        release_key(item) for item in scenario["releases"]
+    }
+    collect(scenario)
+    assert image_cleanup.available_releases(scenario["prefix"], docker=scenario["docker"]) == (scenario["releases"][1],)
+    assert image_cleanup.recorded_available_releases(scenario["prefix"]) == (scenario["releases"][1],)
+
+
+def test_available_release_index_rejects_wrong_engine_and_schema(scenario):
+    collect(scenario)
+    path = scenario["prefix"] / "maintenance/available-releases.json"
+    data = json.loads(path.read_text())
+    data["engine_id"] = "other-engine"
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="invalid available release index"):
+        image_cleanup.recorded_available_releases(scenario["prefix"])
+    data["engine_id"] = "engine-a"
+    data["schema_version"] = True
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="invalid available release index"):
+        image_cleanup.recorded_available_releases(scenario["prefix"])
+
+
+def test_local_connection_choices_hide_collected_release_without_docker_socket(scenario):
+    from elesim_connections.connection_gui import ConnectionManagerApplication
+
+    old, current = scenario["releases"]
+    collect(scenario)
+    prefix = scenario["prefix"]
+    app = ConnectionManagerApplication(
+        state_path=prefix / "connections.json", token="test-session-token",
+        runner=lambda *_: None, local_install_root=prefix,
+        local_bin_dir=prefix / "bin",
+    )
+    result = app.installation_choices({
+        "local": True, "install_root": str(prefix),
+        "bin_dir": str(prefix / "bin"), "ssh": None,
+    })
+    keys = [item["key"] for item in result["installations"][0]["releases"]]
+    assert keys == [release_key(current)]
+    assert release_key(old) not in keys
+
+
+def test_available_releases_rejects_reused_tag_with_different_image_id(scenario):
+    old, current = scenario["releases"]
+    scenario["images"][old.image_ids["pilot"]]["RepoTags"].remove(old.role_images["pilot"])
+    scenario["images"][current.image_ids["pilot"]]["RepoTags"].append(old.role_images["pilot"])
+    assert image_cleanup.available_releases(scenario["prefix"], docker=scenario["docker"]) == (current,)
+
+
 def test_registered_stopped_system_keeps_its_old_release(scenario):
     old = scenario["releases"][0]
     directory = scenario["prefix"] / "instances/experiment"
@@ -111,6 +167,36 @@ def test_registered_stopped_system_keeps_its_old_release(scenario):
 def test_any_container_even_foreign_or_stopped_protects_image(scenario):
     scenario["containers"]["f" * 64] = scenario["releases"][0].image_ids["pilot"]
     assert collect(scenario) == ()
+
+
+@pytest.mark.parametrize("named", [False, True])
+def test_unreferenced_development_image_is_never_auto_collected(scenario, named):
+    image = "sha256:" + "e" * 64
+    tag = image_reference(
+        INSTALL, "dev", "e" * 64,
+        **({"install_name": "cozy", "image_name": "wolf"} if named else {}),
+    )
+    project = project_name(INSTALL, install_name="cozy" if named else "")
+    if named:
+        for record in scenario["images"].values():
+            record["Config"]["Labels"]["com.docker.compose.project"] = project
+    scenario["images"][image] = {"Id": image, "RepoTags": [tag], "Config": {"Labels": {
+        "io.elesim.install_uuid": INSTALL,
+        "com.docker.compose.project": project,
+        "io.elesim.build_fingerprint": "e" * 64,
+    }}}
+    manifest_path = scenario["prefix"] / "install-ownership.json"
+    manifest = OwnershipManifest.load(manifest_path)
+    assert manifest.docker is not None
+    updated = replace(manifest, docker=replace(
+        manifest.docker, project=project, install_name="cozy" if named else "",
+        local_images=(*manifest.docker.local_images, tag),
+    )).validate()
+    manifest_path.write_text(json.dumps(updated.to_dict(), indent=2) + "\n")
+
+    assert collect(scenario) == (scenario["releases"][0].image_ids["pilot"],)
+    assert image in scenario["images"]
+    assert tag not in scenario["removed"]
 
 
 def test_foreign_alias_is_not_untagged(scenario):
@@ -217,6 +303,36 @@ def test_owned_historical_aliases_do_not_block_collection(scenario):
     assert collect(scenario) == (old.image_ids["pilot"],)
     assert len(scenario["removed"]) == 2
     assert all(value.startswith("elesim/pilot:") for value in scenario["removed"])
+
+
+def test_collected_named_release_alias_can_be_reused_without_touching_live_alias(scenario):
+    old, current = scenario["releases"]
+    project = project_name(INSTALL, install_name="quiet_otter")
+    old_tag = "elesim/pilot:quiet_otter-amber_falcon"
+    current_tag = "elesim/pilot:quiet_otter-silver_fox"
+    scenario["images"][old.image_ids["pilot"]]["RepoTags"].append(old_tag)
+    scenario["images"][current.image_ids["pilot"]]["RepoTags"].append(current_tag)
+    for record in scenario["images"].values():
+        record["Config"]["Labels"]["com.docker.compose.project"] = project
+    manifest_path = scenario["prefix"] / "install-ownership.json"
+    manifest = OwnershipManifest.load(manifest_path)
+    assert manifest.docker is not None
+    updated = replace(manifest, docker=replace(
+        manifest.docker, project=project, install_name="quiet_otter",
+        local_images=(*manifest.docker.local_images, old_tag, current_tag),
+    )).validate()
+    manifest_path.write_text(json.dumps(updated.to_dict(), indent=2) + "\n")
+    registry = scenario["prefix"] / "containers/image-names.json"
+    old_input = ("git-" + "a" * 40, "pilot", "a" * 64, "c" * 64)
+    current_input = ("git-" + "b" * 40, "pilot", "b" * 64, "c" * 64)
+    assert reserve_role_release_name(registry, *old_input, generate=lambda: "amber_falcon") == "amber_falcon"
+    assert reserve_role_release_name(registry, *current_input, generate=lambda: "silver_fox") == "silver_fox"
+
+    assert collect(scenario) == (old.image_ids["pilot"],)
+    assert lookup_name(registry, "releases", role_release_reservation_identity(*old_input) + ":0") == ""
+    assert lookup_name(registry, "releases", role_release_reservation_identity(*current_input) + ":0") == "silver_fox"
+    assert reserve_role_release_name(registry, "git-" + "e" * 40, "pilot", "e" * 64, "c" * 64,
+                                     generate=lambda: "amber_falcon") == "amber_falcon"
 
 
 def test_metadata_race_refuses_removal(scenario):

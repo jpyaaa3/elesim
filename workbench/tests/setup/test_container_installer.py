@@ -2927,10 +2927,23 @@ def test_scoped_net_releases_uses_validated_maintenance_registry_without_docker(
     assert result.returncode == 0, result.stderr
     rows = json.loads(result.stdout)
     assert [row["release_key"] for row in rows] == [value.to_dict()["release_key"]]
-    assert "from elesim_setup.releases import list_releases" in (
+    assert "from elesim_setup.image_cleanup import recorded_available_releases" in (
         state.bin_path / "elesim-net"
     ).read_text(encoding="utf-8")
     assert (state.prefix_path / "maintenance/elesim_setup/releases.py").is_file()
+
+    (state.prefix_path / "maintenance/available-releases.json").write_text(json.dumps({
+        "schema_version": 1,
+        "install_uuid": ownership.install_uuid,
+        "engine_id": ownership.docker.engine_id,
+        "release_keys": [],
+    }))
+    hidden = subprocess.run(
+        (state.bin_path / "elesim-net", "releases"),
+        env={"PATH": "/usr/bin:/bin"}, text=True, capture_output=True,
+    )
+    assert hidden.returncode == 0, hidden.stderr
+    assert json.loads(hidden.stdout) == []
 
     foreign_install = "fedcba98-7654-3210-fedc-ba9876543210"
     foreign = ReleaseManifest(
