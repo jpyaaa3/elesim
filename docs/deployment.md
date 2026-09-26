@@ -362,6 +362,11 @@ topics를 Tailscale/LAN으로 노출하지 않는다.
 topology에는 native setup으로 생성한 prefix와 두 unit을 사용하고, standalone
 release layout을 managed host처럼 등록하지 않는다.
 
+Robot native 설치는 포함된 Dynamixel SDK 소스와 C++ arm controller를 Jetson에서
+`g++`로 빌드해 `<robot root>/native/libelesim_arm.so`에 둔다. Python
+`dynamixel-sdk` 패키지는 필요하지 않다. `native_arm/correction_placeholder.cpp`는
+현재 입력 q를 그대로 반환하며 Teensy/IMU 폐루프 구현 위치다.
+
 Jetson에서 Robot과 Pilot/UI Compose를 함께 운영하면 서로 다른 prefix와
 deployment unit을 사용한다. Robot unit이 mandatory인 Jetson에서 Sim을
 실행하려면 ARM64 이미지/runtime gate를 별도로 통과해야 한다.

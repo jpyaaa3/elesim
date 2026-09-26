@@ -210,6 +210,10 @@ def copy_robot_runtime(project: Path, release: Path) -> None:
             + ", ".join(str(path) for path in missing)
         )
     shutil.copy2(install_script, release / "install.sh")
+    native_arm = project / "native_arm"
+    if not (native_arm / "build.py").is_file() or not (native_arm / "vendor/LICENSE").is_file():
+        raise FileNotFoundError("Robot C++ arm source or SDK license is missing")
+    copy_tree(native_arm, release / "native_arm", ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.so"))
     destination = release / "systemd"
     destination.mkdir(parents=True, exist_ok=True)
     for name in sorted(ROBOT_SYSTEMD_UNITS):

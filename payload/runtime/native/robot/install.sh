@@ -6,6 +6,10 @@ if [[ ! -f /opt/ros/humble/setup.bash ]]; then
   printf 'ROS 2 Humble is required at /opt/ros/humble\n' >&2
   exit 2
 fi
+if ! command -v "${CXX:-g++}" >/dev/null 2>&1; then
+  printf 'A C++17 compiler is required for the Robot arm controller\n' >&2
+  exit 2
+fi
 for artifact in \
   "${root}/systemd/elesim-unitree-bridge.service" \
   "${root}/systemd/elesim-robot.service"; do
@@ -25,6 +29,7 @@ python3 -m venv --system-site-packages "${root}/venv"
 "${root}/venv/bin/python" -m pip install --upgrade pip
 "${root}/venv/bin/python" -m pip install -r "${root}/requirements.lock"
 "${root}/venv/bin/python" -m pip install --no-deps "${root}"/wheels/elesim_protocol-*.whl "${root}"/wheels/elesim_robot-*.whl
+"${root}/venv/bin/python" "${root}/native_arm/build.py" "${root}/native/libelesim_arm.so"
 printf 'Installed EleSim Robot runtime and ROSIDL overlay under %s\n' "${root}"
 printf 'Installed executables:\n'
 printf '  %s/venv/bin/elesim-unitree-bridge\n' "${root}"

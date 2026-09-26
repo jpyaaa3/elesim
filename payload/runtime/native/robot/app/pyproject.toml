@@ -15,7 +15,6 @@ dependencies = [
 
 [project.optional-dependencies]
 jetson = [
-  "dynamixel-sdk>=3.7",
   "opencv-python-headless>=4.8,<5",
   "pyrealsense2>=2.55",
 ]

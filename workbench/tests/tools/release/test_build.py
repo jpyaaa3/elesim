@@ -151,6 +151,9 @@ def test_release_refuses_missing_cmake_declared_rosidl_source(
 def test_robot_release_copies_exactly_both_service_units(tmp_path: Path) -> None:
     project = tmp_path / "robot"
     (project / "systemd").mkdir(parents=True)
+    (project / "native_arm/vendor").mkdir(parents=True)
+    (project / "native_arm/build.py").write_text("builder", encoding="utf-8")
+    (project / "native_arm/vendor/LICENSE").write_text("license", encoding="utf-8")
     (project / "install.sh").write_text("#!/bin/bash\n", encoding="utf-8")
     for name in ("elesim-robot.service", "elesim-unitree-bridge.service"):
         (project / "systemd" / name).write_text(name, encoding="utf-8")

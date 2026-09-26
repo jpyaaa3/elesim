@@ -126,9 +126,18 @@ def test_robot_wrapper_and_unit_use_only_generated_install_paths(
         lambda path, **_kwargs: Path(path) / "bin/python",
     )
     monkeypatch.setattr(installer, "_pip", lambda *_args: None)
+    native_builds = []
+    monkeypatch.setattr(installer, "_run", lambda command: native_builds.append(tuple(command)))
 
     installer._install_role("robot")
     role_root = app_directory(state, "robot")
+    assert native_builds == [
+        (
+            str(role_root / "venv/bin/python"),
+            str(state.source_path / "payload/runtime/native/robot/native_arm/build.py"),
+            str(role_root / "native/libelesim_arm.so"),
+        )
+    ]
     assert (role_root / "config/default.yaml").is_file()
     assert not (role_root / "config/public.example.yaml").exists()
     assert not (role_root / "systemd").exists()

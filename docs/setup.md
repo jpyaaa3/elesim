@@ -150,6 +150,9 @@ Jetson Robot 설치는 host의 ROS 2 Humble과 `colcon`을 사용해
 host venv로 setup을 실행한다. 이 venv는 `~/.cache/elesim/setup` 아래에
 생성되며 host Python 패키지나 ROS/Apt 상태를 수정하지 않는다. ROS 2가 없는
 Jetson은 Robot 설치 전에 host ROS 2/Unitree workspace를 준비해야 한다.
+Robot의 물리 arm 경로는 설치 시 `g++`로 C++ controller와 포함된 Dynamixel
+SDK를 빌드하므로 Jetson에 C++17 컴파일러도 있어야 한다. 보정 placeholder는
+현재 이론 q를 그대로 통과시킨다.
 
 신규 container 설치의 runtime namespace는 `elesim-<install name>`으로
 고정된다. 한 설치의 여러 system instance가 이 project를 공유하지만, 다른

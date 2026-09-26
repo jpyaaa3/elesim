@@ -341,6 +341,17 @@ class Installer:
             )
             for role in self.state.roles
         )
+        if "robot" in self.state.roles:
+            required.extend(
+                root / "payload/runtime/native/robot/native_arm" / name
+                for name in (
+                    "build.py",
+                    "control.cpp",
+                    "correction_placeholder.cpp",
+                    "vendor/LICENSE",
+                    "vendor/dynamixel_sdk/dynamixel_sdk.h",
+                )
+            )
         if "sim" in self.state.roles:
             required.append(root / "payload/data/models/assemblies/zed-mini/bundle.json")
             required.append(root / "payload/data/models/assemblies/d435/bundle.json")
@@ -362,6 +373,8 @@ class Installer:
             raise FileNotFoundError(f"Installation source is incomplete:\n{rendered}")
         if sys.version_info < (3, 10):
             raise RuntimeError("EleSim installation requires Python 3.10 or newer")
+        if "robot" in self.state.roles and shutil.which(os.environ.get("CXX", "g++")) is None:
+            raise RuntimeError("Installing Robot requires a C++17 compiler (g++ or CXX)")
         if (
             "sim" in self.state.roles
             and self.state.install_go2_mpc
@@ -481,6 +494,15 @@ class Installer:
             "--no-deps",
             str(source),
         )
+        if role == "robot":
+            self.log("[robot] Build C++ arm controller for this Jetson")
+            self._run(
+                (
+                    str(python),
+                    str(runtime / "native_arm/build.py"),
+                    str(target / "native/libelesim_arm.so"),
+                )
+            )
         self._pip(python, "check")
 
     def _install_ros_interfaces(self) -> None:

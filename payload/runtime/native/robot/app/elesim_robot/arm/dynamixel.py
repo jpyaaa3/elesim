@@ -1,415 +1,271 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""Low-level Dynamixel driver and motor conversion helpers."""
+"""Thin Robot process binding for the Jetson-local C++ arm controller."""
 
 from __future__ import annotations
 
+import ctypes
+import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from elesim_protocol.tracing import sampled_traced, traced
+from elesim_protocol import SimMappingConfig
 
 if TYPE_CHECKING:
-    from elesim_robot.config import HardwareConfig
-
-def _load_dynamixel_sdk() -> tuple[Any, Any, Any, Any]:
-    try:
-        from dynamixel_sdk import (
-            GroupSyncRead,
-            GroupSyncWrite,
-            PacketHandler,
-            PortHandler,
-        )
-    except ModuleNotFoundError as exc:  # pragma: no cover - optional on dev machines
-        if exc.name != "dynamixel_sdk":
-            raise
-        return None, None, None, None
-    return GroupSyncRead, GroupSyncWrite, PacketHandler, PortHandler
+    from elesim_robot.config import HardwareConfig, SafetyConfig
 
 
-GroupSyncRead, GroupSyncWrite, PacketHandler, PortHandler = _load_dynamixel_sdk()
-
-
-ADDR_TORQUE_ENABLE = 64
-ADDR_OPERATING_MODE = 11
-ADDR_GOAL_VELOCITY = 104
-ADDR_PROFILE_ACCEL = 108
-ADDR_PROFILE_VEL = 112
-ADDR_GOAL_POSITION = 116
-ADDR_PRESENT_CURRENT = 126
-ADDR_PRESENT_POSITION = 132
-LEN_2 = 2
-LEN_4 = 4
-TORQUE_ON, TORQUE_OFF = 1, 0
-OP_MODE_VELOCITY = 1
-OP_MODE_POSITION = 3
-TICK_MAX = 4095
-DXL_PROFILE_VEL_UNIT_RPM = 0.229
-DXL_VELOCITY_UNIT_DEG_S = DXL_PROFILE_VEL_UNIT_RPM * 6.0
 DXL_CURRENT_UNIT_MA = 2.69
+TICK_MAX = 4095
+MOTOR_IDS = (1, 2, 3, 4, 5)
 
 
-def signed32(x: int) -> int:
-    x &= 0xFFFFFFFF
-    if x & 0x80000000:
-        return -((~x & 0xFFFFFFFF) + 1)
-    return x
+def deg_to_tick_0_360(degrees: float) -> int:
+    return max(0, min(TICK_MAX, round(max(0.0, min(360.0, degrees)) * TICK_MAX / 360.0)))
 
 
-def signed16(x: int) -> int:
-    x &= 0xFFFF
-    if x & 0x8000:
-        return -((~x & 0xFFFF) + 1)
-    return x
+def tick_to_deg_0_360(tick: int, direction: int = 1) -> float:
+    limited = max(0, min(TICK_MAX, int(tick)))
+    return (TICK_MAX - limited if direction < 0 else limited) * 360.0 / TICK_MAX
 
 
-def clamp_float(x: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, float(x)))
+class _ArmConfig(ctypes.Structure):
+    _fields_ = [
+        ("baudrate", ctypes.c_int32),
+        ("motor_direction", ctypes.c_int32 * 4),
+        ("profile_velocity", ctypes.c_int32 * 5),
+        ("profile_acceleration", ctypes.c_int32 * 5),
+        ("current_limit_ma", ctypes.c_int32),
+        ("read_failure_limit", ctypes.c_int32),
+        ("monitor_period_s", ctypes.c_double),
+        ("linear_motor_limit_deg", ctypes.c_double),
+        ("q_min", ctypes.c_double * 4),
+        ("q_max", ctypes.c_double * 4),
+        ("motor_min_deg", ctypes.c_double * 4),
+        ("motor_max_deg", ctypes.c_double * 4),
+    ]
 
 
-def clamp_int(x: int, lo: int, hi: int) -> int:
-    return max(lo, min(hi, int(x)))
-
-
-def int_to_le4(x: int) -> List[int]:
-    x &= 0xFFFFFFFF
-    return [x & 0xFF, (x >> 8) & 0xFF, (x >> 16) & 0xFF, (x >> 24) & 0xFF]
-
-
-def deg_to_tick_0_360(deg: float) -> int:
-    deg = clamp_float(deg, 0.0, 360.0)
-    tick = int(round(deg * (TICK_MAX / 360.0)))
-    return clamp_int(tick, 0, TICK_MAX)
-
-
-def deg_s_to_velocity_raw(deg_s: float) -> int:
-    return int(round(float(deg_s) / float(DXL_VELOCITY_UNIT_DEG_S)))
-
-
-def tick_to_deg_0_360(tick: int, direction: int = +1) -> float:
-    tick = signed32(int(tick))
-    tick = clamp_int(tick, 0, TICK_MAX)
-    if int(direction) < 0:
-        tick = TICK_MAX - tick
-    return float(tick) * (360.0 / float(TICK_MAX))
+class _ArmSnapshot(ctypes.Structure):
+    _fields_ = [
+        ("sampled_monotonic_s", ctypes.c_double),
+        ("ticks", ctypes.c_int32 * 5),
+        ("currents_ma", ctypes.c_int32 * 5),
+        ("torque_enabled", ctypes.c_int32),
+        ("read_failures", ctypes.c_int32),
+        ("valid", ctypes.c_int32),
+    ]
 
 
 @dataclass(frozen=True)
-class JointProfile:
-    profile_vel: int
-    profile_acc: int
+class NativeArmState:
+    sampled_at: float
+    ticks: dict[int, int]
+    currents_ma: dict[int, int]
+    torque_enabled: bool
+    read_failures: int
+    fault: str
+    valid: bool
 
 
-@dataclass(frozen=True)
-class JointConstraintDeg:
-    min_deg: float
-    max_deg: float
+def _native_config(
+    hardware: HardwareConfig,
+    mapping: SimMappingConfig,
+    safety: SafetyConfig,
+) -> _ArmConfig:
+    return _ArmConfig(
+        int(hardware.baudrate),
+        (ctypes.c_int32 * 4)(*hardware.motor_direction),
+        (ctypes.c_int32 * 5)(
+            hardware.profile_vel_linear,
+            hardware.profile_vel_roll,
+            hardware.profile_vel_seg1,
+            hardware.profile_vel_seg2,
+            hardware.profile_vel_claw,
+        ),
+        (ctypes.c_int32 * 5)(
+            hardware.profile_acc_linear,
+            hardware.profile_acc_roll,
+            hardware.profile_acc_seg1,
+            hardware.profile_acc_seg2,
+            hardware.profile_acc_claw,
+        ),
+        int(hardware.current_limit_ma),
+        int(safety.read_failure_limit),
+        float(safety.monitor_period_s),
+        float(hardware.linear_u_limit_deg),
+        (ctypes.c_double * 4)(
+            mapping.linear_q_min_m,
+            mapping.roll_q_min_rad,
+            mapping.seg1_q_min_rad,
+            mapping.seg2_q_min_rad,
+        ),
+        (ctypes.c_double * 4)(
+            mapping.linear_q_max_m,
+            mapping.roll_q_max_rad,
+            mapping.seg1_q_max_rad,
+            mapping.seg2_q_max_rad,
+        ),
+        (ctypes.c_double * 4)(
+            mapping.linear_u_min,
+            mapping.roll_u_min,
+            mapping.seg_u_min,
+            mapping.seg_u_min,
+        ),
+        (ctypes.c_double * 4)(
+            mapping.linear_u_max,
+            mapping.roll_u_max,
+            mapping.seg_u_max,
+            mapping.seg_u_max,
+        ),
+    )
 
 
-@dataclass(frozen=True)
-class DxlConfig:
-    device_name: str = "/dev/ttyUSB0"
-    baudrate: int = 57600
-    protocol_version: float = 2.0
-    id_linear: int = 1
-    id_roll: int = 2
-    id_seg1: int = 3
-    id_seg2: int = 4
-    id_claw: int = 5
+def _load_library(path: Path | None = None) -> ctypes.CDLL:
+    location = path or Path(sys.prefix).parent / "native/libelesim_arm.so"
+    if not location.is_file():
+        raise RuntimeError(f"Robot C++ arm controller is missing: {location}")
+    library = ctypes.CDLL(str(location))
+    pointer = ctypes.c_void_p
+    error = ctypes.c_void_p
+    size = ctypes.c_size_t
+    library.elesim_arm_create.argtypes = [ctypes.c_char_p, ctypes.POINTER(_ArmConfig), error, size]
+    library.elesim_arm_create.restype = pointer
+    for name in (
+        "elesim_arm_open",
+        "elesim_arm_torque_on",
+        "elesim_arm_torque_off",
+        "elesim_arm_safe_hold",
+        "elesim_arm_clear_fault",
+        "elesim_arm_close",
+    ):
+        function = getattr(library, name)
+        function.argtypes = [pointer, error, size]
+        function.restype = ctypes.c_int
+    library.elesim_arm_command_q.argtypes = [pointer, ctypes.POINTER(ctypes.c_double), error, size]
+    library.elesim_arm_command_q.restype = ctypes.c_int
+    library.elesim_arm_command_claw.argtypes = [pointer, ctypes.c_double, error, size]
+    library.elesim_arm_command_claw.restype = ctypes.c_int
+    library.elesim_arm_snapshot.argtypes = [pointer, ctypes.POINTER(_ArmSnapshot), error, size]
+    library.elesim_arm_snapshot.restype = ctypes.c_int
+    library.elesim_arm_destroy.argtypes = [pointer]
+    library.elesim_arm_destroy.restype = None
+    library.elesim_arm_map_q.argtypes = [
+        ctypes.POINTER(_ArmConfig),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_double),
+    ]
+    library.elesim_arm_map_q.restype = ctypes.c_int
+    return library
 
 
-def default_joint_profiles(cfg: DxlConfig) -> Dict[int, JointProfile]:
-    return {
-        cfg.id_linear: JointProfile(profile_vel=240, profile_acc=10),
-        cfg.id_roll: JointProfile(profile_vel=240, profile_acc=10),
-        cfg.id_seg1: JointProfile(profile_vel=60, profile_acc=6),
-        cfg.id_seg2: JointProfile(profile_vel=60, profile_acc=6),
-        cfg.id_claw: JointProfile(profile_vel=80, profile_acc=5),
-    }
+class NativeArm:
+    """No Python motor packets: only target/status calls cross this boundary."""
 
+    native_safety = True
 
-class Dynamixel3dofDriver:
-    """Independent hardware driver for four arm joints plus one gripper motor."""
-
-    def __init__(self, cfg: DxlConfig) -> None:
-        if PortHandler is None or PacketHandler is None or GroupSyncWrite is None or GroupSyncRead is None:
-            raise RuntimeError("dynamixel_sdk is not installed.")
-
-        self.cfg = cfg
-        self.ids = [cfg.id_linear, cfg.id_roll, cfg.id_seg1, cfg.id_seg2, cfg.id_claw]
-        self.direction: Dict[int, int] = {dxl_id: +1 for dxl_id in self.ids}
-        self.profiles: Dict[int, JointProfile] = default_joint_profiles(cfg)
-        self.constraints_deg: Dict[int, JointConstraintDeg] = {
-            cfg.id_linear: JointConstraintDeg(0.0, 250.0),
-            cfg.id_roll: JointConstraintDeg(0.0, 360.0),
-            cfg.id_seg1: JointConstraintDeg(0.0, 360.0),
-            cfg.id_seg2: JointConstraintDeg(0.0, 360.0),
-            cfg.id_claw: JointConstraintDeg(230.0, 340.0),
+    def __init__(
+        self,
+        device: str,
+        *,
+        hardware: HardwareConfig,
+        mapping: SimMappingConfig,
+        safety: SafetyConfig,
+        library_path: Path | None = None,
+    ) -> None:
+        self._library = _load_library(library_path)
+        self._config = _native_config(hardware, mapping, safety)
+        error = ctypes.create_string_buffer(512)
+        self._handle = self._library.elesim_arm_create(
+            device.encode("utf-8"), ctypes.byref(self._config), error, len(error)
+        )
+        if not self._handle:
+            raise RuntimeError(error.value.decode("utf-8", errors="replace"))
+        self.ids = list(MOTOR_IDS)
+        self.direction = {
+            motor_id: int(hardware.motor_direction[index])
+            for index, motor_id in enumerate(MOTOR_IDS[:4])
         }
-        self.arm_mode = "unknown"
+        self.direction[5] = 1
+        self.cfg = type("ArmIds", (), dict(id_linear=1, id_roll=2, id_seg1=3, id_seg2=4, id_claw=5))()
 
-        self.port = PortHandler(cfg.device_name)
-        self.packet = PacketHandler(cfg.protocol_version)
-        self.sync_write_vel = GroupSyncWrite(self.port, self.packet, ADDR_GOAL_VELOCITY, LEN_4)
-        self.sync_write_pos = GroupSyncWrite(self.port, self.packet, ADDR_GOAL_POSITION, LEN_4)
-        self.sync_read_pos = GroupSyncRead(self.port, self.packet, ADDR_PRESENT_POSITION, LEN_4)
+    def _call(self, name: str, *args: Any) -> None:
+        if not self._handle:
+            raise RuntimeError("Robot C++ arm controller is closed")
+        error = ctypes.create_string_buffer(512)
+        result = getattr(self._library, name)(self._handle, *args, error, len(error))
+        if result != 0:
+            raise RuntimeError(error.value.decode("utf-8", errors="replace"))
 
-    def arm_ids(self) -> List[int]:
-        return [self.cfg.id_linear, self.cfg.id_roll, self.cfg.id_seg1, self.cfg.id_seg2]
-
-    def lji_velocity_ids(self) -> List[int]:
-        return [self.cfg.id_roll, self.cfg.id_seg1, self.cfg.id_seg2]
-
-    def _write1(self, dxl_id: int, addr: int, value: int) -> None:
-        comm, err = self.packet.write1ByteTxRx(self.port, dxl_id, addr, value)
-        if comm != 0:
-            raise RuntimeError(f"[ID {dxl_id}] write1 comm fail: {self.packet.getTxRxResult(comm)}")
-        if err != 0:
-            raise RuntimeError(f"[ID {dxl_id}] write1 dxl error: {self.packet.getRxPacketError(err)}")
-
-    def _write4(self, dxl_id: int, addr: int, value: int) -> None:
-        comm, err = self.packet.write4ByteTxRx(self.port, dxl_id, addr, value)
-        if comm != 0:
-            raise RuntimeError(f"[ID {dxl_id}] write4 comm fail: {self.packet.getTxRxResult(comm)}")
-        if err != 0:
-            raise RuntimeError(f"[ID {dxl_id}] write4 dxl error: {self.packet.getRxPacketError(err)}")
-
-    def _read2(self, dxl_id: int, addr: int) -> int:
-        value, comm, err = self.packet.read2ByteTxRx(self.port, dxl_id, addr)
-        if comm != 0:
-            raise RuntimeError(f"[ID {dxl_id}] read2 comm fail: {self.packet.getTxRxResult(comm)}")
-        if err != 0:
-            raise RuntimeError(f"[ID {dxl_id}] read2 dxl error: {self.packet.getRxPacketError(err)}")
-        return int(value)
-
-    @traced("arm.dynamixel.open", kind="client")
     def open(self) -> None:
-        if not self.port.openPort():
-            raise RuntimeError(f"Failed to open port: {self.cfg.device_name}")
-        if not self.port.setBaudRate(self.cfg.baudrate):
-            raise RuntimeError(f"Failed to set baudrate: {self.cfg.baudrate}")
-        self.sync_read_pos.clearParam()
-        for dxl_id in self.ids:
-            if not self.sync_read_pos.addParam(dxl_id):
-                raise RuntimeError(f"sync_read addParam failed: ID={dxl_id}")
+        self._call("elesim_arm_open")
 
     def close(self) -> None:
+        if not self._handle:
+            return
         try:
-            self.port.closePort()
-        except Exception:
-            pass
+            self._call("elesim_arm_close")
+        finally:
+            self._library.elesim_arm_destroy(self._handle)
+            self._handle = None
 
-    @traced("arm.dynamixel.torque_off_all", kind="client")
-    def torque_off_all(self) -> None:
-        for dxl_id in self.ids:
-            self._write1(dxl_id, ADDR_TORQUE_ENABLE, TORQUE_OFF)
+    def command_q(self, q: tuple[float, float, float, float]) -> None:
+        values = (ctypes.c_double * 4)(*q)
+        self._call("elesim_arm_command_q", values)
 
-    @traced("arm.dynamixel.torque_on_all", kind="client")
+    def command_claw_deg(self, degrees: float) -> None:
+        self._call("elesim_arm_command_claw", float(degrees))
+
     def torque_on_all(self) -> None:
-        for dxl_id in self.ids:
-            self._write1(dxl_id, ADDR_TORQUE_ENABLE, TORQUE_ON)
+        self._call("elesim_arm_torque_on")
 
-    def torque_off_id(self, dxl_id: int) -> None:
-        self._write1(int(dxl_id), ADDR_TORQUE_ENABLE, TORQUE_OFF)
-
-    def torque_on_id(self, dxl_id: int) -> None:
-        self._write1(int(dxl_id), ADDR_TORQUE_ENABLE, TORQUE_ON)
-
-    @traced("arm.dynamixel.set_operating_modes", kind="client")
-    def set_operating_modes(self) -> None:
-        self.torque_off_all()
-        for dxl_id in self.ids:
-            self._write1(dxl_id, ADDR_OPERATING_MODE, OP_MODE_POSITION)
-        self.arm_mode = "position"
-
-    def set_operating_mode_ids(self, ids: List[int], mode: int, *, torque_on: bool = True) -> None:
-        clean_ids = [int(dxl_id) for dxl_id in ids]
-        for dxl_id in clean_ids:
-            self.torque_off_id(dxl_id)
-        for dxl_id in clean_ids:
-            self._write1(dxl_id, ADDR_OPERATING_MODE, int(mode))
-        if bool(torque_on):
-            for dxl_id in clean_ids:
-                self.torque_on_id(dxl_id)
-
-    def set_velocity_mode_for_arm(self) -> None:
-        self.set_operating_mode_ids(self.arm_ids(), OP_MODE_VELOCITY, torque_on=True)
-        self.arm_mode = "velocity"
-
-    def set_lji_hybrid_mode_for_arm(self) -> None:
-        self.set_operating_mode_ids([self.cfg.id_linear], OP_MODE_POSITION, torque_on=True)
-        self.set_profiles([self.cfg.id_linear])
-        self.set_operating_mode_ids(self.lji_velocity_ids(), OP_MODE_VELOCITY, torque_on=True)
-        self.arm_mode = "hybrid"
-
-    def set_position_mode_for_arm(self) -> None:
-        self.set_operating_mode_ids(self.arm_ids(), OP_MODE_POSITION, torque_on=True)
-        self.set_profiles(self.arm_ids())
-        self.arm_mode = "position"
-
-    def set_profiles(self, ids: Optional[List[int]] = None) -> None:
-        use_ids = list(self.profiles.keys()) if ids is None else [int(dxl_id) for dxl_id in ids]
-        for dxl_id in use_ids:
-            prof = self.profiles[int(dxl_id)]
-            self._write4(dxl_id, ADDR_PROFILE_VEL, prof.profile_vel)
-            self._write4(dxl_id, ADDR_PROFILE_ACCEL, prof.profile_acc)
-
-    def _apply_constraint_deg(self, dxl_id: int, deg: float) -> float:
-        c = self.constraints_deg[dxl_id]
-        return clamp_float(deg, c.min_deg, c.max_deg)
-
-    def deg_to_goal_tick(self, dxl_id: int, deg: float) -> int:
-        deg_c = self._apply_constraint_deg(dxl_id, deg)
-        tick = deg_to_tick_0_360(deg_c)
-        if self.direction.get(dxl_id, +1) == -1:
-            tick = TICK_MAX - tick
-        return clamp_int(tick, 0, TICK_MAX)
-
-    def deg_s_to_goal_velocity_raw(self, dxl_id: int, deg_s: float) -> int:
-        v = float(deg_s)
-        if self.direction.get(int(dxl_id), +1) == -1:
-            v = -v
-        return deg_s_to_velocity_raw(v)
-
-    @sampled_traced(
-        "arm.dynamixel.read_positions",
-        sample_key="dynamixel.read_positions",
-        every=20,
-        kind="client",
-    )
-    def get_present_positions(self) -> Dict[int, int]:
-        comm = self.sync_read_pos.txRxPacket()
-        if comm != 0:
-            raise RuntimeError(f"sync_read comm fail: {self.packet.getTxRxResult(comm)}")
-        out: Dict[int, int] = {}
-        for dxl_id in self.ids:
-            if not self.sync_read_pos.isAvailable(dxl_id, ADDR_PRESENT_POSITION, LEN_4):
-                raise RuntimeError(f"present pos unavailable: ID={dxl_id}")
-            raw = self.sync_read_pos.getData(dxl_id, ADDR_PRESENT_POSITION, LEN_4)
-            out[dxl_id] = signed32(raw)
-        return out
-
-    def get_present_current(self, dxl_id: int) -> int:
-        return signed16(self._read2(dxl_id, ADDR_PRESENT_CURRENT))
-
-    @sampled_traced(
-        "arm.dynamixel.write_positions",
-        sample_key="dynamixel.write_positions",
-        every=10,
-        kind="client",
-    )
-    def sync_set_goal_positions(self, goals_tick: Dict[int, int]) -> None:
-        self.sync_write_pos.clearParam()
-        for dxl_id, tick in goals_tick.items():
-            if not self.sync_write_pos.addParam(dxl_id, int_to_le4(clamp_int(tick, 0, TICK_MAX))):
-                raise RuntimeError(f"sync_write addParam failed: ID={dxl_id}")
-        comm = self.sync_write_pos.txPacket()
-        if comm != 0:
-            raise RuntimeError(f"sync_write comm fail: {self.packet.getTxRxResult(comm)}")
-
-    @sampled_traced(
-        "arm.dynamixel.write_velocities",
-        sample_key="dynamixel.write_velocities",
-        every=10,
-        kind="client",
-    )
-    def sync_set_goal_velocities(self, goals_raw: Dict[int, int]) -> None:
-        self.sync_write_vel.clearParam()
-        for dxl_id, raw in goals_raw.items():
-            if not self.sync_write_vel.addParam(int(dxl_id), int_to_le4(int(raw))):
-                raise RuntimeError(f"sync_write velocity addParam failed: ID={dxl_id}")
-        comm = self.sync_write_vel.txPacket()
-        if comm != 0:
-            raise RuntimeError(f"sync_write velocity comm fail: {self.packet.getTxRxResult(comm)}")
-
-    def command_4dof_deg(self, linear_deg: float, roll_deg: float, seg1_deg: float, seg2_deg: float) -> None:
-        goals = {
-            self.cfg.id_linear: self.deg_to_goal_tick(self.cfg.id_linear, linear_deg),
-            self.cfg.id_roll: self.deg_to_goal_tick(self.cfg.id_roll, roll_deg),
-            self.cfg.id_seg1: self.deg_to_goal_tick(self.cfg.id_seg1, seg1_deg),
-            self.cfg.id_seg2: self.deg_to_goal_tick(self.cfg.id_seg2, seg2_deg),
-        }
-        self.sync_set_goal_positions(goals)
-
-    def command_partial_deg(self, goals_deg: Dict[int, float]) -> None:
-        goals = {int(dxl_id): self.deg_to_goal_tick(int(dxl_id), float(deg)) for dxl_id, deg in goals_deg.items()}
-        if goals:
-            self.sync_set_goal_positions(goals)
-
-    def command_velocity_deg_s(self, goals_deg_s: Dict[int, float]) -> None:
-        goals = {
-            int(dxl_id): self.deg_s_to_goal_velocity_raw(int(dxl_id), float(deg_s))
-            for dxl_id, deg_s in goals_deg_s.items()
-        }
-        if goals:
-            self.sync_set_goal_velocities(goals)
-
-    def stop_arm_velocity(self) -> None:
-        self.command_velocity_deg_s({int(dxl_id): 0.0 for dxl_id in self.arm_ids()})
-
-    def stop_lji_velocity(self) -> None:
-        self.command_velocity_deg_s({int(dxl_id): 0.0 for dxl_id in self.lji_velocity_ids()})
-
-    def hold_current_arm_position(self) -> None:
-        ticks_by_id = self.get_present_positions()
-        goals_deg: Dict[int, float] = {}
-        for dxl_id in self.arm_ids():
-            tick = int(ticks_by_id.get(int(dxl_id), 0))
-            direction = int(self.direction.get(int(dxl_id), +1))
-            goals_deg[int(dxl_id)] = tick_to_deg_0_360(tick, direction)
-        self.command_partial_deg(goals_deg)
+    def torque_off_all(self) -> None:
+        self._call("elesim_arm_torque_off")
 
     def safe_hold_arm(self) -> None:
-        """Stop velocity control, switch to position mode and hold measured pose."""
-        if self.arm_mode == "velocity":
-            self.stop_arm_velocity()
-        elif self.arm_mode == "hybrid":
-            self.stop_lji_velocity()
-        if self.arm_mode != "position":
-            self.set_position_mode_for_arm()
-        self.hold_current_arm_position()
+        self._call("elesim_arm_safe_hold")
 
-    def command_claw_deg(self, claw_deg: float) -> None:
-        self._write4(self.cfg.id_claw, ADDR_GOAL_POSITION, self.deg_to_goal_tick(self.cfg.id_claw, claw_deg))
+    def clear_fault(self) -> None:
+        self._call("elesim_arm_clear_fault")
+
+    def snapshot(self) -> NativeArmState:
+        if not self._handle:
+            raise RuntimeError("Robot C++ arm controller is closed")
+        result = _ArmSnapshot()
+        fault = ctypes.create_string_buffer(512)
+        if self._library.elesim_arm_snapshot(self._handle, ctypes.byref(result), fault, len(fault)) != 0:
+            raise RuntimeError(fault.value.decode("utf-8", errors="replace"))
+        return NativeArmState(
+            sampled_at=float(result.sampled_monotonic_s),
+            ticks={key: int(result.ticks[index]) for index, key in enumerate(MOTOR_IDS)},
+            currents_ma={key: int(result.currents_ma[index]) for index, key in enumerate(MOTOR_IDS)},
+            torque_enabled=bool(result.torque_enabled),
+            read_failures=int(result.read_failures),
+            fault=fault.value.decode("utf-8", errors="replace"),
+            valid=bool(result.valid),
+        )
+
 
 def load_hardware(
     device: str,
     *,
-    hardware_cfg: "HardwareConfig | None" = None,
-) -> Tuple[Any, Dict[int, int]]:
-    """Return (hardware_driver, direction_by_id)."""
-    baudrate = int(getattr(hardware_cfg, "baudrate", 57600)) if hardware_cfg is not None else 57600
-    hw = Dynamixel3dofDriver(DxlConfig(device_name=device, baudrate=max(1, baudrate)))
-    if hardware_cfg is not None:
-        motor_dir = tuple(int(v) for v in getattr(hardware_cfg, "motor_direction"))
-        raw = {
-            hw.cfg.id_linear: motor_dir[0],
-            hw.cfg.id_roll: motor_dir[1],
-            hw.cfg.id_seg1: motor_dir[2],
-            hw.cfg.id_seg2: motor_dir[3],
-        }
-        for k, v in raw.items():
-            hw.direction[k] = -1 if int(v) < 0 else 1
-        linear_max = float(getattr(hardware_cfg, "linear_u_limit_deg", 250.0))
-        hw.constraints_deg[hw.cfg.id_linear] = JointConstraintDeg(0.0, linear_max)
-        hw.profiles[hw.cfg.id_linear] = JointProfile(
-            profile_vel=max(1, int(getattr(hardware_cfg, "profile_vel_linear", 240))),
-            profile_acc=max(1, int(getattr(hardware_cfg, "profile_acc_linear", 10))),
-        )
-        hw.profiles[hw.cfg.id_roll] = JointProfile(
-            profile_vel=max(1, int(getattr(hardware_cfg, "profile_vel_roll", 240))),
-            profile_acc=max(1, int(getattr(hardware_cfg, "profile_acc_roll", 10))),
-        )
-        hw.profiles[hw.cfg.id_seg1] = JointProfile(
-            profile_vel=max(1, int(getattr(hardware_cfg, "profile_vel_seg1", 60))),
-            profile_acc=max(1, int(getattr(hardware_cfg, "profile_acc_seg1", 6))),
-        )
-        hw.profiles[hw.cfg.id_seg2] = JointProfile(
-            profile_vel=max(1, int(getattr(hardware_cfg, "profile_vel_seg2", 60))),
-            profile_acc=max(1, int(getattr(hardware_cfg, "profile_acc_seg2", 6))),
-        )
-        hw.profiles[hw.cfg.id_claw] = JointProfile(
-            profile_vel=max(1, int(getattr(hardware_cfg, "profile_vel_claw", 80))),
-            profile_acc=max(1, int(getattr(hardware_cfg, "profile_acc_claw", 5))),
-        )
-    return hw, dict(hw.direction)
+    hardware_cfg: HardwareConfig,
+    mapping_cfg: SimMappingConfig,
+    safety_cfg: SafetyConfig,
+) -> tuple[NativeArm, dict[int, int]]:
+    hardware = NativeArm(
+        device,
+        hardware=hardware_cfg,
+        mapping=mapping_cfg,
+        safety=safety_cfg,
+    )
+    return hardware, dict(hardware.direction)
+
+
+__all__ = [
+    "DXL_CURRENT_UNIT_MA",
+    "NativeArm",
+    "NativeArmState",
+    "deg_to_tick_0_360",
+    "tick_to_deg_0_360",
+    "load_hardware",
+]

@@ -71,6 +71,8 @@ class RobotRuntime:
             self.hw, _direction = load_hardware(
                 self.device,
                 hardware_cfg=self.hardware_config,
+                mapping_cfg=self.mapping,
+                safety_cfg=self.safety,
             )
             self.hw.open()
         if self.go2 is not None:
@@ -215,6 +217,17 @@ class RobotRuntime:
     def _monitor_hardware(self, now: float, *, force: bool = False) -> None:
         if self.hw is None:
             return
+        if getattr(self.hw, "native_safety", False) is True:
+            # The C++ monitor samples and trips the arm independently of DDS
+            # receive or this Python status loop.
+            sample = self.hw.snapshot()
+            self.torque_enabled = sample.torque_enabled
+            self._read_failures = sample.read_failures
+            if sample.valid:
+                self._arm_snapshot = self._arm_snapshot_from_native(sample)
+            if sample.fault and not self.safety_fault:
+                self._trip_safety_fault(sample.fault)
+            return
         period = float(self.safety.monitor_period_s)
         if (
             not force
@@ -245,6 +258,29 @@ class RobotRuntime:
         }
         if over_limit:
             self._trip_safety_fault(f"motor current limit exceeded: {over_limit}")
+
+    def _arm_snapshot_from_native(self, sample: Any) -> ArmSnapshot:
+        ticks = dict(sample.ticks)
+        degrees = {
+            motor_id: tick_to_deg_0_360(
+                tick, int(self.hw.direction.get(motor_id, 1))
+            )
+            for motor_id, tick in ticks.items()
+        }
+        cfg = self.hw.cfg
+        motor = ControlU(
+            degrees[cfg.id_linear],
+            degrees[cfg.id_roll],
+            degrees[cfg.id_seg1],
+            degrees[cfg.id_seg2],
+        )
+        return ArmSnapshot(
+            sampled_at=sample.sampled_at,
+            ticks=ticks,
+            degrees=degrees,
+            currents_ma=dict(sample.currents_ma),
+            q=motor_deg_to_sim_q(motor, self.mapping),
+        )
 
     def _read_arm_snapshot(self, now: float) -> ArmSnapshot:
         ticks = {
@@ -310,8 +346,9 @@ class RobotRuntime:
             return self._apply_target(payload)
         if command == "torque_on":
             if self.hw is not None:
-                self.hw.set_operating_modes()
-                self.hw.set_profiles()
+                if getattr(self.hw, "native_safety", False) is not True:
+                    self.hw.set_operating_modes()
+                    self.hw.set_profiles()
                 self.hw.torque_on_all()
             self.torque_enabled = True
             return True, "torque_on"
@@ -321,6 +358,8 @@ class RobotRuntime:
         if command == "clear_fault":
             if self.torque_enabled:
                 return False, "torque_must_be_off"
+            if self.hw is not None and getattr(self.hw, "native_safety", False) is True:
+                self.hw.clear_fault()
             self.safety_fault = ""
             self._read_failures = 0
             self._monitor_hardware(self.clock(), force=True)
@@ -366,13 +405,18 @@ class RobotRuntime:
             return False, "bad_claw_state"
 
         if q is not None and self.hw is not None:
-            motor = sim_q_to_motor_deg(q, self.mapping)
-            self.hw.command_4dof_deg(
-                motor.u_linear,
-                motor.u_roll,
-                motor.u_s1,
-                motor.u_s2,
-            )
+            if getattr(self.hw, "native_safety", False) is True:
+                self.hw.command_q(
+                    (q.linear_m, q.roll_rad, q.theta1_rad, q.theta2_rad)
+                )
+            else:
+                motor = sim_q_to_motor_deg(q, self.mapping)
+                self.hw.command_4dof_deg(
+                    motor.u_linear,
+                    motor.u_roll,
+                    motor.u_s1,
+                    motor.u_s2,
+                )
         if "claw_closed" in payload and self.hw is not None:
             self.hw.command_claw_deg(180.0 if payload["claw_closed"] else 0.0)
         if "go2_sport_pose" in payload and self.go2 is not None:
