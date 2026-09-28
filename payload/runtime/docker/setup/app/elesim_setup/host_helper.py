@@ -648,6 +648,17 @@ def _validate_command(
     if matched_prefix is None:
         raise HostHelperError("Docker command escapes the managed Compose project")
     suffix = tuple(argv[len(matched_prefix) :])
+    if suffix[:2] == ("--progress", "quiet"):
+        quiet_suffix = suffix[2:]
+        if instance_system and quiet_suffix and quiet_suffix[0] in _SCOPED_COMPOSE_MUTATIONS:
+            raise HostHelperError(
+                "scoped host helper refuses install-wide Compose lifecycle; "
+                "use the exact elesim-instance command"
+            )
+        if quiet_suffix and quiet_suffix[0] == "stop":
+            _validate_runtime_services(quiet_suffix[1:])
+            return
+        raise HostHelperError("quiet Compose progress is allowed only for stop")
     if instance_system and suffix and suffix[0] in _SCOPED_COMPOSE_MUTATIONS:
         raise HostHelperError(
             "scoped host helper refuses install-wide Compose lifecycle; "

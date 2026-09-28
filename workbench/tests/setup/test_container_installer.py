@@ -356,6 +356,19 @@ def test_scoped_instance_dispatcher_requires_registered_system_and_execs_exact_w
     assert selected.returncode == 0
     assert marker.read_text(encoding="utf-8") == "--detail"
 
+    down_marker = tmp_path / "down-progress"
+    down_wrapper = instance / "bin" / "down"
+    down_wrapper.write_text(
+        f"#!/usr/bin/env bash\nprintf '%s' \"${{COMPOSE_PROGRESS:-unset}}\" > {down_marker}\n",
+        encoding="utf-8",
+    )
+    down_wrapper.chmod(0o755)
+    stopped = subprocess.run(
+        (dispatcher, "alpha", "down"), text=True, capture_output=True, check=False
+    )
+    assert stopped.returncode == 0
+    assert down_marker.read_text(encoding="utf-8") == "quiet"
+
     (instance / "state.json").write_text('{"system_id":"bravo"}\n', encoding="utf-8")
     mismatched = subprocess.run(
         (dispatcher, "alpha", "status"), text=True, capture_output=True, check=False
@@ -2399,6 +2412,46 @@ def test_runtime_down_revokes_owned_xhost_without_inheriting_stale_authority(
     assert result.returncode == 0
     assert (tmp_path / "xhost.revoked").read_text(encoding="utf-8") == ":7"
     assert not (tmp_path / "viewer-xhost").exists()
+
+
+def test_instance_scoped_runtime_down_quiets_compose_progress(tmp_path: Path) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    wrapper = tmp_path / "elesim-instance-down"
+    wrapper.write_text(
+        _runtime_down_wrapper(
+            compose=compose,
+            logs_root=tmp_path / "logs",
+            services=("pilot", "sim"),
+            archive_enabled=False,
+            guard="",
+            project="elesim-runtime",
+            instance_scoped=True,
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _fake_docker(fake_bin)
+    calls = tmp_path / "docker.calls"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "ELESIM_FAKE_DOCKER_CALLS": str(calls),
+        }
+    )
+
+    result = subprocess.run(
+        (wrapper,), env=environment, text=True, capture_output=True, check=False
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert any(
+        "--progress quiet stop pilot sim" in line
+        for line in calls.read_text(encoding="utf-8").splitlines()
+    )
 
 
 def test_runtime_down_purge_removes_only_the_exact_manager_container(

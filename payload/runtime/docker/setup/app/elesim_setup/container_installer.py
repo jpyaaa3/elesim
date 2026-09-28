@@ -3048,6 +3048,7 @@ def _scoped_instance_dispatcher(
                 if state_path is not None and install_uuid and docker_context and docker_engine_id
                 else ""
             )
+            + 'if [[ $instance_action == down ]]; then export COMPOSE_PROGRESS=quiet; fi\n'
             + "exec \"$instance_wrapper\" \"$@\"\n"
         )
     )
@@ -4721,6 +4722,7 @@ def _runtime_down_wrapper(
     if project is not None:
         command += "-p " + shlex.quote(project) + " "
     command += "-f " + shlex.quote(str(compose))
+    shutdown_command = command + " --progress quiet"
     rendered_services = " ".join(shlex.quote(service) for service in services)
     manager_purge = (
         (
@@ -4758,7 +4760,7 @@ def _runtime_down_wrapper(
         (
             "shutdown_runtime() {\n"
             "  if runtime_has_role_containers; then\n"
-            f"    {command} stop {rendered_services}\n"
+            f"    {shutdown_command} stop {rendered_services}\n"
             "  else\n"
             "    printf 'EleSim role container is not running.\\n' >&2\n"
             "  fi\n"
@@ -4771,7 +4773,7 @@ def _runtime_down_wrapper(
         else (
         "shutdown_runtime() {\n"
         "  if (( purge_requested )); then\n"
-        f"    {command} down --remove-orphans\n"
+        f"    {shutdown_command} down --remove-orphans\n"
         "  elif runtime_has_role_containers; then\n"
         f"    {command} rm -f -s {rendered_services}\n"
         "  else\n"
@@ -4781,7 +4783,7 @@ def _runtime_down_wrapper(
         if infrastructure_services
         else (
             "shutdown_runtime() {\n"
-            f"  {command} down --remove-orphans\n"
+            f"  {shutdown_command} down --remove-orphans\n"
             "}\n"
         )
         )

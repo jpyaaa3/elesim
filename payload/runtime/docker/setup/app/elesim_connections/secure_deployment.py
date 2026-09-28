@@ -4491,7 +4491,7 @@ def _lifecycle_command(
         services = (*services, "coturn")
     if unit.lifecycle == "compose":
         if action == "stop":
-            return (*_compose_command(unit), "stop", *services)
+            return (*_compose_command(unit), "--progress", "quiet", "stop", *services)
         if action == "start":
             # Security/topology transactions resume the exact containers that
             # were running before the switch.  They never build or recreate.

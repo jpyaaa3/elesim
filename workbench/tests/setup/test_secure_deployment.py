@@ -244,6 +244,15 @@ def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
         "start",
         "sim",
     )
+    assert _lifecycle_command(host, action="stop") == (
+        "/usr/local/bin/elesim-compose",
+        "-f",
+        "/opt/elesim/containers/compose.yaml",
+        "--progress",
+        "quiet",
+        "stop",
+        "sim",
+    )
     assert _lifecycle_command(host, action="build") == (
         "/usr/local/bin/elesim-compose",
         "--progress",

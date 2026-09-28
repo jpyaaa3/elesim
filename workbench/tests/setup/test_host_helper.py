@@ -905,3 +905,23 @@ def test_operator_down_is_scoped_to_manager_system() -> None:
                       ("down", "test", "--purge"), ("up", "test")):
         with pytest.raises(HostHelperError):
             _validate_command((str(bin_dir / "elesim"), *arguments), **options)
+
+
+def test_quiet_compose_progress_is_allowed_only_for_validated_stop() -> None:
+    compose, bin_dir = _paths()
+    options = dict(compose=compose, bin_dir=bin_dir, project="elesim-test")
+    prefix = (str(bin_dir / "elesim-compose"), "-f", str(compose))
+    _validate_command(
+        (*prefix, "--progress", "quiet", "stop", "sim"), **options
+    )
+    for suffix in (
+        ("--progress", "quiet", "up", "sim"),
+        ("--progress", "quiet", "stop", "foreign"),
+    ):
+        with pytest.raises(HostHelperError):
+            _validate_command((*prefix, *suffix), **options)
+    with pytest.raises(HostHelperError, match="exact elesim-instance"):
+        _validate_command(
+            (*prefix, "--progress", "quiet", "stop", "sim"),
+            **{**options, "instance_system": "test"},
+        )

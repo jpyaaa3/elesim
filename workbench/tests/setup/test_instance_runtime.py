@@ -170,6 +170,8 @@ def test_instances_coexist_and_removal_preserves_other_system(local_state, tmp_p
             assert service in wrapper
             assert container_name(INSTALL, service) in wrapper
         assert "down --remove-orphans" not in wrapper
+    down_wrapper = (state.prefix_path / "instances/alpha/bin/down").read_text()
+    assert "--progress quiet stop" in down_wrapper
     status_wrapper = (state.prefix_path / "instances/alpha/bin/status").read_text()
     for role, service in zip(("pilot", "sim", "ui"), services):
         assert f"{service}) printf '%s\\n' {role}" in status_wrapper
