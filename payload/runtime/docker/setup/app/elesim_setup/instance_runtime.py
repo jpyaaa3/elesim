@@ -796,6 +796,13 @@ class InstanceRuntime:
                 system_container_name(instance.system_id, endpoint.role, install_name=self.install_name)
             for endpoint in instance.endpoints
         }
+        if instance.turn.mode == "managed":
+            coturn_container = self._instance_container_name(
+                instance, turn_service_key(instance.system_id)
+            )
+            log_aliases[coturn_container] = system_container_name(
+                instance.system_id, "coturn", install_name=self.install_name
+            )
 
         backend_guard = _docker_backend_guard(self.state.container_network)
         owner_guard = compose_owner_guard(

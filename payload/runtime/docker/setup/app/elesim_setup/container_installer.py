@@ -2296,6 +2296,13 @@ class ContainerInstaller:
         managed_services = (*self.state.roles,)
         if self.state.turn.managed:
             managed_services = (*managed_services, "coturn")
+        log_aliases = {
+            self._container_name(role): self._container_name(role)
+            for role in self.state.roles
+        }
+        if self.state.turn.managed:
+            coturn = self._infra_container_name("coturn")
+            log_aliases[coturn] = coturn
         tailscale_services = (*managed_services, "runtime-tools")
         if not self._scoped_namespace:
             write_executable(
@@ -2307,6 +2314,7 @@ class ContainerInstaller:
                     archive_enabled=self.state.runtime_text_logs.enabled,
                     guard=guard,
                     project=self._compose_project,
+                    log_aliases=log_aliases,
                 ),
             )
             write_executable(
@@ -4431,16 +4439,51 @@ def _runtime_up_wrapper(
     )
 
 
-def _runtime_log_filter(log_aliases: Mapping[str, str] | None) -> str:
-    """Replace only Compose's leading container prefix, never message text."""
+_RUNTIME_LOG_ROLE_COLORS = {
+    "pilot": "\x1b[36m",   # cyan
+    "sim": "\x1b[33m",     # yellow
+    "ui": "\x1b[32m",      # green
+    "robot": "\x1b[35m",   # magenta
+    "coturn": "\x1b[34m",  # blue
+}
+_RUNTIME_LOG_RESET = "\x1b[0m"
+
+
+def _runtime_log_filter(
+    log_aliases: Mapping[str, str] | None,
+    *,
+    color: bool = False,
+) -> str:
+    """Replace Compose's leading prefix, optionally coloring live role names."""
     if not log_aliases:
         return ""
-    expressions = []
+    plain_expressions = []
+    color_expressions = []
     for name, alias in log_aliases.items():
         if not re.fullmatch(r"[a-zA-Z0-9_-]+", name) or not re.fullmatch(r"[a-zA-Z0-9_-]+", alias):
             raise ValueError("invalid runtime log alias")
-        expressions.extend(("-e", shlex.quote(f"s/^{name} *|/{alias} |/")))
-    return " | sed -u " + " ".join(expressions)
+        plain_expressions.extend(("-e", shlex.quote(f"s/^{name} *|/{alias} |/")))
+        role = alias.rsplit("-", 1)[-1].lower()
+        role_color = _RUNTIME_LOG_ROLE_COLORS.get(role)
+        colored_alias = (
+            f"{role_color}{alias}{_RUNTIME_LOG_RESET}"
+            if role_color
+        else alias
+        )
+        color_expressions.extend(
+            ("-e", shlex.quote(f"s/^{name} *|/{colored_alias} |/"))
+        )
+    plain = "sed -u " + " ".join(plain_expressions)
+    if not color:
+        return " | " + plain
+    colored = "sed -u " + " ".join(color_expressions)
+    return (
+        " | if [[ -t 1 && ${TERM:-} != dumb && -z ${NO_COLOR:-} ]]; then\n"
+        f"    {colored}\n"
+        "  else\n"
+        f"    {plain}\n"
+        "  fi"
+    )
 
 
 def _runtime_archive_function(
@@ -4639,7 +4682,7 @@ def _runtime_logs_wrapper(
         + ("  " if log_aliases else "  exec ")
         + command
         + " logs -f " + rendered_services
-        + _runtime_log_filter(log_aliases) + "\n"
+        + _runtime_log_filter(log_aliases, color=True) + "\n"
         + "  exit $?\n"
         + "fi\n"
         + "if (( $# == 1 )) && [[ $1 == --save ]]; then\n"

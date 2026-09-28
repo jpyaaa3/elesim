@@ -3795,3 +3795,16 @@ def test_runtime_log_alias_changes_only_compose_prefix() -> None:
     failed = subprocess.run(("bash", "-o", "pipefail", "-c",
                              "(exit 17)" + _runtime_log_filter({"old": "new"})))
     assert failed.returncode == 17
+
+
+def test_runtime_log_alias_colors_only_live_role_prefix() -> None:
+    from elesim_setup.container_installer import _runtime_log_filter
+
+    colored = _runtime_log_filter(
+        {"elesim-long-hash": "elesim-cozy-test-ui"},
+        color=True,
+    )
+    archived = _runtime_log_filter({"elesim-long-hash": "elesim-cozy-test-ui"})
+    assert "\x1b[32melesim-cozy-test-ui\x1b[0m" in colored
+    assert "-t 1" in colored
+    assert "\x1b[" not in archived
