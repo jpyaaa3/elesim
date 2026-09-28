@@ -6,7 +6,10 @@ import numpy as np
 
 from elesim_sim.robot.go2.locomotion.config import Go2LocomotionConfig
 from elesim_sim.robot.go2.locomotion.gait import GaitScheduler
-from elesim_sim.robot.go2.locomotion.kinematics import HIP_OFFSET_BODY, TROT_PHASE_OFFSET
+from elesim_sim.robot.go2.locomotion.kinematics import (
+    NOMINAL_FOOT_OFFSET_BODY,
+    TROT_PHASE_OFFSET,
+)
 from elesim_sim.robot.go2.locomotion.raibert import RaibertFootPlacement
 from elesim_sim.robot.go2.locomotion.swing import SwingTrajectory
 from elesim_sim.robot.go2.locomotion.types import Go2Command, LegId, LegPhase
@@ -43,8 +46,23 @@ class Go2RaibertMathTests(unittest.TestCase):
         cmd = Go2Command(vx=0.35, vy=0.0, yaw_rate=0.0)
         v_body = np.array([0.0, 0.0, 0.0], dtype=float)
         p_fl = raibert.compute_foot_target(LegId.FL, v_body=v_body, cmd=cmd)
-        p_nom = np.array([HIP_OFFSET_BODY[LegId.FL][0], HIP_OFFSET_BODY[LegId.FL][1], -self.cfg.nominal_body_height_m])
+        p_nom = np.array([
+            NOMINAL_FOOT_OFFSET_BODY[LegId.FL][0],
+            NOMINAL_FOOT_OFFSET_BODY[LegId.FL][1],
+            -self.cfg.nominal_body_height_m,
+        ])
         self.assertGreater(p_fl[0], p_nom[0])
+
+    def test_raibert_nominal_touchdown_keeps_full_urdf_foot_width(self) -> None:
+        raibert = RaibertFootPlacement(self.cfg)
+        target = raibert.compute_foot_target(
+            LegId.FL,
+            v_body=np.zeros(3),
+            cmd=Go2Command(),
+        )
+        expected_y = 0.0465 + 0.0955 * np.cos(0.1)
+        self.assertAlmostEqual(target[1], expected_y)
+        self.assertGreater(target[1], 0.13)
 
     def test_swing_trajectory_apex(self) -> None:
         p0 = np.array([0.0, 0.0, -0.30])

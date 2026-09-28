@@ -12,6 +12,7 @@ _EXPORTS = {
     "HIP_OFFSET_BODY": "kinematics",
     "LegId": "types",
     "LegPhase": "types",
+    "NOMINAL_FOOT_OFFSET_BODY": "kinematics",
     "RaibertFootPlacement": "raibert",
     "RaibertTrotController": "controller",
     "SwingTrajectory": "swing",

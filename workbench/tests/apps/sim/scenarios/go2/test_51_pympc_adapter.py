@@ -4,8 +4,13 @@ import numpy as np
 import pytest
 from types import SimpleNamespace
 
-from elesim_sim.robot.go2.locomotion.types import Go2Command
-from elesim_sim.robot.go2.pympc_controller import PyMpcGenesisController, contact_schedule
+from elesim_sim.robot.go2.locomotion.kinematics import NOMINAL_FOOT_OFFSET_BODY
+from elesim_sim.robot.go2.locomotion.types import ALL_LEGS, Go2Command
+from elesim_sim.robot.go2.pympc_controller import (
+    PyMpcGenesisController,
+    contact_schedule,
+    touchdown_offsets_body,
+)
 from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput
 
 
@@ -48,6 +53,26 @@ def test_diagonal_contact_sequence() -> None:
     np.testing.assert_array_equal(schedule[0], schedule[3])
     np.testing.assert_array_equal(schedule[1], schedule[2])
     np.testing.assert_array_equal(schedule[0] + schedule[1], np.ones(4))
+
+
+def test_touchdown_preserves_nominal_foot_width_and_scales_commanded_stride() -> None:
+    nominal = np.asarray([NOMINAL_FOOT_OFFSET_BODY[leg] for leg in ALL_LEGS])
+    half_stance_s = 0.12
+    placement_scale = 1.35
+    placements = touchdown_offsets_body(
+        nominal,
+        command_body=np.array([0.2, 0.0, 0.0]),
+        yaw_rate=0.0,
+        half_stance_s=half_stance_s,
+        placement_scale=placement_scale,
+    )
+
+    np.testing.assert_allclose(placements[:, 1], nominal[:, 1])
+    np.testing.assert_allclose(
+        placements[:, 0], nominal[:, 0] + 0.2 * half_stance_s * placement_scale
+    )
+    assert placements[0, 1] > 0.13
+    assert placements[1, 1] < -0.13
 
 
 def test_solver_passes_world_state_and_dynamic_payload_then_masks_swing() -> None:

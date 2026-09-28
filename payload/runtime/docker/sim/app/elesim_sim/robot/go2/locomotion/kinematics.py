@@ -49,6 +49,33 @@ HIP_OFFSET_BODY: Dict[LegId, np.ndarray] = {
     LegId.RR: np.array([-0.1934, -0.0465, 0.0], dtype=float),
 }
 
+# Nominal foot centers are farther outboard than the hip motor pivots:
+# the GO2 URDF places each thigh joint another 95.5 mm laterally from its hip.
+# These offsets are evaluated at the crouched ready pose used before walking.
+_THIGH_JOINT_OFFSET_Y_M = 0.0955
+_LEG_LINK_LENGTH_M = 0.213
+
+
+def _nominal_foot_offset_body(leg: LegId) -> np.ndarray:
+    hip = HIP_OFFSET_BODY[leg]
+    side = float(np.sign(hip[1]))
+    q_hip = float(GO2_READY_Q[f"{leg.value}_hip_joint"])
+    q_thigh = float(GO2_READY_Q[f"{leg.value}_thigh_joint"])
+    q_calf = float(GO2_READY_Q[f"{leg.value}_calf_joint"])
+    # The two 213 mm leg links have opposing pitch in the ready pose, so their
+    # forward offsets nearly cancel. Include the URDF thigh-joint lateral
+    # offset, rotated by the hip abduction angle, in the nominal foot center.
+    x = hip[0] - _LEG_LINK_LENGTH_M * (
+        np.sin(q_thigh) + np.sin(q_thigh + q_calf)
+    )
+    y = hip[1] + side * _THIGH_JOINT_OFFSET_Y_M * np.cos(q_hip)
+    return np.array([x, y, 0.0], dtype=float)
+
+
+NOMINAL_FOOT_OFFSET_BODY: Dict[LegId, np.ndarray] = {
+    leg: _nominal_foot_offset_body(leg) for leg in ALL_LEGS
+}
+
 TROT_PHASE_OFFSET: Dict[LegId, float] = {
     LegId.FL: 0.0,
     LegId.RR: 0.0,
@@ -135,8 +162,8 @@ class Go2KinematicsModel:
         return entity.get_link(self.hip_link_names[leg])
 
     def nominal_foot_body(self, leg: LegId, *, body_height_m: float) -> np.ndarray:
-        hip = HIP_OFFSET_BODY[leg]
-        return np.array([hip[0], hip[1], -float(body_height_m)], dtype=float)
+        foot = NOMINAL_FOOT_OFFSET_BODY[leg]
+        return np.array([foot[0], foot[1], -float(body_height_m)], dtype=float)
 
     def read_link_pos_world(self, link) -> np.ndarray:
         return _to_numpy_1d(link.get_pos())[:3]

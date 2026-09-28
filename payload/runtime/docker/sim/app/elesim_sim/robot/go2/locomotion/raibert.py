@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from elesim_sim.robot.go2.locomotion.config import Go2LocomotionConfig
-from elesim_sim.robot.go2.locomotion.kinematics import HIP_OFFSET_BODY
+from elesim_sim.robot.go2.locomotion.kinematics import NOMINAL_FOOT_OFFSET_BODY
 from elesim_sim.robot.go2.locomotion.types import Go2Command, LegId
 
 
@@ -20,7 +20,7 @@ class RaibertFootPlacement:
         v_body: np.ndarray,
         cmd: Go2Command,
     ) -> np.ndarray:
-        p_hip = HIP_OFFSET_BODY[leg]
+        p_hip = NOMINAL_FOOT_OFFSET_BODY[leg]
         v_body_xy = np.asarray(v_body, dtype=float).reshape(3)
         v_cmd_xy = np.array([float(cmd.vx), float(cmd.vy), 0.0], dtype=float)
 

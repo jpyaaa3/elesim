@@ -13,7 +13,11 @@ from types import SimpleNamespace
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from elesim_sim.robot.go2.locomotion.kinematics import GO2_LEG_JOINTS, HIP_OFFSET_BODY, Go2KinematicsModel
+from elesim_sim.robot.go2.locomotion.kinematics import (
+    GO2_LEG_JOINTS,
+    NOMINAL_FOOT_OFFSET_BODY,
+    Go2KinematicsModel,
+)
 from elesim_sim.robot.go2.locomotion.types import Go2Command, LegId
 from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
 from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge
@@ -32,6 +36,33 @@ def contact_schedule(time_s: float, *, gait_hz: float, duty: float, dt: float, h
         raise ValueError("invalid trot contact schedule parameters")
     phase = (time_s + np.arange(horizon) * dt) * gait_hz
     return (((phase[None, :] + _PHASE_OFFSETS[:, None]) % 1.0) < duty).astype(float)
+
+
+def touchdown_offsets_body(
+    nominal_foot_offsets: np.ndarray,
+    *,
+    command_body: np.ndarray,
+    yaw_rate: float,
+    half_stance_s: float,
+    placement_scale: float,
+) -> np.ndarray:
+    """Return nominal foot centers plus scaled stride and yaw prediction."""
+    feet = np.asarray(nominal_foot_offsets, dtype=float)
+    command = np.asarray(command_body, dtype=float).reshape(-1)
+    if feet.ndim != 2 or feet.shape[1] != 3 or command.shape != (3,):
+        raise ValueError("touchdown offsets need Nx3 feet and a 3D body command")
+    if not np.all(np.isfinite(feet)) or not np.all(np.isfinite(command)):
+        raise ValueError("touchdown offsets and command must be finite")
+
+    yaw_lead = Rotation.from_euler(
+        "z", float(half_stance_s) * float(yaw_rate)
+    ).as_matrix()
+    offsets = feet @ yaw_lead.T
+    # Scale the commanded stride while retaining each leg's true nominal
+    # lateral stance width. Scaling the hip pivot itself pulls touchdown points
+    # inboard because the URDF thigh joint sits 95.5 mm outboard of each pivot.
+    offsets[:, :2] += float(half_stance_s) * float(placement_scale) * command[None, :2]
+    return offsets
 
 
 class PyMpcGenesisController:
@@ -70,6 +101,9 @@ class PyMpcGenesisController:
         if any(frame >= self._model.nframes for frame in self._frames):
             raise RuntimeError("GO2 PyMPC URDF is missing a foot frame")
         self._data = self._model.createData()
+        self._nominal_foot_offsets_body = np.asarray(
+            [NOMINAL_FOOT_OFFSET_BODY[leg] for leg in _LEGS], dtype=float
+        )
         self._entity = entity
         self._kin = Go2KinematicsModel.from_entity(entity)
         self._leg_dof_idxs = list(self._kin.all_leg_dof_idx)
@@ -242,15 +276,16 @@ class PyMpcGenesisController:
         footholds = feet.copy()
         floor_z = 0.025
         half_stance_s = 0.5 * float(self._config.gait_duty / self._config.gait_hz)
-        yaw_lead = Rotation.from_euler(
-            "z", half_stance_s * float(self._cmd.yaw_rate)
-        ).as_matrix()
-        for i, leg in enumerate(_LEGS):
-            hip = np.asarray(HIP_OFFSET_BODY[leg], dtype=float)
-            placement = yaw_lead @ hip + half_stance_s * cmd_body
-            placement[:2] *= float(self._config.foot_placement_scale)
+        placements = touchdown_offsets_body(
+            self._nominal_foot_offsets_body,
+            command_body=cmd_body,
+            yaw_rate=float(self._cmd.yaw_rate),
+            half_stance_s=half_stance_s,
+            placement_scale=float(self._config.foot_placement_scale),
+        )
+        for i in range(len(_LEGS)):
             if contacts[i, 0] == 0:
-                footholds[i] = q[:3] + rot_m @ placement
+                footholds[i] = q[:3] + rot_m @ placements[i]
                 footholds[i, 2] = floor_z
         sample = PyMpcInput(
             com_position=com,
