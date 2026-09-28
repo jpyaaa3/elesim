@@ -244,6 +244,7 @@ def _command_timeout(argv: Sequence[str], base: float) -> float:
     command_name = PurePosixPath(values[0]).name if values else ""
     if (
         command_name == "elesim-up"
+        or (command_name == "elesim" and len(values) == 3 and values[1] == "down")
         or (
             command_name == "elesim-instance"
             and len(values) >= 3
@@ -1869,6 +1870,7 @@ class _LocalSession:
             values[0] == "docker"
             or Path(values[0]).name
             in {
+                "elesim",
                 "elesim-compose",
                 "elesim-net",
                 "elesim-tailscale",
@@ -4477,6 +4479,8 @@ def _lifecycle_command(
                 "scoped instance lifecycle does not accept runtime GPU/viewer overrides; "
                 "configure the instance compute policy at registration"
             )
+        if action == "stop":
+            return (str(PurePosixPath(unit.bin_dir) / "elesim"), "down", str(system_id))
         return (
             str(PurePosixPath(unit.bin_dir) / "elesim-instance"),
             str(system_id),

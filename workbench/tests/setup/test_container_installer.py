@@ -3783,3 +3783,15 @@ def test_runtime_wrapper_rejects_a_container_owned_by_another_install(
     assert result.returncode == 73
     assert "elesim-" in result.stderr
     assert "existing install's elesim-down" in result.stderr
+
+
+def test_runtime_log_alias_changes_only_compose_prefix() -> None:
+    from elesim_setup.container_installer import _runtime_log_filter
+
+    command = "printf '%s\\n' 'elesim-long-hash  | state=ready elesim-long-hash' 'unprefixed error'" + _runtime_log_filter({"elesim-long-hash": "elesim-cozy-test-ui"})
+    result = subprocess.run(("bash", "-o", "pipefail", "-c", command),
+                            text=True, capture_output=True, check=True)
+    assert result.stdout == "elesim-cozy-test-ui | state=ready elesim-long-hash\nunprefixed error\n"
+    failed = subprocess.run(("bash", "-o", "pipefail", "-c",
+                             "(exit 17)" + _runtime_log_filter({"old": "new"})))
+    assert failed.returncode == 17

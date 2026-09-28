@@ -276,7 +276,7 @@ def test_scoped_lifecycle_routes_through_exact_instance_dispatcher() -> None:
     )
     assert _lifecycle_command(
         unit, action="stop", system_id="lab", scoped=True
-    ) == ("/usr/local/bin/elesim-instance", "lab", "down")
+    ) == ("/usr/local/bin/elesim", "down", "lab")
     assert _lifecycle_command(
         unit, action="status", system_id="lab", scoped=True
     ) == ("/usr/local/bin/elesim-instance", "lab", "status")
@@ -580,9 +580,9 @@ def test_scoped_installed_lifecycle_validates_and_uses_instance_commands() -> No
     assert [
         command
         for command, _check in session.commands
-        if command and command[0].endswith("elesim-instance")
+        if command and command[0].split("/")[-1] in {"elesim", "elesim-instance"}
     ] == [
-        ("/usr/local/bin/elesim-instance", "lab", "down"),
+        ("/usr/local/bin/elesim", "down", "lab"),
         ("/usr/local/bin/elesim-instance", "lab", "up", "--no-build"),
         ("/usr/local/bin/elesim-instance", "lab", "up", "--no-build"),
     ]

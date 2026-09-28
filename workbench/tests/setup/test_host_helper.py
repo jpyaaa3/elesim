@@ -894,3 +894,14 @@ def test_host_helper_scoped_manager_cannot_use_install_compose_lifecycle() -> No
             project="elesim-runtime-0123456789abcdef",
             instance_system="lab",
         )
+
+
+def test_operator_down_is_scoped_to_manager_system() -> None:
+    compose, bin_dir = _paths()
+    options = dict(compose=compose, bin_dir=bin_dir,
+                   project="elesim-test", instance_system="test")
+    _validate_command((str(bin_dir / "elesim"), "down", "test"), **options)
+    for arguments in (("down", "other"), ("down", "../test"),
+                      ("down", "test", "--purge"), ("up", "test")):
+        with pytest.raises(HostHelperError):
+            _validate_command((str(bin_dir / "elesim"), *arguments), **options)

@@ -437,3 +437,14 @@ elesim-dev python3 workbench/tools/release/verify.py dist/releases
 - LAN/routed VPN/global IPv6와 지원되지 않는 NAT의 명시적 실패
 - GPU/CPU policy, NVENC/libx264, X11/WSLg Viewer와 observer/hand-eye 화면
 - Jetson Unitree bridge deadman, arm cleanup, 물리 Look–Aim–Grasp
+
+Connections의 빨간 중단 버튼은 각 참여 호스트의 scoped container 설치에서
+`<bin_dir>/elesim down <system-id>`를 호출한다. 로컬 host helper와 원격 SSH가
+동일한 operator 명령을 실행하며 한 호스트의 실패 뒤에도 나머지 호스트를
+시도하고 오류를 모아 보고한다. Native Robot의 systemd stop 경계는 유지한다.
+
+기존 hash-v1 설치의 instance 로그 wrapper도 재생성 시 Compose 출력의 긴
+컨테이너 접두사를 `elesim-<install>-<system>-<role>`로 표시한다. 실시간 logs와
+logs --save/down의 보관 파일에 모두 적용하며 메시지 본문, 실제 Docker 이름,
+소유권 manifest 및 Compose project는 바꾸지 않는다. 기존 등록 instance에는
+새 setup으로 register/replace하여 wrapper를 재생성한 뒤 적용된다.

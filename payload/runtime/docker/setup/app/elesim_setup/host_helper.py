@@ -451,6 +451,15 @@ def _validate_command(
                 "scoped host helper refuses install-wide viewer cleanup"
             )
         return
+    if argv[0] == str(bin_dir / "elesim"):
+        if len(argv) != 3 or argv[1] != "down":
+            raise HostHelperError("operator wrapper accepts only down <system-id>")
+        system = argv[2]
+        if instance_system not in {"", "*"} and system != instance_system:
+            raise HostHelperError("scoped lifecycle system does not match this manager")
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", system):
+            raise HostHelperError("scoped lifecycle system is invalid")
+        return
     instance = str(bin_dir / "elesim-instance")
     if argv[0] == instance:
         if len(argv) < 3:

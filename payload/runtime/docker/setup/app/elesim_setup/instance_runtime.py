@@ -42,6 +42,7 @@ from .instance_identity import (
     instance_container_name,
     project_name,
     service_key,
+    system_container_name,
     validate_container_naming,
 )
 from .instance_preparation import prepare_instance_services
@@ -790,6 +791,12 @@ class InstanceRuntime:
         bin_dir = target / "bin"
         bin_dir.mkdir(parents=True, exist_ok=True)
         logs_root = self.prefix / "instances" / instance.system_id / "logs"
+        log_aliases = {
+            self._instance_container_name(instance, service_key(instance.system_id, endpoint.endpoint_id)):
+                system_container_name(instance.system_id, endpoint.role, install_name=self.install_name)
+            for endpoint in instance.endpoints
+        }
+
         backend_guard = _docker_backend_guard(self.state.container_network)
         owner_guard = compose_owner_guard(
             self.compose,
@@ -818,6 +825,7 @@ class InstanceRuntime:
         down = _runtime_down_wrapper(
             compose=self.compose,
             logs_root=logs_root,
+            log_aliases=log_aliases,
             services=services,
             archive_enabled=self.state.runtime_text_logs.enabled,
             guard=guard,
@@ -829,6 +837,7 @@ class InstanceRuntime:
         logs = _runtime_logs_wrapper(
             compose=self.compose,
             logs_root=logs_root,
+            log_aliases=log_aliases,
             services=services,
             archive_enabled=self.state.runtime_text_logs.enabled,
             guard=guard,

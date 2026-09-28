@@ -4431,12 +4431,25 @@ def _runtime_up_wrapper(
     )
 
 
+def _runtime_log_filter(log_aliases: Mapping[str, str] | None) -> str:
+    """Replace only Compose's leading container prefix, never message text."""
+    if not log_aliases:
+        return ""
+    expressions = []
+    for name, alias in log_aliases.items():
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", name) or not re.fullmatch(r"[a-zA-Z0-9_-]+", alias):
+            raise ValueError("invalid runtime log alias")
+        expressions.extend(("-e", shlex.quote(f"s/^{name} *|/{alias} |/")))
+    return " | sed -u " + " ".join(expressions)
+
+
 def _runtime_archive_function(
     *,
     compose: Path,
     logs_root: Path,
     services: tuple[str, ...],
     project: str | None = None,
+    log_aliases: Mapping[str, str] | None = None,
 ) -> str:
     rendered_services = " ".join(shlex.quote(service) for service in services)
     return (
@@ -4504,7 +4517,9 @@ def _runtime_archive_function(
         + "-f "
         + shlex.quote(str(compose))
         + ' logs --no-color --timestamps "$service" '
-        + '>"$destination" 2>&1; then\n'
+        + ' 2>&1'
+        + _runtime_log_filter(log_aliases)
+        + '>"$destination"; then\n'
         "      printf 'Failed to save service logs: %s (destination: %s)\\n' "
         '"$service" "$destination" >&2\n'
         "      archive_status=74\n"
@@ -4583,6 +4598,7 @@ def _runtime_logs_wrapper(
     archive_enabled: bool,
     guard: str,
     project: str | None = None,
+    log_aliases: Mapping[str, str] | None = None,
 ) -> str:
     command = "docker compose "
     if project is not None:
@@ -4593,6 +4609,7 @@ def _runtime_logs_wrapper(
         _runtime_archive_function(
             compose=compose,
             logs_root=logs_root,
+            log_aliases=log_aliases,
             services=services,
             project=project,
         )
@@ -4619,9 +4636,11 @@ def _runtime_logs_wrapper(
         + "    printf 'No running EleSim role container was found. Run elesim-up first.\\n' >&2\n"
         + "    exit 3\n"
         + "  fi\n"
-        + "  exec "
+        + ("  " if log_aliases else "  exec ")
         + command
-        + " logs -f " + rendered_services + "\n"
+        + " logs -f " + rendered_services
+        + _runtime_log_filter(log_aliases) + "\n"
+        + "  exit $?\n"
         + "fi\n"
         + "if (( $# == 1 )) && [[ $1 == --save ]]; then\n"
         + "  if ! runtime_has_role_containers; then\n"
@@ -4649,6 +4668,7 @@ def _runtime_down_wrapper(
     project: str | None = None,
     instance_scoped: bool = False,
     manager_container: str = "elesim-manager",
+    log_aliases: Mapping[str, str] | None = None,
 ) -> str:
     if instance_scoped and not services:
         raise ValueError("instance-scoped runtime down requires services")
@@ -4818,6 +4838,7 @@ def _runtime_down_wrapper(
         + _runtime_archive_function(
             compose=compose,
             logs_root=logs_root,
+            log_aliases=log_aliases,
             services=services,
             project=project,
         )
