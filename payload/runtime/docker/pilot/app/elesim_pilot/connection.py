@@ -320,6 +320,13 @@ class PilotConnection:
                     )
             return
         if message_type in {"target_lost", "target_released"}:
+            # A local loss event can be queued before a newer grant is
+            # delivered in the same receive pass. Keep that new authority.
+            if message.lease_id and (
+                message.source_id != self.active_target
+                or message.lease_id != self.lease_id
+            ):
+                return
             self._diagnostic(
                 "target",
                 dedupe=f"lost:{self.active_target}",

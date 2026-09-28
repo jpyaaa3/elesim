@@ -27,6 +27,13 @@ observer와 hand-eye 픽셀은 DDS payload가 아니며 WebRTC DTLS/SRTP track�
 
 ## 2. Control registry
 
+Motion renewal recovery retains protocol major 6 and the existing wire fields.
+Pilot correlates `error.reply_to` with a bounded history of renewal requests,
+including the target endpoint/boot and lease token. A rejection for the current
+lease clears that lease and emits local `target_lost`, allowing normal target
+selection to acquire a new lease. Unrelated errors and delayed errors or release
+notifications for an older lease cannot revoke the current lease.
+
 2026-09-07 operator surface 정리: wire major 6과 view schema 1을 유지한다.
 현재 UI가 사용하는 `view_snapshot`, `service_call`, `state_call`, `state_set`만
 지원한다. UI가 snapshot cache에서 읽는 조회 메서드, `snapshot`과

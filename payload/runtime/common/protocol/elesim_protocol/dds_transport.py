@@ -1142,6 +1142,7 @@ class PeerClient:
         self.seq = 0
         self._closed = False
         self._remote_motion: Optional[_RemoteAuthority] = None
+        self._motion_renewals: dict[str, _RemoteAuthority] = {}
         self._remote_session: Optional[_RemoteAuthority] = None
         self._owned_motion: Optional[MotionLease] = None
         self._owned_session: Optional[SimulationSession] = None
@@ -1545,7 +1546,27 @@ class PeerClient:
         if message_type == "target_selected":
             self._observe_target_selected(envelope, source)
         elif message_type in {"target_released", "target_lost"}:
+            motion = self._remote_motion
+            if (
+                motion is None
+                or source != motion.resource
+                or envelope.lease_id != motion.lease_id
+            ):
+                return ()
             self._remote_motion = None
+            self._motion_renewals.clear()
+        elif message_type == "error":
+            reply_to = str((envelope.payload or {}).get("reply_to", ""))
+            renewal = self._motion_renewals.get(reply_to)
+            motion = self._remote_motion
+            if renewal is not None and source == renewal.resource:
+                del self._motion_renewals[reply_to]
+                if (
+                    motion is not None
+                    and motion.resource == renewal.resource
+                    and motion.lease_id == renewal.lease_id
+                ):
+                    self._lose_remote_motion("motion_lease_renewal_rejected")
         elif message_type == "simulation_session_opened":
             self._observe_session_opened(envelope, source)
         elif message_type == "simulation_session_revoked":
@@ -1884,6 +1905,11 @@ class PeerClient:
                 except DdsTransportError:
                     self._lose_remote_motion("target_peer_lost")
                 else:
+                    # Renewals have no success reply. Retain a bounded history
+                    # so delayed rejections can be matched without parsing text.
+                    if len(self._motion_renewals) >= self.max_pending:
+                        del self._motion_renewals[next(iter(self._motion_renewals))]
+                    self._motion_renewals[envelope.message_id] = motion
                     self._remote_motion = replace(
                         motion,
                         next_renew_at=now + self.heartbeat_s,
@@ -1942,6 +1968,7 @@ class PeerClient:
     def _lose_remote_motion(self, reason: str) -> None:
         remote = self._remote_motion
         self._remote_motion = None
+        self._motion_renewals.clear()
         if remote is None:
             return
         self._local_envelope(

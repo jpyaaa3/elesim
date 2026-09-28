@@ -112,6 +112,35 @@ def test_pilot_discovers_and_reselects_after_target_loss() -> None:
 
     assert sink.targets[-2:] == ["robot-a", ""]
     assert endpoint.sent[-1] == ("discover", {"payload": {}})
+    value.handle_envelope(
+        endpoint,
+        envelope("endpoint_list", {"endpoints": value.endpoints}),
+    )
+    assert endpoint.sent[-1] == ("select_target", {"payload": {"target_id": "robot-a"}})
+    value.handle_envelope(
+        endpoint,
+        envelope("target_selected", {"target_id": "robot-a", "lease_id": "lease-b"}),
+    )
+    assert value.active_target == "robot-a"
+    assert value.lease_id == "lease-b"
+
+
+def test_queued_old_lease_loss_does_not_clear_new_grant() -> None:
+    value, sink, endpoint = connection()
+    value.handle_envelope(
+        endpoint,
+        envelope("target_selected", {"target_id": "robot-a", "lease_id": "new-lease"}),
+    )
+    for kind in ("target_lost", "target_released"):
+        value.handle_envelope(
+            endpoint,
+            envelope(kind, {"target_id": "robot-a", "reason": "expired"},
+                     source_id="robot-a", lease_id="old-lease"),
+        )
+    assert value.active_target == "robot-a"
+    assert value.lease_id == "new-lease"
+    assert sink.targets == ["robot-a"]
+    assert endpoint.sent == []
 
 
 def test_target_selection_retries_only_after_discovery_interval() -> None:

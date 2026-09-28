@@ -6,6 +6,22 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Motion lease renewal recovery (2026-09-28)
+
+- Reproduced a lost revocation: the target expires its lease while Pilot is
+  temporarily undiscovered, then rejects Pilot's continuing renewals with
+  `no_active_lease`. Pilot previously kept renewing that rejected lease.
+- PeerClient now correlates renewal errors against bounded request history,
+  target endpoint/boot and lease identity, emits local `target_lost`, and lets
+  Pilot's existing discovery/selection loop reacquire authority. Old errors,
+  old release notifications and queued local loss events cannot clear a newer
+  grant. Protocol major 6 and all wire shapes remain unchanged.
+- Host protocol/Pilot connection regression suite: **153 passed, 5 subtests
+  passed**. The four-process DDS smoke now injects a missed revocation and
+  requires reacquisition plus accepted motion under the new lease.
+- Canonical development-image verification is pending; this does not establish
+  why the original deployed lease expired or prove live multi-host timing.
+
 ### Mixed native Robot / scoped container preparation (2026-09-16)
 
 - Connection-manager preparation now includes the native Robot unit in the

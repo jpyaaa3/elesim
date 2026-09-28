@@ -5,6 +5,8 @@ from collections import deque
 from dataclasses import replace
 from types import SimpleNamespace
 
+import pytest
+
 from elesim_protocol import (
     CAPABILITY_SIM_MOCK_HUG,
     DdsPeerNode,
@@ -306,6 +308,92 @@ def test_direct_discovery_motion_lease_and_fenced_command() -> None:
     assert [message.message_type for message in revoked] == ["lease_revoked"]
     released = _messages(pilot)
     assert [message.message_type for message in released] == ["target_released"]
+
+
+@pytest.mark.parametrize("role", ["robot", "sim"])
+def test_renewal_rejection_recovers_after_missed_revocation(role: str) -> None:
+    now = [0.0]
+    bus = _Bus()
+    pilot = PeerClient(EndpointDescriptor("pilot-a", "pilot"),
+                       node_factory=bus.factory, clock=lambda: now[0])
+    target = PeerClient(EndpointDescriptor("target-a", role),
+                        node_factory=bus.factory, clock=lambda: now[0])
+    pilot.send("select_target", payload={"target_id": "target-a"})
+    _messages(target)
+    old_lease = _messages(pilot)[0].lease_id
+
+    # Expiry while the owner cannot see Pilot: no release reaches it.
+    pilot_node = bus.nodes.pop("pilot-a")
+    now[0] = 4.0
+    target.heartbeat()
+    assert [m.message_type for m in _messages(target)] == ["lease_revoked"]
+    bus.nodes["pilot-a"] = pilot_node
+    pilot.heartbeat()
+    assert _messages(target) == []
+    replies = _messages(pilot)
+    assert [m.message_type for m in replies] == ["error", "target_lost"]
+    assert replies[0].payload["reason"].endswith("no_active_lease")
+    assert replies[1].lease_id == old_lease
+    now[0] = 5.0
+    pilot.heartbeat()
+    assert target.node.queue == []
+
+    pilot.send("select_target", payload={"target_id": "target-a"})
+    _messages(target)
+    new_lease = _messages(pilot)[0].lease_id
+    assert new_lease != old_lease
+    pilot.send("motion_command", target_id="target-a", lease_id=old_lease,
+               payload={"command": "torque_off"})
+    assert _messages(target) == []
+    assert [m.message_type for m in _messages(pilot)] == ["error"]
+    pilot.send("motion_command", target_id="target-a", lease_id=new_lease,
+               payload={"command": "torque_off"})
+    assert [m.message_type for m in _messages(target)] == ["motion_command"]
+
+
+def test_renewal_errors_are_fenced_and_history_is_bounded() -> None:
+    now = [0.0]
+    bus = _Bus()
+    pilot = PeerClient(EndpointDescriptor("pilot-a", "pilot"), max_pending=2,
+                       node_factory=bus.factory, clock=lambda: now[0])
+    target = PeerClient(EndpointDescriptor("target-a", "sim"),
+                        node_factory=bus.factory, clock=lambda: now[0])
+    other = PeerClient(EndpointDescriptor("other", "sim"), node_factory=bus.factory)
+    pilot.send("select_target", payload={"target_id": "target-a"})
+    _messages(target)
+    old_lease = _messages(pilot)[0].lease_id
+    for tick in range(1, 5):
+        now[0] = float(tick)
+        pilot.heartbeat()
+        renewal = target.node.queue[-1][0]
+        _messages(target)
+    assert len(pilot._motion_renewals) == 2
+
+    unrelated = make_envelope("error", "target-a", target_id="pilot-a", seq=98,
+                              payload={"reply_to": "unrelated", "reason": "rejected"})
+    pilot._route_inbound(unrelated, target.node.identity)
+    assert pilot._remote_motion.lease_id == old_lease
+    error = make_envelope("error", "target-a", target_id="pilot-a",
+                          payload={"reply_to": renewal.message_id, "reason": "rejected"}, seq=99)
+    for source in (other.node.identity, PeerIdentity("target-a", "old-boot")):
+        pilot._route_inbound(error, source)
+        assert pilot._remote_motion.lease_id == old_lease
+    assert _messages(pilot) == []
+
+    target._motion_authority.revoke(now=now[0])
+    pilot.send("select_target", payload={"target_id": "target-a"})
+    _messages(target)
+    new_lease = _messages(pilot)[0].lease_id
+    assert new_lease != old_lease
+    # Delayed rejection/release from the right peer still refers to old authority.
+    pilot._route_inbound(error, target.node.identity)
+    release = make_envelope("target_released", "target-a", target_id="pilot-a",
+                            lease_id=old_lease, seq=100,
+                            payload={"target_id": "target-a", "reason": "expired"})
+    assert pilot._route_inbound(release, target.node.identity) == ()
+    assert pilot._route_inbound(replace(release, lease_id=new_lease), other.node.identity) == ()
+    assert pilot._remote_motion.lease_id == new_lease
+    assert _messages(pilot) == []
 
 
 def test_sim_owns_ui_session_and_webrtc_signaling_fence() -> None:

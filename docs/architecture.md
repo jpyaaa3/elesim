@@ -130,6 +130,9 @@ role container는 `elesim-<install name>-<system_id>-pilot|sim|ui` alias를
 Pilot은 discovery interval마다 `select_target`을 반복하고 Sim/Robot의
 `target_selected`를 확인한다. stale boot, sequence, lease/session token은
 거부한다. 이전 process의 envelope이 새 process의 권한을 되살릴 수 없다.
+현재 lease의 갱신 요청에 대응하는 `error`가 오면 Pilot은 그 lease를 지우고
+`target_lost`를 통해 다시 선택한다. 요청 ID, target boot와 lease를 함께
+검사하므로 이전 lease의 지연된 오류·해제 통지가 새 lease를 취소하지 않는다.
 
 ### Authority와 lifecycle
 

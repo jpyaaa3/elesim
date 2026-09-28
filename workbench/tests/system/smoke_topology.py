@@ -39,9 +39,12 @@ EXPECTED = {
     "pilot:ack",
     "pilot:operator",
     "pilot:selected",
+    "pilot:renewal-lost",
+    "pilot:reselected",
     "pilot:imu_model",
     "robot:lease",
     "robot:motion",
+    "robot:recovered-motion",
     "robot:imu_model",
     "sim:command",
     "sim:session",
@@ -94,6 +97,7 @@ def _robot_process(barrier: Any, stop: Any, results: Any) -> None:
             settings=_settings(),
         )
         _wait_barrier(barrier)
+        revoked_lease = ""
         try:
             while not stop.is_set():
                 peer.heartbeat()
@@ -103,6 +107,8 @@ def _robot_process(barrier: Any, stop: Any, results: Any) -> None:
                     elif message.message_type == "motion_command":
                         command = MotionCommandRequest.from_payload(message.payload or {})
                         _report(results, "robot:motion")
+                        if revoked_lease and message.lease_id != revoked_lease:
+                            _report(results, "robot:recovered-motion")
                         if command.command == "set_imu_model":
                             _report(results, "robot:imu_model")
                         peer.send(
@@ -129,6 +135,12 @@ def _robot_process(barrier: Any, stop: Any, results: Any) -> None:
                                 } if command.command == "set_imu_model" else {}),
                             },
                         )
+                        if command.command == "torque_off" and not revoked_lease:
+                            # Fault injection: owner lost authority, but its
+                            # release notification never reached Pilot.
+                            revoked_lease = message.lease_id
+                            peer._motion_authority.revoke(now=peer.clock())
+                            peer._owned_motion = None
         finally:
             peer.close()
 
@@ -147,6 +159,7 @@ def _controller_process(barrier: Any, stop: Any, results: Any) -> None:
         )
         _wait_barrier(barrier)
         selected = False
+        renewal_lost = False
         lease_id = ""
         last_selection_at = 0.0
         last_motion_at = 0.0
@@ -178,6 +191,16 @@ def _controller_process(barrier: Any, stop: Any, results: Any) -> None:
                         selected = True
                         lease_id = message.lease_id
                         _report(results, "pilot:selected")
+                        if renewal_lost:
+                            motion_attempts = 0
+                            _report(results, "pilot:reselected")
+                    elif message.message_type == "target_lost":
+                        if (message.payload or {}).get("reason") == "motion_lease_renewal_rejected":
+                            renewal_lost = True
+                            _report(results, "pilot:renewal-lost")
+                        selected = False
+                        lease_id = ""
+                        model_confirmed = False
                     elif message.message_type == "operator_intent":
                         request_id = str((message.payload or {}).get("request_id", ""))
                         if (message.payload or {}).get("name") == "select_imu_model":

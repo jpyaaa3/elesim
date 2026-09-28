@@ -102,6 +102,7 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
     "renew_target": _contract(
         "renew_target", ("pilot",), ("robot", "sim"),
         authority="target owner motion lease", payload_fields=(), strict_fields=True,
+        notes="correlated rejection invalidates the matching remote lease; Pilot reselects",
     ),
     "release_target": _contract(
         "release_target", ("pilot",), ("robot", "sim"),
