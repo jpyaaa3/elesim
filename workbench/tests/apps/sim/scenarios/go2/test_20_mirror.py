@@ -22,6 +22,7 @@ class Go2SimMirrorConfigTests(unittest.TestCase):
         self.assertEqual(config.mpc_command_accel_mps2, 1.2)
         self.assertEqual(config.mpc_command_yaw_accel_radps2, 3.0)
         self.assertEqual(config.mpc_stop_dwell_s, 0.2)
+        self.assertEqual(config.mpc_pose_transition_s, 0.35)
 
     def test_local_config_disables_mirror(self) -> None:
         bundle = load_app_config(str(ROOT / "payload/config/sim/config.yaml"))

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from elesim_sim.robot.go2.locomotion.kinematics import NOMINAL_FOOT_OFFSET_BODY
 from elesim_sim.robot.go2.locomotion.command import Go2CommandShaper, trot_all_stance
+from elesim_sim.robot.go2.locomotion.pose import JointPoseTransition, smoothstep_quintic
 from elesim_sim.robot.go2.locomotion.types import ALL_LEGS, Go2Command
 from elesim_sim.robot.go2.pympc_controller import (
     PyMpcGenesisController,
@@ -157,6 +158,9 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
     )
     controller._command_shaper = Go2CommandShaper(stop_dwell_s=0.2)
     controller._command_shaper._zero_since_s = 0.0
+    controller._pose_transition = JointPoseTransition(0.35)
+    controller._pose_transition.reset(np.ones(12))
+    controller._pose_stage = "walk"
     controller._active = True
     controller._step_i = 9
     controller._forces = np.ones((4, 3))
@@ -165,9 +169,19 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
     controller._kin = SimpleNamespace(stand_q=np.zeros(12))
     controller._leg_dof_idxs = list(range(12))
     calls = []
+    controlled_pose = []
+
+    def control_position(pose, **_kwargs):
+        controlled_pose.append(np.asarray(pose, dtype=float).copy())
+
+    def record_controlled_pose(pose, **kwargs):
+        calls.append("position")
+        control_position(pose, **kwargs)
+
     controller._set_stand_actuation = lambda: calls.append("stand")
     controller._entity = SimpleNamespace(
-        control_dofs_position=lambda *_args, **_kwargs: calls.append("position")
+        get_dofs_position=lambda **_kwargs: np.ones(12),
+        control_dofs_position=record_controlled_pose,
     )
     controller.step()
     assert calls == ["stand", "position"]
@@ -176,6 +190,7 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
     assert not controller._forces.any()
     assert not controller._tau_hold.any()
     assert controller._last_contacts.all()
+    assert np.max(np.abs(controlled_pose[0] - np.ones(12))) < 0.02
 
 
 def test_idle_startup_stays_in_stand_during_stop_dwell() -> None:
@@ -185,6 +200,9 @@ def test_idle_startup_stays_in_stand_during_stop_dwell() -> None:
     controller._faulted = False
     controller._cmd = Go2Command()
     controller._command_shaper = Go2CommandShaper(stop_dwell_s=0.2)
+    controller._pose_transition = JointPoseTransition(0.35)
+    controller._pose_transition.reset(np.zeros(12))
+    controller._pose_stage = "stand"
     controller._config = SimpleNamespace(
         command_idle_threshold=0.05, gait_hz=2.5, gait_duty=0.6
     )
@@ -209,22 +227,28 @@ def test_idle_startup_stays_in_stand_during_stop_dwell() -> None:
 
 def test_command_shaper_limits_linear_and_yaw_acceleration_through_reversal() -> None:
     shaper = Go2CommandShaper(linear_accel_mps2=1.2, yaw_accel_radps2=3.0)
-    shaper.set_target(Go2Command(vx=0.4, yaw_rate=0.8))
+    shaper.set_target(Go2Command(vx=0.4, vy=-0.3, yaw_rate=0.8))
     forward = shaper.update(0.1)
-    assert forward.vx == pytest.approx(0.12)
+    assert np.hypot(forward.vx, forward.vy) == pytest.approx(0.12)
+    assert forward.vx == pytest.approx(0.096)
+    assert forward.vy == pytest.approx(-0.072)
     assert forward.yaw_rate == pytest.approx(0.3)
 
-    shaper.set_target(Go2Command(vx=-0.4, yaw_rate=-0.8))
+    shaper.set_target(Go2Command(vx=-0.4, vy=0.3, yaw_rate=-0.8))
     previous = forward
-    crossed_zero = False
+    crossed_zero = [False, False, False]
     for _ in range(8):
         current = shaper.update(0.1)
-        assert abs(current.vx - previous.vx) <= 0.12 + 1e-12
+        assert np.hypot(current.vx - previous.vx, current.vy - previous.vy) <= 0.12 + 1e-12
         assert abs(current.yaw_rate - previous.yaw_rate) <= 0.3 + 1e-12
-        crossed_zero = crossed_zero or previous.vx > 0.0 >= current.vx
+        crossed_zero[0] |= previous.vx > 0.0 >= current.vx
+        crossed_zero[1] |= previous.vy < 0.0 <= current.vy
+        crossed_zero[2] |= previous.yaw_rate > 0.0 >= current.yaw_rate
         previous = current
-    assert crossed_zero
+    assert all(crossed_zero)
     assert previous.vx < 0.0
+    assert previous.vy > 0.0
+    assert previous.yaw_rate < 0.0
     assert not shaper.stop_ready(
         time_s=1.0, threshold=0.05, gait_hz=2.2, gait_duty=0.6
     )
@@ -259,3 +283,124 @@ def test_stopping_waits_for_dwell_and_four_foot_support() -> None:
     assert shaper.stop_ready(
         time_s=support_time, threshold=0.05, gait_hz=2.2, gait_duty=0.6
     )
+
+
+def test_joint_pose_transition_starts_continuously_and_reaches_exact_target() -> None:
+    transition = JointPoseTransition(0.4)
+    start = np.zeros(12)
+    target = np.ones(12)
+    transition.reset(start)
+    transition.begin(start, target)
+
+    samples = [transition.update(0.1)[0] for _ in range(4)]
+
+    assert np.all(samples[0] > start)
+    assert np.all(samples[0] < 0.2)
+    assert np.all(np.diff(np.stack(samples), axis=0) > 0.0)
+    np.testing.assert_array_equal(samples[-1], target)
+    assert not transition.active
+
+
+def test_new_pose_transition_can_interrupt_from_current_joint_pose() -> None:
+    transition = JointPoseTransition(0.4)
+    transition.reset(np.zeros(12))
+    transition.begin(np.zeros(12), np.ones(12))
+    current, _ = transition.update(0.2)
+    transition.begin(current, np.full(12, -1.0))
+
+    restarted, done = transition.update(0.01)
+
+    assert not done
+    assert np.max(np.abs(restarted - current)) < 0.02
+
+
+def test_idle_to_motion_interpolates_stand_pose_before_ready_hold() -> None:
+    controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._dt = 0.1
+    controller._sim_time = 0.0
+    controller._faulted = False
+    controller._cmd = Go2Command()
+    controller._command_shaper = Go2CommandShaper(stop_dwell_s=0.2)
+    controller._config = SimpleNamespace(
+        command_idle_threshold=0.05,
+        gait_hz=2.5,
+        gait_duty=0.6,
+        pose_transition_s=0.4,
+        ready_pose_s=0.12,
+        command_ramp_s=0.4,
+        ready_kp=120.0,
+        ready_kv=6.0,
+    )
+    controller._active = False
+    controller._ready_until = 0.0
+    controller._walk_started_s = None
+    controller._torque_mode_active = False
+    controller._step_i = 0
+    controller._forces = np.zeros((4, 3))
+    controller._tau_hold = np.zeros(12)
+    controller._last_contacts = np.ones(4)
+    controller._kin = SimpleNamespace(stand_q=np.zeros(12), ready_q=np.ones(12))
+    controller._pose_transition = JointPoseTransition(0.4)
+    controller._pose_transition.reset(controller._kin.stand_q)
+    controller._pose_stage = "stand"
+    controller._leg_dof_idxs = list(range(12))
+    entity_state = {"q": np.zeros(12)}
+    commanded_poses = []
+
+    def control_position(pose, **_kwargs):
+        entity_state["q"] = np.asarray(pose, dtype=float).copy()
+        commanded_poses.append(entity_state["q"])
+
+    controller._entity = SimpleNamespace(
+        get_dofs_position=lambda **_kwargs: entity_state["q"],
+        control_dofs_position=control_position,
+    )
+    controller._set_stand_actuation = lambda: None
+    controller._set_ready_actuation = lambda: None
+    controller._set_torque_actuation = lambda: None
+
+    controller.step()
+    controller.set_command(Go2Command(vx=0.45, vy=0.6, yaw_rate=0.8))
+    for _ in range(4):
+        controller.step()
+
+    assert len(commanded_poses) == 5
+    assert np.all(commanded_poses[1] > 0.0)
+    assert np.all(commanded_poses[1] < 0.2)
+    assert np.all(np.diff(np.stack(commanded_poses[1:]), axis=0) > 0.0)
+    np.testing.assert_array_equal(commanded_poses[-1], controller._kin.ready_q)
+    assert controller._pose_stage == "ready_hold"
+
+    controller.step()
+    controller.step()
+    assert controller._pose_stage == "walk"
+    assert controller._command_scale() == 0.0
+
+    observed_command_scale = []
+    def sample_with_command_ramp():
+        observed_command_scale.append(controller._command_scale())
+        return (
+            None,
+            np.zeros((4, 3)),
+            np.zeros((4, 3)),
+            np.zeros((4, 3, 3)),
+            np.zeros(12),
+        )
+
+    controller._sample = sample_with_command_ramp
+    controller._torques = lambda *_args: np.zeros(12)
+    controller._entity.control_dofs_force = lambda *_args, **_kwargs: None
+    controller.step()
+    assert observed_command_scale[0] == pytest.approx(smoothstep_quintic(0.25))
+
+
+def test_pympc_uses_a_smooth_startup_command_ramp() -> None:
+    pympc = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    pympc._config = SimpleNamespace(command_ramp_s=0.4)
+    pympc._sim_time = 1.2
+    pympc._walk_started_s = 1.0
+    assert pympc._command_scale() == pytest.approx(0.5)
+
+    assert smoothstep_quintic(-0.1) == 0.0
+    assert smoothstep_quintic(0.5) == pytest.approx(0.5)
+    assert smoothstep_quintic(1.1) == 1.0

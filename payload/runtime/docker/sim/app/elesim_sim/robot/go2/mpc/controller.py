@@ -8,6 +8,7 @@ import numpy as np
 
 from elesim_sim.robot.go2.locomotion.kinematics import Go2KinematicsModel
 from elesim_sim.robot.go2.locomotion.command import Go2CommandShaper
+from elesim_sim.robot.go2.locomotion.pose import JointPoseTransition, smoothstep_quintic
 from elesim_sim.robot.go2.locomotion.types import Go2Command
 from elesim_sim.robot.go2.mpc.config import Go2MpcConfig
 from elesim_sim.robot.go2.mpc.constraints import (
@@ -186,6 +187,9 @@ class ConvexMpcGenesisController:
         self._ready_until_t = 0.0
 
         self._kin = Go2KinematicsModel.from_entity(entity)
+        self._pose_transition = JointPoseTransition(float(config.pose_transition_s))
+        self._pose_transition.reset(self._kin.stand_q)
+        self._pose_stage = "stand"
         self._leg_dof_idxs = list(self._kin.all_leg_dof_idx)
         payload = None
         if arm_entity is not None and bool(config.payload_enable):
@@ -365,13 +369,48 @@ class ConvexMpcGenesisController:
         self._entity.set_dofs_kv(kv, dofs_idx_local=self._leg_dof_idxs)
 
     def _begin_ready_pose(self) -> None:
+        self._pose_transition.begin(self._current_leg_pose(), self._kin.ready_q)
+        self._pose_stage = "to_ready"
+        self._torque_mode = False
         self._ready_mode = True
-        self._ready_until_t = float(self._sim_time) + float(self._config.ready_pose_s)
+        self._ready_until_t = 0.0
         self._set_ready_actuation()
+
+    def _begin_stand_pose(self) -> None:
+        self._pose_transition.begin(self._current_leg_pose(), self._kin.stand_q)
+        self._pose_stage = "to_stand"
+        self._torque_mode = False
+        self._ready_mode = False
+        self._sim_step_i = 0
+        self._ctrl_i = 0
+        self._loco_time = 0.0
+        self._tau_hold.fill(0.0)
+        self._tau_raw.fill(0.0)
+        self._tau_limited.fill(0.0)
+        self._tau_filt.fill(0.0)
+        self._force_requested.fill(0.0)
+        self._force_filt.fill(0.0)
+        self._U_opt.fill(0.0)
+        self._set_stand_actuation()
+
+    def _current_leg_pose(self) -> np.ndarray:
+        try:
+            pose = _to_numpy_1d(
+                self._entity.get_dofs_position(dofs_idx_local=self._leg_dof_idxs)
+            )
+            if pose.shape == (len(self._leg_dof_idxs),) and np.all(np.isfinite(pose)):
+                return pose
+        except Exception:
+            pass
+        current = self._pose_transition.current
+        if current is not None and current.shape == (len(self._leg_dof_idxs),):
+            return current
+        return np.asarray(self._kin.stand_q, dtype=float).copy()
 
     def _enter_torque_mode(self) -> None:
         self._ready_mode = False
         self._torque_mode = True
+        self._pose_stage = "walk"
         self._leg_controller = self._leg_controller_type()
         self._ctrl_i = 0
         self._loco_time = 0.0
@@ -446,7 +485,7 @@ class ConvexMpcGenesisController:
 
     def _command_scale(self) -> float:
         ramp_s = max(1e-3, float(self._config.command_ramp_s))
-        return float(min(1.0, self._loco_time / ramp_s))
+        return smoothstep_quintic(self._loco_time / ramp_s)
 
     def _torque_scale(self) -> float:
         warmup_s = max(0.0, float(self._config.torque_warmup_s))
@@ -525,6 +564,8 @@ class ConvexMpcGenesisController:
         self._torque_mode = False
         self._ready_mode = False
         self._ready_until_t = 0.0
+        self._pose_stage = "stand"
+        self._pose_transition.reset(self._kin.stand_q)
         self._tau_hold = np.zeros(12, dtype=float)
         self._tau_raw = np.zeros(12, dtype=float)
         self._tau_limited = np.zeros(12, dtype=float)
@@ -619,11 +660,14 @@ class ConvexMpcGenesisController:
             float(self._config.command_idle_threshold)
         )
 
-        if stop_ready or (target_idle and not self._torque_mode and not self._ready_mode):
-            if self._torque_mode or self._ready_mode:
-                self._torque_mode = False
-                self._ready_mode = False
-                self._set_stand_actuation()
+        if stop_ready and self._pose_stage in {"to_ready", "ready_hold", "walk"}:
+            self._begin_stand_pose()
+        elif self._pose_stage == "to_stand" and not target_idle:
+            self._begin_ready_pose()
+        elif self._pose_stage == "stand" and not target_idle:
+            self._begin_ready_pose()
+
+        if self._pose_stage == "stand":
             self._sim_step_i = 0
             self._entity.control_dofs_position(
                 np.asarray(self._kin.stand_q, dtype=float),
@@ -631,21 +675,32 @@ class ConvexMpcGenesisController:
             )
             return
 
-        if self._ready_mode:
+        if self._pose_stage in {"to_ready", "to_stand"}:
+            pose, done = self._pose_transition.update(self._dt)
+            self._entity.control_dofs_position(
+                pose,
+                dofs_idx_local=self._leg_dof_idxs,
+            )
+            if done and self._pose_stage == "to_ready":
+                self._pose_stage = "ready_hold"
+                self._ready_until_t = float(self._sim_time) + float(
+                    self._config.ready_pose_s
+                )
+            elif done:
+                self._pose_stage = "stand"
+            return
+
+        if self._pose_stage == "ready_hold":
             self._entity.control_dofs_position(
                 np.asarray(self._kin.ready_q, dtype=float),
                 dofs_idx_local=self._leg_dof_idxs,
             )
-            if self._sim_time >= self._ready_until_t:
+            if self._sim_time >= self._ready_until_t and not target_idle:
                 self._enter_torque_mode()
             return
 
         if not self._torque_mode:
             self._begin_ready_pose()
-            self._entity.control_dofs_position(
-                np.asarray(self._kin.ready_q, dtype=float),
-                dofs_idx_local=self._leg_dof_idxs,
-            )
             return
 
         if self._sim_step_i % self._ctrl_decim != 0:

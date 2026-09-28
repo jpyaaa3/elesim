@@ -19,6 +19,7 @@ class Go2MpcConfig:
     command_accel_mps2: float = 1.2
     command_yaw_accel_radps2: float = 3.0
     stop_dwell_s: float = 0.2
+    pose_transition_s: float = 0.35
     torque_ramp_s: float = 0.12
     torque_warmup_s: float = 0.05
     ready_pose_s: float = 0.12

@@ -19,6 +19,7 @@ from elesim_sim.robot.go2.locomotion.kinematics import (
     Go2KinematicsModel,
 )
 from elesim_sim.robot.go2.locomotion.command import Go2CommandShaper
+from elesim_sim.robot.go2.locomotion.pose import JointPoseTransition, smoothstep_quintic
 from elesim_sim.robot.go2.locomotion.types import Go2Command, LegId
 from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
 from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge
@@ -120,6 +121,9 @@ class PyMpcGenesisController:
         )
         self._dt = float(dt)
         self._config = config
+        self._pose_transition = JointPoseTransition(float(config.pose_transition_s))
+        self._pose_transition.reset(self._kin.stand_q)
+        self._pose_stage = "stand"
         self._metrics = metrics
         self._command_source = str(command_source)
         self._timing_sink = timing_sink
@@ -143,6 +147,8 @@ class PyMpcGenesisController:
         self._sim_time = 0.0
         self._active = False
         self._ready_until = 0.0
+        self._walk_started_s: float | None = None
+        self._torque_mode_active = False
         self._faulted = False
         self._step_i = 0
         self._forces = np.zeros((4, 3))
@@ -203,6 +209,55 @@ class PyMpcGenesisController:
             np.full(12, float(self._config.stand_kv)), dofs_idx_local=self._leg_dof_idxs
         )
 
+    def _set_ready_actuation(self) -> None:
+        self._entity.set_dofs_kp(
+            np.full(12, float(self._config.ready_kp)), dofs_idx_local=self._leg_dof_idxs
+        )
+        self._entity.set_dofs_kv(
+            np.full(12, float(self._config.ready_kv)), dofs_idx_local=self._leg_dof_idxs
+        )
+
+    def _current_leg_pose(self) -> np.ndarray:
+        try:
+            pose = to_numpy_1d(
+                self._entity.get_dofs_position(dofs_idx_local=self._leg_dof_idxs)
+            )
+            if pose.shape == (12,) and np.all(np.isfinite(pose)):
+                return pose
+        except Exception:
+            pass
+        current = self._pose_transition.current
+        if current is not None and current.shape == (12,):
+            return current
+        return np.asarray(self._kin.stand_q, dtype=float).copy()
+
+    def _begin_ready_pose(self) -> None:
+        self._pose_transition.begin(self._current_leg_pose(), self._kin.ready_q)
+        self._pose_stage = "to_ready"
+        self._active = True
+        self._walk_started_s = None
+        self._torque_mode_active = False
+        self._ready_until = 0.0
+        self._set_ready_actuation()
+
+    def _begin_stand_pose(self) -> None:
+        self._pose_transition.begin(self._current_leg_pose(), self._kin.stand_q)
+        self._pose_stage = "to_stand"
+        self._active = False
+        self._walk_started_s = None
+        self._torque_mode_active = False
+        self._step_i = 0
+        self._forces.fill(0.0)
+        self._tau_hold.fill(0.0)
+        self._last_contacts.fill(1.0)
+        self._set_stand_actuation()
+
+    def _command_scale(self) -> float:
+        if self._walk_started_s is None:
+            return 0.0
+        ramp_s = max(1e-3, float(self._config.command_ramp_s))
+        return smoothstep_quintic((self._sim_time - self._walk_started_s) / ramp_s)
+
     def _set_torque_actuation(self) -> None:
         self._entity.set_dofs_kp(np.zeros(12), dofs_idx_local=self._leg_dof_idxs)
         self._entity.set_dofs_kv(
@@ -222,6 +277,10 @@ class PyMpcGenesisController:
         self._sim_time = 0.0
         self._active = False
         self._ready_until = 0.0
+        self._walk_started_s = None
+        self._torque_mode_active = False
+        self._pose_stage = "stand"
+        self._pose_transition.reset(self._kin.stand_q)
         self._faulted = False
         self._step_i = 0
         self._forces.fill(0.0)
@@ -262,7 +321,11 @@ class PyMpcGenesisController:
         ])
         mass = float(self._data.Ig.mass)
         inertia_body = rot_m.T @ np.asarray(self._data.Ig.inertia, dtype=float) @ rot_m
-        cmd_body = np.array((float(self._cmd.vx), float(self._cmd.vy), 0.0))
+        command_scale = self._command_scale()
+        vx = float(self._cmd.vx) * command_scale
+        vy = float(self._cmd.vy) * command_scale
+        yaw_rate = float(self._cmd.yaw_rate) * command_scale
+        cmd_body = np.array((vx, vy, 0.0))
         # WASD requests a horizontal body-frame velocity; body pitch/roll must
         # not turn a forward command into a requested vertical velocity.
         yaw_rot = Rotation.from_euler("z", float(rpy[2])).as_matrix()
@@ -272,7 +335,7 @@ class PyMpcGenesisController:
         ref_com[2] = float(self._config.z_pos_des_m)
         ref_rpy = rpy.copy()
         ref_rpy[0:2] = 0.0
-        ref_rpy[2] += horizon_t * float(self._cmd.yaw_rate)
+        ref_rpy[2] += horizon_t * yaw_rate
         contacts = contact_schedule(
             self._sim_time,
             gait_hz=float(self._config.gait_hz),
@@ -286,7 +349,7 @@ class PyMpcGenesisController:
         placements = touchdown_offsets_body(
             self._nominal_foot_offsets_body,
             command_body=cmd_body,
-            yaw_rate=float(self._cmd.yaw_rate),
+            yaw_rate=yaw_rate,
             half_stance_s=half_stance_s,
             placement_scale=float(self._config.foot_placement_scale),
         )
@@ -303,7 +366,7 @@ class PyMpcGenesisController:
             desired_com_position=ref_com,
             desired_com_velocity=cmd_world,
             desired_rpy=ref_rpy,
-            desired_angular_velocity_body=np.array((0.0, 0.0, float(self._cmd.yaw_rate))),
+            desired_angular_velocity_body=np.array((0.0, 0.0, yaw_rate)),
             footholds_world=footholds,
             contacts=contacts,
             mass_kg=mass,
@@ -354,32 +417,60 @@ class PyMpcGenesisController:
         target_idle = self._command_shaper.target.is_idle(
             float(self._config.command_idle_threshold)
         )
-        if self._faulted or stop_ready or (target_idle and not self._active):
-            if self._active:
-                self._active = False
+        if self._faulted:
+            self._entity.control_dofs_position(
+                self._kin.stand_q, dofs_idx_local=self._leg_dof_idxs
+            )
+            return
+
+        if stop_ready and self._pose_stage in {"to_ready", "ready_hold", "walk"}:
+            self._begin_stand_pose()
+        elif self._pose_stage == "to_stand" and not target_idle:
+            self._begin_ready_pose()
+        elif self._pose_stage == "stand" and not target_idle:
+            self._begin_ready_pose()
+
+        if self._pose_stage == "stand":
+            self._entity.control_dofs_position(
+                self._kin.stand_q, dofs_idx_local=self._leg_dof_idxs
+            )
+            return
+
+        if self._pose_stage in {"to_ready", "to_stand"}:
+            pose, done = self._pose_transition.update(self._dt)
+            self._entity.control_dofs_position(pose, dofs_idx_local=self._leg_dof_idxs)
+            if done and self._pose_stage == "to_ready":
+                self._pose_stage = "ready_hold"
+                self._ready_until = self._sim_time + float(self._config.ready_pose_s)
+            elif done:
+                self._pose_stage = "stand"
+            return
+
+        if self._pose_stage == "ready_hold":
+            self._entity.control_dofs_position(
+                self._kin.ready_q, dofs_idx_local=self._leg_dof_idxs
+            )
+            if self._sim_time >= self._ready_until and not target_idle:
+                self._pose_stage = "walk"
+                self._walk_started_s = self._sim_time
                 self._step_i = 0
-                self._forces.fill(0.0)
-                self._tau_hold.fill(0.0)
-                self._last_contacts.fill(1.0)
-                self._set_stand_actuation()
-            self._entity.control_dofs_position(self._kin.stand_q, dofs_idx_local=self._leg_dof_idxs)
             return
-        if not self._active:
-            self._active = True
-            self._ready_until = self._sim_time + float(self._config.ready_pose_s)
-            self._entity.set_dofs_kp(np.full(12, float(self._config.ready_kp)), dofs_idx_local=self._leg_dof_idxs)
-            self._entity.set_dofs_kv(np.full(12, float(self._config.ready_kv)), dofs_idx_local=self._leg_dof_idxs)
-        if self._sim_time < self._ready_until:
-            self._entity.control_dofs_position(self._kin.ready_q, dofs_idx_local=self._leg_dof_idxs)
-            return
-        if self._step_i == 0:
+
+        if self._pose_stage != "walk":
+            raise RuntimeError(f"unexpected PyMPC pose stage: {self._pose_stage}")
+
+        if not self._torque_mode_active:
             self._set_torque_actuation()
+            self._torque_mode_active = True
         try:
             sample, feet, foot_vel, jacobians, joint_vel = self._sample()
             self._tau_hold = self._torques(sample, feet, foot_vel, jacobians, joint_vel)
         except Exception as exc:
             self._faulted = True
             self._active = False
+            self._pose_stage = "fault"
+            self._walk_started_s = None
+            self._torque_mode_active = False
             self._tau_hold.fill(0.0)
             self._set_stand_actuation()
             self._entity.control_dofs_position(self._kin.stand_q, dofs_idx_local=self._leg_dof_idxs)
