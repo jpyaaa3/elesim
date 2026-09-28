@@ -184,9 +184,10 @@ project 전체 `docker compose down`과 `--remove-orphans`는 사용하지 않�
 
 DDS application topic과 SROS2 policy는 이미 `system_id` namespace를 사용하므로
 이 기능만을 위한 wire protocol version 변경은 계획하지 않는다. 각 graph의
-`system_id`는 설치 내에서 유일해야 한다. 초기 구현은 같은 Docker Engine에서
-동시에 활성인 system의 DDS domain도 서로 다르게 요구해 discovery 간섭을 줄인다.
-이는 운용 격리 규칙이지 보안 경계가 아니며, 보안 경계는 계속 SROS2 enforce다.
+`system_id`는 설치 내에서 유일해야 한다. 서로 다른 system은 같은 DDS domain을
+공유할 수 있으며, 각 graph의 모든 participant는 해당 system의 `system_id`와
+`domain_id`를 함께 사용한다. DDS domain은 discovery 범위이며 보안 경계가 아니다.
+보안 경계는 계속 SROS2 enforce다.
 
 Tailscale sidecar와 개발 attachment는 host 공용으로 유지한다. managed Coturn은
 host/Tailscale network namespace의 listen/relay port가 충돌하므로 instance별

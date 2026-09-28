@@ -84,12 +84,11 @@ def test_validation_is_strict():
         InstanceState.from_dict({"schema_version": True, "system_id": "alpha", "release_key": KEY, "endpoints": [{"role": "pilot", "endpoint_id": "ep"}], "domain_id": 0})
 
 
-def test_rejected_collision_preserves_existing_state(tmp_path: Path):
+def test_distinct_systems_can_share_domain_id(tmp_path: Path):
     registry = InstanceRegistry(tmp_path / "prefix")
     registry.save(instance("alpha", 3))
-    with pytest.raises(ValueError, match="collision"):
-        registry.save(instance("beta", 3))
-    assert registry.list() == (instance("alpha", 3),)
+    registry.save(instance("beta", 3))
+    assert registry.list() == (instance("alpha", 3), instance("beta", 3))
 
 
 def test_selection_requires_one_unambiguous_instance(tmp_path: Path):
@@ -195,10 +194,11 @@ def test_concurrent_writers_keep_valid_complete_files(tmp_path: Path):
         process.start()
     for process in processes:
         process.join(10)
-    assert sorted(process.exitcode == 0 for process in processes) == [False, True]
+    assert all(process.exitcode == 0 for process in processes)
     registry = InstanceRegistry(prefix)
     states = registry.list()
-    assert len(states) == 1
+    assert len(states) == 2
+    assert {state.domain_id for state in states} == {20}
     for state in states:
         raw = json.loads((Path(prefix) / "instances" / state.system_id / "state.json").read_text())
         assert raw["schema_version"] == 3

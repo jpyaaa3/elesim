@@ -176,7 +176,22 @@ def test_instances_coexist_and_removal_preserves_other_system(local_state, tmp_p
     for role, service in zip(("pilot", "sim", "ui"), services):
         assert f"{service}) printf '%s\\n' {role}" in status_wrapper
     assert "unexpected instance service" in status_wrapper
-    runtime.register(_instance("beta", release, 12))
+    runtime.register(_instance("beta", release, 11))
+    registered = runtime._read_instances()
+    assert registered["alpha"].domain_id == registered["beta"].domain_id
+    alpha_runtime_path = (
+        state.prefix_path
+        / "instances/alpha/endpoints/alpha-pilot/config/runtime.installed.yaml"
+    )
+    beta_runtime_path = (
+        state.prefix_path
+        / "instances/beta/endpoints/beta-pilot/config/runtime.installed.yaml"
+    )
+    alpha_runtime = yaml.safe_load(alpha_runtime_path.read_text())
+    beta_runtime = yaml.safe_load(beta_runtime_path.read_text())
+    assert alpha_runtime["dds"]["system_id"] == "alpha"
+    assert beta_runtime["dds"]["system_id"] == "beta"
+    assert alpha_runtime["dds"]["domain_id"] == beta_runtime["dds"]["domain_id"] == 11
     beta_before = {
         path.relative_to(state.prefix_path / "instances/beta").as_posix(): path.read_bytes()
         for path in (state.prefix_path / "instances/beta").rglob("*")

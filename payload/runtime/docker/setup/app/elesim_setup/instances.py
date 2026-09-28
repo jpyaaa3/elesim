@@ -645,9 +645,7 @@ class InstanceRegistry:
                         continue
                     if not candidate.exists() and not candidate.is_symlink():
                         raise ValueError(f"missing instance state: {candidate}")
-                    prior = self._read(candidate)
-                    if prior.domain_id == instance.domain_id:
-                        raise ValueError(f"domain_id collision with system {prior.system_id!r}")
+                    self._read(candidate)
             self.instances.mkdir(mode=0o700, exist_ok=True)
             directory = path.parent
             if directory.is_symlink():

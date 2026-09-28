@@ -96,7 +96,9 @@ config에서 명시적으로 켠 값은 유지되며, 오류·상태 변화 진�
 
 `trusted-network`는 owned LAN/routed VPN에서만 허용하고, `sros2`는 enforce
 authentication/access-control/encryption을 사용한다. `ROS_DOMAIN_ID`만으로
-다른 사용자의 participant를 막을 수 없다.
+다른 사용자의 participant를 막을 수 없다. 한 graph에 참여하는 모든 role은 같은
+`system_id`와 `domain_id`를 사용한다. 서로 다른 EleSim system은 고유한
+`system_id` namespace와 SROS2 권한을 사용하므로 같은 DDS domain을 공유할 수 있다.
 
 ## 3. Topology 필드
 

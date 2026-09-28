@@ -471,7 +471,6 @@ class InstanceRuntime:
 
     def _validate_release_set(self, instances: Mapping[str, InstanceState]) -> dict[str, ReleaseManifest]:
         releases: dict[str, ReleaseManifest] = {}
-        domains: dict[int, str] = {}
         turn_ranges: list[tuple[str, int, int, str]] = []
         turn_credentials: dict[str, str] = {}
         # The install-level TURN settings describe the legacy aggregate, not
@@ -483,9 +482,6 @@ class InstanceRuntime:
         for system, instance in instances.items():
             if system != instance.system_id:
                 raise ValueError("instance system_id mismatch")
-            if instance.domain_id in domains and domains[instance.domain_id] != system:
-                raise ValueError(f"domain_id collision with system {domains[instance.domain_id]!r}")
-            domains[instance.domain_id] = system
             turn = scoped_turn_settings(instance, self.install_uuid)
             if turn.mode == "external":
                 credential = str(Path(turn.credential_file).expanduser().absolute())
