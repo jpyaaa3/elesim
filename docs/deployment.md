@@ -373,6 +373,9 @@ Robot native 설치는 포함된 Dynamixel SDK 소스와 C++ arm controller를 J
 Pilot의 `config/imu_models/*.json`에서 선택된 계산 그래프를 실행한다. 제공된
 `identity/v1` 모델은 입력 q를 그대로 반환한다. C++ 로컬 루프와 IMU sample
 입력 경계는 마련되어 있지만 Teensy frame reader와 실제 보정 모델은 아직 없다.
+두 BNO080/BNO085용 Teensy 스케치 소스는
+`payload/runtime/native/robot/firmware/teensy_dual_bno080/`에 있으며 Robot
+standalone release의 `firmware/`에도 포함된다. Teensy 업로드는 수동이다.
 
 Jetson에서 Robot과 Pilot/UI Compose를 함께 운영하면 서로 다른 prefix와
 deployment unit을 사용한다. Robot unit이 mandatory인 Jetson에서 Sim을

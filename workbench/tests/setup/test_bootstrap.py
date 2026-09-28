@@ -130,6 +130,8 @@ def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, b
         "payload/data/calibration/cameras/d435.hand_eye.json": b"{}\n",
         "payload/config/pilot/imu_models/identity.json": b"{}\n",
         "payload/config/pilot/imu_models/README.md": b"Identity model.\n",
+        "payload/runtime/native/robot/firmware/README.md": b"Teensy firmware.\n",
+        "payload/runtime/native/robot/firmware/teensy_dual_bno080/teensy_dual_bno080.ino": b"void setup() {}\nvoid loop() {}\n",
     }
     for role in ("pilot", "sim", "ui", "robot"):
         runtime = bootstrap_module._BOOTSTRAP_ROLE_RUNTIMES[role]

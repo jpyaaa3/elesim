@@ -209,6 +209,11 @@ def copy_robot_runtime(project: Path, release: Path) -> None:
     if not (native_arm / "build.py").is_file() or not (native_arm / "vendor/LICENSE").is_file():
         raise FileNotFoundError("Robot C++ arm source or SDK license is missing")
     copy_tree(native_arm, release / "native_arm", ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.so"))
+    firmware = project / "firmware"
+    sketch = firmware / "teensy_dual_bno080/teensy_dual_bno080.ino"
+    if not sketch.is_file():
+        raise FileNotFoundError(f"Robot Teensy firmware is missing: {sketch}")
+    copy_tree(firmware, release / "firmware")
     destination = release / "systemd"
     destination.mkdir(parents=True, exist_ok=True)
     for name in sorted(ROBOT_SYSTEMD_UNITS):

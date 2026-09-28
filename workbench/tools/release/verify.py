@@ -184,7 +184,7 @@ def expected_release_entries(role: str) -> frozenset[str]:
         raise ReleaseVerificationError(f"unknown release role: {role}")
     entries = set(COMMON_ROLE_ENTRIES)
     if role == "robot":
-        entries.update(("install.sh", "systemd", "native_arm"))
+        entries.update(("install.sh", "systemd", "native_arm", "firmware"))
     else:
         entries.add("Dockerfile")
     if role in {"pilot", "sim", "ui"}:
@@ -470,6 +470,8 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
         _require_path(release / "data/models/perception/yolov8n-seg.pt")
     if role == "robot":
         _require_path(release / "install.sh")
+        _require_path(release / "firmware/README.md")
+        _require_path(release / "firmware/teensy_dual_bno080/teensy_dual_bno080.ino")
         assert_robot_systemd_units(release / "systemd")
         for relative in (
             "build.py",

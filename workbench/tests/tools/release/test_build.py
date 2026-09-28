@@ -160,6 +160,10 @@ def test_robot_release_copies_exactly_both_service_units(tmp_path: Path) -> None
     (project / "native_arm/vendor").mkdir(parents=True)
     (project / "native_arm/build.py").write_text("builder", encoding="utf-8")
     (project / "native_arm/vendor/LICENSE").write_text("license", encoding="utf-8")
+    firmware = project / "firmware/teensy_dual_bno080"
+    firmware.mkdir(parents=True)
+    (project / "firmware/README.md").write_text("manual upload", encoding="utf-8")
+    (firmware / "teensy_dual_bno080.ino").write_text("void setup() {}", encoding="utf-8")
     (project / "install.sh").write_text("#!/bin/bash\n", encoding="utf-8")
     for name in ("elesim-robot.service", "elesim-unitree-bridge.service"):
         (project / "systemd" / name).write_text(name, encoding="utf-8")
@@ -173,6 +177,7 @@ def test_robot_release_copies_exactly_both_service_units(tmp_path: Path) -> None
         "elesim-robot.service",
         "elesim-unitree-bridge.service",
     }
+    assert (release / "firmware/teensy_dual_bno080/teensy_dual_bno080.ino").is_file()
 
 
 def test_robot_release_refuses_an_incomplete_service_set(tmp_path: Path) -> None:

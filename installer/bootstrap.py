@@ -98,6 +98,7 @@ _BOOTSTRAP_SOURCE_TREES = (
     PurePosixPath("payload/data/models/objects"),
     PurePosixPath("payload/data/policies"),
     PurePosixPath("payload/data/calibration"),
+    PurePosixPath("payload/runtime/native/robot/firmware"),
 )
 _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
     PurePosixPath("payload/runtime/docker/setup/app/elesim_setup") / f"{name}.py"
@@ -236,6 +237,8 @@ _BOOTSTRAP_REQUIRED_TREE_FILES = frozenset(
         PurePosixPath("payload/data/calibration/cameras/zed_mini.hand_eye.json"),
         PurePosixPath("payload/data/calibration/cameras/d435.hand_eye.json"),
         PurePosixPath("payload/config/pilot/imu_models/identity.json"),
+        PurePosixPath("payload/runtime/native/robot/firmware/README.md"),
+        PurePosixPath("payload/runtime/native/robot/firmware/teensy_dual_bno080/teensy_dual_bno080.ino"),
         *(
             _BOOTSTRAP_ROLE_APPLICATIONS[role] / f"elesim_{role}" / "__init__.py"
             for role in _BOOTSTRAP_ROLES
