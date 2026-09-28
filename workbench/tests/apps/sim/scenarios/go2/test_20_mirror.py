@@ -16,6 +16,13 @@ class Go2SimMirrorConfigTests(unittest.TestCase):
         bundle = load_app_config(str(ROOT / "payload/config/sim/config.yaml"), mode="pc")
         self.assertFalse(bundle.go2_locomotion_config.mirror_from_host)
 
+    def test_mpc_command_smoothing_config_loads(self) -> None:
+        bundle = load_app_config(str(ROOT / "payload/config/sim/config.yaml"))
+        config = bundle.go2_locomotion_config
+        self.assertEqual(config.mpc_command_accel_mps2, 1.2)
+        self.assertEqual(config.mpc_command_yaw_accel_radps2, 3.0)
+        self.assertEqual(config.mpc_stop_dwell_s, 0.2)
+
     def test_local_config_disables_mirror(self) -> None:
         bundle = load_app_config(str(ROOT / "payload/config/sim/config.yaml"))
         self.assertFalse(bundle.go2_locomotion_config.mirror_from_host)

@@ -16,6 +16,9 @@ class Go2MpcConfig:
     stand_kv: float = 4.0
     ctrl_hz: float = 200.0
     command_ramp_s: float = 0.15
+    command_accel_mps2: float = 1.2
+    command_yaw_accel_radps2: float = 3.0
+    stop_dwell_s: float = 0.2
     torque_ramp_s: float = 0.12
     torque_warmup_s: float = 0.05
     ready_pose_s: float = 0.12

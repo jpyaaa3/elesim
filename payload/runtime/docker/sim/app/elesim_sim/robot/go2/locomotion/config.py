@@ -29,6 +29,9 @@ class Go2LocomotionConfig:
     mpc_leg_kv_damping: float = 1.0
     mpc_ctrl_hz: float = 200.0
     mpc_command_ramp_s: float = 0.15
+    mpc_command_accel_mps2: float = 1.2
+    mpc_command_yaw_accel_radps2: float = 3.0
+    mpc_stop_dwell_s: float = 0.2
     mpc_torque_ramp_s: float = 0.12
     mpc_torque_warmup_s: float = 0.05
     mpc_ready_pose_s: float = 0.12

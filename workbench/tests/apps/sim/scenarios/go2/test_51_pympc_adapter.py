@@ -5,6 +5,7 @@ import pytest
 from types import SimpleNamespace
 
 from elesim_sim.robot.go2.locomotion.kinematics import NOMINAL_FOOT_OFFSET_BODY
+from elesim_sim.robot.go2.locomotion.command import Go2CommandShaper, trot_all_stance
 from elesim_sim.robot.go2.locomotion.types import ALL_LEGS, Go2Command
 from elesim_sim.robot.go2.pympc_controller import (
     PyMpcGenesisController,
@@ -151,7 +152,11 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
     controller._sim_time = 1.0
     controller._faulted = False
     controller._cmd = Go2Command()
-    controller._config = SimpleNamespace(command_idle_threshold=0.05)
+    controller._config = SimpleNamespace(
+        command_idle_threshold=0.05, gait_hz=2.5, gait_duty=0.6
+    )
+    controller._command_shaper = Go2CommandShaper(stop_dwell_s=0.2)
+    controller._command_shaper._zero_since_s = 0.0
     controller._active = True
     controller._step_i = 9
     controller._forces = np.ones((4, 3))
@@ -171,3 +176,86 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
     assert not controller._forces.any()
     assert not controller._tau_hold.any()
     assert controller._last_contacts.all()
+
+
+def test_idle_startup_stays_in_stand_during_stop_dwell() -> None:
+    controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._dt = 0.02
+    controller._sim_time = 0.0
+    controller._faulted = False
+    controller._cmd = Go2Command()
+    controller._command_shaper = Go2CommandShaper(stop_dwell_s=0.2)
+    controller._config = SimpleNamespace(
+        command_idle_threshold=0.05, gait_hz=2.5, gait_duty=0.6
+    )
+    controller._active = False
+    controller._step_i = 0
+    controller._forces = np.zeros((4, 3))
+    controller._tau_hold = np.zeros(12)
+    controller._last_contacts = np.ones(4)
+    controller._kin = SimpleNamespace(stand_q=np.zeros(12), ready_q=np.ones(12))
+    controller._leg_dof_idxs = list(range(12))
+    calls = []
+    controller._set_stand_actuation = lambda: calls.append("stand")
+    controller._entity = SimpleNamespace(
+        control_dofs_position=lambda pose, **_kwargs: calls.append(tuple(pose))
+    )
+
+    controller.step()
+
+    assert calls == [tuple(controller._kin.stand_q)]
+    assert not controller._active
+
+
+def test_command_shaper_limits_linear_and_yaw_acceleration_through_reversal() -> None:
+    shaper = Go2CommandShaper(linear_accel_mps2=1.2, yaw_accel_radps2=3.0)
+    shaper.set_target(Go2Command(vx=0.4, yaw_rate=0.8))
+    forward = shaper.update(0.1)
+    assert forward.vx == pytest.approx(0.12)
+    assert forward.yaw_rate == pytest.approx(0.3)
+
+    shaper.set_target(Go2Command(vx=-0.4, yaw_rate=-0.8))
+    previous = forward
+    crossed_zero = False
+    for _ in range(8):
+        current = shaper.update(0.1)
+        assert abs(current.vx - previous.vx) <= 0.12 + 1e-12
+        assert abs(current.yaw_rate - previous.yaw_rate) <= 0.3 + 1e-12
+        crossed_zero = crossed_zero or previous.vx > 0.0 >= current.vx
+        previous = current
+    assert crossed_zero
+    assert previous.vx < 0.0
+    assert not shaper.stop_ready(
+        time_s=1.0, threshold=0.05, gait_hz=2.2, gait_duty=0.6
+    )
+
+
+def test_brief_zero_input_does_not_arm_stand_transition() -> None:
+    shaper = Go2CommandShaper(stop_dwell_s=0.2)
+    shaper.current = Go2Command(vx=0.04)
+    shaper.set_target(Go2Command())
+    shaper.update(0.01)
+    assert not shaper.stop_ready(
+        time_s=1.01, threshold=0.05, gait_hz=2.2, gait_duty=0.6
+    )
+
+    shaper.set_target(Go2Command(vx=-0.4))
+    shaper.update(0.01)
+    assert not shaper.stop_ready(
+        time_s=1.02, threshold=0.05, gait_hz=2.2, gait_duty=0.6
+    )
+
+
+def test_stopping_waits_for_dwell_and_four_foot_support() -> None:
+    shaper = Go2CommandShaper(stop_dwell_s=0.2)
+    assert not shaper.stop_ready(
+        time_s=1.0, threshold=0.05, gait_hz=2.2, gait_duty=0.6
+    )
+    assert not shaper.stop_ready(
+        time_s=1.21, threshold=0.05, gait_hz=2.2, gait_duty=0.6
+    )
+    support_time = 3.5 / 2.2
+    assert trot_all_stance(support_time, gait_hz=2.2, duty=0.6)
+    assert shaper.stop_ready(
+        time_s=support_time, threshold=0.05, gait_hz=2.2, gait_duty=0.6
+    )

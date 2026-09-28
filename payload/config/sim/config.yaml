@@ -182,6 +182,10 @@ robot:
         enable: true
         mass_kg: 0.0
       mpc:
+        # Bound teleop velocity changes; hold zero before switching to stand.
+        command_accel_mps2: 1.2
+        command_yaw_accel_radps2: 3.0
+        stop_dwell_s: 0.2
         leg_kv_damping: 3.0
         # The upstream four-face rectangle permits sqrt(2)*mu diagonally.
         # Keep the simulated surface at 0.8 and optimize conservatively.

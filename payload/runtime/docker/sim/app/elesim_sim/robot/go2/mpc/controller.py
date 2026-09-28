@@ -7,6 +7,7 @@ from typing import Callable, Optional
 import numpy as np
 
 from elesim_sim.robot.go2.locomotion.kinematics import Go2KinematicsModel
+from elesim_sim.robot.go2.locomotion.command import Go2CommandShaper
 from elesim_sim.robot.go2.locomotion.types import Go2Command
 from elesim_sim.robot.go2.mpc.config import Go2MpcConfig
 from elesim_sim.robot.go2.mpc.constraints import (
@@ -171,6 +172,11 @@ class ConvexMpcGenesisController:
         self._dt = float(dt)
         self._config = config
         self._cmd = Go2Command()
+        self._command_shaper = Go2CommandShaper(
+            linear_accel_mps2=float(config.command_accel_mps2),
+            yaw_accel_radps2=float(config.command_yaw_accel_radps2),
+            stop_dwell_s=float(config.stop_dwell_s),
+        )
         self._sim_time = 0.0
         self._ctrl_i = 0
         self._sim_step_i = 0
@@ -504,13 +510,14 @@ class ConvexMpcGenesisController:
         return result
 
     def set_command(self, cmd: Go2Command) -> None:
-        self._cmd = cmd
+        self._command_shaper.set_target(cmd)
 
     def set_arm_q(self, arm_q: tuple[float, float, float, float]) -> None:
         self._arm_q = tuple(float(x) for x in arm_q)
 
     def reset(self) -> None:
         self._cmd = Go2Command()
+        self._command_shaper.reset()
         self._sim_time = 0.0
         self._ctrl_i = 0
         self._sim_step_i = 0
@@ -601,8 +608,18 @@ class ConvexMpcGenesisController:
 
     def step(self) -> None:
         self._sim_time += self._dt
+        self._cmd = self._command_shaper.update(self._dt)
+        stop_ready = self._command_shaper.stop_ready(
+            time_s=self._sim_time,
+            threshold=float(self._config.command_idle_threshold),
+            gait_hz=float(self._config.gait_hz),
+            gait_duty=float(self._config.gait_duty),
+        )
+        target_idle = self._command_shaper.target.is_idle(
+            float(self._config.command_idle_threshold)
+        )
 
-        if self._cmd.is_idle(self._config.command_idle_threshold):
+        if stop_ready or (target_idle and not self._torque_mode and not self._ready_mode):
             if self._torque_mode or self._ready_mode:
                 self._torque_mode = False
                 self._ready_mode = False

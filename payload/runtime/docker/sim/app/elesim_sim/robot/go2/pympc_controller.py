@@ -18,6 +18,7 @@ from elesim_sim.robot.go2.locomotion.kinematics import (
     NOMINAL_FOOT_OFFSET_BODY,
     Go2KinematicsModel,
 )
+from elesim_sim.robot.go2.locomotion.command import Go2CommandShaper
 from elesim_sim.robot.go2.locomotion.types import Go2Command, LegId
 from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
 from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge
@@ -133,6 +134,11 @@ class PyMpcGenesisController:
         )
         self._tau_lim = self._read_torque_limits()
         self._cmd = Go2Command()
+        self._command_shaper = Go2CommandShaper(
+            linear_accel_mps2=float(config.command_accel_mps2),
+            yaw_accel_radps2=float(config.command_yaw_accel_radps2),
+            stop_dwell_s=float(config.stop_dwell_s),
+        )
         self._arm_q = (0.0, 0.0, 0.0, 0.0)
         self._sim_time = 0.0
         self._active = False
@@ -205,13 +211,14 @@ class PyMpcGenesisController:
         )
 
     def set_command(self, cmd: Go2Command) -> None:
-        self._cmd = cmd
+        self._command_shaper.set_target(cmd)
 
     def set_arm_q(self, arm_q: tuple[float, float, float, float]) -> None:
         self._arm_q = tuple(float(x) for x in arm_q)
 
     def reset(self) -> None:
         self._cmd = Go2Command()
+        self._command_shaper.reset()
         self._sim_time = 0.0
         self._active = False
         self._ready_until = 0.0
@@ -337,7 +344,17 @@ class PyMpcGenesisController:
 
     def step(self) -> None:
         self._sim_time += self._dt
-        if self._faulted or self._cmd.is_idle(self._config.command_idle_threshold):
+        self._cmd = self._command_shaper.update(self._dt)
+        stop_ready = self._command_shaper.stop_ready(
+            time_s=self._sim_time,
+            threshold=float(self._config.command_idle_threshold),
+            gait_hz=float(self._config.gait_hz),
+            gait_duty=float(self._config.gait_duty),
+        )
+        target_idle = self._command_shaper.target.is_idle(
+            float(self._config.command_idle_threshold)
+        )
+        if self._faulted or stop_ready or (target_idle and not self._active):
             if self._active:
                 self._active = False
                 self._step_i = 0
