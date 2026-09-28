@@ -297,6 +297,7 @@ class ConnectionManagerApplication:
         self._job_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._cancel_event = threading.Event()
+        self._stop_requested = False
         self._job_thread: threading.Thread | None = None
 
     def context(self) -> dict[str, object]:
@@ -561,6 +562,10 @@ class ConnectionManagerApplication:
     ) -> dict[str, object]:
         if action not in _JOB_ACTIONS:
             raise ValueError(f"unsupported connection-manager action: {action!r}")
+        if action == "stop":
+            if options:
+                raise ValueError("runtime stop does not accept request fields")
+            return self.request_runtime_stop()
         if action != "start" and options:
             raise ValueError("runtime launch options are only valid for start")
         runtime_options = (
@@ -591,6 +596,7 @@ class ConnectionManagerApplication:
             ):
                 raise ValueError(f"{action} requires the sros2 security profile")
             self._cancel_event.clear()
+            self._stop_requested = False
             runtime_payload: dict[str, object] | None = None
             if runtime_options is not None:
                 runtime_payload = {"viewer": runtime_options.viewer}
@@ -654,6 +660,53 @@ class ConnectionManagerApplication:
         result.setdefault("available", True)
         return result
 
+    def request_runtime_stop(self) -> dict[str, object]:
+        """Stop saved-topology runtimes, including during another manager job.
+
+        An active transaction receives a cooperative cancellation request first
+        so its rollback can finish. The stop then runs on the same worker after
+        that operation releases its deployment resources.
+        """
+
+        thread: threading.Thread | None = None
+        with self._job_lock:
+            if self.job.status in {"running", "cancelling"}:
+                if self.job.action == "stop" or self._stop_requested:
+                    return self.job.snapshot()
+                self._stop_requested = True
+                self._cancel_event.set()
+                self.job.status = "cancelling"
+                self.job.action = "stop"
+                self.job.error = ""
+                self.job.interaction = None
+                self.job.logs.append(
+                    "Runtime stop requested; waiting for the active operation to roll back."
+                )
+                if len(self.job.logs) > _MAX_JOB_LOGS:
+                    del self.job.logs[: len(self.job.logs) - _MAX_JOB_LOGS]
+                return self.job.snapshot()
+
+            topology = self.load_topology(required=True)
+            assert topology is not None
+            self._cancel_event.clear()
+            self._stop_requested = False
+            self.job = ConnectionJob(
+                status="running",
+                action="stop",
+                started_at=time.time(),
+            )
+            thread = threading.Thread(
+                target=self._run_job,
+                args=(topology, "stop", None),
+                name="elesim-connection-stop",
+                daemon=True,
+            )
+            self._job_thread = thread
+            snapshot = self.job.snapshot()
+        assert thread is not None
+        thread.start()
+        return snapshot
+
     def request_shutdown(self) -> None:
         with self._job_lock:
             if self.job.status in {"running", "cancelling"}:
@@ -704,6 +757,9 @@ class ConnectionManagerApplication:
             if self._cancel_event.is_set():
                 raise ConnectionJobCancelled("connection-manager job cancelled")
 
+        outcome = "completed"
+        error = ""
+        topology_updated = False
         try:
             set_options = getattr(self.runner, "set_runtime_launch_options", None)
             if callable(set_options):
@@ -723,26 +779,50 @@ class ConnectionManagerApplication:
                 with self._job_lock:
                     self.job.topology_updated = True
         except ConnectionJobCancelled:
+            outcome = "cancelled"
             topology_updated = self._persisted_topology_changed(topology)
-            with self._job_lock:
-                self.job.status = "cancelled"
-                self.job.interaction = None
-                self.job.topology_updated = topology_updated
-                self.job.finished_at = time.time()
-            return
         except Exception as exc:  # The browser reports a bounded, redacted failure.
+            outcome = "failed"
+            error = self._safe_status_text(exc)
             topology_updated = self._persisted_topology_changed(topology)
-            with self._job_lock:
-                self.job.status = "failed"
-                self.job.error = self._safe_status_text(exc)
-                self.job.interaction = None
-                self.job.topology_updated = topology_updated
-                self.job.finished_at = time.time()
-            return
+
+        run_pending_stop = False
         with self._job_lock:
-            self.job.status = "completed"
-            self.job.interaction = None
-            self.job.finished_at = time.time()
+            self.job.topology_updated = self.job.topology_updated or topology_updated
+            if self._stop_requested and action != "stop":
+                self._stop_requested = False
+                self._cancel_event.clear()
+                self.job.status = "running"
+                self.job.action = "stop"
+                self.job.error = ""
+                self.job.interaction = None
+                self.job.runtime_options = None
+                self.job.started_at = time.time()
+                self.job.finished_at = None
+                if error:
+                    self.job.logs.append(
+                        f"{action} ended before runtime stop: {error}"
+                    )
+                    if len(self.job.logs) > _MAX_JOB_LOGS:
+                        del self.job.logs[: len(self.job.logs) - _MAX_JOB_LOGS]
+                run_pending_stop = True
+            else:
+                self.job.status = outcome
+                self.job.error = error
+                self.job.interaction = None
+                self.job.finished_at = time.time()
+
+        if run_pending_stop:
+            try:
+                stop_topology = self.load_topology(required=True)
+                assert stop_topology is not None
+            except Exception as exc:
+                with self._job_lock:
+                    self.job.status = "failed"
+                    self.job.error = self._safe_status_text(exc)
+                    self.job.finished_at = time.time()
+            else:
+                self._run_job(stop_topology, "stop", None)
 
     def _persisted_topology_changed(self, original: ConnectionTopology) -> bool:
         try:

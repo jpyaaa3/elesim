@@ -60,3 +60,21 @@ for (const status of ['completed', 'failed', 'cancelled']) {
     assert.equal(context.workflowStarted, status === 'completed');
   });
 }
+
+test('runtime stop completion refreshes status and enables another start', async () => {
+  const controls = Object.fromEntries(['job-status', 'job-log', 'runtime-status', 'save'].map(
+    id => [id, {dataset: {status: 'running'}, textContent: '', focus() {}}]));
+  let refreshes = 0;
+  const context = vm.createContext({
+    byId: id => controls[id], t: key => key,
+    api: async () => ({status: 'completed', action: 'stop', logs: []}),
+    runtimeRevision: 1, workflowStarted: true, pollTimer: null,
+    restoreRuntimeOptions() {}, workflowStepForAction: () => '',
+    setWorkflowStepState() {}, markWorkflowDirty() {}, setJobRunning() {}, updateWorkflow() {},
+    pollRuntimeStatus() {refreshes++;}, showError(error) {throw error;},
+  });
+  vm.runInContext(source.match(/async function pollJob\([^]*?\n}/)[0], context);
+  await context.pollJob();
+  assert.equal(context.workflowStarted, false);
+  assert.equal(refreshes, 1);
+});

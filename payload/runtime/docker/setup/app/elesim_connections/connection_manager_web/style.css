@@ -261,8 +261,8 @@ dialog::backdrop { background: rgb(20 26 32 / 48%); }
 }
 .workflow-step[data-enabled="false"] .step-number { background: #c5cbd3; color: #f7f8fa; }
 .step-number { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 5px; background: var(--accent); color: #fff; font-weight: 800; }
-.abort-step { display: flex; flex: 0 0 120px; align-items: stretch; }
-.abort-step button { width: 100%; height: 100%; min-height: 150px; border-radius: 6px; }
+.stop-step { display: flex; flex: 0 0 120px; align-items: stretch; }
+.stop-step button { width: 100%; height: 100%; min-height: 150px; border-radius: 6px; }
 .host-status { margin-top: 0; }
 .host-status > strong { display: block; margin-bottom: 7px; }
 pre { overflow: auto; margin: 0; border: 1px solid var(--line); border-radius: 6px; padding: 12px; background: #18211d; color: #dce9e2; font-size: var(--font-small); line-height: 1.55; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
@@ -307,7 +307,7 @@ pre { overflow: auto; margin: 0; border: 1px solid var(--line); border-radius: 6
   .workflow-step::after { display: none; }
   .workflow-step button { grid-column: 1 / -1; justify-self: stretch; }
   .boot-options { grid-column: 1 / -1; grid-row: auto; align-content: start; justify-self: stretch; }
-  .abort-step { min-height: 64px; margin-top: 10px; }
-  .abort-step button { min-height: 64px; }
+  .stop-step { min-height: 64px; margin-top: 10px; }
+  .stop-step button { min-height: 64px; }
   .job-status { margin-top: 16px; }
 }

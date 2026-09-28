@@ -40,6 +40,7 @@ let gpuInheritAvailable = null;
 let gpuPolicies = {pilot: null, sim: null};
 let gpuDevices = {pilot: [], sim: []};
 let jobSubmissionPending = false;
+let runtimeStopRevision = 0;
 let workflowSaved = false;
 let workflowApplied = false;
 let runtimeReady = false;
@@ -1355,7 +1356,9 @@ async function probeSsh(slot) {
 
 async function startJob(action) {
   if (jobSubmissionPending) return;
+  const stopRevision = runtimeStopRevision;
   const locksRuntimeOptions = action === "start";
+  const wasRuntimeOptionsLocked = runtimeOptionsLocked;
   jobSubmissionPending = true;
   // Disable every workflow action before the first asynchronous status/save
   // request.  Otherwise a second click can race the first accepted job and
@@ -1369,6 +1372,10 @@ async function startJob(action) {
       throw new Error(t("error.workflow.incomplete"));
     }
     await saveTopology({quiet: true, invalidate: false});
+    if (stopRevision !== runtimeStopRevision) {
+      if (locksRuntimeOptions && !wasRuntimeOptionsLocked) setRuntimeOptionsLocked(false);
+      return;
+    }
     if (["prepare", "provision", "deploy", "rotate"].includes(action)) {
       workflowApplied = false;
       runtimeReady = false;
@@ -1400,6 +1407,20 @@ async function startJob(action) {
     // submission, while keeping it disabled if the job is still running.
     updateWorkflow();
   }
+}
+
+async function requestRuntimeStop() {
+  runtimeStopRevision += 1;
+  const job = await api("/api/job/stop", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  byId("job-status").dataset.status = job.status;
+  renderRuntimeJobStatus(job);
+  setJobRunning(["running", "cancelling"].includes(job.status));
+  if (pollTimer) window.clearInterval(pollTimer);
+  pollTimer = window.setInterval(pollJob, 500);
+  await pollJob();
 }
 
 async function runApplyJob() {
@@ -1488,7 +1509,6 @@ async function pollRuntimeStatus() {
 function setJobRunning(running) {
   ["save", "runtime-start"].forEach((id) => { byId(id).disabled = running; });
   updateWorkflow(running);
-  byId("cancel").disabled = !running;
 }
 
 async function pollJob() {
@@ -1515,6 +1535,10 @@ async function pollJob() {
     if (step && !running && ["failed", "cancelled"].includes(job.status)) setWorkflowStepState(step, "error");
     if (!running && job.action === "start") {
       workflowStarted = job.status === "completed";
+    }
+    if (!running && job.action === "stop") {
+      workflowStarted = false;
+      setWorkflowStepState("start", "pending");
     }
     if (topologyAppliedByThisJob && !workflowRequiresFreshSave) {
       workflowSaved = true;
@@ -1548,7 +1572,7 @@ async function pollJob() {
     if (job.status === "cancelled") byId("save").focus();
     if (
       !running
-      && (wasRunning || ["check", "prepare", "provision", "deploy", "rotate", "start"].includes(job.action))
+      && (wasRunning || ["check", "prepare", "provision", "deploy", "rotate", "start", "stop"].includes(job.action))
     ) {
       pollRuntimeStatus();
     }
@@ -1846,10 +1870,7 @@ function bindEvents() {
   });
   byId("apply").addEventListener("click", () => runApplyJob().catch(showError));
   byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError));
-  byId("cancel").addEventListener("click", async () => {
-    try { await api("/api/cancel", {method: "POST", body: JSON.stringify({})}); }
-    catch (error) { showError(error); }
-  });
+  byId("runtime-stop").addEventListener("click", () => requestRuntimeStop().catch(showError));
 }
 
 async function initialize() {

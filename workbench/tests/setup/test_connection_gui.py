@@ -734,7 +734,8 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'data-i18n="advanced.title"' not in html
     assert 'id="host-check"' not in html
     assert 'id="rotate"' not in html
-    assert 'id="runtime-stop"' not in html
+    assert 'id="runtime-stop"' in html
+    assert 'id="runtime-stop" type="button" class="danger-button" data-i18n="action.stop" disabled' not in html
     assert 'id="recover"' not in html
     assert 'id="runtime-restart"' not in html
     assert 'class="workflow-layout"' in html
@@ -744,7 +745,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert html.index('data-step="apply"') < html.index('data-step="start"')
     assert "grid-template-columns: repeat(3" in style
     assert 'data-state="pending"' in html
-    assert 'id="cancel"' in html
+    assert 'id="cancel"' not in html
     assert 'data-i18n="actions.title"' in html
     assert 'id="pilot-gpu-inherit"' in html
     assert 'id="pilot-gpu-device"' in html
@@ -778,6 +779,9 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'byId("tailscale-login").addEventListener' not in script
     assert '["prepare", "provision", "deploy", "rotate"].includes(job.action)' in script
     assert 'byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError))' in script
+    assert 'byId("runtime-stop").addEventListener("click", () => requestRuntimeStop().catch(showError))' in script
+    assert 'api("/api/job/stop"' in script
+    assert 'byId("runtime-stop").disabled' not in script
     assert 'byId("restart").addEventListener' not in script
     assert "function runtimeLaunchOptions()" in script
     assert '`${role}_gpu_inherit`' in script
@@ -838,7 +842,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert '.boot-gpu-option select:disabled' in style
     assert ".boot-options.runtime-options-locked { opacity: .42; }" in style
     assert ".workflow-steps" in style and "align-items: stretch" in style
-    assert ".abort-step button" in style and "height: 100%" in style
+    assert ".stop-step button" in style and "height: 100%" in style
     assert '.workflow-step[data-enabled="false"] button' in style
     assert 'startJob("check")' not in script
     assert 'workflow.stage.' not in script
@@ -929,9 +933,11 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'data-field="dds-address"' in html
     assert 'placeholder="100.x.y.z"' in html
     assert catalog["ko"]["action.cancel"] == "중단"
+    assert catalog["ko"]["action.stop"] == "전체 종료"
     assert catalog["ko"]["action.prepare"] == "실행 준비"
     assert catalog["ko"]["boot.gpu.free"] == "Free"
     assert catalog["en"]["action.prepare"] == "Prepare runtime"
+    assert catalog["en"]["action.stop"] == "Stop all"
     assert catalog["en"]["boot.gpu.free"] == "Free"
 
 
@@ -1226,6 +1232,60 @@ def test_background_prepare_is_a_first_class_job_action(tmp_path: Path) -> None:
     assert started["action"] == "prepare"
     assert calls == ["prepare"]
     assert finished["status"] == "completed"
+
+
+def test_runtime_stop_runs_when_no_other_job_is_active(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    def runner(_topology: ConnectionTopology, action: str, _log) -> None:
+        calls.append(action)
+
+    app = _application(tmp_path, runner=runner)
+    app.save_topology(_topology().to_dict())
+
+    started = app.start_job("stop")
+    finished = _wait_for_job(app)
+
+    assert started["action"] == "stop"
+    assert calls == ["stop"]
+    assert finished["status"] == "completed"
+    assert finished["action"] == "stop"
+
+
+def test_runtime_stop_waits_for_active_job_rollback_then_runs(tmp_path: Path) -> None:
+    prepare_entered = threading.Event()
+    release_prepare = threading.Event()
+    calls: list[str] = []
+
+    def runner(_topology: ConnectionTopology, action: str, log) -> None:
+        calls.append(action)
+        if action == "prepare":
+            log("prepare started")
+            prepare_entered.set()
+            release_prepare.wait(timeout=2)
+            log("prepare continued")
+        else:
+            log("runtime stopped")
+
+    app = _application(tmp_path, runner=runner)
+    app.save_topology(_topology().to_dict())
+    app.start_job("prepare")
+    assert prepare_entered.wait(timeout=1)
+
+    requested = app.start_job("stop")
+    duplicate = app.start_job("stop")
+    assert requested["status"] == "cancelling"
+    assert requested["action"] == "stop"
+    assert duplicate["status"] == "cancelling"
+
+    release_prepare.set()
+    finished = _wait_for_job(app)
+
+    assert calls == ["prepare", "stop"]
+    assert finished["status"] == "completed"
+    assert finished["action"] == "stop"
+    assert "runtime stopped" in finished["logs"]
+    assert "prepare continued" not in finished["logs"]
 
 
 def test_security_generation_actions_require_sros2(tmp_path: Path) -> None:
