@@ -139,6 +139,7 @@ class PyMpcForceSolver:
 
             solver_factory = PrebuiltNominal
         self._solver = solver_factory()
+        self._maxiter_warning_logged = False
 
     def solve(self, sample: PyMpcInput) -> np.ndarray:
         pos = _finite_array("com_position", sample.com_position, (3,))
@@ -174,8 +175,14 @@ class PyMpcForceSolver:
         force, _, _, status = self._solver.compute_control(
             state, reference, contacts, mass=mass, inertia=inertia.reshape(9)
         )
-        if int(status) != 0:
-            raise RuntimeError(f"PyMPC acados solve failed with status {status}")
+        status_code = int(status)
+        # A finite iterate remains useful when SQP reaches its iteration cap;
+        # validate and bound it below. Other acados failures do not produce a
+        # control input we are willing to apply.
+        if status_code not in (0, 2):
+            raise RuntimeError(
+                f"PyMPC acados solve failed with status {status_code}"
+            )
         grf = _finite_array("GRF", force, (12,)).reshape(4, 3)
         for index in range(4):
             if contacts[index, 0] == 0:
@@ -184,4 +191,10 @@ class PyMpcForceSolver:
             fz = float(np.clip(grf[index, 2], 0.0, self.max_normal_force_n))
             grf[index, 2] = fz
             grf[index, :2] = np.clip(grf[index, :2], -self.friction * fz, self.friction * fz)
+        if status_code == 2 and not self._maxiter_warning_logged:
+            print(
+                "[go2_pympc] acados reached its iteration limit; "
+                "using the finite, bounded force iterate"
+            )
+            self._maxiter_warning_logged = True
         return grf

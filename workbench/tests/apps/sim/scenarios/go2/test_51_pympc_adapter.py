@@ -69,6 +69,23 @@ def test_solver_passes_world_state_and_dynamic_payload_then_masks_swing() -> Non
     np.testing.assert_array_equal(force[2], [0, 0, 0])
 
 
+def test_solver_uses_bounded_finite_force_when_iteration_limit_is_reached(capsys) -> None:
+    fake = FakeSolver(force=[30, -30, 300] * 4, status=2)
+    adapter = PyMpcForceSolver(
+        horizon=3, friction=0.5, max_normal_force_n=100,
+        solver_factory=lambda: fake,
+    )
+
+    force = adapter.solve(sample())
+    adapter.solve(sample())
+
+    np.testing.assert_array_equal(force[0], [30, -30, 100])
+    np.testing.assert_array_equal(force[1], [0, 0, 0])
+    np.testing.assert_array_equal(force[2], [0, 0, 0])
+    assert np.all(np.isfinite(force))
+    assert capsys.readouterr().out.count("using the finite, bounded force iterate") == 1
+
+
 @pytest.mark.parametrize("force,status", [([1, 2, 3] * 4, 4), ([float("nan"), 0, 1] * 4, 0)])
 def test_solver_failure_is_not_reused_as_valid_force(force, status) -> None:
     adapter = PyMpcForceSolver(horizon=3, solver_factory=lambda: FakeSolver(force, status))
