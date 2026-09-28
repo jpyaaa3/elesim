@@ -3523,6 +3523,11 @@ class SimRuntime:
         a = self.app
         a.sim_scene.close_frame_dispatchers()
         a.sim_scene.close_camera_publishers()
+        if a.sim_scene.walking_metrics is not None:
+            try:
+                a.sim_scene.walking_metrics.close()
+            except Exception as exc:
+                print(f"[runtime] walking metrics cleanup failed: {exc}")
         if a.state_source is not None:
             a.state_source.close()
         if a.feedback_pub is not None:
