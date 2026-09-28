@@ -8,7 +8,7 @@ _EXPORTS = {
     "draw_mock_object_panel": "mock_object",
     "draw_perception_panel": "perception",
     "draw_resolution_panel": "live_visual_status",
-    "draw_sag_panel": "sag",
+    "draw_imu_model_panel": "imu_models",
     "draw_status_panel": "live_visual_status",
 }
 
@@ -19,7 +19,7 @@ __all__ = [
     "draw_ik_panel",
     "draw_mock_object_panel",
     "draw_perception_panel",
-    "draw_sag_panel",
+    "draw_imu_model_panel",
     "draw_resolution_panel",
     "draw_status_panel",
 ]

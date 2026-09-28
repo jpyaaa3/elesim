@@ -5,6 +5,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
@@ -113,6 +114,14 @@ class PilotConnection:
         self._selection_requested = ""
         self._selection_requested_at: Optional[float] = None
         self._diagnostic_seen: dict[str, float] = {}
+        self._imu_model_lock = threading.Lock()
+        self._imu_model_request: Optional[dict[str, Any]] = None
+        self._imu_model_route: tuple[str, str] = ("", "")
+        self._imu_model_applied = False
+        self._imu_model_error = ""
+        self._imu_model_sent_at: Optional[float] = None
+        self._imu_model_message_id = ""
+        self._imu_model_selection_id = ""
 
     def start(self) -> None:
         if self.thread is not None and self.thread.is_alive():
@@ -142,6 +151,34 @@ class PilotConnection:
         self._selection_requested = ""
         self._selection_requested_at = None
         self._outbox.put(_Submission("select", {"target_id": self.desired_target}, True))
+
+    def select_imu_model(self, model: Mapping[str, Any]) -> dict[str, Any]:
+        target = self.active_target
+        descriptor = next(
+            (item for item in self.endpoints if item.get("endpoint_id") == target), None
+        )
+        if descriptor is None or descriptor.get("role") != "robot" or not self.lease_id:
+            raise RuntimeError("IMU model requires an active Robot motion lease")
+        with self._imu_model_lock:
+            self._imu_model_request = dict(model)
+            self._imu_model_route = (target, self.lease_id)
+            self._imu_model_applied = False
+            self._imu_model_error = ""
+            self._imu_model_sent_at = None
+            self._imu_model_message_id = ""
+            self._imu_model_selection_id = uuid.uuid4().hex
+        return self.imu_model_status()
+
+    def imu_model_status(self) -> dict[str, Any]:
+        with self._imu_model_lock:
+            model = self._imu_model_request or {}
+            return {
+                "requested": {
+                    "id": model.get("id"), "version": model.get("version"),
+                } if model else {},
+                "active": self._imu_model_applied,
+                "error": self._imu_model_error,
+            }
 
     def _run(self) -> None:
         streams = {}
@@ -195,6 +232,7 @@ class PilotConnection:
                     now = time.monotonic()
                     self.drain_outbox(endpoint, now=now)
                     self.flush_target(endpoint, now=now)
+                    self.flush_imu_model(endpoint, now=now)
                     if endpoint.registered and (
                         self._last_discover_at is None
                         or now - self._last_discover_at >= self.discover_period_s
@@ -252,6 +290,11 @@ class PilotConnection:
         if message_type == "target_selected":
             self.active_target = str(payload.get("target_id", ""))
             self.lease_id = str(payload.get("lease_id", ""))
+            with self._imu_model_lock:
+                if self._imu_model_route != (self.active_target, self.lease_id):
+                    self._imu_model_request = None
+                    self._imu_model_applied = False
+                    self._imu_model_error = ""
             self._selection_requested = self.active_target
             self._selection_requested_at = None
             self._diagnostic(
@@ -286,6 +329,10 @@ class PilotConnection:
             )
             self.active_target = ""
             self.lease_id = ""
+            with self._imu_model_lock:
+                self._imu_model_request = None
+                self._imu_model_applied = False
+                self._imu_model_error = ""
             self._selection_requested = ""
             self._selection_requested_at = None
             self.state_sink.target_changed("")
@@ -296,6 +343,20 @@ class PilotConnection:
         if message_type == "telemetry":
             if not self.active_target or message.source_id == self.active_target:
                 self.state_sink.accept_telemetry(payload)
+                with self._imu_model_lock:
+                    if (
+                        self._imu_model_request is not None
+                        and (message.source_id, message.lease_id)
+                        == self._imu_model_route
+                        and payload.get("imu_model") == {
+                            "id": self._imu_model_request.get("id"),
+                            "version": self._imu_model_request.get("version"),
+                        }
+                        and payload.get("imu_model_selection_id")
+                        == self._imu_model_selection_id
+                    ):
+                        self._imu_model_applied = True
+                        self._imu_model_error = ""
             return
         if message_type == "simulation_status":
             if self.active_target and message.source_id != self.active_target:
@@ -310,6 +371,15 @@ class PilotConnection:
             return
         if message_type == "ack":
             self.state_sink.accept_ack(payload)
+            with self._imu_model_lock:
+                if (
+                    payload.get("reply_to") == self._imu_model_message_id
+                    and (message.source_id, message.lease_id) == self._imu_model_route
+                    and not payload.get("ok", False)
+                ):
+                    reason = str(payload.get("reason", "model rejected"))
+                    if reason != "stale_sequence":
+                        self._imu_model_error = reason
             return
         if message_type == "error":
             self.state_sink.accept_error(str(payload.get("reason", "peer error")))
@@ -438,6 +508,32 @@ class PilotConnection:
         self._send_motion(endpoint, payload)
         self._pending_target = None
         self._last_target_sent_at = float(now)
+
+    def flush_imu_model(self, endpoint: Any, *, now: float) -> None:
+        with self._imu_model_lock:
+            model = self._imu_model_request
+            if (
+                model is None
+                or self._imu_model_applied
+                or self._imu_model_error
+                or self._imu_model_route != (self.active_target, self.lease_id)
+                or (
+                    self._imu_model_sent_at is not None
+                    and now - self._imu_model_sent_at < 1.0
+                )
+            ):
+                return
+            envelope = endpoint.send(
+                "motion_command",
+                target_id=self.active_target,
+                payload={
+                    "command": "set_imu_model", "model": dict(model),
+                    "selection_id": self._imu_model_selection_id,
+                },
+                lease_id=self.lease_id,
+            )
+            self._imu_model_sent_at = now
+            self._imu_model_message_id = envelope.message_id
 
     def _send_motion(
         self,

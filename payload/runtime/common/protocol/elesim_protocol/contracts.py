@@ -128,7 +128,8 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
         qos="best-effort-motion-depth-1", authority="target owner motion lease",
         notes=(
             "validated MotionCommandRequest; estop remains local-safe; "
-            "optional mock_hug final-target identity is stale-fenced by Sim"
+            "optional mock_hug final-target identity is stale-fenced by Sim; "
+            "set_imu_model uses schema-v1 model descriptor and Robot telemetry confirmation"
         ),
     ),
     "telemetry": _contract(

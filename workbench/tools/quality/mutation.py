@@ -89,15 +89,6 @@ CASES: tuple[MutationCase, ...] = (
         tests=("workbench/tests/apps/pilot/properties/test_lji_properties.py",),
         python_paths=("payload/runtime/common/protocol",),
     ),
-    MutationCase(
-        name="equal-sag-finite-input",
-        source_root="payload/runtime/docker/pilot/app",
-        source_file="elesim_pilot/vision/visual_servoing/equal_sag_probe.py",
-        original="if not np.all(np.isfinite(drift)) or not np.all(np.isfinite(j)):",
-        mutant="if False:",
-        tests=("workbench/tests/apps/pilot/properties/test_equal_sag_properties.py",),
-        python_paths=("payload/runtime/common/protocol",),
-    ),
 )
 
 

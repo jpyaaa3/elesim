@@ -15,7 +15,6 @@ from __future__ import annotations
 
 _EXPORTS = {
     "LOOK_JACOBIAN_AXIS_NAMES": "pick_visual_servo",
-    "EqualSagEstimate": "equal_sag_probe",
     "JacobianLookGains": "pick_visual_servo",
     "LookAlignLimits": "pick_visual_servo",
     "LookGains": "pick_visual_servo",
@@ -25,7 +24,6 @@ _EXPORTS = {
     "ViewPregraspCandidate": "pick_view_pregrasp",
     "ViewPregraspLimits": "pick_view_pregrasp",
     "advance_allowed": "pick_visual_servo",
-    "apply_equal_sag_offsets": "equal_sag_probe",
     "apply_q_delta": "pick_visual_servo",
     "apply_q_delta_to_tuple": "pick_visual_servo",
     "broyden_update_uv_jacobian": "uv_jacobian",
@@ -42,7 +40,6 @@ _EXPORTS = {
     "damped_pseudoinverse": "pick_visual_servo",
     "default_uv_jacobian": "uv_jacobian",
     "error_vector_2d": "pick_visual_servo",
-    "estimate_equal_sag_from_ready_pose_drift": "equal_sag_probe",
     "estimate_jacobian_column": "pick_visual_servo",
     "evaluate_view_candidate": "pick_view_pregrasp",
     "FeasibleLookPoseResult": "feasible_look_pose",
@@ -57,7 +54,6 @@ _EXPORTS = {
     "resolve_feasible_look_pose": "feasible_look_pose",
     "resolve_feasible_ready_pose": "feasible_ready_pose",
     "should_send_look_command": "pick_visual_servo",
-    "solve_equal_sag_offsets": "equal_sag_probe",
     "solve_uv_control_delta": "uv_jacobian",
     "stack_jacobian": "pick_visual_servo",
     "view_candidate_passes": "pick_view_pregrasp",

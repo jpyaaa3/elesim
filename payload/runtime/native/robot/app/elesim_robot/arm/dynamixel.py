@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from elesim_protocol import SimMappingConfig
+from elesim_protocol import IMU_MODEL_OPCODES, ImuModelDefinition, SimMappingConfig
 
 if TYPE_CHECKING:
     from elesim_robot.config import HardwareConfig, SafetyConfig
@@ -53,7 +53,42 @@ class _ArmSnapshot(ctypes.Structure):
         ("torque_enabled", ctypes.c_int32),
         ("read_failures", ctypes.c_int32),
         ("valid", ctypes.c_int32),
+        ("model_id", ctypes.c_char * 65),
+        ("model_version", ctypes.c_int32),
+        ("imu_valid", ctypes.c_int32),
     ]
+
+
+class _ImuSample(ctypes.Structure):
+    _fields_ = [("rpy", ctypes.c_double * 3), ("sampled_monotonic_s", ctypes.c_double)]
+
+
+class _ArmNode(ctypes.Structure):
+    _fields_ = [
+        ("op", ctypes.c_int32), ("a", ctypes.c_int32),
+        ("b", ctypes.c_int32), ("value", ctypes.c_double),
+    ]
+
+
+class _ArmProgram(ctypes.Structure):
+    _fields_ = [
+        ("count", ctypes.c_int32), ("nodes", _ArmNode * 64),
+        ("outputs", ctypes.c_int32 * 4),
+    ]
+
+
+def _native_program(model: ImuModelDefinition) -> _ArmProgram:
+    program = _ArmProgram()
+    program.count = len(model.nodes)
+    for index, node in enumerate(model.nodes):
+        program.nodes[index] = _ArmNode(
+            IMU_MODEL_OPCODES[node["op"]],
+            int(node.get("index", node.get("a", 0))),
+            int(node.get("b", 0)),
+            float(node.get("value", 0.0)),
+        )
+    program.outputs[:] = model.outputs
+    return program
 
 
 @dataclass(frozen=True)
@@ -65,6 +100,9 @@ class NativeArmState:
     read_failures: int
     fault: str
     valid: bool
+    model_id: str
+    model_version: int
+    imu_valid: bool
 
 
 def _native_config(
@@ -143,6 +181,12 @@ def _load_library(path: Path | None = None) -> ctypes.CDLL:
         function.restype = ctypes.c_int
     library.elesim_arm_command_q.argtypes = [pointer, ctypes.POINTER(ctypes.c_double), error, size]
     library.elesim_arm_command_q.restype = ctypes.c_int
+    library.elesim_arm_select_model.argtypes = [
+        pointer, ctypes.c_char_p, ctypes.c_int32, ctypes.POINTER(_ArmProgram), error, size,
+    ]
+    library.elesim_arm_select_model.restype = ctypes.c_int
+    library.elesim_arm_submit_imu.argtypes = [pointer, ctypes.POINTER(_ImuSample), error, size]
+    library.elesim_arm_submit_imu.restype = ctypes.c_int
     library.elesim_arm_command_claw.argtypes = [pointer, ctypes.c_double, error, size]
     library.elesim_arm_command_claw.restype = ctypes.c_int
     library.elesim_arm_snapshot.argtypes = [pointer, ctypes.POINTER(_ArmSnapshot), error, size]
@@ -155,6 +199,12 @@ def _load_library(path: Path | None = None) -> ctypes.CDLL:
         ctypes.POINTER(ctypes.c_double),
     ]
     library.elesim_arm_map_q.restype = ctypes.c_int
+    library.elesim_arm_eval_model.argtypes = [
+        ctypes.POINTER(_ArmProgram), ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_double), ctypes.c_int32,
+        ctypes.POINTER(ctypes.c_double),
+    ]
+    library.elesim_arm_eval_model.restype = ctypes.c_int
     return library
 
 
@@ -212,6 +262,17 @@ class NativeArm:
         values = (ctypes.c_double * 4)(*q)
         self._call("elesim_arm_command_q", values)
 
+    def select_imu_model(self, model: ImuModelDefinition) -> None:
+        program = _native_program(model)
+        self._call(
+            "elesim_arm_select_model", model.model_id.encode("ascii"),
+            int(model.version), ctypes.byref(program),
+        )
+
+    def submit_imu(self, rpy: tuple[float, float, float], sampled_monotonic_s: float) -> None:
+        sample = _ImuSample((ctypes.c_double * 3)(*rpy), float(sampled_monotonic_s))
+        self._call("elesim_arm_submit_imu", ctypes.byref(sample))
+
     def command_claw_deg(self, degrees: float) -> None:
         self._call("elesim_arm_command_claw", float(degrees))
 
@@ -242,6 +303,9 @@ class NativeArm:
             read_failures=int(result.read_failures),
             fault=fault.value.decode("utf-8", errors="replace"),
             valid=bool(result.valid),
+            model_id=result.model_id.decode("ascii", errors="replace"),
+            model_version=int(result.model_version),
+            imu_valid=bool(result.imu_valid),
         )
 
 

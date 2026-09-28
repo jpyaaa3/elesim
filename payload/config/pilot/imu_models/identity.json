@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "identity",
+  "version": 1,
+  "label": "Identity (no IMU correction)",
+  "program": {
+    "nodes": [
+      {"op": "q", "index": 0},
+      {"op": "q", "index": 1},
+      {"op": "q", "index": 2},
+      {"op": "q", "index": 3}
+    ],
+    "outputs": [0, 1, 2, 3]
+  }
+}

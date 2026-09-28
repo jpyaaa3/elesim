@@ -99,7 +99,7 @@ TEST_GROUPS = (
     TestCaseGroup(
         "픽 전체",
         _under("workbench/tests/apps/pilot/scenarios/pick/"),
-        "Pick 디버그 흐름 전체입니다. 설정, Look, Aim, equal-sag, Grasp/LJI, extend-ready, 수렴, E2E, 타이밍 순서로 실행합니다.",
+        "Pick 디버그 흐름 전체입니다. 설정, Look, Aim, 명목 운동학, Grasp/LJI, extend-ready, 수렴, E2E, 타이밍 순서로 실행합니다.",
     ),
     TestCaseGroup(
         "00 준비",
@@ -137,15 +137,14 @@ TEST_GROUPS = (
         "Aim과 이미지 공간 조향 점검입니다. aim 수렴, drift 처리, UV Jacobian 방향, 부호 규약을 확인합니다.",
     ),
     TestCaseGroup(
-        "30 새그",
+        "30 명목 운동학",
         _existing(
             (
-                "workbench/tests/apps/pilot/scenarios/pick/test_30_equal_sag.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_31_sag_drift.py",
+                "workbench/tests/apps/pilot/scenarios/pick/test_30_nominal_kinematics.py",
                 "workbench/tests/apps/pilot/scenarios/pick/test_32_ready_pose.py",
             )
         ),
-        "equal-sag gate 점검입니다. sag drift 입력 품질과 ready pose 보정 동작을 확인합니다.",
+        "명목 운동학과 ready pose 계산을 확인합니다.",
     ),
     TestCaseGroup(
         "40 그래스프",

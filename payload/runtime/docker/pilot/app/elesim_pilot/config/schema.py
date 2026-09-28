@@ -303,12 +303,7 @@ class PickConfig:
     grasp_waypoint_max_dir_error_deg: float = 12.0
     grasp_waypoint_max_approach_drift_deg: float = 18.0
     grasp_uv_center_tol: float = 0.0
-    grasp_online_sag_enabled: bool = True
-    grasp_online_sag_max_step_deg: float = 2.0
     grasp_skip_aim_recover_in_mock: bool = True
-    sag_drift_max_dir_error_deg: float = 12.0
-    sag_drift_max_lateral_m: float = 0.015
-    sag_drift_axial_only: bool = True
 
     # Local image Jacobian grasp approach (LJI path; legacy unchanged when false).
     local_img_jacobian_enabled: bool = True
@@ -327,7 +322,6 @@ class PickConfig:
     lij_stall_remain_eps_m: float = 0.005
     lij_joint_limit_margin_m: float = 0.001
     lij_joint_limit_margin_rad: float = 0.002
-    lij_sag_min_lateral_m: float = 0.015
     lij_depth_settled_remain_delta_m: float = 0.005
     lij_max_dq_linear: float = 0.002
     lij_max_dq_angle: float = 0.006

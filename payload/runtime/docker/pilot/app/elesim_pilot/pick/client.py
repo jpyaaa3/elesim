@@ -217,12 +217,6 @@ class ControlClient:
             force=True,
         )
 
-    def send_sag_model_meta(self, sag_model: dict[str, Any], *, source: str = "target") -> None:
-        self._send(
-            {"t": "target", "source": str(source), "sag_model": dict(sag_model)},
-            force=True,
-        )
-
     def maybe_send_target_q(self, q: SimQ, *, source: str = "sim", force: bool = False) -> None:
         self._send_target_q(q, source=source, force=force)
 
@@ -246,8 +240,6 @@ class ControlClient:
             payload["target"] = [float(value) for value in target_xyz]
         if target_dir is not None:
             payload["target_dir"] = [float(value) for value in target_dir]
-        if sag_model is not None:
-            payload["sag_model"] = dict(sag_model)
         if claw_closed is not None:
             payload["claw_closed"] = bool(claw_closed)
         self._send(payload, force=force)

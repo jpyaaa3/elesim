@@ -43,7 +43,6 @@ class SimulationStateSource:
         self._q = default_start_sim_q(mapping)
         self._ik_target: Optional[np.ndarray] = None
         self._ik_direction: Optional[np.ndarray] = None
-        self._sag_model: dict[str, Any] = {}
         self._claw_closed = False
         self._go2_velocity = (0.0, 0.0, 0.0)
         self._go2_base_pos: Optional[tuple[float, float, float]] = None
@@ -111,10 +110,6 @@ class SimulationStateSource:
                     _vector(body["target_dir"], 3, name="target_dir"),
                     dtype=float,
                 )
-            if "sag_model" in body:
-                if not isinstance(body["sag_model"], Mapping):
-                    raise ValueError("sag_model must be an object")
-                self._sag_model = dict(body["sag_model"])
             if "claw_closed" in body:
                 if not isinstance(body["claw_closed"], bool):
                     raise ValueError("claw_closed must be boolean")
@@ -168,10 +163,6 @@ class SimulationStateSource:
     def ik_target_dir(self) -> Optional[np.ndarray]:
         with self._lock:
             return None if self._ik_direction is None else self._ik_direction.copy()
-
-    def sag_model(self) -> dict[str, Any]:
-        with self._lock:
-            return dict(self._sag_model)
 
     def claw_closed(self) -> bool:
         with self._lock:

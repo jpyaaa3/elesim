@@ -32,14 +32,6 @@ from elesim_protocol import (
     sim_q_to_control_u,
 )
 from elesim_pilot.experiment.walking_trial import host_horizontal_object_distance_m, standoff_base_pos
-from elesim_pilot.robot.arm.sag_model import load_sag_model_json
-from elesim_pilot.vision.visual_servoing.equal_sag_probe import (
-    EqualSagEstimate,
-    SagDriftComponents,
-    apply_equal_sag_offsets,
-    estimate_equal_sag_from_ready_pose_drift,
-    prepare_sag_drift_input,
-)
 from elesim_pilot.observability.pick_timing import (
     PickPhaseProfile,
     PickTimingCollector,
@@ -100,44 +92,6 @@ from .perception import PerceptionActions
 from .ready import ReadyActions
 from .wrap import WrapActions
 from .workflow import PickWorkflowPhase, run_pick_workflow
-
-
-def _default_sag_model_path() -> str:
-    for root in Path(__file__).resolve().parents:
-        candidate = root / "payload/data/calibration/arm/sag_model.json"
-        if candidate.is_file():
-            return str(candidate)
-    return "/opt/elesim/data/calibration/arm/sag_model.json"
-
-
-DEFAULT_SAG_MODEL_PATH = _default_sag_model_path()
-
-
-def resolve_sag_model_path(path: str) -> str:
-    raw = str(path or "").strip()
-    if not raw:
-        return DEFAULT_SAG_MODEL_PATH
-    if os.path.isabs(raw):
-        return raw
-    return os.path.abspath(raw)
-
-
-def load_sag_model_or_empty(path: str) -> dict[str, Any]:
-    model = load_sag_model_json(resolve_sag_model_path(path))
-    return dict(model) if isinstance(model, dict) else {}
-
-
-def resolve_initial_sag_model() -> dict[str, Any]:
-    """Compatibility API: return no initial model when the optional file is absent.
-
-    Malformed or unreadable model files are real configuration failures and are
-    deliberately not hidden behind the historical empty-model fallback.
-    """
-
-    try:
-        return load_sag_model_or_empty(DEFAULT_SAG_MODEL_PATH)
-    except FileNotFoundError:
-        return {}
 
 
 class _ControlServiceCore(
@@ -230,7 +184,7 @@ class _ControlServiceCore(
         self._pick_achieved_dir_world: Optional[tuple[float, float, float]] = None
         self._pick_resolved_ready_dir_world: Optional[tuple[float, float, float]] = None
         self._pick_resolved_ready_pose_world_xyz: Optional[tuple[float, float, float]] = None
-        self._pick_equal_sag_estimate: Optional[EqualSagEstimate] = None
+        self._pick_equal_sag_estimate: Optional[Any] = None
         self._pick_equal_sag_model: Optional[dict[str, Any]] = None
         self._pick_equal_sag_attempted = False
         self._grasp_waypoint_idx = 0
@@ -2166,15 +2120,6 @@ class ControlService(_MotionFeedbackActions):
                 source=source,
                 target_xyz=(float(self.state.target_x), float(self.state.target_y), float(self.state.target_z)),
                 target_dir=(float(self.state.target_vx), float(self.state.target_vy), float(self.state.target_vz)),
-                sag_model=(
-                    dict(sag_model_override)
-                    if isinstance(sag_model_override, dict)
-                    else (
-                        dict(self.state.raw_sag_model)
-                        if isinstance(self.state.raw_sag_model, dict)
-                        else {}
-                    )
-                ),
                 claw_closed=bool(self.state.claw_closed),
                 force=force or bool(source == "target"),
             )
@@ -2218,19 +2163,6 @@ class ControlService(_MotionFeedbackActions):
             standoff_m=float(pk.grasp_standoff_m),
             source=source,
         )
-
-    def send_sag_model_meta(self, *, source: str = "target") -> None:
-        if self.client is not None:
-            self.client.send_sag_model_meta(
-                dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {},
-                source=source,
-            )
-
-    def load_sag_model(self, model_path: str) -> tuple[str, dict[str, Any]]:
-        resolved_path = resolve_sag_model_path(model_path)
-        model = load_sag_model_or_empty(resolved_path)
-        self.state.set_sag_model(resolved_path, model)
-        return resolved_path, model
 
     def send_claw_command(self, *, closed: bool) -> None:
         if self.client is not None:

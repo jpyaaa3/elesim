@@ -369,8 +369,10 @@ release layout을 managed host처럼 등록하지 않는다.
 
 Robot native 설치는 포함된 Dynamixel SDK 소스와 C++ arm controller를 Jetson에서
 `g++`로 빌드해 `<robot root>/native/libelesim_arm.so`에 둔다. Python
-`dynamixel-sdk` 패키지는 필요하지 않다. `native_arm/correction_placeholder.cpp`는
-현재 입력 q를 그대로 반환하며 Teensy/IMU 폐루프 구현 위치다.
+`dynamixel-sdk` 패키지는 필요하지 않다. `native_arm/correction_model.cpp`는
+Pilot의 `config/imu_models/*.json`에서 선택된 계산 그래프를 실행한다. 제공된
+`identity/v1` 모델은 입력 q를 그대로 반환한다. C++ 로컬 루프와 IMU sample
+입력 경계는 마련되어 있지만 Teensy frame reader와 실제 보정 모델은 아직 없다.
 
 Jetson에서 Robot과 Pilot/UI Compose를 함께 운영하면 서로 다른 prefix와
 deployment unit을 사용한다. Robot unit이 mandatory인 Jetson에서 Sim을

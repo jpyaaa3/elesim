@@ -80,3 +80,14 @@ def test_remote_service_reads_snapshot_cache_and_submits_commands_nonblocking() 
 
     assert service.refresh_host_state() is None
     assert session.snapshot_requests == 1
+
+
+def test_remote_service_reads_pilot_imu_catalog_and_requests_selection() -> None:
+    session = Session()
+    session.service["imu_models"] = [{"id": "identity", "version": 1}]
+    session.service["imu_model_status"] = {"requested": {}, "active": False}
+    service = RemoteControlService(session, RemotePanelState(session))
+    assert service.imu_models == [{"id": "identity", "version": 1}]
+    assert service.imu_model_status["active"] is False
+    service.select_imu_model_async("identity", on_result=lambda _: None, on_error=lambda _: None)
+    assert session.submitted[-1][:3] == ("service_call", "select_imu_model", ("identity",))

@@ -7,7 +7,6 @@ import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
 from elesim_pilot.robot.arm.joint_defs import JointLimit
-from elesim_pilot.robot.arm.sag_model import segment_errors_from_model
 
 
 Q4 = np.ndarray
@@ -60,33 +59,12 @@ def _build_q_map(context: dict[str, Any], q4: Sequence[float]) -> dict[str, floa
     bend_joint_names = [str(x) for x in context["bend_joint_names"]]
     n_nodes = len(bend_joint_names)
     n_seg = int(context["n_seg"])
-    sag_model = dict(context.get("sag_model", {}) or {})
-    theta1_deg = float(np.degrees(theta1))
-    theta2_deg = float(np.degrees(theta2))
-    seg1_err = np.radians(
-        segment_errors_from_model(
-            sag_model,
-            seg_index=1,
-            count=n_seg,
-            theta1=theta1_deg,
-            theta2=theta2_deg,
-        )
-    )
-    seg2_err = np.radians(
-        segment_errors_from_model(
-            sag_model,
-            seg_index=2,
-            count=max(n_nodes - n_seg, 0),
-            theta1=theta1_deg,
-            theta2=theta2_deg,
-        )
-    )
     out = {linear_joint_name: linear, roll_joint_name: roll}
     for i, joint_name in enumerate(bend_joint_names):
         if i < n_seg:
-            out[joint_name] = float(theta1 + float(seg1_err[i]))
+            out[joint_name] = theta1
         else:
-            out[joint_name] = float(theta2 + float(seg2_err[i - n_seg]))
+            out[joint_name] = theta2
     return out
 
 

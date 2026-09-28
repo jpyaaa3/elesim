@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -92,6 +93,25 @@ class FakeArm:
         if self.read_error is not None:
             raise self.read_error
         return int(self.currents_raw[motor_id])
+
+
+class FakeNativeArm(FakeArm):
+    native_safety = True
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.selected_models: list[tuple[str, int]] = []
+
+    def select_imu_model(self, model) -> None:
+        self.selected_models.append((model.model_id, model.version))
+
+    def snapshot(self):
+        return SimpleNamespace(
+            sampled_at=100.0, ticks=dict(self.positions),
+            currents_ma={key: 0 for key in self.ids},
+            torque_enabled=False, read_failures=0, fault="", valid=False,
+            model_id="identity", model_version=1, imu_valid=False,
+        )
 
 
 class FakeGo2:
@@ -221,6 +241,26 @@ def test_runtime_rejects_mock_hug_target_without_touching_hardware() -> None:
 
     assert (ok, reason) == (False, "mock_hug_is_simulation_only")
     assert arm.target is None
+
+
+def test_imu_model_requires_native_arm_and_reports_exact_selection() -> None:
+    value, _arm = runtime()
+    value.grant_lease("pilot-a", "lease-a")
+    payload = {"command": "set_imu_model", "selection_id": "selection-a", "model": {
+        "schema_version": 1, "id": "identity", "version": 1,
+        "program": {"nodes": [
+            {"op": "q", "index": index} for index in range(4)
+        ], "outputs": [0, 1, 2, 3]},
+    }}
+    assert value.apply(command(payload)) == (False, "native_arm_unavailable")
+    native = FakeNativeArm()
+    value.hw = native
+    assert value.apply(command(payload, seq=3)) == (True, "imu_model_applied")
+    assert native.selected_models == [("identity", 1)]
+    state = value.state()
+    assert state["imu_model_selection_id"] == "selection-a"
+    assert state["imu_model"] == {"id": "identity", "version": 1}
+    assert state["imu_feedback_connected"] is False
 
 
 def test_lease_revoke_holds_position_mode_arm_instead_of_writing_velocity_register() -> None:

@@ -16,7 +16,6 @@ from elesim_pilot.pick.actions import ControlService
 from elesim_pilot.vision.perception.capture import PerceptionSnapshot
 from elesim_pilot.pick.state import HostState, PanelState
 from elesim_protocol import SimMappingConfig, SimQ
-from elesim_pilot.vision.visual_servoing.equal_sag_probe import EqualSagEstimate
 from elesim_pilot.vision.visual_servoing.grasp_trajectory import GraspWaypoint
 
 
@@ -239,23 +238,6 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         dist = ControlService._grasp_axial_distance(tip, nominal, (1.0, 0.0, 0.0))
         self.assertAlmostEqual(dist, 0.08, places=4)
 
-    def test_sag_clip_limits_per_waypoint_delta(self) -> None:
-        svc = ControlService(PanelState())
-        base = {"seg1_equal_offset_deg": 0.0, "seg2_equal_offset_deg": 0.0}
-        estimate = EqualSagEstimate(
-            accepted=True,
-            seg1_equal_offset_deg=5.0,
-            seg2_equal_offset_deg=-4.0,
-            drift_world=(0.01, 0.0, 0.0),
-            reconstructed_drift_world=(0.01, 0.0, 0.0),
-            residual_m=0.001,
-            condition=2.0,
-            reason="accepted",
-        )
-        updated = svc._grasp_clip_sag_update(base, base, estimate, max_step_deg=2.0)
-        self.assertAlmostEqual(float(updated["seg1_equal_offset_deg"]), 2.0, places=3)
-        self.assertAlmostEqual(float(updated["seg2_equal_offset_deg"]), -2.0, places=3)
-
     def test_waypoint_step_capped_by_blind_margin(self) -> None:
         tip = (0.10, 0.0, 0.90)
         obj = (0.16, 0.0, 0.90)
@@ -370,7 +352,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             )
         )
 
-    def test_guided_worker_move_aim_sag_ik_order(self) -> None:
+    def test_guided_worker_move_aim_ik_order(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
         svc._ik_cfg = IkConfig(tol=0.001)
@@ -398,10 +380,6 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         def _aim(**_kwargs):
             call_order.append("aim")
             return True, MagicMock(center_uv=(0.0, 0.0), scale=0.1), None
-
-        def _sag(**_kwargs):
-            call_order.append("sag")
-            return 0.0, 0.0
 
         def _stop(*_args, **_kwargs):
             call_order.append("stop")
@@ -439,8 +417,6 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         ), patch.object(
             svc, "_grasp_aim_recover_after_move", side_effect=_aim
         ), patch.object(
-            svc, "_grasp_update_online_sag_bias", side_effect=_sag
-        ), patch.object(
             svc,
             "_grasp_wait_waypoint_settle",
             side_effect=lambda **kw: kw.get("host_state") or MagicMock(),
@@ -475,7 +451,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
                 nominal_world=(0.31, 0.0, 0.90),
             )
 
-        self.assertEqual(call_order[:3], ["aim", "sag", "ik"])
+        self.assertEqual(call_order[:2], ["aim", "ik"])
         self.assertIn("stop", call_order)
         self.assertEqual(str(svc.state.pick_phase), "done")
 
@@ -746,75 +722,6 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         self.assertLess(float(dq[2]), 0.0)
         self.assertLess(float(dq[3]), 0.0)
 
-    def test_lji_worker_does_not_update_online_sag(self) -> None:
-        svc = ControlService(PanelState())
-        svc.client = MagicMock()
-        svc._ik_cfg = IkConfig(tol=0.001)
-        svc._pick_cfg = PickConfig(
-            grasp_guided_enabled=True,
-            local_img_jacobian_enabled=True,
-            grasp_max_waypoints=1,
-            grasp_close_tol_m=0.003,
-            lij_min_samples=1,
-            lij_condition_max=1000.0,
-        )
-        svc._grasp_traj_start = (0.10, 0.0, 0.90)
-        svc._grasp_look_anchor = (0.03, 0.0, 0.90)
-        svc._grasp_init_filtered_tracking((0.33, 0.01, 0.92), (1.0, 0.0, 0.0))
-        svc._grasp_init_lji_controller(svc._pick_cfg)
-        svc._perception_capture = MagicMock()
-        svc._perception_capture.is_running.return_value = True
-        sag_calls: list[str] = []
-
-        def _sag(**kwargs):
-            sag_calls.append(str(kwargs.get("label", "")))
-            return (0.0, 0.0)
-
-        with patch.object(
-            svc, "_pick_current_tip_world", return_value=(0.10, 0.0, 0.90)
-        ), patch.object(
-            svc, "_grasp_visual_recover_supported", return_value=False
-        ), patch.object(
-            svc, "_grasp_lji_fk_z_row", return_value=np.array([1.0, 0.0, 0.0, 0.0])
-        ), patch.object(
-            svc, "_grasp_apply_q_delta", return_value=(np.zeros(4), MagicMock())
-        ), patch.object(
-            svc,
-            "current_visual_observation",
-            return_value=MagicMock(center_uv=(0.0, 0.0), scale=0.1),
-        ), patch.object(
-            svc,
-            "perception_snapshot",
-            return_value=PerceptionSnapshot(
-                running=True,
-                failed=False,
-                status_msg="ok",
-                frame_idx=1,
-                label="obj",
-                confidence=0.9,
-                p_camera=(0.0, 0.0, 0.5),
-                p_world=(0.33, 0.0, 0.90),
-                last_update_s=0.0,
-                depth_valid=True,
-            ),
-        ), patch.object(
-            svc,
-            "_grasp_update_filtered_tracking",
-            return_value=((0.33, 0.01, 0.92), (1.0, 0.0, 0.0)),
-        ), patch.object(
-            svc, "_grasp_update_online_sag_bias", side_effect=_sag
-        ), patch.object(
-            svc, "_grasp_wait_waypoint_settle", side_effect=lambda **kw: kw.get("host_state")
-        ), patch.object(
-            svc, "_grasp_complete_precontact_and_close", return_value=True
-        ), patch.object(svc, "stop_perception_capture"):
-            svc._run_grasp_guided_approach_worker(
-                object_world=(0.33, 0.01, 0.92),
-                approach_dir=np.array([1.0, 0.0, 0.0]),
-                nominal_world=(0.31, 0.0, 0.90),
-            )
-        self.assertEqual(sag_calls, [])
-
     def test_lji_worker_skips_legacy_axial_ik(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
@@ -890,8 +797,6 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             svc,
             "_grasp_update_filtered_tracking",
             return_value=((0.33, 0.01, 0.92), (1.0, 0.0, 0.0)),
-        ), patch.object(
-            svc, "_grasp_update_online_sag_bias", return_value=(0.0, 0.0)
         ), patch.object(
             svc, "_grasp_wait_waypoint_settle", side_effect=lambda **kw: kw.get("host_state")
         ), patch.object(
@@ -973,8 +878,6 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             svc,
             "_grasp_update_filtered_tracking",
             return_value=((0.33, 0.01, 0.92), (1.0, 0.0, 0.0)),
-        ), patch.object(
-            svc, "_grasp_update_online_sag_bias", return_value=(0.0, 0.0)
         ), patch.object(
             svc, "_grasp_wait_waypoint_settle", side_effect=lambda **kw: kw.get("host_state")
         ), patch.object(
@@ -1297,8 +1200,6 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             svc,
             "_grasp_update_filtered_tracking",
             return_value=((0.33, 0.01, 0.92), (1.0, 0.0, 0.0)),
-        ), patch.object(
-            svc, "_grasp_update_online_sag_bias", return_value=(0.0, 0.0)
         ), patch.object(
             svc, "_grasp_wait_waypoint_settle", side_effect=lambda **kw: kw.get("host_state")
         ), patch.object(

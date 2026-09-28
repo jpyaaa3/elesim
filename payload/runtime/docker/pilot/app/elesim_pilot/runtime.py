@@ -35,7 +35,7 @@ def build_control_runtime(
             hand_eye_parent_frame = str(hand_eye_meta.get("parent_frame", "node9"))
         except Exception as exc:
             print(f"[pilot_agent] hand-eye config unavailable: {exc}")
-    state = PanelState(sag_model_path="", raw_sag_model=None)
+    state = PanelState()
     state.set_u_offsets(
         linear=float(bundle.hardware_config.u_offset_linear),
         roll=float(bundle.hardware_config.u_offset_roll),

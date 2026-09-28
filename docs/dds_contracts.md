@@ -56,6 +56,25 @@ observer와 hand-eye 픽셀은 DDS payload가 아니며 WebRTC DTLS/SRTP track�
 `motion_command`는 latest command 성격의 depth-1 best effort다. Estop과 local
 deadman은 이 carrier나 DDS discovery callback에 의존하지 않는다.
 
+IMU 해석 모델 선택은 기존 v6 `motion_command`의 새 명령 값
+`set_imu_model`이다. 새 message type이나 기존 registry field set을 추가하지
+않으므로 wire major는 6을 유지하고, 명령 안의 `model.schema_version`을 1로
+고정한다. UI `view_snapshot`의 service 항목도 기존 schema 1에
+`imu_models`와 `imu_model_status`를 추가하는 방식으로 확장한다. Payload는
+`selection_id`와 `model` (`schema_version`, `id`, `version`, `program`)만
+허용한다. `program`은 최대 64개의 선행 노드 참조 계산 그래프와 네 개의 출력
+노드 번호다. 지원 연산은 `q`, `imu`, `const`, `add`, `sub`, `mul`, `div`,
+`neg`, `sin`, `cos`이다. `imu`의 index 0..2는 RPY 입력이다. Pilot의
+`config/imu_models/*.json`이 계산식과 표시 이름을 소유하고, Robot은 motion
+lease와 sequence를 확인한 후 계산 그래프를 C++ 실행 계획으로 검증·설치한다.
+계산 중 비정상 수치나 stale IMU는 Robot의 로컬 fault 경계를 따른다. 제공하는
+모델은 현재 `identity/v1` JSON 하나이며 IMU 데이터를 사용하지 않는다.
+Robot telemetry의 `imu_model`, `imu_model_selection_id`,
+`imu_feedback_connected`는 추가 필드다. Pilot은 같은 lease에서 같은 선택 ID를
+돌려받아야 활성으로 표시한다. Best-effort 선택 명령이 유실되면 재전송한다.
+UI의 기존 sag JSON 경로 선택과 Pilot/Sim의 q 기반 sag 계산은 제거한다.
+Pilot의 IMU 모델 catalog가 보정 계산식을 소유하고 Robot의 C++ 루프가 실행한다.
+
 Mock hug의 마지막 `motion_command`는 `mock_hug` 메타데이터
 (`solution_id`, object lifecycle `revision`, OBJ `sha256`, `final_q`)를 함께
 보낸다. 실행 시 캡처한 exact Sim endpoint/boot/lease도 routing fence로

@@ -90,30 +90,6 @@ class TestReadyPoseAlign(unittest.TestCase):
         self.assertEqual(markers[1]["dir"], [0.20, 0.0, 0.0])
         self.assertAlmostEqual(float(markers[1]["length"]), 0.20)
 
-    def test_tweak_wrapper_delegates_to_start_ready_pose(self) -> None:
-        svc = ControlService(PanelState())
-        svc._pick_equal_sag_model = {"seg1_equal_offset_deg": 1.0}
-        svc._pick_equal_sag_estimate = MagicMock(accepted=True)
-        with patch.object(
-            svc,
-            "_pick_corrected_ready_pose",
-            return_value=(0.31, 0.0, 0.2),
-        ), patch.object(svc, "start_ready_pose") as mock_ready:
-            svc.start_equal_sag_tweak()
-        mock_ready.assert_called_once()
-
-    def test_tweak_wrapper_rejects_without_accepted_estimate(self) -> None:
-        svc = ControlService(PanelState())
-        svc._pick_equal_sag_model = {"seg1_equal_offset_deg": 1.0}
-        svc._pick_equal_sag_estimate = MagicMock(accepted=False, reason="offset_too_large")
-        with patch.object(
-            svc,
-            "_pick_corrected_ready_pose",
-            return_value=(0.31, 0.0, 0.2),
-        ), patch.object(svc, "start_ready_pose") as mock_ready:
-            svc.start_equal_sag_tweak()
-        mock_ready.assert_not_called()
-        self.assertTrue(svc.state.pick_failed)
 
 
 if __name__ == "__main__":

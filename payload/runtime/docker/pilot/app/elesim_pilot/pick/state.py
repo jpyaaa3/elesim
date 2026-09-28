@@ -158,7 +158,6 @@ class PanelState:
     target_vx: float = 1.0
     target_vy: float = 0.0
     target_vz: float = 0.0
-    sag_model_path: str = ""
     raw_sag_model: Optional[dict[str, Any]] = None
 
     ik_running: bool = False
@@ -268,11 +267,6 @@ class PanelState:
             self.target_vx = float(vx)
             self.target_vy = float(vy)
             self.target_vz = float(vz)
-
-    def set_sag_model(self, model_path: str, sag_model: dict[str, Any]) -> None:
-        with self._lock:
-            self.sag_model_path = str(model_path)
-            self.raw_sag_model = dict(sag_model)
 
     def set_controls_locked(self, locked: bool) -> None:
         with self._lock:

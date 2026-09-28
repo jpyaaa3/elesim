@@ -12,12 +12,20 @@ from elesim_protocol import (
 )
 
 
+IDENTITY_MODEL = {
+    "schema_version": 1, "id": "identity", "version": 1,
+    "program": {"nodes": [
+        {"op": "q", "index": index} for index in range(4)
+    ], "outputs": [0, 1, 2, 3]},
+}
+
+
 class Endpoint:
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, object]]] = []
 
-    def send(self, message_type: str, **kwargs: object) -> None:
-        make_envelope(
+    def send(self, message_type: str, **kwargs: object) -> Envelope:
+        sent = make_envelope(
             message_type,
             "pilot-a",
             target_id=str(kwargs.get("target_id", "server")),
@@ -27,6 +35,7 @@ class Endpoint:
             trace_context=dict(kwargs.get("trace_context") or {}),
         )
         self.sent.append((message_type, kwargs))
+        return sent
 
 
 class StateSink:
@@ -134,6 +143,56 @@ def test_telemetry_and_ack_are_delivered_over_the_peer_connection() -> None:
 
     assert sink.telemetry == [{"q": [-0.1, 0.2, 0.3, -0.4], "q_source": "measured"}]
     assert sink.acks == [{"ok": False, "reason": "limit"}]
+
+
+def test_imu_model_selection_retries_until_exact_robot_telemetry_confirms() -> None:
+    value, _sink, endpoint = connection()
+    value.endpoints = [EndpointDescriptor("robot-a", "robot", ("motion.arm",)).to_dict()]
+    value.active_target = "robot-a"
+    value.lease_id = "lease-a"
+    model = IDENTITY_MODEL
+    assert value.select_imu_model(model)["active"] is False
+
+    value.flush_imu_model(endpoint, now=10.0)
+    assert len(endpoint.sent) == 1
+    sent = endpoint.sent[-1][1]["payload"]
+    assert sent["model"] == model
+    token = sent["selection_id"]
+    value.handle_envelope(endpoint, envelope("telemetry", {
+        "imu_model": {"id": "identity", "version": 1},
+        "imu_model_selection_id": "old-token",
+    }, source_id="robot-a", lease_id="lease-a"))
+    assert value.imu_model_status()["active"] is False
+    value.flush_imu_model(endpoint, now=11.0)
+    assert len(endpoint.sent) == 2
+    assert endpoint.sent[-1][1]["payload"]["selection_id"] == token
+    value.handle_envelope(endpoint, envelope("telemetry", {
+        "imu_model": {"id": "identity", "version": 1},
+        "imu_model_selection_id": token,
+    }, source_id="robot-a", lease_id="lease-a"))
+    assert value.imu_model_status()["active"] is True
+    value.flush_imu_model(endpoint, now=12.0)
+    assert len(endpoint.sent) == 2
+
+
+def test_imu_model_selection_stale_ack_retries_but_hardware_rejection_stops() -> None:
+    value, _sink, endpoint = connection()
+    value.endpoints = [EndpointDescriptor("robot-a", "robot", ("motion.arm",)).to_dict()]
+    value.active_target = "robot-a"
+    value.lease_id = "lease-a"
+    value.select_imu_model(IDENTITY_MODEL)
+    value.flush_imu_model(endpoint, now=10.0)
+    value.handle_envelope(endpoint, envelope("ack", {
+        "reply_to": value._imu_model_message_id, "ok": False, "reason": "stale_sequence",
+    }, source_id="robot-a", lease_id="lease-a"))
+    value.flush_imu_model(endpoint, now=11.0)
+    assert len(endpoint.sent) == 2
+    value.handle_envelope(endpoint, envelope("ack", {
+        "reply_to": value._imu_model_message_id, "ok": False, "reason": "native_arm_unavailable",
+    }, source_id="robot-a", lease_id="lease-a"))
+    value.flush_imu_model(endpoint, now=12.0)
+    assert len(endpoint.sent) == 2
+    assert value.imu_model_status()["error"] == "native_arm_unavailable"
 
 
 def test_simulation_status_is_typed_and_delivered_only_from_the_active_target() -> None:

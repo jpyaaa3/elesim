@@ -31,7 +31,7 @@ from .panels import (
     draw_mock_object_panel,
     draw_perception_panel,
     draw_resolution_panel,
-    draw_sag_panel,
+    draw_imu_model_panel,
     draw_status_panel,
 )
 
@@ -116,7 +116,7 @@ class ControlPanel:
         self._go2_header_init_open = False
         self._perception_header_init_open = False
         self._status_header_init_open = False
-        self._sag_header_init_open = False
+        self._imu_model_header_init_open = False
         self._perception_config_path_draft = str(pc.detector_config)
         self._perception_mode_draft = str(pc.mode)
         self._perception_detector_draft = str(pc.detector)
@@ -140,9 +140,8 @@ class ControlPanel:
         self.state.visual_look_distance_m = float(pk.look_pose_standoff_m)
         self._port_input = ""
         self._host_state: Optional[HostState] = None
-        self._sag_model_path_draft = str(self.state.sag_model_path)
-        self._sag_status_text = ""
-        self._sag_status_ok = True
+        self._imu_model_error = ""
+        self._imu_model_index = 0
         linear_off, roll_off, s1_off, s2_off, rev = self.state.offset_values()
         self._offset_linear_draft = float(linear_off)
         self._offset_roll_draft = float(roll_off)
@@ -360,13 +359,6 @@ class ControlPanel:
             return
         self._pending_file_browse = None
         kind, initial_path = pending
-        if kind == "sag":
-            from elesim_ui.panels.sag import browse_sag_model_path
-
-            selected = browse_sag_model_path(initial_path)
-            if selected:
-                self._sag_model_path_draft = str(selected)
-            return
         if kind == "perception_detector":
             from elesim_ui.panels.perception import browse_detector_config_path
 
@@ -759,7 +751,7 @@ class ControlPanel:
                         draw_control_4dof_panel,
                         draw_go2_panel,
                         draw_ik_panel,
-                        draw_sag_panel,
+                        draw_imu_model_panel,
                     ),
                     item_width=first_item_w,
                 )
@@ -800,7 +792,7 @@ class ControlPanel:
                     draw_control_4dof_panel,
                     draw_go2_panel,
                     draw_ik_panel,
-                    draw_sag_panel,
+                    draw_imu_model_panel,
                 ),
                 item_width=max(scaled(self, 120.0), left_w * 0.45),
             )
@@ -826,7 +818,7 @@ class ControlPanel:
                     draw_control_4dof_panel,
                     draw_go2_panel,
                     draw_ik_panel,
-                    draw_sag_panel,
+                    draw_imu_model_panel,
                     draw_sim_video_panel,
                     draw_status_panel,
                     draw_resolution_panel,

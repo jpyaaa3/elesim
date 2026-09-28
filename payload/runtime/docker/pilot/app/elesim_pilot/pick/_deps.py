@@ -48,7 +48,6 @@ from elesim_pilot.observability.pick_timing import (
 from elesim_pilot.robot.arm import ik as ik_pipeline
 from elesim_pilot.robot.arm.iklib import kinematics as ik_kin
 from elesim_pilot.robot.arm.mounts.go2_mount import Go2ArmMount
-from elesim_pilot.robot.arm.sag_model import load_sag_model_json
 from elesim_pilot.vision.perception.capture import (
     PerceptionCapture,
     PerceptionSnapshot,
@@ -68,13 +67,6 @@ from elesim_pilot.vision.pick.core import (
     evaluate_pick_convergence,
     pick_ready_for_extend,
     pick_uv_deltas,
-)
-from elesim_pilot.vision.visual_servoing.equal_sag_probe import (
-    EqualSagEstimate,
-    SagDriftComponents,
-    apply_equal_sag_offsets,
-    estimate_equal_sag_from_ready_pose_drift,
-    prepare_sag_drift_input,
 )
 from elesim_pilot.vision.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
 from elesim_pilot.vision.visual_servoing.grasp_trajectory import GraspWaypoint, build_grasp_trajectory_markers

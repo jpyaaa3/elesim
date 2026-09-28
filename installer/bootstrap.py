@@ -152,6 +152,7 @@ _BOOTSTRAP_PROTOCOL_PYTHON_FILES = frozenset(
         "contracts",
         "dds_transport",
         "encoded_rgbd",
+        "imu_model",
         "messages",
         "operator",
         "payloads",
@@ -190,6 +191,8 @@ _BOOTSTRAP_ROLE_CONFIG_FILES = frozenset(
     for role, relatives in {
         "pilot": (
             "config.yaml",
+            "imu_models/README.md",
+            "imu_models/identity.json",
             "perception/detector.real_green_hsv.json",
             "perception/detector.sim_hsv.json",
             "perception/detector.yolo.example.json",
@@ -232,8 +235,7 @@ _BOOTSTRAP_REQUIRED_TREE_FILES = frozenset(
         PurePosixPath("payload/data/models/objects/demo_box.obj"),
         PurePosixPath("payload/data/calibration/cameras/zed_mini.hand_eye.json"),
         PurePosixPath("payload/data/calibration/cameras/d435.hand_eye.json"),
-        PurePosixPath("payload/data/calibration/arm/no_sag.json"),
-        PurePosixPath("payload/data/calibration/arm/sag_model.json"),
+        PurePosixPath("payload/config/pilot/imu_models/identity.json"),
         *(
             _BOOTSTRAP_ROLE_APPLICATIONS[role] / f"elesim_{role}" / "__init__.py"
             for role in _BOOTSTRAP_ROLES

@@ -11,7 +11,6 @@ from elesim_pilot.vision.visual_servoing.pick_view_pregrasp import (
     generate_view_pregrasp_candidates,
 )
 from elesim_pilot.vision.visual_servoing.ready_pose import compute_ready_pose_target
-from elesim_pilot.vision.visual_servoing.sag_drift_frame import prepare_sag_drift_input
 
 
 REPO_ROOT = next(parent for parent in Path(__file__).resolve().parents if (parent / "payload").is_dir())
@@ -62,44 +61,12 @@ def test_random_view_candidates_are_finite_and_point_at_the_object() -> None:
             np.testing.assert_allclose(look, expected, atol=1e-10)
 
 
-def test_sag_drift_decomposition_is_orthogonal_and_reconstructs_input() -> None:
-    rng = np.random.default_rng(43)
-
-    for _ in range(250):
-        axis = rng.normal(size=3)
-        axis /= np.linalg.norm(axis)
-        drift = rng.normal(scale=0.03, size=3)
-        result = prepare_sag_drift_input(
-            drift_world=drift,
-            axis_world=axis,
-            reference_dir=axis,
-            max_dir_error_deg=1.0,
-            max_lateral_m=1.0,
-            min_axial_m=0.0,
-            axial_only=True,
-        )
-
-        axial = np.asarray(result.sag_input_world, dtype=float)
-        lateral = drift - axial
-        assert result.usable
-        assert float(np.dot(axial, lateral)) == pytest.approx(0.0, abs=1e-10)
-        assert float(np.linalg.norm(lateral)) == pytest.approx(result.lateral_m, abs=1e-10)
-        np.testing.assert_allclose(axial + lateral, drift, atol=1e-10)
-
-
 @pytest.mark.parametrize(
     "call",
     [
         lambda: compute_ready_pose_target((float("nan"), 0.0, 0.0), (1.0, 0.0, 0.0), standoff_m=0.2),
         lambda: compute_ready_pose_target((0.0, 0.0, 0.0), (float("inf"), 0.0, 0.0), standoff_m=0.2),
         lambda: compute_ready_pose_target((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), standoff_m=float("nan")),
-        lambda: prepare_sag_drift_input(
-            drift_world=(float("nan"), 0.0, 0.0),
-            axis_world=(1.0, 0.0, 0.0),
-            reference_dir=(1.0, 0.0, 0.0),
-            max_dir_error_deg=10.0,
-            max_lateral_m=0.02,
-        ),
     ],
 )
 def test_geometry_boundaries_reject_non_finite_inputs(call: object) -> None:

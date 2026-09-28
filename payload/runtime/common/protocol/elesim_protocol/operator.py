@@ -5,10 +5,10 @@ OPERATOR_VIEW_SCHEMA_VERSION = 1
 SERVICE_CALLS = frozenset(
     {
         "apply_partial_control_u", "capture_perception_frame", "disconnect_device",
-        "extend_arm_controls", "home_controls", "load_sag_model",
+        "extend_arm_controls", "home_controls",
         "refresh_perception_capture", "request_ports", "reset_simulation", "send_claw_command",
         "send_current_target_meta", "send_go2_obstacles_avoid", "send_go2_sport_pose",
-        "send_go2_velocity", "send_ready_pose_meta", "send_sag_model_meta", "send_sim_target_xyz",
+        "send_go2_velocity", "send_ready_pose_meta", "send_sim_target_xyz",
         "set_device", "set_display_offset", "start_demo4_stop_and_grasp",
         "start_gaze_stabilizer_standing", "start_gaze_stabilizer_walking", "start_ik_solve",
         "start_lji_grasp_only", "start_mobile_gaze_lji_pick_e2e", "start_perception_capture",
@@ -18,6 +18,7 @@ SERVICE_CALLS = frozenset(
         "start_wrap_grasp",
         "compute_mock_hug", "execute_mock_hug",
         "select_endpoint",
+        "select_imu_model",
     }
 )
 

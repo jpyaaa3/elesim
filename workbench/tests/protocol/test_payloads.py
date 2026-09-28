@@ -116,6 +116,27 @@ def test_operator_view_snapshot_is_a_known_intent_operation() -> None:
     assert parsed.operation == "view_snapshot"
 
 
+def test_imu_model_command_has_versioned_bounded_payload() -> None:
+    valid = {"command": "set_imu_model", "selection_id": "selection-a", "model": {
+        "schema_version": 1, "id": "identity", "version": 1,
+        "program": {"nodes": [
+            {"op": "q", "index": index} for index in range(4)
+        ], "outputs": [0, 1, 2, 3]},
+    }}
+    assert MotionCommandRequest.from_payload(valid).command == "set_imu_model"
+    for invalid in (
+        {**valid, "selection_id": ""},
+        {**valid, "model": {**valid["model"], "schema_version": 2}},
+        {**valid, "model": {**valid["model"], "version": 0}},
+        {**valid, "model": {**valid["model"], "program": {
+            "nodes": [{"op": "q", "index": 0}] * 4, "outputs": [0, 1, 2, 4],
+        }}},
+        {**valid, "extra": True},
+    ):
+        with pytest.raises(ProtocolError):
+            MotionCommandRequest.from_payload(invalid)
+
+
 def test_operator_reads_use_the_view_snapshot_not_individual_remote_calls() -> None:
     for name in ("refresh_host_state", "current_host_state", "has_client",
                  "current_control_u", "control_mapping", "pick_e2e_running"):

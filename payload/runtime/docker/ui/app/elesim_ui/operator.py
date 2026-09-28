@@ -139,20 +139,20 @@ class RemoteControlService:
         self.session.submit("service_call", "update_gaze_stabilizer_config", patch)
         return self.gaze_config
 
-    def load_sag_model_async(
-        self,
-        path: str,
-        *,
-        on_result: Callable[[Any], None],
-        on_error: Callable[[str], None],
+    @property
+    def imu_models(self) -> list[dict[str, Any]]:
+        return list(self.session.service_value("imu_models", ()))
+
+    @property
+    def imu_model_status(self) -> dict[str, Any]:
+        return dict(self.session.service_value("imu_model_status", {}))
+
+    def select_imu_model_async(
+        self, model_id: str, *, on_result: Callable[[Any], None], on_error: Callable[[str], None]
     ) -> str:
         return self.session.submit(
-            "service_call",
-            "load_sag_model",
-            str(path),
-            on_result=on_result,
-            on_error=on_error,
-            request_timeout_s=5.0,
+            "service_call", "select_imu_model", str(model_id),
+            on_result=on_result, on_error=on_error, request_timeout_s=5.0,
         )
 
     def close(self) -> None:

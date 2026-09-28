@@ -1,5 +1,5 @@
 #include "control.h"
-#include "correction_placeholder.h"
+#include "correction_model.h"
 
 #include "dynamixel_sdk/dynamixel_sdk.h"
 
@@ -164,10 +164,67 @@ class ArmController {
     require_healthy();
     // Send the first goal now. The local monitor thread revisits this same
     // theoretical target on every control tick until hold/torque-off.
-    const auto corrected = elesim_arm::correct_q(theoretical);
+    const auto corrected =
+        elesim_arm::correct_q(theoretical, current_imu_locked(), model_);
     write_arm_degrees(map_q(config_, corrected));
     theoretical_q_ = theoretical;
     last_corrected_q_ = corrected;
+  }
+
+  void select_model(const char* id, int32_t version,
+                    const ElesimArmProgram* raw_program) {
+    if (id == nullptr || raw_program == nullptr || version < 1 || version > 65535) {
+      throw std::invalid_argument("invalid IMU model descriptor");
+    }
+    const std::string name(id);
+    if (name.empty() || name.size() > 64 ||
+        !std::all_of(name.begin(), name.end(), [](unsigned char value) {
+          return (value >= 'a' && value <= 'z') ||
+                 (value >= 'A' && value <= 'Z') ||
+                 (value >= '0' && value <= '9') || value == '_' ||
+                 value == '.' || value == '-';
+        })) {
+      throw std::invalid_argument("invalid IMU model id");
+    }
+    elesim_arm::Program candidate{};
+    candidate.count = raw_program->count;
+    if (candidate.count < 4 || candidate.count > 64) {
+      throw std::invalid_argument("invalid IMU model size");
+    }
+    for (int i = 0; i < candidate.count; ++i) {
+      const auto& node = raw_program->nodes[i];
+      candidate.nodes[i] = {node.op, node.a, node.b, node.value};
+    }
+    std::copy(raw_program->outputs, raw_program->outputs + 4,
+              candidate.outputs.begin());
+    candidate = elesim_arm::compile_program(candidate);
+    std::lock_guard<std::mutex> guard(mutex_);
+    if (candidate.requires_imu && !current_imu_locked().valid) {
+      throw std::runtime_error("IMU sample unavailable for selected model");
+    }
+    model_ = candidate;
+    model_id_ = name;
+    model_version_ = version;
+    last_corrected_q_.reset();
+  }
+
+  void submit_imu(const ElesimImuSample* sample) {
+    if (sample == nullptr) throw std::invalid_argument("missing IMU sample");
+    if (!std::isfinite(sample->sampled_monotonic_s) ||
+        sample->sampled_monotonic_s <= 0.0 ||
+        sample->sampled_monotonic_s > monotonic_seconds() + 0.01) {
+      throw std::invalid_argument("invalid IMU timestamp");
+    }
+    for (double value : sample->rpy) {
+      if (!std::isfinite(value)) throw std::invalid_argument("invalid IMU sample");
+    }
+    std::lock_guard<std::mutex> guard(mutex_);
+    if (sample->sampled_monotonic_s <= imu_.sampled_monotonic_s) {
+      throw std::invalid_argument("stale IMU sample");
+    }
+    std::copy(sample->rpy, sample->rpy + 3, imu_.rpy.begin());
+    imu_.sampled_monotonic_s = sample->sampled_monotonic_s;
+    imu_.valid = true;
   }
 
   void command_claw(double degrees) {
@@ -245,11 +302,21 @@ class ArmController {
     auto result = snapshot_;
     result.torque_enabled = torque_enabled_ ? 1 : 0;
     result.read_failures = read_failures_;
+    copy_error(model_id_, result.model_id, sizeof(result.model_id));
+    result.model_version = model_version_;
+    result.imu_valid = current_imu_locked().valid ? 1 : 0;
     fault = fault_;
     return result;
   }
 
  private:
+  elesim_arm::ImuSample current_imu_locked() const {
+    auto sample = imu_;
+    sample.valid = sample.valid &&
+                   monotonic_seconds() - sample.sampled_monotonic_s <= 0.1;
+    return sample;
+  }
+
   void require_open() const {
     if (!opened_) throw std::runtime_error("Dynamixel bus is closed");
   }
@@ -394,7 +461,8 @@ class ArmController {
       }
       if (!fault_.empty() || !torque_enabled_ || !theoretical_q_) continue;
       try {
-        const auto corrected = elesim_arm::correct_q(*theoretical_q_);
+        const auto corrected = elesim_arm::correct_q(
+            *theoretical_q_, current_imu_locked(), model_);
         if (last_corrected_q_ != corrected) {
           write_arm_degrees(map_q(config_, corrected));
           last_corrected_q_ = corrected;
@@ -421,6 +489,10 @@ class ArmController {
   ElesimArmSnapshot snapshot_{};
   std::optional<std::array<double, 4>> theoretical_q_;
   std::optional<std::array<double, 4>> last_corrected_q_;
+  elesim_arm::ImuSample imu_{};
+  elesim_arm::Program model_ = elesim_arm::identity_program();
+  std::string model_id_ = "identity";
+  int model_version_ = 1;
 };
 
 template <typename Function>
@@ -465,6 +537,15 @@ int elesim_arm_open(void* handle, char* error, size_t size) {
 int elesim_arm_command_q(void* handle, const double* q, char* error, size_t size) {
   return guarded([&] { arm(handle).command_q(q); }, error, size);
 }
+int elesim_arm_select_model(void* handle, const char* id, int32_t version,
+                            const ElesimArmProgram* program,
+                            char* error, size_t size) {
+  return guarded([&] { arm(handle).select_model(id, version, program); }, error, size);
+}
+int elesim_arm_submit_imu(void* handle, const ElesimImuSample* sample,
+                          char* error, size_t size) {
+  return guarded([&] { arm(handle).submit_imu(sample); }, error, size);
+}
 int elesim_arm_command_claw(void* handle, double degrees, char* error, size_t size) {
   return guarded([&] { arm(handle).command_claw(degrees); }, error, size);
 }
@@ -505,8 +586,36 @@ int elesim_arm_map_q(const ElesimArmConfig* config, const double* q,
   try {
     std::array<double, 4> input{};
     std::copy(q, q + 4, input.begin());
-    const auto mapped = map_q(*config, elesim_arm::correct_q(input));
+    const auto mapped = map_q(*config, elesim_arm::correct_q(
+        input, {}, elesim_arm::identity_program()));
     std::copy(mapped.begin(), mapped.end(), motor_degrees);
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+int elesim_arm_eval_model(const ElesimArmProgram* raw_program, const double* q,
+                          const double* imu_rpy, int32_t imu_valid,
+                          double* corrected_q) {
+  if (!raw_program || !q || !corrected_q) return -1;
+  try {
+    elesim_arm::Program candidate{};
+    candidate.count = raw_program->count;
+    if (candidate.count < 4 || candidate.count > 64) return -1;
+    for (int i = 0; i < candidate.count; ++i) {
+      const auto& node = raw_program->nodes[i];
+      candidate.nodes[i] = {node.op, node.a, node.b, node.value};
+    }
+    std::copy(raw_program->outputs, raw_program->outputs + 4,
+              candidate.outputs.begin());
+    const auto program = elesim_arm::compile_program(candidate);
+    std::array<double, 4> theoretical{};
+    std::copy(q, q + 4, theoretical.begin());
+    elesim_arm::ImuSample imu{};
+    imu.valid = imu_valid != 0;
+    if (imu_rpy != nullptr) std::copy(imu_rpy, imu_rpy + 3, imu.rpy.begin());
+    const auto result = elesim_arm::correct_q(theoretical, imu, program);
+    std::copy(result.begin(), result.end(), corrected_q);
     return 0;
   } catch (...) {
     return -1;

@@ -48,7 +48,6 @@ from elesim_sim.robot.go2.locomotion.kinematics import (
 )
 from elesim_sim.robot.arm.rates import estimate_ideal_sim_rates
 from elesim_sim.core.runtime_urdf import select_runtime_urdf
-from elesim_sim.robot.arm.sag_model import segment_errors_from_model
 from elesim_protocol.tracing import configure_tracing, shutdown_tracing, span
 from elesim_sim.media import FrameDispatchWorker
 from elesim_sim.simulation.operator_control import SimulationOperatorController
@@ -2322,7 +2321,6 @@ class SimMover:
 
         self._last_q_target: Optional[np.ndarray] = None
         self._last_q_target_cmd: Optional[Tuple[float, float, float, float]] = None
-        self._sag_model: dict[str, Any] = {}
         self._claw_left_idx: Optional[int] = None
         self._claw_right_idx: Optional[int] = None
         self._claw_closed: bool = False
@@ -2422,9 +2420,6 @@ class SimMover:
             np.asarray(values, dtype=float), dofs_idx_local=indices
         )
 
-    def set_sag_model(self, sag_model: dict[str, Any]) -> None:
-        self._sag_model = dict(sag_model or {})
-
     def _apply_claw_direct(self, left_value: float, right_value: float) -> None:
         if self._claw_left_idx is not None:
             self.entity.set_dofs_position(np.array([left_value], dtype=float), dofs_idx_local=[self._claw_left_idx])
@@ -2446,32 +2441,10 @@ class SimMover:
         rl = float(np.clip(float(roll), self.limit.roll_min_rad(), self.limit.roll_max_rad()))
         t1 = float(np.clip(float(theta1), -self.bend_lim, +self.bend_lim))
         t2 = float(np.clip(float(theta2), -self.bend_lim, +self.bend_lim))
-        t1_deg = float(np.degrees(t1))
-        t2_deg = float(np.degrees(t2))
-        seg1_err = np.radians(
-            segment_errors_from_model(
-                self._sag_model,
-                seg_index=1,
-                count=self.n_seg,
-                theta1=t1_deg,
-                theta2=t2_deg,
-            )
-        )
-        seg2_err = np.radians(
-            segment_errors_from_model(
-                self._sag_model,
-                seg_index=2,
-                count=max(self.n_nodes - self.n_seg, 0),
-                theta1=t1_deg,
-                theta2=t2_deg,
-            )
-        )
-
         vals: Dict[str, float] = {self._linear_joint_name: linear, self._roll_joint_name: rl}
         for i in range(self.n_nodes):
             base = t1 if i < self.n_seg else t2
-            err = float(seg1_err[i]) if i < self.n_seg else float(seg2_err[i - self.n_seg])
-            vals[self._bend_joint_names[i]] = float(np.clip(base + err, -self.bend_lim, +self.bend_lim))
+            vals[self._bend_joint_names[i]] = base
 
         return np.array([vals[n] for n in self.joint_names], dtype=float)
 
@@ -3573,8 +3546,6 @@ class SimRuntime:
                 if sim_target_xyz is not None:
                     a.sim_scene.set_sim_target_position(sim_target_xyz)
                 self._maybe_log_mirror_status(time.time())
-                sag_model = a.state_source.sag_model() if a.state_source is not None else {}
-                a.sim_scene.mover.set_sag_model(sag_model)
                 claw_closed = a.state_source.claw_closed() if a.state_source is not None else False
                 a.sim_scene.mover.set_claw_closed(claw_closed)
                 q_errmodel = a._errmodel_q() if a._has_state_source() else None

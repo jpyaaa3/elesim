@@ -109,11 +109,6 @@ def copy_sim_bundle(model_root: Path, release: Path) -> None:
 def copy_role_data(role: str, release: Path) -> None:
     if role in {"pilot", "sim"}:
         copy_tree(ROOT / "payload/data/calibration", release / "data/calibration")
-    elif role == "ui":
-        copy_tree(
-            ROOT / "payload/data/calibration/arm",
-            release / "data/calibration/arm",
-        )
     if role == "pilot":
         copy_tree(ROOT / "payload/data/models/arm", release / "data/models/arm")
         copy_tree(

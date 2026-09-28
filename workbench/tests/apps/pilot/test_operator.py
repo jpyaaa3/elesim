@@ -19,6 +19,9 @@ class Service:
     def torque_on(self) -> str:
         return "on"
 
+    def select_imu_model(self, model_id: str) -> dict[str, object]:
+        return {"requested": model_id, "active": False}
+
 
 class ViewState:
     def __init__(self) -> None:
@@ -32,6 +35,10 @@ class ViewService:
         self.gaze_config = {"walking_gaze_mode": "uv_ff"}
         self.available_endpoints = [{"endpoint_id": "sim-a", "role": "sim"}]
         self.active_endpoint = "sim-a"
+        self.imu_models = [{"id": "identity", "version": 1, "label": "Identity"}]
+
+    def imu_model_status(self):
+        return {"requested": {}, "active": False, "error": ""}
 
     def refresh_host_state(self):
         self.refresh_count += 1
@@ -66,6 +73,13 @@ def test_dispatcher_executes_only_allowlisted_operations() -> None:
         {"request_id": "r1", "operation": "service_call", "name": "torque_on", "args": [], "kwargs": {}}
     )
     assert accepted == {"request_id": "r1", "ok": True, "result": "on"}
+
+    model_result = dispatcher.handle(
+        {"request_id": "model-1", "operation": "service_call", "name": "select_imu_model",
+         "args": ["identity"], "kwargs": {}}
+    )
+    assert model_result["ok"] is True
+    assert decode_value(model_result["result"]) == {"requested": "identity", "active": False}
 
     rejected = dispatcher.handle(
         {"request_id": "r2", "operation": "service_call", "name": "__getattribute__", "args": [], "kwargs": {}}
@@ -112,6 +126,8 @@ def test_view_snapshot_refreshes_once_and_returns_explicit_ui_read_model() -> No
     assert view["service"]["current_host_state"]["connected"] is True
     assert view["service"]["has_client"] is True
     assert view["service"]["active_endpoint"] == "sim-a"
+    assert view["service"]["imu_models"][0]["id"] == "identity"
+    assert view["service"]["imu_model_status"]["active"] is False
     assert view["service"]["pick_config"]["mobile_handoff_distance_m"] == 0.3
     assert service.refresh_count == 1
 

@@ -46,7 +46,7 @@ def build(output: Path) -> None:
             "-I",
             str(SDK),
             str(ROOT / "control.cpp"),
-            str(ROOT / "correction_placeholder.cpp"),
+            str(ROOT / "correction_model.cpp"),
             *(str(SDK / name) for name in SOURCES),
             "-o",
             str(candidate),

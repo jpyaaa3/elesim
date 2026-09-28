@@ -24,6 +24,7 @@ from elesim_protocol import (
     CAPABILITY_OPERATOR_CONTROL,
     DdsRuntimeSettings,
     EndpointDescriptor,
+    MotionCommandRequest,
     OpenSimulationSessionRequest,
     PeerClient,
     SimulationCommandRequest,
@@ -38,14 +39,17 @@ EXPECTED = {
     "pilot:ack",
     "pilot:operator",
     "pilot:selected",
+    "pilot:imu_model",
     "robot:lease",
     "robot:motion",
+    "robot:imu_model",
     "sim:command",
     "sim:session",
     "sim:webrtc",
     "ui:answer",
     "ui:opened",
     "ui:operator",
+    "ui:imu_model",
     "ui:result",
     "ui:status",
 }
@@ -97,7 +101,10 @@ def _robot_process(barrier: Any, stop: Any, results: Any) -> None:
                     if message.message_type == "lease_granted":
                         _report(results, "robot:lease")
                     elif message.message_type == "motion_command":
+                        command = MotionCommandRequest.from_payload(message.payload or {})
                         _report(results, "robot:motion")
+                        if command.command == "set_imu_model":
+                            _report(results, "robot:imu_model")
                         peer.send(
                             "ack",
                             target_id=message.source_id,
@@ -116,6 +123,10 @@ def _robot_process(barrier: Any, stop: Any, results: Any) -> None:
                                 "q": [-0.1, 0.0, 0.0, 0.0],
                                 "q_source": "measured",
                                 "torque_enabled": False,
+                                **({
+                                    "imu_model": {"id": "identity", "version": 1},
+                                    "imu_model_selection_id": command.raw["selection_id"],
+                                } if command.command == "set_imu_model" else {}),
                             },
                         )
         finally:
@@ -140,6 +151,9 @@ def _controller_process(barrier: Any, stop: Any, results: Any) -> None:
         last_selection_at = 0.0
         last_motion_at = 0.0
         motion_attempts = 0
+        model_requested = False
+        model_confirmed = False
+        last_model_at = 0.0
         try:
             while not stop.is_set():
                 peer.heartbeat()
@@ -166,6 +180,8 @@ def _controller_process(barrier: Any, stop: Any, results: Any) -> None:
                         _report(results, "pilot:selected")
                     elif message.message_type == "operator_intent":
                         request_id = str((message.payload or {}).get("request_id", ""))
+                        if (message.payload or {}).get("name") == "select_imu_model":
+                            model_requested = True
                         peer.send(
                             "operator_result",
                             target_id=message.source_id,
@@ -178,6 +194,14 @@ def _controller_process(barrier: Any, stop: Any, results: Any) -> None:
                         _report(results, "pilot:operator")
                     elif message.message_type == "ack":
                         _report(results, "pilot:ack")
+                    elif message.message_type == "telemetry":
+                        if (
+                            model_requested
+                            and (message.payload or {}).get("imu_model_selection_id") == "smoke-selection"
+                            and message.lease_id == lease_id
+                        ):
+                            model_confirmed = True
+                            _report(results, "pilot:imu_model")
                 # Motion deliberately uses volatile best-effort keep-last-1
                 # delivery.  Exercise the bounded command stream used by the
                 # runtime instead of assuming that one first sample can arrive
@@ -195,6 +219,18 @@ def _controller_process(barrier: Any, stop: Any, results: Any) -> None:
                     )
                     motion_attempts += 1
                     last_motion_at = now
+                if selected and model_requested and not model_confirmed and now - last_model_at >= 0.1:
+                    peer.send(
+                        "motion_command", target_id="robot-smoke", lease_id=lease_id,
+                        payload={
+                            "command": "set_imu_model", "selection_id": "smoke-selection",
+                            "model": {"schema_version": 1, "id": "identity", "version": 1,
+                                      "program": {"nodes": [
+                                          {"op": "q", "index": index} for index in range(4)
+                                      ], "outputs": [0, 1, 2, 3]}},
+                        },
+                    )
+                    last_model_at = now
         finally:
             peer.close()
 
@@ -280,6 +316,7 @@ def _ui_process(barrier: Any, stop: Any, results: Any) -> None:
         )
         _wait_barrier(barrier)
         operator_sent = False
+        model_sent = False
         open_sent = False
         session_id = ""
         simulation_sent = False
@@ -304,6 +341,15 @@ def _ui_process(barrier: Any, stop: Any, results: Any) -> None:
                         },
                     )
                     operator_sent = True
+                if "pilot-smoke" in endpoints and operator_sent and not model_sent:
+                    peer.send(
+                        "operator_intent", target_id="pilot-smoke",
+                        payload={
+                            "request_id": "imu-model-smoke", "operation": "service_call",
+                            "name": "select_imu_model", "args": ["identity"], "kwargs": {},
+                        },
+                    )
+                    model_sent = True
                 if "sim-smoke" in endpoints and not open_sent:
                     peer.send(
                         "open_simulation_session",
@@ -317,6 +363,8 @@ def _ui_process(barrier: Any, stop: Any, results: Any) -> None:
                 for message in peer.receive(timeout_ms=20):
                     if message.message_type == "operator_result":
                         _report(results, "ui:operator")
+                        if (message.payload or {}).get("request_id") == "imu-model-smoke":
+                            _report(results, "ui:imu_model")
                     elif message.message_type == "simulation_session_opened":
                         session_id = message.lease_id
                         _report(results, "ui:opened")

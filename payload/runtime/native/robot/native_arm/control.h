@@ -29,6 +29,27 @@ struct ElesimArmSnapshot {
   int32_t torque_enabled;
   int32_t read_failures;
   int32_t valid;
+  char model_id[65];
+  int32_t model_version;
+  int32_t imu_valid;
+};
+
+struct ElesimArmNode {
+  int32_t op;
+  int32_t a;
+  int32_t b;
+  double value;
+};
+
+struct ElesimArmProgram {
+  int32_t count;
+  ElesimArmNode nodes[64];
+  int32_t outputs[4];
+};
+
+struct ElesimImuSample {
+  double rpy[3];
+  double sampled_monotonic_s;
 };
 
 void* elesim_arm_create(const char* device, const ElesimArmConfig* config,
@@ -36,6 +57,11 @@ void* elesim_arm_create(const char* device, const ElesimArmConfig* config,
 int elesim_arm_open(void* handle, char* error, size_t error_size);
 int elesim_arm_command_q(void* handle, const double* q,
                          char* error, size_t error_size);
+int elesim_arm_select_model(void* handle, const char* model_id, int32_t version,
+                            const ElesimArmProgram* program,
+                            char* error, size_t error_size);
+int elesim_arm_submit_imu(void* handle, const ElesimImuSample* sample,
+                          char* error, size_t error_size);
 int elesim_arm_command_claw(void* handle, double degrees,
                             char* error, size_t error_size);
 int elesim_arm_torque_on(void* handle, char* error, size_t error_size);
@@ -50,5 +76,8 @@ void elesim_arm_destroy(void* handle);
 // Pure conversion probe used to check parity with the existing wire mapping.
 int elesim_arm_map_q(const ElesimArmConfig* config, const double* q,
                      double* motor_degrees);
+int elesim_arm_eval_model(const ElesimArmProgram* program, const double* q,
+                          const double* imu_rpy, int32_t imu_valid,
+                          double* corrected_q);
 
 }

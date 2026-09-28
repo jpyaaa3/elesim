@@ -12,6 +12,7 @@ from numbers import Real
 from typing import Any, Mapping, Optional
 
 from .contracts import contract_for
+from .imu_model import ImuModelDefinition
 from .messages import ENDPOINT_ROLES, EndpointDescriptor, ProtocolError
 from .operator import OPERATOR_OPERATIONS, OPERATOR_VIEW_SCHEMA_VERSION
 
@@ -346,6 +347,10 @@ class MotionCommandRequest:
             raise ProtocolError("motion command must contain 1..128 non-whitespace characters")
         if "u" in raw:
             raise ProtocolError("legacy u motor targets are not supported by protocol v6")
+        if command == "set_imu_model":
+            _unknown(raw, {"command", "model", "selection_id"}, context="IMU model command")
+            _identifier(raw.get("selection_id"), name="IMU model selection id")
+            ImuModelDefinition.from_payload(raw.get("model"))
         q: Optional[tuple[float, float, float, float]] = None
         if "q" in raw:
             q_values = _vector(raw["q"], 4, name="motion q")

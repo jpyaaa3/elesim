@@ -705,7 +705,6 @@ class AimWorkflowActions(AimCenteringActions):
                         return
 
                     if conv.center_ok:
-                        self._pick_try_estimate_equal_sag(host_state)
                         estimate = self._pick_equal_sag_estimate
                         if estimate is not None and bool(estimate.accepted):
                             drift_mm = 0.0
@@ -819,19 +818,6 @@ class AimWorkflowActions(AimCenteringActions):
 
 class AimActions(AimWorkflowActions):
     """Post-Aim correction and standalone object-pick actions."""
-
-    def start_equal_sag_tweak(self) -> None:
-        """Deprecated alias: corrected ready + direction align is unified in start_ready_pose()."""
-        corrected_ready = self._pick_corrected_ready_pose()
-        if corrected_ready is None or not isinstance(self._pick_equal_sag_model, dict):
-            self._set_pick_failure("run Aim first; no corrected ready pose")
-            return
-        estimate = self._pick_equal_sag_estimate
-        if estimate is None or not bool(estimate.accepted):
-            reason = "no accepted equal sag estimate" if estimate is None else str(estimate.reason)
-            self._set_pick_failure(f"tweak rejected | {reason}")
-            return
-        self.start_ready_pose()
 
     def start_pick_forward(self, *, distance_m: float = 0.05) -> None:
         if self.state.ik_running or self._visual_busy():
@@ -1060,7 +1046,6 @@ class AimActions(AimWorkflowActions):
                     conv = evaluate_pick_convergence(obs, cfg=pk)
                     u_d, v_d, _, _ = self._visual_uv_errors(obs)
                     if conv.center_ok:
-                        self._pick_try_estimate_equal_sag(host_state)
                         self._pick_approach_latched = True
                         self._pick_center_stuck_iters = 0
                     center_tol = float(pk.center_tol)

@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import ctypes
 import math
+import time
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from elesim_protocol import SimMappingConfig, SimQ, sim_q_to_motor_deg
-from elesim_robot.arm.dynamixel import NativeArm, _load_library, _native_config
+from elesim_protocol import ImuModelDefinition, SimMappingConfig, SimQ, sim_q_to_motor_deg
+from elesim_robot.arm.dynamixel import NativeArm, _load_library, _native_config, _native_program
 from elesim_robot.config import HardwareConfig, SafetyConfig
 
 
@@ -77,3 +78,52 @@ def test_native_controller_rejects_unavailable_bus(native_library: Path) -> None
             arm.open()
     finally:
         arm.close()
+
+
+def test_native_identity_model_and_imu_input_are_validated(native_library: Path) -> None:
+    arm = NativeArm(
+        "/dev/elesim-no-such-dynamixel-bus",
+        hardware=HardwareConfig(), mapping=SimMappingConfig(),
+        safety=SafetyConfig(), library_path=native_library,
+    )
+    try:
+        assert arm.snapshot().model_id == "identity"
+        identity = ImuModelDefinition.from_payload({
+            "schema_version": 1, "id": "identity", "version": 1,
+            "program": {"nodes": [
+                {"op": "q", "index": index} for index in range(4)
+            ], "outputs": [0, 1, 2, 3]},
+        })
+        arm.select_imu_model(identity)
+        arm.submit_imu((0.1, 0.2, 0.3), time.monotonic())
+        assert arm.snapshot().imu_valid is True
+        with pytest.raises(RuntimeError, match="stale IMU sample"):
+            arm.submit_imu((0.1, 0.2, 0.3), 1.0)
+        with pytest.raises(RuntimeError, match="invalid IMU sample"):
+            arm.submit_imu((math.nan, 0.0, 0.0), time.monotonic())
+    finally:
+        arm.close()
+
+
+def test_native_formula_is_loaded_from_model_data(native_library: Path) -> None:
+    model = ImuModelDefinition.from_payload({
+        "schema_version": 1, "id": "imu_gain", "version": 2,
+        "program": {"nodes": [
+            {"op": "q", "index": 0},
+            {"op": "q", "index": 1},
+            {"op": "q", "index": 2},
+            {"op": "q", "index": 3},
+            {"op": "imu", "index": 0},
+            {"op": "const", "value": 0.25},
+            {"op": "mul", "a": 4, "b": 5},
+            {"op": "add", "a": 1, "b": 6},
+        ], "outputs": [0, 7, 2, 3]},
+    })
+    library = _load_library(native_library)
+    program = _native_program(model)
+    q = (ctypes.c_double * 4)(-0.1, 0.2, 0.3, -0.4)
+    imu = (ctypes.c_double * 3)(0.4, 0.0, 0.0)
+    output = (ctypes.c_double * 4)()
+    assert library.elesim_arm_eval_model(ctypes.byref(program), q, imu, 0, output) != 0
+    assert library.elesim_arm_eval_model(ctypes.byref(program), q, imu, 1, output) == 0
+    assert list(output) == pytest.approx([-0.1, 0.3, 0.3, -0.4])

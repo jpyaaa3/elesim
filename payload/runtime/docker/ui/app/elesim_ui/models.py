@@ -140,8 +140,6 @@ class PanelStateDefaults:
     target_vx: float = 1.0
     target_vy: float = 0.0
     target_vz: float = 0.0
-    sag_model_path: str = ""
-    raw_sag_model: dict[str, Any] | None = None
 
     ik_running: bool = False
     ik_converged: bool = False

@@ -531,8 +531,6 @@ behaviors:
       guided_handoff_m: 0.04
       max_waypoints: 2000
       object_filter_alpha: 0.25
-      online_sag_enabled: true
-      online_sag_max_step_deg: 2.0
       skip_aim_recover_in_mock: true
       standoff_m: 0.0
       uv_center_tol: 0.0
@@ -541,10 +539,6 @@ behaviors:
       waypoint_settle_s: 0.1
       waypoint_settle_timeout_s: 1.0
       waypoint_step_m: 0.05
-    sag:
-      drift_axial_only: true
-      drift_max_dir_error_deg: 18.0
-      drift_max_lateral_m: 0.1
     lji:
       approach_bias_gain: 0.3
       approach_bias_uv_gate: 0.25
@@ -594,7 +588,6 @@ behaviors:
       reacquire_remain_fail_m: 0.08
       reacquire_retrace_gain: 1.0
       reacquire_v_err_m: 0.45
-      sag_min_lateral_m: 0.015
       sample_cmd_meas_cos_min: -1.0
       sample_meas_cmd_ratio_max: 0.0
       sample_meas_cmd_ratio_min: 0.0

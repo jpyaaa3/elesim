@@ -128,8 +128,8 @@ def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, b
         "payload/data/models/objects/demo_box.obj": b"o box\n",
         "payload/data/calibration/cameras/zed_mini.hand_eye.json": b"{}\n",
         "payload/data/calibration/cameras/d435.hand_eye.json": b"{}\n",
-        "payload/data/calibration/arm/no_sag.json": b"{}\n",
-        "payload/data/calibration/arm/sag_model.json": b"{}\n",
+        "payload/config/pilot/imu_models/identity.json": b"{}\n",
+        "payload/config/pilot/imu_models/README.md": b"Identity model.\n",
     }
     for role in ("pilot", "sim", "ui", "robot"):
         runtime = bootstrap_module._BOOTSTRAP_ROLE_RUNTIMES[role]

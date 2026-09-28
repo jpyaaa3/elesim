@@ -42,6 +42,10 @@ def test_release_config_excludes_only_public_template(
     (config / template).write_text("public: true\n", encoding="utf-8")
     yolo = perception / "detector.yolo.example.json"
     yolo.write_text("{}\n", encoding="utf-8")
+    if role == "pilot":
+        models = config / "imu_models"
+        models.mkdir()
+        (models / "identity.json").write_text("{}\n", encoding="utf-8")
     release = tmp_path / "release"
     stale_template = release / "config" / template
     stale_template.parent.mkdir(parents=True)
@@ -52,6 +56,8 @@ def test_release_config_excludes_only_public_template(
     assert (release / "config" / config_name).is_file()
     assert not (release / "config" / template).exists()
     assert (release / "config/perception/detector.yolo.example.json").is_file()
+    if role == "pilot":
+        assert (release / "config/imu_models/identity.json").is_file()
 
 
 def test_sim_release_keeps_the_validated_mock_object_catalog(tmp_path: Path) -> None:

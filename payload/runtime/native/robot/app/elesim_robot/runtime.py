@@ -11,6 +11,7 @@ from typing import Any, Callable, Optional, Sequence
 from elesim_protocol import (
     ControlU,
     Envelope,
+    ImuModelDefinition,
     SimQ,
     motor_deg_to_sim_q,
     sim_q_to_motor_deg,
@@ -58,6 +59,7 @@ class RobotRuntime:
         self.pilot_id = ""
         self.last_seq = -1
         self.safety_fault = ""
+        self._imu_model_selection_id = ""
 
         self._go2_command_at: Optional[float] = None
         self._go2_motion_active = False
@@ -99,6 +101,7 @@ class RobotRuntime:
 
     def grant_lease(self, pilot_id: str, lease_id: str) -> None:
         self.stop_motion()
+        self._imu_model_selection_id = ""
         self.pilot_id = str(pilot_id)
         self.active_lease = str(lease_id)
         self.last_seq = -1
@@ -111,6 +114,7 @@ class RobotRuntime:
         self.pilot_id = ""
         self.active_lease = ""
         self.last_seq = -1
+        self._imu_model_selection_id = ""
 
     def _stop_go2(self) -> None:
         if self.go2 is None:
@@ -342,6 +346,26 @@ class RobotRuntime:
             return False, self.safety_fault
 
     def _dispatch(self, command: str, payload: dict[str, Any]) -> tuple[bool, str]:
+        if command == "set_imu_model":
+            selection_id = payload.get("selection_id")
+            if (
+                not isinstance(selection_id, str)
+                or not 1 <= len(selection_id) <= 128
+                or any(character.isspace() for character in selection_id)
+            ):
+                return False, "bad_imu_model_selection"
+            try:
+                model = ImuModelDefinition.from_payload(payload.get("model"))
+            except (TypeError, ValueError) as exc:
+                return False, f"bad_imu_model: {exc}"
+            if self.hw is None or getattr(self.hw, "native_safety", False) is not True:
+                return False, "native_arm_unavailable"
+            try:
+                self.hw.select_imu_model(model)
+            except RuntimeError as exc:
+                return False, f"imu_model_rejected: {exc}"
+            self._imu_model_selection_id = selection_id
+            return True, "imu_model_applied"
         if command == "target":
             return self._apply_target(payload)
         if command == "torque_on":
@@ -494,7 +518,14 @@ class RobotRuntime:
             "safety_fault": self.safety_fault,
             "lease_active": bool(self.active_lease),
             "hardware_read_failures": self._read_failures,
+            "imu_model": None,
+            "imu_feedback_connected": False,
+            "imu_model_selection_id": self._imu_model_selection_id,
         }
+        if self.hw is not None and getattr(self.hw, "native_safety", False):
+            native_state = self.hw.snapshot()
+            result["imu_model"] = {"id": native_state.model_id, "version": native_state.model_version}
+            result["imu_feedback_connected"] = native_state.imu_valid
         if self._read_error:
             result["read_error"] = self._read_error
         snapshot = self._arm_snapshot

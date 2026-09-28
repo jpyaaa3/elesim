@@ -347,7 +347,7 @@ class Installer:
                 for name in (
                     "build.py",
                     "control.cpp",
-                    "correction_placeholder.cpp",
+                    "correction_model.cpp",
                     "vendor/LICENSE",
                     "vendor/dynamixel_sdk/dynamixel_sdk.h",
                 )
@@ -357,6 +357,7 @@ class Installer:
             required.append(root / "payload/data/models/assemblies/d435/bundle.json")
             required.append(root / "payload/data/models/objects/demo_box.obj")
         if "pilot" in self.state.roles:
+            required.append(root / "payload/config/pilot/imu_models/identity.json")
             required.append(root / "payload/data/models/arm/default.json")
             required.append(root / "payload/data/models/perception/yolov8n-seg.pt")
             required.append(root / "payload/data/policies/wrap-grasp/README.md")
@@ -365,8 +366,6 @@ class Installer:
                 root / "payload/data/calibration/cameras/zed_mini.hand_eye.json"
             )
             required.append(root / "payload/data/calibration/cameras/d435.hand_eye.json")
-        if {"pilot", "ui"}.intersection(self.state.roles):
-            required.append(root / "payload/data/calibration/arm/sag_model.json")
         missing = [path for path in required if not path.is_file()]
         if missing:
             rendered = "\n".join(f"  - {path}" for path in missing)

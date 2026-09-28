@@ -46,10 +46,18 @@ peer는 이 권한을 부여하지 않는다.
 
 Robot의 Python DDS/runtime은 lease, 명령 검증과 deadman을 맡는다. 승인된 이론 q는
 Jetson 프로세스 안의 C++ arm controller로 전달한다. C++ controller는 로컬
-주기(명목상 5 ms)마다 `correction_placeholder.cpp`를 호출하고, 보정 q의 범위를 검사한 뒤
-Dynamixel SDK로 모터 목표를 쓴다. 현재 보정 함수는 q를 그대로 반환하며 IMU를
-읽지 않는다. 향후 Teensy/IMU 보정은 이 함수 안에 넣고 Pilot DDS 명령 경로와
-모터 출력 경계는 유지한다. 토크 해제와 safe hold는 보관한 목표를 지운다.
+주기(명목상 5 ms)마다 이론 q와 최신 IMU sample을 `correction_model.cpp`의
+고정 크기 계산 그래프에 넣고, 보정 q의 범위를 검사한 뒤 Dynamixel SDK로
+모터 목표를 쓴다. Pilot의 `config/imu_models/*.json`은 계산식과 catalog의
+원천이다. UI는 Pilot snapshot에서 목록을 조회하고 선택만 요청하며 로컬
+모델 파일 경로를 취급하지 않는다. Pilot은 선택한 그래프를 lease-bound 명령에
+실어 Robot에 한 번 전달한다. Robot은 그래프를 검증해 native 실행 계획으로
+설치하고 매 tick에서 JSON이나 Python을 실행하지 않는다. 현재 제공하는
+`identity/v1` JSON은 IMU를 참조하지 않고 q를 그대로 반환한다. native controller의
+IMU 입력 경계는 있지만 Teensy frame reader와 실제 보정 모델은 아직 없다.
+옛 sag JSON과 Pilot/Sim의 q 기반 sag 계산은 제거되었다.
+Pilot은 선택 ID가 포함된 Robot telemetry를 확인하기 전까지 적용 완료로 표시하지
+않으며, 선택 명령은 미확인 상태에서 재전송한다. 토크 해제와 safe hold는 보관한 목표를 지운다.
 전류·위치 감시는 별도 설정 주기로 실행하며, Jetson의 스케줄링과 버스 지연 때문에
 5 ms는 보장된 마감 시간이 아니다.
 

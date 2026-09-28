@@ -18,6 +18,7 @@ from elesim_protocol import (
 )
 
 from elesim_pilot.connection import PilotConnection
+from elesim_pilot.imu_models import ImuModelCatalog
 from elesim_pilot.operator import OperatorDispatcher
 from elesim_pilot.runtime import build_control_runtime
 from elesim_pilot.config import load_app_config, load_runtime_role_config
@@ -46,11 +47,13 @@ class _ControlFacade:
         connection: PilotConnection,
         *,
         dds_settings: DdsRuntimeSettings,
+        imu_model_directory: Path | None = None,
         rgbd_broker_topic: str = "",
     ) -> None:
         self._service = service
         self._connection = connection
         self._dds_settings = dds_settings
+        self._imu_models = ImuModelCatalog(imu_model_directory or (_CONFIG_ROOT / "imu_models"))
         self._rgbd_broker_topic = str(rgbd_broker_topic).strip()
         self._rgbd_relay: DdsRgbdRelay | None = None
         self._mock_hug: MockHugCoordinator | None = None
@@ -102,6 +105,17 @@ class _ControlFacade:
 
     def select_endpoint(self, target_id: str) -> None:
         self._connection.select_target(target_id)
+
+    @property
+    def imu_models(self) -> list[dict[str, object]]:
+        return self._imu_models.list_models()
+
+    def imu_model_status(self) -> dict[str, object]:
+        return self._connection.imu_model_status()
+
+    def select_imu_model(self, model_id: str) -> dict[str, object]:
+        model = self._imu_models.get(model_id)
+        return self._connection.select_imu_model(model.command_payload())
 
     def configure_target_stream(self, descriptor: dict) -> None:
         streams = descriptor.get("streams", {})
@@ -202,6 +216,7 @@ def _run() -> None:
         runtime.service,
         connection,
         dds_settings=role.dds,
+        imu_model_directory=Path(args.config).resolve().parent / "imu_models",
         rgbd_broker_topic=str(
             ((role.rgbd or {}).get("wire") or {}).get("topic", "")
         ),

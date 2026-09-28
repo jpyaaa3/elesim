@@ -15,6 +15,7 @@ from .authority import (
 )
 from .messages import *  # noqa: F401,F403
 from .contracts import DDS_CONTRACTS, DdsContract, contract_for, validate_registry
+from .imu_model import ImuModelDefinition, IMU_MODEL_OPCODES, IMU_MODEL_SCHEMA_VERSION, MAX_IMU_MODEL_NODES
 from .payloads import (
     CloseSimulationSessionRequest,
     DiscoverRequest,

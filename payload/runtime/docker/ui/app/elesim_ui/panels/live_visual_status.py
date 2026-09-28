@@ -688,8 +688,6 @@ def _draw_pick_brief(panel) -> None:
         pick_status = "failed"
     _line("Pick", "%s  phase=%s" % (pick_status, _blank(st.pick_phase)))
     _line("Pick msg", st.pick_status_msg)
-    _line("Sag model", st.sag_model_path)
-    _line("Sag status", getattr(panel, "_sag_status_text", ""))
 
 
 def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: bool = True) -> None:

@@ -77,6 +77,12 @@ class OperatorDispatcher:
             "wrap_grasp_result": self.service.wrap_grasp_result(),
             "available_endpoints": self.service.available_endpoints,
             "active_endpoint": self.service.active_endpoint,
+            "imu_models": getattr(self.service, "imu_models", []),
+            "imu_model_status": (
+                self.service.imu_model_status()
+                if callable(getattr(self.service, "imu_model_status", None))
+                else {}
+            ),
         }
         return OperatorViewSnapshot(
             state=state_snapshot(self.state),
