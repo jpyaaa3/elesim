@@ -48,6 +48,16 @@ def test_lease_revocation_stops_mobile_base_without_resetting_arm() -> None:
     assert state.estimate_q().linear_m == -0.1
 
 
+def test_sim_reset_atomically_stops_mobile_base_before_reset_is_applied() -> None:
+    state = SimulationStateSource(SimMappingConfig())
+    state.apply_target({"command": "target", "go2_vel": [0.2, -0.1, 0.3]})
+
+    assert state.apply_command({"command": "sim_reset"}) == "sim_reset"
+
+    assert state.sim_reset_seq() == 1
+    assert state.go2_vel() == (0.0, 0.0, 0.0)
+
+
 def test_mock_hug_waypoint_is_identity_checked_before_q_is_applied() -> None:
     mock = MockObjectState(
         MockObjectCatalog(MOCK_OBJECTS)

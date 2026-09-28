@@ -105,6 +105,18 @@ def test_estop_is_accepted_without_a_lease() -> None:
     assert client.sent[-1][1]["payload"]["ok"] is True
 
 
+def test_sim_reset_stops_go2_before_the_runtime_applies_the_reset() -> None:
+    value, state, client = endpoint()
+    state.apply_target({"command": "target", "go2_vel": [0.2, -0.1, 0.3]})
+
+    value.handle_envelope(client, message({"command": "sim_reset"}))
+
+    assert state.sim_reset_seq() == 1
+    assert state.go2_vel() == (0.0, 0.0, 0.0)
+    assert client.sent[-1][1]["payload"]["ok"] is True
+    assert client.sent[-1][1]["payload"]["reason"] == "sim_reset"
+
+
 def test_mock_hug_route_fence_must_name_this_exact_sim_boot_and_lease() -> None:
     value, state, client = endpoint()
     value.peer_identity = PeerIdentity("sim-a", "boot-a")
