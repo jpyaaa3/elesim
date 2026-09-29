@@ -356,11 +356,14 @@ def resolve_mock_object_catalog_root(source_root: str | Path) -> Path:
     configured = os.environ.get("ELESIM_SIM_MOCK_OBJECT_ROOT", "").strip()
     if configured:
         return Path(configured).expanduser()
-    candidates = (
-        Path(source_root) / "payload/data/models/objects",
-        Path(source_root) / "data/models/objects",
-        Path("/opt/elesim/data/models/objects"),
-    )
+    # Callers may start at the configuration directory or the Python app
+    # directory. Find their enclosing checkout/release, independent of cwd.
+    start = Path(source_root).resolve()
+    candidates = tuple(
+        root / relative
+        for root in (start, *start.parents)
+        for relative in ("payload/data/models/objects", "data/models/objects")
+    ) + (Path("/opt/elesim/data/models/objects"),)
     return next((path for path in candidates if path.is_dir()), candidates[0])
 
 

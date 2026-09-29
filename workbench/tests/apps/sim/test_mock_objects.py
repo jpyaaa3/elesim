@@ -212,3 +212,38 @@ def test_builtin_demo_box_faces_point_outward_for_genesis_backface_culling() -> 
             signed_volume += sum(a * b for a, b in zip(anchor, cross)) / 6.0
 
     assert signed_volume > 0.0
+
+
+@pytest.mark.parametrize("start_relative", [
+    "", "payload/config/sim", "payload/runtime/docker/sim/app",
+])
+def test_catalog_resolves_from_checkout_subdirectories(tmp_path, monkeypatch, start_relative):
+    from elesim_sim.simulation.mock_objects import resolve_mock_object_catalog_root
+
+    monkeypatch.delenv("ELESIM_SIM_MOCK_OBJECT_ROOT", raising=False)
+    catalog = tmp_path / "payload/data/models/objects"
+    catalog.mkdir(parents=True)
+    start = tmp_path / start_relative
+    start.mkdir(parents=True, exist_ok=True)
+    assert resolve_mock_object_catalog_root(start) == catalog
+
+
+def test_catalog_resolves_unpacked_release(tmp_path, monkeypatch):
+    from elesim_sim.simulation.mock_objects import resolve_mock_object_catalog_root
+
+    monkeypatch.delenv("ELESIM_SIM_MOCK_OBJECT_ROOT", raising=False)
+    catalog = tmp_path / "data/models/objects"
+    catalog.mkdir(parents=True)
+    config = tmp_path / "config"
+    config.mkdir()
+    assert resolve_mock_object_catalog_root(config) == catalog
+
+
+def test_explicit_catalog_override_is_not_silently_replaced(tmp_path, monkeypatch):
+    from elesim_sim.simulation.mock_objects import resolve_mock_object_catalog_root
+
+    missing = tmp_path / "missing"
+    monkeypatch.setenv("ELESIM_SIM_MOCK_OBJECT_ROOT", str(missing))
+    assert resolve_mock_object_catalog_root(tmp_path) == missing
+    with pytest.raises(MockObjectError, match="not a directory"):
+        MockObjectCatalog(missing)
