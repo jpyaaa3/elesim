@@ -15,17 +15,26 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from elesim_pilot.config import load_app_config
-from workbench.research.experiments.walking_baseline import _connect_service, _run_trial, _trial_run_id, _validate_gaze_config
 from workbench.research.experiments.batch_readiness import sim_log_ready
 
 
-def _wait_sim_ready(sim_log: Path, *, timeout_s: float) -> bool:
+def _connect_service(config_path: str):
+    from workbench.research.experiments.walking_baseline import _connect_service as connect
+
+    return connect(config_path)
+
+
+def _wait_sim_ready(sim_log: Path, *, timeout_s: float, proc: subprocess.Popen | None = None) -> bool:
     deadline = time.time() + float(timeout_s)
     while time.time() < deadline:
+        if proc is not None and proc.poll() is not None:
+            tail = sim_log.read_text(encoding="utf-8", errors="replace")[-12000:]
+            raise SystemExit(f"Sim exited with code {proc.returncode}; log: {sim_log.resolve()}\n{tail}")
         if sim_log_ready(sim_log):
             time.sleep(5.0)
-            return True
+            if proc is None or proc.poll() is None:
+                return True
+            continue
         time.sleep(1.0)
     return False
 
@@ -63,6 +72,8 @@ def _stop_proc(proc: subprocess.Popen | None, *, label: str, grace_s: float = 8.
 
 
 def _wait_perception(service, config_path: str, *, timeout_s: float) -> bool:
+    from elesim_pilot.config import load_app_config
+
     bundle = load_app_config(config_path)
     service.start_perception_capture(config=bundle.perception_config)
     deadline = time.time() + float(timeout_s)
@@ -80,8 +91,16 @@ def _wait_perception(service, config_path: str, *, timeout_s: float) -> bool:
 
 
 def main() -> None:
+    from elesim_pilot.config import load_app_config
+    from workbench.research.experiments.walking_baseline import (
+        _run_trial, _trial_run_id, _validate_gaze_config,
+    )
+
     ap = argparse.ArgumentParser(description="Batch walking baseline with headless sim + perception")
-    ap.add_argument("--config", default="payload/config/pilot/config.yaml")
+    ap.add_argument("--config", "--pilot-config", default=str(ROOT / "payload/config/pilot/config.yaml"),
+                    help="Pilot application configuration")
+    ap.add_argument("--sim-config", default=str(ROOT / "payload/config/sim/config.yaml"),
+                    help="Sim application configuration")
     ap.add_argument("--run-prefix", default="exp_baseline")
     ap.add_argument("--preset", default="neutral")
     ap.add_argument("--motion", default="forward", choices=["forward", "backward", "turn"])
@@ -107,11 +126,12 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    config_path = str(args.config)
+    config_path = str(Path(args.config).resolve())
+    sim_config_path = str(Path(args.sim_config).resolve())
     bundle = load_app_config(config_path)
     if str(args.gaze).strip().lower() == "pitch_preview":
         _validate_gaze_config(str(args.gaze), bundle.gaze_stabilizer_config)
-    batch_log_dir = Path(args.batch_log_dir)
+    batch_log_dir = Path(args.batch_log_dir).resolve()
     batch_log_dir.mkdir(parents=True, exist_ok=True)
 
     trials = max(1, int(args.trials))
@@ -129,18 +149,19 @@ def main() -> None:
         os.environ["ELESIM_WALKING_METRICS"] = "1"
 
         sim_log = batch_log_dir / f"{run_id}_sim.log"
-        sim_proc = _start_sim(config_path, run_id, sim_log)
+        sim_proc = _start_sim(sim_config_path, run_id, sim_log)
         service = None
         try:
-            if not _wait_sim_ready(sim_log, timeout_s=float(args.sim_warmup_s)):
+            if not _wait_sim_ready(sim_log, timeout_s=float(args.sim_warmup_s), proc=sim_proc):
                 raise SystemExit(f"sim not ready for {run_id}; see {sim_log}")
 
             service = _connect_service(config_path)
-            _wait_perception(
-                service,
-                config_path,
-                timeout_s=float(args.perception_warmup_s),
-            )
+            if str(args.gaze).strip().lower() != "off":
+                _wait_perception(
+                    service,
+                    config_path,
+                    timeout_s=float(args.perception_warmup_s),
+                )
             _run_trial(
                 service=service,
                 run_id=run_id,
