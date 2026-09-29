@@ -139,6 +139,7 @@ def test_stance_ground_reaction_is_opposed_by_joint_torque() -> None:
     controller._timing_sink = None
     controller._config = SimpleNamespace(gait_hz=2.5, gait_duty=0.5)
     controller._sim_time = 0.0
+    controller._walk_started_s = 0.0
     controller._last_contacts = np.ones(4)
     controller._tau_lim = np.full(12, 100.0)
     state = PyMpcInput(**{**vars(sample()), "contacts": np.ones((4, 3))})
@@ -155,6 +156,7 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
     controller._contact_diagnostics = None
     controller._dt = 0.02
     controller._sim_time = 1.0
+    controller._walk_started_s = 0.0
     controller._faulted = False
     controller._cmd = Go2Command()
     controller._config = SimpleNamespace(
@@ -466,3 +468,64 @@ def test_pympc_emits_walking_rows_in_stand_and_torque_modes():
         assert row["go2_cmd"] == (0.2, 0.0, 0.0)
         assert (row["tau"] is not None) == active
     assert controller._metrics.sample_go2.call_count == 2
+
+
+def test_contact_transition_forces_solve_between_regular_ticks():
+    from unittest.mock import Mock
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    c._step_i = 1
+    c._solve_stride = 2
+    c._solver = SimpleNamespace(solve=Mock(return_value=np.tile([0, 0, 50.], (4, 1))))
+    c._timing_sink = None
+    c._config = SimpleNamespace(gait_hz=2.5, gait_duty=0.6)
+    c._sim_time = 10.0
+    c._walk_started_s = 10.0
+    c._last_contacts = np.zeros(4)
+    c._forces = np.zeros((4, 3))
+    c._tau_lim = np.full(12, 100.)
+    state = PyMpcInput(**{**vars(sample()), "contacts": np.ones((4, 3))})
+    tau = c._torques(state, state.feet_world, np.zeros((4, 3)),
+                     np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
+    c._solver.solve.assert_called_once()
+    np.testing.assert_array_equal(tau.reshape(4, 3)[:, 2], np.full(4, -50.))
+
+
+def test_gait_starts_at_same_support_phase_independent_of_uptime():
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    for start in (0.0, 7.13, 103.29):
+        c._walk_started_s = start
+        c._sim_time = start
+        mask = contact_schedule(c._gait_time(), gait_hz=2.5, duty=0.6, dt=0.02, horizon=12)
+        np.testing.assert_array_equal(mask[:, 0], np.ones(4))
+        c._sim_time = start + 0.04
+        assert c._gait_time() == pytest.approx(0.04)
+
+
+def test_solver_failure_returns_to_stand_without_pose_step():
+    from unittest.mock import Mock
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    c._dt = 0.02
+    c._sim_time = 10.0
+    c._walk_started_s = 9.0
+    c._faulted = False
+    c._command_shaper = Go2CommandShaper()
+    c._command_shaper.set_target(Go2Command(vx=0.35))
+    c._config = SimpleNamespace(command_idle_threshold=0.01, gait_hz=2.5, gait_duty=0.6)
+    c._pose_stage = "walk"
+    c._torque_mode_active = True
+    c._pose_transition = JointPoseTransition(0.4)
+    c._kin = SimpleNamespace(stand_q=np.zeros(12))
+    c._leg_dof_idxs = list(range(12))
+    c._tau_hold = np.ones(12)
+    c._entity = SimpleNamespace(get_dofs_position=lambda **kw: np.ones(12),
+                                control_dofs_position=Mock())
+    c._set_stand_actuation = Mock()
+    c._sample = Mock(side_effect=RuntimeError("solver failure"))
+    c._step()
+    first = c._entity.control_dofs_position.call_args.args[0]
+    assert np.all(first > 0.99)
+    assert c._faulted
+    for _ in range(25):
+        c._step()
+    np.testing.assert_allclose(c._entity.control_dofs_position.call_args.args[0], np.zeros(12))
+    c._sample.assert_called_once()

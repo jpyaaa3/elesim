@@ -260,6 +260,10 @@ class PyMpcGenesisController:
         self._last_contacts.fill(1.0)
         self._set_stand_actuation()
 
+    def _gait_time(self) -> float:
+        return (0.0 if self._walk_started_s is None
+                else max(0.0, self._sim_time - self._walk_started_s))
+
     def _command_scale(self) -> float:
         if self._walk_started_s is None:
             return 0.0
@@ -347,7 +351,7 @@ class PyMpcGenesisController:
         ref_rpy[0:2] = 0.0
         ref_rpy[2] += horizon_t * yaw_rate
         contacts = contact_schedule(
-            self._sim_time,
+            self._gait_time(),
             gait_hz=float(self._config.gait_hz),
             duty=float(self._config.gait_duty),
             dt=self._solver.dt,
@@ -386,14 +390,18 @@ class PyMpcGenesisController:
 
     def _torques(self, sample: PyMpcInput, feet: np.ndarray, foot_vel: np.ndarray,
                  jacobians: np.ndarray, joint_vel: np.ndarray) -> np.ndarray:
-        if self._step_i % self._solve_stride == 0:
+        contacts = sample.contacts[:, 0]
+        # A force solution is valid only for the support set it was solved for.
+        # In particular a newly grounded foot must not reuse its swing zero.
+        if (self._step_i % self._solve_stride == 0
+                or not np.array_equal(contacts, self._last_contacts)):
             started = time.perf_counter()
             self._forces = self._solver.solve(sample)
             if self._timing_sink is not None:
                 self._timing_sink("go2_pympc_solve", time.perf_counter() - started)
         contacts = sample.contacts[:, 0]
         tau = np.zeros(12)
-        phase = (self._sim_time * float(self._config.gait_hz) + _PHASE_OFFSETS) % 1.0
+        phase = (self._gait_time() * float(self._config.gait_hz) + _PHASE_OFFSETS) % 1.0
         duty = float(self._config.gait_duty)
         for i in range(4):
             sl = slice(i * 3, i * 3 + 3)
@@ -463,11 +471,17 @@ class PyMpcGenesisController:
             float(self._config.command_idle_threshold)
         )
         if self._faulted:
+            pose, _ = self._pose_transition.update(self._dt)
             self._entity.control_dofs_position(
-                self._kin.stand_q, dofs_idx_local=self._leg_dof_idxs
+                pose, dofs_idx_local=self._leg_dof_idxs
             )
             return
 
+        if stop_ready and self._pose_stage == "walk":
+            stop_ready = bool(np.all(contact_schedule(
+                self._gait_time(), gait_hz=float(self._config.gait_hz),
+                duty=float(self._config.gait_duty), dt=self._dt, horizon=2,
+            )[:, 0])) if self._config.gait_duty > 0.5 else stop_ready
         if stop_ready and self._pose_stage in {"to_ready", "ready_hold", "walk"}:
             self._begin_stand_pose()
         elif self._pose_stage == "to_stand" and not target_idle:
@@ -513,6 +527,7 @@ class PyMpcGenesisController:
             sample, feet, foot_vel, jacobians, joint_vel = self._sample()
             self._tau_hold = self._torques(sample, feet, foot_vel, jacobians, joint_vel)
         except Exception as exc:
+            self._pose_transition.begin(self._current_leg_pose(), self._kin.stand_q)
             self._faulted = True
             self._active = False
             self._pose_stage = "fault"
@@ -520,7 +535,8 @@ class PyMpcGenesisController:
             self._torque_mode_active = False
             self._tau_hold.fill(0.0)
             self._set_stand_actuation()
-            self._entity.control_dofs_position(self._kin.stand_q, dofs_idx_local=self._leg_dof_idxs)
+            pose, _ = self._pose_transition.update(self._dt)
+            self._entity.control_dofs_position(pose, dofs_idx_local=self._leg_dof_idxs)
             print(f"[go2_pympc] fault; latched safe stand until reset: {exc}")
             return
         self._entity.control_dofs_force(self._tau_hold, dofs_idx_local=self._leg_dof_idxs)
