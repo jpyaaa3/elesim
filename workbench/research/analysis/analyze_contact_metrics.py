@@ -191,6 +191,8 @@ def render_markdown(run_id: str, summary: dict[str, Any]) -> str:
             "",
             "## Reading the signals",
             "",
+            "- Stance is the commanded gait phase, not verified ground contact. Check measured normal force before interpreting slip.",
+            "- Foot velocity is an average between diagnostic positions; the first sample is unavailable. Phase transitions can affect this estimate.",
             "- Friction ratio above 1 means the MPC desired tangential force exceeds the configured physical Coulomb limit.",
             "- High GRF error with low measured slip points toward contact-force realization or collision-manifold mismatch.",
             "- High stance slip with friction ratio below 1 and small GRF error points toward foot-point/Jacobian or stance-feedback error.",

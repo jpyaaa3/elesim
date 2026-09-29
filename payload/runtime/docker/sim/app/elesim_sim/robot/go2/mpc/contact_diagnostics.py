@@ -18,14 +18,14 @@ from elesim_sim.simulation.genesis.utils import to_numpy_1d
 
 
 DEFAULT_FOOT_LINK_NAMES: Mapping[LegId, str] = {
-    leg: f"{leg.value}_calf" for leg in ALL_LEGS
+    leg: f"{leg.value}_foot" for leg in ALL_LEGS
 }
-"""Genesis Go2 uses the calf link as the merged foot link."""
+"""The bundled URDF preserves each foot with dont_collapse=true."""
 
 DEFAULT_FOOT_LOCAL_OFFSETS: Mapping[LegId, np.ndarray] = {
-    leg: np.array([0.0, 0.0, -0.213], dtype=float) for leg in ALL_LEGS
+    leg: np.zeros(3, dtype=float) for leg in ALL_LEGS
 }
-"""Foot-tip offsets in each calf link's local frame (metres)."""
+"""Offsets from each preserved foot link's local frame (metres)."""
 
 
 @dataclass(frozen=True)
@@ -175,12 +175,15 @@ class GenesisContactDiagnostics:
         entity: object,
         *,
         cadence_steps: int = 5,
+        position_difference_velocity: bool = True,
         foot_link_names: Mapping[LegId | str, str] | None = None,
         foot_local_offsets: Mapping[LegId | str, Sequence[float]] | None = None,
     ) -> None:
         cadence = int(cadence_steps)
         if cadence < 1:
             raise ValueError(f"cadence_steps must be >= 1, got {cadence_steps!r}")
+        self._position_difference_velocity = position_difference_velocity
+        self._previous_positions = {}
         self._entity = entity
         self._cadence_steps = cadence
         names = _normalise_leg_map(
@@ -206,6 +209,7 @@ class GenesisContactDiagnostics:
         """Reset cumulative stance slip without touching the Genesis entity."""
 
         self._slip_distance_m = {leg: 0.0 for leg in ALL_LEGS}
+        self._previous_positions.clear()
 
     def should_sample(self, step_index: int) -> bool:
         index = int(step_index)
@@ -247,8 +251,16 @@ class GenesisContactDiagnostics:
                 link,
                 self._foot_local_offsets[leg],
             )
+            if self._position_difference_velocity:
+                # Average world velocity across diagnostic samples. Link velocity
+                # readbacks can be stale/zero; the first sample is unavailable.
+                previous = self._previous_positions.get(leg)
+                velocity = ((position - previous) / elapsed
+                            if previous is not None and elapsed > 0.0
+                            else np.full(3, np.nan))
+                self._previous_positions[leg] = position.copy()
             slip_speed = float(np.linalg.norm(velocity[:2])) if is_stance else 0.0
-            if is_stance:
+            if is_stance and np.isfinite(slip_speed):
                 self._slip_distance_m[leg] += slip_speed * elapsed
             feet.append(
                 FootContactDiagnostic(

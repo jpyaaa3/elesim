@@ -150,6 +150,8 @@ class PyMpcGenesisController:
         )
         self._arm_q = (0.0, 0.0, 0.0, 0.0)
         self._sim_time = 0.0
+        if self._contact_diagnostics is not None:
+            self._contact_diagnostics.reset()
         self._active = False
         self._ready_until = 0.0
         self._walk_started_s: float | None = None
@@ -166,6 +168,7 @@ class PyMpcGenesisController:
         self._apply_physics_params()
         if metrics is not None:
             metrics.set_tau_limits(self._tau_lim)
+            metrics.set_control_rate_info(self._rate_info)
         print("[go2_pympc] backend=acados nominal solve_hz=25 torque_hz="
               f"{self._rate_info.sim_hz:.1f} (experimental)")
 
@@ -280,6 +283,8 @@ class PyMpcGenesisController:
         self._cmd = Go2Command()
         self._command_shaper.reset()
         self._sim_time = 0.0
+        if self._contact_diagnostics is not None:
+            self._contact_diagnostics.reset()
         self._active = False
         self._ready_until = 0.0
         self._walk_started_s = None
@@ -430,6 +435,21 @@ class PyMpcGenesisController:
             )
 
     def step(self) -> None:
+        self._step()
+        if self._metrics is not None:
+            torque = self._torque_mode_active and not self._faulted
+            self._metrics.record_torque_step(recomputed=torque, hold=False)
+            self._metrics.sample_go2(
+                go2_entity=self._entity,
+                go2_cmd=(self._cmd.vx, self._cmd.vy, self._cmd.yaw_rate),
+                command_source=self._command_source, arm_q=self._arm_q,
+                tau=self._tau_hold if torque else None,
+                torque_update_flag=torque, torque_hold_flag=False,
+                wall_time_s=time.time(), sim_time_s=self._sim_time,
+                control_rate_info=self._rate_info,
+            )
+
+    def _step(self) -> None:
         self._sim_time += self._dt
         self._cmd = self._command_shaper.update(self._dt)
         stop_ready = self._command_shaper.stop_ready(
@@ -478,6 +498,8 @@ class PyMpcGenesisController:
                 self._pose_stage = "walk"
                 self._walk_started_s = self._sim_time
                 self._step_i = 0
+                if self._contact_diagnostics is not None:
+                    self._contact_diagnostics.reset()
             return
 
         if self._pose_stage != "walk":

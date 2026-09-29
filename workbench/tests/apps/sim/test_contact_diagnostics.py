@@ -47,7 +47,7 @@ class _Link:
 class _Entity:
     def __init__(self) -> None:
         self.links = {
-            f"{leg.value}_calf": _Link(index, velocity=(0.0, 0.0, 0.0))
+            f"{leg.value}_foot": _Link(index, velocity=(0.0, 0.0, 0.0))
             for index, leg in enumerate(ALL_LEGS)
         }
         self.contact_force_reads = 0
@@ -78,6 +78,7 @@ def test_foot_velocity_includes_angular_offset_and_reads_link_force() -> None:
         entity,
         cadence_steps=1,
         foot_local_offsets=_offsets(),
+        position_difference_velocity=False,
     )
 
     sample = diagnostics.sample(
@@ -106,6 +107,7 @@ def test_cadence_avoids_gpu_readback_until_due_and_accumulates_slip() -> None:
         entity,
         cadence_steps=2,
         foot_local_offsets=_offsets(),
+        position_difference_velocity=False,
     )
 
     assert diagnostics.sample(
@@ -176,3 +178,19 @@ def test_invalid_physical_mu_and_incomplete_inputs_are_rejected() -> None:
             physical_mu=0.8,
         )
 
+
+
+def test_preserved_feet_use_position_difference_when_velocity_readback_is_zero():
+    entity = _Entity()
+    diagnostic = GenesisContactDiagnostics(entity, cadence_steps=1)
+    kwargs = dict(elapsed_s=0.1, stance=_stance(), desired_grf_world=_grf(), physical_mu=0.5)
+    first = diagnostic.sample(step_index=0, **kwargs)
+    assert np.isnan(first.feet[0].slip_speed_mps)
+    for link in entity.links.values():
+        link.get_pos = lambda: _Tensor(np.array([0.03, 0.0, 1.0]))
+    second = diagnostic.sample(step_index=1, **kwargs)
+    np.testing.assert_allclose(second.feet[0].velocity_world, [0.3, 0, 0])
+    assert second.feet[0].slip_distance_m == pytest.approx(0.03)
+    np.testing.assert_array_equal(second.feet[0].net_contact_force_world, [0, 1, 2])
+    diagnostic.reset()
+    assert np.isnan(diagnostic.sample(step_index=0, **kwargs).feet[0].slip_speed_mps)

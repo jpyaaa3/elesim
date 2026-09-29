@@ -131,6 +131,8 @@ def test_invalid_inertia_and_contact_are_rejected_before_solver() -> None:
 
 def test_stance_ground_reaction_is_opposed_by_joint_torque() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._metrics = None
+    controller._contact_diagnostics = None
     controller._step_i = 0
     controller._solve_stride = 2
     controller._solver = SimpleNamespace(solve=lambda _sample: np.tile([0, 0, 50], (4, 1)))
@@ -149,6 +151,8 @@ def test_stance_ground_reaction_is_opposed_by_joint_torque() -> None:
 
 def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._metrics = None
+    controller._contact_diagnostics = None
     controller._dt = 0.02
     controller._sim_time = 1.0
     controller._faulted = False
@@ -195,6 +199,8 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
 
 def test_idle_startup_stays_in_stand_during_stop_dwell() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._metrics = None
+    controller._contact_diagnostics = None
     controller._dt = 0.02
     controller._sim_time = 0.0
     controller._faulted = False
@@ -317,6 +323,8 @@ def test_new_pose_transition_can_interrupt_from_current_joint_pose() -> None:
 def test_idle_to_motion_interpolates_stand_pose_before_ready_hold() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
     controller._metrics = None
+    controller._contact_diagnostics = None
+    controller._metrics = None
     controller._dt = 0.1
     controller._sim_time = 0.0
     controller._faulted = False
@@ -411,6 +419,8 @@ def test_pympc_records_contact_forces_and_preclip_torque():
     from unittest.mock import Mock
 
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._metrics = None
+    controller._contact_diagnostics = None
     controller._metrics = Mock()
     controller._contact_diagnostics = Mock(cadence_steps=5)
     controller._step_i = 5
@@ -432,3 +442,26 @@ def test_pympc_records_contact_forces_and_preclip_torque():
     controller._contact_diagnostics.sample.return_value = None
     controller._record_contact_metrics(sample())
     controller._metrics.sample_contact.assert_not_called()
+
+
+def test_pympc_emits_walking_rows_in_stand_and_torque_modes():
+    from unittest.mock import Mock
+    controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._step = Mock()
+    controller._metrics = Mock()
+    controller._entity = object()
+    controller._cmd = Go2Command(vx=0.2)
+    controller._command_source = "test"
+    controller._arm_q = (0, 0, 0, 0)
+    controller._tau_hold = np.ones(12)
+    controller._sim_time = 1.0
+    controller._rate_info = object()
+    controller._faulted = False
+    for active in (False, True):
+        controller._torque_mode_active = active
+        controller.step()
+        row = controller._metrics.sample_go2.call_args.kwargs
+        assert row["torque_update_flag"] == active
+        assert row["go2_cmd"] == (0.2, 0.0, 0.0)
+        assert (row["tau"] is not None) == active
+    assert controller._metrics.sample_go2.call_count == 2
