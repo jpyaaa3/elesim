@@ -456,6 +456,7 @@ def test_pympc_emits_walking_rows_in_stand_and_torque_modes():
     controller._tau_hold = np.ones(12)
     controller._sim_time = 1.0
     controller._rate_info = object()
+    controller._bridge = SimpleNamespace(last_dq=np.arange(18.0))
     controller._faulted = False
     for active in (False, True):
         controller._torque_mode_active = active

@@ -447,6 +447,7 @@ class PyMpcGenesisController:
                 torque_update_flag=torque, torque_hold_flag=False,
                 wall_time_s=time.time(), sim_time_s=self._sim_time,
                 control_rate_info=self._rate_info,
+                mpc_base_velocity_body=self._bridge.last_dq[:6] if torque else None,
             )
 
     def _step(self) -> None:

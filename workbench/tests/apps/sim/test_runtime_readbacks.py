@@ -39,6 +39,7 @@ class _Entity:
         self.joints = {name: _Joint(index) for index, name in enumerate(names)}
         self.link = _Link()
         self.position_writes: list[tuple[np.ndarray, list[int]]] = []
+        self.velocities = np.arange(1.0, 24.0)
         self.bulk_pos_reads = 0
         self.bulk_quat_reads = 0
 
@@ -59,8 +60,13 @@ class _Entity:
     def get_dofs_position(self, *, dofs_idx_local: list[int]) -> np.ndarray:
         return np.zeros(len(dofs_idx_local), dtype=float)
 
-    def set_dofs_position(self, values: np.ndarray, *, dofs_idx_local: list[int]) -> None:
+    def set_dofs_position(self, values: np.ndarray, *, dofs_idx_local: list[int], zero_velocity: bool = True) -> None:
+        if zero_velocity:
+            self.velocities[:] = 0
         self.position_writes.append((np.asarray(values), list(dofs_idx_local)))
+
+    def set_dofs_velocity(self, values, *, dofs_idx_local):
+        self.velocities[dofs_idx_local] = values
 
 
 def test_sim_mover_batches_arm_and_claw_position_write() -> None:
@@ -82,6 +88,18 @@ def test_sim_mover_batches_arm_and_claw_position_write() -> None:
     assert len(entity.position_writes) == 1
     values, indices = entity.position_writes[0]
     assert len(values) == len(indices) == 5
+    np.testing.assert_array_equal(entity.velocities[5:], np.arange(6.0, 24.0))
+    np.testing.assert_array_equal(entity.velocities[:5], np.zeros(5))
+    # The MPC bridge must still see the moving base after an arm command.
+    from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge
+    entity.link.get_vel = lambda: entity.velocities[5:8].copy()
+    entity.link.get_ang = lambda: entity.velocities[8:11].copy()
+    entity.get_dofs_velocity = lambda *, dofs_idx_local: entity.velocities[dofs_idx_local]
+    bridge = GenesisPinBridge(entity, list(range(11, 23)))
+    _, dq = bridge.read_pin_q_dq()
+    np.testing.assert_array_equal(dq, np.arange(6.0, 24.0))
+    mover.set_4dof_instant(-0.1, 0.0, 0.0, 0.0)
+    np.testing.assert_array_equal(entity.velocities[5:], np.arange(6.0, 24.0))
 
 
 def test_tip_position_and_direction_share_one_link_pose_readback() -> None:

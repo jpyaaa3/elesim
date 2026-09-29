@@ -55,6 +55,9 @@ WALKING_CSV_FIELDS = [
     "go2_cmd_vy",
     "go2_cmd_wz",
     "command_source",
+    "mpc_vx_body", "mpc_vy_body", "mpc_vz_body",
+    "mpc_wx_body", "mpc_wy_body", "mpc_wz_body",
+    "base_fd_vx_world", "base_fd_vy_world", "base_fd_vz_world",
     "base_pos_x",
     "base_pos_y",
     "base_pos_z",
@@ -332,6 +335,7 @@ class WalkingMetricsLogger:
         control_rate_info: Optional[ControlRateInfo] = None,
         go2_gait_phase: Optional[float] = None,
         go2_gait_period_s: Optional[float] = None,
+        mpc_base_velocity_body: Optional[np.ndarray] = None,
     ) -> None:
         base = go2_entity.get_link("base")
         pos = _to_numpy_1d(base.get_pos())[:3]
@@ -382,7 +386,17 @@ class WalkingMetricsLogger:
             except Exception:
                 pass
 
+        previous = getattr(self, "_previous_base_sample", None)
+        fd_velocity = np.full(3, np.nan)
+        if previous is not None and sim_t > previous[0]:
+            fd_velocity = (pos - previous[1]) / (sim_t - previous[0])
+        self._previous_base_sample = (sim_t, pos.copy())
+        mpc_velocity = (np.full(6, np.nan) if mpc_base_velocity_body is None
+                        else np.asarray(mpc_base_velocity_body, dtype=float).reshape(6))
         row = {
+            **dict(zip(("mpc_vx_body", "mpc_vy_body", "mpc_vz_body",
+                        "mpc_wx_body", "mpc_wy_body", "mpc_wz_body"), mpc_velocity)),
+            **dict(zip(("base_fd_vx_world", "base_fd_vy_world", "base_fd_vz_world"), fd_velocity)),
             "wall_time_s": wall_t,
             "time_s": wall_t,
             "sim_time_s": sim_t,

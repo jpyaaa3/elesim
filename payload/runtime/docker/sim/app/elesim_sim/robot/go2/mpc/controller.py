@@ -617,6 +617,8 @@ class ConvexMpcGenesisController:
             wall_time_s=float(_time.time()),
             sim_time_s=float(self._sim_time),
             control_rate_info=self._rate_info,
+            mpc_base_velocity_body=(self._bridge.last_dq[:6]
+                                    if self._bridge.last_dq is not None else None),
             go2_gait_phase=float(gait_phase),
             go2_gait_period_s=float(gait_period) if gait_period > 0.0 else None,
         )

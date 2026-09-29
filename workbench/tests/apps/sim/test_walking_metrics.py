@@ -71,3 +71,28 @@ def test_walking_metrics_writes_per_foot_contact_diagnostics(tmp_path: Path) -> 
     assert float(rows[0]["desired_fz"]) == 60.0
     assert float(rows[0]["raw_fz"]) == 2.0
     assert float(rows[0]["tau_applied_calf"]) == 2.0
+
+
+def test_records_actual_mpc_input_and_independent_position_velocity(tmp_path):
+    from types import SimpleNamespace
+
+    position = np.zeros(3)
+    base = SimpleNamespace(
+        get_pos=lambda: position.copy(),
+        get_quat=lambda: np.array([1., 0., 0., 0.]),
+        get_vel=lambda: np.array([0.4, 0., 0.]),
+        get_ang=lambda: np.zeros(3),
+    )
+    entity = SimpleNamespace(get_link=lambda _: base)
+    logger = WalkingMetricsLogger(run_id="velocity", log_dir=tmp_path)
+    kwargs = dict(go2_entity=entity, go2_cmd=(0.35, 0., 0.), command_source="test",
+                  mpc_base_velocity_body=np.array([0.4, 0., 0., 0., 0., 0.2]))
+    logger.sample_go2(sim_time_s=1.0, **kwargs)
+    position[0] = 0.008
+    logger.sample_go2(sim_time_s=1.02, **kwargs)
+    logger.close()
+    rows = list(csv.DictReader((tmp_path / "velocity_walking.csv").open()))
+    assert np.isnan(float(rows[0]["base_fd_vx_world"]))
+    assert np.isclose(float(rows[1]["base_fd_vx_world"]), 0.4)
+    assert float(rows[1]["mpc_vx_body"]) == 0.4
+    assert float(rows[1]["mpc_wz_body"]) == 0.2

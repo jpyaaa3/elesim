@@ -2421,14 +2421,19 @@ class SimMover:
                 indices.append(int(index))
                 values.append(float(value))
         self.entity.set_dofs_position(
-            np.asarray(values, dtype=float), dofs_idx_local=indices
+            np.asarray(values, dtype=float), dofs_idx_local=indices, zero_velocity=False
         )
+        # Genesis defaults to clearing every DOF, including the floating base
+        # and legs of the merged GO2+arm. Only reset the kinematic arm DOFs.
+        self.entity.set_dofs_velocity(np.zeros(len(indices)), dofs_idx_local=indices)
 
     def _apply_claw_direct(self, left_value: float, right_value: float) -> None:
         if self._claw_left_idx is not None:
-            self.entity.set_dofs_position(np.array([left_value], dtype=float), dofs_idx_local=[self._claw_left_idx])
+            self.entity.set_dofs_position(np.array([left_value], dtype=float), dofs_idx_local=[self._claw_left_idx], zero_velocity=False)
+            self.entity.set_dofs_velocity(np.zeros(1), dofs_idx_local=[self._claw_left_idx])
         if self._claw_right_idx is not None:
-            self.entity.set_dofs_position(np.array([right_value], dtype=float), dofs_idx_local=[self._claw_right_idx])
+            self.entity.set_dofs_position(np.array([right_value], dtype=float), dofs_idx_local=[self._claw_right_idx], zero_velocity=False)
+            self.entity.set_dofs_velocity(np.zeros(1), dofs_idx_local=[self._claw_right_idx])
 
     def _step_claws(self) -> None:
         max_step = float(self._claw_rate) * float(self.p.dt)
