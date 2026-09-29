@@ -17,26 +17,13 @@ if str(ROOT) not in sys.path:
 
 from elesim_pilot.config import load_app_config
 from workbench.research.experiments.walking_baseline import _connect_service, _run_trial, _trial_run_id, _validate_gaze_config
-
-
-def _sim_log_text(log_path: Path) -> str:
-    if not log_path.is_file():
-        return ""
-    try:
-        return log_path.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return ""
-
-
-def _sim_log_ready(log_path: Path) -> bool:
-    text = _sim_log_text(log_path)
-    return "[sim_camera] publisher bound" in text
+from workbench.research.experiments.batch_readiness import sim_log_ready
 
 
 def _wait_sim_ready(sim_log: Path, *, timeout_s: float) -> bool:
     deadline = time.time() + float(timeout_s)
     while time.time() < deadline:
-        if _sim_log_ready(sim_log):
+        if sim_log_ready(sim_log):
             time.sleep(5.0)
             return True
         time.sleep(1.0)
