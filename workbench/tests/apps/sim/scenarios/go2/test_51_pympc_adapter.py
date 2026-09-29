@@ -49,6 +49,51 @@ def sample() -> PyMpcInput:
     )
 
 
+def _torque_config(**overrides):
+    values = dict(
+        gait_hz=2.5,
+        gait_duty=0.6,
+        force_filter_alpha=1.0,
+        optimization_friction=0.55,
+        fz_max_n=180.0,
+        torque_warmup_s=0.0,
+        torque_ramp_s=0.001,
+        aux_kp=0.0,
+        aux_kv=0.0,
+        tau_filter_alpha=1.0,
+    )
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def _init_torque_controller(controller, *, elapsed_s=1.0, config=None):
+    controller._metrics = None
+    controller._contact_diagnostics = None
+    controller._step_i = 0
+    controller._solve_stride = 2
+    controller._solver = SimpleNamespace(
+        solve=lambda _sample: np.tile([0.0, 0.0, 50.0], (4, 1))
+    )
+    controller._timing_sink = None
+    controller._config = config or _torque_config()
+    controller._sim_time = elapsed_s
+    controller._walk_started_s = 0.0
+    controller._last_contacts = np.ones(4)
+    controller._force_requested = np.zeros((4, 3))
+    controller._forces = np.zeros((4, 3))
+    controller._tau_filt = np.zeros(12)
+    controller._tau_limited = np.zeros(12)
+    controller._tau_raw = np.zeros(12)
+    controller._swing_starts = np.zeros((4, 3))
+    controller._touchdowns = np.zeros((4, 3))
+    controller._tau_lim = np.full(12, 100.0)
+    controller._kin = SimpleNamespace(ready_q=np.ones(12))
+    controller._leg_dof_idxs = list(range(12))
+    controller._entity = SimpleNamespace(
+        get_dofs_position=lambda **_kwargs: np.zeros(12)
+    )
+
+
 def test_diagonal_contact_sequence() -> None:
     schedule = contact_schedule(0.0, gait_hz=2.5, duty=0.5, dt=0.1, horizon=4)
     assert schedule.shape == (4, 4)
@@ -131,23 +176,88 @@ def test_invalid_inertia_and_contact_are_rejected_before_solver() -> None:
 
 def test_stance_ground_reaction_is_opposed_by_joint_torque() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
-    controller._metrics = None
-    controller._contact_diagnostics = None
-    controller._step_i = 0
-    controller._solve_stride = 2
+    _init_torque_controller(controller)
     controller._solver = SimpleNamespace(solve=lambda _sample: np.tile([0, 0, 50], (4, 1)))
-    controller._timing_sink = None
-    controller._config = SimpleNamespace(gait_hz=2.5, gait_duty=0.5)
-    controller._sim_time = 0.0
-    controller._walk_started_s = 0.0
-    controller._last_contacts = np.ones(4)
-    controller._tau_lim = np.full(12, 100.0)
     state = PyMpcInput(**{**vars(sample()), "contacts": np.ones((4, 3))})
     jacobians = np.tile(np.eye(3), (4, 1, 1))
     torques = controller._torques(
         state, state.feet_world, np.zeros((4, 3)), jacobians, np.zeros(12)
     )
     np.testing.assert_array_equal(torques.reshape(4, 3), np.tile([0, 0, -50], (4, 1)))
+
+
+def test_force_filter_reprojects_stance_and_zeros_swing_legs() -> None:
+    controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(
+        controller,
+        config=_torque_config(
+            force_filter_alpha=0.5,
+            optimization_friction=0.4,
+            fz_max_n=60.0,
+        ),
+    )
+    controller._solver = SimpleNamespace(
+        solve=lambda _sample: np.tile([60.0, -60.0, 100.0], (4, 1))
+    )
+    controller._forces[:] = [0.0, 0.0, 20.0]
+    state = PyMpcInput(
+        **{
+            **vars(sample()),
+            "contacts": np.array(
+                [[1, 1, 1], [0, 0, 0], [1, 1, 1], [0, 0, 0]], dtype=float
+            ),
+        }
+    )
+
+    controller._torques(
+        state,
+        state.feet_world,
+        np.zeros((4, 3)),
+        np.tile(np.eye(3), (4, 1, 1)),
+        np.zeros(12),
+    )
+
+    np.testing.assert_allclose(controller._forces[[0, 2]], [[24, -24, 60]] * 2)
+    np.testing.assert_array_equal(controller._forces[[1, 3]], np.zeros((2, 3)))
+
+
+def test_torque_startup_ramp_fades_ready_pose_assist() -> None:
+    controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(
+        controller,
+        elapsed_s=0.11,
+        config=_torque_config(
+            torque_warmup_s=0.05,
+            torque_ramp_s=0.12,
+            aux_kp=15.0,
+            aux_kv=6.0,
+        ),
+    )
+    state = PyMpcInput(**{**vars(sample()), "contacts": np.ones((4, 3))})
+    jacobians = np.tile(np.eye(3), (4, 1, 1))
+    joint_velocity = np.ones(12)
+
+    ramped = controller._torques(
+        state, state.feet_world, np.zeros((4, 3)), jacobians, joint_velocity
+    )
+
+    np.testing.assert_allclose(
+        ramped.reshape(4, 3), [[1.1625, 1.1625, -32.5875]] * 4
+    )
+    controller._sim_time = 0.17
+    controller._step_i = 1  # reuse the filtered GRF; do not solve again
+    completed = controller._torques(
+        state, state.feet_world, np.zeros((4, 3)), jacobians, joint_velocity
+    )
+    np.testing.assert_allclose(completed.reshape(4, 3), [[-6.5, -6.5, -56.5]] * 4)
+
+
+def test_payload_com_height_does_not_request_a_sudden_drop() -> None:
+    from elesim_sim.robot.go2.pympc_controller import payload_aware_com_height
+
+    assert payload_aware_com_height(0.42, 0.30, payload_active=False) == pytest.approx(0.30)
+    assert payload_aware_com_height(0.42, 0.30, payload_active=True) == pytest.approx(0.41)
+    assert payload_aware_com_height(0.29, 0.30, payload_active=True) == pytest.approx(0.30)
 
 
 def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
@@ -169,8 +279,12 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
     controller._pose_stage = "walk"
     controller._active = True
     controller._step_i = 9
+    controller._force_requested = np.ones((4, 3))
     controller._forces = np.ones((4, 3))
+    controller._tau_filt = np.ones(12)
     controller._tau_hold = np.ones(12)
+    controller._tau_limited = np.ones(12)
+    controller._tau_raw = np.ones(12)
     controller._last_contacts = np.zeros(4)
     controller._kin = SimpleNamespace(stand_q=np.zeros(12))
     controller._leg_dof_idxs = list(range(12))
@@ -194,6 +308,8 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
     assert controller._step_i == 0
     assert not controller._active
     assert not controller._forces.any()
+    assert not controller._force_requested.any()
+    assert not controller._tau_filt.any()
     assert not controller._tau_hold.any()
     assert controller._last_contacts.all()
     assert np.max(np.abs(controlled_pose[0] - np.ones(12))) < 0.02
@@ -429,16 +545,19 @@ def test_pympc_records_contact_forces_and_preclip_torque():
     controller._dt = 0.02
     controller._sim_time = 1.2
     controller._config = SimpleNamespace(physical_friction=0.55)
+    controller._force_requested = np.full((4, 3), 7.0)
     controller._forces = np.arange(12).reshape(4, 3)
     controller._tau_raw = np.full(12, 30.0)
+    controller._tau_limited = np.full(12, 25.0)
     controller._tau_hold = np.full(12, 20.0)
     controller._record_contact_metrics(sample())
     request = controller._contact_diagnostics.sample.call_args.kwargs
     assert list(request["stance"].values()) == [True, False, False, True]
     assert request["elapsed_s"] == pytest.approx(0.1)
     recorded = controller._metrics.sample_contact.call_args.kwargs
-    np.testing.assert_array_equal(recorded["raw_grf"], controller._forces)
+    np.testing.assert_array_equal(recorded["raw_grf"], controller._force_requested)
     np.testing.assert_array_equal(recorded["tau_raw"], np.full(12, 30.0))
+    np.testing.assert_array_equal(recorded["tau_limited"], np.full(12, 25.0))
     np.testing.assert_array_equal(recorded["tau_applied"], np.full(12, 20.0))
     controller._metrics.reset_mock()
     controller._contact_diagnostics.sample.return_value = None
@@ -473,16 +592,11 @@ def test_pympc_emits_walking_rows_in_stand_and_torque_modes():
 def test_contact_transition_forces_solve_between_regular_ticks():
     from unittest.mock import Mock
     c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(c, elapsed_s=1.0)
     c._step_i = 1
     c._solve_stride = 2
     c._solver = SimpleNamespace(solve=Mock(return_value=np.tile([0, 0, 50.], (4, 1))))
-    c._timing_sink = None
-    c._config = SimpleNamespace(gait_hz=2.5, gait_duty=0.6)
-    c._sim_time = 10.0
-    c._walk_started_s = 10.0
     c._last_contacts = np.zeros(4)
-    c._forces = np.zeros((4, 3))
-    c._tau_lim = np.full(12, 100.)
     state = PyMpcInput(**{**vars(sample()), "contacts": np.ones((4, 3))})
     tau = c._torques(state, state.feet_world, np.zeros((4, 3)),
                      np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
@@ -517,6 +631,11 @@ def test_solver_failure_returns_to_stand_without_pose_step():
     c._kin = SimpleNamespace(stand_q=np.zeros(12))
     c._leg_dof_idxs = list(range(12))
     c._tau_hold = np.ones(12)
+    c._force_requested = np.zeros((4, 3))
+    c._forces = np.zeros((4, 3))
+    c._tau_filt = np.zeros(12)
+    c._tau_limited = np.zeros(12)
+    c._tau_raw = np.zeros(12)
     c._entity = SimpleNamespace(get_dofs_position=lambda **kw: np.ones(12),
                                 control_dofs_position=Mock())
     c._set_stand_actuation = Mock()

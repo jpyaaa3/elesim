@@ -68,6 +68,16 @@ def touchdown_offsets_body(
     return offsets
 
 
+def payload_aware_com_height(
+    current_com_z: float, nominal_com_z: float, *, payload_active: bool
+) -> float:
+    """Avoid asking a raised arm payload to lower the robot's COM abruptly."""
+    nominal = float(nominal_com_z)
+    if not payload_active:
+        return nominal
+    return max(nominal, float(current_com_z) - 0.01)
+
+
 class PyMpcGenesisController:
     def __init__(
         self,
@@ -158,8 +168,12 @@ class PyMpcGenesisController:
         self._torque_mode_active = False
         self._faulted = False
         self._step_i = 0
+        self._force_requested = np.zeros((4, 3))
         self._forces = np.zeros((4, 3))
+        self._tau_filt = np.zeros(12)
         self._tau_hold = np.zeros(12)
+        self._tau_limited = np.zeros(12)
+        self._tau_raw = np.zeros(12)
         self._swing_starts = np.zeros((4, 3))
         self._touchdowns = np.zeros((4, 3))
         self._last_contacts = np.ones(4)
@@ -255,8 +269,12 @@ class PyMpcGenesisController:
         self._walk_started_s = None
         self._torque_mode_active = False
         self._step_i = 0
+        self._force_requested.fill(0.0)
         self._forces.fill(0.0)
+        self._tau_filt.fill(0.0)
         self._tau_hold.fill(0.0)
+        self._tau_limited.fill(0.0)
+        self._tau_raw.fill(0.0)
         self._last_contacts.fill(1.0)
         self._set_stand_actuation()
 
@@ -297,8 +315,12 @@ class PyMpcGenesisController:
         self._pose_transition.reset(self._kin.stand_q)
         self._faulted = False
         self._step_i = 0
+        self._force_requested.fill(0.0)
         self._forces.fill(0.0)
+        self._tau_filt.fill(0.0)
         self._tau_hold.fill(0.0)
+        self._tau_limited.fill(0.0)
+        self._tau_raw.fill(0.0)
         self._last_contacts.fill(1.0)
         self._set_stand_actuation()
         self._entity.set_dofs_position(self._kin.stand_q, dofs_idx_local=self._leg_dof_idxs)
@@ -346,7 +368,11 @@ class PyMpcGenesisController:
         cmd_world = yaw_rot @ cmd_body
         horizon_t = 0.5 * self._solver.horizon * self._solver.dt
         ref_com = com + horizon_t * cmd_world
-        ref_com[2] = float(self._config.z_pos_des_m)
+        ref_com[2] = payload_aware_com_height(
+            float(com[2]),
+            float(self._config.z_pos_des_m),
+            payload_active=self._payload is not None,
+        )
         ref_rpy = rpy.copy()
         ref_rpy[0:2] = 0.0
         ref_rpy[2] += horizon_t * yaw_rate
@@ -396,7 +422,19 @@ class PyMpcGenesisController:
         if (self._step_i % self._solve_stride == 0
                 or not np.array_equal(contacts, self._last_contacts)):
             started = time.perf_counter()
-            self._forces = self._solver.solve(sample)
+            self._force_requested = self._solver.solve(sample)
+            alpha = float(np.clip(self._config.force_filter_alpha, 0.05, 1.0))
+            filtered = alpha * self._force_requested + (1.0 - alpha) * self._forces
+            mu = float(self._config.optimization_friction)
+            fz_max = float(self._config.fz_max_n)
+            for i in range(4):
+                if contacts[i] == 0:
+                    filtered[i] = 0.0
+                    continue
+                fz = float(np.clip(filtered[i, 2], 0.0, fz_max))
+                filtered[i, 2] = fz
+                filtered[i, :2] = np.clip(filtered[i, :2], -mu * fz, mu * fz)
+            self._forces = filtered
             if self._timing_sink is not None:
                 self._timing_sink("go2_pympc_solve", time.perf_counter() - started)
         contacts = sample.contacts[:, 0]
@@ -422,7 +460,39 @@ class PyMpcGenesisController:
         if not np.all(np.isfinite(tau)):
             raise RuntimeError("PyMPC produced nonfinite joint torque")
         self._tau_raw = tau.copy()
-        return np.clip(tau, -self._tau_lim, self._tau_lim)
+        tau = np.clip(tau, -self._tau_lim, self._tau_lim)
+        tau = tau * self._torque_scale() + self._aux_pd_torque(joint_vel)
+        self._tau_limited = np.clip(tau, -self._tau_lim, self._tau_lim)
+        alpha = float(np.clip(self._config.tau_filter_alpha, 0.05, 1.0))
+        self._tau_filt = alpha * self._tau_limited + (1.0 - alpha) * self._tau_filt
+        return self._tau_filt.copy()
+
+    def _torque_scale(self) -> float:
+        warmup_s = max(0.0, float(self._config.torque_warmup_s))
+        ramp_s = max(1e-3, float(self._config.torque_ramp_s))
+        elapsed = self._gait_time()
+        if elapsed < warmup_s:
+            return 0.35
+        return float(min(1.0, 0.35 + 0.65 * ((elapsed - warmup_s) / ramp_s)))
+
+    def _aux_pd_torque(self, joint_vel: np.ndarray) -> np.ndarray:
+        warmup_s = max(0.0, float(self._config.torque_warmup_s))
+        ramp_s = max(1e-3, float(self._config.torque_ramp_s))
+        elapsed = self._gait_time() - warmup_s
+        tau = -float(self._config.aux_kv) * np.asarray(joint_vel, dtype=float)
+        if 0.0 < elapsed < ramp_s:
+            q_leg = to_numpy_1d(
+                self._entity.get_dofs_position(dofs_idx_local=self._leg_dof_idxs)
+            )
+            if q_leg.shape != (12,) or not np.all(np.isfinite(q_leg)):
+                raise RuntimeError("PyMPC auxiliary PD received invalid leg position")
+            kp_scale = float(1.0 - elapsed / ramp_s)
+            tau += (
+                float(self._config.aux_kp)
+                * kp_scale
+                * (np.asarray(self._kin.ready_q, dtype=float) - q_leg)
+            )
+        return tau
 
     def _record_contact_metrics(self, sample: PyMpcInput) -> None:
         if self._metrics is None or self._contact_diagnostics is None:
@@ -438,8 +508,8 @@ class PyMpcGenesisController:
         if diagnostic is not None:
             self._metrics.sample_contact(
                 diagnostic, sim_time_s=self._sim_time,
-                raw_grf=self._forces, tau_raw=self._tau_raw,
-                tau_limited=self._tau_hold, tau_applied=self._tau_hold,
+                raw_grf=self._force_requested, tau_raw=self._tau_raw,
+                tau_limited=self._tau_limited, tau_applied=self._tau_hold,
             )
 
     def step(self) -> None:
@@ -534,6 +604,11 @@ class PyMpcGenesisController:
             self._walk_started_s = None
             self._torque_mode_active = False
             self._tau_hold.fill(0.0)
+            self._force_requested.fill(0.0)
+            self._forces.fill(0.0)
+            self._tau_filt.fill(0.0)
+            self._tau_limited.fill(0.0)
+            self._tau_raw.fill(0.0)
             self._set_stand_actuation()
             pose, _ = self._pose_transition.update(self._dt)
             self._entity.control_dofs_position(pose, dofs_idx_local=self._leg_dof_idxs)

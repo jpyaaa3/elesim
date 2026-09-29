@@ -14,6 +14,12 @@ import numpy as np
 
 
 LEGS = ("FL", "FR", "RL", "RR")
+NOMINAL_HORIZON = 12
+NOMINAL_DT = 0.02
+NOMINAL_FRICTION = 0.55
+NOMINAL_MAX_NORMAL_FORCE_N = 180.0
+NOMINAL_SQP_ITERATIONS = 3
+NOMINAL_HPIPM_MODE = "robust"
 
 
 @dataclass(frozen=True)
@@ -59,12 +65,20 @@ class PyMpcForceSolver:
         self.friction = float(friction)
         self.max_normal_force_n = float(max_normal_force_n)
         if solver_factory is None:
-            if (self.horizon, self.dt, self.friction, self.max_normal_force_n) != (
-                12, 0.02, 0.55, 180.0
+            if (
+                self.horizon,
+                self.dt,
+                self.friction,
+                self.max_normal_force_n,
+            ) != (
+                NOMINAL_HORIZON,
+                NOMINAL_DT,
+                NOMINAL_FRICTION,
+                NOMINAL_MAX_NORMAL_FORCE_N,
             ):
                 raise RuntimeError(
-                    "PyMPC image contains a fixed horizon=12 dt=0.02 mu=0.55 fz=180 "
-                    "solver; rebuild it before changing these parameters"
+                    "PyMPC image contains a fixed horizon=12 dt=0.02 mu=0.55 "
+                    "fz=180 solver; rebuild it before changing these parameters"
                 )
             try:
                 import quadruped_pympc.config as upstream_config
@@ -82,6 +96,8 @@ class PyMpcForceSolver:
                 grf_min=0.0,
                 use_foothold_optimization=False,
                 use_foothold_constraints=False,
+                num_qp_iterations=NOMINAL_SQP_ITERATIONS,
+                solver_mode=NOMINAL_HPIPM_MODE,
             )
             generated = Path(nominal.__file__).parent / "c_generated_code"
             if not (generated / "centroidal_nmpc.json").is_file():

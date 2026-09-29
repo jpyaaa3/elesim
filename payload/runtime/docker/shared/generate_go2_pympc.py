@@ -17,6 +17,11 @@ config.mpc_params.update(
     grf_min=0.0,
     use_foothold_optimization=False,
     use_foothold_constraints=False,
+    # One SQP iteration often returns an unconverged GRF iterate.  The robust
+    # HPIPM mode plus a few SQP iterations gives the torque loop room to
+    # converge while keeping the fixed 25 Hz nominal solve cadence.
+    num_qp_iterations=3,
+    solver_mode="robust",
 )
 Acados_NMPC_Nominal()
 generated = Path(nominal.__file__).parent / "c_generated_code"
@@ -24,4 +29,8 @@ if not (generated / "centroidal_nmpc.json").is_file():
     raise RuntimeError("GO2 PyMPC solver generation produced no JSON")
 if not list(generated.glob("*.so")):
     raise RuntimeError("GO2 PyMPC solver generation produced no shared library")
-print(f"[go2_pympc] generated acados solver in {generated}")
+print(
+    "[go2_pympc] generated acados solver "
+    f"sqp_iterations={config.mpc_params['num_qp_iterations']} "
+    f"hpipm={config.mpc_params['solver_mode']} in {generated}"
+)
