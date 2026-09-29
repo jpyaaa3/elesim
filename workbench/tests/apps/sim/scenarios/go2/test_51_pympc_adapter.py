@@ -316,6 +316,7 @@ def test_new_pose_transition_can_interrupt_from_current_joint_pose() -> None:
 
 def test_idle_to_motion_interpolates_stand_pose_before_ready_hold() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._metrics = None
     controller._dt = 0.1
     controller._sim_time = 0.0
     controller._faulted = False
@@ -404,3 +405,30 @@ def test_pympc_uses_a_smooth_startup_command_ramp() -> None:
     assert smoothstep_quintic(-0.1) == 0.0
     assert smoothstep_quintic(0.5) == pytest.approx(0.5)
     assert smoothstep_quintic(1.1) == 1.0
+
+
+def test_pympc_records_contact_forces_and_preclip_torque():
+    from unittest.mock import Mock
+
+    controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._metrics = Mock()
+    controller._contact_diagnostics = Mock(cadence_steps=5)
+    controller._step_i = 5
+    controller._dt = 0.02
+    controller._sim_time = 1.2
+    controller._config = SimpleNamespace(physical_friction=0.55)
+    controller._forces = np.arange(12).reshape(4, 3)
+    controller._tau_raw = np.full(12, 30.0)
+    controller._tau_hold = np.full(12, 20.0)
+    controller._record_contact_metrics(sample())
+    request = controller._contact_diagnostics.sample.call_args.kwargs
+    assert list(request["stance"].values()) == [True, False, False, True]
+    assert request["elapsed_s"] == pytest.approx(0.1)
+    recorded = controller._metrics.sample_contact.call_args.kwargs
+    np.testing.assert_array_equal(recorded["raw_grf"], controller._forces)
+    np.testing.assert_array_equal(recorded["tau_raw"], np.full(12, 30.0))
+    np.testing.assert_array_equal(recorded["tau_applied"], np.full(12, 20.0))
+    controller._metrics.reset_mock()
+    controller._contact_diagnostics.sample.return_value = None
+    controller._record_contact_metrics(sample())
+    controller._metrics.sample_contact.assert_not_called()

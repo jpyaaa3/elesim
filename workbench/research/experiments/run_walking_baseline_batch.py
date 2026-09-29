@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import signal
 import subprocess
@@ -88,6 +89,18 @@ def _wait_perception(service, config_path: str, *, timeout_s: float) -> bool:
     print("[batch] warning: perception UV not received before timeout")
     return False
 
+
+
+def _require_contact_rows(run_id: str, sim_log: Path) -> None:
+    contact = ROOT / "logs/walking_baseline" / f"{run_id}_contact.csv"
+    if contact.is_file():
+        with contact.open(newline="", encoding="utf-8") as stream:
+            if next(csv.DictReader(stream), None) is not None:
+                return
+    raise SystemExit(
+        f"No contact samples recorded: {contact}. "
+        f"Trial is incomplete; inspect Sim controller/fault log: {sim_log}"
+    )
 
 
 def main() -> None:
@@ -184,6 +197,7 @@ def main() -> None:
             if service is not None:
                 service.close()
             _stop_proc(sim_proc, label="sim")
+        _require_contact_rows(run_id, sim_log)
         print(
             f"[batch] trial {trial - trial_start + 1}/{trials} complete: {run_id}"
         )

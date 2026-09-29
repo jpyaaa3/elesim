@@ -31,6 +31,17 @@ class WalkingBatchReadinessTests(unittest.TestCase):
 
 
 class WalkingBatchLaunchTests(unittest.TestCase):
+    def test_empty_contact_csv_is_not_a_completed_trial(self):
+        from workbench.research.experiments import run_walking_baseline_batch as batch
+        with tempfile.TemporaryDirectory() as directory, patch.object(batch, "ROOT", Path(directory)):
+            contact = Path(directory) / "logs/walking_baseline/test_contact.csv"
+            contact.parent.mkdir(parents=True)
+            contact.write_text("sim_time_s,leg\n")
+            with self.assertRaisesRegex(SystemExit, "No contact samples"):
+                batch._require_contact_rows("test", Path("sim.log"))
+            contact.write_text("sim_time_s,leg\n1.0,FL\n")
+            batch._require_contact_rows("test", Path("sim.log"))
+
     def test_batch_disables_native_viewer_in_child_command(self):
         from workbench.research.experiments import run_walking_baseline_batch as batch
         with tempfile.TemporaryDirectory() as directory, patch.object(batch.subprocess, "Popen") as launch:
@@ -68,7 +79,7 @@ class WalkingBatchLaunchTests(unittest.TestCase):
                 patch.object(batch, "_wait_sim_ready", return_value=True), \
                 patch.object(batch, "_connect_service"), \
                 patch.object(batch, "_wait_perception") as perception, \
-                patch.object(batch, "_stop_proc"), patch.dict(batch.os.environ):
+                patch.object(batch, "_stop_proc"), patch.object(batch, "_require_contact_rows"), patch.dict(batch.os.environ):
             batch.main()
             self.assertEqual(start.call_args.args[0], str(batch.ROOT / "payload/config/sim/config.yaml"))
             config.load_app_config.assert_called_once_with(str(batch.ROOT / "payload/config/pilot/config.yaml"))

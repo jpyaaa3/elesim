@@ -21,6 +21,7 @@ from elesim_sim.robot.go2.locomotion.kinematics import (
 from elesim_sim.robot.go2.locomotion.command import Go2CommandShaper
 from elesim_sim.robot.go2.locomotion.pose import JointPoseTransition, smoothstep_quintic
 from elesim_sim.robot.go2.locomotion.types import Go2Command, LegId
+from elesim_sim.robot.go2.mpc.contact_diagnostics import GenesisContactDiagnostics
 from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
 from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge
 from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
@@ -125,6 +126,10 @@ class PyMpcGenesisController:
         self._pose_transition.reset(self._kin.stand_q)
         self._pose_stage = "stand"
         self._metrics = metrics
+        self._contact_diagnostics = (
+            GenesisContactDiagnostics(entity, cadence_steps=max(1, round(0.1 / self._dt)))
+            if metrics is not None else None
+        )
         self._command_source = str(command_source)
         self._timing_sink = timing_sink
         self._rate_info = ControlRateInfo.from_sim_dt(self._dt, float(config.ctrl_hz))
@@ -403,7 +408,26 @@ class PyMpcGenesisController:
         self._last_contacts = contacts.copy()
         if not np.all(np.isfinite(tau)):
             raise RuntimeError("PyMPC produced nonfinite joint torque")
+        self._tau_raw = tau.copy()
         return np.clip(tau, -self._tau_lim, self._tau_lim)
+
+    def _record_contact_metrics(self, sample: PyMpcInput) -> None:
+        if self._metrics is None or self._contact_diagnostics is None:
+            return
+        diagnostic = self._contact_diagnostics.sample(
+            step_index=self._step_i,
+            elapsed_s=(self._dt if self._step_i == 0 else
+                       self._contact_diagnostics.cadence_steps * self._dt),
+            stance={leg: bool(sample.contacts[i, 0]) for i, leg in enumerate(_LEGS)},
+            desired_grf_world={leg: self._forces[i] for i, leg in enumerate(_LEGS)},
+            physical_mu=float(self._config.physical_friction),
+        )
+        if diagnostic is not None:
+            self._metrics.sample_contact(
+                diagnostic, sim_time_s=self._sim_time,
+                raw_grf=self._forces, tau_raw=self._tau_raw,
+                tau_limited=self._tau_hold, tau_applied=self._tau_hold,
+            )
 
     def step(self) -> None:
         self._sim_time += self._dt
@@ -477,4 +501,5 @@ class PyMpcGenesisController:
             print(f"[go2_pympc] fault; latched safe stand until reset: {exc}")
             return
         self._entity.control_dofs_force(self._tau_hold, dofs_idx_local=self._leg_dof_idxs)
+        self._record_contact_metrics(sample)
         self._step_i += 1
