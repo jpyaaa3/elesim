@@ -68,6 +68,42 @@ elesim-dev env ELESIM_WALKING_METRICS=1 ELESIM_RUN_ID=mpc-baseline elesim-sim
 산출물은 `<run>_walking.csv`, `<run>_contact.csv`, `<run>_meta.json`이다.
 contact readback은 10 Hz sample cadence에서만 수행한다.
 
+이 명령은 `elesim-dev` 안에서 별도 Sim 프로세스를 띄우는 standalone 실험용이다.
+Connections가 관리하는 실제 Sim에서 측정하려면 Sim 호스트의
+`containers/compose.instances.yaml`에서 대상 system의 `io.elesim.role: sim`
+서비스 `environment`에 아래 값을 추가하고, 호스트의
+`elesim-instance <system> up --no-build`로 해당 인스턴스를 갱신한다.
+이 파일은 Connections 재등록/교체 때 다시 생성되므로 일회 측정에만 쓴다.
+
+```yaml
+ELESIM_WALKING_METRICS: "1"
+ELESIM_RUN_ID: "mpc-slip-20260929-a"
+```
+
+Connections에서 Sim이 다시 ready가 된 뒤 일정한 속도로 10–20초간 한 방향만
+걷게 하고, Sim 컨테이너의 `/opt/elesim/logs/walking_baseline/`에서 해당
+`_contact.csv`를 개발 checkout의 `logs/walking_baseline/`으로 복사한다.
+예를 들어 Sim 호스트에서 다음처럼 찾고 복사할 수 있다.
+
+```bash
+mkdir -p logs/walking_baseline
+sim_container=$(docker ps --filter label=io.elesim.system_id=test --filter label=io.elesim.role=sim --format '{{.Names}}')
+docker cp "${sim_container}:/opt/elesim/logs/walking_baseline/mpc-slip-20260929-a_contact.csv" logs/walking_baseline/
+```
+
+`test`와 run ID를 실제 system/run ID로 바꾸고, 복사한 뒤 개발 checkout에서
+리포트를 생성한다.
+
+```bash
+elesim-dev python3 workbench/research/analysis/analyze_contact_metrics.py mpc-slip-20260929-a
+```
+
+이 명령은 Markdown과 JSON을 `logs/walking_baseline/`에 쓴다. 같은 CSV는
+`python3 workbench/research/analysis/analyze_contact_metrics.py <run-id> --log-dir <csv-폴더>`로
+어느 checkout에서도 분석할 수 있다. 개발 서비스에서 `elesim-sim`을 직접
+실행하면 Connections Sim과 별도 프로세스이므로, 그 결과를 실제 Connections
+세션의 증거로 혼용하지 않는다.
+
 판정 순서:
 
 1. raw `friction_ratio > 1`: optimizer/contact-cone mismatch.
