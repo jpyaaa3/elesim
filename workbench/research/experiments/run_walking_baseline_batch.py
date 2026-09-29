@@ -48,7 +48,7 @@ def _start_sim(config_path: str, run_id: str, log_path: Path) -> subprocess.Pope
     fh = open(log_path, "w", encoding="utf-8")
     print(f"[batch] starting sim run_id={run_id!r} -> {log_path}")
     proc = subprocess.Popen(
-        [sys.executable, "-m", "elesim_sim.main", "--config", config_path],
+        [sys.executable, "-m", "elesim_sim.main", "--config", config_path, "--no-viewer"],
         cwd=str(ROOT),
         env=env,
         stdout=fh,

@@ -31,6 +31,14 @@ class WalkingBatchReadinessTests(unittest.TestCase):
 
 
 class WalkingBatchLaunchTests(unittest.TestCase):
+    def test_batch_disables_native_viewer_in_child_command(self):
+        from workbench.research.experiments import run_walking_baseline_batch as batch
+        with tempfile.TemporaryDirectory() as directory, patch.object(batch.subprocess, "Popen") as launch:
+            batch._start_sim("sim.yaml", "test_001", Path(directory) / "sim.log")
+            argv = launch.call_args.args[0]
+            self.assertIn("--no-viewer", argv)
+            self.assertEqual(argv[argv.index("--config") + 1], "sim.yaml")
+
     def test_child_exit_reports_traceback_without_waiting(self):
         from workbench.research.experiments import run_walking_baseline_batch as batch
         with tempfile.TemporaryDirectory() as directory:
