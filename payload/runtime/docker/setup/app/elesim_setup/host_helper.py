@@ -419,6 +419,7 @@ def _validate_command(
         "releases",
         "configuration-check",
         "namespace-check",
+        "runtime-preflight",
         "configure",
         "restore-snapshot",
         "doctor",
@@ -428,6 +429,24 @@ def _validate_command(
                 "scoped host helper refuses install-wide elesim-net mutation; "
                 "use the exact elesim-instance registration command"
             )
+        if instance_system and argv[1] == "runtime-preflight":
+            arguments = tuple(argv[2:])
+            try:
+                index = arguments.index("--instance-system")
+                selected_system = arguments[index + 1]
+            except (ValueError, IndexError):
+                selected_system = next(
+                    (
+                        value.split("=", 1)[1]
+                        for value in arguments
+                        if value.startswith("--instance-system=")
+                    ),
+                    "",
+                )
+            if selected_system and instance_system not in {"*", selected_system}:
+                raise HostHelperError(
+                    "runtime preflight system does not match this manager"
+                )
         return
     tailscale = str(bin_dir / "elesim-tailscale")
     if tuple(argv) in {

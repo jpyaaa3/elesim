@@ -277,6 +277,21 @@ is intentionally read-only. Security deployment/rotation retain the separate
 writability requirement; runtime checks still enforce identity, generation,
 role, Docker, architecture and Robot host constraints.
 
+`start` reports elapsed time separately for runtime-network preparation,
+scoped registration, each host's preflight/status/build/start, and DDS readiness.
+Per-unit runtime preflight reads install and exact instance state and checks the
+runtime namespace in one read-only invocation; it does not replace the later
+DDS descriptor/heartbeat readiness gate. On Docker Desktop sidecar installs,
+the generated-file consistency check remains a separate tools-service read so
+the runtime namespace service does not gain an installation-wide mount.
+Independent hosts are preflighted,
+status-checked and started concurrently (up to four hosts). Legacy image builds
+are limited to two hosts at once to avoid overloading one Docker engine, and
+launch remains behind the all-host build-success barrier. Scoped instances
+already use pinned immutable releases, so their start path skips image building
+and performs exact scope-path validation only once in preflight. A launch failure still waits for outstanding
+host attempts, then rolls back every host attempted by that start.
+
 `check`는 SSH 및 namespace interface/address/route를 읽기 전용으로 확인한다.
 two-host preflight는 Jetson 없이 정확히 두 COM endpoint를 검사하며 topology,
 key, generation 또는 role deployment를 저장하지 않는다. 성공해도 DDS
@@ -311,7 +326,7 @@ check/preflight → topology 저장 → security provision/deploy/rotate
 
 `start`는 모든 host build가 성공한 뒤 `--no-build`로 launch한다. host helper와
 pinned SSH channel은 allowlisted EleSim command만 실행한다. 실패 시 이번 job이
-시작한 role만 rollback한다. `start`/`stop`은 management state이며 runtime
+시작을 시도한 모든 host를 rollback한다. `start`/`stop`은 management state이며 runtime
 재구성용 restart action은 없다. 명시적 재시작은 정확한 host prefix에서
 `elesim-instance <system> down` 후 `elesim-instance <system> up --no-build`로
 수행한다.

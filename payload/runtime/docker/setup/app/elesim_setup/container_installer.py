@@ -2207,21 +2207,21 @@ class ContainerInstaller:
             + "net_service=tools\n"
             + (
                 "case ${1:-} in\n"
-                "  namespace-check|doctor) net_service=runtime-tools ;;\n"
+                "  namespace-check|runtime-preflight|doctor) net_service=runtime-tools ;;\n"
                 "esac\n"
                 if self.state.container_network.uses_tailscale_sidecar
                 else ""
             )
-            # A scoped readiness probe needs to read only the selected
-            # instance's state/security/configuration.  The sidecar's
+            # Scoped runtime preflight/readiness may read only the selected
+            # instance's state/security/configuration. The sidecar's
             # runtime-tools service intentionally does not mount the whole
             # installation, so add one exact read-only instance mount for the
-            # validated system argument.  Direct-host tools already mount the
+            # validated system argument. Direct-host tools already mount the
             # install prefix and need no extra bind.
             + "doctor_instance_system=\n"
             + "doctor_instance_role=\n"
             + "doctor_instance_root=\n"
-            + "if [[ ${1:-} == doctor ]]; then\n"
+            + "if [[ ${1:-} == doctor || ${1:-} == runtime-preflight ]]; then\n"
             + "  doctor_args=(\"$@\")\n"
             + "  doctor_arg_index=1\n"
             + "  while (( doctor_arg_index < $# )); do\n"
@@ -2256,6 +2256,26 @@ class ContainerInstaller:
                 else ""
             )
             + "  fi\n"
+            + "  if [[ $net_service == runtime-tools && ${1:-} == runtime-preflight && -z $doctor_instance_system ]]; then printf '%s\\n' 'sidecar runtime-preflight requires --instance-system' >&2; exit 64; fi\n"
+            + "fi\n"
+            + "if [[ ${1:-} == runtime-preflight && -n $doctor_instance_system ]]; then\n"
+            + f"  runtime_instance_root={shlex.quote(str(self.state.prefix_path))}/instances/$doctor_instance_system\n"
+            + "  for runtime_scope_path in "
+            + shlex.quote(str(self.state.prefix_path / "instances"))
+            + " "
+            + shlex.quote(str(self.state.bin_path / "elesim-instance"))
+            + " \"$runtime_instance_root\" \"$runtime_instance_root/state.json\" \"$runtime_instance_root/bin\""
+            + " \"$runtime_instance_root/bin/up\" \"$runtime_instance_root/bin/down\""
+            + " \"$runtime_instance_root/bin/status\" \"$runtime_instance_root/bin/logs\" "
+            + shlex.quote(str(self.state.prefix_path / "containers" / "compose.instances.yaml"))
+            + "; do\n"
+            + "    [[ ! -L $runtime_scope_path && -e $runtime_scope_path ]] || { printf '%s\\n' 'scoped runtime path is missing or a symlink' >&2; exit 78; }\n"
+            + "  done\n"
+            + "  for runtime_wrapper in \"$runtime_instance_root/bin/up\" \"$runtime_instance_root/bin/down\" \"$runtime_instance_root/bin/status\" \"$runtime_instance_root/bin/logs\" "
+            + shlex.quote(str(self.state.bin_path / "elesim-instance"))
+            + "; do\n"
+            + "    [[ -x $runtime_wrapper ]] || { printf '%s\\n' 'scoped runtime wrapper is not executable' >&2; exit 78; }\n"
+            + "  done\n"
             + "fi\n"
             + f"expected_tools_build_fingerprint={shlex.quote(self._image_fingerprints['tools'])}\n"
             + f"expected_tools_install_uuid={shlex.quote(self._install_uuid)}\n"

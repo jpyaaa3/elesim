@@ -2277,6 +2277,8 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
         "/usr/local/bin/elesim-compose",
         "-f",
         "/opt/elesim/containers/compose.yaml",
+        "--progress",
+        "quiet",
         "stop",
         "sim",
         "coturn",
@@ -2541,7 +2543,6 @@ def test_runtime_network_check_never_mixes_ssh_ports_into_dds_preflight() -> Non
     )
     assert "--tcp-peer" not in probe
     assert "100.64.0.2" in probe
-
     raw["hosts"][1]["ssh"]["host"] = raw["hosts"][1]["dds"]["address"]
     shared = ConnectionTopology.from_dict(raw)
     session = LifecycleSession()
@@ -2553,6 +2554,67 @@ def test_runtime_network_check_never_mixes_ssh_ports_into_dds_preflight() -> Non
     )
     assert "--tcp-peer" not in probe
     assert "100.64.0.2" in probe
+
+
+@pytest.mark.parametrize("network_mode", ["direct-host", "tailscale-sidecar"])
+def test_runtime_preflight_combines_state_and_namespace_without_write_probe(
+    network_mode: str,
+) -> None:
+    raw = _topology().to_dict()
+    raw["security_profile"] = "trusted-network"
+    topology = ConnectionTopology.from_dict(raw)
+    host = topology.host("server")
+
+    class RuntimePreflightSession(LifecycleSession):
+        def run(self, argv, *, check=True):
+            values = tuple(argv)
+            if len(values) > 1 and values[1] == "runtime-preflight":
+                self.commands.append((values, check))
+                return RemoteCommandResult(
+                    0,
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "install_state": {
+                                "roles": ["sim"],
+                                "assigned_roles": ["sim"],
+                                "prefix": host.install_root,
+                                "bin_dir": host.bin_dir,
+                                "install_mode": "container",
+                                "dds": {
+                                    "security_profile": "trusted-network",
+                                    "security_provisioning": "none",
+                                },
+                                "network": {"turn_urls": []},
+                                "turn": {"mode": "none"},
+                                "container_network": {"mode": network_mode},
+                            },
+                            "instance_state": None,
+                            "namespace": {
+                                "interface": host.dds.interface,
+                                "address": host.dds.address,
+                                "peers": list(topology.discovery_peers(host.host_id)),
+                            },
+                        }
+                    ),
+                )
+            return super().run(argv, check=check)
+
+    session = RuntimePreflightSession()
+    capabilities = InstalledElesimLifecycle(topology).runtime_preflight(
+        session, host, PurePosixPath("/opt/elesim/security")
+    )
+
+    command = next(argv for argv, _check in session.commands if "runtime-preflight" in argv)
+    assert "--check-configuration" in command
+    assert "--dds-interface" in command
+    assert capabilities.docker
+    assert not capabilities.security_root_writable
+    assert not any("show" == argv[-1] for argv, _check in session.commands)
+    assert not any("namespace-check" in argv for argv, _check in session.commands)
+    assert sum(
+        "configuration-check" in argv for argv, _check in session.commands
+    ) == (1 if network_mode == "tailscale-sidecar" else 0)
 
 
 def test_lifecycle_status_ignores_manager_service() -> None:

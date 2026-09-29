@@ -14,6 +14,7 @@ import stat
 import sys
 import tempfile
 import threading
+import time
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -83,6 +84,61 @@ _SCOPED_JOURNAL_PHASES = frozenset({
     "recover",
     "complete",
 })
+_HOST_PHASE_PARALLELISM = 4
+_LEGACY_BUILD_PARALLELISM = 2
+
+
+def _run_host_phase(
+    hosts: Sequence[ManagedHost],
+    phase: str,
+    log: Log,
+    action: Callable[[ManagedHost], Any],
+    *,
+    max_workers: int = _HOST_PHASE_PARALLELISM,
+) -> dict[str, Any]:
+    """Run independent host work concurrently and wait for every result.
+
+    Waiting for all read-only preflight/status operations means a failed host
+    still cannot race into build/start, while the phase latency approaches the
+    slowest host instead of the sum of host latencies.
+    """
+
+    if not hosts:
+        return {}
+
+    def run_one(host: ManagedHost) -> Any:
+        started = time.monotonic()
+        log(f"{phase}: {host.host_id}")
+        try:
+            result = action(host)
+        except BaseException:
+            elapsed = time.monotonic() - started
+            log(f"{phase} failed: {host.host_id} ({elapsed:.2f}s)")
+            raise
+        elapsed = time.monotonic() - started
+        log(f"{phase} complete: {host.host_id} ({elapsed:.2f}s)")
+        return result
+
+    results: dict[str, Any] = {}
+    failures: list[tuple[str, BaseException]] = []
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(max_workers, len(hosts)),
+        thread_name_prefix=f"elesim-{phase.replace(' ', '-')}",
+    ) as executor:
+        futures = {
+            host.host_id: executor.submit(run_one, host)
+            for host in hosts
+        }
+        # Resolve in topology order for deterministic error selection. All
+        # futures are still awaited before returning or raising.
+        for host in hosts:
+            try:
+                results[host.host_id] = futures[host.host_id].result()
+            except BaseException as exc:
+                failures.append((host.host_id, exc))
+    if failures:
+        raise failures[0][1]
+    return results
 _SCOPED_JOURNAL_TOP_LEVEL = frozenset({
     "schema_version",
     "scope",
@@ -273,6 +329,16 @@ class ConnectionDeploymentRunner:
         action: str,
         log: Log,
     ) -> ConnectionTopology:
+        original_log = log
+        log_lock = threading.Lock()
+
+        def log(message: str) -> None:
+            # BuildKit and host phases now report from worker threads. Keep
+            # each UI/log sink call serialized even if its implementation is
+            # not itself thread-safe.
+            with log_lock:
+                original_log(message)
+
         runtime_options = self._runtime_launch_options
         self._runtime_launch_options = None
         topology.validate()
@@ -414,18 +480,26 @@ class ConnectionDeploymentRunner:
                 "prepare",
             }:
                 log("Preparing runtime network infrastructure on each host.")
-                discovered_addresses: dict[str, str] = {}
-                for host in topology.hosts:
-                    log(f"network: {host.host_id}")
+
+                def prepare_network(host: ManagedHost) -> str | None:
                     output = _BuildLogForwarder(host, log, phase="network")
                     try:
-                        discovered = operations[host.host_id].prepare_runtime_network(
+                        return operations[host.host_id].prepare_runtime_network(
                             host, output
                         )
-                        if discovered:
-                            discovered_addresses[host.host_id] = discovered
                     finally:
                         output.flush()
+                network_results = _run_host_phase(
+                    topology.hosts,
+                    "network preparation",
+                    log,
+                    prepare_network,
+                )
+                discovered_addresses = {
+                    host_id: str(address)
+                    for host_id, address in network_results.items()
+                    if address
+                }
                 if discovered_addresses:
                     updated_hosts = tuple(
                         replace(
@@ -510,10 +584,22 @@ class ConnectionDeploymentRunner:
                     else "provision" if authority is not None else "deploy"
                 )
                 journal = self._new_scoped_journal(registration_action, topology)
-                self._deploy_scoped_units(
-                    topology, action=registration_action, authority=authority,
-                    operations=operations, log=log, journal=journal,
-                    runtime_options=runtime_options, starting=True,
+                registration_started = time.monotonic()
+                try:
+                    self._deploy_scoped_units(
+                        topology, action=registration_action, authority=authority,
+                        operations=operations, log=log, journal=journal,
+                        runtime_options=runtime_options, starting=True,
+                    )
+                except BaseException:
+                    log(
+                        "scoped registration failed: all hosts "
+                        f"({time.monotonic() - registration_started:.2f}s)"
+                    )
+                    raise
+                log(
+                    "scoped registration complete: all hosts "
+                    f"({time.monotonic() - registration_started:.2f}s)"
                 )
                 log("All scoped instance registrations completed atomically.")
             if scoped_install and action == "recover":
@@ -587,22 +673,27 @@ class ConnectionDeploymentRunner:
                 hosts = list(topology.hosts)
                 if action == "start":
                     log("Prechecking runtime networks on all hosts.")
+                    capabilities_by_host = _run_host_phase(
+                        hosts,
+                        "preflight",
+                        log,
+                        lambda host: operations[host.host_id].runtime_preflight(host),
+                    )
                     for host in hosts:
-                        log(f"preflight: {host.host_id}")
-                        # This is a cheap interface-visibility probe, not a
-                        # DDS discovery or hardware test.  It is kept outside
-                        # security generation preflight so a valid
-                        # tailscale0 topology can be provisioned before the
-                        # selected runtime backend is started.
-                        operations[host.host_id].runtime_network_check(host)
-                        capabilities = operations[host.host_id].preflight(host)
-                        capabilities.require_for(host, require_security_write=False)
-                        operations[host.host_id].runtime_launch_preflight(host)
+                        capabilities_by_host[host.host_id].require_for(
+                            host, require_security_write=False
+                        )
                 if action == "start":
+                    statuses = _run_host_phase(
+                        hosts,
+                        "status",
+                        log,
+                        lambda host: operations[host.host_id].status(host),
+                    )
                     for host in hosts:
                         running_roles = self._status_running_roles(
                             host,
-                            operations[host.host_id].status(host),
+                            statuses[host.host_id],
                         )
                         if running_roles:
                             raise RuntimeError(
@@ -642,28 +733,68 @@ class ConnectionDeploymentRunner:
                         ) from stop_errors[0][2]
                 if action == "start":
                     log("Preparing images on all hosts first.")
-                    for host in hosts:
-                        log(f"build: {host.host_id}")
-                        output = _BuildLogForwarder(host, log)
-                        try:
-                            operations[host.host_id].build(host, output)
-                        finally:
-                            output.flush()
-                        log(f"Build complete: {host.host_id}")
-                    launched = []
+                    if scoped_install:
+                        for host in hosts:
+                            log(
+                                f"build skipped: {host.host_id} "
+                                "(registered immutable releases; no image build required)"
+                            )
+                    else:
+
+                        def build_host(host: ManagedHost) -> None:
+                            output = _BuildLogForwarder(host, log)
+                            try:
+                                operations[host.host_id].build(host, output)
+                            finally:
+                                output.flush()
+                            log(f"Build complete: {host.host_id}")
+
+                        _run_host_phase(
+                            hosts,
+                            "build",
+                            log,
+                            build_host,
+                            max_workers=_LEGACY_BUILD_PARALLELISM,
+                        )
+                    # All launches are submitted together. Match the existing
+                    # rollback boundary: every attempted host is stopped if a
+                    # peer launch or the later DDS readiness gate fails.
+                    launched: list[ManagedHost] = []
                     try:
                         log("Starting runtimes for active roles.")
-                        for host in hosts:
-                            log(f"start: {host.host_id}")
-                            # A host launch can start one unit/container before a
-                            # later unit fails. Record the attempt first so the
-                            # compensating stop also covers that partial host.
-                            launched.append(host)
+
+                        # A host launch can start one local unit before a
+                        # later unit fails. Register every concurrent attempt
+                        # before submitting so rollback includes partial
+                        # starts and peers whose work is still in flight.
+                        launched.extend(hosts)
+
+                        def launch_host(host: ManagedHost) -> None:
                             if runtime_options is None or scoped_install:
                                 operations[host.host_id].launch(host)
                             else:
                                 operations[host.host_id].launch(host, runtime_options)
-                        self._report_runtime_readiness(topology, operations, hosts, log)
+                        _run_host_phase(
+                            hosts,
+                            "start",
+                            log,
+                            launch_host,
+                        )
+                        readiness_started = time.monotonic()
+                        try:
+                            self._report_runtime_readiness(
+                                topology, operations, hosts, log
+                            )
+                        except BaseException:
+                            log(
+                                "DDS readiness failed: all hosts "
+                                f"({time.monotonic() - readiness_started:.2f}s)"
+                            )
+                            raise
+                        log(
+                            "DDS readiness complete: all hosts "
+                            f"({time.monotonic() - readiness_started:.2f}s)"
+                        )
                     except BaseException as exc:
                         if launched:
                             log(

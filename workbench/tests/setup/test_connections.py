@@ -36,6 +36,15 @@ class _NoopNetworkPreparation:
     def runtime_launch_preflight(_host):
         return None
 
+    def runtime_preflight(self, host):
+        # Most workflow tests isolate only the new runner barrier; keep the
+        # legacy component fakes available to focused preflight-failure tests.
+        self.runtime_network_check(host)
+        capabilities = self.preflight(host)
+        capabilities.require_for(host, require_security_write=False)
+        self.runtime_launch_preflight(host)
+        return capabilities
+
     @staticmethod
     def status(_host):
         return {"state": "stopped", "running_roles": []}
@@ -234,31 +243,60 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     events: list[str] = []
     logs: list[str] = []
     received_options: list[RuntimeLaunchOptions | None] = []
+    network_barrier = threading.Barrier(2)
+    preflight_barrier = threading.Barrier(2)
+    status_barrier = threading.Barrier(2)
+    build_barrier = threading.Barrier(2)
+    launch_barrier = threading.Barrier(2)
+    event_lock = threading.Lock()
+
+    def record(event: str) -> None:
+        with event_lock:
+            events.append(event)
 
     class Operations(_NoopNetworkPreparation):
         def __init__(self, host_id: str) -> None:
             self.host_id = host_id
 
-        def build(self, _host, output) -> None:
-            events.append(f"build:{self.host_id}")
-            output("stdout", f"{self.host_id}-step-1\n")
-            output("stderr", f"{self.host_id}-step-2\n")
+        def prepare_runtime_network(self, _host, _output):
+            record(f"network-begin:{self.host_id}")
+            network_barrier.wait(timeout=2)
+            record(f"network:{self.host_id}")
+            return None
 
-        def preflight(self, _host):
-            events.append(f"preflight:{self.host_id}")
-
-            # The manager's security view may be read-only during runtime use.
+        def runtime_preflight(self, _host):
+            record(f"preflight-begin:{self.host_id}")
+            preflight_barrier.wait(timeout=2)
+            record(f"preflight:{self.host_id}")
             return RemoteCapabilities(True, True, True, False, "x86_64")
 
+        def preflight(self, _host):
+            raise AssertionError("runtime preflight was not consolidated")
+
         def runtime_network_check(self, _host) -> None:
-            events.append(f"network-check:{self.host_id}")
+            raise AssertionError("runtime network probe was not consolidated")
 
         def runtime_launch_preflight(self, _host) -> None:
-            events.append(f"launch-preflight:{self.host_id}")
+            raise AssertionError("runtime launch guard was not consolidated")
+
+        def status(self, _host):
+            record(f"status-begin:{self.host_id}")
+            status_barrier.wait(timeout=2)
+            record(f"status:{self.host_id}")
+            return {"state": "stopped", "running_roles": []}
+
+        def build(self, _host, output) -> None:
+            record(f"build-begin:{self.host_id}")
+            build_barrier.wait(timeout=2)
+            output("stdout", f"{self.host_id}-step-1\n")
+            output("stderr", f"{self.host_id}-step-2\n")
+            record(f"build:{self.host_id}")
 
         def launch(self, _host, runtime_options=None) -> None:
             received_options.append(runtime_options)
-            events.append(f"launch:{self.host_id}")
+            record(f"launch-begin:{self.host_id}")
+            launch_barrier.wait(timeout=2)
+            record(f"launch:{self.host_id}")
 
         @staticmethod
         def runtime_doctor(_host, _expected_peer_ids, *, timeout_s):
@@ -285,22 +323,42 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     runner.set_runtime_launch_options(options)
     runner(topology, "start", logs.append)
 
-    assert events == [
-        "network-check:operator",
+    assert {event for event in events if event.startswith("preflight:")} == {
         "preflight:operator",
-        "launch-preflight:operator",
-        "network-check:jetson",
         "preflight:jetson",
-        "launch-preflight:jetson",
+    }
+    assert {event for event in events if event.startswith("network:")} == {
+        "network:operator",
+        "network:jetson",
+    }
+    assert {event for event in events if event.startswith("status:")} == {
+        "status:operator",
+        "status:jetson",
+    }
+    assert {event for event in events if event.startswith("build:")} == {
         "build:operator",
         "build:jetson",
+    }
+    assert {event for event in events if event.startswith("launch:")} == {
         "launch:operator",
         "launch:jetson",
-    ]
+    }
+    assert max(i for i, event in enumerate(events) if event.startswith("preflight:")) < min(
+        i for i, event in enumerate(events) if event.startswith("build-begin:")
+    )
+    assert max(i for i, event in enumerate(events) if event.startswith("status:")) < min(
+        i for i, event in enumerate(events) if event.startswith("build-begin:")
+    )
+    assert max(i for i, event in enumerate(events) if event.startswith("build:")) < min(
+        i for i, event in enumerate(events) if event.startswith("launch-begin:")
+    )
     assert "build operator [stdout] operator-step-1" in logs
     assert "build operator [stderr] operator-step-2" in logs
     assert "Build complete: operator" in logs
     assert "Build complete: jetson" in logs
+    assert any("preflight complete: operator" in message and "s" in message for message in logs)
+    assert any("network preparation complete: operator" in message for message in logs)
+    assert any("start complete: jetson" in message and "s" in message for message in logs)
     assert received_options == [options, options]
 
 
@@ -542,7 +600,9 @@ def test_runtime_launch_preflight_fails_before_build_or_start(
     with pytest.raises(RuntimeError, match="stale installed enclave"):
         runner(topology, "start", lambda _message: None)
 
-    assert events == ["network:operator", "guard:operator"]
+    assert set(events) == {
+        f"network:{host.host_id}" for host in topology.hosts
+    } | {f"guard:{host.host_id}" for host in topology.hosts}
 
 
 def test_runtime_readiness_fails_on_malformed_results_payload(
@@ -661,7 +721,7 @@ def test_runtime_readiness_preserves_compensating_stop_failures(
     assert "operator: cannot stop operator" in str(captured.value)
 
 
-def test_runtime_launch_failure_rolls_back_the_partially_started_current_host(
+def test_runtime_launch_failure_rolls_back_every_concurrently_attempted_host(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     action = "start"
@@ -710,8 +770,16 @@ def test_runtime_launch_failure_rolls_back_the_partially_started_current_host(
     with pytest.raises(RuntimeError, match="partial"):
         runner(topology, action, lambda _message: None)
 
-    assert events == [
-        "launch:operator",
+    assert set(events) == {
+        f"launch:{host.host_id}" for host in topology.hosts
+    } | {
+        f"stop:{host.host_id}" for host in topology.hosts
+    } | {
+        f"viewer-cleanup:{host.host_id}" for host in topology.hosts
+    }
+    assert events[-4:] == [
+        "stop:jetson",
+        "viewer-cleanup:jetson",
         "stop:operator",
         "viewer-cleanup:operator",
     ]
@@ -942,8 +1010,8 @@ def test_host_check_combines_network_preflight_and_runtime_status(
         "require",
         "status:jetson",
     ]
-    assert "status: operator = stopped [—]" in logs
-    assert "status: jetson = stopped [—]" in logs
+    assert "status: operator = stopped [-]" in logs
+    assert "status: jetson = stopped [-]" in logs
 
 
 def test_start_persists_changed_sidecar_address_and_requires_prepare(

@@ -1082,9 +1082,10 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     assert '"BackendState"' in tailscale_wrapper
     assert '"IPv4"' in tailscale_wrapper
     assert "net_service=runtime-tools" in net_wrapper
-    assert "namespace-check|doctor" in net_wrapper
+    assert "namespace-check|runtime-preflight|doctor" in net_wrapper
     assert "configuration-check|namespace-check|doctor" not in net_wrapper
     assert 'run --rm -T --volume "$doctor_instance_root:$doctor_instance_root:ro"' in net_wrapper
+    assert "scoped runtime path is missing or a symlink" in net_wrapper
     assert subprocess.run(
         ("bash", "-n", str(state.bin_path / "elesim-net")),
         check=False,

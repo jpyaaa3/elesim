@@ -561,6 +561,10 @@ class RemoteLifecycle(Protocol):
         self, session: SshSession, host: ManagedHost, security_root: PurePosixPath
     ) -> RemoteCapabilities: ...
 
+    def runtime_preflight(
+        self, session: SshSession, host: ManagedHost, security_root: PurePosixPath
+    ) -> RemoteCapabilities: ...
+
     def runtime_network_check(
         self, session: SshSession, host: ManagedHost
     ) -> None: ...
@@ -644,6 +648,8 @@ class HostOperations(Protocol):
     def runtime_inventory(self, host: ManagedHost) -> Mapping[str, Any]: ...
 
     def preflight(self, host: ManagedHost) -> RemoteCapabilities: ...
+
+    def runtime_preflight(self, host: ManagedHost) -> RemoteCapabilities: ...
 
     def runtime_network_check(self, host: ManagedHost) -> None: ...
 
@@ -1317,6 +1323,13 @@ class SshHostOperations:
         security_root = self._security_root_for(host)
         with self._connect(host) as session:
             return self._lifecycle.preflight(session, host, security_root)
+
+    def runtime_preflight(self, host: ManagedHost) -> RemoteCapabilities:
+        """Run the consolidated read-only runtime checks in one SSH session."""
+
+        security_root = self._security_root_for(host)
+        with self._connect(host) as session:
+            return self._lifecycle.runtime_preflight(session, host, security_root)
 
     def runtime_network_check(self, host: ManagedHost) -> None:
         """Run the cheap direct-interface probe in the runtime namespace."""
@@ -2135,6 +2148,7 @@ class InstalledElesimLifecycle:
         unit: DeploymentUnit,
         *,
         local: bool = False,
+        paths_prevalidated: bool = False,
     ) -> None:
         """Establish the per-system lifecycle boundary before any mutation.
 
@@ -2223,6 +2237,12 @@ class InstalledElesimLifecycle:
                 ) from exc
         system_id = self._topology.system_id
         _safe_identifier(system_id, name="system_id")
+        if paths_prevalidated:
+            # ``runtime-preflight`` checks this exact instance root and all of
+            # its wrappers from one process in the runtime-tools namespace.
+            # Keep the authenticated install identity check above, but do not
+            # repeat the same path checks as dozens of remote test commands.
+            return
         prefix = PurePosixPath(unit.install_root)
         bin_dir = PurePosixPath(unit.bin_dir)
         instance_root = prefix / "instances" / system_id
@@ -2772,6 +2792,261 @@ class InstalledElesimLifecycle:
             architecture=architecture_result.stdout.strip(),
         )
 
+    def runtime_preflight(
+        self, session: SshSession, host: ManagedHost, security_root: PurePosixPath
+    ) -> RemoteCapabilities:
+        """Validate runtime inputs and network namespace without mutation.
+
+        ``elesim-net runtime-preflight`` loads install and (when applicable)
+        exact instance state and probes the actual runtime namespace in one
+        invocation. This replaces the former ``show`` + namespace check +
+        launch guard sequence. Manager-side role, ownership, TURN and
+        platform policy checks remain authoritative.
+        """
+
+        states: dict[str, Mapping[str, Any]] = {}
+        instances: dict[str, Mapping[str, Any] | None] = {}
+        peer_args = tuple(
+            value
+            for peer in self._topology.discovery_peers(host.host_id)
+            for value in ("--dds-peer", peer)
+        )
+        for unit in host.units:
+            scoped_unit = self._scoped and unit.install_mode == "container"
+            command = [
+                str(_net_command(unit)),
+                "runtime-preflight",
+                "--dds-interface",
+                host.dds.interface,
+                "--dds-address",
+                host.dds.address,
+                *peer_args,
+            ]
+            if scoped_unit:
+                command.extend(("--instance-system", self._topology.system_id))
+            if not self._scoped or unit.install_mode == "native":
+                command.append("--check-configuration")
+            result = session.run(tuple(command))
+            try:
+                payload = json.loads(result.stdout)
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise RuntimeError(
+                    f"runtime preflight returned invalid JSON on "
+                    f"{host.host_id}/{unit.unit_id!r}"
+                ) from exc
+            if (
+                not isinstance(payload, Mapping)
+                or type(payload.get("schema_version")) is not int
+                or payload.get("schema_version") != 1
+            ):
+                raise RuntimeError(
+                    f"runtime preflight returned an unsupported document on "
+                    f"{host.host_id}/{unit.unit_id!r}"
+                )
+            raw_state = payload.get("install_state")
+            raw_instance = payload.get("instance_state")
+            namespace = payload.get("namespace")
+            if not isinstance(raw_state, Mapping):
+                raise RuntimeError(
+                    f"installed state is missing from runtime preflight on "
+                    f"{host.host_id}/{unit.unit_id!r}"
+                )
+            if raw_instance is not None and not isinstance(raw_instance, Mapping):
+                raise RuntimeError(
+                    f"scoped instance state is invalid on {host.host_id}/{unit.unit_id!r}"
+                )
+            if not isinstance(namespace, Mapping) or (
+                namespace.get("interface") != host.dds.interface
+                or namespace.get("address") != host.dds.address
+                or namespace.get("peers") != list(self._topology.discovery_peers(host.host_id))
+            ):
+                raise RuntimeError(
+                    f"runtime namespace result does not match the requested DDS graph on "
+                    f"{host.host_id}/{unit.unit_id!r}"
+                )
+            states[unit.unit_id] = raw_state
+            instances[unit.unit_id] = raw_instance
+            if scoped_unit:
+                self._validate_scoped_target(
+                    session,
+                    unit,
+                    local=host.local,
+                    paths_prevalidated=True,
+                )
+            elif self._scoped:
+                self._validate_scoped_target(session, unit, local=host.local)
+
+        for unit in host.units:
+            raw_state = states[unit.unit_id]
+            scoped_unit = self._scoped and unit.install_mode == "container"
+            scoped_state = instances[unit.unit_id]
+            installed_roles = tuple(str(value) for value in raw_state.get("roles", ()))
+            if scoped_unit:
+                raw_endpoints = scoped_state.get("endpoints", ()) if scoped_state else ()
+                configured_roles = tuple(
+                    str(row.get("role"))
+                    for row in raw_endpoints
+                    if isinstance(row, Mapping) and isinstance(row.get("role"), str)
+                )
+                if set(configured_roles) != set(unit.roles):
+                    raise RuntimeError(
+                        f"scoped instance roles do not match {host.host_id}/{unit.unit_id!r}"
+                    )
+            else:
+                configured_roles = installed_roles
+                assigned_roles = raw_state.get("assigned_roles")
+                if assigned_roles is None:
+                    assigned_roles = installed_roles
+                if set(str(value) for value in assigned_roles) != set(unit.roles):
+                    raise RuntimeError(
+                        f"topology assignment is not applied on "
+                        f"{host.host_id}/{unit.unit_id}; run connection-manager "
+                        "preparation before start"
+                    )
+            if not set(unit.roles).issubset(configured_roles):
+                raise RuntimeError(
+                    f"assigned roles are not installed on {host.host_id}/{unit.unit_id!r}: "
+                    f"installed={configured_roles!r}, assigned={unit.roles!r}"
+                )
+            if (
+                not self._scoped
+                and unit.install_mode == "container"
+                and set(installed_roles) - set(unit.roles)
+            ):
+                running = session.run(
+                    (*_compose_command(unit), "ps", "--status", "running", "--services")
+                )
+                unassigned = (set(running.stdout.split()) & set(installed_roles)) - set(unit.roles)
+                if unassigned:
+                    raise RuntimeError(
+                        f"stop unassigned roles before changing topology on {host.host_id}: "
+                        + ", ".join(sorted(unassigned))
+                    )
+            for key, expected in {
+                "prefix": unit.install_root,
+                "bin_dir": unit.bin_dir,
+                "install_mode": unit.install_mode,
+            }.items():
+                if str(raw_state.get(key, "")) != expected:
+                    raise RuntimeError(f"{key} mismatch on {host.host_id}/{unit.unit_id}")
+
+            network_settings = raw_state.get("container_network")
+            sidecar_namespace = (
+                isinstance(network_settings, Mapping)
+                and network_settings.get("mode") == "tailscale-sidecar"
+            )
+            if (
+                (not self._scoped or unit.install_mode == "native")
+                and sidecar_namespace
+            ):
+                # The sidecar runtime-tools service may read only exact
+                # runtime inputs, not the install tree. Preserve the full
+                # generated-file check through the ordinary read-only tools
+                # service rather than broadening that mount.
+                session.run((str(_net_command(unit)), "configuration-check"))
+
+            if scoped_unit:
+                # Scoped SROS2 marker/current/manifest checks were performed by
+                # the exact-instance runtime-preflight command before its JSON
+                # result was emitted.
+                pass
+            else:
+                self._validate_managed_security_state(
+                    session,
+                    host,
+                    self._unit_security_root(host, unit, security_root),
+                    raw_state,
+                )
+
+            if scoped_unit and scoped_state and scoped_state.get("viewer", False):
+                session.run(
+                    (
+                        str(PurePosixPath(unit.bin_dir) / "elesim-instance"),
+                        self._topology.system_id,
+                        "up",
+                        "--preflight",
+                    )
+                )
+
+            if "sim" not in unit.roles:
+                continue
+            turn_state = (
+                _scoped_turn_from_instance_state(
+                    scoped_state or {}, host, system_id=self._topology.system_id
+                )
+                if scoped_unit
+                else (
+                    _managed_turn_from_state(raw_state, host)
+                    if self._topology.security_profile == "sros2"
+                    else None
+                )
+            )
+            if turn_state is None:
+                continue
+            if turn_state.get("turn_mode", "managed") == "external":
+                credential_file = turn_state["turn_credential_file"]
+                if _remote_path_contains_symlink(session, credential_file):
+                    raise RuntimeError(
+                        f"external TURN credential path is a symlink or has a symlink ancestor on "
+                        f"{host.host_id}/{unit.unit_id}: {credential_file}"
+                    )
+                if session.run(("test", "-f", credential_file), check=False).exit_status != 0:
+                    raise RuntimeError(
+                        f"external TURN credential file is missing on "
+                        f"{host.host_id}/{unit.unit_id}: {credential_file}"
+                    )
+                continue
+            secret_file = turn_state["turn_secret_file"]
+            if _remote_path_contains_symlink(session, secret_file):
+                raise RuntimeError(
+                    f"managed Coturn secret path is a symlink or has a symlink ancestor on "
+                    f"{host.host_id}/{unit.unit_id}: {secret_file}"
+                )
+            if session.run(("test", "-f", secret_file), check=False).exit_status != 0:
+                raise RuntimeError(
+                    f"managed Coturn secret file is missing on "
+                    f"{host.host_id}/{unit.unit_id}: {secret_file}"
+                )
+            if not self._scoped and unit.install_mode == "container":
+                services = session.run((*_compose_command(unit), "config", "--services"), check=False)
+                if services.exit_status != 0 or "coturn" not in services.stdout.split():
+                    raise RuntimeError(
+                        f"managed Coturn service is missing on {host.host_id}/{unit.unit_id}; "
+                        "run elesim-update after installing Sim with SROS2"
+                    )
+
+        docker = True
+        systemd = session.run(("test", "-x", "/usr/bin/systemctl"), check=False).exit_status == 0
+        jetson = session.run(("test", "-f", "/etc/nv_tegra_release"), check=False).exit_status == 0
+        architecture_result = session.run(("uname", "-m"), check=False)
+        for unit in host.runtime_units:
+            if self._scoped:
+                continue
+            docker = docker and session.run(
+                (*_compose_command(unit), "config", "--quiet"), check=False
+            ).exit_status == 0
+        for unit in host.robot_units:
+            service = _robot_service(unit)
+            sudo_probe = session.run(
+                (
+                    "sudo", "-n", "systemctl", "show", service,
+                    "--property=LoadState", "--value",
+                ),
+                check=False,
+            )
+            systemd = systemd and sudo_probe.exit_status == 0 and (
+                sudo_probe.stdout.strip() == "loaded"
+            )
+        return RemoteCapabilities(
+            docker=docker,
+            systemd=systemd,
+            jetson=jetson,
+            # Runtime start consumes existing security. Writable access is
+            # probed only by deployment operations that actually need it.
+            security_root_writable=False,
+            architecture=architecture_result.stdout.strip(),
+        )
+
     @staticmethod
     def _remote_path_can_create_directory(
         session: SshSession, path: PurePosixPath
@@ -3259,8 +3534,6 @@ class InstalledElesimLifecycle:
             # Scoped instances run immutable, already-published releases.
             # Building the installation-level aggregate would be both the
             # wrong boundary and a possible cross-system mutation.
-            for unit in host.runtime_units:
-                self._validate_scoped_target(session, unit, local=host.local)
             return
         for unit in host.runtime_units:
             def unit_output(stream: str, text: str, *, unit_id: str = unit.unit_id) -> None:

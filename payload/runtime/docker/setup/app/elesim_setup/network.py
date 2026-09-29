@@ -293,6 +293,77 @@ def _scoped_doctor_state(
     return effective, endpoint_config
 
 
+def _scoped_runtime_instance_state(
+    state: InstallState, system_id: str
+) -> Mapping[str, object]:
+    """Read and validate only the exact instance selected for a runtime check.
+
+    The Tailscale runtime-tools service deliberately does not mount the whole
+    installation.  Its generated wrapper supplies one read-only instance bind
+    for this command, so this check must stay within that exact system root.
+    """
+
+    system = str(system_id).strip()
+    if _SCOPED_SYSTEM.fullmatch(system) is None:
+        raise ValueError("instance system ID must be a safe identifier")
+    prefix = state.prefix_path
+    instance_root = prefix / "instances" / system
+    state_path = instance_root / "state.json"
+    required_paths = (
+        instance_root,
+        state_path,
+        instance_root / "bin",
+        *(instance_root / "bin" / action for action in ("up", "down", "status", "logs")),
+    )
+    for path in required_paths:
+        if path.is_symlink():
+            raise ValueError(f"scoped lifecycle path is a symlink: {path}")
+        if not path.exists():
+            raise ValueError(f"scoped lifecycle path is missing: {path}")
+    for path in (
+        *(instance_root / "bin" / action for action in ("up", "down", "status", "logs")),
+    ):
+        if not os.access(path, os.X_OK):
+            raise ValueError(f"scoped lifecycle wrapper is not executable: {path}")
+    if not state_path.is_file():
+        raise ValueError(f"scoped instance state is not a regular file: {state_path}")
+    try:
+        raw = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"scoped instance state is not valid JSON: {state_path}") from exc
+    if not isinstance(raw, Mapping):
+        raise ValueError("scoped instance state must be an object")
+    try:
+        instance = InstanceState.from_dict(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("scoped instance state is invalid") from exc
+    if instance.system_id != system:
+        raise ValueError("scoped instance state system ID does not match the request")
+
+    if instance.security_profile == "sros2":
+        generation = instance.security_generation
+        if not generation:
+            raise ValueError("scoped SROS2 instance has no security generation")
+        security_root = instance_root / "security"
+        marker = security_root / "provisioning-required"
+        generations = security_root / "generations"
+        current = security_root / "current"
+        if marker.is_symlink():
+            raise ValueError("scoped SROS2 provisioning marker is a symlink")
+        if marker.exists():
+            raise ValueError("scoped SROS2 instance still has a provisioning marker")
+        if generations.is_symlink():
+            raise ValueError("scoped SROS2 generations path is a symlink")
+        if not current.is_symlink():
+            raise ValueError("scoped SROS2 current path is not a symlink")
+        if Path(os.readlink(current)) != Path("generations") / generation:
+            raise ValueError("scoped SROS2 current generation does not match instance state")
+        manifest = security_root / "current" / "manifest.json"
+        if manifest.is_symlink() or not manifest.is_file():
+            raise ValueError("scoped SROS2 security manifest is unavailable")
+    return dict(raw)
+
+
 def require_runtime_network_namespace(
     state: InstallState,
     *,
@@ -1063,6 +1134,23 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="directly connected DDS peer to check (repeatable)",
     )
+    runtime_preflight = subparsers.add_parser(
+        "runtime-preflight",
+        help="read installation/instance state and validate the runtime namespace",
+    )
+    runtime_preflight.add_argument("--dds-interface", required=True)
+    runtime_preflight.add_argument("--dds-address", required=True)
+    runtime_preflight.add_argument("--dds-peer", action="append", default=[])
+    runtime_preflight.add_argument(
+        "--instance-system",
+        default="",
+        help="include the exact registered scoped instance state",
+    )
+    runtime_preflight.add_argument(
+        "--check-configuration",
+        action="store_true",
+        help="validate generated install-level DDS files before runtime use",
+    )
     restore = subparsers.add_parser("restore-snapshot", help=argparse.SUPPRESS)
     restore.add_argument("--payload", required=True, help=argparse.SUPPRESS)
     configure = subparsers.add_parser(
@@ -1203,6 +1291,45 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 "DDS direct-bind interface is visible: "
                 f"{interface or '(automatic)'}"
+            )
+            return 0
+        if args.command == "runtime-preflight":
+            require_runtime_network_namespace(
+                state,
+                interface=args.dds_interface,
+                address=args.dds_address,
+                peers=args.dds_peer,
+            )
+            instance_state = (
+                _scoped_runtime_instance_state(state, args.instance_system)
+                if args.instance_system
+                else None
+            )
+            # A Docker Desktop sidecar runtime-tools container intentionally
+            # has no installation-wide mount. Its generated-file consistency
+            # check remains a separate host-network tools invocation, selected
+            # by the connection manager after reading this state document.
+            configuration_checked = (
+                args.check_configuration
+                and not state.container_network.uses_tailscale_sidecar
+            )
+            if configuration_checked:
+                require_generated_dds_configuration(state)
+            print(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "install_state": state.to_dict(),
+                        "instance_state": instance_state,
+                        "namespace": {
+                            "interface": args.dds_interface,
+                            "address": args.dds_address,
+                            "peers": list(args.dds_peer),
+                        },
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
             )
             return 0
         if args.command == "restore-snapshot":
