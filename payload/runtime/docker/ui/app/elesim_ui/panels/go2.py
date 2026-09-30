@@ -273,6 +273,19 @@ def _stop_go2(panel) -> None:
     panel._go2_stop_sent = True
 
 
+def _respawn_blocks_teleop(panel, *, active: bool, key_stop: bool) -> bool:
+    if not bool(getattr(panel, "_go2_respawn_blocked", False)):
+        return False
+    if active or key_stop:
+        # Require held keys and pad buttons to be released before another
+        # motion command can leave the UI after respawn.
+        panel._go2_was_active = False
+        panel._go2_stop_sent = True
+        return True
+    panel._go2_respawn_blocked = False
+    return False
+
+
 def _keyboard_teleop_enabled(panel) -> bool:
     window = getattr(panel, "_glfw_window", None)
     if window is None:
@@ -368,6 +381,9 @@ def _draw_teleop_pad(panel, width: float) -> bool:
     imgui.same_line()
     imgui.dummy(cell, cell)
     imgui.end_group()
+
+    if _respawn_blocks_teleop(panel, active=active, key_stop=key_stop):
+        return False
 
     if key_stop:
         return False

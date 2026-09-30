@@ -120,6 +120,10 @@ class _ControlServiceCore(
     ) -> None:
         self.state = state
         self.client = client
+        self._sim_reset_lock = threading.RLock()
+        self._sim_reset_in_progress = threading.Event()
+        self._sim_reset_cleanup_pending = False
+        self._sim_reset_cleanup_thread: Optional[threading.Thread] = None
         self._use_hardware = bool(use_hardware)
         self._mapping_cfg = mapping_cfg or SimMappingConfig()
         self._ik_cfg = ik_cfg or IkConfig()
@@ -2109,31 +2113,37 @@ class ControlService(_MotionFeedbackActions):
         force: bool = False,
         sag_model_override: Optional[dict[str, Any]] = None,
     ) -> None:
-        if self.client is not None and (
-            force or (not self.state.controls_locked) or (source == "target")
-        ):
-            self.client.send_target_values(
-                linear_m=float(self.state.linear),
-                roll_rad=float(self.state.roll),
-                theta1_rad=float(self.state.theta1),
-                theta2_rad=float(self.state.theta2),
-                source=source,
-                target_xyz=(float(self.state.target_x), float(self.state.target_y), float(self.state.target_z)),
-                target_dir=(float(self.state.target_vx), float(self.state.target_vy), float(self.state.target_vz)),
-                claw_closed=bool(self.state.claw_closed),
-                force=force or bool(source == "target"),
-            )
+        with self._sim_reset_lock:
+            if self._sim_reset_in_progress.is_set():
+                return
+            if self.client is not None and (
+                force or (not self.state.controls_locked) or (source == "target")
+            ):
+                self.client.send_target_values(
+                    linear_m=float(self.state.linear),
+                    roll_rad=float(self.state.roll),
+                    theta1_rad=float(self.state.theta1),
+                    theta2_rad=float(self.state.theta2),
+                    source=source,
+                    target_xyz=(float(self.state.target_x), float(self.state.target_y), float(self.state.target_z)),
+                    target_dir=(float(self.state.target_vx), float(self.state.target_vy), float(self.state.target_vz)),
+                    claw_closed=bool(self.state.claw_closed),
+                    force=force or bool(source == "target"),
+                )
 
     def send_current_target_meta(self, *, source: str = "target") -> None:
-        if self.client is not None:
-            self.client.send_target_meta(
-                target_xyz=(float(self.state.target_x), float(self.state.target_y), float(self.state.target_z)),
-                target_dir=(float(self.state.target_vx), float(self.state.target_vy), float(self.state.target_vz)),
-                source=source,
-            )
+        with self._sim_reset_lock:
+            if self._sim_reset_in_progress.is_set():
+                return
+            if self.client is not None:
+                self.client.send_target_meta(
+                    target_xyz=(float(self.state.target_x), float(self.state.target_y), float(self.state.target_z)),
+                    target_dir=(float(self.state.target_vx), float(self.state.target_vy), float(self.state.target_vz)),
+                    source=source,
+                )
 
     def send_ready_pose_meta(self, *, source: str = "target") -> None:
-        if self.client is None:
+        if self.client is None or self._sim_reset_in_progress.is_set():
             return
         dir_tuple = self._pick_ready_direction()
         if dir_tuple is None:
@@ -2145,48 +2155,73 @@ class ControlService(_MotionFeedbackActions):
                 )
             if float(np.linalg.norm(dir_tuple)) <= 1e-9:
                 return
-        self.client.send_ready_pose_meta(
-            target_dir=dir_tuple,
-            standoff_m=float(self.state.visual_ready_distance_m),
-            source=source,
-        )
+        with self._sim_reset_lock:
+            if self._sim_reset_in_progress.is_set():
+                return
+            self.client.send_ready_pose_meta(
+                target_dir=dir_tuple,
+                standoff_m=float(self.state.visual_ready_distance_m),
+                source=source,
+            )
 
     def send_grasp_meta(self, *, source: str = "target") -> None:
-        if self.client is None:
+        if self.client is None or self._sim_reset_in_progress.is_set():
             return
         dir_tuple = self._pick_ready_direction(prefer_current_tip=True)
         if dir_tuple is None:
             return
         pk = self._pick_config_effective()
-        self.client.send_ready_pose_meta(
-            target_dir=dir_tuple,
-            standoff_m=float(pk.grasp_standoff_m),
-            source=source,
-        )
+        with self._sim_reset_lock:
+            if self._sim_reset_in_progress.is_set():
+                return
+            self.client.send_ready_pose_meta(
+                target_dir=dir_tuple,
+                standoff_m=float(pk.grasp_standoff_m),
+                source=source,
+            )
 
     def send_claw_command(self, *, closed: bool) -> None:
-        if self.client is not None:
-            self.client.send_claw_command(claw_closed=bool(closed), source="target")
+        with self._sim_reset_lock:
+            if self._sim_reset_in_progress.is_set():
+                return
+            if self.client is not None:
+                self.client.send_claw_command(claw_closed=bool(closed), source="target")
 
     def send_go2_velocity(self, *, vx: float, vy: float, wz: float) -> None:
-        if self.client is not None:
-            self.client.send_go2_velocity(vx=float(vx), vy=float(vy), wz=float(wz), source="target")
+        with self._sim_reset_lock:
+            if self._sim_reset_in_progress.is_set():
+                return
+            if self.client is not None:
+                self.client.send_go2_velocity(vx=float(vx), vy=float(vy), wz=float(wz), source="target")
+
+    @property
+    def sim_reset_in_progress(self) -> bool:
+        return self._sim_reset_in_progress.is_set()
 
     def send_go2_sport_pose(self, *, pose: str) -> None:
-        if self.client is not None:
-            self.client.send_go2_sport_pose(pose=str(pose), source="target")
+        with self._sim_reset_lock:
+            if self._sim_reset_in_progress.is_set():
+                return
+            if self.client is not None:
+                self.client.send_go2_sport_pose(pose=str(pose), source="target")
 
     def send_go2_obstacles_avoid(self, *, enabled: bool) -> None:
-        if self.client is not None:
-            self.client.send_go2_obstacles_avoid(enabled=bool(enabled), source="target")
+        with self._sim_reset_lock:
+            if self._sim_reset_in_progress.is_set():
+                return
+            if self.client is not None:
+                self.client.send_go2_obstacles_avoid(enabled=bool(enabled), source="target")
 
     def send_sim_target_xyz(self, x: float, y: float, z: float) -> None:
-        self.state.set_mock_object_world_xyz(float(x), float(y), float(z))
-        if self.client is not None and hasattr(self.client, "send_sim_target_xyz"):
-            self.client.send_sim_target_xyz(
-                xyz=(float(x), float(y), float(z)),
-                source="target",
-            )
+        with self._sim_reset_lock:
+            if self._sim_reset_in_progress.is_set():
+                return
+            self.state.set_mock_object_world_xyz(float(x), float(y), float(z))
+            if self.client is not None and hasattr(self.client, "send_sim_target_xyz"):
+                self.client.send_sim_target_xyz(
+                    xyz=(float(x), float(y), float(z)),
+                    source="target",
+                )
 
     def _start_position_solve(self, target: np.ndarray) -> None:
         if self.state.ik_running or self._visual_busy():
@@ -2467,16 +2502,39 @@ class ControlService(_MotionFeedbackActions):
         return replace(pk, center_tol=tol)
 
     def reset_simulation(self) -> None:
-        """Reset sim GO2+arm pose, stop workers, and zero teleop commands.
+        """Reset Sim immediately and fence Pilot workflows until they stop.
 
         Not a staticmethod: it drives the pilot through `self`.  Decorated as
         one, every Respawn press failed with "missing 1 required positional
         argument: 'self'" -- and the dispatcher returned that to the UI without
         logging it, so the button simply did nothing.
         """
-        self.stop_gaze_stabilizer()
+        reset_error: Optional[Exception] = None
+        with self._sim_reset_lock:
+            self._sim_reset_in_progress.set()
+            if self.client is not None:
+                try:
+                    # The Sim endpoint atomically zeros velocity and takes
+                    # ownership of the next scene-loop boundary. Pilot sends
+                    # this before it waits for any workflow to stop.
+                    self.client.send_sim_reset()
+                except Exception as exc:
+                    reset_error = exc
+
+        # Stop signals and the local panel readback are immediate. Cleanup and
+        # worker joins happen off the DDS pump so discovery and UI replies keep
+        # flowing while Sim applies the reset and publishes its first frame.
+        self._pick_e2e_cancel.set()
+        self._pick_stop_event.set()
+        self._gaze_service.request_stop()
         self.stop_object_pick()
-        self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+        self._reset_pilot_readback_after_sim_reset()
+        self._schedule_sim_reset_cleanup()
+        print("[ctrl] simulation reset requested", flush=True)
+        if reset_error is not None:
+            raise reset_error
+
+    def _reset_pilot_readback_after_sim_reset(self) -> None:
         start_q = default_start_sim_q(self._mapping_cfg)
         self.state.set_q(
             float(start_q.linear_m),
@@ -2484,9 +2542,78 @@ class ControlService(_MotionFeedbackActions):
             float(start_q.theta1_rad),
             float(start_q.theta2_rad),
         )
+        self.state.set_claw_closed(False)
         self.state.clear_ik_status()
-        self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="")
-        if self.client is not None:
-            self.client.send_sim_reset()
-            self.send_current_target(source="sim", force=True)
-        print("[ctrl] simulation reset requested")
+        self.state.set_pick_status(
+            running=False,
+            failed=False,
+            phase=ObjectPickPhase.IDLE.value,
+            msg="",
+        )
+
+    def _schedule_sim_reset_cleanup(self) -> None:
+        with self._sim_reset_lock:
+            if self._sim_reset_cleanup_pending:
+                return
+            self._sim_reset_cleanup_pending = True
+            worker = threading.Thread(
+                target=traced_thread_target(
+                    "pilot.finish_simulation_reset", self._finish_sim_reset_cleanup
+                ),
+                name="pilot-sim-reset-cleanup",
+                daemon=True,
+            )
+            self._sim_reset_cleanup_thread = worker
+            worker.start()
+
+    def _finish_sim_reset_cleanup(self) -> None:
+        try:
+            try:
+                self.stop_pick_e2e()
+            except Exception as exc:
+                print(f"[ctrl] respawn workflow stop failed: {exc}", flush=True)
+            while True:
+                workers = self._sim_reset_live_workers()
+                if not workers:
+                    break
+                for worker in workers:
+                    worker.join(timeout=0.1)
+            # stop() can hit its bounded join timeout before a slow vision
+            # worker exits. Call it once more after exit to close its logger.
+            self.stop_gaze_stabilizer()
+            # A cancelled worker can finish between its final send and its
+            # status cleanup. Reassert the authoritative local spawn readback.
+            self._reset_pilot_readback_after_sim_reset()
+        finally:
+            live_workers = self._sim_reset_live_workers()
+            with self._sim_reset_lock:
+                self._sim_reset_cleanup_pending = False
+                self._sim_reset_cleanup_thread = None
+                if live_workers:
+                    print(
+                        "[ctrl] respawn cleanup ended with active workers; "
+                        "motion remains fenced",
+                        flush=True,
+                    )
+                else:
+                    self._sim_reset_in_progress.clear()
+
+    def _sim_reset_live_workers(self) -> list[threading.Thread]:
+        threads = [
+            getattr(self, name, None)
+            for name in ("_pick_e2e_worker", "_pick_worker", "_ik_worker")
+        ]
+        gaze = getattr(self, "_gaze_service", None)
+        if gaze is not None:
+            threads.extend(
+                getattr(gaze, name, None)
+                for name in ("_worker", "_demo_thread")
+            )
+        current = threading.current_thread()
+        return [
+            worker
+            for worker in threads
+            if isinstance(worker, threading.Thread)
+            and worker is not current
+            and worker.is_alive()
+        ]

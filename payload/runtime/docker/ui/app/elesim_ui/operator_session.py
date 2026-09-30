@@ -34,6 +34,7 @@ _COALESCED_SERVICE_CALLS = frozenset(
         "update_gaze_stabilizer_config",
     }
 )
+_RESET_SERVICE_CALL = "reset_simulation"
 # Keep one burst of UI requests from monopolising the DDS pump.  The next
 # cycle sends the remaining bounded requests after heartbeat/receive have had
 # a chance to run again.
@@ -202,6 +203,26 @@ class OperatorSession:
             on_error=on_error,
         )
         with self._lock:
+            is_reset = operation == "service_call" and request.name == _RESET_SERVICE_CALL
+            if is_reset:
+                # Respawn supersedes unsent teleop keep-alives. Remove them
+                # and put reset first so an old held-key command cannot follow
+                # the reset out of the UI request queue.
+                cancelled_ids = {
+                    prior_id
+                    for prior_id, prior in self._requests.items()
+                    if prior.sent_at is None
+                    and prior.operation == "service_call"
+                    and prior.name == "send_go2_velocity"
+                }
+                for prior_id in cancelled_ids:
+                    prior = self._requests.pop(prior_id, None)
+                    if prior is not None and prior.on_error is not None:
+                        self._enqueue_callback(prior.on_error, "preempted by simulation respawn")
+                if cancelled_ids:
+                    self._outbox = deque(
+                        prior_id for prior_id in self._outbox if prior_id not in cancelled_ids
+                    )
             key = self._coalesce_key(request)
             if key is not None:
                 for prior_id, prior in tuple(self._requests.items()):
@@ -214,7 +235,10 @@ class OperatorSession:
                     self._enqueue_callback(on_error, message)
                 return request.request_id
             self._requests[request.request_id] = request
-            self._outbox.append(request.request_id)
+            if is_reset:
+                self._outbox.appendleft(request.request_id)
+            else:
+                self._outbox.append(request.request_id)
         return request.request_id
 
     @staticmethod

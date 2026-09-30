@@ -165,6 +165,23 @@ def test_unsent_high_rate_updates_are_coalesced_to_the_latest_value() -> None:
     assert matching[0][1]["payload"]["kwargs"] == {"value": 0.25}
 
 
+def test_respawn_preempts_unsent_go2_commands_and_is_flushed_first() -> None:
+    clock = Clock()
+    value = session(clock)
+    endpoint = Endpoint()
+    value._last_snapshot_requested_at = clock.now
+
+    value.submit("service_call", "send_go2_velocity", vx=0.4, vy=0.0, wz=0.0)
+    value.submit("service_call", "torque_on")
+    reset_id = value.submit("service_call", "reset_simulation")
+
+    value.run_cycle(endpoint, now=clock.now)
+
+    intents = [entry[1]["payload"] for entry in endpoint.sent if entry[0] == "operator_intent"]
+    assert [entry["name"] for entry in intents] == ["reset_simulation", "torque_on"]
+    assert intents[0]["request_id"] == reset_id
+
+
 def test_outbox_flush_is_bounded_per_transport_cycle() -> None:
     clock = Clock()
     value = session(clock)

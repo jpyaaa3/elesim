@@ -178,6 +178,53 @@ def test_camera_pose_readback_does_not_bypass_feedback_cadence() -> None:
     assert app.sim_scene.calls == 1
 
 
+def test_received_respawn_forces_fresh_camera_snapshots_and_feedback() -> None:
+    events: list[tuple[str, object]] = []
+
+    class StateSource:
+        def poll(self) -> None:
+            events.append(("poll", None))
+
+        def sim_reset_seq(self) -> int:
+            return 1
+
+        def seed_estimate_q(self, q: object) -> None:
+            events.append(("seed_q", q))
+
+    class Scene:
+        def reset_environment(self, *, mapping_cfg: object) -> None:
+            events.append(("reset_scene", mapping_cfg))
+
+        def hide_mock_objects(self) -> None:
+            events.append(("hide_objects", None))
+
+        def reset_sim_target(self, position: np.ndarray) -> None:
+            events.append(("reset_target", tuple(position)))
+
+        def maybe_publish_camera(self, **kwargs: object) -> None:
+            events.append(("hand_eye", dict(kwargs)))
+
+        def maybe_publish_observer_camera(self, **kwargs: object) -> None:
+            events.append(("observer", dict(kwargs)))
+
+    app = GenesisApp(cfg=SimConfig(), state_source=StateSource())
+    app.sim_scene = Scene()
+    runtime = SimRuntime(app)
+    runtime._next_feedback_sim_t = 100.0
+
+    runtime._poll_host_and_update_model()
+
+    assert runtime.operator.epoch == 1
+    assert runtime._next_feedback_sim_t == 0.0
+    assert runtime._feedback_due(0.0) is True
+    hand_eye = next(value for name, value in events if name == "hand_eye")
+    observer = next(value for name, value in events if name == "observer")
+    assert hand_eye["force"] is True
+    assert hand_eye["sim_time_s"] == 0.0
+    assert observer["force"] is True
+    assert observer["sim_time_s"] == 0.0
+
+
 def test_headless_scene_step_skips_redundant_visualizer_sync() -> None:
     class Scene:
         kwargs: dict[str, bool] | None = None

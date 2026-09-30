@@ -4,7 +4,11 @@ from types import SimpleNamespace
 
 from elesim_protocol import ControlU, MockObjectStatePayload, SimulationStatusPayload
 from elesim_ui import control_panel
-from elesim_ui.panels.go2 import _send_go2_velocity, _stop_go2
+from elesim_ui.panels.go2 import (
+    _respawn_blocks_teleop,
+    _send_go2_velocity,
+    _stop_go2,
+)
 from elesim_ui.sim_view import SimViewState
 from elesim_ui.panels import mock_object
 
@@ -78,6 +82,22 @@ def test_go2_teleop_is_rate_limited_and_stop_is_edge_triggered() -> None:
         {"vx": 0.2, "vy": 0.0, "wz": 0.0},
         {"vx": 0.0, "vy": 0.0, "wz": 0.0},
     ]
+
+
+def test_respawn_blocks_held_teleop_until_all_motion_inputs_are_released() -> None:
+    panel = SimpleNamespace(
+        _go2_respawn_blocked=True,
+        _go2_was_active=True,
+        _go2_stop_sent=False,
+    )
+
+    assert _respawn_blocks_teleop(panel, active=True, key_stop=False) is True
+    assert panel._go2_respawn_blocked is True
+    assert panel._go2_was_active is False
+    assert panel._go2_stop_sent is True
+
+    assert _respawn_blocks_teleop(panel, active=False, key_stop=False) is False
+    assert panel._go2_respawn_blocked is False
 
 
 def test_mock_object_section_remains_visible_without_a_sim_session(monkeypatch) -> None:

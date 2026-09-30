@@ -3554,8 +3554,11 @@ class SimRuntime:
             while True:
                 perf.reset_loop()
                 t_sec = time.perf_counter()
-                self._apply_operator_commands()
+                # The out-of-band respawn fence is handled before ordinary
+                # UI commands so queued view or mock-object work cannot delay
+                # resetting the Genesis scene and MPC state.
                 self._poll_host_and_update_model()
+                self._apply_operator_commands()
                 sim_target_xyz = a.state_source.sim_target_xyz() if a.state_source is not None else None
                 if sim_target_xyz is not None:
                     a.sim_scene.set_sim_target_position(sim_target_xyz)

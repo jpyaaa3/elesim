@@ -43,10 +43,13 @@ class OperatorDispatcher:
             if operation == "view_snapshot":
                 result = self._view_snapshot()
             elif operation == "service_call" and name in SERVICE_CALLS:
+                self._reject_during_sim_reset(name)
                 result = getattr(self.service, name)(*args, **kwargs)
             elif operation == "state_call" and name in STATE_CALLS:
+                self._reject_during_sim_reset(name)
                 result = getattr(self.state, name)(*args, **kwargs)
             elif operation == "state_set" and name in STATE_VALUES:
+                self._reject_during_sim_reset(name)
                 setattr(self.state, name, kwargs.get("value"))
                 result = None
             else:
@@ -62,6 +65,12 @@ class OperatorDispatcher:
             # nothing".
             print(f"[operator] {operation} {name} FAILED: {exc!r}", flush=True)
             return {"request_id": request_id, "ok": False, "error": repr(exc)}
+
+    def _reject_during_sim_reset(self, name: str) -> None:
+        if name != "reset_simulation" and bool(
+            getattr(self.service, "sim_reset_in_progress", False)
+        ):
+            raise RuntimeError("simulation respawn is still stopping active workflows")
 
     def _view_snapshot(self) -> dict[str, Any]:
         host_state = self.service.refresh_host_state()

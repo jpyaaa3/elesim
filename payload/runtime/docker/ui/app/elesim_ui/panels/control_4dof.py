@@ -265,6 +265,7 @@ def _draw_respawn_row(panel) -> None:
     _control_label(panel, "Respawn")
     if imgui.button("Respawn", scaled(panel, _RESPAWN_W), 0.0):
         panel.service.reset_simulation()
+        panel._go2_respawn_blocked = True
         panel._go2_was_active = False
 
 

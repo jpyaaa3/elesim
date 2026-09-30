@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import replace
 
 from elesim_pilot.connection import PilotConnection
@@ -293,6 +294,45 @@ def test_target_submission_is_canonical_and_latest_rate_limited_value_is_retaine
         "source": "slider",
         "q": [-0.2, 0.1, 0.2, -0.2],
     }
+
+
+def test_sim_reset_overtakes_and_discards_queued_motion_targets() -> None:
+    value, sink, endpoint = connection()
+    value.active_target = "sim-a"
+    value.lease_id = "lease-a"
+
+    # One latest-only velocity is already pending and another forced target is
+    # still in the queue when respawn arrives from the operator callback.
+    value.submit({"t": "target", "go2_vel": [0.4, 0.0, 0.0]})
+    value.drain_outbox(endpoint, now=1.0)
+    value.submit({"t": "target", "q": [-0.1, 0.0, 0.1, 0.0]}, force=True)
+    value._connection_thread_ident = threading.get_ident()
+    value._active_endpoint = endpoint
+
+    value.submit({"t": "sim_reset"}, force=True)
+    value.drain_outbox(endpoint, now=2.0)
+    value.flush_target(endpoint, now=2.0)
+
+    assert [entry[1]["payload"] for entry in endpoint.sent] == [
+        {"command": "sim_reset"}
+    ]
+    assert sink.errors == []
+
+
+def test_queued_sim_reset_is_sent_before_later_motion() -> None:
+    value, _sink, endpoint = connection()
+    value.active_target = "sim-a"
+    value.lease_id = "lease-a"
+
+    value.submit({"t": "target", "go2_vel": [0.4, 0.0, 0.0]})
+    value.submit({"t": "sim_reset"}, force=True)
+    value.submit({"t": "target", "go2_vel": [0.1, 0.0, 0.0]}, force=True)
+    value.drain_outbox(endpoint, now=1.0)
+
+    assert [entry[1]["payload"] for entry in endpoint.sent] == [
+        {"command": "sim_reset"},
+        {"command": "target", "go2_vel": [0.1, 0.0, 0.0]},
+    ]
 
 
 def test_estop_bypasses_lease_but_requires_a_known_target() -> None:

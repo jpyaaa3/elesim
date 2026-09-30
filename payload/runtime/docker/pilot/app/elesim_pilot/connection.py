@@ -108,8 +108,11 @@ class PilotConnection:
         ] = None
 
         self._outbox: queue.Queue[_Submission] = queue.Queue()
+        self._outbox_lock = threading.Lock()
         self._pending_target: Optional[dict[str, Any]] = None
         self._last_target_sent_at: Optional[float] = None
+        self._connection_thread_ident: Optional[int] = None
+        self._active_endpoint: Any = None
         self._last_discover_at: Optional[float] = None
         self._selection_requested = ""
         self._selection_requested_at: Optional[float] = None
@@ -144,13 +147,51 @@ class PilotConnection:
         self.state_sink.peer_connected(False)
 
     def submit(self, message: Mapping[str, Any], *, force: bool = False) -> None:
-        self._outbox.put(_Submission("motion", dict(message), bool(force)))
+        payload = dict(message)
+        if str(payload.get("t", "")).strip() == "sim_reset":
+            submission = _Submission("reset", payload, True)
+            with self._outbox_lock:
+                # Respawn supersedes commands waiting in the normal motion
+                # queue and the rate-limited latest target.
+                pending_selects: list[_Submission] = []
+                while True:
+                    try:
+                        queued = self._outbox.get_nowait()
+                    except queue.Empty:
+                        break
+                    if queued.kind == "select":
+                        pending_selects.append(queued)
+                on_connection_thread = (
+                    threading.get_ident() == self._connection_thread_ident
+                    and self._active_endpoint is not None
+                )
+                if on_connection_thread:
+                    self._pending_target = None
+                    self._last_target_sent_at = None
+                    try:
+                        self._send_motion(
+                            self._active_endpoint,
+                            canonical_motion_payload(payload),
+                        )
+                    except DdsTransportError as exc:
+                        self.state_sink.accept_error(
+                            f"urgent simulation reset deferred after DDS send failure: {exc}"
+                        )
+                        self._outbox.put(submission)
+                else:
+                    self._outbox.put(submission)
+                for pending_select in pending_selects:
+                    self._outbox.put(pending_select)
+            return
+        with self._outbox_lock:
+            self._outbox.put(_Submission("motion", payload, bool(force)))
 
     def select_target(self, target_id: str) -> None:
         self.desired_target = str(target_id)
         self._selection_requested = ""
         self._selection_requested_at = None
-        self._outbox.put(_Submission("select", {"target_id": self.desired_target}, True))
+        with self._outbox_lock:
+            self._outbox.put(_Submission("select", {"target_id": self.desired_target}, True))
 
     def select_imu_model(self, model: Mapping[str, Any]) -> dict[str, Any]:
         target = self.active_target
@@ -207,6 +248,8 @@ class PilotConnection:
             settings=self.dds_settings,
             trace_context_provider=current_trace_context,
         )
+        self._connection_thread_ident = threading.get_ident()
+        self._active_endpoint = endpoint
         identity = getattr(endpoint, "identity", None)
         if identity is None:
             identity = getattr(getattr(endpoint, "node", None), "identity", None)
@@ -252,6 +295,8 @@ class PilotConnection:
                 except (ProtocolError, ValueError) as exc:
                     self.state_sink.accept_error(f"protocol receive failed: {exc}")
         finally:
+            self._active_endpoint = None
+            self._connection_thread_ident = None
             endpoint.close()
 
     def handle_envelope(self, endpoint: Any, message: Envelope) -> None:
@@ -479,10 +524,25 @@ class PilotConnection:
 
     def drain_outbox(self, endpoint: Any, *, now: float) -> None:
         while True:
-            try:
-                submission = self._outbox.get_nowait()
-            except queue.Empty:
-                return
+            with self._outbox_lock:
+                try:
+                    submission = self._outbox.get_nowait()
+                except queue.Empty:
+                    return
+                if submission.kind == "reset":
+                    self._pending_target = None
+                    self._last_target_sent_at = None
+            if submission.kind == "reset":
+                try:
+                    self._send_motion(
+                        endpoint,
+                        canonical_motion_payload(submission.payload),
+                    )
+                except DdsTransportError:
+                    with self._outbox_lock:
+                        self._outbox.put(submission)
+                    raise
+                continue
             if submission.kind == "select":
                 self._selection_requested = ""
                 self._selection_requested_at = None
@@ -490,7 +550,8 @@ class PilotConnection:
                 continue
             payload = canonical_motion_payload(submission.payload)
             if payload["command"] == "target" and not submission.force:
-                self._pending_target = payload
+                with self._outbox_lock:
+                    self._pending_target = payload
                 continue
             try:
                 self._send_motion(
@@ -505,16 +566,19 @@ class PilotConnection:
                 self._last_target_sent_at = float(now)
 
     def flush_target(self, endpoint: Any, *, now: float) -> None:
-        if self._pending_target is None:
-            return
-        if self._last_target_sent_at is not None and now - self._last_target_sent_at < self.send_period_s:
-            return
-        if not self.active_target or not self.lease_id:
-            return
-        payload = self._pending_target
+        with self._outbox_lock:
+            if self._pending_target is None:
+                return
+            if self._last_target_sent_at is not None and now - self._last_target_sent_at < self.send_period_s:
+                return
+            if not self.active_target or not self.lease_id:
+                return
+            payload = self._pending_target
         self._send_motion(endpoint, payload)
-        self._pending_target = None
-        self._last_target_sent_at = float(now)
+        with self._outbox_lock:
+            if self._pending_target is payload:
+                self._pending_target = None
+            self._last_target_sent_at = float(now)
 
     def flush_imu_model(self, endpoint: Any, *, now: float) -> None:
         with self._imu_model_lock:

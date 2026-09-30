@@ -44,6 +44,7 @@ class GazeControlService:
         self._worker: Optional[threading.Thread] = None
         self._demo_thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
+        self._demo_stop = threading.Event()
         self._mode = "idle"
         self._gaze_mode = "off"
         self._camera_logger: Optional[CameraMetricsLogger] = None
@@ -95,21 +96,34 @@ class GazeControlService:
                 return replace(self._config, enable_feedback=True, enable_base_ff=False)
         return self._config
 
-    def stop(self) -> None:
+    def stop(self, *, stop_demo: bool = True) -> None:
         self._stop.set()
+        if stop_demo:
+            self._demo_stop.set()
         worker = self._worker
         if worker is not None and worker.is_alive() and threading.current_thread() is not worker:
             worker.join(timeout=2.0)
-        self._worker = None
+        demo = self._demo_thread
+        if stop_demo and demo is not None and demo.is_alive() and threading.current_thread() is not demo:
+            demo.join(timeout=2.0)
+        worker_stopped = worker is None or not worker.is_alive()
+        if worker_stopped:
+            self._worker = None
         owner = self._ownership.owner
         if owner in (ControlOwner.GAZE_TRACK, ControlOwner.WALK_APPROACH):
             self._ownership.release(owner)
-        if self._camera_logger is not None:
+        if worker_stopped and self._camera_logger is not None:
             self._camera_logger.close()
             self._camera_logger = None
         self._parent.reset_gaze_derivative_state()
         self._parent.state.set_gaze_status(running=False, mode="idle", msg="stopped")
         self._gaze_mode = "off"
+
+    def request_stop(self) -> None:
+        """Signal gaze and demo workers to stop without waiting for them."""
+
+        self._stop.set()
+        self._demo_stop.set()
 
     def start_standing_uv_only(self, *, run_id: str = "") -> None:
         cfg = replace(self._config, enable_feedback=True, enable_base_ff=False)
@@ -145,14 +159,19 @@ class GazeControlService:
     def start_stop_and_grasp_demo(self) -> None:
         if self._demo_thread is not None and self._demo_thread.is_alive():
             return
+        self._demo_stop.clear()
 
         def _demo() -> None:
             try:
                 self.start_walking_gaze()
-                time.sleep(3.0)
+                if self._demo_stop.wait(3.0):
+                    return
                 self._parent.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
-                time.sleep(0.5)
-                self.stop()
+                if self._demo_stop.wait(0.5):
+                    return
+                self.stop(stop_demo=False)
+                if self._demo_stop.is_set():
+                    return
                 if hasattr(self._parent, "start_mobile_gaze_lji_pick_e2e"):
                     self._parent.start_mobile_gaze_lji_pick_e2e()
                 elif hasattr(self._parent, "start_look_aim_grasp_e2e"):

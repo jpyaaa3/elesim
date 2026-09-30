@@ -72,12 +72,9 @@ class SimulationStateSource:
             return "target"
         if command == "sim_reset":
             with self._lock:
-                # Reset the controller's input in the same state transition as
-                # the reset sequence. Pilot also emits a zero-velocity target,
-                # but that target is coalesced independently and can arrive
-                # after the Genesis thread has already reset and stepped the
-                # PyMPC controller. Leaving the previous velocity live for
-                # that step can immediately retrigger a latched MPC fault.
+                # Fence the previous command before the Genesis loop observes
+                # the reset sequence, so the first post-reset MPC step starts
+                # with neutral locomotion input.
                 self._go2_velocity = (0.0, 0.0, 0.0)
                 self._sim_reset_seq += 1
                 self._last_update_at = self.clock()

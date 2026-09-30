@@ -87,6 +87,38 @@ def test_dispatcher_executes_only_allowlisted_operations() -> None:
     assert rejected["ok"] is False
 
 
+def test_dispatcher_rejects_new_operator_commands_until_respawn_cleanup_finishes() -> None:
+    class ResettingService(Service):
+        sim_reset_in_progress = True
+
+        def reset_simulation(self):
+            return "reset requested"
+
+    dispatcher = OperatorDispatcher(State(), ResettingService())
+    blocked = dispatcher.handle(
+        {
+            "request_id": "walk-1",
+            "operation": "service_call",
+            "name": "torque_on",
+            "args": [],
+            "kwargs": {},
+        }
+    )
+    allowed_reset = dispatcher.handle(
+        {
+            "request_id": "reset-1",
+            "operation": "service_call",
+            "name": "reset_simulation",
+            "args": [],
+            "kwargs": {},
+        }
+    )
+
+    assert blocked["ok"] is False
+    assert "respawn is still stopping" in blocked["error"]
+    assert allowed_reset["ok"] is True
+
+
 def test_dispatcher_requires_request_id() -> None:
     result = OperatorDispatcher(State(), Service()).handle({"operation": "view_snapshot"})
     assert result == {"request_id": "", "ok": False, "error": "missing_request_id"}
