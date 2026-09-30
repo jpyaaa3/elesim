@@ -110,6 +110,8 @@ def test_scoped_multihost_planner_uses_each_units_release_and_host_dds(
         docker = SimpleNamespace(project=project_name(LOCAL_UUID))
 
     class RemoteOperation:
+        planning_barrier = threading.Barrier(2)
+
         def scoped_identity(self, _host, unit):
             return {"install_uuid": unit.install_uuid, "project": unit.project}
 
@@ -120,6 +122,8 @@ def test_scoped_multihost_planner_uses_each_units_release_and_host_dds(
             return {"compute": {"gpu_mode": "cpu", "gpu_device": ""}}
 
         def scoped_instance_state(self, host, _unit, _system):
+            # Local and remote host lookups are independent and should overlap.
+            self.planning_barrier.wait(timeout=2)
             return local_previous if host.host_id == "local" else None
 
         def close(self):
@@ -128,8 +132,8 @@ def test_scoped_multihost_planner_uses_each_units_release_and_host_dds(
     runner = ConnectionDeploymentRunner(tmp_path / "authority", local_install_root=local_root)
     monkeypatch.setattr("elesim_connections.connections.OwnershipManifest.load", lambda _path: Manifest())
     monkeypatch.setattr(
-        "elesim_connections.connections.list_releases",
-        lambda _prefix, install_uuid: (local_release,) if install_uuid == LOCAL_UUID else (remote_release,),
+        "elesim_setup.image_cleanup.recorded_available_releases",
+        lambda _prefix: (local_release,),
     )
     monkeypatch.setattr(
         InstanceRegistry,
@@ -316,6 +320,10 @@ class _BootOperations(_RegistrationOperations):
     def preflight(self, host):
         return SimpleNamespace(require_for=lambda *args, **kwargs: None)
 
+    def runtime_preflight(self, host):
+        self.events.append(("preflight", host.host_id))
+        return self.preflight(host)
+
     def runtime_launch_preflight(self, host):
         self.events.append(("preflight", host.host_id))
 
@@ -416,6 +424,76 @@ def test_runtime_status_preserves_partial_registration(tmp_path, monkeypatch):
     result = runner.runtime_status(topology)
     assert all(host["reachable"] and not host["registered"] for host in result["hosts"])
     assert all(host["running_roles"] for host in result["hosts"])
+
+
+def test_runtime_status_polls_hosts_concurrently_and_reuses_gpu_inventory(
+    tmp_path, monkeypatch
+):
+    topology = _registration_topology(tmp_path, "trusted-network")
+    runner = ConnectionDeploymentRunner(tmp_path / "authority")
+    barrier = threading.Barrier(len(topology.hosts))
+
+    class ConcurrentStatus(_BootOperations):
+        def status(self, host):
+            barrier.wait(timeout=2)
+            return {
+                "state": "stopped",
+                "running_roles": [],
+                "gpu_policy": {
+                    role: {"mode": "inherit", "device": ""}
+                    for role in host.roles
+                    if role in {"pilot", "sim"}
+                },
+                "gpu_devices": [],
+            }
+
+        def runtime_inventory(self, _host):
+            pytest.fail("GPU inventory was already included in lifecycle status")
+
+    monkeypatch.setattr(runner, "_operations", lambda graph: {
+        host.host_id: ConcurrentStatus([]) for host in graph.hosts
+    })
+
+    result = runner.runtime_status(topology)
+
+    assert [host["host_id"] for host in result["hosts"]] == [
+        host.host_id for host in topology.hosts
+    ]
+    assert all(host["inventory_ready"] for host in result["hosts"])
+
+
+def test_prepare_final_host_validation_runs_concurrently(tmp_path, monkeypatch):
+    topology = _registration_topology(tmp_path, "trusted-network")
+    release = _release(LOCAL_UUID, ("pilot", "sim", "ui"))
+    barrier = threading.Barrier(len(topology.hosts))
+    events = []
+
+    class ParallelPrepare(_BootOperations):
+        def runtime_network_check(self, host):
+            barrier.wait(timeout=2)
+            events.append(("network-check", host.host_id))
+
+    operations = {
+        host.host_id: ParallelPrepare(events) for host in topology.hosts
+    }
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority", local_install_root=tmp_path / "local"
+    )
+    _patch_scoped_runner(
+        runner, topology, _registration_plans(topology, release), operations,
+        monkeypatch,
+    )
+    monkeypatch.setattr(runner, "_plan_native_units", lambda *_args: [])
+    logs = []
+
+    runner(topology, "prepare", logs.append)
+
+    assert {host_id for event, host_id in events if event == "network-check"} == {
+        host.host_id for host in topology.hosts
+    }
+    assert sum(
+        message.startswith("prepare validation complete:") for message in logs
+    ) == len(topology.hosts)
 
 
 @pytest.mark.parametrize("active_authority", [False, True])

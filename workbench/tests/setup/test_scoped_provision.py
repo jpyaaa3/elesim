@@ -170,8 +170,8 @@ def test_scoped_provision_prepares_network_then_registers_exact_instance(
     )
     monkeypatch.setattr("elesim_connections.connections.OwnershipManifest.load", lambda _path: Manifest())
     monkeypatch.setattr(
-        "elesim_connections.connections.list_releases",
-        lambda *_args, **_kwargs: (release,),
+        "elesim_setup.image_cleanup.recorded_available_releases",
+        lambda _prefix: (release,),
     )
     monkeypatch.setattr(
         ConnectionDeploymentRunner, "_local_install_scope", lambda _self: True
@@ -239,8 +239,8 @@ def test_scoped_first_provision_rejects_ambiguous_release_set(
     monkeypatch.setattr("elesim_connections.connections.Sros2Authority", Authority)
     monkeypatch.setattr("elesim_connections.connections.OwnershipManifest.load", lambda _path: Manifest())
     monkeypatch.setattr(
-        "elesim_connections.connections.list_releases",
-        lambda *_args, **_kwargs: (_release(), _release()),
+        "elesim_setup.image_cleanup.recorded_available_releases",
+        lambda _prefix: (_release(), _release()),
     )
     monkeypatch.setattr(ConnectionDeploymentRunner, "_local_install_scope", lambda _self: True)
     monkeypatch.setattr(

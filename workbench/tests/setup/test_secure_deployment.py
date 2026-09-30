@@ -477,6 +477,58 @@ def test_scoped_status_preserves_running_native_unit_when_runtime_unregistered(m
     assert status["units"]["robot-native"]["state"] == "running"
 
 
+def test_status_after_runtime_preflight_reuses_scoped_target_validation(
+    monkeypatch,
+) -> None:
+    topology = _scoped_remote_topology()
+    host = topology.host("server")
+    lifecycle = InstalledElesimLifecycle(topology, scoped=True)
+    monkeypatch.setattr(
+        lifecycle,
+        "_validate_scoped_target",
+        lambda *_args, **_kwargs: pytest.fail(
+            "same-job preflight already checked scoped identity and paths"
+        ),
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "_gpu_policies",
+        lambda *_args: pytest.fail("start guard does not need GPU inventory"),
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "_gpu_devices",
+        lambda *_args: pytest.fail("start guard does not need GPU inventory"),
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "_scoped_instance_state",
+        lambda *_args: {"system_id": "lab", "turn": {"mode": "none"}},
+    )
+
+    class Session:
+        def __init__(self) -> None:
+            self.commands = []
+
+        def run(self, argv, *, check=True):
+            command = tuple(str(value) for value in argv)
+            self.commands.append(command)
+            if command[:3] == ("/usr/local/bin/elesim-instance", "lab", "status"):
+                return RemoteCommandResult(0, "sim\n")
+            return RemoteCommandResult(0)
+
+    session = Session()
+    status = lifecycle.status_after_runtime_preflight(session, host)
+
+    assert status["state"] == "running"
+    assert "gpu_policy" not in status
+    assert "gpu_devices" not in status
+    assert any(
+        command[:3] == ("/usr/local/bin/elesim-instance", "lab", "status")
+        for command in session.commands
+    )
+
+
 def test_scoped_remote_lifecycle_rejects_unenrolled_legacy_unit() -> None:
     topology = _scoped_remote_topology()
     unit = topology.host("server").primary_unit

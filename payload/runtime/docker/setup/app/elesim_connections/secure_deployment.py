@@ -635,6 +635,10 @@ class RemoteLifecycle(Protocol):
         self, session: SshSession, host: ManagedHost
     ) -> Mapping[str, Any]: ...
 
+    def status_after_runtime_preflight(
+        self, session: SshSession, host: ManagedHost
+    ) -> Mapping[str, Any]: ...
+
     def verify(
         self,
         session: SshSession,
@@ -717,6 +721,10 @@ class HostOperations(Protocol):
     ) -> Mapping[str, Any]: ...
 
     def status(self, host: ManagedHost) -> Mapping[str, Any]: ...
+
+    def status_after_runtime_preflight(
+        self, host: ManagedHost
+    ) -> Mapping[str, Any]: ...
 
     def verify(
         self,
@@ -1580,6 +1588,23 @@ class SshHostOperations:
     def status(self, host: ManagedHost) -> Mapping[str, Any]:
         with self._connect(host) as session:
             result = dict(self._lifecycle.status(session, host))
+        result.setdefault("host_id", host.host_id)
+        result.setdefault("roles", list(host.roles))
+        return result
+
+    def status_after_runtime_preflight(self, host: ManagedHost) -> Mapping[str, Any]:
+        """Read fresh lifecycle state while reusing this job's preflight proof."""
+
+        with self._connect(host) as session:
+            checked_status = getattr(
+                self._lifecycle, "status_after_runtime_preflight", None
+            )
+            if callable(checked_status):
+                result = dict(checked_status(session, host))
+            else:
+                # Keep structural lifecycle implementations compatible. The
+                # production lifecycle exposes the checked variant below.
+                result = dict(self._lifecycle.status(session, host))
         result.setdefault("host_id", host.host_id)
         result.setdefault("roles", list(host.roles))
         return result
@@ -3784,14 +3809,36 @@ class InstalledElesimLifecycle:
                 policies[role] = dict(policy)
         return policies, errors
 
-    def status(self, session: SshSession, host: ManagedHost) -> Mapping[str, Any]:
+    def status_after_runtime_preflight(
+        self, session: SshSession, host: ManagedHost
+    ) -> Mapping[str, Any]:
+        """Reuse same-job identity/path checks, but perform a fresh runtime query."""
+
+        return self.status(
+            session,
+            host,
+            scoped_targets_prevalidated=True,
+            include_gpu_inventory=False,
+        )
+
+    def status(
+        self,
+        session: SshSession,
+        host: ManagedHost,
+        *,
+        scoped_targets_prevalidated: bool = False,
+        include_gpu_inventory: bool = True,
+    ) -> Mapping[str, Any]:
         """Return a bounded lifecycle snapshot without changing host state."""
         unit_status: dict[str, Mapping[str, Any]] = {}
         for unit in host.units:
             if unit.install_mode == "container":
                 if self._scoped:
                     try:
-                        self._validate_scoped_target(session, unit, local=host.local)
+                        if not scoped_targets_prevalidated:
+                            self._validate_scoped_target(
+                                session, unit, local=host.local
+                            )
                     except ScopedInstanceNotRegisteredError as exc:
                         unit_status[unit.unit_id] = {
                             "state": "unregistered",
@@ -3981,14 +4028,16 @@ class InstalledElesimLifecycle:
         snapshot["registered"] = all(
             value.get("registered", True) for value in unit_status.values()
         )
-        policies, policy_errors = self._gpu_policies(session, host)
-        if policies:
+        if include_gpu_inventory:
+            policies, policy_errors = self._gpu_policies(session, host)
+            # Keep the inventory shape explicit, including CPU-only/empty
+            # results. This lets the manager use one status poll instead of
+            # opening another remote operation just to distinguish "no GPU"
+            # from "not queried".
             snapshot["gpu_policy"] = policies
-        if policy_errors:
-            snapshot["gpu_policy_error"] = "; ".join(policy_errors)[:512]
-        devices = self._gpu_devices(session, host)
-        if devices:
-            snapshot["gpu_devices"] = devices
+            if policy_errors:
+                snapshot["gpu_policy_error"] = "; ".join(policy_errors)[:512]
+            snapshot["gpu_devices"] = self._gpu_devices(session, host)
         return snapshot
 
     def runtime_inventory(self, session: SshSession, host: ManagedHost) -> Mapping[str, Any]:

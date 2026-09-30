@@ -566,12 +566,21 @@ class ConnectionDeploymentRunner:
             if prepare_only:
                 self._scoped_unit_plans(topology, operations)
                 self._plan_native_units(topology, operations, "deploy")
-                for host in topology.hosts:
-                    operations[host.host_id].runtime_network_check(host)
-                    inventory = operations[host.host_id].runtime_inventory(host)
+
+                def validate_prepared_host(host: ManagedHost) -> None:
+                    operation = operations[host.host_id]
+                    operation.runtime_network_check(host)
+                    inventory = operation.runtime_inventory(host)
                     if inventory.get("gpu_policy_error"):
                         raise RuntimeError(f"{host.host_id}: {inventory['gpu_policy_error']}")
                     log(f"validated: {host.host_id}")
+
+                _run_host_phase(
+                    topology.hosts,
+                    "prepare validation",
+                    log,
+                    validate_prepared_host,
+                )
                 log("Connection preparation completed. Choose GPU/Viewer options; instances will be registered when starting.")
                 return topology
             if scoped_install and action == "start":
@@ -684,11 +693,20 @@ class ConnectionDeploymentRunner:
                             host, require_security_write=False
                         )
                 if action == "start":
+                    def status_after_preflight(host: ManagedHost) -> Mapping[str, Any]:
+                        operation = operations[host.host_id]
+                        checked_status = getattr(
+                            operation, "status_after_runtime_preflight", None
+                        )
+                        if callable(checked_status):
+                            return checked_status(host)
+                        return operation.status(host)
+
                     statuses = _run_host_phase(
                         hosts,
                         "status",
                         log,
-                        lambda host: operations[host.host_id].status(host),
+                        status_after_preflight,
                     )
                     for host in hosts:
                         running_roles = self._status_running_roles(
@@ -1410,7 +1428,20 @@ class ConnectionDeploymentRunner:
             if local_manifest.docker is None:
                 raise ValueError("local install ownership has no Docker identity")
             local_state = self._state_for_local_scope(local_manifest.install_uuid)
-        for host in topology.hosts:
+
+        def plan_host(
+            host: ManagedHost,
+        ) -> list[
+            tuple[
+                ManagedHost,
+                DeploymentUnit,
+                InstanceState,
+                ReleaseManifest,
+                InstanceState | None,
+                ReleaseManifest | None,
+            ]
+        ]:
+            host_plans = []
             for unit in host.runtime_units:
                 operation = operations[host.host_id]
                 if host.local:
@@ -1530,7 +1561,7 @@ class ConnectionDeploymentRunner:
                             f"previous release for {host.host_id}/{unit.unit_id} "
                             "is no longer published"
                         )
-                plans.append(
+                host_plans.append(
                     (
                         host,
                         unit,
@@ -1540,6 +1571,17 @@ class ConnectionDeploymentRunner:
                         previous_release,
                     )
                 )
+            return host_plans
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(_HOST_PHASE_PARALLELISM, len(topology.hosts)),
+            thread_name_prefix="elesim-scoped-plan",
+        ) as executor:
+            # Identity, release inventory, install policy, and prior instance
+            # state are read-only and host-independent. Resolve them in
+            # parallel while retaining deterministic topology order.
+            for host_plans in executor.map(plan_host, topology.hosts):
+                plans.extend(host_plans)
         if not plans:
             raise ValueError("scoped topology has no container deployment units")
         return plans
@@ -2938,50 +2980,77 @@ class ConnectionDeploymentRunner:
         topology.validate()
         self._validate_management_host(topology)
         operations = self._operations(topology)
-        hosts: list[dict[str, object]] = []
-        try:
-            for host in topology.hosts:
-                inventory: dict[str, object] = {}
+
+        def collect_host(host: ManagedHost) -> dict[str, object]:
+            operation = operations[host.host_id]
+            inventory: dict[str, object] = {}
+            value: dict[str, Any] | None = None
+            status_error: Exception | None = None
+            try:
+                value = dict(operation.status(host))
+            except Exception as exc:
+                status_error = exc
+
+            # The concrete lifecycle now includes GPU policy/devices in its
+            # status response. Older installs and structural test operations
+            # may not, so retain a compatibility fallback only for those.
+            inventory_probe = getattr(operation, "runtime_inventory", None)
+            needs_inventory = (
+                value is None
+                or "gpu_policy" not in value
+                or "gpu_devices" not in value
+            )
+            if needs_inventory and callable(inventory_probe):
                 try:
-                    inventory_probe = getattr(operations[host.host_id], "runtime_inventory", None)
-                    if callable(inventory_probe):
-                        inventory = dict(inventory_probe(host))
-                        inventory["inventory_ready"] = not bool(inventory.get("gpu_policy_error"))
-                    value = dict(operations[host.host_id].status(host))
-                    value.update(inventory)
-                    # Runtime status is keyed by the stable host ID; discard
-                    # labels returned by an older remote helper.
-                    value.pop("display_name", None)
-                    value.setdefault("host_id", host.host_id)
-                    value.setdefault("roles", list(host.roles))
-                    value["reachable"] = True
-                    value.setdefault("registered", True)
-                except ScopedInstanceNotRegisteredError:
-                    hosts.append(
-                        {
-                            **inventory,
-                            "host_id": host.host_id,
-                            "roles": list(host.roles),
-                            "reachable": True,
-                            "registered": False,
-                            "state": "unregistered",
-                            "running_roles": [],
-                        }
+                    inventory = dict(inventory_probe(host))
+                    inventory["inventory_ready"] = not bool(
+                        inventory.get("gpu_policy_error")
                     )
-                    continue
                 except Exception as exc:
-                    hosts.append(
-                        {
-                            **inventory,
-                            "host_id": host.host_id,
-                            "roles": list(host.roles),
-                            "reachable": False,
-                            "state": "unreachable",
-                            "detail": str(exc)[:512],
-                        }
-                    )
-                    continue
-                hosts.append(value)
+                    status_error = exc
+
+            if value is None:
+                value = {}
+            if inventory:
+                value.update(inventory)
+            if "inventory_ready" not in value and (
+                "gpu_policy" in value or "gpu_devices" in value
+            ):
+                value["inventory_ready"] = not bool(value.get("gpu_policy_error"))
+
+            # Runtime status is keyed by the stable host ID; discard labels
+            # returned by an older remote helper.
+            value.pop("display_name", None)
+            value.setdefault("host_id", host.host_id)
+            value.setdefault("roles", list(host.roles))
+            if isinstance(status_error, ScopedInstanceNotRegisteredError):
+                return {
+                    **value,
+                    "reachable": True,
+                    "registered": False,
+                    "state": "unregistered",
+                    "running_roles": [],
+                }
+            if status_error is not None:
+                return {
+                    **value,
+                    "reachable": False,
+                    "state": "unreachable",
+                    "detail": str(status_error)[:512],
+                }
+            value["reachable"] = True
+            value.setdefault("registered", True)
+            return value
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=min(_HOST_PHASE_PARALLELISM, len(topology.hosts)),
+                thread_name_prefix="elesim-runtime-status",
+            ) as executor:
+                # executor.map preserves topology order while remote polls run
+                # concurrently. collect_host contains each host's failures so
+                # one unavailable machine does not hide the others' status.
+                hosts = list(executor.map(collect_host, topology.hosts))
         finally:
             self._close_operations(operations)
         return {

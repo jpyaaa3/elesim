@@ -280,6 +280,9 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
             raise AssertionError("runtime launch guard was not consolidated")
 
         def status(self, _host):
+            raise AssertionError("start should use the preflight-validated status path")
+
+        def status_after_runtime_preflight(self, _host):
             record(f"status-begin:{self.host_id}")
             status_barrier.wait(timeout=2)
             record(f"status:{self.host_id}")

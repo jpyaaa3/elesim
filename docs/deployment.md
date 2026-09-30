@@ -284,13 +284,20 @@ runtime namespace in one read-only invocation; it does not replace the later
 DDS descriptor/heartbeat readiness gate. On Docker Desktop sidecar installs,
 the generated-file consistency check remains a separate tools-service read so
 the runtime namespace service does not gain an installation-wide mount.
-Independent hosts are preflighted,
-status-checked and started concurrently (up to four hosts). Legacy image builds
+Independent hosts are preflighted, status-checked and started concurrently
+(up to four hosts). Prepare's final network/GPU validation, runtime-status
+polls, and read-only scoped identity/release/state planning also run per host
+in parallel, preserving topology order in reported results. Lifecycle status
+returns GPU policy and device inventory in the same response; older operation
+implementations use the separate inventory fallback. Legacy image builds
 are limited to two hosts at once to avoid overloading one Docker engine, and
 launch remains behind the all-host build-success barrier. Scoped instances
 already use pinned immutable releases, so their start path skips image building
-and performs exact scope-path validation only once in preflight. A launch failure still waits for outstanding
-host attempts, then rolls back every host attempted by that start.
+and performs exact scope-path validation in runtime preflight; the immediately
+following status check reuses that same-job proof while still querying fresh
+Compose/systemd state. Standalone status polls retain full path validation.
+A launch failure still waits for outstanding host attempts, then rolls back
+every host attempted by that start.
 
 `check`는 SSH 및 namespace interface/address/route를 읽기 전용으로 확인한다.
 two-host preflight는 Jetson 없이 정확히 두 COM endpoint를 검사하며 topology,
