@@ -153,8 +153,34 @@ class PyMpcForceSolver:
                         if status != 0:
                             raise RuntimeError(f"PyMPC RTI preparation failed: {status}")
 
+                def reset(self) -> None:
+                    """Clear Python and acados warm-start state after a scene reset."""
+                    self.previous_status = -1
+                    self.previous_contact_sequence = np.zeros((4, self.horizon))
+                    self.optimal_next_state = np.zeros(24)
+                    self.previous_optimal_GRF = np.zeros(12)
+                    self.integral_errors = np.zeros(6)
+                    self.initial_base_position = np.zeros(3)
+                    self.acados_ocp_solver.reset(reset_qp_solver_mem=True)
+                    for stage in range(self.horizon + 1):
+                        self.acados_ocp_solver.set(stage, "x", np.zeros(self.states_dim))
+                    for stage in range(self.horizon):
+                        self.acados_ocp_solver.set(stage, "u", np.zeros(self.inputs_dim))
+                    if self.use_RTI:
+                        self.acados_ocp_solver.options_set("rti_phase", 1)
+                        status = self.acados_ocp_solver.solve()
+                        if status != 0:
+                            raise RuntimeError(f"PyMPC RTI reset preparation failed: {status}")
+
             solver_factory = PrebuiltNominal
         self._solver = solver_factory()
+        self._maxiter_warning_logged = False
+
+    def reset(self) -> None:
+        """Reset a solver implementation's warm start when it supports it."""
+        reset = getattr(self._solver, "reset", None)
+        if callable(reset):
+            reset()
         self._maxiter_warning_logged = False
 
     def solve(self, sample: PyMpcInput) -> np.ndarray:

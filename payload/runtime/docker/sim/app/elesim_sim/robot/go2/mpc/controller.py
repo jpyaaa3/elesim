@@ -577,6 +577,7 @@ class ConvexMpcGenesisController:
             self._contact_diagnostics.reset()
         self._init_pose_and_actuation()
         self._entity.zero_all_dofs_velocity()
+        self._bridge.reset()
 
     def _record_metrics_sample(
         self,
@@ -725,7 +726,7 @@ class ConvexMpcGenesisController:
         if self._metrics is not None:
             self._metrics.record_torque_step(recomputed=True, hold=False)
         bridge_started = time.perf_counter()
-        self._bridge.sync_pin_model(self._pin)
+        self._bridge.sync_pin_model(self._pin, dt=self._ctrl_dt)
         self._observe_timing("go2_bridge_sync", bridge_started)
         self._loco_time += self._ctrl_dt
 

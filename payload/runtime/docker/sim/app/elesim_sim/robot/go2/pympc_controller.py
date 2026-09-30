@@ -275,6 +275,8 @@ class PyMpcGenesisController:
         self._tau_hold.fill(0.0)
         self._tau_limited.fill(0.0)
         self._tau_raw.fill(0.0)
+        self._swing_starts.fill(0.0)
+        self._touchdowns.fill(0.0)
         self._last_contacts.fill(1.0)
         self._set_stand_actuation()
 
@@ -321,14 +323,20 @@ class PyMpcGenesisController:
         self._tau_hold.fill(0.0)
         self._tau_limited.fill(0.0)
         self._tau_raw.fill(0.0)
+        self._swing_starts.fill(0.0)
+        self._touchdowns.fill(0.0)
         self._last_contacts.fill(1.0)
         self._set_stand_actuation()
         self._entity.set_dofs_position(self._kin.stand_q, dofs_idx_local=self._leg_dof_idxs)
         self._entity.zero_all_dofs_velocity()
+        self._bridge.reset()
+        if self._payload is not None:
+            self._payload.reset()
+        self._solver.reset()
 
     def _sample(self) -> tuple[PyMpcInput, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         pin = self._pin
-        q, dq = self._bridge.read_pin_q_dq()
+        q, dq = self._bridge.read_pin_q_dq(dt=self._dt)
         self._bridge.last_q = q.copy()
         self._bridge.last_dq = dq.copy()
         pin.forwardKinematics(self._model, self._data, q, dq)
@@ -340,7 +348,7 @@ class PyMpcGenesisController:
         vel = np.asarray(self._data.vcom[0], dtype=float).copy()
         if self._payload is not None:
             state = SimpleNamespace(data=self._data, pos_com_world=com, vel_com_world=vel)
-            self._payload.apply(state)
+            self._payload.apply(state, dt=self._dt)
             com = np.asarray(state.pos_com_world, dtype=float).copy()
             vel = np.asarray(state.vel_com_world, dtype=float).copy()
         rot = Rotation.from_quat(q[3:7])

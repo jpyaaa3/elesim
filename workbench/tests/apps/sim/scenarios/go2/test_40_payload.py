@@ -69,6 +69,23 @@ class _FakeEntity:
 
 
 class PayloadModelTests(unittest.TestCase):
+    def test_stale_payload_link_velocity_uses_com_position_difference(self) -> None:
+        link = _FakeLink("plate", 2.0, [0.0, 0.0, 0.0])
+        payload = ArmPayloadCompensator(_FakeEntity([link]))
+
+        payload.measure(dt=0.02)
+        link._pos[0] += 0.002
+        moving = payload.measure(dt=0.02)
+
+        assert moving is not None
+        self.assertTrue(np.allclose(moving.vel_world, [0.1, 0.0, 0.0]))
+
+        payload.reset()
+        link._pos[0] += 0.5
+        after_reset = payload.measure(dt=0.02)
+        assert after_reset is not None
+        self.assertTrue(np.allclose(after_reset.vel_world, np.zeros(3)))
+
     def test_payload_measurement_reads_genesis_link_description_inertia(self) -> None:
         expected_inertia = np.diag([0.2, 0.3, 0.4])
         entity = _FakeEntity(

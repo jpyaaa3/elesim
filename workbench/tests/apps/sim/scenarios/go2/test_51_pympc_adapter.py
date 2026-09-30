@@ -23,6 +23,10 @@ class FakeSolver:
         )
         self.status = status
         self.received = None
+        self.reset_calls = 0
+
+    def reset(self):
+        self.reset_calls += 1
 
     def compute_control(self, state, reference, contacts, **kwargs):
         self.received = (state, reference, contacts, kwargs)
@@ -158,6 +162,17 @@ def test_solver_uses_bounded_finite_force_when_iteration_limit_is_reached(capsys
     assert capsys.readouterr().out.count("using the finite, bounded force iterate") == 1
 
 
+def test_force_solver_reset_clears_backend_warm_start_and_warning_state() -> None:
+    fake = FakeSolver()
+    adapter = PyMpcForceSolver(horizon=3, solver_factory=lambda: fake)
+    adapter._maxiter_warning_logged = True
+
+    adapter.reset()
+
+    assert fake.reset_calls == 1
+    assert not adapter._maxiter_warning_logged
+
+
 @pytest.mark.parametrize("force,status", [([1, 2, 3] * 4, 4), ([float("nan"), 0, 1] * 4, 0)])
 def test_solver_failure_is_not_reused_as_valid_force(force, status) -> None:
     adapter = PyMpcForceSolver(horizon=3, solver_factory=lambda: FakeSolver(force, status))
@@ -285,6 +300,8 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
     controller._tau_hold = np.ones(12)
     controller._tau_limited = np.ones(12)
     controller._tau_raw = np.ones(12)
+    controller._swing_starts = np.ones((4, 3))
+    controller._touchdowns = np.ones((4, 3))
     controller._last_contacts = np.zeros(4)
     controller._kin = SimpleNamespace(stand_q=np.zeros(12))
     controller._leg_dof_idxs = list(range(12))
@@ -309,6 +326,8 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
     assert not controller._active
     assert not controller._forces.any()
     assert not controller._force_requested.any()
+    assert not controller._swing_starts.any()
+    assert not controller._touchdowns.any()
     assert not controller._tau_filt.any()
     assert not controller._tau_hold.any()
     assert controller._last_contacts.all()
@@ -648,3 +667,88 @@ def test_solver_failure_returns_to_stand_without_pose_step():
         c._step()
     np.testing.assert_allclose(c._entity.control_dofs_position.call_args.args[0], np.zeros(12))
     c._sample.assert_called_once()
+
+
+def test_controller_reset_preempts_command_and_resets_solver_and_bridge():
+    from unittest.mock import Mock
+
+    controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._command_shaper = SimpleNamespace(reset=Mock())
+    controller._contact_diagnostics = None
+    controller._pose_transition = SimpleNamespace(reset=Mock())
+    controller._kin = SimpleNamespace(stand_q=np.zeros(12))
+    controller._config = SimpleNamespace(stand_kp=20.0, stand_kv=1.0)
+    controller._entity = Mock()
+    controller._leg_dof_idxs = list(range(12))
+    controller._payload = None
+    controller._bridge = SimpleNamespace(reset=Mock())
+    controller._solver = SimpleNamespace(reset=Mock())
+    controller._force_requested = np.ones((4, 3))
+    controller._forces = np.ones((4, 3))
+    controller._tau_filt = np.ones(12)
+    controller._tau_hold = np.ones(12)
+    controller._tau_limited = np.ones(12)
+    controller._tau_raw = np.ones(12)
+    controller._swing_starts = np.ones((4, 3))
+    controller._touchdowns = np.ones((4, 3))
+    controller._last_contacts = np.zeros(4)
+
+    controller.reset()
+
+    assert controller._cmd == Go2Command()
+    assert controller._command_shaper.reset.call_count == 1
+    assert controller._bridge.reset.call_count == 1
+    assert controller._solver.reset.call_count == 1
+    assert not np.any(controller._force_requested)
+    assert not np.any(controller._forces)
+    assert not np.any(controller._tau_hold)
+    assert not np.any(controller._swing_starts)
+    assert not np.any(controller._touchdowns)
+    assert controller._faulted is False
+
+
+def test_genesis_bridge_estimates_stale_zero_base_twist_from_pose_delta():
+    from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge
+
+    pose = {"x": 0.0, "yaw": 0.0}
+
+    def quaternion_wxyz():
+        half_yaw = pose["yaw"] / 2.0
+        return np.array([np.cos(half_yaw), 0.0, 0.0, np.sin(half_yaw)])
+
+    base = type(
+        "Base",
+        (),
+        {
+            "get_pos": lambda _self: np.array([pose["x"], 0.0, 0.32]),
+            "get_quat": lambda _self: quaternion_wxyz(),
+            "get_vel": lambda _self: np.zeros(3),
+            "get_ang": lambda _self: np.zeros(3),
+        },
+    )()
+    entity = type(
+        "Entity",
+        (),
+        {
+            "get_link": lambda _self, _name: base,
+            "get_dofs_position": lambda _self, *, dofs_idx_local: np.zeros(len(dofs_idx_local)),
+            "get_dofs_velocity": lambda _self, *, dofs_idx_local: np.zeros(len(dofs_idx_local)),
+        },
+    )()
+    bridge = GenesisPinBridge(entity, list(range(12)))
+
+    _, initial_dq = bridge.read_pin_q_dq(dt=0.02)
+    pose["x"] = 0.002
+    pose["yaw"] = 0.01
+    _, moving_dq = bridge.read_pin_q_dq(dt=0.02)
+
+    np.testing.assert_array_equal(initial_dq[:6], np.zeros(6))
+    np.testing.assert_allclose(
+        moving_dq[:3], [np.cos(0.01) * 0.1, -np.sin(0.01) * 0.1, 0.0], atol=1e-10
+    )
+    np.testing.assert_allclose(moving_dq[3:6], [0.0, 0.0, 0.5], atol=1e-10)
+
+    bridge.reset()
+    pose["x"] = 0.5
+    _, after_reset_dq = bridge.read_pin_q_dq(dt=0.02)
+    np.testing.assert_array_equal(after_reset_dq[:6], np.zeros(6))

@@ -43,6 +43,8 @@ class ArmPayloadCompensator:
         names = {str(name).strip() for name in (link_names or set()) if str(name).strip()}
         self._link_names = names if names else None
         self._link_ids: set[int] = set()
+        self._previous_com_world: np.ndarray | None = None
+        self._warned_stale_velocity = False
         if self._link_names is not None:
             missing: list[str] = []
             for name in self._link_names:
@@ -63,7 +65,14 @@ class ArmPayloadCompensator:
                 return str(value).strip()
         return ""
 
-    def measure(self) -> ArmPayloadSnapshot | None:
+    def reset(self) -> None:
+        self._previous_com_world = None
+        self._warned_stale_velocity = False
+
+    def measure(self, *, dt: float | None = None) -> ArmPayloadSnapshot | None:
+        elapsed = None if dt is None else float(dt)
+        if elapsed is not None and (not np.isfinite(elapsed) or elapsed <= 0.0):
+            raise ValueError(f"dt must be finite and positive, got {dt}")
         link_samples: list[tuple[float, np.ndarray, np.ndarray, np.ndarray | None]] = []
 
         for link in self._arm.links:
@@ -107,6 +116,18 @@ class ArmPayloadCompensator:
         measured_mass = float(sum(m for m, _, _, _ in link_samples))
         com_world = sum(m * c for m, c, _, _ in link_samples) / measured_mass
         vel_world = sum(m * v for m, _, v, _ in link_samples) / measured_mass
+        if elapsed is not None:
+            if self._previous_com_world is not None:
+                finite_difference = (com_world - self._previous_com_world) / elapsed
+                if np.linalg.norm(vel_world) < 0.02 and np.linalg.norm(finite_difference) > 0.03:
+                    vel_world = finite_difference
+                    if not self._warned_stale_velocity:
+                        print(
+                            "[go2_mpc] arm payload link velocity readback is stale/zero; "
+                            "using position-difference feedback"
+                        )
+                        self._warned_stale_velocity = True
+            self._previous_com_world = com_world.copy()
 
         inertia_world = np.zeros((3, 3), dtype=float)
         for mass, com_link, _, inertia_link in link_samples:
@@ -124,8 +145,8 @@ class ArmPayloadCompensator:
             inertia_world=inertia_world,
         )
 
-    def apply(self, pin_model) -> None:
-        payload = self.measure()
+    def apply(self, pin_model, *, dt: float | None = None) -> None:
+        payload = self.measure(dt=dt)
         if payload is None or payload.mass_kg <= 1e-9:
             return
 
