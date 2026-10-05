@@ -134,3 +134,12 @@ def test_bad_inertia_is_rejected_before_gpu_dispatch():
     with pytest.raises(ValueError, match='inertia'):
         adapter.solve(replace(standing(), inertia_body=inertia))
     assert not fake.received
+
+
+def test_acados_iteration_status_is_not_a_gpu_success():
+    class FailedGpu(RecordingBackend):
+        def compute_control(self, *args, **kwargs):
+            return np.zeros(12), None, None, 2
+    adapter = PyMpcForceSolver(backend='jax_mppi', solver_factory=FailedGpu)
+    with pytest.raises(RuntimeError, match='jax_mppi solve failed'):
+        adapter.solve(standing())

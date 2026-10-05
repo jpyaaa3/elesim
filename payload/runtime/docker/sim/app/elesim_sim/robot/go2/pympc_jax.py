@@ -164,8 +164,13 @@ class JaxMppiSolver:
                 invalid = jp.any(jp.abs(x[6:8]) > 1.2) | ~jp.all(jp.isfinite(x))
                 cost = jp.where(invalid, jp.inf, state_cost + effort)
                 return (x, total + dt*cost), None
-            (_, total), _ = jax.lax.scan(step, (x0, jp.float32(0.)), (forces, feet, contacts))
-            return total
+            (final, total), _ = jax.lax.scan(step, (x0, jp.float32(0.)), (forces, feet, contacts))
+            error = final-reference
+            error = error.at[6:9].set(angle_error(final[6:9], reference[6:9]))
+            # Match the nominal SRBD terminal state penalty as well as its
+            # running cost; omitting it biases this short horizon toward lag.
+            terminal_q = jp.array([0., 0., 1500., 200., 200., 200., 500., 500., 0., 20., 20., 50.])
+            return total + jp.sum(terminal_q*error**2)
 
         batch_score = jax.vmap(score, in_axes=(None, None, None, None, None, None, None, 0))
 
@@ -185,12 +190,13 @@ class JaxMppiSolver:
                 top = jp.tile(jp.eye(3), (1, 4))
                 bottom = jax.vmap(cross_matrix)(arms).transpose(1, 0, 2).reshape(3, 12)
                 matrix = jp.concatenate((top, bottom), axis=0)*jp.repeat(contact, 3)[None, :]
-                f = matrix.T @ jp.linalg.solve(matrix @ matrix.T + .001*jp.eye(6), wrench)
-                return project(f.reshape(4, 3), contact)
+                allocation = matrix.T @ jp.linalg.solve(matrix @ matrix.T + .001*jp.eye(6), jp.eye(6))
+                f = allocation @ wrench
+                return project(f.reshape(4, 3), contact), allocation.reshape(4, 3, 6)
             return jax.vmap(distribute)(feet, contacts)
 
         def optimize(x, reference, feet, contacts, mass, inertia, inverse, mean, use_mean, elapsed, key):
-            seed = initial_forces(x, reference, feet, contacts, mass, inertia)
+            seed, allocation = initial_forces(x, reference, feet, contacts, mass, inertia)
             index = jp.minimum(jp.arange(horizon, dtype=jp.float32) + elapsed/dt, horizon-1.)
             lo = jp.floor(index).astype(jp.int32)
             hi = jp.minimum(lo+1, horizon-1)
@@ -201,9 +207,16 @@ class JaxMppiSolver:
             def improve(_, carry):
                 mean, key = carry
                 key, noise_key = jax.random.split(key)
-                noise = jax.random.normal(noise_key, (samples, 3, 4, 3), dtype=jp.float32)
-                noise = noise*jp.array([12., 12., 24.])
-                perturbation = noise[:, left]*(1.-blend) + noise[:, left+1]*blend
+                noise = jax.random.normal(noise_key, ((samples+1)//2, 3, 6), dtype=jp.float32)
+                # Paired perturbations reduce stochastic force/yaw bias.
+                noise = jp.concatenate((noise, -noise), axis=0)[:samples]
+                # Explore net body wrench, then distribute it over stance
+                # feet. Independent foot noise wastes samples in cancelling
+                # forces and introduces large unwanted roll/yaw torques.
+                noise = noise*jp.array([24., 24., 40., 3., 3., 3.])
+                knot_blend = blend[..., 0]
+                wrench_noise = noise[:, left]*(1.-knot_blend) + noise[:, left+1]*knot_blend
+                perturbation = jp.einsum("hijq,shq->shij", allocation, wrench_noise)
                 candidates = project(mean[None]+perturbation, contacts[None])
                 # Preserve both the incumbent and fresh feedback seed.
                 candidates = candidates.at[0].set(mean).at[1].set(seed)
@@ -212,11 +225,11 @@ class JaxMppiSolver:
                 best = jp.min(jp.where(finite, costs, jp.inf))
                 weights = jp.where(finite, jp.exp(-jp.clip(costs-best, 0., 80.)/1.), 0.)
                 weighted = jp.sum(candidates*weights[:, None, None, None], axis=0)/jp.maximum(jp.sum(weights), 1e-20)
-                # Averaging can worsen a nonlinear rollout; retain the better
-                # candidate after explicitly scoring the weighted trajectory.
+                # Keep an improving weighted update. Selecting a single lucky
+                # noisy rollout injects force/yaw jitter into the physical gait.
                 weighted_cost = score(x, reference, feet, contacts, mass, inertia, inverse, weighted)
-                winner = candidates[jp.argmin(jp.where(finite, costs, jp.inf))]
-                result = jp.where(weighted_cost <= best, weighted, winner)
+                incumbent_cost = costs[0]
+                result = jp.where(weighted_cost <= incumbent_cost, weighted, mean)
                 return result, key
             mean, key = jax.lax.fori_loop(0, iterations, improve, (mean, key))
             cost = score(x, reference, feet, contacts, mass, inertia, inverse, mean)

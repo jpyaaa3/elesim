@@ -36,6 +36,7 @@ def test_sim_configs_load_with_role_owned_schema(name: str) -> None:
     assert bundle.sim_config.camera_first_frame_timeout_s == 30.0
     assert bundle.sim_config.visualizer_max_hz == 30.0
     assert bundle.go2_locomotion_config.mode == "pympc"
+    assert bundle.go2_locomotion_config.mpc_solver_backend == "acados"
     assert not hasattr(bundle, "pick_config")
     assert not hasattr(bundle, "perception_config")
     assert not hasattr(bundle, "gaze_stabilizer_config")
@@ -53,6 +54,27 @@ def test_remote_profile_disables_native_viewer_but_keeps_network_cameras() -> No
     assert bundle.sim_config.sim_observer_camera_enable is True
     assert bundle.sim_config.sim_camera_max_hz == 30.0
     assert bundle.sim_config.sim_observer_camera_max_hz == 30.0
+
+
+def test_gpu_mpc_selection_is_explicit(tmp_path):
+    config = tmp_path / "gpu.yaml"
+    config.write_text("schema_version: 1\nrobot:\n  go2:\n    locomotion:\n      mpc:\n"
+                      "        solver_backend: jax_mppi\n        gpu_samples: 2048\n")
+    bundle = load_app_config(str(config))
+    assert bundle.go2_locomotion_config.mpc_solver_backend == "jax_mppi"
+    assert bundle.go2_locomotion_config.mpc_gpu_samples == 2048
+
+
+@pytest.mark.parametrize("key,value", [("solver_backend", "auto"), ("gpu_samples", 0),
+                                       ("gpu_iterations", 9), ("gpu_seed", -1),
+                                       ("gpu_samples", True), ("gpu_iterations", 1.5)])
+def test_bad_gpu_mpc_configuration_fails_before_scene_build(tmp_path, key, value):
+    import yaml
+    config = tmp_path / "gpu.yaml"
+    config.write_text(yaml.safe_dump({"schema_version": 1, "robot": {"go2": {
+        "locomotion": {"mpc": {key: value}}}}}))
+    with pytest.raises(ConfigValidationError, match=key):
+        load_app_config(str(config))
 
 
 def test_cpu_runtime_override_yields_gpu_without_mutating_profile() -> None:

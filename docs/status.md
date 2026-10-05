@@ -23,6 +23,27 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 - 정식 dev에서 기존 CPU adapter 및 GPU 계약/CPU JAX 수학 검증 **55 passed**.
   Sim 전체 회귀는 **507 passed / 3 skipped**. 이는 실제 GPU kernel, 보행,
   Docker release 검증의 증거가 아니다.
+- source `67d8b1e`에서 정식 required gate 통과: Protocol 141, Robot 104,
+  Pilot 406/21 skipped, Sim 507/3 skipped, UI 79, model/release 82,
+  실제 four-process DDS smoke, DDS RGBD 2, WebRTC 2, setup 1141/3 skipped.
+  extended 22+10+4+10 통과, release build 및 isolated verify 통과.
+  이후 terminal cost/설정 validation 보완은 별도 focused 32 passed다.
+- A6000 GPU 0의 격리 venv에서 실제 CUDA 실행 확인. 합성 상태/접촉/payload
+  100회(초기 20회 제외) solve p50/p95: CPU **15.51/26.38ms**, GPU
+  **5.18/6.26ms**, GPU 초기 JIT **5.70초**. CPU/GPU 출력은 동등하지 않으며
+  보행·미디어 성능 증거가 아니다. 기존 CPU Sim이 같은 GPU에서 실행 중이었다.
+- 초기 GPU 보행(terminal cost 보완 전)은 전진 15초/정지 5초×2, 총 42초를
+  전도/fault 없이 stand로 완료했다. 이동 6.75m로 CPU보다 추종이 부족하여
+  명목 acados와 같은 terminal state cost를 추가하고 재비교 중이다.
+  evidence: `workbench/evidence/generated/readiness/20261005-gpu-mpc/`.
+- terminal-cost 후보 7회와 CPU 기준선 1회는 모두 전도/fault 없이 stand로
+  완료했으나 GPU의 전진 속도·yaw 추종이 CPU보다 나빴다. 계산 시간 개선만으로
+  보행 동등성을 주장하지 않는다. weighted mean/반대 부호 sampling 후보를
+  비교 중이며, 다음 후보는 몸체 wrench를 탐색한 뒤 접촉 발에 분배한다.
+  최신 wrench 수학/경계 focused gate **14 passed**; 실제 GPU 보행은 아직 대기다.
+- 진단 runner에 backend 선택, solve/step timing, 선택적 두 renderer 부하를
+  추가했다. renderer 진단에서는 DDS publisher 생성만 차단하며 실제 visual
+  workers/dispatch를 사용한다. WebRTC encoding/network 수용시험은 별개다.
 - G4 남은 수용: GPU 실행과 payload·reset·전후/횡/회전/정지 비교, 두 camera
   720p/30 Hz 설정에서 전체 step/영상 지연 비교, 이미지와 release 검증.
   현재 실행 중 readiness와 기본 CPU 선택은 바꾸지 않았다.

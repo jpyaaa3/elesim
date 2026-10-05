@@ -1,4 +1,4 @@
-"""Narrow, fail-closed adapter for Quadruped-PyMPC's nominal acados solver.
+"""Validated state/force boundary for CPU acados and optional GPU MPPI.
 
 The upstream MuJoCo whole-body controller is deliberately not used here:
 Genesis owns the plant, foot kinematics and torque actuation.
@@ -255,7 +255,8 @@ class PyMpcForceSolver:
         # A finite iterate remains useful when SQP reaches its iteration cap;
         # validate and bound it below. Other acados failures do not produce a
         # control input we are willing to apply.
-        if status_code not in (0, 2):
+        accepted_statuses = (0, 2) if self.backend == "acados" else (0,)
+        if status_code not in accepted_statuses:
             raise RuntimeError(
                 f"PyMPC {self.backend} solve failed with status {status_code}"
             )

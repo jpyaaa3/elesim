@@ -296,6 +296,18 @@ def build_bundle_from_yaml(data: Mapping[str, Any], *, config_dir: str) -> AppCo
     for component in _COMPONENT_TYPES:
         components[component] = replace(getattr(defaults, component), **updates[component])
 
+    locomotion = components["go2_locomotion_config"]
+    if locomotion.mpc_solver_backend not in {"acados", "jax_mppi"}:
+        raise ConfigValidationError(
+            "robot.go2.locomotion.mpc.solver_backend must be acados or jax_mppi"
+        )
+    for name, lower, upper in (("gpu_samples", 64, 32768), ("gpu_iterations", 1, 8),
+                               ("gpu_seed", 0, 2**31 - 1)):
+        if not lower <= getattr(locomotion, "mpc_" + name) <= upper:
+            raise ConfigValidationError(
+                f"robot.go2.locomotion.mpc.{name} must be in [{lower}, {upper}]"
+            )
+
     sim_config = components["sim_config"]
     execution = str(sim_config.camera_execution).strip().lower()
     if execution not in {"async_process", "sync_legacy"}:
