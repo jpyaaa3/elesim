@@ -114,6 +114,24 @@ M/B milestone이나 단위 검사 통과에서 추론하지 않는다. 두 호�
 
 ### 두 호스트 읽기 전용 점검 (2026-10-05)
 
+후속 실행은 사용자가 명시적으로 승인했다. 양쪽 실제 updater가 비대화형
+환경에서 `/dev/tty`의 존재만 보고 Docker TTY를 요청해 실패했다. 기존
+`has_terminal` 검사로 통일한 `b191332`를 발행했으며 bootstrap 검사
+**95 passed**다. host Python은 setup package가 없어 수집하지 못했고,
+기존 설치 소유 dev에서 검사했다. 수정 후 양쪽 bootstrap이 통과했다.
+
+로컬 UI release `ccfa92b7a95312d45c2ea66ab77ebc8a69c642b3ba123af95db0bdc6eb1cb92f`
+발행이 완료됐다(source `b191332`, build 367.8초). 원격 Pilot/Sim 발행은
+진행 중이다. sidecar는 기존 인증이 없어 NeedsLogin이었고 사용자가 브라우저
+인증을 완료했다. 현재 DDS IPv4는 **100.127.177.101**로 이전 주소를 대체한다.
+sidecar에서 상대 노드 Tailscale ping이 성공했다. 생성된 실제 연결 관리자
+`readiness`의 두 호스트 HTTP preflight도 통과했고 SSH 지문이 확인된 값과
+일치했다. 이는 DDS/영상 runtime 수용 완료가 아니다.
+
+원격 GPU 1은 다른 작업이 사용 중이다. 후속 Robot-free 실행은 로컬 UI,
+상대 Pilot/Sim, Sim GPU 0, Viewer 비활성으로 준비한다. 관리자는 loopback
+18766에 열었으며 인증 token/브라우저 로그인 URL은 이 문서에 보관하지 않는다.
+
 - `hckang@100.74.222.24:22`의 확인된 ED25519 지문은
   `SHA256:2oAaevxeuYi0yc3umwg15I5c/plBF8GW2x9TvfN7paY`다. 제품의
   `ParamikoConnector`와 명시적 `tailscale` 인증으로 연결했다. 전역 SSH trust
