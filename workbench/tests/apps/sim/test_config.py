@@ -51,8 +51,8 @@ def test_remote_profile_disables_native_viewer_but_keeps_network_cameras() -> No
     assert bundle.sim_config.telemetry_max_hz == 20.0
     assert bundle.sim_config.sim_camera_enable is True
     assert bundle.sim_config.sim_observer_camera_enable is True
-    assert bundle.sim_config.sim_camera_max_hz == 10.0
-    assert bundle.sim_config.sim_observer_camera_max_hz == 10.0
+    assert bundle.sim_config.sim_camera_max_hz == 30.0
+    assert bundle.sim_config.sim_observer_camera_max_hz == 30.0
 
 
 def test_cpu_runtime_override_yields_gpu_without_mutating_profile() -> None:

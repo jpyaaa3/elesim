@@ -173,7 +173,8 @@ latest-only shared RGB-D slot에 최신 프레임만 유지한다. `sync_legacy`
 native Viewer에만 적용되며 headless Sim에는 영향을 주지 않는다.
 
 hand-eye와 observer 기본 해상도는 각각 1280×720이다. `remote` 프로파일의
-두 영상 cadence는 각각 10 Hz로 유지한다. 해상도는 각 camera의 `width`와
+두 영상의 목표 cadence는 각각 30 Hz다. 실제 새 프레임률은 simulation 진행과
+렌더·인코딩·네트워크 처리 속도에 따라 낮아질 수 있다. 해상도는 각 camera의 `width`와
 `height`로 낮출 수 있다. hand-eye 변경은 DDS RGB-D 크기와 intrinsics에도
 반영되므로 WebRTC 대역폭뿐 아니라 perception 부하도 함께 측정한다.
 GPU Sim Compose는 NVIDIA `video` capability를 포함해 NVENC driver library를

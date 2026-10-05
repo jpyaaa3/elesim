@@ -23,13 +23,11 @@ profiles:
       cameras:
         hand_eye:
           enable: true
-          # Two synchronous Genesis render passes at 30+20 Hz consume more
-          # than one wall second per simulated second on the target renderer.
-          # The remote profile favors stable fresh frames over queued cadence.
-          max_hz: 10.0
+          # Async render workers keep only the latest frame at a 30 Hz target.
+          max_hz: 30.0
         observer:
           enable: true
-          max_hz: 10.0
+          max_hz: 30.0
 
   # Jetson/native profile: no desktop viewer or network camera rendering.
   jetson:
@@ -98,7 +96,7 @@ simulation:
       enable: true
       jpeg: true
       jpeg_quality: 85
-      max_hz: 20.0
+      max_hz: 30.0
       width: 1280
       height: 720
       # Genesis 1.2.x ViewerOptions defaults, in its right-handed Z-up world.

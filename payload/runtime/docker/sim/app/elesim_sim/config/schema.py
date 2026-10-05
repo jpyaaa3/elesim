@@ -80,7 +80,7 @@ class SimConfig:
     sim_observer_camera_enable: bool = True
     sim_observer_camera_jpeg: bool = True
     sim_observer_camera_jpeg_quality: int = 85
-    sim_observer_camera_max_hz: float = 20.0
+    sim_observer_camera_max_hz: float = 30.0
     sim_observer_camera_width: int = 1280
     sim_observer_camera_height: int = 720
     sim_observer_camera_fov_deg: float = 40.0
