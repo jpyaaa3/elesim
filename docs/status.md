@@ -18,8 +18,9 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   실제 simulation-time warm-start 이동, 초기 JIT, deterministic reset을 구현했다.
   upstream의 global configuration/fixed-inertia closure를 그대로 사용하지 않는다.
 - G3 의존성: Python 3.10/NumPy 1.26.4용 JAX 0.4.38과 CUDA12 plugin/pjrt
-  0.4.38을 Sim/dev 이미지에 추가 중이다. CPU 모드는 CUDA plugin을 설치하지 않는다.
-  ONNX와 호환되도록 ml_dtypes는 0.5.4로 맞췄다.
+  0.4.38을 Sim/dev 이미지 정의에 추가했다. CPU 모드는 CUDA plugin을 설치하지
+  않는다. ONNX와 호환되도록 ml_dtypes는 0.5.4로 맞췄다. 실제 Sim CUDA 이미지
+  검증은 아래에 기록하며 dev CUDA 이미지 자체의 재빌드는 이번 범위에서 하지 않았다.
 - 정식 dev에서 기존 CPU adapter 및 GPU 계약/CPU JAX 수학 검증 **55 passed**.
   Sim 전체 회귀는 **507 passed / 3 skipped**. 이는 실제 GPU kernel, 보행,
   Docker release 검증의 증거가 아니다.
@@ -109,14 +110,55 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   `/tmp/elesim-gpu-mpc-20261005/venv` **4.47GiB**이며 symlink가 아니다.
   현재 CPU Sim은 이 venv를 사용하지 않는다. 사용자에게 상대 컴퓨터의
   `elesim-merry-readiness-sim` 안에서 이 정확한 venv만 직접 삭제하도록
-  명령을 전달했고, 아직 실행 완료 답변은 받지 않았다. 이미지/container/
-  volume 삭제나 prune은 실행하지 않았다. 삭제 후에도 build 공간을 다시
-  확인해야 하며 여유 공간이 충분하다고 미리 단정하지 않는다.
+  명령을 전달했다. 사용자가 직접 삭제한 뒤 경로 부재와 free **14.73GiB**를
+  확인했다. 이미지/container/volume 삭제나 prune은 실행하지 않았다.
+- source `6740aa6`의 원격 build를 재개했다. 설치된 update/release wrapper의
+  사본에서 정확한 image collector 호출과 task container `--rm`만 제외하며,
+  원래 wrapper/ownership/Engine guard/installation lock/publication 검증은
+  유지한다. bootstrap script는 pinned commit의 파일 hash를 확인했다.
+  task setup/publication container는 남겨 두며 직접 제거하지 않는다.
+  free 2GiB 미만이면 이번 build process group만 종료하는 감시를 추가했다.
+  현재 CPU readiness container와 instance release pin은 유지한다.
+- 원격 build/발행 **exit 0**, build 506.9초. 소스 `6740aa6`, 릴리스
+  `fb441a6e3442e20144999933661920e2b8d636308e0366fd33068b6111e9710e`,
+  Sim `elesim/sim:merry-shark` / image `sha256:8d7aceb046b3…` / 15.08GB.
+  Pilot은 `merry-shrimp`, tools는 기존 `merry-ferret` 재사용이다.
+  종료 시 여유 공간은 약 19.06GiB였으며 guard 중단 없이 완료했다.
+- 새 이미지에서 network=none/GPU 0 진단 **exit 0**: CPU acados 기본값과
+  실제 solve, CPU 경로의 JAX 미초기화, Torch CUDA tensor, JAX CUDA12 plugin,
+  최종 kernel SHA256 일치, deterministic reset, 동적 mass 및 접촉력 제한을
+  확인했다. GPU 합성 100회 중 초기 20회 제외 p50/p95 **7.86/10.58ms**,
+  초기 JIT **5.31초**다. Torch 2.12.1/CUDA13과 JAX 0.4.38/CUDA12 plugin이
+  이 이미지에서 함께 실행됐다. 실제 장면/영상 성능 증거와는 구분한다.
+  기존 readiness Sim/Pilot의 이미지 ID와 running 상태가 유지됨을 확인했다.
+- 새 이미지 + 새 릴리스 모델을 사용한 network=none/GPU 0 장면 검증도
+  **cold/warm 2/2** stand로 완료했다. 전진 15초/정지 5초×2 동안 팔을
+  움직이고 두 1280×720/target 30Hz renderer를 함께 사용했다. 설정/모델은
+  read-only mount이며 DDS publisher를 생성하지 않는다. 물리 scene build는
+  cold **113.10초**, warm **5.35초**; warm camera build는 hand-eye **1.91초**,
+  observer **2.95초**였다. GPU JIT는 각각 **4.90/4.79초**다.
+  cold trial wall **75.54초** / 관측 fps **5.89/7.12**, warm trial wall
+  **59.59초** / 관측 fps **13.91/7.20**. warm solve p50/p95 **7.61/10.62ms**,
+  이동 step p95 **42.14ms**, capture-to-observation p95 **48.34/47.55ms**다.
+  실제 30fps 또는 WebRTC/UI 지연 수용 완료를 의미하지 않으며, 기존 CPU
+  camera 기준선은 팔 동작이 없었으므로 이 조합과 직접 동등 비교하지 않는다.
+  cold 종료 때 한 camera worker의 Quadrants cache lock 경고가 있었지만
+  warm 실행에서는 physics/camera cache 재사용과 정상 종료를 확인했다.
+  raw cold/warm 기록을 각각 보존하고 SHA256 검증했다.
+- 최종 free **19.01GiB**. setup/publish/image-probe/scene 네 task container는
+  모두 exit 0으로 남겼으며 합계 writable layer 약 **52MB**다. 기존
+  readiness Sim/Pilot은 계속 running이고 이미지 ID도 그대로다. 사용자
+  지시대로 image/container/volume 삭제나 Docker prune은 실행하지 않았다.
+  근거: `published-image.json`, `image-build-no-cleanup.log`, `image-probe.log`,
+  `new-image-scene*.log`, `raw/new-image-scene*.jsonl`,
+  `final-container-inventory.jsonl`.
 - 진단 runner에 backend 선택, solve/step timing, 선택적 두 renderer 부하를
   추가했다. renderer 진단에서는 DDS publisher 생성만 차단하며 실제 visual
   workers/dispatch를 사용한다. WebRTC encoding/network 수용시험은 별개다.
-- G4 남은 수용: 원격 GPU 이미지 build/배포 및 실제 WebRTC/UI 경로 검증.
-  추가 payload와 다른 지형/속도에 일반화된 안정성은 미검증이다.
+- G4 남은 수용: 발행한 새 릴리스를 실제 readiness에 적용하고 선택적 GPU
+  backend의 WebRTC/UI 경로를 검증한다. 기존 container 교체/삭제는 사용자가
+  직접 수행한다는 현재 지시를 따른다. 추가 payload와 다른 지형/속도에
+  일반화된 안정성은 미검증이다.
   현재 실행 중 readiness와 기본 CPU 선택은 바꾸지 않았다.
 
 ### 720p / 30fps 요청 (2026-10-05, 적용 완료)
