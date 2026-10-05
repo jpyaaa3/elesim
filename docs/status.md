@@ -161,7 +161,23 @@ frame 디코딩을 복구했다. hand-eye와 DDS session은 유지됐다. 두 LI
 표시 결함을 수정했다. 해당 receiver에서 실제 fresh frame이 확인될 때만
 그 stream의 정확한 재시도 안내를 지우고, SDP answer만 받은 상태·다른 stream·
 명령 오류는 유지한다. focused session **31 passed**, UI+quality **101 passed**다.
-현재 실행 image에는 이 후속 표시 수정이 아직 포함되지 않았다.
+이 수정은 `a964a48`로 발행했고 로컬 UI release
+`d037de74f8c024876def6231630d761799e7f2cb26d5162df357e4a6c083e39e`에 포함됐다.
+세 번째 회차에서 이 UI release를 명시적으로 등록했다. 원격 Pilot/Sim은
+`b191332` release를 유지한다.
+
+실제 두-host 시작과 두 영상 디코딩·LIVE 표시를 세 번 확인했다. 첫 두 회차는
+정상 종료까지 완료했고, 세 번째 UI는 단일 Sim 장애 표시 검증을 위해 유지했다.
+후속 Sim physics build는 94.13초, 94.50초여서 시작 지연이 해소된 것은 아니다.
+Sim 하나를 정지하면 UI가 endpoint 상실과 `video 0/2`, 두 stream WAIT로
+바뀌고 오래된 pixels를 LIVE로 유지하지 않음을 화면으로 확인했다.
+관리자 전체 start는 실행 중 역할이 있으면 명시적으로 거부하는 설계다.
+단일 peer 복구는 상대의 기존 `elesim-instance readiness up`으로 실행했고
+Pilot Running/Sim Started 및 exit 0을 확인했다. 영상 재연결은 이어서 확인한다.
+
+자동 버튼 입력이 먹지 않은 원인은 WSLg가 자동 focus를 부여하지 않아 X11
+focus=0으로 남은 것이었다. 사용자가 Sim Camera 창을 클릭한 후 해당 창의
+실제 X11 focus를 확인했다. 이 과정은 제품 버튼 동작 수용 통과와 구분한다.
 
 - `hckang@100.74.222.24:22`의 확인된 ED25519 지문은
   `SHA256:2oAaevxeuYi0yc3umwg15I5c/plBF8GW2x9TvfN7paY`다. 제품의
