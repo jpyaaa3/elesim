@@ -313,7 +313,7 @@ fi
 if ((gui_mode)); then
   docker_args+=(--volume "$gui_release_handoff:$gui_release_handoff")
   docker_args+=(--publish "127.0.0.1:${gui_port}:${gui_port}")
-elif [[ -r /dev/tty ]]; then
+elif has_terminal; then
   docker_args+=(--tty)
 fi
 case "$invocation_dir/" in

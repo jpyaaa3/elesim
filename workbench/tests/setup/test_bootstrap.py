@@ -1764,6 +1764,21 @@ def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None
     assert '"PYTHONNOUSERSITE=1"' in script
 
 
+def test_docker_bootstrap_without_controlling_terminal_does_not_request_tty():
+    script = (Path(__file__).resolve().parents[3] / "installer/install.sh").read_text()
+    terminal_function = script.split("has_terminal() {", 1)[1].split("\n}", 1)[0]
+    branch = script.split('  docker_args+=(--volume "$gui_release_handoff:$gui_release_handoff")', 1)[1]
+    branch = "if ((gui_mode)); then\n :\n" + branch.split('\ncase "$invocation_dir/"', 1)[0]
+    result = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\ngui_mode=0\ndocker_args=()\n"
+         "has_terminal() {" + terminal_function + "\n}\n" + branch
+         + '\nprintf "%s\\n" "${docker_args[@]}"'],
+        start_new_session=True, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--tty" not in result.stdout
+
+
 @pytest.mark.parametrize("release_status", [0, 7])
 def test_post_install_handoff_without_controlling_terminal(tmp_path, release_status):
     script = (Path(__file__).resolve().parents[3] / "installer/install.sh").read_text()
