@@ -175,6 +175,26 @@ Sim 하나를 정지하면 UI가 endpoint 상실과 `video 0/2`, 두 stream WAIT
 단일 peer 복구는 상대의 기존 `elesim-instance readiness up`으로 실행했고
 Pilot Running/Sim Started 및 exit 0을 확인했다. 영상 재연결은 이어서 확인한다.
 
+08:42:37–38 UTC에 열린 UI의 두 스트림이 다시 connected/frame decoded가
+됐고, Sim 단일 중단 후 영상 복구를 확인했다. 사용자의 실제 카메라 창 버튼
+입력으로 pause를 확인한 다음 protocol-v6 boot별 control topic을 읽기 전용
+구독해 step/resume/reset을 관측했다. 관측 노드는 application endpoint나
+권한을 발행하지 않았고 session/lease token을 기록하지 않았다.
+
+| 실제 UI 입력 | 관측한 Sim 응답·상태 |
+| --- | --- |
+| pause | paused=true, sim_time_s=170.48; 두 영상 LIVE 유지 |
+| step | ok=true; paused=true 유지, 170.48 → 170.50초 |
+| resume | ok=true; paused=false, 시간 증가 재개 |
+| reset | ok=true; epoch 0 → 1, sim_time_s=0.02부터 다시 증가; 두 영상 LIVE |
+
+관측 노드에서 본 요청→결과 간격은 step 24.2ms, resume 52.5ms, reset 64.3ms다.
+각 1회 표본이며 실제 버튼 입력 지연이나 정지 deadline 측정으로 해석하지
+않는다. 원본은 `20261005-live/sim-controls-v6.jsonl`, 화면은 같은 디렉터리의
+`camera-user-paused.png`, `camera-user-reset.png`다. 이는 UI→Sim session 명령
+경로이며 Pilot motion/IK/Pick end-to-end 통과와 구분한다. 현재 readiness는
+reset 후 running, UI와 원격 Pilot/Sim이 실행 중이다.
+
 자동 버튼 입력이 먹지 않은 원인은 WSLg가 자동 focus를 부여하지 않아 X11
 focus=0으로 남은 것이었다. 사용자가 Sim Camera 창을 클릭한 후 해당 창의
 실제 X11 focus를 확인했다. 이 과정은 제품 버튼 동작 수용 통과와 구분한다.
@@ -811,7 +831,7 @@ Pilot, Robot과 Sim의 가상 장치·물리 실행부다. 이는 감사할 책�
 | R0 검증 준비 / 부분완료 | 동일 revision에서 실패를 재현할 수 있다 | 기존 dev 전체 gate·격리 release 통과; 새 dev image build와 원래 삭제된 오류 동일성은 미확인 |
 | R1 설치 / 부분완료 | 마법사에서 설치를 끝내고 설치 상태를 다시 확인한다 | 설치·재진입·입력 실패·취소·동일 조건 재시도; 생성물과 표시 상태 일치 |
 | R2 연결·표출 / 부분완료 | 실제 두-host DDS와 두 영상 디코딩·창 표시 확인; 유지·반복 검증 진행 | 한-host 및 두-host 기동, 실제 frame 갱신, 종료·재시작, 한 peer/영상 중단 표시 |
-| R3 기본 조작 / 대기(R2) | 조작이 실제 상태에 반영되고 중단하면 멈춘다 | UI→Pilot→Sim 명령과 telemetry 왕복, lease 상실·reset·재접속 회귀 |
+| R3 기본 조작 / 부분완료 | 실제 UI→Sim pause/step/resume/reset과 결과·epoch 확인 | UI→Pilot→Sim motion/telemetry 왕복, lease 상실·반복 조작과 정지 시간은 남음 |
 | R4 Pick / 대기(R3, 실제 장면) | 선택한 작업을 성공·실패·취소 후 다시 실행한다 | 고정 입력의 반복 실행, 작업별 성공 기준, 실패 사유와 재시도 결과 |
 | R5 실물 / 대기(R3, 장비) | 기본 조작과 로컬 안전이 Robot에서 성립한다 | Jetson/GO2/arm 실측, bridge/통신 상실 시 정지와 cleanup, 장치 피드백 |
 
