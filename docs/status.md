@@ -194,6 +194,10 @@ Pilot Running/Sim Started 및 exit 0을 확인했다. 영상 재연결은 이어
 `camera-user-paused.png`, `camera-user-reset.png`다. 이는 UI→Sim session 명령
 경로이며 Pilot motion/IK/Pick end-to-end 통과와 구분한다. 현재 readiness는
 reset 후 running, UI와 원격 Pilot/Sim이 실행 중이다.
+후속 관리자 `check`도 로컬 `running [ui]`, 상대 `running [pilot, sim]`으로
+완료됐다(`20261005-live/final-check.json`). 전체 check는 약 149초였으며
+runtime 시작 시간과 별도인 관리 점검 지연으로 남긴다. 임시 읽기 전용 DDS
+관측 프로세스는 모두 종료했고 실제 readiness runtime과 sidecar는 유지했다.
 
 자동 버튼 입력이 먹지 않은 원인은 WSLg가 자동 focus를 부여하지 않아 X11
 focus=0으로 남은 것이었다. 사용자가 Sim Camera 창을 클릭한 후 해당 창의
