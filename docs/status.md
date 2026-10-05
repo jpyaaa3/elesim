@@ -109,8 +109,30 @@ R4의 후속 감사 대상은 기존 **Pick**으로 정했다. 지각·IK·Sim �
 고정 장면 end-to-end 성공 기준과 실제 반복 수용은 아직 실행하지 않았다.
 R5는 장비·현장 운영자가 없어 대기한다. 현재 R 단계의 수용 완료를 과거
 M/B milestone이나 단위 검사 통과에서 추론하지 않는다. 두 호스트 진행에는
-상대 SSH 사용자명·설치 경로는 전달받았으며 사용자 확인 host fingerprint가
-남아 있다. 확인 전에는 원격 로그인하거나 신뢰 설정을 저장하지 않는다.
+상대 SSH 사용자명·설치 경로와 host fingerprint를 사용자에게 확인받았다.
+확인한 key를 고정한 실제 Tailscale SSH 인증과 아래 읽기 전용 점검이 완료됐다.
+
+### 두 호스트 읽기 전용 점검 (2026-10-05)
+
+- `hckang@100.74.222.24:22`의 확인된 ED25519 지문은
+  `SHA256:2oAaevxeuYi0yc3umwg15I5c/plBF8GW2x9TvfN7paY`다. 제품의
+  `ParamikoConnector`와 명시적 `tailscale` 인증으로 연결했다. 전역 SSH trust
+  파일은 변경하지 않았다.
+- 상대 prefix `/home/hckang/ws/newsim`은 Pilot/Sim 설치, `direct-host`,
+  `default` Docker context, install UUID `3fc3487e-0788-4a76-a152-e485144b0d0b`,
+  project `elesim-merry`다. 고정된 Engine 확인과 생성 Compose 상태 조회가
+  성공했다. Tailscale은 Running/online이며 IPv4가 `100.74.222.24`다.
+- 상대 개발 checkout `/home/hckang/ws/newsim_dev/elesim`은 `d1044b8`이며
+  working tree가 깨끗하다. checkout·설치·컨테이너를 업데이트하지 않았다.
+- 로컬은 UI 설치, `tailscale-sidecar`, project `elesim-warm3`다. 양쪽
+  Compose 조회에서 dev만 실행 중이고, 등록된 instance JSON과 저장된
+  connection JSON은 없다. 로컬 sidecar도 실행 중이지 않다.
+- 양쪽 발행 release의 source revision은 `bbdf390`으로, 이번 수정이 들어간
+  checkout과 다르다. 따라서 현재 발행 image로 최신 수정의 수용을 주장하지
+  않는다. SSH 관리 경로 성공은 DDS/영상 성공을 뜻하지 않는다.
+- 다음 실제 실행은 양쪽 최신 release 발행, 로컬 sidecar 기동·주소 확인,
+  로컬 UI + 상대 Pilot/Sim의 Robot-free system 등록·기동, DDS와 두 영상
+  검증 순서다. 아직 image build/update, runtime 배포·시작은 하지 않았다.
 
 전체 gate 원본은 `all-checks-followup.log`이며 protocol 141, Robot 104,
 Pilot 406(+21 skip), Sim 469(+3 skip), UI 77, model/release 82, DDS RGBD 2,
