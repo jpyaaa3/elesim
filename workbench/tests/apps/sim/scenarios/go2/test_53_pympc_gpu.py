@@ -143,3 +143,17 @@ def test_acados_iteration_status_is_not_a_gpu_success():
     adapter = PyMpcForceSolver(backend='jax_mppi', solver_factory=FailedGpu)
     with pytest.raises(RuntimeError, match='jax_mppi solve failed'):
         adapter.solve(standing())
+
+
+def test_large_world_translation_does_not_quantize_lever_arms(cpu_math):
+    adapter = PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: cpu_math)
+    sample = replace(standing(), rpy=np.array([.1, .05, 0.]),
+                     desired_com_velocity=np.array([.2, 0., 0.]))
+    force = adapter.solve(sample)
+    adapter.reset()
+    offset = np.array([100000., -100000., 1000.])
+    translated = replace(sample, com_position=sample.com_position+offset,
+                         desired_com_position=sample.desired_com_position+offset,
+                         feet_world=sample.feet_world+offset,
+                         footholds_world=sample.footholds_world+offset)
+    np.testing.assert_allclose(adapter.solve(translated), force, atol=1e-4)

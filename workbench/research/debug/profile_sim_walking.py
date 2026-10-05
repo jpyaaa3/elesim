@@ -33,6 +33,7 @@ def main() -> None:
     parser.add_argument("--gpu-samples", type=int)
     parser.add_argument("--gpu-iterations", type=int)
     parser.add_argument("--cameras", action="store_true", help="include both async render workers")
+    parser.add_argument("--arm-motion", action="store_true", help="small bounded arm bend oscillations")
     parser.add_argument("--keep-target", action="store_true")
     parser.add_argument("--output", type=Path, required=True, help="JSONL sample/summary file")
     args = parser.parse_args()
@@ -44,6 +45,7 @@ def main() -> None:
     from elesim_sim.runtime import AssetProcessor, GenesisApp, RuntimePrep, load_app_config
     from elesim_sim.simulation.genesis.utils import to_numpy_1d
     from elesim_sim.vision.frame_hub import FrameHub
+    from elesim_protocol import default_start_sim_q
 
     if (not np.isfinite([*args.command, args.duration, args.settle, args.stop]).all()
             or args.duration <= 0 or min(args.settle, args.stop) < 0 or args.repeat < 1 or args.cycles < 1):
@@ -104,6 +106,7 @@ def main() -> None:
                       fixed_target=bool(args.keep_target), controller=type(controller).__name__,
                       backend=locomotion.mpc_solver_backend, gpu_samples=locomotion.mpc_gpu_samples,
                       gpu_iterations=locomotion.mpc_gpu_iterations, cameras=args.cameras,
+                      arm_motion=args.arm_motion,
                       camera_target_hz=[cfg.sim_camera_max_hz, cfg.sim_observer_camera_max_hz] if args.cameras else None))
             for trial in range(args.repeat):
                 scene.reset_environment(mapping_cfg=app._proto_cfg)
@@ -117,12 +120,17 @@ def main() -> None:
                 frame_ages = {name: [] for name in streams}
                 command_start = None
                 command_end = None
+                arm_start = default_start_sim_q(app._proto_cfg)
                 total_s = args.settle + args.cycles * (args.duration + args.stop)
                 for step in range(int(np.ceil(total_s / dt))):
                     t = step * dt
                     phase_s = (t - args.settle) % (args.duration + args.stop)
                     moving = t >= args.settle and phase_s < args.duration
                     scene.go2.set_planar_velocity(*(args.command if moving else (0.0, 0.0, 0.0)))
+                    if args.arm_motion:
+                        scene.apply_sim_q(replace(arm_start,
+                            theta1_rad=arm_start.theta1_rad + .12*np.sin(2*np.pi*t/8.),
+                            theta2_rad=arm_start.theta2_rad + .08*np.sin(2*np.pi*t/8.)))
                     step_started = time.perf_counter()
                     scene.step()
                     if hub is not None:
@@ -157,6 +165,8 @@ def main() -> None:
                                base_twist=(controller._bridge.last_dq[:6].tolist()
                                            if controller._bridge.last_dq is not None else None),
                                faulted=bool(getattr(controller, "_faulted", False)),
+                               model_mass_kg=float(controller._data.Ig.mass),
+                               model_inertia_trace=float(np.trace(controller._data.Ig.inertia)),
                                feet=[to_numpy_1d(entity.get_link(leg + "_foot").get_pos()).tolist()
                                      for leg in ("FL", "FR", "RL", "RR")])
                     emit(row)

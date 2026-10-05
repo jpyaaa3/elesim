@@ -30,7 +30,7 @@ class Go2LocomotionConfig:
     mpc_ctrl_hz: float = 200.0
     mpc_solver_backend: str = "acados"
     mpc_gpu_samples: int = 4096
-    mpc_gpu_iterations: int = 2
+    mpc_gpu_iterations: int = 4
     mpc_gpu_seed: int = 42
     mpc_command_ramp_s: float = 0.15
     mpc_command_accel_mps2: float = 1.2

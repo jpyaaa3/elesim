@@ -248,8 +248,9 @@ payload budget은 기본 1000바이트(환경변수 `ELESIM_WEBRTC_RTP_PAYLOAD_M
 Genesis GPU backend가 CPU 부담 전체를 없애지는 않는다. camera render,
 RGB/depth conversion·resize·host transfer, Genesis–Pinocchio copy, CasADi
 QP/MPC solve, torque assembly, metrics는 각각 별도 timing field로 본다.
-현재 QP/MPC solver와 DDS serialization은 CPU domain이며, GPU offload는
-별도 측정·검증 없이는 가정하지 않는다.
+기본 acados MPC와 DDS serialization은 CPU에서 실행한다. 선택적 `jax_mppi`는
+후보 rollout/최적화를 GPU에서 수행하지만 상태 준비와 torque 조립은 CPU에 남는다.
+GPU solve 개선을 전체 step 또는 영상 처리량 개선으로 간주하지 않는다.
 
 ### Mock object hug vertical slice
 
@@ -378,6 +379,15 @@ sidecar는 host network infrastructure이지 DDS relay, SSH endpoint, Router가
 DDS sidecar 주소는 별도 기록한다.
 
 ## 8. 성능과 안전의 불변식
+
+Sim의 `pympc` locomotion은 기본 `acados` CPU solver와 선택적 `jax_mppi`
+GPU solver를 같은 상태/접촉력 경계로 연결한다. gait, swing, payload 추정,
+토크 제한과 stop/reset은 같은 controller가 소유한다. GPU solver의 SRBD
+rollout은 현재 질량·body inertia를 매 solve의 입력으로 받으며 JIT 상수로
+고정하지 않는다. backend는 시작 시 선택하고 GPU 실패를 CPU 성공으로 숨기지 않는다.
+GPU 경로는 시작 시 bounded sampling kernel을 JIT/동기화한 뒤 readiness를
+진행한다. JIT는 설치된 코드만 사용하며 runtime download나 model rebuild가 아니다.
+고정 sample/iteration budget은 wall-clock deadline 보장을 의미하지 않는다.
 
 - physics loop에는 network peer, WebRTC encoder, DDS subscriber backlog를
   동기적으로 기다리는 코드가 없어야 한다.

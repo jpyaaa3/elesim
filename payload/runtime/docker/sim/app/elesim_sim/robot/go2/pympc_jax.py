@@ -156,7 +156,8 @@ class JaxMppiSolver:
                 x = x + dt*derivative(mid, force, foot, mass, inertia, inverse)
                 error = x-reference
                 error = error.at[6:9].set(angle_error(x[6:9], reference[6:9]))
-                q = jp.array([0., 0., 1500., 200., 200., 200., 500., 500., 0., 20., 20., 50.])
+                # Prioritize commanded planar velocity over force economy.
+                q = jp.array([0., 0., 1500., 2000., 2000., 200., 500., 500., 0., 20., 20., 200.])
                 state_cost = jp.sum(q*error**2)
                 nominal_z = mass*9.81/jp.maximum(jp.sum(contact), 1.)
                 force_error = force - contact[:, None]*jp.array([0., 0., nominal_z])
@@ -164,13 +165,9 @@ class JaxMppiSolver:
                 invalid = jp.any(jp.abs(x[6:8]) > 1.2) | ~jp.all(jp.isfinite(x))
                 cost = jp.where(invalid, jp.inf, state_cost + effort)
                 return (x, total + dt*cost), None
-            (final, total), _ = jax.lax.scan(step, (x0, jp.float32(0.)), (forces, feet, contacts))
-            error = final-reference
-            error = error.at[6:9].set(angle_error(final[6:9], reference[6:9]))
-            # Match the nominal SRBD terminal state penalty as well as its
-            # running cost; omitting it biases this short horizon toward lag.
-            terminal_q = jp.array([0., 0., 1500., 200., 200., 200., 500., 500., 0., 20., 20., 50.])
-            return total + jp.sum(terminal_q*error**2)
+            (_, total), _ = jax.lax.scan(
+                step, (x0, jp.float32(0.)), (forces, feet, contacts))
+            return total
 
         batch_score = jax.vmap(score, in_axes=(None, None, None, None, None, None, None, 0))
 
@@ -238,10 +235,17 @@ class JaxMppiSolver:
 
     def compute_control(self, state, reference, contacts, *, mass, inertia, elapsed_s):
         fields = ("position", "linear_velocity", "orientation", "angular_velocity")
-        x = np.concatenate([state[name] for name in fields]).astype(np.float32)
-        ref = np.concatenate([reference["ref_"+name] for name in fields]).astype(np.float32)
-        feet = np.array([state[f"foot_{leg}"] for leg in LEGS], dtype=np.float32)
-        targets = np.array([reference[f"ref_foot_{leg}"][0] for leg in LEGS], dtype=np.float32)
+        origin = np.asarray(state["position"], dtype=float)
+        x = np.concatenate([state[name] for name in fields])
+        ref = np.concatenate([reference["ref_"+name] for name in fields])
+        # Rebase in float64 before device conversion. Large world coordinates
+        # must not quantize foot lever arms in the float32 rollout.
+        x[:3] -= origin
+        ref[:3] -= origin
+        x, ref = x.astype(np.float32), ref.astype(np.float32)
+        feet = (np.array([state[f"foot_{leg}"] for leg in LEGS])-origin).astype(np.float32)
+        targets_world = np.array([reference[f"ref_foot_{leg}"][0] for leg in LEGS])
+        targets = (targets_world-origin).astype(np.float32)
         contact = np.asarray(contacts.T, dtype=np.float32)
         # A foot keeps its measured support position until its first swing;
         # after that, the controller's latched touchdown owns its next stance.
@@ -264,4 +268,4 @@ class JaxMppiSolver:
             raise RuntimeError("GPU MPC produced no finite force trajectory")
         self._mean, self._key = solution, key
         self.last_cost = cost_value
-        return forces[0].reshape(12), targets, np.zeros(24), 0
+        return forces[0].reshape(12), targets_world, np.zeros(24), 0

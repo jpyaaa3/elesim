@@ -75,6 +75,16 @@ replace the physical Robot's Unitree bridge as part of this work.
 
 ## Migration and acceptance
 
+The original dependency-retirement sequence below is historical scope. The
+2026-10-05 GPU option retains the CPU/acados implementation and default. Its
+current progress and measurements are recorded separately in `status.md`.
+The GPU kernel is Sim-owned, uses the same state/force adapter, and adapts the
+upstream SRBD equations/cost weights with the BSD notice retained in its module.
+It samples body wrench trajectories in parallel and distributes them over the
+scheduled support feet. Mass/inertia are dynamic inputs; reset clears the warm
+start and random key. This is a distinct optimizer, not a GPU execution toggle
+for acados. GPU startup performs local JIT before readiness, without downloads.
+
 1. Record a baseline with the currently pinned backend: standing, forward/sideways
    motion, turning, stopping, arm movement and added payload. Record tracking
    error, falls, force/torque bounds, solver failures and p95 solve time.

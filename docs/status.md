@@ -1,12 +1,12 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-05. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-06. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 선택형 GPU MPC (2026-10-05, 진행)
+### 선택형 GPU MPC (2026-10-06, 진행)
 
 - 사용자 승인 범위: CPU acados를 기본값으로 보존하고 GPU 병렬 MPC를 선택
   옵션으로 추가한다. 기존 R0–R5와 별도 작업이며 Robot 물리 제어는 변경하지 않는다.
@@ -40,7 +40,29 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   완료했으나 GPU의 전진 속도·yaw 추종이 CPU보다 나빴다. 계산 시간 개선만으로
   보행 동등성을 주장하지 않는다. weighted mean/반대 부호 sampling 후보를
   비교 중이며, 다음 후보는 몸체 wrench를 탐색한 뒤 접촉 발에 분배한다.
-  최신 wrench 수학/경계 focused gate **14 passed**; 실제 GPU 보행은 아직 대기다.
+  이 단계의 wrench 수학/경계 focused gate는 **14 passed**였다.
+- 후속 wrench 후보의 방향별 7회와 camera 1회는 stand로 완료했지만 전진
+  추종이 부족했다. terminal cost 제거/속도 가중치 증가/반복 수 4의 후보를
+  비교했다. `running-high` 단일 trial은 8.34m 이동, steady body vx 0.284m/s
+  (명령 0.35, CPU 기준 0.293), solve p50/p95 6.81/8.35ms였다.
+  단일 결과로 동등성을 판정하지 않고 4방향 반복, 팔 동작, camera를 검증 중이다.
+  GPU 기본 반복 수를 4로 조정하며 CPU backend 기본값은 유지한다.
+- float32 rollout 전에 float64 world-origin rebase를 수행해 큰 좌표에서
+  발 lever arm 정밀도를 보존한다. translation-invariance 회귀를 포함한
+  GPU 수학/설정 focused gate **33 passed**. 이는 실제 GPU 보행 증거와 구분한다.
+- 이 후보의 정식 required gate 통과: Protocol 141, Robot 104,
+  Pilot 406/21 skipped, Sim 516/3 skipped, UI 79, model/release 82,
+  four-process DDS smoke, DDS RGBD 2, WebRTC 2, setup 1141/3 skipped.
+  로컬 `dist/gpu-mpc-20261006/releases` 생성 및 네 역할 isolated verify도
+  통과했다. 이는 아래 실패한 원격 Docker 이미지 build와 별개의 검증이다.
+- 원격 이미지 build는 source `446cd08`에서 ENOSPC로 실패했다. 현재 원격
+  여유 공간은 최초 약 6GiB였고 이후 읽기 전용 조회에서 약 11GiB로 증가했다.
+  증가 원인은 확인하지 않았으며 이번 작업에서 삭제하지 않았다. 검증 전용
+  venv는 약 4.5GiB다. 기존 CPU runtime은
+  유지되며 새 GPU 이미지는 아직 발행/적용하지 않았다. 사용자는 삭제를 직접
+  수행하기로 했으므로 image/container/cache 삭제 및 prune을 실행하지 않는다.
+  `elesim-update`/instance `up`도 자동 image collection이 있으므로 그대로
+  재실행하지 않는다. 공간 확보와 삭제 없는 build 경로 확인이 선행되어야 한다.
 - 진단 runner에 backend 선택, solve/step timing, 선택적 두 renderer 부하를
   추가했다. renderer 진단에서는 DDS publisher 생성만 차단하며 실제 visual
   workers/dispatch를 사용한다. WebRTC encoding/network 수용시험은 별개다.

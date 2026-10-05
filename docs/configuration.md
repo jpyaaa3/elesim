@@ -89,7 +89,7 @@ robot:
       mpc:
         solver_backend: acados  # 기본값; GPU 옵션은 jax_mppi
         gpu_samples: 4096       # 64..32768, 병렬 후보 수
-        gpu_iterations: 2      # 1..8, solve별 고정 반복 수
+        gpu_iterations: 4      # 1..8, solve별 고정 반복 수
         gpu_seed: 42            # 0..2147483647, reset 시 재설정
 ```
 
