@@ -6,12 +6,16 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 720p / 30fps 요청 (2026-10-05, 적용 중)
+### 720p / 30fps 요청 (2026-10-05, 적용 완료)
 
 - 사용자 요청에 따라 두 camera의 해상도 1280×720을 유지하고 remote 목표
   cadence를 10→30 Hz로 변경한다. observer의 공통/schema 기본값도 30 Hz다.
 - 최신 프레임만 유지하는 큐와 wall/simulation cadence 제한은 유지한다.
   설정 30 Hz는 실제 새 영상 30 fps 보장이 아니다. 이전 아래 10 Hz 측정과 구분한다.
+- source `86e3f92`, 원격 릴리스 `7ff371b6…`를 기존 readiness에 적용했다.
+  실행 중 Sim의 merged config에서 두 영상 모두 1280×720 / target_fps=30을 읽었고,
+  실제 UI decoder의 두 1280×720 영상과 LIVE 복귀를 확인했다. 실제 30fps 처리량은
+  계측하지 않았다. evidence: `workbench/evidence/generated/readiness/20261005-camera-30fps/`.
 - 기존 config 회귀의 기대값을 수정했다. 이번 설정 변경에서는 테스트를 실행하지 않았다.
 
 ### Respawn / 720p / MPC 후속 (2026-10-05)
@@ -19,7 +23,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 - 범위는 기존 Robot-free readiness의 Sim/Pilot/UI다. 실제 Robot motion과
   전체 R0–R5 acceptance 완료를 의미하지 않는다. runtime 수정 source는
   `4023f0e`, 원격 릴리스 `cac8df61…`를 적용했고 최종 설치 검증을 완료했다.
-  현재 Sim image ID는 `sha256:06a67c35…`이며 로컬 UI 기존 릴리스 핀은 유지했다.
+  당시 검증한 Sim image ID는 `sha256:06a67c35…`이며 로컬 UI 기존 릴리스 핀은 유지했다.
 - **Respawn**: MPC reset 이후 남던 camera root/leg mirror와 SimScene pose cache를
   초기화하고 실제 reset pose를 한 번 읽는다. MPC가 idle/paused여도 초기 장면을
   제출한다. 정상 정지 후에는 기존 telemetry의 root readback을 재사용하고 idle
