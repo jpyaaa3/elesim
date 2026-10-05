@@ -8,11 +8,14 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### 자율 점검 후속 (2026-10-05, 진행)
 
-첫 변경 묶음 `e646290`과 후속 `8321765`는 원격 main에 반영돼 있다.
+첫 변경 묶음 `e646290`과 후속 `8321765`, 설치 취소 보완 `3900305`는
+원격 main에 반영돼 있다.
 `8321765`에서 required/extended 전체와 네 역할 격리 release build/verify가
 통과했다. 이후 설치 취소 경계를 보완했고 설치 전체 **1,138 passed / 3 skipped**,
 model/release 도구 **82 passed**를 다시 확인했다. 새 설치 변경을 포함한
 `release-install-progress`의 네 역할 격리 release 검사도 통과했다.
+`3900305` 커밋 후 같은 산출물에 별도 `verify.py`를 실행해 네 역할 모두
+다시 통과했으며 실행 중인 역할 컨테이너를 교체하지 않았다.
 
 - release 검증의 별도 setup 모듈 허용 목록에 `install_transaction`이 누락돼
   실제 release build가 실패했다. 목록을 수정하고 실제 소스 목록과 대조하는
