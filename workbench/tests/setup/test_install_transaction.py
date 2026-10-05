@@ -94,3 +94,128 @@ def test_commit_preserves_completed_install_when_later_reporting_fails(tmp_path)
             transaction.commit()
             raise RuntimeError("reporting")
     assert generated.is_dir()
+
+
+def test_cancelled_refresh_restores_control_files_and_allows_retry(local_state, tmp_path, monkeypatch):
+    monkeypatch.setenv("ELESIM_OPERATOR_HOME", str(tmp_path / "operator"))
+    state = local_state(roles=("pilot",))
+    ContainerInstaller(state, log=lambda _: None).run()
+    manifest_path = state.prefix_path / "install-ownership.json"
+    manifest = OwnershipManifest.load(manifest_path)
+    controls = [Path(entry.path) for entry in manifest.wrappers]
+    controls.extend([state.state_path, state.prefix_path / "containers/compose.yaml", manifest_path])
+    before = {path: path.read_bytes() for path in controls}
+    changed = local_state(roles=("pilot", "ui"))
+
+    def cancel_after_wrappers(message):
+        if message.startswith("[6/6]"):
+            raise InstallCancelled("requested")
+
+    with pytest.raises(InstallCancelled):
+        ContainerInstaller(changed, log=cancel_after_wrappers).run()
+    for path, content in before.items():
+        assert path.read_bytes() == content, path
+    ContainerInstaller(changed, log=lambda _: None).run()
+    assert OwnershipManifest.load(manifest_path).install_uuid == manifest.install_uuid
+
+
+def test_refresh_control_rollback_preserves_modes_and_removes_new_files(tmp_path):
+    from elesim_setup.install_transaction import RefreshControlRollback
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("original ownership")
+    wrapper = tmp_path / "wrapper"
+    wrapper.write_text("old")
+    wrapper.chmod(0o750)
+    new = tmp_path / "new-wrapper"
+    with pytest.raises(OSError, match="injected"):
+        with RefreshControlRollback(manifest=manifest, paths=[wrapper, new]):
+            wrapper.write_text("partial")
+            wrapper.chmod(0o600)
+            new.write_text("new")
+            raise OSError("injected")
+    assert wrapper.read_text() == "old"
+    assert wrapper.stat().st_mode & 0o777 == 0o750
+    assert not new.exists()
+
+
+def test_refresh_control_rollback_refuses_changed_ownership(tmp_path):
+    from elesim_setup.install_transaction import RefreshControlRollback
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("old")
+    wrapper = tmp_path / "wrapper"
+    wrapper.write_text("old")
+    with pytest.raises(RuntimeError, match="ownership changed"):
+        with RefreshControlRollback(manifest=manifest, paths=[wrapper]):
+            manifest.write_text("different writer committed")
+            wrapper.write_text("different writer")
+            raise OSError("failure")
+    assert wrapper.read_text() == "different writer"
+
+
+def test_refresh_control_rollback_never_follows_replaced_symlink(tmp_path):
+    from elesim_setup.install_transaction import RefreshControlRollback
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("old")
+    wrapper = tmp_path / "wrapper"
+    wrapper.write_text("old")
+    external = tmp_path / "external"
+    external.write_text("preserve")
+    with pytest.raises(RuntimeError, match="rollback was incomplete"):
+        with RefreshControlRollback(manifest=manifest, paths=[wrapper]):
+            wrapper.unlink()
+            wrapper.symlink_to(external)
+            raise OSError("failure")
+    assert external.read_text() == "preserve"
+
+
+def test_committed_refresh_is_not_rolled_back_on_later_error(tmp_path):
+    from elesim_setup.install_transaction import RefreshControlRollback
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("old")
+    wrapper = tmp_path / "wrapper"
+    wrapper.write_text("old")
+    with pytest.raises(OSError):
+        with RefreshControlRollback(manifest=manifest, paths=[wrapper]) as transaction:
+            wrapper.write_text("committed")
+            manifest.write_text("committed")
+            transaction.commit()
+            raise OSError("reporting failed")
+    assert wrapper.read_text() == "committed"
+
+
+def test_install_plan_points_to_topology_setup(local_state):
+    from elesim_setup.container_installer import build_container_plan
+    state = local_state(roles=("pilot", "sim", "ui"))
+    actions = build_container_plan(state)
+    next_action = next(action for action in actions if action.title == "Next")
+    assert str(state.bin_path / "elesim-connections") in next_action.detail
+    assert all("elesim-up" not in action.detail for action in actions)
+
+
+def test_progress_can_cancel_next_installation_after_previous_commit():
+    from elesim_setup.install_progress import InstallProgress
+    cancelled = False
+    progress = InstallProgress(lambda _: None, lambda: cancelled)
+    progress.begin_installation()
+    progress.commit_installation()
+    cancelled = True
+    progress("completed first installation")
+    with pytest.raises(InstallCancelled):
+        progress.begin_installation()
+
+
+def test_container_commit_callback_precedes_completion_logs(local_state, monkeypatch, tmp_path):
+    from elesim_setup.install_progress import InstallProgress
+    monkeypatch.setenv("ELESIM_OPERATOR_HOME", str(tmp_path / "operator"))
+    cancelled = False
+
+    def write(message):
+        nonlocal cancelled
+        if message.startswith("[Complete]"):
+            cancelled = True
+
+    progress = InstallProgress(write, lambda: cancelled)
+    state = local_state(roles=("pilot",))
+    ContainerInstaller(state, log=progress, on_commit=progress.commit_installation).run()
+    assert progress.committed
+    assert OwnershipManifest.load(state.prefix_path / "install-ownership.json")

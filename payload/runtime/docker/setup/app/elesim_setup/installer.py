@@ -121,6 +121,7 @@ class Installer:
         shell_bashrc: Path | None = None,
         dry_run: bool = False,
         log: Callable[[str], None] = print,
+        on_commit: Callable[[], None] | None = None,
     ) -> None:
         self.state = state.validate()
         if self.state.install_mode != "native":
@@ -128,6 +129,7 @@ class Installer:
         self.state_path = self.state.state_path if state_path is None else state_path.expanduser().resolve()
         self.dry_run = bool(dry_run)
         self.log = log
+        self.on_commit = on_commit
         self._install_uuid = ""
         self.shell_bashrc = (
             None
@@ -194,6 +196,8 @@ class Installer:
             prefix_created=prefix_created,
             bin_created=bin_created,
         )
+        if self.on_commit is not None:
+            self.on_commit()
         self.log(f"[complete] Installation state: {state_path}")
         self.log(f"[complete] Uninstall ownership: {manifest.path}")
         self.log(f"[next] Check connectivity: {self.state.bin_path / 'elesim-net'} doctor")

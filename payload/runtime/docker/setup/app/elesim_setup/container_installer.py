@@ -38,7 +38,7 @@ from .manager_lifecycle import (
     host_helper_fragment,
     manager_lifecycle_fragment,
 )
-from .install_transaction import FreshInstallRollback, installation_lock
+from .install_transaction import FreshInstallRollback, RefreshControlRollback, installation_lock
 from .instance_identity import (
     CONTAINER_NAMING_HASH,
     CONTAINER_NAMING_SYSTEM,
@@ -322,7 +322,7 @@ def build_container_plan(state: InstallState) -> tuple[ContainerAction, ...]:
         (
             ContainerAction("Tools", "Dedicated elesim-setup/elesim-net tools image"),
             ContainerAction("Commands", f"Compose execution wrappers: {state.bin_path}"),
-            ContainerAction("Start", f"{state.bin_path / 'elesim-up'}"),
+            ContainerAction("Next", f"Configure hosts and roles: {state.bin_path / 'elesim-connections'}"),
         )
     )
     return tuple(actions)
@@ -339,6 +339,7 @@ class ContainerInstaller:
         shell_bashrc: Path | None = None,
         dry_run: bool = False,
         log: Callable[[str], None] = print,
+        on_commit: Callable[[], None] | None = None,
     ) -> None:
         self.state = state.validate()
         if self.state.install_mode != "container":
@@ -350,6 +351,7 @@ class ContainerInstaller:
         )
         self.dry_run = bool(dry_run)
         self.log = log
+        self.on_commit = on_commit
         self._install_uuid = ""
         self._install_name = ""
         # Direct helper calls retain the historical literals for compatibility
@@ -428,11 +430,27 @@ class ContainerInstaller:
             self.log("[DRY-RUN] The host and Docker daemon were not changed.")
             return
 
-        with FreshInstallRollback(
-            prefix=self.state.prefix_path, bin_dir=self.state.bin_path,
-            generated_paths=(*self._claimed_paths(), self.state.prefix_path / "install-ownership.json"),
-            enabled=ownership_refresh is None,
-        ) as transaction:
+        if ownership_refresh is None:
+            transaction = FreshInstallRollback(
+                prefix=self.state.prefix_path, bin_dir=self.state.bin_path,
+                generated_paths=(*self._claimed_paths(), self.state.prefix_path / "install-ownership.json"),
+                enabled=True,
+            )
+        else:
+            transaction = RefreshControlRollback(
+                manifest=Path(ownership_refresh.manifest_path),
+                paths=(
+                    self.state_path, self.container_root / "compose.yaml",
+                    *self._wrapper_paths(include_uninstaller=True),
+                    *(Path(wrapper.path) for wrapper in ownership_refresh.wrappers),
+                    *(
+                        Path(entry.path) for entry in ownership_refresh.owned_paths
+                        if entry.kind == "file"
+                        and Path(entry.path).is_relative_to(self.state.prefix_path / "apps")
+                    ),
+                ),
+            )
+        with transaction:
             self.log("[1/6] Preparing installation directory and runtime data")
             self._image_fingerprints.clear()
             self._release_aliases.clear()
@@ -484,6 +502,8 @@ class ContainerInstaller:
                 bin_created=bin_created,
             )
             transaction.commit()
+            if self.on_commit is not None:
+                self.on_commit()
         self.log(f"[Complete] Installation state: {saved}")
         self.log(f"[Complete] Uninstall ownership: {manifest.path}")
         if self._scoped_namespace:

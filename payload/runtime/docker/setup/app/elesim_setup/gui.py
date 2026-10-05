@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from .capabilities import HostCapabilities, detect_host_capabilities
+from .install_progress import InstallCancelled, InstallProgress
 from .network import detect_tailscale, is_tailscale_interface
 from .profiles import normalize_roles
 from .request import SetupRequest
@@ -24,10 +25,6 @@ from .request import SetupRequest
 
 InstallRunner = Callable[[SetupRequest, Callable[[str], None]], None]
 _MAX_BODY_BYTES = 1_048_576
-
-
-class InstallCancelled(RuntimeError):
-    pass
 
 
 def web_root() -> Path:
@@ -261,13 +258,9 @@ class WizardApplication:
         def log(message: str) -> None:
             with self._job_lock:
                 self.job.logs.append(str(message))
-            if self._cancel_event.is_set():
-                raise InstallCancelled("installation cancelled by user")
 
         try:
-            self.runner(request, log)
-            if self._cancel_event.is_set():
-                raise InstallCancelled("installation cancelled by user")
+            self.runner(request, InstallProgress(log, self._cancel_event.is_set))
         except InstallCancelled:
             with self._job_lock:
                 self.job.status = "cancelled"

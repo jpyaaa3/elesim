@@ -7,6 +7,7 @@ from typing import Callable
 from .capabilities import HostCapabilities
 from .container_installer import ContainerInstaller
 from .installer import Installer
+from .install_progress import InstallProgress
 from .request import SetupRequest
 from .shell import operator_home, register_bash_path
 
@@ -33,6 +34,9 @@ class SetupService:
             for child in requests:
                 self.run(child)
             return
+        progress = self.log if isinstance(self.log, InstallProgress) else None
+        if progress is not None:
+            progress.begin_installation()
         self.log(
             f"[setup] prefix={request.prefix} "
             f"developer_attachment={request.developer_attachment.enabled} "
@@ -49,6 +53,7 @@ class SetupService:
             shell_bashrc=shell_bashrc,
             dry_run=self.dry_run,
             log=self.log,
+            on_commit=None if progress is None else progress.commit_installation,
         ).run()
         if request.register_path and not self.dry_run:
             assert shell_bashrc is not None

@@ -601,3 +601,34 @@ def test_gui_rejects_external_turn_relay_selection(
 
     with pytest.raises(ValueError, match="managed TURN"):
         app.build_request(payload)
+
+
+def test_cancellation_after_commit_does_not_report_completed_install_as_cancelled(tmp_path):
+    committed = threading.Event()
+    finish = threading.Event()
+
+    def runner(_request, progress):
+        progress.commit_installation()
+        committed.set()
+        assert finish.wait(timeout=2)
+        progress("installation committed; final reporting")
+
+    app = WizardApplication(
+        source_root=tmp_path, invocation_dir=tmp_path,
+        capabilities=_capabilities(), repository="owner/repo", ref="main",
+        token="test-token", runner=runner,
+    )
+    app.start_install({
+        "roles": ["sim"], "prefix": str(tmp_path / "install"),
+        "bin_dir": str(tmp_path / "install/bin"), "gpu_mode": "cpu",
+        "dds_security_profile": "trusted-network", "dds_security_provisioning": "none",
+        "turn_mode": "none", "register_path": False,
+    })
+    assert committed.wait(timeout=2)
+    app.cancel_install()
+    finish.set()
+    deadline = time.monotonic() + 2
+    while app.job_snapshot()["status"] in {"running", "cancelling"}:
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    assert app.job_snapshot()["status"] == "completed"

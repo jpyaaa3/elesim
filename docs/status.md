@@ -8,8 +8,11 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### 자율 점검 후속 (2026-10-05, 진행)
 
-첫 변경 묶음은 `e646290`으로 원격 main에 반영돼 있다. 후속 검사에서 아래를
-추가 수정했다. 집중 검증은 **62 passed**이며 전체 gate를 재실행 중이다.
+첫 변경 묶음 `e646290`과 후속 `8321765`는 원격 main에 반영돼 있다.
+`8321765`에서 required/extended 전체와 네 역할 격리 release build/verify가
+통과했다. 이후 설치 취소 경계를 보완했고 설치 전체 **1,138 passed / 3 skipped**,
+model/release 도구 **82 passed**를 다시 확인했다. 새 설치 변경을 포함한
+`release-install-progress`의 네 역할 격리 release 검사도 통과했다.
 
 - release 검증의 별도 setup 모듈 허용 목록에 `install_transaction`이 누락돼
   실제 release build가 실패했다. 목록을 수정하고 실제 소스 목록과 대조하는
@@ -24,7 +27,9 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   수정되므로 기존 학습과 완전히 동일한 재현이라고 주장하지 않는다.
 - RL 전용 scene에도 설정된 GO2 leg pose를 build 전에 검증·지정한다.
   runtime 기본 stand로 덮어쓰지 않으며 잘못된 shape/dtype/limit는 어떤
-  joint도 수정하기 전에 거부한다. 후속 실제 CPU build는 아직 재확인 전이다.
+  joint도 수정하기 전에 거부한다. 후속 실제 CPU build에서 qpos0 관절 한계
+  경고가 사라졌고 3회 step/reset을 재확인했다. 캐시가 있는 후속 build는
+  33.0초였다. 초기 실행과 조건이 달라 코드 수정의 속도 개선율로 비교하지 않는다.
 - SSH 경로 분리 진단: EleSim helper/ProxyCommand를 제거한 단순 전달에서도
   host TCP와 host `tailscale nc` 모두 client 1,288바이트 KEX 뒤 멈췄다.
   host route는 `tailscale0`, interface MTU 1,280이었다. TCP 소켓 하나만
@@ -54,9 +59,20 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   생성 host uninstaller로 해당 전용 prefix를 제거했고 tombstone도 evidence
   아래 남겼다. 삭제할 Docker container/image는 없었다. 사용 중인 설치,
   역할 프로세스와 외부 checkout은 변경하지 않았다.
-- 새 모듈의 bootstrap 배포 목록도 갱신했다. 기존 설치 refresh 중 실패와
-  manifest 발행 뒤의 늦은 취소 표시, bootstrap부터 새 shell 상태 확인까지의
-  전체 흐름은 별도 남은 항목이다. 브라우저 화면 조작은 실행하지 않았다.
+- 기존 설치의 역할 변경 중 취소하면 Compose만 새 내용으로 남는 결함도
+  재현했다. 실패 시 기존 wrapper·state·Compose·기존 role config를 복구하고,
+  ownership manifest가 다른 writer에 의해 바뀌면 복구를 거부한다. 신규 생성
+  build context와 role 파일까지 전체 snapshot으로 되돌리는 기능은 아니며
+  같은 입력 재시도에서 다시 생성한다. cache/log/credential/release pin은
+  복구 snapshot에 넣지 않는다. 실제 API에서 제어 파일 복구, 같은 입력
+  재시도 완료, install UUID 유지까지 확인했다.
+- 설치 commit callback을 명시해 manifest 발행 뒤의 늦은 취소가 완료를
+  취소로 바꾸지 않게 했다. 실제 API에서도 commit 직후 취소 요청을 주입해
+  완료 상태와 manifest가 일치함을 확인했다. 복합 설치는 다음 설치를 시작할
+  때 다시 취소를 검사한다. native commit callback은 software 검사 범위다.
+- 새 모듈의 bootstrap/release 배포 목록을 갱신했다. 설치 계획의 오래된
+  generic `elesim-up` 안내는 연결관리자에서 host/role을 구성하는 안내로
+  바꿨다. 브라우저 화면, bootstrap 전체, 실제 update 이미지 발행은 미실행이다.
 - **R2/R3:** UI 명령 queue가 제출 당시 session ID를 보존한다. 검증 중 session
   변경, 전송 중 session 폐기, 전송 중 추가 입력을 회귀로 고정했다. 전송 중인
   명령도 queue 한도에 포함하고 폐기된 session의 tracking을 되살리지 않는다.
@@ -73,23 +89,39 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   실제 CPU Genesis 1 env에서 3회 step/reset, 유한 관측/보상, policy 12 및
   privileged 53채널, 통계/metadata 생성을 확인했다. build는 약 208.5초였으며
   convex decomposition과 초기 kernel 준비를 포함한다. 학습 성공률이나
-  GPU 성능 결과가 아니다. RL 전용 scene의 qpos0 경고는 여전히 남아 있다.
+  GPU 성능 결과가 아니다. 후속 초기 자세 수정 결과는 위에 따로 기록했다.
 
 | 현재 집중 검증 | 결과 |
 | --- | --- |
-| 설치 전체 (bootstrap 목록 수정 후) | 1,129 passed, 3 skipped |
+| 설치 전체 (refresh/commit 경계 수정 후) | 1,138 passed, 3 skipped |
 | UI session/명령/영상 health | 77 passed |
 | Pilot heartbeat/중단/단계 흐름 | 406 passed, 21 skipped |
-| Sim 관측/통계 분리 | 460 passed, 3 skipped |
+| Sim 관측/통계/초기 자세/reset | 469 passed, 3 skipped |
 | quality 도구와 실제 runtime 가독성 | 22 passed |
-| 실제 wizard API | 입력 오류, 완료, 취소 후 재시도 완료 |
+| 실제 wizard API | 입력 오류, 신규/기존 설치 취소 후 재시도, commit 후 늦은 취소 표시 |
 | 전용 prefix 생성 uninstaller | 완료; Docker 삭제 대상 없음 |
 | 실제 CPU RL env | 3회 step/reset 완료; 학습/정책 성능은 미검증 |
 
 R4의 후속 감사 대상은 기존 **Pick**으로 정했다. 지각·IK·Sim 결과를 포함하는
 고정 장면 end-to-end 성공 기준과 실제 반복 수용은 아직 실행하지 않았다.
-R5는 장비·현장 운영자가 없어 대기한다. 전체 required/extended와 격리
-release 검사는 이 변경 묶음에서 다시 실행하여 아래 과거 결과와 구분한다.
+R5는 장비·현장 운영자가 없어 대기한다. 현재 R 단계의 수용 완료를 과거
+M/B milestone이나 단위 검사 통과에서 추론하지 않는다. 두 호스트 진행에는
+상대 SSH 사용자명·설치 경로는 전달받았으며 사용자 확인 host fingerprint가
+남아 있다. 확인 전에는 원격 로그인하거나 신뢰 설정을 저장하지 않는다.
+
+전체 gate 원본은 `all-checks-followup.log`이며 protocol 141, Robot 104,
+Pilot 406(+21 skip), Sim 469(+3 skip), UI 77, model/release 82, DDS RGBD 2,
+encoded WebRTC 2, quality 22, analysis 10, debug 4, experiment 10이 통과했다.
+실제 4프로세스 DDS smoke와 등록된 critical mutation 7개도 통과했다.
+해당 실행의 setup은 1,129(+3 skip)이었고 이후 설치 수정의 1,138 결과는
+`setup-progress-final.log`다. Node가 없는 dev의 frontend skip은 host의
+3개 별도 통과로 보충하며 전체가 동일 환경에서 skip 없이 통과했다고 하지 않는다.
+
+Genesis 1.4.1 / Quadrants 1.3.0 실제 초기화에서 geometry cache와 kernel
+cache 모두 XDG root 아래 선택됨을 확인했다. 생성 Sim Compose의 persistent
+cache mount와 일치한다. 쓰기 권한 문제로 private `/tmp` fallback을 택하면
+container 재생성 뒤 캐시가 보존된다고 보장할 수 없다. 임의 캐시 삭제나
+solver/collision 설정 완화는 적용하지 않았다.
 
 ### Genesis scene 경고 조사 (2026-10-05)
 
@@ -123,7 +155,7 @@ flush해서 남기도록 추가했다. 카메라 replica에도 빌드 전 GO2 st
 적용했으며, 전체 renderer/GPU 경로는 아직 실행하지 않았다. 자동 테스트 suite는
 이번 조사에서 실행하지 않았고, 실제 CPU 모델 로딩과 scene build로 진단했다.
 
-### R0 재점검과 SSH 경로 감사 (2026-10-05, 진행)
+### R0 초기 기준선과 SSH 경로 감사 이력 (2026-10-05)
 
 기준 revision은 `bbdf390d56bb240c85a6ac8c8944f25d4086d6f6`이며 시작 시
 working tree는 깨끗했다. 아래 과거 기록의 미커밋 변경·개발 wrapper 부재를
@@ -686,9 +718,9 @@ Pilot, Robot과 Sim의 가상 장치·물리 실행부다. 이는 감사할 책�
 
 | ID / 상태 | 사용자에게 보장할 결과 | 완료에 필요한 증거 |
 | --- | --- | --- |
-| R0 검증 준비 / 진행 | 동일 revision에서 실패를 재현할 수 있다 | 2026-10-05 설치·daemon 확인, host 기준선과 SSH 회귀; 정식 gate 및 원래 장애 재현 진행 |
-| R1 설치 / 진행 | 마법사에서 설치를 끝내고 설치 상태를 다시 확인한다 | 설치·재진입·입력 실패·취소·동일 조건 재시도; 생성물과 표시 상태 일치 |
-| R2 연결·표출 / 진행 | 연결관리자로 시작해서 UI의 두 영상과 상태를 본다 | 한-host 및 두-host 기동, 실제 frame 갱신, 종료·재시작, 한 peer/영상 중단 표시 |
+| R0 검증 준비 / 부분완료 | 동일 revision에서 실패를 재현할 수 있다 | 기존 dev 전체 gate·격리 release 통과; 새 dev image build와 원래 삭제된 오류 동일성은 미확인 |
+| R1 설치 / 부분완료 | 마법사에서 설치를 끝내고 설치 상태를 다시 확인한다 | 설치·재진입·입력 실패·취소·동일 조건 재시도; 생성물과 표시 상태 일치 |
+| R2 연결·표출 / 환경대기 | 연결관리자로 시작해서 UI의 두 영상과 상태를 본다 | 한-host 및 두-host 기동, 실제 frame 갱신, 종료·재시작, 한 peer/영상 중단 표시 |
 | R3 기본 조작 / 대기(R2) | 조작이 실제 상태에 반영되고 중단하면 멈춘다 | UI→Pilot→Sim 명령과 telemetry 왕복, lease 상실·reset·재접속 회귀 |
 | R4 Pick / 대기(R3, 실제 장면) | 선택한 작업을 성공·실패·취소 후 다시 실행한다 | 고정 입력의 반복 실행, 작업별 성공 기준, 실패 사유와 재시도 결과 |
 | R5 실물 / 대기(R3, 장비) | 기본 조작과 로컬 안전이 Robot에서 성립한다 | Jetson/GO2/arm 실측, bridge/통신 상실 시 정지와 cleanup, 장치 피드백 |

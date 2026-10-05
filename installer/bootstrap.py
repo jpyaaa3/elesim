@@ -119,6 +119,7 @@ _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
         "host_proxy",
         "installer",
         "install_transaction",
+        "install_progress",
         "instance_compose",
         "instance_identity",
         "instance_preparation",
