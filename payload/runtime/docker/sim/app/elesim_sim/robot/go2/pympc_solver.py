@@ -37,6 +37,7 @@ class PyMpcInput:
     contacts: np.ndarray
     mass_kg: float
     inertia_body: np.ndarray
+    simulation_time_s: float | None = None
 
 
 def _finite_array(name: str, value: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
@@ -57,6 +58,10 @@ class PyMpcForceSolver:
         friction: float = 0.55,
         max_normal_force_n: float = 180.0,
         solver_factory: Callable[[], object] | None = None,
+        backend: str = "acados",
+        gpu_samples: int = 4096,
+        gpu_iterations: int = 2,
+        gpu_seed: int = 42,
     ) -> None:
         if horizon < 2 or dt <= 0 or friction <= 0 or max_normal_force_n <= 0:
             raise ValueError("invalid PyMPC horizon, step, friction or force cap")
@@ -64,6 +69,18 @@ class PyMpcForceSolver:
         self.dt = float(dt)
         self.friction = float(friction)
         self.max_normal_force_n = float(max_normal_force_n)
+        if backend not in {"acados", "jax_mppi"}:
+            raise ValueError(f"unknown PyMPC backend: {backend}")
+        self.backend = backend
+        self._last_simulation_time: float | None = None
+        if backend == "jax_mppi" and solver_factory is None:
+            from .pympc_jax import JaxMppiSolver
+
+            solver_factory = lambda: JaxMppiSolver(
+                horizon=self.horizon, dt=self.dt, friction=self.friction,
+                max_normal_force_n=self.max_normal_force_n,
+                samples=gpu_samples, iterations=gpu_iterations, seed=gpu_seed,
+            )
         if solver_factory is None:
             if (
                 self.horizon,
@@ -186,6 +203,7 @@ class PyMpcForceSolver:
         if callable(reset):
             reset()
         self._maxiter_warning_logged = False
+        self._last_simulation_time = None
 
     def solve(self, sample: PyMpcInput) -> np.ndarray:
         pos = _finite_array("com_position", sample.com_position, (3,))
@@ -205,7 +223,9 @@ class PyMpcForceSolver:
             raise ValueError("PyMPC contact schedule must be binary")
         inertia = _finite_array("inertia_body", sample.inertia_body, (3, 3))
         mass = float(sample.mass_kg)
-        if not np.isfinite(mass) or mass <= 0 or np.min(np.linalg.eigvalsh(inertia)) <= 0:
+        if (not np.isfinite(mass) or mass <= 0
+                or not np.allclose(inertia, inertia.T, rtol=1e-6, atol=1e-9)
+                or np.min(np.linalg.eigvalsh(inertia)) <= 0):
             raise ValueError("PyMPC mass and body inertia must be positive")
 
         state = dict(position=pos, linear_velocity=vel, orientation=rpy, angular_velocity=omega)
@@ -218,16 +238,26 @@ class PyMpcForceSolver:
         for index, leg in enumerate(LEGS):
             state[f"foot_{leg}"] = feet[index]
             reference[f"ref_foot_{leg}"] = footholds[index : index + 1]
-        force, _, _, status = self._solver.compute_control(
-            state, reference, contacts, mass=mass, inertia=inertia.reshape(9)
-        )
+        parameters = dict(mass=mass, inertia=inertia.reshape(9))
+        if self.backend == "jax_mppi":
+            now = sample.simulation_time_s
+            if now is not None and (not np.isfinite(now) or now < 0):
+                raise ValueError("PyMPC simulation time must be finite and nonnegative")
+            if (now is not None and self._last_simulation_time is not None
+                    and now < self._last_simulation_time):
+                raise ValueError("PyMPC simulation time went backwards without reset")
+            parameters["elapsed_s"] = (now - self._last_simulation_time
+                if now is not None and self._last_simulation_time is not None else 0.0)
+        force, _, _, status = self._solver.compute_control(state, reference, contacts, **parameters)
+        if self.backend == "jax_mppi":
+            self._last_simulation_time = sample.simulation_time_s
         status_code = int(status)
         # A finite iterate remains useful when SQP reaches its iteration cap;
         # validate and bound it below. Other acados failures do not produce a
         # control input we are willing to apply.
         if status_code not in (0, 2):
             raise RuntimeError(
-                f"PyMPC acados solve failed with status {status_code}"
+                f"PyMPC {self.backend} solve failed with status {status_code}"
             )
         grf = _finite_array("GRF", force, (12,)).reshape(4, 3)
         for index in range(4):

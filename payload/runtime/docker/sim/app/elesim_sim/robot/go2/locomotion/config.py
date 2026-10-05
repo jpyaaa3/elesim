@@ -28,6 +28,10 @@ class Go2LocomotionConfig:
     torque_safety_scale: float = 0.9
     mpc_leg_kv_damping: float = 1.0
     mpc_ctrl_hz: float = 200.0
+    mpc_solver_backend: str = "acados"
+    mpc_gpu_samples: int = 4096
+    mpc_gpu_iterations: int = 2
+    mpc_gpu_seed: int = 42
     mpc_command_ramp_s: float = 0.15
     mpc_command_accel_mps2: float = 1.2
     mpc_command_yaw_accel_radps2: float = 3.0

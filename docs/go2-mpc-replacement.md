@@ -2,8 +2,8 @@
 
 Decision date: 2026-09-16. Updated: 2026-10-05. The nominal acados adapter is
 integrated and `payload/config/sim/config.yaml` currently selects `pympc`.
-The real GPU walking baseline still fails: integration and solver startup
-are not walking acceptance. Current evidence and remaining gates are owned
+The latest CPU-MPC/Genesis-GPU flat-ground walking trials passed the bounded
+scenarios in status.md; tracking and generalization limits remain. Current evidence and remaining gates are owned
 by [status.md](status.md). The old convex backend remains an explicit rollback.
 
 ## Decision
@@ -12,7 +12,8 @@ Choose [IIT-DLSLab Quadruped-PyMPC](https://github.com/iit-DLSLab/Quadruped-PyMP
 initially its nominal, gradient-based **acados CPU** controller. Its Python
 single-rigid-body MPC implementation is a closer integration fit than adopting
 a new C++ control stack. The upstream project offers acados and JAX alternatives;
-we deliberately defer GPU sampling to avoid adding GPU contention with Genesis.
+GPU sampling is now an explicitly approved optional backend, with CPU remaining
+the default. GPU contention with Genesis must be measured.
 This is an engineering selection, not a claim that it is faster or more stable
 in EleSim. See the [upstream README](https://github.com/iit-DLSLab/Quadruped-PyMPC/blob/main/README.md).
 

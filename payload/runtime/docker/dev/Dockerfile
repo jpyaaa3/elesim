@@ -94,6 +94,12 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip ins
     python3 -m pip check && \
     python3 -c 'import importlib.metadata as m; import numpy as np, cv2, torch, pinocchio, genesis; assert np.__version__ == "1.26.4"; assert m.version("genesis-world") == "1.4.1"; assert cv2.__version__ == "4.11.0"; torch.from_numpy(np.zeros(1, dtype=np.float32))'
 
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    if [ "$COMPUTE_MODE" != cpu ]; then \
+      python3 -m pip install -c /tmp/requirements.lock \
+        'jax[cuda12]==0.4.38' 'jax-cuda12-plugin==0.4.38' 'jax-cuda12-pjrt==0.4.38'; \
+    fi
+
 COPY install_go2_pympc.sh /tmp/elesim/install_go2_pympc.sh
 COPY generate_go2_pympc.py /tmp/elesim/generate_go2_pympc.py
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \

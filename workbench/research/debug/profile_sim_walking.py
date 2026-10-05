@@ -27,6 +27,9 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--cycles", type=int, default=1, help="walk/stop cycles without respawn")
     parser.add_argument("--dt", type=float)
+    parser.add_argument("--backend", choices=("acados", "jax_mppi"))
+    parser.add_argument("--gpu-samples", type=int)
+    parser.add_argument("--gpu-iterations", type=int)
     parser.add_argument("--keep-target", action="store_true")
     parser.add_argument("--output", type=Path, required=True, help="JSONL sample/summary file")
     args = parser.parse_args()
@@ -48,9 +51,15 @@ def main() -> None:
     cfg = replace(bundle.sim_config, build_dir=str(Path(args.model_bundle).resolve()),
                   enable_viewer=False, sim_camera_enable=False, sim_observer_camera_enable=False)
     spawn = replace(bundle.spawn_config, sim_target_enable=bool(args.keep_target))
+    locomotion = bundle.go2_locomotion_config
+    overrides = {key: value for key, value in (
+        ("mpc_solver_backend", args.backend), ("mpc_gpu_samples", args.gpu_samples),
+        ("mpc_gpu_iterations", args.gpu_iterations),
+    ) if value is not None}
+    locomotion = replace(locomotion, **overrides)
     app = GenesisApp(params=params, cfg=cfg, limit=bundle.joint_limit, model=spawn,
                      urdf_export_cfg=bundle.urdf_export_config,
-                     go2_locomotion_config=bundle.go2_locomotion_config,
+                     go2_locomotion_config=locomotion,
                      mapping_cfg=bundle.mapping_config)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as output:
@@ -67,14 +76,22 @@ def main() -> None:
             scene = app.sim_scene
             entity = scene.go2_entity
             controller = scene.go2._controller
+            solve_times = []
+            controller._timing_sink = lambda name, seconds: (
+                solve_times.append(seconds) if name == "go2_pympc_solve" else None
+            )
             dt = float(params.dt)
             emit(dict(kind="configuration", dt=dt, command=args.command,
                       duration=args.duration, settle=args.settle, stop=args.stop, cycles=args.cycles,
-                      fixed_target=bool(args.keep_target), controller=type(controller).__name__))
+                      fixed_target=bool(args.keep_target), controller=type(controller).__name__,
+                      backend=locomotion.mpc_solver_backend, gpu_samples=locomotion.mpc_gpu_samples,
+                      gpu_iterations=locomotion.mpc_gpu_iterations))
             for trial in range(args.repeat):
                 scene.reset_environment(mapping_cfg=app._proto_cfg)
                 began = time.perf_counter()
                 samples = []
+                solve_times.clear()
+                step_times = []
                 command_start = None
                 command_end = None
                 total_s = args.settle + args.cycles * (args.duration + args.stop)
@@ -83,7 +100,9 @@ def main() -> None:
                     phase_s = (t - args.settle) % (args.duration + args.stop)
                     moving = t >= args.settle and phase_s < args.duration
                     scene.go2.set_planar_velocity(*(args.command if moving else (0.0, 0.0, 0.0)))
+                    step_started = time.perf_counter()
                     scene.step()
+                    step_times.append(time.perf_counter() - step_started)
                     if step % max(1, round(0.1 / dt)):
                         continue
                     pos = to_numpy_1d(entity.get_pos())
@@ -116,6 +135,8 @@ def main() -> None:
                 emit(dict(kind="summary", trial=trial, samples=len(samples),
                           completed=completed,
                           wall_s=time.perf_counter() - began, displacement=displacement,
+                          solve_ms_p50_p95=(np.percentile(solve_times, [50, 95])*1000).tolist() if solve_times else None,
+                          step_ms_p50_p95=(np.percentile(step_times, [50, 95])*1000).tolist() if step_times else None,
                           max_abs_roll_pitch=np.max(np.abs([r["rpy"][:2] for r in samples]), axis=0).tolist() if samples else None,
                           last=samples[-1] if samples else None))
         finally:

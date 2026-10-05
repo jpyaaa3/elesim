@@ -6,6 +6,27 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 선택형 GPU MPC (2026-10-05, 진행)
+
+- 사용자 승인 범위: CPU acados를 기본값으로 보존하고 GPU 병렬 MPC를 선택
+  옵션으로 추가한다. 기존 R0–R5와 별도 작업이며 Robot 물리 제어는 변경하지 않는다.
+- G1 인터페이스/설정: `robot.go2.locomotion.mpc.solver_backend`는 `acados`
+  기본값 또는 명시적 `jax_mppi`다. 동일 controller의 gait/swing/force/torque/
+  stop/reset 경계를 사용한다. GPU 실패 시 CPU로 자동 전환하지 않는다.
+- G2 GPU 계산: Sim 소유 JAX SRBD/MPPI kernel에 mass/inertia를 매 solve마다
+  전달한다. 후보 rollout을 병렬 평가하고 bounded sample/iteration budget,
+  실제 simulation-time warm-start 이동, 초기 JIT, deterministic reset을 구현했다.
+  upstream의 global configuration/fixed-inertia closure를 그대로 사용하지 않는다.
+- G3 의존성: Python 3.10/NumPy 1.26.4용 JAX 0.4.38과 CUDA12 plugin/pjrt
+  0.4.38을 Sim/dev 이미지에 추가 중이다. CPU 모드는 CUDA plugin을 설치하지 않는다.
+  ONNX와 호환되도록 ml_dtypes는 0.5.4로 맞췄다.
+- 정식 dev에서 기존 CPU adapter 및 GPU 계약/CPU JAX 수학 검증 **55 passed**.
+  Sim 전체 회귀는 **507 passed / 3 skipped**. 이는 실제 GPU kernel, 보행,
+  Docker release 검증의 증거가 아니다.
+- G4 남은 수용: GPU 실행과 payload·reset·전후/횡/회전/정지 비교, 두 camera
+  720p/30 Hz 설정에서 전체 step/영상 지연 비교, 이미지와 release 검증.
+  현재 실행 중 readiness와 기본 CPU 선택은 바꾸지 않았다.
+
 ### 720p / 30fps 요청 (2026-10-05, 적용 완료)
 
 - 사용자 요청에 따라 두 camera의 해상도 1280×720을 유지하고 remote 목표

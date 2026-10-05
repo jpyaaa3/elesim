@@ -97,6 +97,12 @@ RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -
 COPY requirements.lock /opt/elesim/requirements.lock
 RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -m pip install -r /opt/elesim/requirements.lock
 
+RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked \
+    if [ "$ROLE" = sim ] && [ "$COMPUTE_MODE" != cpu ]; then \
+      python -m pip install -c /opt/elesim/requirements.lock \
+        'jax[cuda12]==0.4.38' 'jax-cuda12-plugin==0.4.38' 'jax-cuda12-pjrt==0.4.38'; \
+    fi
+
 ARG INSTALL_GO2_PYMPC=0
 COPY install_go2_pympc.sh /tmp/elesim/install_go2_pympc.sh
 COPY generate_go2_pympc.py /tmp/elesim/generate_go2_pympc.py

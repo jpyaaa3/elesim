@@ -78,6 +78,29 @@ Sim의 `simulation.performance.log_enable` 기본값은 `false`다. 상세 loop,
 camera, GO2 timing 출력은 진단할 때 이 값을 `true`로 켠다. 기존 installed
 config에서 명시적으로 켠 값은 유지되며, 오류·상태 변화 진단과 별개다.
 
+### Sim GO2 MPC backend
+
+`robot.go2.locomotion.general.mode: pympc`일 때 다음 설정을 사용한다.
+
+```yaml
+robot:
+  go2:
+    locomotion:
+      mpc:
+        solver_backend: acados  # 기본값; GPU 옵션은 jax_mppi
+        gpu_samples: 4096       # 64..32768, 병렬 후보 수
+        gpu_iterations: 2      # 1..8, solve별 고정 반복 수
+        gpu_seed: 42            # 0..2147483647, reset 시 재설정
+```
+
+`jax_mppi`는 실험적 sampling MPC이며 acados와 동일한 최적화 알고리즘이 아니다.
+시작 시에만 backend를 선택하고, 설치 GPU 설정에서 정확히 한 GPU를 노출해야 한다.
+CUDA/JAX가 없거나 초기화에 실패하면 명확히 실패하며 CPU로 자동 전환하지 않는다.
+초기 JIT와 동기화는 보행 명령 수락 전에 완료한다. 기본 JAX 메모리 선점을 끄고
+pool fraction은 0.15를 사용하며 명시된 `XLA_PYTHON_CLIENT_*` 설정은 존중한다.
+Genesis/카메라와의 GPU 경합 때문에 solver 시간과 전체 step/영상 지연을 함께
+측정해야 한다. CPU backend는 JAX를 import하거나 GPU를 초기화하지 않는다.
+
 ## 2. 공통 DDS 필드
 
 모든 역할의 runtime DDS profile은 다음 값을 갖는다.

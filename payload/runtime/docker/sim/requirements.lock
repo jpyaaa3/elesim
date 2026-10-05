@@ -7,3 +7,9 @@ torch==2.12.1
 casadi==3.7.2
 aiortc==1.13.0
 av==14.2.0
+
+# Optional GPU MPC; keep Python 3.10 / NumPy 1.x compatible.
+jax==0.4.38
+jaxlib==0.4.38
+ml_dtypes==0.5.4
+opt_einsum==3.4.0

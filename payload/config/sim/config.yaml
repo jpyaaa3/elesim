@@ -183,6 +183,11 @@ robot:
         enable: true
         mass_kg: 0.0
       mpc:
+        # CPU remains the default; jax_mppi explicitly requires a CUDA GPU.
+        solver_backend: acados
+        gpu_samples: 4096
+        gpu_iterations: 2
+        gpu_seed: 42
         # Bound teleop velocity changes; hold zero before switching to stand.
         command_accel_mps2: 1.2
         command_yaw_accel_radps2: 3.0

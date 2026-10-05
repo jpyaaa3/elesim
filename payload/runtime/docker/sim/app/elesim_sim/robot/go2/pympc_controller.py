@@ -186,6 +186,10 @@ class PyMpcGenesisController:
             friction=float(config.optimization_friction),
             max_normal_force_n=float(config.fz_max_n),
             solver_factory=solver_factory,
+            backend=config.solver_backend,
+            gpu_samples=config.gpu_samples,
+            gpu_iterations=config.gpu_iterations,
+            gpu_seed=config.gpu_seed,
         )
         self._tau_lim = self._read_torque_limits()
         self._cmd = Go2Command()
@@ -220,7 +224,7 @@ class PyMpcGenesisController:
         if metrics is not None:
             metrics.set_tau_limits(self._tau_lim)
             metrics.set_control_rate_info(self._rate_info)
-        print("[go2_pympc] backend=acados nominal solve_hz=25 torque_hz="
+        print(f"[go2_pympc] backend={self._solver.backend} solve_hz=25 torque_hz="
               f"{self._rate_info.sim_hz:.1f} (experimental)")
 
     @property
@@ -480,6 +484,7 @@ class PyMpcGenesisController:
             contacts=contacts,
             mass_kg=mass,
             inertia_body=inertia_body,
+            simulation_time_s=self._sim_time,
         )
         return sample, feet, foot_vel, jacobians, dq[6:18]
 
