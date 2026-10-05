@@ -25,6 +25,7 @@ def main() -> None:
     parser.add_argument("--settle", type=float, default=2.0)
     parser.add_argument("--stop", type=float, default=2.0)
     parser.add_argument("--repeat", type=int, default=3)
+    parser.add_argument("--cycles", type=int, default=1, help="walk/stop cycles without respawn")
     parser.add_argument("--dt", type=float)
     parser.add_argument("--keep-target", action="store_true")
     parser.add_argument("--output", type=Path, required=True, help="JSONL sample/summary file")
@@ -38,7 +39,7 @@ def main() -> None:
     from elesim_sim.simulation.genesis.utils import to_numpy_1d
 
     if (not np.isfinite([*args.command, args.duration, args.settle, args.stop]).all()
-            or args.duration <= 0 or min(args.settle, args.stop) < 0 or args.repeat < 1):
+            or args.duration <= 0 or min(args.settle, args.stop) < 0 or args.repeat < 1 or args.cycles < 1):
         parser.error("finite commands, positive duration/repeat and nonnegative settle/stop required")
     if args.dt is not None and (not np.isfinite(args.dt) or args.dt <= 0):
         parser.error("dt must be finite and positive")
@@ -59,6 +60,7 @@ def main() -> None:
             if record["kind"] != "sample":
                 print(json.dumps(record), flush=True)
 
+        failed_trials = 0
         try:
             urdf = AssetProcessor(app).prepare_assets()
             RuntimePrep(app).init_genesis(urdf, attach_scene_cameras=False)
@@ -67,7 +69,7 @@ def main() -> None:
             controller = scene.go2._controller
             dt = float(params.dt)
             emit(dict(kind="configuration", dt=dt, command=args.command,
-                      duration=args.duration, settle=args.settle, stop=args.stop,
+                      duration=args.duration, settle=args.settle, stop=args.stop, cycles=args.cycles,
                       fixed_target=bool(args.keep_target), controller=type(controller).__name__))
             for trial in range(args.repeat):
                 scene.reset_environment(mapping_cfg=app._proto_cfg)
@@ -75,9 +77,11 @@ def main() -> None:
                 samples = []
                 command_start = None
                 command_end = None
-                for step in range(int(np.ceil((args.settle + args.duration + args.stop) / dt))):
+                total_s = args.settle + args.cycles * (args.duration + args.stop)
+                for step in range(int(np.ceil(total_s / dt))):
                     t = step * dt
-                    moving = args.settle <= t < args.settle + args.duration
+                    phase_s = (t - args.settle) % (args.duration + args.stop)
+                    moving = t >= args.settle and phase_s < args.duration
                     scene.go2.set_planar_velocity(*(args.command if moving else (0.0, 0.0, 0.0)))
                     scene.step()
                     if step % max(1, round(0.1 / dt)):
@@ -91,6 +95,9 @@ def main() -> None:
                     fallen = bool(pos[2] < 0.16 or np.max(np.abs(rpy[:2])) > 0.85)
                     row = dict(kind="sample", trial=trial, t=t, position=pos.tolist(),
                                rpy=rpy.tolist(), fallen=fallen,
+                               pose_stage=getattr(controller, "_pose_stage", None),
+                               base_twist=(controller._bridge.last_dq[:6].tolist()
+                                           if controller._bridge.last_dq is not None else None),
                                faulted=bool(getattr(controller, "_faulted", False)),
                                feet=[to_numpy_1d(entity.get_link(leg + "_foot").get_pos()).tolist()
                                      for leg in ("FL", "FR", "RL", "RR")])
@@ -103,13 +110,18 @@ def main() -> None:
                     if fallen or row["faulted"]:
                         break
                 displacement = (command_end - command_start).tolist() if command_start is not None else None
+                completed = bool(samples and samples[-1]["t"] >= total_s - 0.11
+                                 and not samples[-1]["fallen"] and not samples[-1]["faulted"])
+                failed_trials += int(not completed)
                 emit(dict(kind="summary", trial=trial, samples=len(samples),
-                          completed=bool(samples and samples[-1]["t"] >= args.settle + args.duration + args.stop - 0.11),
+                          completed=completed,
                           wall_s=time.perf_counter() - began, displacement=displacement,
                           max_abs_roll_pitch=np.max(np.abs([r["rpy"][:2] for r in samples]), axis=0).tolist() if samples else None,
                           last=samples[-1] if samples else None))
         finally:
             gs.destroy()
+        if failed_trials:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

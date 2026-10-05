@@ -73,7 +73,9 @@ class Go2CommandShaper:
 
     def set_target(self, command: Go2Command) -> None:
         self.target = command
-        if not self.target.is_idle(0.0):
+        # is_idle uses a strict threshold: is_idle(0) is false even at zero.
+        # Runtime refreshes zero every tick; preserve the braking dwell then.
+        if any((command.vx, command.vy, command.yaw_rate)):
             self._zero_since_s = None
 
     def reset(self) -> None:

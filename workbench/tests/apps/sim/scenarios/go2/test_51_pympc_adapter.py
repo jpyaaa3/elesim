@@ -324,7 +324,8 @@ def test_payload_com_height_does_not_request_a_sudden_drop() -> None:
     assert payload_aware_com_height(0.29, 0.30, payload_active=True) == pytest.approx(0.30)
 
 
-def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
+@pytest.mark.parametrize("moving", [False, True])
+def test_idle_clears_previous_gait_force_and_rearms_torque_mode(moving) -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
     controller._metrics = None
     controller._contact_diagnostics = None
@@ -338,6 +339,7 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
     )
     controller._command_shaper = Go2CommandShaper(stop_dwell_s=0.2)
     controller._command_shaper._zero_since_s = 0.0
+    controller._bridge = SimpleNamespace(last_q=np.r_[np.zeros(3), [0, 0, 0, 1], np.zeros(12)], last_dq=np.zeros(18))
     controller._pose_transition = JointPoseTransition(0.35)
     controller._pose_transition.reset(np.ones(12))
     controller._pose_stage = "walk"
@@ -365,10 +367,21 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode() -> None:
         control_position(pose, **kwargs)
 
     controller._set_stand_actuation = lambda: calls.append("stand")
+    controller._torque_mode_active = True
+    controller._sample = lambda: (None, None, None, None, None)
+    controller._torques = lambda *_args: np.zeros(12)
     controller._entity = SimpleNamespace(
         get_dofs_position=lambda **_kwargs: np.ones(12),
         control_dofs_position=record_controlled_pose,
+        control_dofs_force=lambda *_args, **_kwargs: None,
     )
+    if moving:
+        controller._bridge.last_dq[1] = .2
+        controller.step()
+        assert controller._settling
+        assert controller._pose_stage == "walk"
+        assert calls == []
+        return
     controller.step()
     assert calls == ["stand", "position"]
     assert controller._step_i == 0
@@ -407,6 +420,9 @@ def test_idle_startup_stays_in_stand_during_stop_dwell() -> None:
     controller._leg_dof_idxs = list(range(12))
     calls = []
     controller._set_stand_actuation = lambda: calls.append("stand")
+    controller._torque_mode_active = True
+    controller._sample = lambda: (None, None, None, None, None)
+    controller._torques = lambda *_args: np.zeros(12)
     controller._entity = SimpleNamespace(
         control_dofs_position=lambda pose, **_kwargs: calls.append(tuple(pose))
     )
@@ -552,6 +568,10 @@ def test_idle_to_motion_interpolates_stand_pose_before_ready_hold() -> None:
     )
     controller._set_stand_actuation = lambda: None
     controller._set_ready_actuation = lambda: None
+    from unittest.mock import Mock
+    controller._bridge = SimpleNamespace(reset=Mock())
+    controller._solver = SimpleNamespace(reset=Mock())
+    controller._payload = SimpleNamespace(reset=Mock())
     controller._set_torque_actuation = lambda: None
 
     controller.step()
@@ -565,6 +585,9 @@ def test_idle_to_motion_interpolates_stand_pose_before_ready_hold() -> None:
     assert np.all(np.diff(np.stack(commanded_poses[1:]), axis=0) > 0.0)
     np.testing.assert_array_equal(commanded_poses[-1], controller._kin.ready_q)
     assert controller._pose_stage == "ready_hold"
+    controller._bridge.reset.assert_called_once()
+    controller._solver.reset.assert_called_once()
+    controller._payload.reset.assert_called_once()
 
     controller.step()
     controller.step()
@@ -801,3 +824,37 @@ def test_genesis_bridge_estimates_stale_zero_base_twist_from_pose_delta():
     pose["x"] = 0.5
     _, after_reset_dq = bridge.read_pin_q_dq(dt=0.02)
     np.testing.assert_array_equal(after_reset_dq[:6], np.zeros(6))
+
+
+@pytest.mark.parametrize("twist,tilt,expected", [
+    ([0, 0, 0, 0, 0, 0], 0., True),
+    ([0, .12, 0, 0, 0, 0], 0., False),
+    ([0, 0, 0, 0, 0, .5], 0., False),
+    ([0, 0, 0, .5, 0, 0], 0., False),
+    ([0, 0, 0, 0, 0, 0], .3, False),
+    ([float("nan"), 0, 0, 0, 0, 0], 0., False),
+])
+def test_stand_transition_requires_actual_settled_body(twist, tilt, expected):
+    from scipy.spatial.transform import Rotation
+    controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._bridge = SimpleNamespace(
+        last_q=np.r_[np.zeros(3), Rotation.from_euler("x", tilt).as_quat(), np.zeros(12)],
+        last_dq=np.r_[twist, np.zeros(12)],
+    )
+    assert controller._body_ready_to_stand() is expected
+    controller._bridge.last_q = None
+    assert not controller._body_ready_to_stand()
+
+
+def test_repeated_zero_commands_do_not_restart_stop_dwell():
+    shaper = Go2CommandShaper(stop_dwell_s=0.2)
+    ready = []
+    for tick in range(51):
+        shaper.set_target(Go2Command())
+        shaper.update(.02)
+        ready.append(shaper.stop_ready(time_s=tick * .02, threshold=.05,
+                                      gait_hz=2.5, gait_duty=.6))
+    assert not any(ready[:10])
+    assert any(ready[10:])
+    shaper.set_target(Go2Command(vx=.1))
+    assert shaper._zero_since_s is None

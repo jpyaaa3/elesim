@@ -188,6 +188,7 @@ class PyMpcGenesisController:
         self._active = False
         self._ready_until = 0.0
         self._walk_started_s: float | None = None
+        self._settling = False
         self._torque_mode_active = False
         self._faulted = False
         self._step_i = 0
@@ -277,10 +278,17 @@ class PyMpcGenesisController:
         return np.asarray(self._kin.stand_q, dtype=float).copy()
 
     def _begin_ready_pose(self) -> None:
+        # No samples are taken during position control. Do not differentiate
+        # across that gap or reuse the previous walking horizon.
+        self._bridge.reset()
+        if self._payload is not None:
+            self._payload.reset()
+        self._solver.reset()
         self._pose_transition.begin(self._current_leg_pose(), self._kin.ready_q)
         self._pose_stage = "to_ready"
         self._active = True
         self._walk_started_s = None
+        self._settling = False
         self._torque_mode_active = False
         self._ready_until = 0.0
         self._set_ready_actuation()
@@ -290,6 +298,7 @@ class PyMpcGenesisController:
         self._pose_stage = "to_stand"
         self._active = False
         self._walk_started_s = None
+        self._settling = False
         self._torque_mode_active = False
         self._step_i = 0
         self._force_requested.fill(0.0)
@@ -302,6 +311,16 @@ class PyMpcGenesisController:
         self._touchdowns.fill(0.0)
         self._last_contacts.fill(1.0)
         self._set_stand_actuation()
+
+    def _body_ready_to_stand(self) -> bool:
+        """Retain zero-command balance control until actual motion settles."""
+        q, dq = self._bridge.last_q, self._bridge.last_dq
+        if q is None or dq is None or not np.isfinite(np.r_[q, dq]).all():
+            return False
+        tilt = Rotation.from_quat(q[3:7]).as_euler("xyz")[:2]
+        return bool(np.linalg.norm(dq[:2]) < 0.08
+                    and np.linalg.norm(dq[3:6]) < 0.3
+                    and np.max(np.abs(tilt)) < 0.15)
 
     def _gait_time(self) -> float:
         return (0.0 if self._walk_started_s is None
@@ -335,6 +354,7 @@ class PyMpcGenesisController:
         self._active = False
         self._ready_until = 0.0
         self._walk_started_s = None
+        self._settling = False
         self._torque_mode_active = False
         self._pose_stage = "stand"
         self._pose_transition.reset(self._kin.stand_q)
@@ -414,6 +434,8 @@ class PyMpcGenesisController:
             dt=self._solver.dt,
             horizon=self._solver.horizon,
         )
+        if getattr(self, "_settling", False):
+            contacts.fill(1.0)
         floor_z = 0.025
         half_stance_s = 0.5 * float(self._config.gait_duty / self._config.gait_hz)
         placements = touchdown_offsets_body(
@@ -592,6 +614,13 @@ class PyMpcGenesisController:
                 self._gait_time(), gait_hz=float(self._config.gait_hz),
                 duty=float(self._config.gait_duty), dt=self._dt, horizon=2,
             )[:, 0])) if self._config.gait_duty > 0.5 else stop_ready
+        if not target_idle:
+            self._settling = False
+        if stop_ready and self._pose_stage == "walk":
+            # Finish the current swing, then balance on four feet while the
+            # body brakes. Continuing to trot prevents a quiet stand handoff.
+            self._settling = True
+            stop_ready = self._body_ready_to_stand()
         if stop_ready and self._pose_stage in {"to_ready", "ready_hold", "walk"}:
             self._begin_stand_pose()
         elif self._pose_stage == "to_stand" and not target_idle:
@@ -642,6 +671,7 @@ class PyMpcGenesisController:
             self._active = False
             self._pose_stage = "fault"
             self._walk_started_s = None
+            self._settling = False
             self._torque_mode_active = False
             self._tau_hold.fill(0.0)
             self._force_requested.fill(0.0)

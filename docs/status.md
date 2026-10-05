@@ -65,9 +65,27 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   전진 displacement **4.308 / 4.309 / 4.304m**, 최대 pitch 약 **3.7°**,
   최대 roll **7.9–9.5°**, solver fault/fall 없음. 19초 simulation의 wall time은
   약 **28.6–28.8초**로 이 부하에서 1× 실시간을 충족하지는 못했다.
-  후진/횡이동/회전과 설치 이미지 검증은 진행 중이다.
+  추가 15초 command + 2초 stop 검사에서 후진 vx=-0.35 **2/2**,
+  저속 전진 vx=0.15 **1/1**, 회전 wz=0.8 **2/2**는 넘어짐 없이 완료했다.
+  횡이동 vy=0.25는 **1/2 실패**(첫 trial t=18.5, 정지 구간)했다.
+  저속 전진 displacement는 1.662m로 속도 추종 오차도 남아 있다.
+  이후 반복 0 command가 stop dwell을 매 tick 초기화하는 결함을 발견했다.
+  따라서 위 결과는 zero command 구간을 포함한 생존 결과이며, stand 상태로의
+  정상 전환을 증명하지 않는다. 설치 이미지 및 정지/재출발 검증은 진행 중이다.
 - 위 MPC 수정의 Sim 회귀: **482 passed / 3 skipped**. 실제 이미지는 아직
   `705b2ce`이며 실험에서 탈락한 native swing/crawl/추가 SQP 반복은 반영하지 않는다.
+
+- stop/restart 후속: `is_idle(0)`의 strict comparison 때문에 반복 zero command가
+  stop dwell을 계속 초기화했다. 정확한 zero target은 dwell을 보존하도록 수정한다.
+  PyMPC는 현재 swing 이후 네 발 균형 제어로 감속하고, 실제 평면 속도/각속도/
+  기울기가 안정돼야 stand pose로 전환한다. 새 보행 시작은 pose-control 구간의
+  추정 시간 간격과 solver warm state를 초기화한다. 관련 Sim **490 passed / 3 skipped**.
+- dt=0.02, 전진 15초/정지 5초를 reset 없이 두 번 반복한 첫 42초 GPU probe는
+  전도 없이 마지막 **stand**까지 완료했다. 추가 반복과 횡이동은 진행 중이다.
+  정지 조건만 추가한 이전 후보는 횡이동 5회 중 3회 보행 중 전도했다.
+  해당 실패를 정지 결함 수정만으로 해결됐다고 취급하지 않는다.
+- 보행 probe의 `--cycles`는 respawn 없이 반복 재출발을 검사하고, pose stage와
+  base twist를 기록한다. 전도/제어 fault/미완료 trial은 exit 1을 반환한다.
 
 ### Sim startup 캐시 비교 (2026-10-05, 부분완료)
 
