@@ -132,6 +132,37 @@ sidecar에서 상대 노드 Tailscale ping이 성공했다. 생성된 실제 연
 상대 Pilot/Sim, Sim GPU 0, Viewer 비활성으로 준비한다. 관리자는 loopback
 18766에 열었으며 인증 token/브라우저 로그인 URL은 이 문서에 보관하지 않는다.
 
+후속 원격 release
+`62b13b17a41c481dcf9b52814e01cffd5218cab852edf1f7e5205bdcd6106643`도 발행됐다.
+실제 관리자에서 `readiness` system을 저장하고 `prepare` → `start`를 실행해
+양쪽 등록, 네트워크 검사, 세 역할 기동, 양쪽 DDS descriptor/heartbeat 검사가
+완료됐다. domain 42, CycloneDDS static discovery, trusted-network,
+양쪽 `tailscale0` 바인딩이며 Robot은 없다. 별도 image rebuild 없이 각 host의
+동일 source revision release를 사용했다.
+
+Sim은 GPU backend로 model load 6.08초, physics scene build 111.70초였다.
+카메라 worker 준비 뒤 readiness gate가 열렸고 실제 UI에서 observer와
+hand-eye 각각 640×480 frame 디코딩을 08:11:21 UTC에 확인했다. X11의 해당
+두 EleSim 창만 캡처해 `video 2/2`, `OBSERVER LIVE`, `HAND-EYE LIVE`와
+telemetry/Sim 시간 갱신도 확인했다. 실제 증거는
+`workbench/evidence/generated/readiness/20261005-live/`다.
+
+초기 kernel 준비 중 일시적인 peer lost/lease 재선택이 있었으므로 startup
+전체가 무중단이었다고 주장하지 않는다. `qpos0 exceeds joint limits`는 해당
+실행에서 보이지 않았다. 기존 다섯 neutral collision 쌍은 유지됐으며
+watertight 경고는 physics scene 완료 후 카메라 모델 준비 때 다수 재현됐다.
+X11 합성 버튼 입력은 동작 변화가 확인되지 않아 일시정지/step/reset 수용
+증거로 사용하지 않는다. 08:11:21–08:21:55 UTC의 10분 이상 관찰에서는
+08:20:11에 observer가 5초 decoder 정체를 감지했고 08:20:13에 자동 재협상과
+frame 디코딩을 복구했다. hand-eye와 DDS session은 유지됐다. 두 LIVE 화면은
+재확인했으나 무중단 통과는 아니다. 종료·재접속 반복은 진행 중이다.
+
+복구된 observer의 `negotiation retry sent` 문구가 빨간 오류로 남는 실제
+표시 결함을 수정했다. 해당 receiver에서 실제 fresh frame이 확인될 때만
+그 stream의 정확한 재시도 안내를 지우고, SDP answer만 받은 상태·다른 stream·
+명령 오류는 유지한다. focused session **31 passed**, UI+quality **101 passed**다.
+현재 실행 image에는 이 후속 표시 수정이 아직 포함되지 않았다.
+
 - `hckang@100.74.222.24:22`의 확인된 ED25519 지문은
   `SHA256:2oAaevxeuYi0yc3umwg15I5c/plBF8GW2x9TvfN7paY`다. 제품의
   `ParamikoConnector`와 명시적 `tailscale` 인증으로 연결했다. 전역 SSH trust
@@ -763,7 +794,7 @@ Pilot, Robot과 Sim의 가상 장치·물리 실행부다. 이는 감사할 책�
 | --- | --- | --- |
 | R0 검증 준비 / 부분완료 | 동일 revision에서 실패를 재현할 수 있다 | 기존 dev 전체 gate·격리 release 통과; 새 dev image build와 원래 삭제된 오류 동일성은 미확인 |
 | R1 설치 / 부분완료 | 마법사에서 설치를 끝내고 설치 상태를 다시 확인한다 | 설치·재진입·입력 실패·취소·동일 조건 재시도; 생성물과 표시 상태 일치 |
-| R2 연결·표출 / 환경대기 | 연결관리자로 시작해서 UI의 두 영상과 상태를 본다 | 한-host 및 두-host 기동, 실제 frame 갱신, 종료·재시작, 한 peer/영상 중단 표시 |
+| R2 연결·표출 / 부분완료 | 실제 두-host DDS와 두 영상 디코딩·창 표시 확인; 유지·반복 검증 진행 | 한-host 및 두-host 기동, 실제 frame 갱신, 종료·재시작, 한 peer/영상 중단 표시 |
 | R3 기본 조작 / 대기(R2) | 조작이 실제 상태에 반영되고 중단하면 멈춘다 | UI→Pilot→Sim 명령과 telemetry 왕복, lease 상실·reset·재접속 회귀 |
 | R4 Pick / 대기(R3, 실제 장면) | 선택한 작업을 성공·실패·취소 후 다시 실행한다 | 고정 입력의 반복 실행, 작업별 성공 기준, 실패 사유와 재시도 결과 |
 | R5 실물 / 대기(R3, 장비) | 기본 조작과 로컬 안전이 Robot에서 성립한다 | Jetson/GO2/arm 실측, bridge/통신 상실 시 정지와 cleanup, 장치 피드백 |

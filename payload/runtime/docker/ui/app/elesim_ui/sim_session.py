@@ -750,6 +750,7 @@ class UiSimSession:
             except Exception as exc:
                 self._handle_stream_error(stream, receiver, f"invalid decoder clock: {exc}")
                 continue
+            has_decoded_frame = age is not None
             if age is None:
                 age = now - float(connected_at.get(stream, now))
                 threshold = _STREAM_STARTUP_TIMEOUT_S
@@ -757,6 +758,13 @@ class UiSimSession:
                 threshold = _STREAM_STALL_TIMEOUT_S
             if age >= threshold:
                 stalled.append((stream, age))
+            elif has_decoded_frame:
+                with self._lock:
+                    if (
+                        self._receivers.get(stream) is receiver
+                        and self._last_error == f"{stream} WebRTC negotiation retry sent"
+                    ):
+                        self._last_error = ""
 
         for stream in pending_answers:
             with self._lock:

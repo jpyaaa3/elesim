@@ -460,6 +460,36 @@ def test_connected_stream_without_decoded_frames_is_restarted_independently() ->
     assert len(retries) == 4
 
 
+@pytest.mark.parametrize("stream", ["observer", "hand_eye_preview"])
+def test_retry_notice_clears_only_after_its_stream_decodes_a_fresh_frame(stream) -> None:
+    endpoint = Endpoint()
+    session = new_session()
+    session.run_cycle(endpoint)
+    request_id = str(endpoint.sent[0][1]["payload"]["request_id"])
+    endpoint.inbox.append(opened(request_id))
+    session.run_cycle(endpoint)
+    receiver = session.receiver(stream)
+    receiver.frame_age_s = lambda: None
+    endpoint.inbox.extend((answer("observer"), answer("hand_eye_preview")))
+    notice = f"{stream} WebRTC negotiation retry sent"
+    session._set_error(notice)
+    session.run_cycle(endpoint)
+    assert session.last_error == notice
+
+    receiver.frame_age_s = lambda: 0.1
+    session.run_cycle(endpoint)
+    assert session.last_error == ""
+
+    session._set_error("simulation command rejected")
+    session.run_cycle(endpoint)
+    assert session.last_error == "simulation command rejected"
+
+    other = "hand_eye_preview" if stream == "observer" else "observer"
+    session._set_error(f"{other} WebRTC negotiation retry sent")
+    session.run_cycle(endpoint)
+    assert session.last_error == f"{other} WebRTC negotiation retry sent"
+
+
 def test_stream_answer_failure_keeps_other_video_stream_and_reports_reason() -> None:
     Receiver.created.clear()
     endpoint = Endpoint()
