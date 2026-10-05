@@ -29,6 +29,7 @@ def test_sim_configs_load_with_role_owned_schema(name: str) -> None:
     assert bundle.sim_config.sim_observer_camera_pos == (3.5, 0.5, 2.5)
     assert bundle.sim_config.sim_observer_camera_lookat == (0.0, 0.0, 0.5)
     assert bundle.sim_config.perf_log_enable is False
+    assert bundle.sim_config.genesis_performance_mode is False
     assert bundle.sim_config.camera_execution == "async_process"
     assert bundle.sim_config.camera_first_frame_timeout_s == 30.0
     assert bundle.sim_config.visualizer_max_hz == 30.0
@@ -79,9 +80,20 @@ def test_sim_rejects_ini_configuration(tmp_path: Path) -> None:
         load_app_config(str(path))
 
 
+def test_sim_can_opt_into_static_genesis_arrays(tmp_path: Path) -> None:
+    path = tmp_path / "static-arrays.yaml"
+    path.write_text(
+        "schema_version: 1\nsimulation:\n  runtime:\n"
+        "    genesis_performance_mode: true\n",
+        encoding="utf-8",
+    )
+    assert load_app_config(str(path)).sim_config.genesis_performance_mode is True
+
+
 @pytest.mark.parametrize(
     ("key", "value", "message"),
     (
+        ("genesis_performance_mode", "fast", "genesis_performance_mode"),
         ("camera_execution", "threaded", "camera_execution"),
         ("camera_worker_start_timeout_s", 0, "camera_worker_start_timeout_s"),
         ("camera_first_frame_timeout_s", 0, "camera_first_frame_timeout_s"),

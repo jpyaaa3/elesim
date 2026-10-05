@@ -54,6 +54,9 @@ simulation:
     roll_rate: .inf
     bend_rate: .inf
   runtime:
+    # Dynamic arrays reuse compiled kernels across restarts. Static-array
+    # throughput mode is opt-in because it increases scene build time.
+    genesis_performance_mode: false
     use_gpu: true
     camera_gpu_convert: true
     # Camera rendering runs in a visual-only Genesis process.  The legacy

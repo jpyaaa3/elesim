@@ -220,8 +220,8 @@ def _make_urdf_morph(
 def _genesis_init_kwargs(gs: Any, *, use_gpu: bool) -> dict[str, Any]:
     """Use dynamic arrays for the visual replica to minimize cold startup.
 
-    The authoritative physics process keeps ``performance_mode=True`` for
-    steady-state stepping.  The camera replica never steps physics, so paying
+    The authoritative physics process can opt into static arrays for
+    steady-state stepping. The camera replica never steps physics, so paying
     for a second scene-specific static-kernel compilation only delays startup
     and competes with the physics build on the same GPU.
     """
@@ -353,7 +353,9 @@ def _camera_render_process_main(
         import genesis as gs
         from elesim_sim.vision.sim_camera.mount import Node9EyeInHandCamera, ObserverCamera
 
+        t_startup = time.perf_counter()
         gs.init(**_genesis_init_kwargs(gs, use_gpu=bool(spec.use_gpu)))
+        print(f"[sim-camera-worker] {streams} Genesis initialized in {time.perf_counter() - t_startup:.2f}s", flush=True)
 
         gravity = tuple(float(v) for v in spec.gravity)
         try:
@@ -410,6 +412,7 @@ def _camera_render_process_main(
                 sphere,
                 surface=gs.surfaces.Rough(color=tuple(float(v) for v in spec.target_color_rgba)),
             )
+        t_model = time.perf_counter()
         entity = scene.add_entity(
             _make_urdf_morph(
                 gs,
@@ -426,6 +429,7 @@ def _camera_render_process_main(
             from elesim_sim.robot.go2.initial_pose import prepare_neutral_stand_pose
 
             prepare_neutral_stand_pose(entity)
+        print(f"[sim-camera-worker] {streams} robot loaded in {time.perf_counter() - t_model:.2f}s", flush=True)
 
         mock_entities: dict[str, Any] = {}
         for asset in spec.mock_assets:
@@ -456,7 +460,9 @@ def _camera_render_process_main(
                 pos=tuple(float(v) for v in spec.observer_pos),
                 lookat=tuple(float(v) for v in spec.observer_lookat),
             )
+        t_build = time.perf_counter()
         scene.build()
+        print(f"[sim-camera-worker] {streams} scene built in {time.perf_counter() - t_build:.2f}s", flush=True)
         robot_dof_indices = resolve_single_dof_indices(entity, spec.robot_joint_names)
         if eye is not None:
             eye.bind(entity, hand_eye_path=str(spec.hand_eye_config))

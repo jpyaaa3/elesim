@@ -37,6 +37,9 @@ class SimParam:
 @dataclass(frozen=True)
 class SimConfig:
     use_gpu: bool = True
+    # Static arrays can improve stepping throughput but repeatedly specialize
+    # scene kernels. Dynamic arrays reuse Genesis' cross-process frontend cache.
+    genesis_performance_mode: bool = False
     # Keep Genesis backend selection independent from camera post-processing.
     # This switch allows an A/B profile with the same GPU-rendered scene while
     # forcing the legacy host conversion path.

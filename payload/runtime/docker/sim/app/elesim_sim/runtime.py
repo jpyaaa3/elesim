@@ -2945,13 +2945,20 @@ class RuntimePrep:
         backend_name = "gpu" if a.cfg.use_gpu else "cpu"
         print(f"[runtime] genesis backend requested: {backend_name}")
         _ensure_genesis_cache_dir()
-        init_kwargs = {"backend": backend, "logging_level": "warning"}
-        if bool(a.cfg.use_gpu):
-            # Runtime inputs are validated before this boundary; favor device
-            # throughput over Genesis' interactive debugging synchronization.
-            init_kwargs["performance_mode"] = True
+        init_kwargs = {
+            "backend": backend,
+            "logging_level": "warning",
+            # Genesis performance mode selects static arrays; it is not a
+            # debug/synchronization switch. Default dynamic arrays reuse the
+            # frontend kernel cache between processes, avoiding repeated AST
+            # specialization during scene.build(). Keep static mode opt-in.
+            "performance_mode": bool(
+                a.cfg.use_gpu and getattr(a.cfg, "genesis_performance_mode", False)
+            ),
+        }
         gs.init(**init_kwargs)
         print(f"[runtime] Genesis initialized in {time.perf_counter() - t_init:.2f}s", flush=True)
+        print(f"[runtime] Genesis arrays: {'dynamic' if gs.use_ndarray else 'static'}", flush=True)
 
         gravity = tuple(float(x) for x in a.params.gravity)
         if use_go2 and gravity == (0.0, 0.0, 0.0):
@@ -3105,6 +3112,7 @@ class RuntimePrep:
             metrics = WalkingMetricsLogger.from_env()
             a.sim_scene.walking_metrics = metrics
             a.sim_scene.go2_entity = go2_entity
+            t_controller = time.perf_counter()
             a.sim_scene.go2 = Go2Locomotion(
                 go2_entity,
                 dt=a.params.dt,
@@ -3115,6 +3123,7 @@ class RuntimePrep:
                 go2_urdf_path=os.path.join(a.cfg.build_dir, "assets/go2/go2.urdf"),
                 timing_sink=a.sim_scene.observe_go2_timing,
             )
+            print(f"[runtime] GO2 controller initialized in {time.perf_counter() - t_controller:.2f}s", flush=True)
             if go2_mirror:
                 print("[runtime] GO2 mirror_from_host=true: merged robot follows host go2_base_* (MPC off)")
 

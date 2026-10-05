@@ -158,6 +158,7 @@ Sim의 `simulation.runtime`에는 카메라 실행 정책도 있다.
 ```yaml
 simulation:
   runtime:
+    genesis_performance_mode: false # GPU static arrays는 명시적으로 선택
     camera_execution: async_process  # async_process | sync_legacy
     camera_worker_start_timeout_s: 180.0
     camera_first_frame_timeout_s: 30.0
@@ -170,6 +171,16 @@ latest-only shared RGB-D slot에 최신 프레임만 유지한다. `sync_legacy`
 비교·장치 진단용 명시적 경로다. `camera_gpu_convert`가 꺼져 있으면 async
 렌더러의 최종 RGB/depth 변환도 CPU 경로를 사용한다. `visualizer_max_hz`는
 native Viewer에만 적용되며 headless Sim에는 영향을 주지 않는다.
+
+`genesis_performance_mode: false`는 Genesis의 dynamic arrays를 사용해 다른
+프로세스에서도 frontend kernel cache를 재사용한다. 처음 실행하거나 모델/
+라이브러리/컴파일 설정이 달라지면 여전히 컴파일 시간이 필요하다. `true`는 GPU
+physics에 static arrays를 사용한다. 일부 step 처리량을 높일 수 있지만 장면별
+커널 준비가 재실행 때도 비싸므로, 전체 workload를 측정한 경우에만 선택한다.
+이 필드는 정밀도, Newton solver, iteration 수, 충돌·관절 한계 설정을 바꾸지
+않는다. CPU와 camera replica에는 static mode를 적용하지 않는다. 외부
+`GS_ENABLE_NDARRAY=0`은 Genesis 차원에서 dynamic arrays를 막을 수 있으므로
+실제 선택은 시작 로그의 `Genesis arrays`로 확인한다.
 
 `camera_gpu_convert`가 켜진 상태에서 CUDA 변환이나 출력 shape 검증이 실패하면
 해당 Sim 시작/카메라 경로가 실패한다. CUDA tensor를 느린 host CPU 변환으로

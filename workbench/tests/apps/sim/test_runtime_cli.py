@@ -55,7 +55,9 @@ def test_macos_gpu_render_leaves_egl_unset(monkeypatch) -> None:
     assert "CUDA_DEVICE_ORDER" not in os.environ
 
 
-def test_gpu_genesis_init_enables_performance_mode(monkeypatch) -> None:
+@pytest.mark.parametrize("use_gpu", [False, True])
+@pytest.mark.parametrize("performance_mode", [False, True])
+def test_genesis_static_arrays_require_explicit_gpu_opt_in(monkeypatch, use_gpu, performance_mode) -> None:
     captured = {}
 
     class InitObserved(Exception):
@@ -66,14 +68,16 @@ def test_gpu_genesis_init_enables_performance_mode(monkeypatch) -> None:
         raise InitObserved
 
     monkeypatch.setattr(runtime.gs, "init", observe_init)
-    app = SimpleNamespace(cfg=SimpleNamespace(use_go2=False, use_gpu=True))
+    app = SimpleNamespace(cfg=SimpleNamespace(
+        use_go2=False, use_gpu=use_gpu, genesis_performance_mode=performance_mode,
+    ))
 
     with pytest.raises(InitObserved):
         runtime.RuntimePrep(app).init_genesis("")
 
-    assert captured["backend"] is runtime.gs.gpu
+    assert captured["backend"] is (runtime.gs.gpu if use_gpu else runtime.gs.cpu)
     assert captured["logging_level"] == "warning"
-    assert captured["performance_mode"] is True
+    assert captured["performance_mode"] is (use_gpu and performance_mode)
 
 
 def test_physics_morph_preserves_named_fixed_links_without_deprecated_ik_option(

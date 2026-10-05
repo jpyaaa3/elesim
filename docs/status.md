@@ -6,6 +6,33 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Sim startup 캐시 비교 (2026-10-05, 진행)
+
+- `add8e6d` 기반 상대 RTX A6000 GPU 0의 기존 Sim 이미지에서 별도 DDS 없는
+  진단 프로세스로 같은 GO2+arm/Plane, dt=0.02, Newton 50 iterations를 비교했다.
+  실행 중 Sim도 같은 GPU를 사용했으므로 전용 GPU 성능 수치는 아니다.
+- profiler를 켠 static/dynamic build는 153.21/140.05초. static에서는
+  `kernel.materialize` 누적 99.53초, 첫 physics step 120.39초가 관측됐다.
+  누적 시간은 중첩되므로 합산하지 않으며 profiler 오버헤드도 포함한다.
+- profiler 없는 별도 프로세스 재실행은 **static 62.26초, dynamic 5.08초**.
+  step 100개(첫 10개 제외) 중앙값/p95는 각각 1.44/4.30ms, 1.89/5.04ms.
+  양쪽 최종 qpos는 finite. 무제어 물리 probe이며 보행·MPC 안정성 증거가 아니다.
+- 원인은 GPU `performance_mode=True` 강제로 선택된 static arrays의 반복
+  kernel specialization 비용이다. 캐시 디렉터리 자체는 지속되고 있었다.
+  physics 기본값을 dynamic으로 바꾸고 `simulation.runtime.genesis_performance_mode`
+  명시적 GPU opt-in을 제공한다. 정밀도/충돌/solver 설정은 유지한다.
+- 카메라 worker는 이미 dynamic arrays였다. 각 worker의 init/model/build 시간과
+  별도 GO2 controller 초기화 시간을 추가해 전체 startup에서 구분한다.
+- 재현: `workbench/research/debug/profile_sim_startup.py <robot.urdf>`를 설치된
+  Sim/dev 환경에서 실행한다. `--performance-mode`는 static, `--profile`은
+  비용 분석용이다. 캐시를 유지한 채 별도 프로세스로 반복한다.
+- 원본: `workbench/evidence/generated/readiness/20261005-startup/`.
+  이 축소 scene 결과를 실제 전체 Sim의 94초와 직접 비교하지 않는다.
+  전체 application 배포 후 build/영상/step 검증은 아직 진행 중이다.
+- 기존 생성 dev 환경의 Sim 전체 + quality: **496 passed / 3 skipped**.
+  기본 dynamic 설정, static 명시 선택, 잘못된 설정 거부와 CPU 경계를 포함한다.
+  fresh dev build나 MPC 보행 수용시험 결과는 아니다.
+
 ### 자율 점검 후속 (2026-10-05, 진행)
 
 첫 변경 묶음 `e646290`과 후속 `8321765`, 설치 취소 보완 `3900305`는

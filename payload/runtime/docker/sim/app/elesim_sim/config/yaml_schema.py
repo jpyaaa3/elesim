@@ -90,6 +90,7 @@ _register(
     "simulation.runtime",
     {
         "use_gpu",
+        "genesis_performance_mode",
         "camera_gpu_convert",
         "camera_execution",
         "camera_worker_start_timeout_s",
