@@ -1,8 +1,10 @@
 # GO2 locomotion dependency replacement
 
-Decision date: 2026-09-16. Status: selected for a prototype, not integrated or
-runtime-validated. The existing backend remains installed and enabled until
-the replacement passes the gates below.
+Decision date: 2026-09-16. Updated: 2026-10-05. The nominal acados adapter is
+integrated and `payload/config/sim/config.yaml` currently selects `pympc`.
+The real GPU walking baseline still fails: integration and solver startup
+are not walking acceptance. Current evidence and remaining gates are owned
+by [status.md](status.md). The old convex backend remains an explicit rollback.
 
 ## Decision
 
@@ -24,12 +26,12 @@ Alternatives considered:
 
 ## What must actually be replaced
 
-`payload/config/sim/config.yaml` still selects `convex_mpc`.
+The remaining old `convex_mpc` backend is not the source default.
 `elesim_sim/robot/go2/mpc/controller.py` imports the old package's MPC,
 reference trajectory, gait and leg controller, patches model paths/friction,
 and overrides private force-bound calculation. `gait_adapter.py` also imports
 its gait and robot model. Removing only the pip installation would break default
-Sim locomotion; swapping only the optimizer would not retire the dependency.
+that rollback option; swapping only the optimizer does not retire the dependency.
 
 The pinned dependency is also installed by `docker/shared/Dockerfile.app`,
 `docker/dev/Dockerfile` and `elesim_setup/installer.py`. Retirement must cover

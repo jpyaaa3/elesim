@@ -60,7 +60,7 @@ class Go2RaibertMathTests(unittest.TestCase):
             v_body=np.zeros(3),
             cmd=Go2Command(),
         )
-        expected_y = 0.0465 + 0.0955 * np.cos(0.1)
+        expected_y = 0.0465 + 0.0955 * np.cos(0.1) + 2 * 0.213 * np.cos(0.9) * np.sin(0.1)
         self.assertAlmostEqual(target[1], expected_y)
         self.assertGreater(target[1], 0.13)
 
@@ -74,3 +74,23 @@ class Go2RaibertMathTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_nominal_foot_centers_match_bundled_urdf_forward_kinematics() -> None:
+    from pathlib import Path
+    import pytest
+    pin = pytest.importorskip("pinocchio")
+    from elesim_sim.robot.go2.locomotion.kinematics import GO2_READY_Q
+
+    root = next(p for p in Path(__file__).resolve().parents if (p / "payload").is_dir())
+    urdf = root / "payload/data/models/assemblies/zed-mini/assets/go2/go2.urdf"
+    model = pin.buildModelFromUrdf(str(urdf), pin.JointModelFreeFlyer())
+    data = model.createData()
+    q = pin.neutral(model)
+    for name, angle in GO2_READY_Q.items():
+        q[model.joints[model.getJointId(name)].idx_q] = angle
+    pin.forwardKinematics(model, data, q)
+    pin.updateFramePlacements(model, data)
+    for leg in LegId:
+        actual = data.oMf[model.getFrameId(f"{leg.value}_foot")].translation
+        np.testing.assert_allclose(NOMINAL_FOOT_OFFSET_BODY[leg][:2], actual[:2], atol=1e-8)

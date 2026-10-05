@@ -29,6 +29,17 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   약 27°, t=8.2초에 roll 약 -58°로 넘어졌다. 통신 없는 동일 모델에서도
   재현된다. 필터 제거/감쇠 감소 단독 ablation은 더 빨리 넘어져 채택하지
   않았다. 접촉·발 궤적을 추가 계측하며 개선 중이다.
+- Respawn/720p의 Sim 전체 + Compose 생성 회귀: **559 passed / 3 skipped**.
+- 명목 착지 폭 계산에서 hip 회전 시 두 leg link의 수직 길이가 lateral
+  방향으로 투영되는 항이 빠져 각 발이 약 26mm 안쪽으로 지정됐다. URDF의
+  Pinocchio FK와 네 발의 xy를 직접 비교하는 회귀를 추가했다. 관련 math/MPC
+  adapter: **35 passed**. 이 기하 수정의 보행 수용시험은 아직 진행 중이다.
+- `workbench/research/debug/profile_sim_walking.py`는 production 모델·MPC·reset을
+  사용하되 DDS와 카메라 없이 stand→command→stop을 반복하고 JSONL로 기록한다.
+  기본적으로 고정 perception target을 제외한다. 넘어짐뿐 아니라 displacement,
+  roll/pitch, solver fault와 정지 구간을 확인해야 하며, 이 도구 실행 자체를
+  통과로 취급하지 않는다. `docs/go2-mpc-replacement.md`의 오래된 미통합 설명도
+  현재 실제 기본값 `pympc` 및 미완료 보행 검증 상태로 정정했다.
 
 ### Sim startup 캐시 비교 (2026-10-05, 부분완료)
 

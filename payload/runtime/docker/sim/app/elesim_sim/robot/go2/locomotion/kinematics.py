@@ -64,11 +64,14 @@ def _nominal_foot_offset_body(leg: LegId) -> np.ndarray:
     q_calf = float(GO2_READY_Q[f"{leg.value}_calf_joint"])
     # The two 213 mm leg links have opposing pitch in the ready pose, so their
     # forward offsets nearly cancel. Include the URDF thigh-joint lateral
-    # offset, rotated by the hip abduction angle, in the nominal foot center.
+    # offset and both leg links, rotated by the hip abduction angle, in the
+    # nominal foot center. Omitting the downward links' lateral projection
+    # pulls each touchdown 26 mm inward at the ready pose.
     x = hip[0] - _LEG_LINK_LENGTH_M * (
         np.sin(q_thigh) + np.sin(q_thigh + q_calf)
     )
-    y = hip[1] + side * _THIGH_JOINT_OFFSET_Y_M * np.cos(q_hip)
+    leg_z = -_LEG_LINK_LENGTH_M * (np.cos(q_thigh) + np.cos(q_thigh + q_calf))
+    y = hip[1] + side * _THIGH_JOINT_OFFSET_Y_M * np.cos(q_hip) - leg_z * np.sin(q_hip)
     return np.array([x, y, 0.0], dtype=float)
 
 
