@@ -40,6 +40,34 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   roll/pitch, solver fault와 정지 구간을 확인해야 하며, 이 도구 실행 자체를
   통과로 취급하지 않는다. `docs/go2-mpc-replacement.md`의 오래된 미통합 설명도
   현재 실제 기본값 `pympc` 및 미완료 보행 검증 상태로 정정했다.
+- `705b2ce` 원격 릴리스 `a4b7bdd4…`를 기존 Robot-free readiness에 적용했다.
+  로컬 UI 실제 WebRTC decoder가 observer/hand-eye 모두 **1280×720**을
+  보고했고 두 영상 LIVE를 확인했다. 기본 UI 이미지 핀은 기존 것을 유지했다.
+- 별도 UI operator probe가 활성 대상 `sim-readiness`를 확인한 뒤 짧은 전진,
+  정지, Respawn을 UI 버튼과 같은 OperatorSession 경로로 전송했다.
+  요청 후 **0.167초**에 epoch=1/t=0.02 status, **0.442초**에 operator 성공
+  응답을 받았다. 초기 자세 화면 복귀와 두 영상 LIVE를 확인했다. 이 값은
+  DDS 상태/응답 지연이며 클릭→실제 화면 갱신 지연 측정값은 아니다.
+- 배포된 Sim은 NVIDIA `video` capability를 실제로 노출한다. 720p 이동 패턴
+  60-frame encode probe는 **h264_nvenc**, fallback=false, warm encode
+  p50/p95 **2.36/4.26ms**였다. CPU fallback의 26–29ms p95와 구분한다.
+- MPC 추가 원인: swing controller는 liftoff touchdown을 유지하지만 MPC에는
+  매 tick 이동하는 새 touchdown을 전달했고, swing에도 stance damping/filter가
+  적용됐다. 같은 touchdown을 공유하고 swing 위치·속도 참조를 함께 추종하며
+  stance 보조 감쇠와 이전 지지 토크를 swing에 섞지 않도록 수정했다.
+- solver의 접촉 위치 warm start를 켠다. 단순히 3회 SQP solve를 최대 10번
+  이어서 실행하는 후보는 p95 약 98ms로 느렸고 빠른 전진도 해결하지 못해
+  채택하지 않았다. 기존 prebuilt 3-iteration cap을 유지한 warm-start 후보는
+  p95 약 28ms였다. status=2(MAXITER)는 여전히 발생하므로 완전 수렴/실시간
+  제어 증거로 취급하지 않는다. 기존 finite/force/torque 경계를 유지한다.
+- 수정 소스를 독립 프로세스에 로드한 실제 GPU 검증: fixed target 없는 평면에서
+  dt=0.02, settle 2초 → vx=0.35 15초 → stop 2초를 **3회 모두 완료**했다.
+  전진 displacement **4.308 / 4.309 / 4.304m**, 최대 pitch 약 **3.7°**,
+  최대 roll **7.9–9.5°**, solver fault/fall 없음. 19초 simulation의 wall time은
+  약 **28.6–28.8초**로 이 부하에서 1× 실시간을 충족하지는 못했다.
+  후진/횡이동/회전과 설치 이미지 검증은 진행 중이다.
+- 위 MPC 수정의 Sim 회귀: **482 passed / 3 skipped**. 실제 이미지는 아직
+  `705b2ce`이며 실험에서 탈락한 native swing/crawl/추가 SQP 반복은 반영하지 않는다.
 
 ### Sim startup 캐시 비교 (2026-10-05, 부분완료)
 

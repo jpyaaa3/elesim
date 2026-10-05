@@ -1,7 +1,8 @@
 """Genesis GO2 torque controller using Quadruped-PyMPC's acados GRF solve.
 
 This backend does not import the old convex gait, robot model or leg controller.
-It deliberately remains opt-in until a real Genesis/GPU gait acceptance run.
+The source profile selects this experimental backend; gait acceptance remains
+separate from successful solver initialization.
 """
 
 from __future__ import annotations
@@ -31,6 +32,28 @@ from elesim_sim.simulation.genesis.utils import to_numpy_1d
 
 _LEGS = (LegId.FL, LegId.FR, LegId.RL, LegId.RR)
 _PHASE_OFFSETS = np.array((0.0, 0.5, 0.5, 0.0))
+
+
+def planned_footholds(feet, candidates, contacts, previous_contacts, touchdowns) -> np.ndarray:
+    """Give MPC the same touchdown held by the swing controller until landing."""
+    result = np.asarray(feet, dtype=float).copy()
+    swinging = np.asarray(contacts) == 0
+    continuing = swinging & (np.asarray(previous_contacts) == 0)
+    result[swinging] = np.asarray(candidates)[swinging]
+    result[continuing] = np.asarray(touchdowns)[continuing]
+    return result
+
+
+def swing_foot_reference(progress, start, touchdown, *, duration_s, height_m=0.06):
+    """Position and matching world velocity for the bounded swing trajectory."""
+    progress = float(np.clip(progress, 0.0, 1.0))
+    smooth = progress * progress * (3.0 - 2.0 * progress)
+    delta = np.asarray(touchdown) - np.asarray(start)
+    target = np.asarray(start) + smooth * delta
+    target[2] += height_m * np.sin(np.pi * progress)
+    velocity = 6.0 * progress * (1.0 - progress) / duration_s * delta
+    velocity[2] += height_m * np.pi * np.cos(np.pi * progress) / duration_s
+    return target, velocity
 
 
 def contact_schedule(time_s: float, *, gait_hz: float, duty: float, dt: float, horizon: int) -> np.ndarray:
@@ -391,7 +414,6 @@ class PyMpcGenesisController:
             dt=self._solver.dt,
             horizon=self._solver.horizon,
         )
-        footholds = feet.copy()
         floor_z = 0.025
         half_stance_s = 0.5 * float(self._config.gait_duty / self._config.gait_hz)
         placements = touchdown_offsets_body(
@@ -401,10 +423,11 @@ class PyMpcGenesisController:
             half_stance_s=half_stance_s,
             placement_scale=float(self._config.foot_placement_scale),
         )
-        for i in range(len(_LEGS)):
-            if contacts[i, 0] == 0:
-                footholds[i] = q[:3] + rot_m @ placements[i]
-                footholds[i, 2] = floor_z
+        candidates = q[:3] + placements @ rot_m.T
+        candidates[:, 2] = floor_z
+        footholds = planned_footholds(
+            feet, candidates, contacts[:, 0], self._last_contacts, self._touchdowns,
+        )
         sample = PyMpcInput(
             com_position=com,
             com_velocity=vel,
@@ -458,10 +481,11 @@ class PyMpcGenesisController:
                     self._swing_starts[i] = feet[i]
                     self._touchdowns[i] = sample.footholds_world[i]
                 progress = np.clip((phase[i] - duty) / (1.0 - duty), 0.0, 1.0)
-                smooth = progress * progress * (3.0 - 2.0 * progress)
-                target = self._swing_starts[i] * (1.0 - smooth) + self._touchdowns[i] * smooth
-                target[2] += 0.06 * np.sin(np.pi * progress)
-                task_force = 180.0 * (target - feet[i]) - 7.0 * foot_vel[i]
+                target, desired_vel = swing_foot_reference(
+                    progress, self._swing_starts[i], self._touchdowns[i],
+                    duration_s=(1.0 - duty) / float(self._config.gait_hz),
+                )
+                task_force = 1000.0 * (target - feet[i]) + 20.0 * (desired_vel - foot_vel[i])
                 tau[sl] = jacobians[i].T @ task_force
             tau[sl] -= 0.5 * joint_vel[sl]
         self._last_contacts = contacts.copy()
@@ -469,10 +493,18 @@ class PyMpcGenesisController:
             raise RuntimeError("PyMPC produced nonfinite joint torque")
         self._tau_raw = tau.copy()
         tau = np.clip(tau, -self._tau_lim, self._tau_lim)
-        tau = tau * self._torque_scale() + self._aux_pd_torque(joint_vel)
+        swing_dofs = np.repeat(contacts == 0, 3)
+        auxiliary = self._aux_pd_torque(joint_vel)
+        # Stance damping must not fight the commanded swing velocity. The
+        # swing task already supplies its own velocity feedback.
+        auxiliary[swing_dofs] = 0.0
+        tau = tau * self._torque_scale() + auxiliary
         self._tau_limited = np.clip(tau, -self._tau_lim, self._tau_lim)
         alpha = float(np.clip(self._config.tau_filter_alpha, 0.05, 1.0))
         self._tau_filt = alpha * self._tau_limited + (1.0 - alpha) * self._tau_filt
+        # Do not drag the preceding support torque through a short swing.
+        # Preserve the same local force/torque limits in both support modes.
+        self._tau_filt[swing_dofs] = self._tau_limited[swing_dofs]
         return self._tau_filt.copy()
 
     def _torque_scale(self) -> float:

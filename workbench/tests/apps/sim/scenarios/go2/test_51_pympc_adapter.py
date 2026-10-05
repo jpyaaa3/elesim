@@ -11,9 +11,36 @@ from elesim_sim.robot.go2.locomotion.types import ALL_LEGS, Go2Command
 from elesim_sim.robot.go2.pympc_controller import (
     PyMpcGenesisController,
     contact_schedule,
+    planned_footholds,
+    swing_foot_reference,
     touchdown_offsets_body,
 )
 from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput
+
+
+def test_planner_holds_swing_touchdown_while_body_and_candidates_move():
+    feet = np.arange(12, dtype=float).reshape(4, 3)
+    candidates = feet + 10
+    latched = feet + 20
+    result = planned_footholds(feet, candidates, [1, 0, 0, 1], [0, 1, 0, 1], latched)
+    np.testing.assert_array_equal(result[[0, 3]], feet[[0, 3]])
+    np.testing.assert_array_equal(result[1], candidates[1])
+    np.testing.assert_array_equal(result[2], latched[2])
+    later = planned_footholds(feet, candidates + 100, [1, 0, 0, 1], [1, 0, 0, 1], result)
+    np.testing.assert_array_equal(later[[1, 2]], result[[1, 2]])
+    assert not np.shares_memory(result, feet)
+
+
+def test_swing_velocity_matches_position_derivative():
+    start, end = np.array([0., .1, .02]), np.array([.15, .2, .025])
+    p, duration, epsilon = .4, .18, 1e-6
+    target, velocity = swing_foot_reference(p, start, end, duration_s=duration)
+    before, _ = swing_foot_reference(p - epsilon, start, end, duration_s=duration)
+    after, _ = swing_foot_reference(p + epsilon, start, end, duration_s=duration)
+    np.testing.assert_allclose(velocity, (after - before) / (2 * epsilon * duration), atol=1e-8)
+    np.testing.assert_allclose(swing_foot_reference(0, start, end, duration_s=duration)[0], start)
+    np.testing.assert_allclose(swing_foot_reference(1, start, end, duration_s=duration)[0], end)
+    assert target[2] > max(start[2], end[2])
 
 
 class FakeSolver:
@@ -234,6 +261,28 @@ def test_force_filter_reprojects_stance_and_zeros_swing_legs() -> None:
 
     np.testing.assert_allclose(controller._forces[[0, 2]], [[24, -24, 60]] * 2)
     np.testing.assert_array_equal(controller._forces[[1, 3]], np.zeros((2, 3)))
+
+
+def test_swing_uses_velocity_reference_without_stance_damping_or_old_torque():
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(c, elapsed_s=.32, config=_torque_config(
+        gait_hz=2.5, gait_duty=.6, aux_kv=100., tau_filter_alpha=.1,
+    ))
+    c._tau_filt[:] = 90.
+    state = sample()
+    state.contacts[:] = 0.
+    c._last_contacts[:] = 0.
+    c._swing_starts[:] = [0., 0., .02]
+    c._touchdowns[:] = [.1, 0., .02]
+    phase = (.32 * 2.5 + np.array([0., .5, .5, 0.])) % 1.
+    feet, velocities = zip(*(swing_foot_reference(
+        np.clip((p - .6) / .4, 0, 1), c._swing_starts[i], c._touchdowns[i], duration_s=.16,
+    ) for i, p in enumerate(phase)))
+    # Perfect task tracking leaves only the bounded 0.5 joint damping. A
+    # stale 90-Nm support filter or the 100-Nm stance damping must not leak in.
+    tau = c._torques(state, np.array(feet), np.array(velocities),
+                     np.tile(np.eye(3), (4, 1, 1)), np.ones(12))
+    np.testing.assert_allclose(tau, -.5)
 
 
 def test_torque_startup_ramp_fades_ready_pose_assist() -> None:

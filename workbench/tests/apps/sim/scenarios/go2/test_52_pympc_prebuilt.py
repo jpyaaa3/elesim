@@ -12,6 +12,7 @@ def test_prebuilt_acados_solver_executes_one_nominal_step() -> None:
     pytest.importorskip("quadruped_pympc")
     pytest.importorskip("acados_template")
     solver = PyMpcForceSolver()
+    assert solver._solver.use_warm_start is True
     feet = np.array(
         [[0.2, 0.1, 0.02], [0.2, -0.1, 0.02],
          [-0.2, 0.1, 0.02], [-0.2, -0.1, 0.02]],

@@ -96,6 +96,10 @@ class PyMpcForceSolver:
                 grf_min=0.0,
                 use_foothold_optimization=False,
                 use_foothold_constraints=False,
+                # Align all horizon foot guesses with the current contact
+                # geometry before solving. More SQP passes were much slower
+                # than this warm start in the real Genesis gait comparison.
+                use_warm_start=True,
                 num_qp_iterations=NOMINAL_SQP_ITERATIONS,
                 solver_mode=NOMINAL_HPIPM_MODE,
             )
