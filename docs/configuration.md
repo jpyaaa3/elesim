@@ -182,6 +182,12 @@ physics에 static arrays를 사용한다. 일부 step 처리량을 높일 수 �
 `GS_ENABLE_NDARRAY=0`은 Genesis 차원에서 dynamic arrays를 막을 수 있으므로
 실제 선택은 시작 로그의 `Genesis arrays`로 확인한다.
 
+Sim은 Docker SIGTERM에서 Python 정리 경로를 실행하고, physics와 camera worker는
+Genesis의 `destroy()`로 종료해 kernel cache를 저장한다. multiprocessing은
+interpreter의 atexit callback을 건너뛰므로 worker도 명시적으로 정리한다.
+SIGKILL, 빌드 중 강제 종료, 정리 시간 초과나 writable persistent cache mount가
+없는 경우에는 다음 실행의 캐시 재사용을 보장하지 않는다.
+
 `camera_gpu_convert`가 켜진 상태에서 CUDA 변환이나 출력 shape 검증이 실패하면
 해당 Sim 시작/카메라 경로가 실패한다. CUDA tensor를 느린 host CPU 변환으로
 묵시적으로 되돌리지 않는다. CPU 변환을 진단하려면 `camera_gpu_convert: false`를

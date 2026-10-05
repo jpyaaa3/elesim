@@ -22,6 +22,7 @@ from elesim_protocol import (
 from elesim_sim.config import load_app_config, load_runtime_role_config
 from elesim_sim.control_state import SimulationStateSource
 from elesim_sim.endpoint import SimEndpoint
+from elesim_sim.shutdown import graceful_sigterm
 from elesim_sim.model_bundle import resolve_camera_profile_bundle
 from elesim_sim.media import (
     MediaWorkerClient,
@@ -256,6 +257,7 @@ def _run() -> None:
             media.close()
 
 
+@graceful_sigterm()
 def main() -> None:
     configure_tracing("elesim-sim-agent", local_log=True)
     try:

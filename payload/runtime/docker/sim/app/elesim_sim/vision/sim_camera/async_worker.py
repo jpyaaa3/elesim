@@ -349,6 +349,7 @@ def _camera_render_process_main(
     """Spawn target; all Genesis imports and device work stay here."""
 
     startup_complete = False
+    gs = None
     try:
         import genesis as gs
         from elesim_sim.vision.sim_camera.mount import Node9EyeInHandCamera, ObserverCamera
@@ -619,6 +620,11 @@ def _camera_render_process_main(
             pass
     finally:
         ready.set()
+        # multiprocessing exits with os._exit, so Genesis' atexit callback is
+        # not sufficient here. The parent still bounds shutdown with join and
+        # terminate if a renderer is stuck.
+        if gs is not None:
+            gs.destroy()
 
 
 def _put_latest_frame_result(channel: Queue, message: Mapping[str, Any]) -> bool:

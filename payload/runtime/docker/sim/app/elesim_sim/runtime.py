@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 import xml.etree.ElementTree as ET
+from elesim_sim.shutdown import graceful_sigterm
 
 
 from elesim_sim.cache import (
@@ -4191,13 +4192,19 @@ def run_runtime(
         runtime_ready_event=runtime_ready_event,
         mock_object_state=mock_object_state,
     )
-    app.run()
+    try:
+        app.run()
+    finally:
+        # The supported Genesis teardown persists compiled kernels. Do not
+        # dump Quadrants caches while the live runtime still owns the kernels.
+        gs.destroy()
 
 
 def _run() -> None:
     run_runtime()
 
 
+@graceful_sigterm()
 def main() -> None:
     configure_tracing("elesim-sim", local_log=True)
     try:

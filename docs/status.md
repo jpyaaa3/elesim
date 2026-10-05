@@ -32,6 +32,20 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 - 기존 생성 dev 환경의 Sim 전체 + quality: **496 passed / 3 skipped**.
   기본 dynamic 설정, static 명시 선택, 잘못된 설정 거부와 CPU 경계를 포함한다.
   fresh dev build나 MPC 보행 수용시험 결과는 아니다.
+- `368d044` 실제 원격 배포는 첫 build 100.51초, 같은 컨테이너의 프로세스
+  재시작 74.90초였다. 첫 배포 후 두 영상 LIVE를 확인했지만 축소 실험의
+  5초 수준은 재현되지 않았다. `elesim-instance down/up`은 컨테이너를 유지한
+  stop/start였으며 container recreation 증거로 취급하지 않는다.
+- 추가 원인: Genesis `destroy()`가 정상 interpreter exit에서 cache를 저장하나
+  현재 Docker SIGTERM 경로와 multiprocessing `os._exit`는 이를 건너뛸 수 있다.
+  실행 중 `dump_cache_data_to_disk()` 직접 호출은 GPU probe에서
+  `free(): invalid pointer`로 실패해 폐기했다. 운영 앱에 이 경로를 배포하지 않았다.
+  Docker SIGTERM이 Python finally를 실행하게 하고 physics/camera 종료에서
+  지원되는 `gs.destroy()`를 호출하는 경로로 보완한다.
+  이 보완의 실제 배포·재시작 결과는 아직 진행 중이다. 중간 checkpoint안의
+  unit test 498 passed는 폐기한 API의 GPU 안전성 증거가 아니다.
+- 지원되는 종료 경로로 바꾼 최종 Sim + quality 검사도 **498 passed / 3 skipped**.
+  SIGTERM의 finally 실행과 기존 handler 복원을 검증했다.
 
 ### 자율 점검 후속 (2026-10-05, 진행)
 
