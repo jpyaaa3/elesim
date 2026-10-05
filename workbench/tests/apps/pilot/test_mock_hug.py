@@ -6,6 +6,26 @@ import pytest
 
 from elesim_protocol import MockObjectStatePayload, SimMappingConfig, SimQ, SimulationStatusPayload
 from elesim_pilot.pick.mock_hug import MockHugCoordinator, MockHugError, solve_mock_hug
+from elesim_pilot.pick.hug_geometry import HugCandidate
+
+
+@pytest.fixture
+def fixed_contact_solution(monkeypatch):
+    """Identity and lifecycle checks do not depend on a timed geometry search.
+
+    Real geometry remains covered by the solver tests in this file and
+    test_hug_geometry.py. This fixture fixes only the contact solver output.
+    """
+    candidate = HugCandidate(
+        mode="arc2", turn1=1.0, turn2=2.0, length=0.25,
+        rotation=0.0, translation=(0.1, 0.0),
+        contact1=(-0.06, 0.0), contact2=(0.06, 0.0),
+        contact1_u=0.25, contact2_u=0.75, capture_score=0.5,
+        section_source="exact-xz",
+    )
+    monkeypatch.setattr(
+        "elesim_pilot.pick.mock_hug.solve_cross_section", lambda _vertices: (candidate,),
+    )
 
 
 def status(
@@ -67,14 +87,14 @@ def test_solver_rejects_absent_attached_and_oversized_objects() -> None:
         )
 
 
-def test_solution_identity_changes_with_spawn_revision() -> None:
+def test_solution_identity_changes_with_spawn_revision(fixed_contact_solution) -> None:
     q = SimQ(-0.1, 0.0, 0.0, 0.0)
     first = solve_mock_hug(status(revision=1), current_q=q, mapping=SimMappingConfig())
     second = solve_mock_hug(status(revision=2), current_q=q, mapping=SimMappingConfig())
     assert first.solution_id != second.solution_id
 
 
-def test_coordinator_stops_before_sending_again_when_lifecycle_revision_changes() -> None:
+def test_coordinator_stops_before_sending_again_when_lifecycle_revision_changes(fixed_contact_solution) -> None:
     latest = [status(revision=1)]
     sent: list[object] = []
     first_sent = threading.Event()
@@ -104,7 +124,7 @@ def test_coordinator_stops_before_sending_again_when_lifecycle_revision_changes(
     assert "changed" in coordinator._error
 
 
-def test_coordinator_fences_every_waypoint_to_exact_target_boot_and_lease() -> None:
+def test_coordinator_fences_every_waypoint_to_exact_target_boot_and_lease(fixed_contact_solution) -> None:
     latest = [status()]
     context = [["sim-a", "boot-a", "lease-a"]]
     sent: list[object] = []

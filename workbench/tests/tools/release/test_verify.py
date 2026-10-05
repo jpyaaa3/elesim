@@ -9,6 +9,7 @@ import pytest
 from workbench.tools.release.verify import (
     EXPECTED_INFRA_FILES,
     REQUIRED_SETUP_PACKAGE_FILES,
+    SETUP_PYTHON_MODULES,
     _probe_environment,
     ReleaseVerificationError,
     assert_release_entries,
@@ -21,6 +22,14 @@ from workbench.tools.release.verify import (
     verify_infrastructure_layout,
     verify_release_layout,
 )
+
+
+def test_release_setup_manifest_matches_source_modules() -> None:
+    root = Path(__file__).resolve().parents[4]
+    package = root / "payload/runtime/docker/setup/app/elesim_setup"
+    actual = {"elesim_setup/" + path.name for path in package.glob("*.py")}
+    assert actual
+    assert actual == SETUP_PYTHON_MODULES
 
 
 def _wheel(path: Path, *members: str) -> Path:

@@ -91,6 +91,7 @@ SETUP_PYTHON_MODULES = frozenset(
         "cli",
         "configuration",
         "container_installer",
+        "install_transaction",
         "credentials",
         "developer",
         "doctor",

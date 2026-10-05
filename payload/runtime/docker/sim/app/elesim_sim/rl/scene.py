@@ -30,6 +30,7 @@ import torch
 
 from .arm_kinematics import ArmDofIndex, resolve_dof_index
 from .configs.loader import WrapGraspConfig
+from ..robot.go2.initial_pose import prepare_neutral_joint_positions
 
 _REPO_ROOT = next(root for root in Path(__file__).resolve().parents if (root / "AGENTS.md").is_file())
 _DEFAULT_BUNDLE = "payload/data/models/assemblies/zed-mini"
@@ -315,6 +316,14 @@ class WrapGraspScene:
                 scene_cfg.decompose_robot_error_threshold
             )
         self.robot = self.scene.add_entity(gs.morphs.URDF(**urdf_kwargs))
+        if scene_cfg.go2.enable and scene_cfg.go2.freeze_legs:
+            pose = scene_cfg.go2.leg_pose_rad
+            positions = {
+                name: float(pose[index % 3])
+                for index, name in enumerate(_GO2_LEG_JOINTS)
+                if any(joint.name == name for joint in self.robot.joints)
+            }
+            prepare_neutral_joint_positions(self.robot, positions)
 
         support_cfg = self.cfg.support
         if support_cfg.enable:

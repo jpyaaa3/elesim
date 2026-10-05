@@ -8,6 +8,36 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### 자율 점검 후속 (2026-10-05, 진행)
 
+첫 변경 묶음은 `e646290`으로 원격 main에 반영돼 있다. 후속 검사에서 아래를
+추가 수정했다. 집중 검증은 **62 passed**이며 전체 gate를 재실행 중이다.
+
+- release 검증의 별도 setup 모듈 허용 목록에 `install_transaction`이 누락돼
+  실제 release build가 실패했다. 목록을 수정하고 실제 소스 목록과 대조하는
+  회귀를 추가했다. 수정 전 전체 gate도 같은 문제로 model/release가 실패했다.
+- Mock Hug의 identity/lifecycle 검사 두 개가 제한 시간 내 기하 해를 못 찾아
+  전체 gate에서 실패했다. 이 세 수명주기 검사는 고정된 contact solver
+  출력을 사용하도록 범위를 분리했다. 실제 기하 solver 검사는 유지한다.
+  제품 solver의 시간 제한과 알고리즘은 변경하지 않았다.
+- RL의 지연 관측이 reset 후 이전 episode 값을 전달하는 결함을 두 검사로
+  재현했다. reset된 env 행만 다음 첫 관측으로 이력을 채우고 다른 env의
+  지연 이력은 유지한다. 관측 차원은 동일하지만 새 학습의 reset 의미는
+  수정되므로 기존 학습과 완전히 동일한 재현이라고 주장하지 않는다.
+- RL 전용 scene에도 설정된 GO2 leg pose를 build 전에 검증·지정한다.
+  runtime 기본 stand로 덮어쓰지 않으며 잘못된 shape/dtype/limit는 어떤
+  joint도 수정하기 전에 거부한다. 후속 실제 CPU build는 아직 재확인 전이다.
+- SSH 경로 분리 진단: EleSim helper/ProxyCommand를 제거한 단순 전달에서도
+  host TCP와 host `tailscale nc` 모두 client 1,288바이트 KEX 뒤 멈췄다.
+  host route는 `tailscale0`, interface MTU 1,280이었다. TCP 소켓 하나만
+  `TCP_MAXSEG=1024`(협상 후 1,012)로 만든 진단은 기본 알고리즘 그대로
+  **0.104초**에 같은 공개 key를 반환했다. host VPN 경로의 패킷 크기 문제가
+  유력하나 어느 계층이 packet을 잃는지는 확정하지 않는다. 전역 MTU/route/
+  ACL과 제품 암호 설정은 변경하지 않았다. 삭제된 최초 오류와의 동일성도
+  확정하지 않는다.
+- 전용 happy prefix의 실제 wizard API 재설치도 완료했다. 새 shell의 generic
+  `elesim-status`는 scoped 설치에 global runtime이 없다는 올바른 안내와
+  exit 64를 반환했다. 등록된 system의 정상 상태 검증은 아직 아니다.
+  dev에 Node가 없어 skip된 frontend 3개는 host Node에서 별도 **3 passed**다.
+
 원본 로그와 전용 설치는
 `workbench/evidence/generated/readiness/20261005-autonomous/`에 있다.
 기존 소유 dev 서비스에서 실행했으며 새 dev image build, 실제 두 host의

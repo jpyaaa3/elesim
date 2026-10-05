@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import numpy as np
 
 from .locomotion.kinematics import GO2_STAND_Q
@@ -15,10 +17,15 @@ def prepare_neutral_stand_pose(entity: object) -> None:
     descriptions own the initial positions consumed during scene.build().
     Validate every leg joint before modifying any description.
     """
+    prepare_neutral_joint_positions(entity, GO2_STAND_Q)
+
+
+def prepare_neutral_joint_positions(entity: object, positions: Mapping[str, float]) -> None:
+    """Validate all requested scalar joint positions before updating any."""
     if entity.is_built:
         raise RuntimeError("GO2 neutral posture must be prepared before scene.build()")
     updates = []
-    for name, value in GO2_STAND_Q.items():
+    for name, value in positions.items():
         joint = entity.get_joint(name)
         desc = joint.desc
         initial = np.asarray(desc.init_qpos)
@@ -28,7 +35,7 @@ def prepare_neutral_stand_pose(entity: object) -> None:
         if not np.issubdtype(initial.dtype, np.floating):
             raise ValueError(f"GO2 joint {name!r} initial position must use a floating dtype")
         if not limits[0, 0] <= value <= limits[0, 1]:
-            raise ValueError(f"GO2 standing position is outside joint limits: {name}")
+            raise ValueError(f"GO2 neutral position is outside joint limits: {name}")
         position = np.asarray([value], dtype=initial.dtype)
         updates.append((desc, position))
     for desc, position in updates:

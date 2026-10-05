@@ -35,6 +35,7 @@ class ObservationBuilder:
             maxlen=max(self._delay_hi, 0) + 1
         )
         self._obs_delay = torch.zeros(env.num_envs, device=env.device, dtype=torch.long)
+        self._reset_pending = torch.ones(env.num_envs, device=env.device, dtype=torch.bool)
 
     def reset_delay(self, env_ids: Optional[torch.Tensor], n: int) -> None:
         delay = torch.randint(
@@ -46,8 +47,10 @@ class ObservationBuilder:
         )
         if env_ids is None:
             self._obs_delay[:] = delay
+            self._reset_pending[:] = True
         else:
             self._obs_delay[env_ids] = delay
+            self._reset_pending[env_ids] = True
 
     def specification(self) -> ObsSpec:
         actor_cfg = self.env.cfg.observation.actor
@@ -259,6 +262,11 @@ class ObservationBuilder:
         The delay is per-env and redrawn on reset, so the policy has to be
         robust to a stale reading rather than learning one fixed lag.
         """
+        # A delay belongs to the current episode. Seed reset rows with their
+        # first current observation while retaining other environments' history.
+        for past in self._obs_history:
+            past[self._reset_pending] = actor[self._reset_pending]
+        self._reset_pending[:] = False
         self._obs_history.append(actor.clone())
         if self._delay_hi <= 0:
             return actor

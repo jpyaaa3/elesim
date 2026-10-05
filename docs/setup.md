@@ -519,6 +519,14 @@ security transaction으로 처리한다.
 
 ## 8. Tailscale sidecar와 네트워크 점검
 
+SSH 배너나 22번 포트 연결만 성공하고 키 교환이 멈추면, 같은 실행 위치에서
+큰 협상 메시지를 주고받는 경로도 확인한다. 2026-10-05 조사에서는 host TCP와
+`tailscale nc`가 모두 기본 Paramiko 협상에서 멈췄고, 진단용 TCP 소켓 하나의
+MSS를 낮추면 같은 알고리즘으로 성공했다. 이는 패킷 크기에 민감한 host VPN
+경로의 증거이며 모든 SSH 실패의 공통 원인은 아니다. 시스템 MTU/방화벽을
+자동 변경하거나 SSH 알고리즘을 줄여 오류를 감추지 않는다. 원본 비교 결과와
+남은 확인 항목은 `status.md`에 기록한다.
+
 SSH 지문 조회가 실패하면 실행 위치와 원래 오류를 함께 기록한다. 연결관리자의
 host proxy는 **호스트의 `tailscale nc`**를 사용하고, `elesim-tailscale status`는
 별도의 **설치 sidecar** 상태를 확인한다. sidecar가 온라인이라는 사실만으로
