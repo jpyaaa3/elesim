@@ -157,7 +157,7 @@ class JaxMppiSolver:
                 error = x-reference
                 error = error.at[6:9].set(angle_error(x[6:9], reference[6:9]))
                 # Prioritize commanded planar velocity over force economy.
-                q = jp.array([0., 0., 1500., 2000., 2000., 200., 500., 500., 0., 20., 20., 200.])
+                q = jp.array([0., 0., 1500., 2000., 2000., 200., 500., 500., 0., 20., 20., 2000.])
                 state_cost = jp.sum(q*error**2)
                 nominal_z = mass*9.81/jp.maximum(jp.sum(contact), 1.)
                 force_error = force - contact[:, None]*jp.array([0., 0., nominal_z])

@@ -55,6 +55,48 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   four-process DDS smoke, DDS RGBD 2, WebRTC 2, setup 1141/3 skipped.
   로컬 `dist/gpu-mpc-20261006/releases` 생성 및 네 역할 isolated verify도
   통과했다. 이는 아래 실패한 원격 Docker 이미지 build와 별개의 검증이다.
+- `00acf7d` 후보: 전진/횡이동/회전/후진 각 2회, 팔 동작 2회, camera 1회,
+  **11/11**이 42초 trial을 전도/fault 없이 마지막 stand로 완료했다. 각 trial은
+  settle 2초, 이동 15초/정지 5초×2이며 trial 사이 reset한다. 평면/고정 target
+  제외/Robot·DDS 없는 기존 격리 venv 실험이다. 팔은 theta1 ±0.12rad,
+  theta2 ±0.08rad/8초 사인 명령으로 동작하며 inertia trace 변화를 기록했다.
+  전진 steady body vx는 0.286–0.288m/s(CPU 0.293), 횡이동 vy는
+  0.087m/s(명령 0.25), 회전 wz는 0.429–0.433rad/s(명령 0.8)다.
+  전진 yaw-rate RMSE는 0.368–0.394rad/s로 CPU 기준 0.221보다 높다.
+  따라서 무전도/속도 개선을 모든 방향 추종의 동등성으로 해석하지 않는다.
+- 두 camera 720p/target 30Hz 동시 실행: 42초 simulation의 wall time은
+  CPU 74.11초 → GPU 57.06초, solve p50/p95는 25.70/34.32ms →
+  8.10/11.92ms, 이동 step p95는 64.53ms → 46.17ms였다.
+  hand-eye/observer 관측 fps는 CPU 13.17/12.29, GPU 13.81/11.58이며
+  capture-to-observation p95는 약 61.6ms → 48.4/48.6ms다.
+  기존 live CPU Sim과 GPU를 공유한 비교이며 WebRTC/network/UI 지연이나
+  실제 30fps 달성 증거가 아니다. camera 원시 기록도 해시 검증하여 보존한다.
+- extended gate는 22+10+4+10 및 실행된 7개 critical mutation 모두 통과했다.
+- CPU 추가 기준선(횡/회전/후진/팔 각 1회)도 **4/4** stand로 완료했다.
+  동일 steady 구간의 CPU/GPU body 속도는 횡 0.079/0.087m/s,
+  후진 -0.180/(-0.179…-0.183)m/s, 팔 동작 전진 0.308/(0.289…0.292)m/s다.
+  회전은 CPU 0.622/GPU 0.429–0.433rad/s로 GPU가 더 부족하여 yaw 가중치
+  800/2000 후보를 추가 비교했다. CPU 기준선은 각 1회이므로 통계적 동등성
+  또는 재현성 보장은 아니다.
+- yaw 가중치 800/2000의 전진·회전 각 1회, **4/4** stand로 완료했다.
+  2000 후보는 전진 vx 0.286m/s를 유지하며 회전 wz 0.521rad/s,
+  전진 yaw-rate RMSE 0.337rad/s였다. 800 후보의 전진 vx 0.279,
+  회전 wz 0.503보다 양호해 2000을 선택했다.
+  yaw 수정 후 Sim 회귀 **516 passed / 3 skipped**, 새 로컬
+  `dist/gpu-mpc-yaw-20261006/releases` 생성 및 네 역할 isolated verify 통과.
+- 최종 yaw 설정의 추가 전진 2회/횡/회전/후진/팔/camera 각 1회,
+  **7/7** 모두 42초 trial을 stand로 완료했다. 전진 vx 0.275–0.282m/s,
+  yaw-rate RMSE 0.318–0.350rad/s, 회전 wz 0.508rad/s였다.
+  전진 속도는 이전 200 가중치보다 조금 낮고 yaw 흔들림/회전 추종은 개선됐다.
+  최종 횡 vy 0.080, 후진 vx -0.171, 팔 동작 전진 vx 0.277m/s로,
+  특히 팔 동작 전진과 회전은 CPU보다 부족하다. CPU 기본값은 유지하며
+  GPU를 보행 동등성이 입증된 대체품으로 표시하지 않는다.
+  최종 camera trial: wall **54.09초**, solve p50/p95 **7.84/10.70ms**,
+  이동 step p95 **43.86ms**, hand-eye/observer **14.72/11.09fps**,
+  capture-to-observation p95 **47.30/45.67ms**. 앞의 공존 부하/비전송 계측
+  한계는 동일하다. 최종 원시 기록을 포함한 20개 후보/CPU 파일의 복사와
+  SHA256 검증을 완료했다. 근거는 `raw/candidate-manifest.json`,
+  `tracking-analysis.json`, `final-source.json`에 있다.
 - 원격 이미지 build는 source `446cd08`에서 ENOSPC로 실패했다. 현재 원격
   여유 공간은 최초 약 6GiB였고 이후 읽기 전용 조회에서 약 11GiB로 증가했다.
   증가 원인은 확인하지 않았으며 이번 작업에서 삭제하지 않았다. 검증 전용
@@ -63,11 +105,18 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   수행하기로 했으므로 image/container/cache 삭제 및 prune을 실행하지 않는다.
   `elesim-update`/instance `up`도 자동 image collection이 있으므로 그대로
   재실행하지 않는다. 공간 확보와 삭제 없는 build 경로 확인이 선행되어야 한다.
+- 검증 종료 뒤 read-only 점검: free **10.27GiB**, 진단 프로세스 **0**,
+  `/tmp/elesim-gpu-mpc-20261005/venv` **4.47GiB**이며 symlink가 아니다.
+  현재 CPU Sim은 이 venv를 사용하지 않는다. 사용자에게 상대 컴퓨터의
+  `elesim-merry-readiness-sim` 안에서 이 정확한 venv만 직접 삭제하도록
+  명령을 전달했고, 아직 실행 완료 답변은 받지 않았다. 이미지/container/
+  volume 삭제나 prune은 실행하지 않았다. 삭제 후에도 build 공간을 다시
+  확인해야 하며 여유 공간이 충분하다고 미리 단정하지 않는다.
 - 진단 runner에 backend 선택, solve/step timing, 선택적 두 renderer 부하를
   추가했다. renderer 진단에서는 DDS publisher 생성만 차단하며 실제 visual
   workers/dispatch를 사용한다. WebRTC encoding/network 수용시험은 별개다.
-- G4 남은 수용: GPU 실행과 payload·reset·전후/횡/회전/정지 비교, 두 camera
-  720p/30 Hz 설정에서 전체 step/영상 지연 비교, 이미지와 release 검증.
+- G4 남은 수용: 원격 GPU 이미지 build/배포 및 실제 WebRTC/UI 경로 검증.
+  추가 payload와 다른 지형/속도에 일반화된 안정성은 미검증이다.
   현재 실행 중 readiness와 기본 CPU 선택은 바꾸지 않았다.
 
 ### 720p / 30fps 요청 (2026-10-05, 적용 완료)
