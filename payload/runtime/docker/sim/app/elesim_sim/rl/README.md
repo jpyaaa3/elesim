@@ -18,16 +18,14 @@ application. Training runs directly against the Python packages.
 ```bash
 git clone https://github.com/jpyaaa3/elesim.git
 cd elesim
-git checkout wrap-grasp-rl
 
 conda create -n elesim-rl -y python=3.11
 conda activate elesim-rl
 
-# numpy<2 is required: elesim-protocol pins it, and rsl-rl-lib pulls numpy 2
-# unless told otherwise.
+# Preserve the runtime's NumPy and Torch constraints in this separate environment.
 python -m pip install -r payload/runtime/docker/sim/requirements.lock
-python -m pip install rsl-rl-lib tensorboard "numpy<2"
 python -m pip install --no-deps -e payload/runtime/common/protocol -e payload/runtime/docker/sim/app
+python -m pip install -c payload/runtime/docker/sim/requirements.lock -e 'payload/runtime/docker/sim/app[rl]'
 ```
 
 Check the backend resolves to CUDA before starting a long run:

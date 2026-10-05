@@ -181,6 +181,12 @@ def test_role_release_manifest_declares_only_contractual_shared_material(
         assert_release_entries(release, "pilot")
 
 
+def test_ui_release_does_not_require_runtime_model_data() -> None:
+    assert "data" not in expected_release_entries("ui")
+    assert "data" in expected_release_entries("pilot")
+    assert "data" in expected_release_entries("sim")
+
+
 def test_wheel_boundary_rejects_a_sibling_deployment(tmp_path: Path) -> None:
     wheel = _wheel(
         tmp_path / "pilot.whl",

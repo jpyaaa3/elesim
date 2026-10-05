@@ -53,6 +53,20 @@ SCOPED_INSTALL = "11111111-1111-4111-8111-111111111111"
 SCOPED_PROJECT = "elesim-runtime-11111111111141118111111111111111"
 
 
+@pytest.fixture
+def direct_ssh_socket(monkeypatch: pytest.MonkeyPatch):
+    connection = SimpleNamespace(close=lambda: None)
+    monkeypatch.setattr(secure_deployment.socket, "create_connection", lambda *_a, **_k: connection)
+    return connection
+
+
+@pytest.fixture
+def unavailable_direct_ssh(monkeypatch: pytest.MonkeyPatch):
+    def unavailable(*_args, **_kwargs):
+        raise OSError("direct route unavailable")
+    monkeypatch.setattr(secure_deployment.socket, "create_connection", unavailable)
+
+
 def _scoped_remote_topology(*, install_uuid: str = SCOPED_INSTALL) -> ConnectionTopology:
     project = SCOPED_PROJECT if install_uuid == SCOPED_INSTALL else ""
     return ConnectionTopology(
@@ -1055,7 +1069,7 @@ def test_bundle_rejects_escape_authority_private_and_oversized_files(file) -> No
 
 
 def test_paramiko_connector_uses_pinned_key_and_explicit_identity_only(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, direct_ssh_socket,
 ) -> None:
     clients = []
 
@@ -1096,8 +1110,95 @@ def test_paramiko_connector_uses_pinned_key_and_explicit_identity_only(
     assert clients[0].closed
 
 
+@pytest.mark.parametrize("identity", ["", "/operator/id_ed25519"])
+@pytest.mark.parametrize("failure", [False, True, "auth", "pin"])
+def test_openssh_uses_fingerprint_proxy_route_and_preserves_authentication(
+    monkeypatch: pytest.MonkeyPatch, identity: str, failure: bool | str,
+    unavailable_direct_ssh,
+) -> None:
+    from elesim_setup.credentials import tailscale_proxy_command
+
+    class SSHException(Exception):
+        pass
+
+    class AuthenticationException(SSHException):
+        pass
+
+    proxies = []
+
+    class Proxy:
+        def __init__(self, command):
+            self.command = command
+            self.closed = False
+            self.process = SimpleNamespace(
+                poll=lambda: 2,
+                stderr=io.BytesIO(b"elesim-host-proxy: local tailscaled unavailable\n"),
+            )
+            proxies.append(self)
+
+        def close(self):
+            self.closed = True
+
+    class Client:
+        def set_missing_host_key_policy(self, policy):
+            self.policy = policy
+
+        def connect(self, **arguments):
+            self.arguments = arguments
+            assert "sock" in arguments, "fingerprint and login must use the same route"
+            if failure == "auth":
+                raise AuthenticationException("authentication rejected")
+            if failure == "pin":
+                self.policy.missing_host_key(
+                    None, arguments["hostname"], SimpleNamespace(asbytes=lambda: b"wrong-key")
+                )
+            if failure:
+                raise SSHException("No existing session")
+
+        def close(self):
+            if "sock" in self.arguments:
+                self.arguments["sock"].close()
+
+    client = Client()
+    monkeypatch.setenv("ELESIM_TAILSCALE_PROXY", "1")
+    monkeypatch.setenv("ELESIM_TAILSCALE_PROXY_BIN", "/usr/local/bin/elesim-host-proxy")
+    monkeypatch.setenv("ELESIM_TAILSCALE_PROXY_SOCKET", "/run/elesim/helper.sock")
+    monkeypatch.setitem(sys.modules, "paramiko.proxy", SimpleNamespace(ProxyCommand=Proxy))
+    monkeypatch.setitem(sys.modules, "paramiko", SimpleNamespace(
+        SSHClient=lambda: client, SSHException=SSHException,
+        AuthenticationException=AuthenticationException,
+    ))
+    endpoint = SshEndpoint("100.64.0.20", 2222, "operator", identity, FINGERPRINT)
+
+    if failure:
+        error, message = {
+            True: (RuntimeError, "local tailscaled unavailable"),
+            "auth": (AuthenticationException, "authentication rejected"),
+            "pin": (HostKeyVerificationError, "mismatch"),
+        }[failure]
+        with pytest.raises(error, match=message):
+            ParamikoConnector().connect(endpoint)
+        assert proxies[0].closed
+        return
+
+    session = ParamikoConnector().connect(endpoint)
+    assert proxies[0].command == tailscale_proxy_command(endpoint.host, endpoint.port)
+    assert client.arguments["port"] == 2222
+    assert client.arguments["username"] == "operator"
+    assert client.arguments["allow_agent"] is (identity == "")
+    assert client.arguments["look_for_keys"] is False
+    assert client.arguments.get("key_filename", "") == identity
+    with pytest.raises(HostKeyVerificationError, match="mismatch"):
+        client.policy.missing_host_key(
+            None, endpoint.host, SimpleNamespace(asbytes=lambda: b"wrong-key")
+        )
+    assert not proxies[0].closed
+    session.__exit__(None, None, None)
+    assert proxies[0].closed
+
+
 def test_paramiko_resolves_tilde_against_operator_home(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, direct_ssh_socket,
 ) -> None:
     clients = []
 
@@ -1131,7 +1232,7 @@ def test_paramiko_resolves_tilde_against_operator_home(
 
 
 def test_paramiko_connector_agent_mode_does_not_search_key_files(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, direct_ssh_socket,
 ) -> None:
     actual = ssh_sha256_fingerprint(b"server-key")
 
@@ -1436,7 +1537,7 @@ def test_paramiko_session_streams_live_channel_output() -> None:
 
 
 def test_paramiko_connector_uses_tailscale_ssh_auth_none_without_a_key(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, unavailable_direct_ssh,
 ) -> None:
     key_bytes = b"tailscale-server-key"
     fingerprint = ssh_sha256_fingerprint(key_bytes)
@@ -1661,7 +1762,7 @@ def test_paramiko_connector_does_not_treat_transport_failure_as_auth_fallback(
 
 
 def test_paramiko_connector_surfaces_tailscale_proxy_failure(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, unavailable_direct_ssh,
 ) -> None:
     class SSHException(Exception):
         pass

@@ -49,12 +49,16 @@ def run_pick_workflow(
             return PickWorkflowResult(False, "failed", phase.label)
         if cancelled():
             return PickWorkflowResult(False, "cancelled", phase.label)
-        if wait_phase(phase.label, float(timeout_s)):
-            continue
+        try:
+            finished = wait_phase(phase.label, float(timeout_s))
+        except Exception as exc:
+            return PickWorkflowResult(False, "exception", phase.label, str(exc))
         if failed():
             return PickWorkflowResult(False, "failed", phase.label)
         if cancelled():
             return PickWorkflowResult(False, "cancelled", phase.label)
+        if finished:
+            continue
         return PickWorkflowResult(False, "timeout", phase.label)
 
     return PickWorkflowResult.completed()

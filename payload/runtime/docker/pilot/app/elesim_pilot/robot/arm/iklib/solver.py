@@ -38,6 +38,8 @@ def load_solver_context(
     if not model_path:
         config_dir = os.path.dirname(os.path.abspath(config_path))
         candidates = (
+            # Isolated releases place config/ and data/ in the same role root.
+            os.path.abspath(os.path.join(config_dir, "../data/models/arm/default.json")),
             os.path.abspath(os.path.join(config_dir, "../../data/models/arm/default.json")),
             "/opt/elesim/data/models/arm/default.json",
             os.path.join(config_dir, "arm_model.json"),

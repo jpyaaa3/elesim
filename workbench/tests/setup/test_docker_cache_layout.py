@@ -107,7 +107,12 @@ def test_tools_source_and_interfaces_do_not_invalidate_python_dependencies():
 def test_release_dependencies_precede_wheels_and_runtime_data(role):
     text = (ROOT / role / "Dockerfile.release").read_text()
     deps = text.index("pip install -r")
-    for marker in ("COPY wheels/", "COPY config/", "COPY data/", "ARG APP_WHEEL", "ARG PROTOCOL_WHEEL"):
+    markers = ["COPY wheels/", "COPY config/", "ARG APP_WHEEL", "ARG PROTOCOL_WHEEL"]
+    if role in {"pilot", "sim"}:
+        markers.append("COPY data/")
+    else:
+        assert "COPY data/" not in text
+    for marker in markers:
         assert deps < text.index(marker)
     assert "python3 -m pip check" in text
 

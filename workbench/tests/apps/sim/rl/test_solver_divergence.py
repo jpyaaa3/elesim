@@ -18,6 +18,8 @@ import pytest
 import torch
 
 from elesim_sim.rl.envs.wrap_env import WrapGraspEnv
+from elesim_sim.rl.envs.observations import ObservationBuilder
+from types import SimpleNamespace
 
 
 class _Errno:
@@ -189,6 +191,8 @@ class _ObsEnv(WrapGraspEnv):
         self.num_envs = n
         self.device = torch.device("cpu")
         self._obs = obs
+        self.cfg = SimpleNamespace(observation=SimpleNamespace(actor=SimpleNamespace(delay_steps=(0, 0))))
+        self.observations = ObservationBuilder(self)
 
 
 def _obs(n, width=4):
@@ -202,7 +206,7 @@ def test_nan_in_a_recovered_env_is_cleared():
     obs = _obs(3)
     obs["privileged"][1, 2] = float("nan")
     env = _ObsEnv(3, obs)
-    env._sanitise_recovered_observations(torch.tensor([False, True, False]))
+    env.observations.sanitise_recovered(torch.tensor([False, True, False]))
     assert torch.isfinite(obs["privileged"]).all()
 
 
@@ -211,7 +215,7 @@ def test_infinities_are_cleared_too():
     obs["policy"][0, 0] = float("inf")
     obs["privileged"][0, 1] = float("-inf")
     env = _ObsEnv(2, obs)
-    env._sanitise_recovered_observations(torch.tensor([True, False]))
+    env.observations.sanitise_recovered(torch.tensor([True, False]))
     assert torch.isfinite(obs["policy"]).all()
     assert torch.isfinite(obs["privileged"]).all()
 
@@ -222,7 +226,7 @@ def test_a_nan_outside_the_recovered_envs_is_left_alone():
     obs = _obs(3)
     obs["privileged"][2, 0] = float("nan")
     env = _ObsEnv(3, obs)
-    env._sanitise_recovered_observations(torch.tensor([True, False, False]))
+    env.observations.sanitise_recovered(torch.tensor([True, False, False]))
     assert not torch.isfinite(obs["privileged"][2, 0])
 
 
@@ -230,7 +234,7 @@ def test_healthy_values_in_a_recovered_env_survive():
     obs = _obs(2)
     obs["policy"][0] = torch.tensor([1.0, 2.0, 3.0, 4.0])
     env = _ObsEnv(2, obs)
-    env._sanitise_recovered_observations(torch.tensor([True, False]))
+    env.observations.sanitise_recovered(torch.tensor([True, False]))
     assert obs["policy"][0].tolist() == [1.0, 2.0, 3.0, 4.0]
 
 
@@ -238,5 +242,5 @@ def test_nothing_recovered_is_a_no_op():
     obs = _obs(2)
     obs["privileged"][0, 0] = float("nan")
     env = _ObsEnv(2, obs)
-    env._sanitise_recovered_observations(torch.tensor([False, False]))
+    env.observations.sanitise_recovered(torch.tensor([False, False]))
     assert not torch.isfinite(obs["privileged"][0, 0])

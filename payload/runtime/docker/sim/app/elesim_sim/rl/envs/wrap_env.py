@@ -27,8 +27,6 @@ Two invariants the rest of the code depends on:
 from __future__ import annotations
 
 import math
-from collections import deque
-from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
@@ -37,25 +35,15 @@ from tensordict import TensorDict
 
 from ..arm_kinematics import ArmWaypointMapper
 from ..beta_model import BetaModel
-from ..configs.loader import WrapGraspConfig, to_dict
+from ..configs.loader import WrapGraspConfig
 from ..scene import WrapGraspScene
+from .observations import ObservationBuilder
+from .episode_metrics import EpisodeMetrics
 from .contacts import ContactAggregator, ContactClassifier
 from .coverage import CoverageMeter, quat_to_axis
 from .lift_test import GeometricCriterion, LiftObservation, LiftTest, TugTest
 
 _TWO_PI = 2.0 * math.pi
-
-#: Failure taxonomy used by both training logs and eval reports.
-FAILURE_MODES: tuple[str, ...] = ("collision", "topple", "retention", "timeout")
-
-
-@dataclass
-class ObsSpec:
-    """Widths of the two observation groups, derived from the config toggles."""
-
-    policy: int
-    privileged: int
-
 
 def choose_object_entity(
     built: torch.Tensor,
@@ -266,29 +254,13 @@ class WrapGraspEnv:
         #: to sample state at the resolution the solver actually fails at; a
         #: macro-step-level look is far too coarse to catch it.
         self.substep_monitor: Optional[Any] = None
-        self._failure_counts = {
-            mode: torch.zeros(1, device=self.device, dtype=torch.long)
-            for mode in FAILURE_MODES
-        }
-        self._success_count = torch.zeros(1, device=self.device, dtype=torch.long)
-        self._episode_count = torch.zeros(1, device=self.device, dtype=torch.long)
-        #: Episodes since the rate was last read, for "best so far" tracking.
-        #: `statistics()` is cumulative over the whole run, which cannot see a
-        #: policy peak and then decline.
-        self._recent_ok = 0
-        self._recent_n = 0
-
-        self.obs_spec = self._compute_obs_spec()
-        delay_lo, delay_hi = self.cfg.observation.actor.delay_steps
-        self._delay_lo, self._delay_hi = int(delay_lo), int(delay_hi)
-        self._obs_history: deque[torch.Tensor] = deque(
-            maxlen=max(self._delay_hi, 0) + 1
-        )
-        self._obs_delay = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
+        self.metrics = EpisodeMetrics(self)
+        self.observations = ObservationBuilder(self)
+        self.obs_spec = self.observations.specification()
 
         self._reset_idx(None)
         self._settle_at_home_and_baseline_contacts()
-        self._obs = self._build_observations()
+        self._obs = self.observations.build()
 
     def move_support_to(self, dx_m: float, dy_m: float) -> None:
         """Shift the support so it stays under an offset object.
@@ -488,7 +460,7 @@ class WrapGraspEnv:
 
     def reset(self) -> tuple[TensorDict, dict]:
         self._reset_idx(None)
-        self._obs = self._build_observations()
+        self._obs = self.observations.build()
         return self._obs, {}
 
     def step(
@@ -533,13 +505,13 @@ class WrapGraspEnv:
 
         self._last_reasons = reward_out.termination_reason
         extras: dict[str, Any] = {
-            "log": self._logging_extras(reward_out, contact, state, timeout),
+            "log": self.metrics.logging_extras(reward_out, contact, state, timeout),
             "time_outs": timeout,
             # Exposed so evaluation can classify a finished episode; the done
             # flag alone cannot tell a collision from a dropped object.
             "termination_reason": reward_out.termination_reason,
         }
-        self._tally(reward_out, timeout, dones)
+        self.metrics.tally(reward_out, timeout, dones)
         self._note_start_pose_outcome(dones, reward_out.termination_reason["success"])
 
         done_ids = dones.nonzero(as_tuple=False).flatten()
@@ -547,8 +519,8 @@ class WrapGraspEnv:
             self._reset_idx(done_ids)
         recovered = self._diverged.clone()
         self._diverged[:] = False
-        self._obs = self._build_observations()
-        self._sanitise_recovered_observations(recovered)
+        self._obs = self.observations.build()
+        self.observations.sanitise_recovered(recovered)
         return self._obs, reward_out.total, dones, extras
 
     # -- action and simulation --------------------------------------------
@@ -924,228 +896,6 @@ class WrapGraspEnv:
 
     # -- observations ------------------------------------------------------
 
-    def _compute_obs_spec(self) -> ObsSpec:
-        actor_cfg = self.cfg.observation.actor
-        policy = 0
-        if actor_cfg.include_joint_estimate:
-            policy += 4
-        if actor_cfg.include_object_geometry:
-            policy += 7  # radius, height, pos(3), lean x/y
-        if actor_cfg.include_load_proxy:
-            policy += 4
-        if actor_cfg.include_step_index:
-            policy += 1
-
-        critic_cfg = self.cfg.observation.critic_privileged
-        priv = 0
-        if critic_cfg.include_true_joint_state:
-            priv += 2 * len(self._arm_dofs)
-        if critic_cfg.include_contact_forces:
-            priv += 1 + len(self.scene.links.arm) + 4
-        if critic_cfg.include_true_object_pose:
-            priv += 7
-        if critic_cfg.include_coverage:
-            priv += 2
-        return ObsSpec(policy=policy, privileged=priv)
-
-    def _noise(self, shape: tuple[int, ...], sigma: float) -> torch.Tensor:
-        if sigma <= 0.0:
-            return torch.zeros(shape, device=self.device, dtype=torch.float32)
-        return torch.randn(
-            shape, device=self.device, dtype=torch.float32, generator=self._generator
-        ) * float(sigma)
-
-    def _actor_observation(self) -> torch.Tensor:
-        cfg = self.cfg.observation.actor
-        noise = cfg.noise
-        parts: list[torch.Tensor] = []
-
-        realised = self.scene.robot.get_dofs_position(dofs_idx_local=self._arm_dofs)
-        if cfg.include_joint_estimate:
-            bend_est = self.beta.estimate(
-                realised[:, self._bend_slice], load_kg=self._object_mass
-            )
-            seg = int(self.cfg.arm.n_seg)
-            estimate = torch.stack(
-                (
-                    realised[:, 0],
-                    realised[:, 1],
-                    bend_est[:, :seg].mean(dim=-1),
-                    bend_est[:, seg:].mean(dim=-1),
-                ),
-                dim=-1,
-            )
-            parts.append(estimate + self._noise(estimate.shape, noise.joint_rad))
-
-        if cfg.include_object_geometry:
-            told = str(getattr(cfg, "object_pose_source", "measured")).strip().lower()
-            if told not in {"measured", "told"}:
-                raise ValueError(
-                    f"observation.actor.object_pose_source: {told!r} is not "
-                    "'measured' or 'told'"
-                )
-            if told == "told":
-                # What the robot is handed: the pose written into its config,
-                # every step, however far the object has actually drifted from
-                # it.  The scene still randomises the real one, so the policy
-                # has to work from a number that is only approximately true.
-                pos = torch.tensor(
-                    [float(v) for v in self.cfg.object_center()],
-                    device=self.device, dtype=torch.float32,
-                ).unsqueeze(0).expand(self.num_envs, 3)
-                lean = torch.zeros((self.num_envs, 2), device=self.device)
-            else:
-                pos = self.scene.object.get_pos() + self._noise(
-                    (self.num_envs, 3), noise.object_pos_m
-                )
-                axis = quat_to_axis(self.scene.object.get_quat())
-            # The object's axis tilted into the horizontal plane: which way it
-            # is leaning *and* how far, in two channels.
-            #
-            # This used to be sin/cos of `atan2(axis.y, axis.x)`, which named
-            # itself yaw and was not.  A cylinder is symmetric about its own
-            # axis, so rotating it changes neither the geometry nor that
-            # quantity -- measured, 0, 20, 90 and 180 deg of yaw all read 0.00.
-            # What the atan2 actually returned was the *bearing* of a lean,
-            # carrying no magnitude: 1 deg and 20 deg of tilt both read -90.
-            # And upright, the axis is (0, 0, 1), so it was atan2(0, 0) -- an
-            # undefined direction that the observation noise then dithered.
-                lean = axis[:, :2] + self._noise(
-                    (self.num_envs, 2), noise.object_rot_rad
-                )
-            parts.append(
-                torch.cat(
-                    (
-                        self._object_radius.unsqueeze(-1),
-                        self._object_height.unsqueeze(-1),
-                        pos,
-                        lean,
-                    ),
-                    dim=-1,
-                )
-            )
-
-        if cfg.include_load_proxy:
-            parts.append(
-                self._load_proxy + self._noise(self._load_proxy.shape, noise.load_proxy)
-            )
-
-        if cfg.include_step_index:
-            frac = self.episode_length_buf.to(torch.float32) / max(
-                self.max_episode_length, 1
-            )
-            parts.append(frac.unsqueeze(-1))
-        return torch.cat(parts, dim=-1)
-
-    def _privileged_observation(
-        self, state: dict[str, torch.Tensor], contact: Any
-    ) -> torch.Tensor:
-        cfg = self.cfg.observation.critic_privileged
-        parts: list[torch.Tensor] = []
-        if cfg.include_true_joint_state:
-            parts.append(state["joints"])
-            parts.append(state["joint_vel"])
-        if cfg.include_contact_forces:
-            parts.append(contact.object_force_peak.unsqueeze(-1))
-            parts.append(contact.object_link_hits.to(torch.float32))
-            parts.append(
-                torch.stack(
-                    (
-                        contact.floor_touch.to(torch.float32),
-                        contact.support_touch.to(torch.float32),
-                        contact.go2_touch.to(torch.float32),
-                        contact.self_touch.to(torch.float32),
-                    ),
-                    dim=-1,
-                )
-            )
-        if cfg.include_true_object_pose:
-            parts.append(state["object_pos"])
-            parts.append(state["object_quat"])
-        if cfg.include_coverage:
-            parts.append(state["phi"].unsqueeze(-1))
-            parts.append(state["coverage_near"].unsqueeze(-1))
-        return torch.cat(parts, dim=-1)
-
-    def _sanitise_recovered_observations(self, recovered: torch.Tensor) -> None:
-        """Clear nan left over from a diverged env's own step.
-
-        Resetting the env puts its joints and object back, but values carried
-        through the step -- contact accumulations, displacement, tilt -- can
-        still be nan, and rsl_rl checks the observation before it ever looks at
-        `dones`: a run died with "observation group 'privileged' contains NaN"
-        one step after a recovery.  Those episodes are already terminated, so
-        zeros cost nothing.
-
-        Only the envs that diverged are touched.  A nan anywhere else is a
-        different fault and should still surface rather than be papered over.
-        """
-        if (
-            not isinstance(recovered, torch.Tensor)
-            or recovered.ndim != 1
-            or recovered.numel() != self.num_envs
-            or recovered.dtype is not torch.bool
-        ):
-            raise TypeError(
-                "recovered env mask must be a 1-D boolean tensor with one entry "
-                f"per env (got {type(recovered).__name__}, "
-                f"shape {getattr(recovered, 'shape', None)}, "
-                f"dtype {getattr(recovered, 'dtype', None)})"
-            )
-        recovered = recovered.to(self.device)
-        if not bool(recovered.any()):
-            return
-        ids = recovered.nonzero(as_tuple=False).flatten()
-        for key in ("policy", "privileged"):
-            tensor = self._obs[key]
-            rows = tensor[ids]
-            bad = ~torch.isfinite(rows)
-            if not bool(bad.any()):
-                continue
-            rows = torch.nan_to_num(rows, nan=0.0, posinf=0.0, neginf=0.0)
-            tensor[ids] = rows
-            print(
-                f"[env] cleared {int(bad.sum())} non-finite {key} value(s) in "
-                f"{int(recovered.sum())} recovered env(s)",
-                flush=True,
-            )
-
-    def _build_observations(
-        self,
-        state: Optional[dict[str, torch.Tensor]] = None,
-        contact: Optional[Any] = None,
-    ) -> TensorDict:
-        if state is None:
-            state = self._read_state()
-        if contact is None:
-            contact = self.contacts.result()
-        actor = self._actor_observation()
-        actor = self._apply_obs_delay(actor)
-        privileged = self._privileged_observation(state, contact)
-        return TensorDict(
-            {"policy": actor, "privileged": privileged},
-            batch_size=[self.num_envs],
-            device=self.device,
-        )
-
-    def _apply_obs_delay(self, actor: torch.Tensor) -> torch.Tensor:
-        """Serve each env an observation from `delay` macro steps ago.
-
-        The delay is per-env and redrawn on reset, so the policy has to be
-        robust to a stale reading rather than learning one fixed lag.
-        """
-        self._obs_history.append(actor.clone())
-        if self._delay_hi <= 0:
-            return actor
-        out = actor.clone()
-        available = len(self._obs_history)
-        for delay in range(1, min(self._delay_hi, available - 1) + 1):
-            mask = self._obs_delay == delay
-            if bool(mask.any()):
-                past = self._obs_history[available - 1 - delay]
-                out[mask] = past[mask]
-        return out
-
     # -- reset -------------------------------------------------------------
 
     def _zero_object_velocity(self, env_ids: Optional[torch.Tensor]) -> None:
@@ -1312,17 +1062,7 @@ class WrapGraspEnv:
                 home[env_ids], dofs_idx_local=self._arm_dofs, envs_idx=env_ids
             )
 
-        delay = torch.randint(
-            self._delay_lo,
-            self._delay_hi + 1,
-            (n,),
-            device=self.device,
-            generator=self._generator,
-        )
-        if env_ids is None:
-            self._obs_delay[:] = delay
-        else:
-            self._obs_delay[env_ids] = delay
+        self.observations.reset_delay(env_ids, n)
 
         state = self._read_state()
         self.rewards.reset(
@@ -1332,118 +1072,11 @@ class WrapGraspEnv:
             enclosure0=state["enclosure"],
         )
 
-    # -- logging -----------------------------------------------------------
-
-    def _logging_extras(
-        self,
-        reward_out: Any,
-        contact: Any,
-        state: dict[str, torch.Tensor],
-        timeout: torch.Tensor,
-    ) -> dict[str, torch.Tensor]:
-        log: dict[str, torch.Tensor] = {}
-        for name, value in reward_out.terms.items():
-            log[f"reward/{name}"] = value.mean()
-        for name, value in self.rewards.episode_sums().items():
-            log[f"episode_sum/{name}"] = value.mean()
-        log["wrap/phi_rad"] = state["phi"].mean()
-        log["wrap/phi_max_rad"] = state["phi"].max()
-        log["wrap/target_rad"] = torch.tensor(
-            float(self.cfg.success.coverage_target_rad), device=self.device
-        )
-        log["wrap/surface_dist_m"] = state["surface_dist"].mean()
-        log["wrap/min_surface_dist_m"] = state["min_surface_dist"].mean()
-        log["wrap/enclosure_rad"] = state["enclosure_raw"].mean()
-        log["wrap/plane_alignment"] = state["plane_alignment"].mean()
-        log["curriculum/start_t_lo"] = torch.tensor(self._start_t_lo, device=self.device)
-        log["curriculum/start_t_hi"] = torch.tensor(self._start_t_hi, device=self.device)
-        log["wrap/enclosure_effective_rad"] = state["enclosure"].mean()
-        # Waypoint usage per DoF.  The wrap needs roll near +/-90 deg to put the
-        # bend plane horizontal, so a policy whose roll stays near its Home zero
-        # cannot be wrapping whatever else the other terms say.
-        wp = self.mapper.waypoint
-        log["waypoint/linear_m"] = wp[:, 0].mean()
-        log["waypoint/roll_rad"] = wp[:, 1].mean()
-        log["waypoint/roll_abs_rad"] = wp[:, 1].abs().mean()
-        log["waypoint/roll_abs_max_rad"] = wp[:, 1].abs().max()
-        log["waypoint/theta1_rad"] = wp[:, 2].mean()
-        log["waypoint/theta2_rad"] = wp[:, 3].mean()
-        # Logged whether or not it gates success: a wrap that reaches the
-        # coverage target while `caged` stays at zero is not holding anything.
-        log["wrap/caged"] = state["caged"].to(torch.float32).mean()
-        log["wrap/gap_rad"] = state["gap_rad"].mean()
-        log["wrap/gap_width_m"] = state["gap_width_m"].mean()
-        log["object/displacement_m"] = state["displacement"].mean()
-        log["object/tilt_rad"] = state["tilt"].mean()
-        log["contact/object_touch"] = contact.object_touch.to(torch.float32).mean()
-        log["contact/non_target"] = contact.non_target_collision.to(torch.float32).mean()
-        log["contact/floor"] = contact.floor_touch.to(torch.float32).mean()
-        log["contact/support"] = contact.support_touch.to(torch.float32).mean()
-        log["contact/go2"] = contact.go2_touch.to(torch.float32).mean()
-        log["contact/self"] = contact.self_touch.to(torch.float32).mean()
-        log["contact/self_structural"] = (
-            contact.self_structural_touch.to(torch.float32).mean()
-        )
-        # A saturated contact buffer means readings may be incomplete; surface
-        # it rather than trusting a silently truncated collision check.
-        log["contact/buffer_overflow"] = contact.overflow.to(torch.float32).mean()
-        log["term/collision"] = reward_out.termination_reason["collision"].to(torch.float32).mean()
-        log["term/topple"] = reward_out.termination_reason["topple"].to(torch.float32).mean()
-        log["term/success"] = reward_out.termination_reason["success"].to(torch.float32).mean()
-        log["term/timeout"] = timeout.to(torch.float32).mean()
-        return log
-
-    def _tally(self, reward_out: Any, timeout: torch.Tensor, dones: torch.Tensor) -> None:
-        reasons = reward_out.termination_reason
-        self._episode_count += int(dones.sum())
-        self._success_count += int(reasons["success"].sum())
-        self._recent_n += int(dones.sum())
-        self._recent_ok += int((reasons["success"] & dones).sum())
-        self._failure_counts["collision"] += int(reasons["collision"].sum())
-        self._failure_counts["topple"] += int(reasons["topple"].sum())
-        if self.script is not None:
-            retention = self.script.finished & (~self.script.passed)
-            self._failure_counts["retention"] += int((retention & dones).sum())
-        self._failure_counts["timeout"] += int(
-            (timeout & ~reward_out.terminate).sum()
-        )
-
     def take_recent_success_rate(self, min_episodes: int = 1) -> tuple[float, int]:
-        """Success rate over the episodes finished since the last reading.
-
-        The counters are cleared only once `min_episodes` have accumulated, so
-        a caller polling faster than episodes finish keeps building the sample
-        instead of discarding it: at 128 envs an iteration finishes about 80
-        episodes, and read-and-reset meant a 200-episode threshold was never
-        reached at all.  Returns (rate, episodes); below the threshold the rate
-        is 0.0 and the count says why.
-        """
-        n = self._recent_n
-        if n < int(min_episodes):
-            return 0.0, n
-        rate = self._recent_ok / n
-        self._recent_ok = 0
-        self._recent_n = 0
-        return rate, n
+        return self.metrics.take_recent_success_rate(min_episodes)
 
     def statistics(self) -> dict[str, float]:
-        episodes = max(int(self._episode_count.item()), 1)
-        stats = {
-            "episodes": float(self._episode_count.item()),
-            "success_rate": float(self._success_count.item()) / episodes,
-        }
-        for mode, count in self._failure_counts.items():
-            stats[f"failure/{mode}"] = float(count.item()) / episodes
-        return stats
+        return self.metrics.statistics()
 
     def metadata(self) -> dict[str, Any]:
-        """Run-reproduction metadata, including the beta provenance flag."""
-        return {
-            "scene": self.scene.describe(),
-            "beta": self.beta.describe(),
-            "obs_dims": {"policy": self.obs_spec.policy, "privileged": self.obs_spec.privileged},
-            "success_criterion": self.cfg.success.criterion,
-            "coverage_target_deg": math.degrees(self.cfg.success.coverage_target_rad),
-            "curriculum_stage": int(self.cfg.curriculum.stage),
-            "config": to_dict(self.cfg),
-        }
+        return self.metrics.metadata()

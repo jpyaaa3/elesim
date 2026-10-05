@@ -11,6 +11,10 @@ PyOpenGL==3.1.10
 PyOpenGL-accelerate==3.1.10
 torch==2.12.1
 torchvision==0.27.1
+# Sim RL imports and training tools; keep in sync with the Sim rl extra.
+tensordict==0.14.2
+rsl-rl-lib==5.4.0
+tensorboard==2.21.0
 opencv-contrib-python==4.11.0.86
 # Genesis requires this distribution; keep its cv2 ABI aligned with contrib.
 opencv-python==4.11.0.86

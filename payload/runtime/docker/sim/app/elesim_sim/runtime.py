@@ -2939,6 +2939,7 @@ class RuntimePrep:
 
     def init_genesis(self, urdf_path: str, *, attach_scene_cameras: bool = True) -> None:
         a = self.app
+        t_init = time.perf_counter()
         use_go2 = bool(getattr(a.cfg, "use_go2", False))
         backend = gs.gpu if a.cfg.use_gpu else gs.cpu
         backend_name = "gpu" if a.cfg.use_gpu else "cpu"
@@ -2950,6 +2951,7 @@ class RuntimePrep:
             # throughput over Genesis' interactive debugging synchronization.
             init_kwargs["performance_mode"] = True
         gs.init(**init_kwargs)
+        print(f"[runtime] Genesis initialized in {time.perf_counter() - t_init:.2f}s", flush=True)
 
         gravity = tuple(float(x) for x in a.params.gravity)
         if use_go2 and gravity == (0.0, 0.0, 0.0):
@@ -3009,6 +3011,7 @@ class RuntimePrep:
         else:
             floor_ent = None
 
+        t_robot = time.perf_counter()
         if use_go2:
             ent = a.sim_scene.scene.add_entity(
                 _make_urdf_morph(
@@ -3022,6 +3025,9 @@ class RuntimePrep:
                     merge_fixed_links=False,
                 )
             )
+            from elesim_sim.robot.go2.initial_pose import prepare_neutral_stand_pose
+
+            prepare_neutral_stand_pose(ent)
             go2_entity = ent
             print(f"[runtime] GO2+arm spawned at {go2_pos} fixed=false from {urdf_path}")
         else:
@@ -3035,6 +3041,8 @@ class RuntimePrep:
                 )
             )
             print(f"[runtime] arm spawned at {arm_pos} fixed=true from {urdf_path}")
+
+        print(f"[runtime] robot model loaded in {time.perf_counter() - t_robot:.2f}s", flush=True)
 
         if bool(a.spawn.sim_target_enable):
             self._spawn_perception_target()
@@ -3082,11 +3090,12 @@ class RuntimePrep:
                 lookat=tuple(float(x) for x in a.cfg.sim_observer_camera_lookat),
             )
 
-        t_build = time.time()
+        t_build = time.perf_counter()
+        print("[runtime] building scene: solver, collision filtering and kernel compilation", flush=True)
         a.sim_scene.scene.build()
         if floor_ent is not None:
             floor_ent.set_friction(float(a.go2_locomotion_config.mpc_physical_friction))
-        print("[runtime] scene built in %.2fs" % (time.time() - t_build))
+        print("[runtime] scene built in %.2fs" % (time.perf_counter() - t_build), flush=True)
 
         if use_go2 and go2_entity is not None:
             _set_go2_initial_leg_pose(go2_entity)

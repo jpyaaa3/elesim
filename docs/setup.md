@@ -519,6 +519,21 @@ security transaction으로 처리한다.
 
 ## 8. Tailscale sidecar와 네트워크 점검
 
+SSH 지문 조회가 실패하면 실행 위치와 원래 오류를 함께 기록한다. 연결관리자의
+host proxy는 **호스트의 `tailscale nc`**를 사용하고, `elesim-tailscale status`는
+별도의 **설치 sidecar** 상태를 확인한다. sidecar가 온라인이라는 사실만으로
+호스트 proxy가 정상이라고 판단하지 않는다. 반대로 제한된 sandbox에서
+`tailscale status`가 daemon 미실행 메시지를 내면 Unix socket 권한 오류인지도
+확인한다. SSH 관리 주소와 sidecar DDS 주소는 각자의 설정을 사용한다.
+
+지문 조회와 실제 SSH 접속은 직접 TCP를 먼저 시도하고, TCP 연결이 실패한
+경우에만 사용 가능한 host proxy를 선택한다. 지문 불일치나 인증 실패 뒤에는
+다른 경로로 재시도하지 않는다.
+OpenSSH는 proxy 경유 여부와 관계없이 명시적 key 또는 agent로 인증하며 설정한
+포트를 유지한다. 명시적 Tailscale SSH의 keyless/22번 포트 계약은 별도다.
+지문 확인 성공은 상대 host key를 읽었다는 뜻이며 사용자 인증, 설치 조회,
+DDS 또는 영상 준비 완료를 의미하지 않는다.
+
 Docker Desktop은 WSL distribution의 host `tailscale0`를 container namespace에
 상속하지 않는다. sidecar 설치에서는 다음 명령으로 한 번 enrollment하고
 상태를 확인한다.

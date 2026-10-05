@@ -19,7 +19,8 @@ dependencies = [
 
 [project.optional-dependencies]
 mpc = ["casadi>=3.6", "pin>=3.0"]
-test = ["pytest>=8,<9"]
+rl = ["tensordict==0.14.2", "rsl-rl-lib==5.4.0", "tensorboard==2.21.0"]
+test = ["pytest>=8,<9", "tensordict==0.14.2"]
 
 [project.scripts]
 elesim-sim = "elesim_sim.main:main"

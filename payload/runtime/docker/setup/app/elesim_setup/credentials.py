@@ -1,8 +1,7 @@
 """SSH fingerprint and staged secure-file helpers.
 
-DDS discovery uses the host's advertised IP; SSH reuses that destination while
-keeping its own management port. SROS2 keystore provisioning is intentionally
-external to this module.
+SSH uses its explicitly configured management address and port, independently
+of the DDS address. SROS2 keystore provisioning is external to this module.
 """
 
 from __future__ import annotations
@@ -170,6 +169,38 @@ def tailscale_proxy_command(
     )
 
 
+def open_tailscale_proxy(
+    host: str, port: int, *, force: bool = False,
+) -> _ParamikoProxySocket | None:
+    """Use the same optional host route for fingerprint probes and SSH sessions."""
+
+    command = tailscale_proxy_command(host, port, force=force)
+    if command is None:
+        return None
+    from paramiko.proxy import ProxyCommand
+
+    return _ParamikoProxySocket(ProxyCommand(command))
+
+
+def open_ssh_connection(
+    host: str, port: int, timeout_s: float, *, force_tailscale_proxy: bool = False,
+) -> object:
+    """Try direct TCP, then the optional host route if TCP cannot connect.
+
+    ``force_tailscale_proxy`` makes MagicDNS names eligible for the fallback;
+    it does not override a working direct connection. Host key verification and
+    authentication run afterwards and never trigger a route retry.
+    """
+
+    try:
+        return socket.create_connection((host, port), timeout=timeout_s)
+    except OSError:
+        proxy = open_tailscale_proxy(host, port, force=force_tailscale_proxy)
+        if proxy is None:
+            raise
+        return proxy
+
+
 def _open_probe_connection(
     host: str,
     port: int,
@@ -177,26 +208,17 @@ def _open_probe_connection(
     *,
     force_tailscale_proxy: bool,
 ) -> object:
-    proxy_command = tailscale_proxy_command(
-        host,
-        port,
-        force=force_tailscale_proxy,
-    )
-    if proxy_command is None:
-        try:
-            return socket.create_connection((host, port), timeout=timeout_s)
-        except (TimeoutError, socket.timeout) as exc:
-            raise SshProbeError(_probe_failure(host, port, "timed out")) from exc
-        except ConnectionRefusedError as exc:
-            raise SshProbeError(_probe_failure(host, port, "connection refused")) from exc
-        except OSError as exc:
-            detail = str(exc).strip() or exc.__class__.__name__
-            raise SshProbeError(_probe_failure(host, port, detail)) from exc
-
     try:
-        from paramiko.proxy import ProxyCommand
-
-        return _ParamikoProxySocket(ProxyCommand(proxy_command))
+        return open_ssh_connection(
+            host, port, timeout_s, force_tailscale_proxy=force_tailscale_proxy,
+        )
+    except (TimeoutError, socket.timeout) as exc:
+        raise SshProbeError(_probe_failure(host, port, "timed out")) from exc
+    except ConnectionRefusedError as exc:
+        raise SshProbeError(_probe_failure(host, port, "connection refused")) from exc
+    except OSError as exc:
+        detail = str(exc).strip() or exc.__class__.__name__
+        raise SshProbeError(_probe_failure(host, port, detail)) from exc
     except Exception as exc:
         detail = str(exc).strip() or exc.__class__.__name__
         raise SshProbeError(
@@ -348,6 +370,8 @@ __all__ = [
     "probe_ssh_fingerprint",
     "SshProbeError",
     "tailscale_proxy_command",
+    "open_tailscale_proxy",
+    "open_ssh_connection",
     "proxy_failure_detail",
     "validate_external_turn_credentials",
 ]

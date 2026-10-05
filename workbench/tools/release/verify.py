@@ -187,7 +187,7 @@ def expected_release_entries(role: str) -> frozenset[str]:
         entries.update(("install.sh", "systemd", "native_arm", "firmware"))
     else:
         entries.add("Dockerfile")
-    if role in {"pilot", "sim", "ui"}:
+    if role in {"pilot", "sim"}:
         entries.add("data")
     return frozenset(entries)
 

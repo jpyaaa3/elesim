@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -130,3 +131,18 @@ def test_runtime_loader_never_rebuilds_a_missing_arm_model(
         load_solver_context(str(CONFIG_PATH))
 
     assert not missing_model.parent.exists()
+
+
+def test_runtime_loader_reads_arm_model_from_isolated_release(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ELESIM_ARM_MODEL", raising=False)
+    release = tmp_path / "pilot"
+    shutil.copytree(CONFIG_PATH.parent, release / "config")
+    shutil.copytree(REPO_ROOT / "payload/data/models/arm", release / "data/models/arm")
+    _bundle, expected = load_solver_context(str(CONFIG_PATH))
+
+    _bundle, actual = load_solver_context(str(release / "config/config.yaml"))
+
+    assert actual == expected

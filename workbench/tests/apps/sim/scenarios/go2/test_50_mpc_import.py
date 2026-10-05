@@ -32,7 +32,7 @@ class Go2MpcImportTests(unittest.TestCase):
 
     def test_controller_patches_convex_mpc_go2_urdf_path(self) -> None:
         controller = importlib.import_module("elesim_sim.robot.go2.mpc.controller")
-        root = Path(__file__).resolve().parents[7]
+        root = Path(__file__).resolve().parents[6]
         expected = root / "payload/data/models/assemblies/zed-mini/assets/go2/go2.urdf"
         controller._require_convex_mpc(go2_urdf_path=expected)
         data = importlib.import_module("convex_mpc.go2_robot_data")
@@ -46,7 +46,7 @@ class Go2MpcImportTests(unittest.TestCase):
 
     def test_controller_patches_conservative_mpc_friction(self) -> None:
         controller = importlib.import_module("elesim_sim.robot.go2.mpc.controller")
-        root = Path(__file__).resolve().parents[7]
+        root = Path(__file__).resolve().parents[6]
         controller._require_convex_mpc(
             go2_urdf_path=root / "payload/data/models/assemblies/zed-mini/assets/go2/go2.urdf",
             optimization_friction=0.55,
@@ -61,7 +61,7 @@ class Go2MpcImportTests(unittest.TestCase):
             self.skipTest("qpOASES plugin unavailable")
         controller = importlib.import_module("elesim_sim.robot.go2.mpc.controller")
         centroidal = importlib.import_module("convex_mpc.centroidal_mpc")
-        root = Path(__file__).resolve().parents[7]
+        root = Path(__file__).resolve().parents[6]
         centroidal.SOLVER_NAME = "missing_solver_for_test"
         controller._require_convex_mpc(
             go2_urdf_path=root / "payload/data/models/assemblies/zed-mini/assets/go2/go2.urdf"

@@ -787,3 +787,87 @@ def test_close_is_idempotent_without_starting_the_transport_thread() -> None:
     session.close()
 
     assert session.frame("observer") is None
+
+
+def _open_command_session():
+    endpoint = Endpoint()
+    session = new_session()
+    session.run_cycle(endpoint)
+    request_id = endpoint.sent[0][1]["payload"]["request_id"]
+    endpoint.inbox.append(opened(str(request_id)))
+    session.run_cycle(endpoint)
+    return session, endpoint
+
+
+def test_command_submission_cannot_cross_session_change(monkeypatch) -> None:
+    from elesim_protocol import SimulationCommandRequest
+
+    session, endpoint = _open_command_session()
+    parse = SimulationCommandRequest.from_payload
+
+    def switch_during_validation(payload):
+        request = parse(payload)
+        session._clear_session()
+        session._session_id = "session-b"
+        return request
+
+    monkeypatch.setattr(SimulationCommandRequest, "from_payload", switch_during_validation)
+    assert session.send_command("reset_view") == ""
+    assert session.snapshot.pending_commands == 0
+
+
+def test_command_send_completion_cannot_restore_abandoned_tracking(monkeypatch) -> None:
+    session, endpoint = _open_command_session()
+    send = endpoint.send
+
+    def clear_during_send(message_type, **kwargs):
+        envelope = send(message_type, **kwargs)
+        if message_type == "simulation_command":
+            session._clear_session()
+        return envelope
+
+    monkeypatch.setattr(endpoint, "send", clear_during_send)
+    assert session.send_command("reset_view")
+    session._flush_commands(endpoint)
+    assert session.snapshot.pending_commands == 0
+    assert not session._sent_messages
+
+
+def test_command_capacity_includes_send_in_progress(monkeypatch) -> None:
+    session, endpoint = _open_command_session()
+    session._commands.capacity = 8
+    for _ in range(8):
+        assert session.send_command("reset_view")
+    send = endpoint.send
+    rejected = []
+
+    def enqueue_during_send(message_type, **kwargs):
+        if message_type == "simulation_command":
+            rejected.append(session.send_command("reset_view"))
+        return send(message_type, **kwargs)
+
+    monkeypatch.setattr(endpoint, "send", enqueue_during_send)
+    session._flush_commands(endpoint)
+    assert rejected == [""] * 8
+    assert session.snapshot.pending_commands == 8
+
+
+@pytest.mark.parametrize("age", [float("nan"), float("inf"), -1.0, "invalid", RuntimeError("decoder clock failed")])
+def test_invalid_decoder_clock_is_not_live_and_retries_only_affected_stream(age) -> None:
+    session, endpoint = _open_command_session()
+    endpoint.inbox.extend([answer("observer"), answer("hand_eye_preview")])
+    session.run_cycle(endpoint)
+    observer = session.receiver("observer")
+
+    def invalid_age():
+        if isinstance(age, Exception):
+            raise age
+        return age
+
+    observer.frame_age_s = invalid_age
+    assert "observer" not in session.snapshot.connected_streams
+    assert "hand_eye_preview" in session.snapshot.connected_streams
+    session._check_stream_liveness()
+    assert "observer" in session._stream_retry_at
+    assert "hand_eye_preview" not in session._stream_retry_at
+    assert "invalid decoder clock" in session.last_error

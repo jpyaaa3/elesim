@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from enum import Enum
+from typing import Callable
 
 
 class ControlOwner(str, Enum):
@@ -30,12 +31,16 @@ class ControlOwnershipError(RuntimeError):
 class ControlOwnership:
     """Single-writer arm control ownership gate with optional experiment FSM."""
 
-    def __init__(self, *, heartbeat_timeout_s: float = 5.0) -> None:
+    def __init__(
+        self, *, heartbeat_timeout_s: float = 5.0,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
         self._lock = threading.RLock()
         self._owner = ControlOwner.NONE
         self._state = ControlState.IDLE
         self._heartbeat_timeout_s = float(max(0.01, heartbeat_timeout_s))
-        self._last_heartbeat_s = 0.0
+        self._clock = time.monotonic if clock is None else clock
+        self._last_heartbeat_s: float | None = None
 
     @property
     def owner(self) -> ControlOwner:
@@ -54,19 +59,20 @@ class ControlOwnership:
     def _check_heartbeat_locked(self) -> None:
         if self._owner == ControlOwner.NONE:
             return
-        if self._last_heartbeat_s <= 0.0:
+        if self._last_heartbeat_s is None:
             return
-        if (time.time() - self._last_heartbeat_s) > self._heartbeat_timeout_s:
+        if (self._clock() - self._last_heartbeat_s) > self._heartbeat_timeout_s:
             self._owner = ControlOwner.NONE
             self._state = ControlState.FAILED
 
     def heartbeat(self, owner: ControlOwner) -> None:
         with self._lock:
+            self._check_heartbeat_locked()
             if self._owner != owner:
                 raise ControlOwnershipError(
                     f"heartbeat from {owner.value} but owner is {self._owner.value}"
                 )
-            self._last_heartbeat_s = time.time()
+            self._last_heartbeat_s = self._clock()
 
     def acquire(
         self,
@@ -88,14 +94,14 @@ class ControlOwnership:
                 self._state = ControlState.GAZE_TRACK
             elif owner in (ControlOwner.WALK_APPROACH,):
                 self._state = ControlState.WALK_APPROACH
-            self._last_heartbeat_s = time.time()
+            self._last_heartbeat_s = self._clock()
 
     def release(self, owner: ControlOwner) -> None:
         with self._lock:
             if self._owner == owner:
                 self._owner = ControlOwner.NONE
                 self._state = ControlState.IDLE
-                self._last_heartbeat_s = 0.0
+                self._last_heartbeat_s = None
 
     def require(self, owner: ControlOwner) -> None:
         with self._lock:

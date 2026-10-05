@@ -79,3 +79,43 @@ def test_false_wait_is_classified_as_cancel_or_timeout() -> None:
 
     assert cancelled.reason == "cancelled"
     assert timed_out.reason == "timeout"
+
+
+def test_wait_completion_does_not_hide_failure_or_cancellation() -> None:
+    for outcome in ("failed", "cancelled"):
+        for final_phase in (False, True):
+            state = {"failed": False, "cancelled": False}
+            calls = []
+
+            def wait(_label, _timeout):
+                state[outcome] = True
+                return True
+
+            phases = [PickWorkflowPhase("look", "look", lambda: calls.append("look"))]
+            if not final_phase:
+                phases.append(PickWorkflowPhase("grasp", "grasp", lambda: calls.append("grasp")))
+            result = run_pick_workflow(
+                phases, timeout_s=3.0, begin_phase=lambda _phase: None,
+                wait_phase=wait, failed=lambda: state["failed"],
+                cancelled=lambda: state["cancelled"],
+            )
+            assert not result.success
+            assert result.reason == outcome
+            assert result.phase == "look"
+            assert calls == ["look"]
+
+
+def test_wait_exception_is_reported_with_phase_and_allows_next_run() -> None:
+    def broken_wait(_label, _timeout):
+        raise RuntimeError("phase feedback lost")
+
+    options = dict(
+        phases=(PickWorkflowPhase("look", "look", lambda: None),),
+        timeout_s=3.0, begin_phase=lambda _phase: None,
+        failed=lambda: False, cancelled=lambda: False,
+    )
+    failed = run_pick_workflow(**options, wait_phase=broken_wait)
+    assert failed.reason == "exception"
+    assert failed.phase == "look"
+    assert failed.detail == "phase feedback lost"
+    assert run_pick_workflow(**options, wait_phase=lambda _label, _timeout: True).success

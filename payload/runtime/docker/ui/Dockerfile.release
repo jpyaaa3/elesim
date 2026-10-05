@@ -35,7 +35,6 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip ins
       "/tmp/wheels/${PROTOCOL_WHEEL}" "/tmp/wheels/${APP_WHEEL}" && \
     python3 -m pip check
 COPY config/ /opt/elesim/config/
-COPY data/ /opt/elesim/data/
 
 WORKDIR /opt/elesim
 

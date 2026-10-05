@@ -926,8 +926,8 @@ class _PilotContextActions(_ControlServiceCore):
         return worker is not None and worker.is_alive()
 
     def _wait_pick_phase_done(self, *, timeout_s: float, label: str) -> bool:
-        deadline = time.time() + float(max(timeout_s, 1.0))
-        while time.time() < deadline:
+        deadline = time.monotonic() + float(max(timeout_s, 1.0))
+        while time.monotonic() < deadline:
             if self._pick_e2e_cancel.is_set():
                 print("[E2E] %s | cancelled" % str(label))
                 return False
@@ -950,9 +950,18 @@ class _PilotContextActions(_ControlServiceCore):
 
     def stop_pick_e2e(self) -> None:
         self._pick_e2e_cancel.set()
-        self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
-        self.stop_gaze_stabilizer()
-        self.stop_object_pick()
+        errors: list[Exception] = []
+        for stop in (
+            lambda: self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0),
+            self.stop_gaze_stabilizer,
+            self.stop_object_pick,
+        ):
+            try:
+                stop()
+            except Exception as exc:
+                errors.append(exc)
+        if errors:
+            raise RuntimeError("Pick stop failed: " + "; ".join(str(exc) for exc in errors)) from errors[0]
 
 
 class _MobilePickWorkflowActions(_PilotContextActions):

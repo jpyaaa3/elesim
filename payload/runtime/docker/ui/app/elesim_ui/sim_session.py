@@ -5,7 +5,6 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
@@ -30,12 +29,11 @@ from elesim_protocol import (
 from elesim_protocol.tracing import sampled_span, span
 
 from .webrtc import WebRtcVideoReceiver
+from .stream_health import decoded_frame_age, receiver_stats_suffix
+from .simulation_commands import COALESCED_COMMANDS, SimulationCommandQueue
 
 
 SIMULATION_STREAMS = ("observer", "hand_eye_preview")
-_COALESCED_COMMANDS = frozenset(
-    {"orbit", "pan", "zoom", "set_speed", "set_debug_visible"}
-)
 _MAX_STREAM_RETRY_DELAY_S = 5.0
 _STREAM_RETRY_COUNT_CAP = 16
 _STREAM_STARTUP_TIMEOUT_S = 8.0
@@ -55,36 +53,6 @@ class UiSimulationSnapshot:
     pending_commands: int
     last_result: Optional[SimulationResultPayload]
     last_error: str
-
-
-@dataclass(frozen=True)
-class _QueuedCommand:
-    request_id: str
-    command: str
-    arguments: dict[str, Any]
-
-
-def _coalesce_command(
-    previous: _QueuedCommand,
-    current: _QueuedCommand,
-) -> _QueuedCommand:
-    if current.command in {"orbit", "pan"}:
-        arguments = {
-            axis: max(
-                -2.0,
-                min(2.0, float(previous.arguments[axis]) + float(current.arguments[axis])),
-            )
-            for axis in ("dx", "dy")
-        }
-        return _QueuedCommand(current.request_id, current.command, arguments)
-    if current.command == "zoom":
-        delta = float(previous.arguments["delta"]) + float(current.arguments["delta"])
-        return _QueuedCommand(
-            current.request_id,
-            current.command,
-            {"delta": max(-2.0, min(2.0, delta))},
-        )
-    return current
 
 
 class UiSimSession:
@@ -142,8 +110,7 @@ class UiSimSession:
         self._turn: Optional[TurnCredentials] = None
         self._connected_streams: set[str] = set()
         self._status: Optional[SimulationStatusPayload] = None
-        self._commands: deque[_QueuedCommand] = deque()
-        self._pending_command_ids: set[str] = set()
+        self._commands = SimulationCommandQueue(self.max_pending_commands)
         self._sent_messages: dict[str, tuple[str, str]] = {}
         self._last_result: Optional[SimulationResultPayload] = None
         self._last_error = ""
@@ -184,7 +151,7 @@ class UiSimSession:
                 session_id=self._session_id,
                 connected_streams=self._connected_stream_names(),
                 status=self._status,
-                pending_commands=len(self._commands) + len(self._pending_command_ids),
+                pending_commands=self._commands.pending,
                 last_result=self._last_result,
                 last_error=self._last_error,
             )
@@ -209,10 +176,10 @@ class UiSimSession:
             # expose offer/answer callbacks and have no decoder clock.
             return True
         try:
-            age = age_getter()
-            return age is not None and float(age) < _STREAM_STALL_TIMEOUT_S
+            age = decoded_frame_age(receiver)
+            return age is not None and age < _STREAM_STALL_TIMEOUT_S
         except Exception:
-            return True
+            return False
 
     def receiver(self, stream: str) -> Any:
         with self._lock:
@@ -299,25 +266,15 @@ class UiSimSession:
                 "arguments": dict(arguments or {}),
             }
         )
-        queued = _QueuedCommand(parsed.request_id, parsed.command, parsed.arguments)
         with self._lock:
-            if (
-                command_name in _COALESCED_COMMANDS
-                and self._commands
-                and self._commands[-1].command == command_name
-            ):
-                self._commands[-1] = _coalesce_command(self._commands[-1], queued)
-                return request_id
-            if (
-                len(self._commands) + len(self._pending_command_ids)
-                >= self.max_pending_commands
-            ):
+            if self._session_id != session_id or self._closing_session_id:
+                return ""
+            if not self._commands.enqueue(parsed):
                 self._set_error(
                     "simulation command backlog is full "
                     f"({self.max_pending_commands}); waiting for Sim acknowledgements"
                 )
                 return ""
-            self._commands.append(queued)
         return request_id
 
     def run_cycle(self, client: Any) -> None:
@@ -446,28 +403,24 @@ class UiSimSession:
     def _flush_commands(self, client: Any) -> None:
         for _ in range(_MAX_COMMAND_FLUSH_PER_CYCLE):
             with self._lock:
-                if self._closing_session_id or not self._commands:
+                if self._closing_session_id or not self._commands or not self._session_id or not self._active_sim_id:
                     return
-                queued = self._commands.popleft()
+                request = self._commands.take()
                 session_id = self._session_id
                 target_id = self._active_sim_id
-            if not session_id or not target_id:
-                return
-            request = SimulationCommandRequest(
-                request_id=queued.request_id,
-                session_id=session_id,
-                command=queued.command,
-                arguments=queued.arguments,
-            )
+            if request.session_id != session_id:
+                with self._lock:
+                    self._commands.complete(request.request_id)
+                continue
             try:
                 with sampled_span(
                     "elesim_ui.sim_session.UiSimSession._flush_commands",
-                    sample_key=f"ui.simulation:{queued.command}",
-                    every=10 if queued.command in _COALESCED_COMMANDS else 1,
+                    sample_key=f"ui.simulation:{request.command}",
+                    every=10 if request.command in COALESCED_COMMANDS else 1,
                     attributes={
                         "code.function.name": "elesim_ui.sim_session.UiSimSession._flush_commands",
-                        "elesim.flow.id": f"simulation.command.{queued.command}",
-                        "elesim.simulation.command": queued.command,
+                        "elesim.flow.id": f"simulation.command.{request.command}",
+                        "elesim.simulation.command": request.command,
                     },
                     kind="producer",
                 ):
@@ -485,10 +438,11 @@ class UiSimSession:
                         self._session_id == session_id
                         and self._active_sim_id == target_id
                     ):
-                        self._commands.appendleft(queued)
+                        self._commands.retry(request)
                 raise
             with self._lock:
-                self._pending_command_ids.add(request.request_id)
+                if self._session_id != session_id or self._active_sim_id != target_id:
+                    continue
                 self._sent_messages[str(envelope.message_id)] = (
                     "command",
                     request.request_id,
@@ -792,20 +746,17 @@ class UiSimSession:
                 # authoritative.
                 continue
             try:
-                age = age_getter()
-            except Exception:
+                age = decoded_frame_age(receiver)
+            except Exception as exc:
+                self._handle_stream_error(stream, receiver, f"invalid decoder clock: {exc}")
                 continue
             if age is None:
                 age = now - float(connected_at.get(stream, now))
                 threshold = _STREAM_STARTUP_TIMEOUT_S
             else:
                 threshold = _STREAM_STALL_TIMEOUT_S
-            try:
-                age_value = float(age)
-            except (TypeError, ValueError):
-                continue
-            if age_value >= threshold:
-                stalled.append((stream, age_value))
+            if age >= threshold:
+                stalled.append((stream, age))
 
         for stream in pending_answers:
             with self._lock:
@@ -822,26 +773,14 @@ class UiSimSession:
 
         for stream, age in stalled:
             with self._lock:
-                if stream not in self._connected_streams:
+                if stream not in self._connected_streams or self._receivers.get(stream) is not receivers.get(stream):
                     continue
                 self._connected_streams.discard(stream)
                 self._stream_connected_at.pop(stream, None)
                 self._stream_offer_sent_at.pop(stream, None)
             self._schedule_stream_retry(stream)
             receiver = receivers.get(stream)
-            stats_getter = getattr(receiver, "stats_snapshot", None)
-            stats = {}
-            if callable(stats_getter):
-                try:
-                    stats = dict(stats_getter())
-                except Exception:
-                    stats = {}
-            stats_suffix = ""
-            if stats:
-                stats_suffix = " (" + ", ".join(
-                    f"{name}={value}"
-                    for name, value in stats.items()
-                ) + ")"
+            stats_suffix = receiver_stats_suffix(receiver)
             self._set_error(
                 f"{stream} WebRTC stalled ({age:.1f}s without a decoded frame)"
                 f"{stats_suffix}; "
@@ -931,7 +870,7 @@ class UiSimSession:
                 or message.source_id != self._active_sim_id
             ):
                 return
-            self._pending_command_ids.discard(result.request_id)
+            self._commands.complete(result.request_id)
             self._forget_sent_request_locked("command", result.request_id)
             self._last_result = result
             failure = (
@@ -957,7 +896,7 @@ class UiSimSession:
             elif kind == "close" and request_id == self._closing_session_id:
                 self._clear_session_locked()
             elif kind == "command":
-                self._pending_command_ids.discard(request_id)
+                self._commands.complete(request_id)
         self._set_error(reason)
 
     def _lose_session(self, reason: str) -> None:
@@ -987,7 +926,6 @@ class UiSimSession:
         self._stream_offer_sent_at.clear()
         self._status = None
         self._commands.clear()
-        self._pending_command_ids.clear()
         self._sent_messages.clear()
 
     def _schedule_open_retry_locked(

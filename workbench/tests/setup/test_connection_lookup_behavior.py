@@ -85,7 +85,7 @@ for (const name of names) {
   assert.equal(button.disabled, true);
   assert.equal(button.textContent, "install.lookup.blocked");
   assert.equal(context.installationOptionLabel({install_mode: "native", name: "Robot (/opt/robot)"}),
-    "install.native — Robot (/opt/robot)");
+    "install.native - Robot (/opt/robot)");
   local = "com1";
   context.updateInstallationLookup("com1");
   assert.equal(button.disabled, false);

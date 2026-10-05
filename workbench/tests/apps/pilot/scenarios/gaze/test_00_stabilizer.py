@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import time
-import tempfile
 import unittest
 
 import numpy as np
@@ -38,10 +36,11 @@ class GazeStabilizerTests(unittest.TestCase):
 
 class ControlOwnershipExtendedTests(unittest.TestCase):
     def test_heartbeat_timeout_fails(self) -> None:
-        gate = ControlOwnership(heartbeat_timeout_s=0.01)
+        now = [0.0]
+        gate = ControlOwnership(heartbeat_timeout_s=0.01, clock=lambda: now[0])
         gate.acquire(ControlOwner.GAZE_TRACK, state=ControlState.GAZE_TRACK)
         gate.heartbeat(ControlOwner.GAZE_TRACK)
-        time.sleep(0.05)
+        now[0] = 0.05
         _ = gate.owner
         self.assertEqual(gate.current_state(), ControlState.FAILED)
         self.assertEqual(gate.owner, ControlOwner.NONE)

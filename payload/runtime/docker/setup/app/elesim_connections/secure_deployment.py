@@ -40,8 +40,8 @@ from .connection_manager import (
 from elesim_setup.instance_identity import parse_scoped_identity, project_name
 from elesim_setup.credentials import (
     _ParamikoProxySocket,
+    open_ssh_connection,
     proxy_failure_detail,
-    tailscale_proxy_command,
 )
 
 
@@ -781,11 +781,36 @@ class ParamikoConnector:
             arguments["key_filename"] = str(
                 resolve_ssh_identity_path(endpoint.identity_file)
             )
+        proxy_connection = None
+        connection = None
         try:
+            connection = open_ssh_connection(endpoint.host, int(endpoint.port), self._timeout_s)
+            if isinstance(connection, _ParamikoProxySocket):
+                proxy_connection = connection
+            arguments["sock"] = connection
             client.connect(**arguments)
+            if proxy_connection is not None:
+                proxy_connection.mark_established()
             _enable_ssh_keepalive(client)
-        except BaseException:
-            client.close()
+        except BaseException as exc:
+            detail = proxy_failure_detail(proxy_connection, exc)
+            try:
+                client.close()
+            finally:
+                if connection is not None:
+                    connection.close()
+            authentication_error = getattr(paramiko, "AuthenticationException", None)
+            if isinstance(authentication_error, type) and isinstance(exc, authentication_error):
+                raise
+            ssh_error = getattr(paramiko, "SSHException", None)
+            if proxy_connection is not None and (
+                isinstance(exc, OSError)
+                or (isinstance(ssh_error, type) and isinstance(exc, ssh_error))
+            ):
+                raise SshConnectionError(
+                    f"OpenSSH connection to {endpoint.host}:{endpoint.port} "
+                    f"through the host Tailscale proxy failed: {detail}"
+                ) from exc
             raise
         return _ParamikoSession(
             client,
@@ -808,20 +833,14 @@ class ParamikoConnector:
         proxy_connection: _ParamikoProxySocket | None = None
         transport: object | None = None
         try:
-            proxy_command = tailscale_proxy_command(
+            connection = open_ssh_connection(
                 endpoint.host,
                 int(endpoint.port),
-                force=True,
+                self._timeout_s,
+                force_tailscale_proxy=True,
             )
-            if proxy_command is None:
-                connection = socket.create_connection(
-                    (endpoint.host, int(endpoint.port)), timeout=self._timeout_s
-                )
-            else:
-                from paramiko.proxy import ProxyCommand
-
-                proxy_connection = _ParamikoProxySocket(ProxyCommand(proxy_command))
-                connection = proxy_connection
+            if isinstance(connection, _ParamikoProxySocket):
+                proxy_connection = connection
             transport = paramiko.Transport(connection)  # type: ignore[attr-defined]
             # Paramiko's Transport defaults auth_timeout to None.  Tailscale
             # ``action=check`` can otherwise leave a headless rollout waiting

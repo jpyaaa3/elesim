@@ -8,6 +8,7 @@ import pytest
 
 from elesim_setup.credentials import (
     install_staged_credentials,
+    open_ssh_connection,
     probe_ssh_fingerprint,
     proxy_failure_detail,
     validate_external_turn_credentials,
@@ -114,10 +115,6 @@ def test_ssh_fingerprint_uses_host_tailscale_proxy_for_cgnat_address(
         def close(self) -> None:
             pass
 
-    class Connection:
-        def close(self) -> None:
-            raise AssertionError("the direct socket path must not be used")
-
     class Key:
         @staticmethod
         def asbytes() -> bytes:
@@ -151,10 +148,10 @@ def test_ssh_fingerprint_uses_host_tailscale_proxy_for_cgnat_address(
         ),
     )
     monkeypatch.setitem(sys.modules, "paramiko.proxy", SimpleNamespace(ProxyCommand=Proxy))
-    monkeypatch.setattr(
-        "elesim_setup.credentials.socket.create_connection",
-        lambda *_args, **_kwargs: Connection(),
-    )
+    def no_direct_route(*_args, **_kwargs):
+        raise OSError("direct TCP is unavailable")
+
+    monkeypatch.setattr("elesim_setup.credentials.socket.create_connection", no_direct_route)
 
     fingerprint = probe_ssh_fingerprint("100.74.222.24", 22, timeout_s=3.0)
 
@@ -177,6 +174,37 @@ def test_ssh_fingerprint_timeout_explains_container_and_tailscale_path(
     with pytest.raises(RuntimeError, match="Docker container") as error:
         probe_ssh_fingerprint("100.74.222.24", 22)
     assert "tailscale" in str(error.value).lower()
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_ssh_direct_connection_does_not_start_optional_proxy(monkeypatch, force):
+    connection = object()
+    monkeypatch.setattr(
+        "elesim_setup.credentials.socket.create_connection",
+        lambda address, timeout: connection,
+    )
+    def unexpected_proxy(*_args, **_kwargs):
+        raise AssertionError("a working direct route must not use the host proxy")
+    monkeypatch.setattr("elesim_setup.credentials.open_tailscale_proxy", unexpected_proxy)
+
+    assert open_ssh_connection("100.74.222.24", 22, 8, force_tailscale_proxy=force) is connection
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_ssh_proxy_is_only_attempted_after_direct_connect_failure(monkeypatch, force):
+    calls = []
+    connection = object()
+    def direct(address, timeout):
+        calls.append(("direct", address, timeout))
+        raise OSError("no route")
+    def proxy(host, port, *, force):
+        calls.append(("proxy", host, port, force))
+        return connection
+    monkeypatch.setattr("elesim_setup.credentials.socket.create_connection", direct)
+    monkeypatch.setattr("elesim_setup.credentials.open_tailscale_proxy", proxy)
+
+    assert open_ssh_connection("peer.example", 2222, 3, force_tailscale_proxy=force) is connection
+    assert calls == [("direct", ("peer.example", 2222), 3), ("proxy", "peer.example", 2222, force)]
 
 
 def test_proxy_failure_detail_prefers_host_helper_diagnostic() -> None:

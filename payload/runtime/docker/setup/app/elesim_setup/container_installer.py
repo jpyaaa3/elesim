@@ -38,6 +38,7 @@ from .manager_lifecycle import (
     host_helper_fragment,
     manager_lifecycle_fragment,
 )
+from .install_transaction import FreshInstallRollback, installation_lock
 from .instance_identity import (
     CONTAINER_NAMING_HASH,
     CONTAINER_NAMING_SYSTEM,
@@ -393,6 +394,13 @@ class ContainerInstaller:
         return self.state.prefix_path / "containers"
 
     def run(self) -> None:
+        if self.dry_run:
+            self._run_locked()
+            return
+        with installation_lock(self.state.prefix_path, self.state.bin_path):
+            self._run_locked()
+
+    def _run_locked(self) -> None:
         self._validate_source()
         if self.state.developer_attachment.workspace_path is not None:
             validate_developer_workspace(
@@ -420,56 +428,62 @@ class ContainerInstaller:
             self.log("[DRY-RUN] The host and Docker daemon were not changed.")
             return
 
-        self.log("[1/6] Preparing installation directory and runtime data")
-        self._image_fingerprints.clear()
-        self._release_aliases.clear()
-        self.state.prefix_path.mkdir(parents=True, exist_ok=True)
-        self.state.bin_path.mkdir(parents=True, exist_ok=True)
-        self._reserve_install_name()
-        # Fresh installs choose their human-readable Compose namespace after
-        # the reservation is durable. Refreshes retain the prior project.
-        self._select_docker_namespace(ownership_refresh)
-        self._prepare_manager_roots()
-        self._prepare_scoped_roots()
-        self._runtime_cache_root = self._prepare_runtime_cache()
-        self._build_root = self._prepare_build_root()
-        prepare_app_keystore_views(self.state)
-        if self.state.dds.managed_security_pending:
-            sync_provisioning_required(self.state)
-        self._prepare_tailscale_state()
-        self._prepare_turn_secret()
-        self._copy_runtime_data()
-        if self._scoped_namespace:
-            self._copy_runtime_snapshot()
-        generate_role_configs(self.state)
-        self.log("[2/6] Creating role image contexts")
-        for role in self.state.roles:
-            self._write_role_context(role)
-        self._select_release_aliases()
-        for role in self.state.roles:
-            self._register_role_image_reference(role)
-        if self.state.developer_attachment.enabled:
-            self._write_developer_context()
-        self.log("[3/6] Creating installation and diagnostic tools context")
-        self._write_tools_context()
-        self.log("[4/6] Creating Compose configuration")
-        self._write_compose()
-        self.log("[5/6] Creating runtime commands")
-        self._write_wrappers(ownership_refresh)
-        self.log("[6/6] Saving installation state and uninstall ownership")
-        saved = self.state.save(self.state_path)
-        if not self.state.dds.managed_security_pending:
-            sync_provisioning_required(self.state)
-        bundle = install_host_uninstaller_bundle(
-            prefix=self.state.prefix_path,
-            bin_dir=self.state.bin_path,
-        )
-        manifest = self._write_ownership_manifest(
-            bundle=bundle,
-            refresh=ownership_refresh,
-            prefix_created=prefix_created,
-            bin_created=bin_created,
-        )
+        with FreshInstallRollback(
+            prefix=self.state.prefix_path, bin_dir=self.state.bin_path,
+            generated_paths=(*self._claimed_paths(), self.state.prefix_path / "install-ownership.json"),
+            enabled=ownership_refresh is None,
+        ) as transaction:
+            self.log("[1/6] Preparing installation directory and runtime data")
+            self._image_fingerprints.clear()
+            self._release_aliases.clear()
+            self.state.prefix_path.mkdir(parents=True, exist_ok=True)
+            self.state.bin_path.mkdir(parents=True, exist_ok=True)
+            self._reserve_install_name()
+            # Fresh installs choose their human-readable Compose namespace after
+            # the reservation is durable. Refreshes retain the prior project.
+            self._select_docker_namespace(ownership_refresh)
+            self._prepare_manager_roots()
+            self._prepare_scoped_roots()
+            self._runtime_cache_root = self._prepare_runtime_cache()
+            self._build_root = self._prepare_build_root()
+            prepare_app_keystore_views(self.state)
+            if self.state.dds.managed_security_pending:
+                sync_provisioning_required(self.state)
+            self._prepare_tailscale_state()
+            self._prepare_turn_secret()
+            self._copy_runtime_data()
+            if self._scoped_namespace:
+                self._copy_runtime_snapshot()
+            generate_role_configs(self.state)
+            self.log("[2/6] Creating role image contexts")
+            for role in self.state.roles:
+                self._write_role_context(role)
+            self._select_release_aliases()
+            for role in self.state.roles:
+                self._register_role_image_reference(role)
+            if self.state.developer_attachment.enabled:
+                self._write_developer_context()
+            self.log("[3/6] Creating installation and diagnostic tools context")
+            self._write_tools_context()
+            self.log("[4/6] Creating Compose configuration")
+            self._write_compose()
+            self.log("[5/6] Creating runtime commands")
+            self._write_wrappers(ownership_refresh)
+            self.log("[6/6] Saving installation state and uninstall ownership")
+            saved = self.state.save(self.state_path)
+            if not self.state.dds.managed_security_pending:
+                sync_provisioning_required(self.state)
+            bundle = install_host_uninstaller_bundle(
+                prefix=self.state.prefix_path,
+                bin_dir=self.state.bin_path,
+            )
+            manifest = self._write_ownership_manifest(
+                bundle=bundle,
+                refresh=ownership_refresh,
+                prefix_created=prefix_created,
+                bin_created=bin_created,
+            )
+            transaction.commit()
         self.log(f"[Complete] Installation state: {saved}")
         self.log(f"[Complete] Uninstall ownership: {manifest.path}")
         if self._scoped_namespace:

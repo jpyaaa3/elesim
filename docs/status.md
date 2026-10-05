@@ -1,10 +1,255 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-09-10. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-05. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### 자율 점검 후속 (2026-10-05, 진행)
+
+원본 로그와 전용 설치는
+`workbench/evidence/generated/readiness/20261005-autonomous/`에 있다.
+기존 소유 dev 서비스에서 실행했으며 새 dev image build, 실제 두 host의
+로그인/영상, 물리 장비 검증으로 해석하지 않는다.
+
+- **R1:** 실제 loopback WizardServer HTTP API에서 잘못된 입력 거부, 검증,
+  파일 설치 완료를 확인했다. 처음 설치 중 취소하면 manifest 없는 생성물이
+  남아 같은 입력으로 재시도할 수 없는 결함을 재현했다. 정확한 생성 경로가
+  처음에 없었을 때만 rollback하고 기존/외부 파일은 보존하도록 수정했다.
+  같은 출력 root의 동시 설치는 private advisory lock으로 직렬화한다.
+  lock은 같은 UID·임시 디렉터리 namespace 안에서 유효하며 다른 컨테이너의
+  별도 `/tmp`까지 직렬화한다고 주장하지 않는다.
+- 실제 API 재실행에서 **취소 → 같은 입력 재시도 → 완료**를 확인했다.
+  생성 host uninstaller로 해당 전용 prefix를 제거했고 tombstone도 evidence
+  아래 남겼다. 삭제할 Docker container/image는 없었다. 사용 중인 설치,
+  역할 프로세스와 외부 checkout은 변경하지 않았다.
+- 새 모듈의 bootstrap 배포 목록도 갱신했다. 기존 설치 refresh 중 실패와
+  manifest 발행 뒤의 늦은 취소 표시, bootstrap부터 새 shell 상태 확인까지의
+  전체 흐름은 별도 남은 항목이다. 브라우저 화면 조작은 실행하지 않았다.
+- **R2/R3:** UI 명령 queue가 제출 당시 session ID를 보존한다. 검증 중 session
+  변경, 전송 중 session 폐기, 전송 중 추가 입력을 회귀로 고정했다. 전송 중인
+  명령도 queue 한도에 포함하고 폐기된 session의 tracking을 되살리지 않는다.
+- 영상 decoder clock의 예외·NaN·무한대·음수·잘못된 문자열은 LIVE로 표시하지
+  않고 해당 stream만 재시도한다. 정상 상대 stream과 DDS session은 유지한다.
+- **R3/R4:** Pilot 제어 소유권 timeout은 monotonic clock을 사용하며 만료 뒤
+  도착한 heartbeat가 소유권을 부활시키지 않는다. Pick 단계 wait가 끝난
+  직후의 실패/취소도 재확인하고 wait 예외를 단계 실패로 보고한다. GO2 정지
+  전송 또는 Gaze 정지가 실패해도 나머지 Pick 정지 절차는 모두 시도한다.
+  이는 소프트웨어 회귀이며 실제 정지 시간 측정은 아니다.
+- **구조 정리:** UI 명령 queue/영상 health와 RL 관측/episode 통계를 소유
+  모듈로 분리했다. 기존 가독성 제한을 유지한 채 `UiSimSession` 978줄,
+  `WrapGraspEnv` 992줄로 검사된다. RL public VecEnv·통계 계약은 유지한다.
+  실제 CPU Genesis 1 env에서 3회 step/reset, 유한 관측/보상, policy 12 및
+  privileged 53채널, 통계/metadata 생성을 확인했다. build는 약 208.5초였으며
+  convex decomposition과 초기 kernel 준비를 포함한다. 학습 성공률이나
+  GPU 성능 결과가 아니다. RL 전용 scene의 qpos0 경고는 여전히 남아 있다.
+
+| 현재 집중 검증 | 결과 |
+| --- | --- |
+| 설치 전체 (bootstrap 목록 수정 후) | 1,129 passed, 3 skipped |
+| UI session/명령/영상 health | 77 passed |
+| Pilot heartbeat/중단/단계 흐름 | 406 passed, 21 skipped |
+| Sim 관측/통계 분리 | 460 passed, 3 skipped |
+| quality 도구와 실제 runtime 가독성 | 22 passed |
+| 실제 wizard API | 입력 오류, 완료, 취소 후 재시도 완료 |
+| 전용 prefix 생성 uninstaller | 완료; Docker 삭제 대상 없음 |
+| 실제 CPU RL env | 3회 step/reset 완료; 학습/정책 성능은 미검증 |
+
+R4의 후속 감사 대상은 기존 **Pick**으로 정했다. 지각·IK·Sim 결과를 포함하는
+고정 장면 end-to-end 성공 기준과 실제 반복 수용은 아직 실행하지 않았다.
+R5는 장비·현장 운영자가 없어 대기한다. 전체 required/extended와 격리
+release 검사는 이 변경 묶음에서 다시 실행하여 아래 과거 결과와 구분한다.
+
+### Genesis scene 경고 조사 (2026-10-05)
+
+사용자가 제공한 Sim 로그의 네 경고를 현재 Genesis 1.4.1과 ZED Mini
+bundle로 조사했다. 원본 진단은
+`workbench/evidence/generated/readiness/20261005-scene/`에 있다.
+설치된 runtime 이미지나 물리 장비는 변경하지 않았다.
+
+| 로그 | 확인된 원인 / 처리 |
+| --- | --- |
+| neutral self-collision `(2, 28)` | 바닥을 먼저 추가한 현행 비병합 모델에서 `Head_upper` 원통과 `plate` 메시. 둘 다 base에 고정된 가지다. |
+| `(8, 9)`, `(14, 15)`, `(20, 21)`, `(26, 27)` | FL/FR/RL/RR 각각 `calflower1` 원통과 `foot` 구체. 각각 같은 calf에 고정된 가지다. 움직이는 관절 충돌의 관측값이 아니라 qpos0에서 자동 제외된 geometry 쌍이다. |
+| `qpos0 exceeds joint limits` | URDF의 초기 calf 값 0이 네 관절의 범위 `[-2.7227, -0.83776]` 밖이다. 기존 stand 설정은 scene.build 이후였다. 빌드 전에 12개 GO2 관절의 stand 값을 검증해 Genesis joint description에 지정하도록 수정했다. 실제 CPU build에서 해당 경고가 사라졌다. |
+| `i32 <- i64` | Genesis `RigidSolver._init_tree_fields`의 `argmax(axis=1)` 결과인 `dofs_mass_envelope_start`를 i32 배열로 복사하는 경고. 진단에서 shape `(32,)`, 최솟값/최댓값 모두 0이었다. 실수 물리 상태의 정밀도 전환이 아니며 이 배열에서 값 손실은 없다. 외부 라이브러리 dtype 처리는 변경하지 않았다. |
+| `Mesh is not watertight` | 현행 물리씬 build에서는 재현되지 않았다. 별도 mesh 검사에서 정점 seam을 합친 뒤에도 GO2 시각 DAE 7개와 plate OBJ가 watertight가 아니었다. plate는 열린 edge가 아니라 `(0,0,-0.015)`–`(0,0,-0.021)` m edge에 면 네 개가 연결된 non-manifold 형상이다. 어느 메시가 사용자 로그를 냈는지는 아직 확정하지 않는다. |
+
+Genesis의 기본 필터는 일부 고정 가지 사이도 neutral overlap으로 처리한다.
+이 다섯 쌍은 유효한 stand qpos0로 바꾼 뒤에도 동일하게 보고됐다. 충돌 전체를
+끄거나 `enable_neutral_collision=True`로 중첩 형상 사이 접촉력을 강제하지
+않았다. 실제 plate와 head의 물리적 간섭 여부는 단순화한 충돌 형상의 중첩과
+구분해서 확인해야 한다. 메시를 convex hull로 영구 교체하거나 관성을 재추정하지
+않았다.
+
+첫 CPU build 프로파일은 모델 load 약 5.0초, build 171.1초였다. 그중
+Quadrants kernel materialization 누적 약 90.7초로, Python 프로파일 비용이
+포함된다. 기존 캐시를 사용하는 후속 비프로파일 build는 약 10.7초였다.
+서로 조건이 달라 초기 자세 수정의 속도 개선 수치로 비교하지 않는다.
+GPU와 사용자의 해당 설치에서 반복 시작 시간을 측정한 결과도 아니다.
+runtime에 Genesis 초기화 / robot model load / scene build 각각의 시간을
+flush해서 남기도록 추가했다. 카메라 replica에도 빌드 전 GO2 stand 준비를
+적용했으며, 전체 renderer/GPU 경로는 아직 실행하지 않았다. 자동 테스트 suite는
+이번 조사에서 실행하지 않았고, 실제 CPU 모델 로딩과 scene build로 진단했다.
+
+### R0 재점검과 SSH 경로 감사 (2026-10-05, 진행)
+
+기준 revision은 `bbdf390d56bb240c85a6ac8c8944f25d4086d6f6`이며 시작 시
+working tree는 깨끗했다. 아래 과거 기록의 미커밋 변경·개발 wrapper 부재를
+현재 상태로 사용하지 않는다. 새 마일스톤 체계를 추가하지 않고 R0 → R1 → R2를
+진행한다. M1/M2와 B1–B5의 과거 software 완료는 R 수용시험을 대체하지 않는다.
+
+#### 환경과 원래 장애의 증거
+
+- 사용자는 상대 주소의 22번 포트 조회 실패를 보고했지만 오류 원문은
+  삭제됐다. 이후 호스트 `100.109.151.37`, sidecar `100.82.19.33`, 상대
+  `100.74.222.24`를 확인했다. 당시 GUI 인증 모드는 확정되지 않았다.
+- 알려진 로컬 설치 `/home/user/ws/newsim`의 UUID는
+  `cd824ccf-e543-4e4c-8cf4-8203623a9cef`, Compose project는 `elesim-warm3`,
+  backend는 `tailscale-sidecar`다. 설치 source snapshot은 위 HEAD와 같다.
+  `elesim-dev`, `elesim-connections`, `elesim-tailscale`의 파일 hash가 각각
+  ownership manifest와 일치한다. 전체 설치 소유권 검증을 의미하지 않는다.
+- 개발 attachment는 활성화돼 있으며 workspace는 이 checkout이다. 권한 제한
+  밖에서 확인한 Docker context `default`의 Engine ID는 설치에 pin된
+  `10a51a74-ee24-480d-be71-16ee52bdc55b`와 일치한다. 호스트 Tailscale은
+  `Running`, self online이다. peer 6개 존재는 특정 peer의 SSH 접근 증거가 아니다.
+- Sandbox 안에서는 Docker 접근과 Tailscale Unix socket 연결이 거부됐다.
+  `tailscale status`의 "doesn't appear to be running" 출력만으로 daemon 중단을
+  판단하면 안 된다. 직접 socket 접속의 `EPERM`과 권한 밖 상태를 대조했다.
+- 상대는 현재 online이며 호스트 직접 TCP와 `tailscale nc` 양쪽에서
+  `SSH-2.0-Tailscale` 배너를 받았다. 호스트 `ssh-keyscan`도 공개 host key를
+  조회했다. sidecar node는 offline이고 알려진 설치 project에는 dev만 실행
+  중이다. 이 결과는 사용자 인증이나 runtime DDS 연결 성공을 의미하지 않는다.
+- 실제 SSH 사용자 인증, sidecar namespace, DDS, 두 영상은 아직 검증하지
+  않았다. 실제 운영 role 배포나 물리 동작은 수행하지 않았다.
+
+#### 연결 경로와 수정
+
+```text
+GUI /api/ssh/fingerprint
+  → credentials.probe_ssh_fingerprint
+  → open_ssh_connection: 직접 TCP 우선, 연결 실패 시 open_tailscale_proxy
+  → host_proxy → private host_helper → 호스트 tailscale nc → 상대 SSH
+
+설치 조회 / 배포 / lifecycle
+  → ParamikoConnector → 동일한 proxy 선택
+  → OpenSSH agent/명시적 key 또는 명시적 Tailscale SSH 인증
+
+런타임 DDS
+  → 별도 sidecar namespace/interface/address/route → 실제 descriptor/heartbeat
+```
+
+- 기존 일반 OpenSSH 접속은 지문 조회와 달리 host proxy를 사용하지 않았다.
+  proxy가 필요한 Docker/WSL 환경에서는 지문 확인 뒤 설치 조회/접속이 실패할 수
+  있었다. agent/명시적 key와 성공/실패 조합 4개가 수정 전 모두 실패하는 것으로
+  재현했다. TCP/proxy 선택을 `credentials.open_ssh_connection`으로 통합했다.
+  포트, 인증 방식, 지문 pinning과 실패 시 proxy cleanup을 유지한다.
+- 일반 SSH proxy 실패도 helper 오류를 보존해 보고한다. transport 경로 선택은
+  인증 방식 변경이 아니다. DDS 주소와 SSH 관리 주소가 같다는 오래된 모듈
+  설명도 수정했다.
+- 실제 알려진 dev 컨테이너의 Paramiko 3.5.1로 상대 지문을 조회하면 직접
+  TCP는 성공하지만 기존 proxy 우선 경로는 8초 후 `No existing session`으로
+  실패했다. 20초로 늘린 진단에서도 키 교환이 끝나지 않았다. helper의 배너와
+  초기 협상은 왕복하며, client 1,288바이트 협상과 48바이트 다음 메시지가
+  helper를 통과한 뒤 응답이 멈추는 것을 바이트 수로 기록했다.
+- 같은 경로에서 작은 협상 목록을 사용한 일시적 진단은 성공했다. 별도의
+  `tailscale nc` + `ssh-keyscan`도 성공했다. 메시지 크기에 민감한 문제라는
+  증거이며 MTU, Tailscale 또는 다른 계층의 결함으로 아직 확정하지 않는다.
+  호스트 Tailscale 버전은 1.102.3이다. 제품 암호 알고리즘 목록은 변경하지 않았다.
+- 문서상 fallback인 proxy가 작동하는 직접 경로를 덮어쓰지 않도록 고쳤다.
+  OpenSSH/Tailscale SSH/지문 조회 모두 직접 TCP 실패 시에만 proxy를 시도한다.
+  지문 불일치와 인증 거부 뒤에는 경로 fallback을 하지 않는다. 수정 후 실제
+  지문 조회 3회가 **0.091 / 0.046 / 0.035초**에 같은 ED25519 지문을 반환했다.
+  직접 경로가 없는 환경의 기본 Paramiko proxy 협상은 별도 미해결 gate다.
+  삭제된 원문과의 동일성, 설치된 manager GUI에 대한 수정 적용은 주장하지 않는다.
+- SSH 조회의 stale response 회귀는 native 설치 label의 오래된 구두점 기대값에서
+  먼저 실패했다. 현재 화면 문자열에 맞춰 실제 stale response 검증이 실행되게 했다.
+- 가독성 검사가 삭제된 `payload/apps`를 순회해 **소스 0개로 통과**하고 있었다.
+  현재 네 runtime package 경로로 고치고 경로 누락·빈 입력을 실패시킨다.
+  실제 검사에서 `WrapGraspEnv` 1,347줄, `UiSimSession` 1,008줄이 기존 class
+  제한 1,000줄을 넘는다. 제한을 늘리거나 빈 검사 통과를 복원하지 않는다.
+- Sim RL 모듈은 `tensordict`를 직접 import하지만 Sim 선택 의존성과 dev lock에
+  선언이 없어 기존 dev에서 전체 Sim 검사가 수집 실패했다. Sim `rl` extra와
+  dev lock에 TensorDict 0.14.2, RSL-RL 5.4.0, TensorBoard 2.21.0을 명시하고,
+  `test` extra에도 직접 사용하는 TensorDict를 포함했다. 별도 학습 환경 안내도
+  같은 extra를 사용한다. 알려진 dev venv에 해당 의존성을 보완했으며 Torch
+  2.12.1 / NumPy 1.26.4는 유지했다. 실제 runner import는 통과했지만 학습,
+  GPU rollout, 기존 checkpoint 호환성을 증명하지 않는다.
+- Sim GO2 MPC 테스트 세 곳의 저장소 상대 경로가 한 단계 위를 가리켜
+  두 검사가 실패했다. 현재 테스트 위치에 맞게 고쳤다.
+- 격리 릴리스에서 Pilot이 동봉된 arm 모델을 찾지 못했다. 역할의 `config/`와
+  나란한 `data/models/arm/default.json`을 먼저 찾도록 하고 독립 디렉터리
+  회귀를 추가했다. 명시적 `ELESIM_ARM_MODEL` 우선권과 소스 실행 경로는 유지한다.
+- UI가 더 이상 모델 데이터를 배포하지 않는데 release Dockerfile과 manifest에
+  `data/` 요구가 남아 있었다. 두 요구를 제거해 실제 UI 의존성과 일치시켰다.
+
+기존 가독성 gate는 네 runtime role만 검사한다. setup/connection의 다음
+집중 지점은 별도 감사 대상이며, 아래 크기만으로 기능 결함을 단정하지 않는다.
+
+| 위치 | 현재 책임이 모인 class / 크기 | 먼저 추적할 경계 |
+| --- | --- | --- |
+| `elesim_connections/connections.py` | `ConnectionDeploymentRunner` / 2,960줄 | 요청 분기, scoped/native transaction, journal recovery, runtime readiness |
+| `elesim_setup/container_installer.py` | `ContainerInstaller` / 2,401줄 | 설치 정책 결정, Compose/wrapper 생성, ownership refresh |
+| `elesim_connections/secure_deployment.py` | `InstalledElesimLifecycle` / 2,133줄 | host 조회와 변경, 상태 캐시, 배포·시작·검증 실패 전달 |
+| `elesim_setup/instance_runtime.py` | `InstanceRuntime` / 1,477줄 | instance 선택, namespace 준비, 정확한 service lifecycle과 cleanup |
+
+#### 현재 검증과 다음 순서
+
+원본 로그는 `workbench/evidence/generated/readiness/20261005-r0/`에 있다.
+서로 겹치는 focused test 수를 합산하지 않는다.
+
+- 수정 전 host setup: **1,097 passed / 15 failed**. 소켓 권한 실패 13개,
+  stdin stream timeout 1개, frontend label 기대값 불일치 1개였다.
+- 해당 socket/GUI/installer 묶음은 권한 밖에서 label 수정 후 **172 passed**.
+  stream timeout도 재검증에서 통과했다. 이 결과는 원격 SSH나 DDS 성공이 아니다.
+- SSH/credentials 수정 후 집중 검증: **134 passed**. 초기 130개에 더해
+  proxy 경유 중 인증 거부·지문 불일치를 원래 오류로 보존하고 자원을 닫는
+  agent/key 조합 4개를 확인했다.
+- 직접 TCP 우선 수정 전 host setup 전체는 **1,116 passed**. 이후 직접 우선
+  선택·fallback·인증·GUI 집중 검증은 **181 passed**. 전체와 집중 결과는
+  서로 다른 수정 시점의 증거이며 합산하지 않는다.
+- host protocol + 수정 전 quality 검사: **163 passed + 5 subtests**. 이때 quality의
+  가독성 통과는 무효다. 검사 경로 수정 후 quality는 **21 passed / 1 failed**로,
+  위 두 class 크기 초과를 정확히 보고한다. host UI는 **69 passed**.
+- 생성 `elesim-dev`의 정식 실행은 `up -d --build dev`에서 image 재빌드를
+  시작했으나 사용자 중단으로 종료됐다. 해당 실행에서는 required가 시작되지
+  않았다. 기존 dev 서비스와 사용자 셸은 유지했다.
+- 아래 결과는 같은 설치의 생성 `elesim-compose -f <prefix>/containers/compose.yaml
+  exec -T dev /usr/local/bin/elesim-dev-env ...`로 기존 서비스를 사용한 증거다.
+  새 dev image 재빌드 완료나 wrapper 전체 경로 통과를 의미하지 않는다.
+  처음 required 실행은 setup 도중 중단됐으며, 수정한 묶음은 개별 재실행했다.
+
+| 기존 dev 검증 묶음 | 결과 |
+| --- | --- |
+| protocol / Robot | 141 / 104 passed |
+| Pilot 재실행 | 400 passed, 21 skipped |
+| Sim 재실행 | 460 passed, 3 skipped |
+| UI | 69 passed |
+| model/release 도구 재실행 | 81 passed |
+| 실제 4프로세스 DDS topology | passed, revocation 누락 후 lease 재획득 포함 |
+| DDS RGBD / encoded WebRTC | 2 / 2 passed |
+| setup 재실행 | 1,121 passed, 3 skipped |
+| extended quality | 21 passed, 1 failed: 위 두 class 크기 초과 |
+| critical mutations | 현재 등록된 7개 모두 검출 |
+| analysis / debug / experiment | 10 / 4 / 10 passed |
+| release build와 내장 격리 검사, 별도 verify 재실행 | Pilot/UI/Robot/Sim 네 역할 passed |
+
+릴리스는 이번 evidence 아래 `release-check/releases`에만 생성했다. 설치된
+manager/runtime release 교체나 sidecar 시작은 하지 않았다. 기본 proxy 전용
+경로, 새 dev image 재빌드, 실제 두 host 로그인·DDS·영상 수용시험은 남아 있다.
+
+| 순서 | 남은 작업 | 마일스톤과 완료 기준 |
+| --- | --- | --- |
+| 1 | 정식 gate 기준선 및 직접 경로가 없는 경우의 proxy 키 교환 원인 | R0: 재현 명령·revision·환경과 실패 원인 분류 |
+| 2 | GUI→지문→설치 조회→설정 적용의 주소/인증/오류 전달 감사 | R1/R2: 같은 입력이 같은 관리 경로를 사용하며 실패 후 재시도 가능 |
+| 3 | 설치 state·topology·release·instance의 쓰기 주체, 취소/rollback 감사 | R1: 격리된 검증 설치에서 생성물·표시 상태·복구 일치 |
+| 4 | 단일 host 후 실제 두 host의 시작→두 영상→종료/재접속 | R2: 기존 3회 반복·10분 관찰과 중단 표시 조건 충족 |
+| 5 | UiSimSession의 session authority와 stream 재시도 책임 정리 | R2: 현재 크기 초과 해소와 영상/세션 복구 회귀 |
+| 6 | 기본 조작과 선택한 작업의 내부 책임 감사; WrapGraspEnv 분해 검토 | R3/R4: 기존 조작/작업 기준, RL 사용 시 관측·reset·성공 계약 보존 |
+
+크기 초과는 구조 부채이며 단순 줄 이동으로 해결하지 않는다. 전체 refactor,
+R1/R2 수용 완료, 원래 Tailscale 장애 해결은 아직 주장하지 않는다.
 
 ### Motion lease renewal recovery (2026-09-28)
 
@@ -411,11 +656,11 @@ Pilot, Robot과 Sim의 가상 장치·물리 실행부다. 이는 감사할 책�
 
 | ID / 상태 | 사용자에게 보장할 결과 | 완료에 필요한 증거 |
 | --- | --- | --- |
-| R0 검증 준비 / 미착수 | 동일 revision에서 실패를 재현할 수 있다 | 정식 개발 attachment, gate 기준선, 미해결 실패 목록, 대표 환경 기록 |
-| R1 설치 / 미착수 | 마법사에서 설치를 끝내고 설치 상태를 다시 확인한다 | 설치·재진입·입력 실패·취소·동일 조건 재시도; 생성물과 표시 상태 일치 |
-| R2 연결·표출 / 미착수 | 연결관리자로 시작해서 UI의 두 영상과 상태를 본다 | 한-host 및 두-host 기동, 실제 frame 갱신, 종료·재시작, 한 peer/영상 중단 표시 |
+| R0 검증 준비 / 진행 | 동일 revision에서 실패를 재현할 수 있다 | 2026-10-05 설치·daemon 확인, host 기준선과 SSH 회귀; 정식 gate 및 원래 장애 재현 진행 |
+| R1 설치 / 진행 | 마법사에서 설치를 끝내고 설치 상태를 다시 확인한다 | 설치·재진입·입력 실패·취소·동일 조건 재시도; 생성물과 표시 상태 일치 |
+| R2 연결·표출 / 진행 | 연결관리자로 시작해서 UI의 두 영상과 상태를 본다 | 한-host 및 두-host 기동, 실제 frame 갱신, 종료·재시작, 한 peer/영상 중단 표시 |
 | R3 기본 조작 / 대기(R2) | 조작이 실제 상태에 반영되고 중단하면 멈춘다 | UI→Pilot→Sim 명령과 telemetry 왕복, lease 상실·reset·재접속 회귀 |
-| R4 작업 하나 / 대기(R3, 작업 선택) | 선택한 작업을 성공·실패·취소 후 다시 실행한다 | 고정 입력의 반복 실행, 작업별 성공 기준, 실패 사유와 재시도 결과 |
+| R4 Pick / 대기(R3, 실제 장면) | 선택한 작업을 성공·실패·취소 후 다시 실행한다 | 고정 입력의 반복 실행, 작업별 성공 기준, 실패 사유와 재시도 결과 |
 | R5 실물 / 대기(R3, 장비) | 기본 조작과 로컬 안전이 Robot에서 성립한다 | Jetson/GO2/arm 실측, bridge/통신 상실 시 정지와 cleanup, 장치 피드백 |
 
 R5의 기본 장치 검증은 R4 알고리즘 완성을 기다릴 필요가 없다. 다만 R4에서

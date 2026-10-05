@@ -422,6 +422,10 @@ def _camera_render_process_main(
                 fixed=True,
             )
         )
+        if "FL_calf_joint" in spec.robot_joint_names:
+            from elesim_sim.robot.go2.initial_pose import prepare_neutral_stand_pose
+
+            prepare_neutral_stand_pose(entity)
 
         mock_entities: dict[str, Any] = {}
         for asset in spec.mock_assets:
