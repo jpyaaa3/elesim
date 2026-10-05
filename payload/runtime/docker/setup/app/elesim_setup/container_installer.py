@@ -1483,6 +1483,10 @@ class ContainerInstaller:
             )
         if role in {"pilot", "sim"}:
             self._apply_compute(service, compute=compute)
+            if role == "sim" and "NVIDIA_DRIVER_CAPABILITIES" in service["environment"]:
+                # NVENC needs the driver's video libraries in addition to the
+                # compute/graphics libraries used by Genesis rendering.
+                service["environment"]["NVIDIA_DRIVER_CAPABILITIES"] += ",video"
         return service
 
     def _image_build_labels(self, image: str) -> dict[str, str]:

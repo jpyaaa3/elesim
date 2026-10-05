@@ -3462,10 +3462,26 @@ def test_specific_gpu_uses_one_compose_device_reservation(local_state) -> None:
     device = service["deploy"]["resources"]["reservations"]["devices"][0]
     assert device["device_ids"] == ["GPU-abc"]
     assert "CUDA_VISIBLE_DEVICES" not in service["environment"]
+    assert service["environment"]["NVIDIA_DRIVER_CAPABILITIES"] == "compute,utility,graphics,video"
     manager_wrapper = (state.bin_path / "elesim-connections").read_text(
         encoding="utf-8"
     )
     assert "ELESIM_INSTALL_GPU_MODE=specific" in manager_wrapper
+
+
+@pytest.mark.parametrize("gpu_mode", ["cpu", "inherit"])
+def test_video_driver_capability_is_sim_gpu_only(local_state, gpu_mode) -> None:
+    from elesim_setup.state import ComputeSettings
+
+    state = local_state(
+        roles=("pilot", "sim"), install_mode="container",
+        compute=ComputeSettings(gpu_mode=gpu_mode),
+    )
+    ContainerInstaller(state).run()
+    services = _compose(state)["services"]
+    for role in ("pilot", "sim"):
+        capabilities = services[role]["environment"].get("NVIDIA_DRIVER_CAPABILITIES", "")
+        assert ("video" in capabilities.split(",")) == (role == "sim" and gpu_mode != "cpu")
 
 
 def test_container_update_falls_back_from_unwritable_legacy_context(

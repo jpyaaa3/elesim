@@ -16,7 +16,19 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   한 번 읽고 SimScene의 joint/root camera cache도 무효화한다.
 - focused runtime readback/async camera: **32 passed / 2 skipped**. MPC step 없이
   초기 자세를 얻는 회귀를 포함한다. 실제 클릭→새 영상 지연은 아직 미측정이다.
-- 720p 두 stream 렌더/인코딩 비용 및 MPC gait의 실제 GPU 검증은 진행 중이다.
+- RTX A6000 GPU 0의 실행 중 Sim과 같은 GPU에서 별도 renderer 두 개를
+  순차 비교했다. 640×480 / 1280×720 각각 18초, 첫 6초 제외:
+  observer **10.00 / 9.83 fps**, hand-eye **10.00 / 10.00 fps**.
+  720p libx264 encode p95는 observer **28.57ms**, hand-eye **26.19ms**.
+  정지 장면이고 실제 RTP/DDS 전송을 포함하지 않으므로 움직임/네트워크
+  수용시험을 대체하지 않는다. 두 camera 기본 해상도를 1280×720으로 올리고
+  remote cadence 10 Hz는 유지한다. GPU Sim에 누락된 NVIDIA `video`
+  capability도 추가한다. 기존 컨테이너 NVENC는 초기화 실패 후 libx264로
+  fallback했다. 새 capability의 실제 NVENC 성공은 아직 검증 전이다.
+- MPC GPU baseline(dt=0.02, stand 2초 후 vx=0.15)은 t=3.5초에 pitch
+  약 27°, t=8.2초에 roll 약 -58°로 넘어졌다. 통신 없는 동일 모델에서도
+  재현된다. 필터 제거/감쇠 감소 단독 ablation은 더 빨리 넘어져 채택하지
+  않았다. 접촉·발 궤적을 추가 계측하며 개선 중이다.
 
 ### Sim startup 캐시 비교 (2026-10-05, 부분완료)
 

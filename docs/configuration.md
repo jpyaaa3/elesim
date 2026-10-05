@@ -172,6 +172,14 @@ latest-only shared RGB-D slot에 최신 프레임만 유지한다. `sync_legacy`
 렌더러의 최종 RGB/depth 변환도 CPU 경로를 사용한다. `visualizer_max_hz`는
 native Viewer에만 적용되며 headless Sim에는 영향을 주지 않는다.
 
+hand-eye와 observer 기본 해상도는 각각 1280×720이다. `remote` 프로파일의
+두 영상 cadence는 각각 10 Hz로 유지한다. 해상도는 각 camera의 `width`와
+`height`로 낮출 수 있다. hand-eye 변경은 DDS RGB-D 크기와 intrinsics에도
+반영되므로 WebRTC 대역폭뿐 아니라 perception 부하도 함께 측정한다.
+GPU Sim Compose는 NVIDIA `video` capability를 포함해 NVENC driver library를
+노출한다. 드라이버/코덱 호환성 문제로 NVENC가 실패하면 기존 libx264 fallback을
+사용하며, GPU 렌더링 자체가 GPU 인코딩 성공을 뜻하지는 않는다.
+
 `genesis_performance_mode: false`는 Genesis의 dynamic arrays를 사용해 다른
 프로세스에서도 frontend kernel cache를 재사용한다. 처음 실행하거나 모델/
 라이브러리/컴파일 설정이 달라지면 여전히 컴파일 시간이 필요하다. `true`는 GPU
