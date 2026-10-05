@@ -6,7 +6,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### Sim startup 캐시 비교 (2026-10-05, 진행)
+### Sim startup 캐시 비교 (2026-10-05, 부분완료)
 
 - `add8e6d` 기반 상대 RTX A6000 GPU 0의 기존 Sim 이미지에서 별도 DDS 없는
   진단 프로세스로 같은 GO2+arm/Plane, dt=0.02, Newton 50 iterations를 비교했다.
@@ -28,7 +28,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   비용 분석용이다. 캐시를 유지한 채 별도 프로세스로 반복한다.
 - 원본: `workbench/evidence/generated/readiness/20261005-startup/`.
   이 축소 scene 결과를 실제 전체 Sim의 94초와 직접 비교하지 않는다.
-  전체 application 배포 후 build/영상/step 검증은 아직 진행 중이다.
+  아래 최종 전체 application 결과를 별도로 기록한다.
 - 기존 생성 dev 환경의 Sim 전체 + quality: **496 passed / 3 skipped**.
   기본 dynamic 설정, static 명시 선택, 잘못된 설정 거부와 CPU 경계를 포함한다.
   fresh dev build나 MPC 보행 수용시험 결과는 아니다.
@@ -42,10 +42,30 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   `free(): invalid pointer`로 실패해 폐기했다. 운영 앱에 이 경로를 배포하지 않았다.
   Docker SIGTERM이 Python finally를 실행하게 하고 physics/camera 종료에서
   지원되는 `gs.destroy()`를 호출하는 경로로 보완한다.
-  이 보완의 실제 배포·재시작 결과는 아직 진행 중이다. 중간 checkpoint안의
+  중간 checkpoint안의
   unit test 498 passed는 폐기한 API의 GPU 안전성 증거가 아니다.
 - 지원되는 종료 경로로 바꾼 최종 Sim + quality 검사도 **498 passed / 3 skipped**.
   SIGTERM의 finally 실행과 기존 handler 복원을 검증했다.
+- **최종 live 결과 (`cf845da`)**: remote source를 정식 update/등록/start로
+  적용했다. release `4b669db4c184b46c5e352cc6d0bfee2c5d194402dab7e86007b5cadda07a30b6`,
+  Sim `elesim/sim:merry-ibis`, image
+  `sha256:df4c7f1ad4eddfb0a3b03653c8207b37c9cb02c202a87cfb528edcd042d3acb4`.
+  기존 UI release는 유지했다. 첫 build는 97.41초로 여전히 느리다.
+- 정식 scoped `down` 뒤 Sim **exit=0 / OOM=false**를 확인했다. exact project와
+  image를 검증한 후 정지된 해당 Sim 컨테이너만 제거하고 scoped `up`으로
+  새 컨테이너를 만들었다. 이 실행에서 physics build **12.22초**, GO2 controller
+  초기화 **1.52초**, hand-eye/observer build **2.43/2.61초**를 확인했다.
+  비교되는 첫 실행은 각각 97.41초, 8.09초, 20.80/20.90초였다.
+- Genesis backend 요청 로그부터 scene/media readiness까지 **180.02 → 31.66초**.
+  container 시작 전 관리 작업, Python import와 UI 수신 지연은 이 구간 밖이다.
+  이전 static full-scene 재실행 94초 안팎과 비교하면 physics build는 크게
+  줄었지만, 장기 throughput/보행 정확도 동일성을 증명한 결과는 아니다.
+- 실제 UI에서 observer/hand-eye **2/2 LIVE**, epoch=0 running t=59.80 →
+  143.18 증가를 확인했다. 증거는 `final-first.log`, `final-warm.log`,
+  `final-recreate.log`, `camera-final-warm.png`, `camera-final-running.png`,
+  `shutdown-tests.log`다. 첫 실행 컴파일 비용, 강제
+  종료/정리 timeout으로 cache를 못 쓴 경우, 다른 GPU/모델의 재컴파일은 남는다.
+  MPC 보행 수용시험이나 다른 R 마일스톤의 완료로 확대하지 않는다.
 
 ### 자율 점검 후속 (2026-10-05, 진행)
 
