@@ -91,6 +91,19 @@ def touchdown_offsets_body(
     return offsets
 
 
+def touchdown_candidates_world(base_position, placements, *, yaw_rotation,
+                               velocity_world, desired_velocity_world) -> np.ndarray:
+    """Keep flat-ground foot placement level and bound velocity correction."""
+    candidates = np.asarray(base_position) + np.asarray(placements) @ yaw_rotation.T
+    # Land toward excess body motion to brake it. Limit the correction so a
+    # transient velocity estimate cannot drag a foot outside its local stride.
+    candidates[:, :2] += np.clip(
+        0.1 * (np.asarray(velocity_world)[:2] - np.asarray(desired_velocity_world)[:2]),
+        -0.04, 0.04,
+    )
+    return candidates
+
+
 def payload_aware_com_height(
     current_com_z: float, nominal_com_z: float, *, payload_active: bool
 ) -> float:
@@ -445,7 +458,10 @@ class PyMpcGenesisController:
             half_stance_s=half_stance_s,
             placement_scale=float(self._config.foot_placement_scale),
         )
-        candidates = q[:3] + placements @ rot_m.T
+        candidates = touchdown_candidates_world(
+            q[:3], placements, yaw_rotation=yaw_rot,
+            velocity_world=vel, desired_velocity_world=cmd_world,
+        )
         candidates[:, 2] = floor_z
         footholds = planned_footholds(
             feet, candidates, contacts[:, 0], self._last_contacts, self._touchdowns,

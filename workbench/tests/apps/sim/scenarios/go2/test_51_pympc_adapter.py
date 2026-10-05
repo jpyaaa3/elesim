@@ -858,3 +858,22 @@ def test_repeated_zero_commands_do_not_restart_stop_dwell():
     assert any(ready[10:])
     shaper.set_target(Go2Command(vx=.1))
     assert shaper._zero_since_s is None
+
+
+@pytest.mark.parametrize("actual,desired,shift", [
+    ([0., .25, 0.], [0., .25, 0.], [0., 0.]),
+    ([.2, .05, 0.], [.1, .25, 0.], [.01, -.02]),
+    ([2., -2., 0.], [0., 0., 0.], [.04, -.04]),
+])
+def test_touchdown_velocity_correction_is_world_aligned_and_bounded(actual, desired, shift):
+    from scipy.spatial.transform import Rotation
+    from elesim_sim.robot.go2.pympc_controller import touchdown_candidates_world
+    offsets = np.array([[.2, .17, 0.], [.2, -.17, 0.], [-.2, .17, 0.], [-.2, -.17, 0.]])
+    yaw = Rotation.from_euler("z", np.pi / 2).as_matrix()
+    original = offsets.copy()
+    result = touchdown_candidates_world(np.array([1., 2., .3]), offsets,
+        yaw_rotation=yaw, velocity_world=actual, desired_velocity_world=desired)
+    expected = np.array([1., 2., .3]) + offsets @ yaw.T
+    expected[:, :2] += shift
+    np.testing.assert_allclose(result, expected)
+    np.testing.assert_array_equal(offsets, original)

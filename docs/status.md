@@ -95,6 +95,14 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   횡이동은 **2/3 완료**, 한 회는 t=10.9 보행 중 전도했다. 완전한 보행 acceptance는
   여전히 미완료이며 착지 속도 보정 후보와 실제 설치 이미지 확인을 계속한다.
 
+- 착지 후보를 수평 yaw 기준으로 두고 실제 COM 속도 오차의 0.1초분을
+  축당 ±4cm로 제한해 보정한다. source GPU 42초 반복에서 횡이동 **4/4**,
+  전진 **2/2** 모두 전도/fault 없이 마지막 stand까지 완료했다. 횡이동 최대
+  roll은 8.3–23.1°, pitch는 4.2–11.8°로 완전히 균일하지 않다. 횡이동
+  displacement 2.15–2.49m는 30초 command 적분 7.5m보다 작아 속도 추종이
+  여전히 부족하다. 전진 displacement는 8.71–8.74m(명령 적분 10.5m).
+  추가 회전/후진 검증 중이다. 이 수정의 Sim **494 passed / 3 skipped**.
+
 ### Sim startup 캐시 비교 (2026-10-05, 부분완료)
 
 - `add8e6d` 기반 상대 RTX A6000 GPU 0의 기존 Sim 이미지에서 별도 DDS 없는
