@@ -6,102 +6,73 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### Respawn / 720p / MPC 후속 (2026-10-05, 진행)
+### Respawn / 720p / MPC 후속 (2026-10-05)
 
-- 사용자 요청 순서: Respawn 즉시 초기 장면 표시, 720p 비용 확인 후 적용,
-  Sim MPC의 전방 전도 재현·수정·반복 검증. 실제 Robot motion은 포함하지 않는다.
-- Respawn 결함: MPC bridge의 last_q를 reset해도 Go2Locomotion의 camera pose
-  mirror가 이전 자세를 유지했다. paused/idle 상태에서는 다음 MPC sample이
-  없어 넘어진 장면을 계속 표시할 수 있었다. reset 직후 실제 root/leg pose를
-  한 번 읽고 SimScene의 joint/root camera cache도 무효화한다.
-- focused runtime readback/async camera: **32 passed / 2 skipped**. MPC step 없이
-  초기 자세를 얻는 회귀를 포함한다. 실제 클릭→새 영상 지연은 아직 미측정이다.
-- RTX A6000 GPU 0의 실행 중 Sim과 같은 GPU에서 별도 renderer 두 개를
-  순차 비교했다. 640×480 / 1280×720 각각 18초, 첫 6초 제외:
-  observer **10.00 / 9.83 fps**, hand-eye **10.00 / 10.00 fps**.
-  720p libx264 encode p95는 observer **28.57ms**, hand-eye **26.19ms**.
-  정지 장면이고 실제 RTP/DDS 전송을 포함하지 않으므로 움직임/네트워크
-  수용시험을 대체하지 않는다. 두 camera 기본 해상도를 1280×720으로 올리고
-  remote cadence 10 Hz는 유지한다. GPU Sim에 누락된 NVIDIA `video`
-  capability도 추가한다. 기존 컨테이너 NVENC는 초기화 실패 후 libx264로
-  fallback했다. 새 capability의 실제 NVENC 성공은 아직 검증 전이다.
-- MPC GPU baseline(dt=0.02, stand 2초 후 vx=0.15)은 t=3.5초에 pitch
-  약 27°, t=8.2초에 roll 약 -58°로 넘어졌다. 통신 없는 동일 모델에서도
-  재현된다. 필터 제거/감쇠 감소 단독 ablation은 더 빨리 넘어져 채택하지
-  않았다. 접촉·발 궤적을 추가 계측하며 개선 중이다.
-- Respawn/720p의 Sim 전체 + Compose 생성 회귀: **559 passed / 3 skipped**.
-- 명목 착지 폭 계산에서 hip 회전 시 두 leg link의 수직 길이가 lateral
-  방향으로 투영되는 항이 빠져 각 발이 약 26mm 안쪽으로 지정됐다. URDF의
-  Pinocchio FK와 네 발의 xy를 직접 비교하는 회귀를 추가했다. 관련 math/MPC
-  adapter: **35 passed**. 이 기하 수정의 보행 수용시험은 아직 진행 중이다.
-- `workbench/research/debug/profile_sim_walking.py`는 production 모델·MPC·reset을
-  사용하되 DDS와 카메라 없이 stand→command→stop을 반복하고 JSONL로 기록한다.
-  기본적으로 고정 perception target을 제외한다. 넘어짐뿐 아니라 displacement,
-  roll/pitch, solver fault와 정지 구간을 확인해야 하며, 이 도구 실행 자체를
-  통과로 취급하지 않는다. `docs/go2-mpc-replacement.md`의 오래된 미통합 설명도
-  현재 실제 기본값 `pympc` 및 미완료 보행 검증 상태로 정정했다.
-- `705b2ce` 원격 릴리스 `a4b7bdd4…`를 기존 Robot-free readiness에 적용했다.
-  로컬 UI 실제 WebRTC decoder가 observer/hand-eye 모두 **1280×720**을
-  보고했고 두 영상 LIVE를 확인했다. 기본 UI 이미지 핀은 기존 것을 유지했다.
-- 별도 UI operator probe가 활성 대상 `sim-readiness`를 확인한 뒤 짧은 전진,
-  정지, Respawn을 UI 버튼과 같은 OperatorSession 경로로 전송했다.
-  요청 후 **0.167초**에 epoch=1/t=0.02 status, **0.442초**에 operator 성공
-  응답을 받았다. 초기 자세 화면 복귀와 두 영상 LIVE를 확인했다. 이 값은
-  DDS 상태/응답 지연이며 클릭→실제 화면 갱신 지연 측정값은 아니다.
-- 배포된 Sim은 NVIDIA `video` capability를 실제로 노출한다. 720p 이동 패턴
-  60-frame encode probe는 **h264_nvenc**, fallback=false, warm encode
-  p50/p95 **2.36/4.26ms**였다. CPU fallback의 26–29ms p95와 구분한다.
-- MPC 추가 원인: swing controller는 liftoff touchdown을 유지하지만 MPC에는
-  매 tick 이동하는 새 touchdown을 전달했고, swing에도 stance damping/filter가
-  적용됐다. 같은 touchdown을 공유하고 swing 위치·속도 참조를 함께 추종하며
-  stance 보조 감쇠와 이전 지지 토크를 swing에 섞지 않도록 수정했다.
-- solver의 접촉 위치 warm start를 켠다. 단순히 3회 SQP solve를 최대 10번
-  이어서 실행하는 후보는 p95 약 98ms로 느렸고 빠른 전진도 해결하지 못해
-  채택하지 않았다. 기존 prebuilt 3-iteration cap을 유지한 warm-start 후보는
-  p95 약 28ms였다. status=2(MAXITER)는 여전히 발생하므로 완전 수렴/실시간
-  제어 증거로 취급하지 않는다. 기존 finite/force/torque 경계를 유지한다.
-- 수정 소스를 독립 프로세스에 로드한 실제 GPU 검증: fixed target 없는 평면에서
-  dt=0.02, settle 2초 → vx=0.35 15초 → stop 2초를 **3회 모두 완료**했다.
-  전진 displacement **4.308 / 4.309 / 4.304m**, 최대 pitch 약 **3.7°**,
-  최대 roll **7.9–9.5°**, solver fault/fall 없음. 19초 simulation의 wall time은
-  약 **28.6–28.8초**로 이 부하에서 1× 실시간을 충족하지는 못했다.
-  추가 15초 command + 2초 stop 검사에서 후진 vx=-0.35 **2/2**,
-  저속 전진 vx=0.15 **1/1**, 회전 wz=0.8 **2/2**는 넘어짐 없이 완료했다.
-  횡이동 vy=0.25는 **1/2 실패**(첫 trial t=18.5, 정지 구간)했다.
-  저속 전진 displacement는 1.662m로 속도 추종 오차도 남아 있다.
-  이후 반복 0 command가 stop dwell을 매 tick 초기화하는 결함을 발견했다.
-  따라서 위 결과는 zero command 구간을 포함한 생존 결과이며, stand 상태로의
-  정상 전환을 증명하지 않는다. 설치 이미지 및 정지/재출발 검증은 진행 중이다.
-- 위 MPC 수정의 Sim 회귀: **482 passed / 3 skipped**. 실제 이미지는 아직
-  `705b2ce`이며 실험에서 탈락한 native swing/crawl/추가 SQP 반복은 반영하지 않는다.
-
-- stop/restart 후속: `is_idle(0)`의 strict comparison 때문에 반복 zero command가
-  stop dwell을 계속 초기화했다. 정확한 zero target은 dwell을 보존하도록 수정한다.
-  PyMPC는 현재 swing 이후 네 발 균형 제어로 감속하고, 실제 평면 속도/각속도/
-  기울기가 안정돼야 stand pose로 전환한다. 새 보행 시작은 pose-control 구간의
-  추정 시간 간격과 solver warm state를 초기화한다. 관련 Sim **490 passed / 3 skipped**.
-- dt=0.02, 전진 15초/정지 5초를 reset 없이 두 번 반복한 첫 42초 GPU probe는
-  전도 없이 마지막 **stand**까지 완료했다. 추가 반복과 횡이동은 진행 중이다.
-  정지 조건만 추가한 이전 후보는 횡이동 5회 중 3회 보행 중 전도했다.
-  해당 실패를 정지 결함 수정만으로 해결됐다고 취급하지 않는다.
-- 보행 probe의 `--cycles`는 respawn 없이 반복 재출발을 검사하고, pose stage와
-  base twist를 기록한다. 전도/제어 fault/미완료 trial은 exit 1을 반환한다.
-
-- 정지 후 camera mirror가 마지막 torque sample에 남는 경로도 수정했다.
-  기존 telemetry root pose readback을 재사용하고 idle leg pose는 feedback cadence에서만
-  갱신한다. camera 제출 경로는 추가 GPU readback이 없다. Sim **491 passed / 3 skipped**.
-- 반복 zero command 수정 후 42초(15초 이동/5초 정지 ×2, 초기 settle 2초)
-  source GPU 검증: 전진 **2/2**, 후진 **1/1**은 마지막 stand까지 완료했다.
-  횡이동은 **2/3 완료**, 한 회는 t=10.9 보행 중 전도했다. 완전한 보행 acceptance는
-  여전히 미완료이며 착지 속도 보정 후보와 실제 설치 이미지 확인을 계속한다.
-
-- 착지 후보를 수평 yaw 기준으로 두고 실제 COM 속도 오차의 0.1초분을
-  축당 ±4cm로 제한해 보정한다. source GPU 42초 반복에서 횡이동 **4/4**,
-  전진 **2/2** 모두 전도/fault 없이 마지막 stand까지 완료했다. 횡이동 최대
-  roll은 8.3–23.1°, pitch는 4.2–11.8°로 완전히 균일하지 않다. 횡이동
-  displacement 2.15–2.49m는 30초 command 적분 7.5m보다 작아 속도 추종이
-  여전히 부족하다. 전진 displacement는 8.71–8.74m(명령 적분 10.5m).
-  추가 회전/후진 검증 중이다. 이 수정의 Sim **494 passed / 3 skipped**.
+- 범위는 기존 Robot-free readiness의 Sim/Pilot/UI다. 실제 Robot motion과
+  전체 R0–R5 acceptance 완료를 의미하지 않는다. runtime 수정 source는
+  `4023f0e`, 원격 릴리스 `cac8df61…`를 적용했고 최종 설치 검증을 완료했다.
+  현재 Sim image ID는 `sha256:06a67c35…`이며 로컬 UI 기존 릴리스 핀은 유지했다.
+- **Respawn**: MPC reset 이후 남던 camera root/leg mirror와 SimScene pose cache를
+  초기화하고 실제 reset pose를 한 번 읽는다. MPC가 idle/paused여도 초기 장면을
+  제출한다. 정상 정지 후에는 기존 telemetry의 root readback을 재사용하고 idle
+  leg pose만 feedback cadence에서 읽는다. camera 제출 자체는 GPU readback이 없다.
+- `705b2ce` 설치 이미지에서 UI 버튼과 동일한 OperatorSession 경로로 reset:
+  **0.167초**에 epoch=1/t=0.02 상태, **0.442초**에 성공 응답을 받았고 초기
+  자세 영상 복귀를 확인했다. 이 수치는 DDS 상태/응답 지연이며 실제 버튼 클릭부터
+  화면 갱신까지의 계측값은 아니다.
+- **720p**: observer/hand-eye 기본값을 모두 1280×720, remote cadence 10 Hz로
+  설정했다. RTX A6000 GPU 0의 두 renderer 비교(18초 중 초기 6초 제외)는
+  640×480→720p에서 observer **10.00→9.83 fps**, hand-eye **10.00→10.00 fps**였다.
+  두 실제 WebRTC decoder의 1280×720과 두 영상 LIVE도 확인했다.
+- Sim GPU Compose에 누락된 NVIDIA `video` capability를 추가했다. 실제 이미지의
+  720p 이동 패턴 60-frame encode는 **h264_nvenc**, fallback=false,
+  warm p50/p95 **2.36/4.26ms**였다. 이전 libx264 p95는 26–29ms였다.
+  renderer 비교는 정지 장면의 별도 프로세스이며 전체 네트워크 성능 증거는 아니다.
+- **MPC baseline**: 통신 없는 동일 GO2+arm/평면(dt=0.02)에서 vx=0.15는
+  t=3.5에 pitch 약 27°, t=8.2에 roll 약 -58°로 전도했다.
+- 채택한 수정:
+  - 명목 착지 폭에 빠졌던 hip 회전의 수직 leg 투영(발당 약 26mm)을 보정하고
+    bundled URDF의 Pinocchio FK와 비교한다.
+  - MPC와 swing controller가 같은 liftoff touchdown을 유지한다. swing 위치와
+    일치하는 속도 참조를 사용하고 stance 보조 감쇠/이전 지지 토크 필터를 섞지 않는다.
+  - 접촉 위치 warm start를 켠다. 기존 force/torque/friction 한계는 유지한다.
+  - 매 tick zero command가 `is_idle(0)`의 strict comparison 때문에 stop dwell을
+    초기화하던 결함을 수정한다. 현재 swing 이후 네 발로 균형을 잡으며 실제 속도와
+    기울기가 안정돼야 stand로 전환한다. 재출발 때 estimator/solver의 이전 상태를 지운다.
+  - 평면 착지 후보는 yaw 기준으로 계산하고 COM 속도 오차의 0.1초분을 축당
+    ±4cm로 제한해 보정한다.
+- **최종 source GPU 반복**: settle 2초 후 이동 15초/정지 5초를 reset 없이 두 번
+  반복한 42초 trial에서 **전진 vx=0.35 2/2, 횡이동 vy=0.25 4/4,
+  회전 wz=0.8 3/3, 후진 vx=-0.35 1/1** 모두 전도/fault 없이 마지막 stand에 도달했다.
+  고정 perception target을 뺀 평면, 카메라/DDS 없는 독립 프로세스 결과다.
+  이전 후보의 횡이동/회전 실패 기록도 보존한다.
+- **실제 설치 검증**: UI 버튼과 같은 operator 경로로 vx=±0.25의 전진 5초→
+  정지 4초→후진 5초→정지 4초를 두 번 수행했다. 영상 두 개 LIVE/1280×720,
+  정지 및 Respawn 후 초기 자세와 기본 target 복귀를 확인했다. 고정 target은
+  검증 중 보행 경로 밖 (2,2,0.2)로 옮겼고 마지막에 (0.8,0,0.2)로 복구했다.
+  첫 회 최대 roll/pitch는 6.3°/12.3°, 두 번째는 7.3°/3.3°였다.
+  첫 진단은 모든 동작/복구 ACK 이후 종료 코드 143을 반환했다. 명령 없는
+  최소 close probe와 전체 두 번째 검증은 정상 정리 로그 및 exit 0이었다.
+- 최종 설치 이미지의 720p NVENC 재검증: fallback=false, encode p50/p95
+  **2.48/4.45ms**. 새 이미지 첫 시작은 physics build **101.48초**,
+  hand-eye/observer build **20.21/20.83초**였다. 이전 동일 이미지 warm-cache
+  측정과 구분하며 소스 변경 첫 실행까지 30초라고 주장하지 않는다.
+- **남은 한계**: 전진 displacement는 8.71–8.74m(30초 명령 적분 10.5m),
+  횡이동은 2.15–2.49m(명령 적분 7.5m)로 속도 추종이 부족하다. 횡이동 최대
+  roll은 trial별 8.3–23.1°, pitch 4.2–11.8°다. 다른 속도/반대 회전/지형/arm pose/
+  payload에 일반화된 보행 안정성을 주장하지 않는다.
+- 기존 prebuilt 3-iteration cap의 status=2(MAXITER)는 여전히 발생한다. 최대
+  10회 재solve 후보는 p95 약 98ms이고 빠른 전진도 해결하지 못해 채택하지 않았다.
+  채택한 warm-start 계열의 이전 solve p95는 약 28ms였다. 최종 반복의 42초
+  simulation은 약 50–56초 wall time이었고 동시 runtime/빌드 부하도 있었다.
+  완전 수렴이나 1× 실시간 보장을 의미하지 않는다.
+- **소프트웨어 검증**: 최종 Sim **494 passed / 3 skipped**. Respawn/720p 단계의
+  Sim+Compose 생성 검증은 **559 passed / 3 skipped**였다. 이 변경으로 전체
+  required/extended/release/hardware gate 완료를 새로 주장하지 않는다.
+- `workbench/research/debug/profile_sim_walking.py`는 production 모델/MPC/reset을
+  사용하며 `--cycles`로 respawn 없는 재출발을 검사한다. pose stage/base twist/
+  displacement/roll-pitch를 JSONL에 기록하고 전도/fault/미완료 trial은 exit 1이다.
+  evidence: `workbench/evidence/generated/readiness/20261005-respawn-video-mpc/`.
 
 ### Sim startup 캐시 비교 (2026-10-05, 부분완료)
 
