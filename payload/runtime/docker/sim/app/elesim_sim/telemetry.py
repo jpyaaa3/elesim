@@ -70,7 +70,7 @@ class RuntimeTelemetry:
         sim_wall_elapsed_s: Optional[float] = None,
         sim_realtime_factor: Optional[float] = None,
         sim_step_count: Optional[int] = None,
-    ) -> None:
+    ) -> tuple[np.ndarray, np.ndarray]:
         from scipy.spatial.transform import Rotation
 
         from elesim_sim.simulation.genesis.utils import (
@@ -80,7 +80,8 @@ class RuntimeTelemetry:
 
         base = go2_entity.get_link("base")
         position = to_numpy_1d(base.get_pos())[:3]
-        quaternion = quat_wxyz_to_xyzw(to_numpy_1d(base.get_quat())[:4])
+        quat_wxyz = to_numpy_1d(base.get_quat())[:4]
+        quaternion = quat_wxyz_to_xyzw(quat_wxyz)
         rotation = Rotation.from_quat(quaternion)
         rpy = rotation.as_euler("xyz", degrees=False)
         linear_body = rotation.inv().apply(to_numpy_1d(base.get_vel())[:3])
@@ -100,6 +101,7 @@ class RuntimeTelemetry:
             sim_step_count=sim_step_count,
         )
         self.publish(payload)
+        return position.copy(), quat_wxyz.copy()
 
     def close(self) -> None:
         return None

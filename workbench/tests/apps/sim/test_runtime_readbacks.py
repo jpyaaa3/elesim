@@ -299,3 +299,22 @@ def test_viewer_scene_step_keeps_visualizer_sync() -> None:
         "update_visualizer": True,
         "refresh_visualizer": True,
     }
+
+
+def test_idle_camera_uses_feedback_instead_of_stale_mpc_pose():
+    from unittest.mock import Mock
+    go2 = object.__new__(Go2Locomotion)
+    go2._controller = SimpleNamespace(
+        _bridge=SimpleNamespace(last_q=np.ones(19)), _torque_mode_active=False)
+    stand = np.array(list(GO2_STAND_Q.values()))
+    go2._read_leg_q = Mock(return_value=stand)
+    go2.refresh_camera_feedback([2., 1., .32], [1., 0., 0., 0.])
+    for _ in range(3):
+        joints, pos, quat = go2.camera_render_state()
+        assert pos == (2., 1., .32)
+        assert quat == (1., 0., 0., 0.)
+        assert joints == GO2_STAND_Q
+    go2._read_leg_q.assert_called_once()
+    go2._controller._torque_mode_active = True
+    go2.refresh_camera_feedback([2., 1., .32], [1., 0., 0., 0.])
+    go2._read_leg_q.assert_called_once()

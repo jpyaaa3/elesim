@@ -87,6 +87,14 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 - 보행 probe의 `--cycles`는 respawn 없이 반복 재출발을 검사하고, pose stage와
   base twist를 기록한다. 전도/제어 fault/미완료 trial은 exit 1을 반환한다.
 
+- 정지 후 camera mirror가 마지막 torque sample에 남는 경로도 수정했다.
+  기존 telemetry root pose readback을 재사용하고 idle leg pose는 feedback cadence에서만
+  갱신한다. camera 제출 경로는 추가 GPU readback이 없다. Sim **491 passed / 3 skipped**.
+- 반복 zero command 수정 후 42초(15초 이동/5초 정지 ×2, 초기 settle 2초)
+  source GPU 검증: 전진 **2/2**, 후진 **1/1**은 마지막 stand까지 완료했다.
+  횡이동은 **2/3 완료**, 한 회는 t=10.9 보행 중 전도했다. 완전한 보행 acceptance는
+  여전히 미완료이며 착지 속도 보정 후보와 실제 설치 이미지 확인을 계속한다.
+
 ### Sim startup 캐시 비교 (2026-10-05, 부분완료)
 
 - `add8e6d` 기반 상대 RTX A6000 GPU 0의 기존 Sim 이미지에서 별도 DDS 없는

@@ -806,6 +806,14 @@ class Go2Locomotion:
     def record_arm_q_sample(self, arm_q: tuple[float, float, float, float]) -> None:
         self._arm_q = tuple(float(x) for x in arm_q)
 
+    def refresh_camera_feedback(self, position, quat_wxyz) -> None:
+        """Reuse bounded telemetry readbacks while MPC kinematics are idle."""
+        if getattr(self._controller, "_torque_mode_active", True):
+            return
+        self._camera_root_pos = np.asarray(position, dtype=float).reshape(3).copy()
+        self._camera_root_quat = self._normalized_quat(np.asarray(quat_wxyz, dtype=float))
+        self._camera_leg_q = self._read_leg_q()
+
     def camera_render_state(self) -> tuple[dict[str, float], tuple[float, ...], tuple[float, ...]]:
         """Return a no-readback visual state for the async camera replica."""
 
@@ -816,7 +824,7 @@ class Go2Locomotion:
         controller = self._controller
         bridge = getattr(controller, "_bridge", None)
         pin_q = getattr(bridge, "last_q", None)
-        if pin_q is not None:
+        if pin_q is not None and getattr(controller, "_torque_mode_active", True):
             q = np.asarray(pin_q, dtype=float).reshape(-1)
             if q.size >= 19:
                 self._camera_root_pos = q[:3].copy()
@@ -3699,13 +3707,16 @@ class SimRuntime:
                     if a.sim_scene.go2_entity is not None and (
                         a.sim_scene.go2 is None or not a.sim_scene.go2.mirror_mode
                     ):
-                        a.feedback_pub.send_go2_base(
+                        camera_base_pose = a.feedback_pub.send_go2_base(
                             a.sim_scene.go2_entity,
                             sim_time_s=sim_time_s,
                             sim_wall_elapsed_s=sim_wall_elapsed_s,
                             sim_realtime_factor=sim_realtime_factor,
                             sim_step_count=sim_step_count,
                         )
+                        refresh = getattr(a.sim_scene.go2, "refresh_camera_feedback", None)
+                        if camera_base_pose is not None and callable(refresh):
+                            refresh(*camera_base_pose)
                 perf.section("feedback", t_sec)
                 t_sec = time.perf_counter()
                 active_dynamic_keys: set[str] = set()
