@@ -6,6 +6,18 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Respawn / 720p / MPC 후속 (2026-10-05, 진행)
+
+- 사용자 요청 순서: Respawn 즉시 초기 장면 표시, 720p 비용 확인 후 적용,
+  Sim MPC의 전방 전도 재현·수정·반복 검증. 실제 Robot motion은 포함하지 않는다.
+- Respawn 결함: MPC bridge의 last_q를 reset해도 Go2Locomotion의 camera pose
+  mirror가 이전 자세를 유지했다. paused/idle 상태에서는 다음 MPC sample이
+  없어 넘어진 장면을 계속 표시할 수 있었다. reset 직후 실제 root/leg pose를
+  한 번 읽고 SimScene의 joint/root camera cache도 무효화한다.
+- focused runtime readback/async camera: **32 passed / 2 skipped**. MPC step 없이
+  초기 자세를 얻는 회귀를 포함한다. 실제 클릭→새 영상 지연은 아직 미측정이다.
+- 720p 두 stream 렌더/인코딩 비용 및 MPC gait의 실제 GPU 검증은 진행 중이다.
+
 ### Sim startup 캐시 비교 (2026-10-05, 부분완료)
 
 - `add8e6d` 기반 상대 RTX A6000 GPU 0의 기존 Sim 이미지에서 별도 DDS 없는

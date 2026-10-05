@@ -1,10 +1,49 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 import numpy as np
 
 from elesim_sim.config import JointLimit, SimParam
 from elesim_sim.config import SimConfig
-from elesim_sim.runtime import GenesisApp, JointLayout, SimMover, SimRuntime, SimScene
+from elesim_sim.runtime import GenesisApp, Go2Locomotion, JointLayout, SimMover, SimRuntime, SimScene
+from elesim_sim.robot.go2.locomotion.kinematics import GO2_STAND_Q
+
+
+def test_respawn_refreshes_camera_pose_without_another_mpc_step():
+    stand = np.array(list(GO2_STAND_Q.values()))
+    bridge = SimpleNamespace(last_q=np.ones(19))
+    entity = SimpleNamespace(
+        get_pos=lambda: np.array([0.0, 0.0, 0.32]),
+        get_quat=lambda: np.array([1.0, 0.0, 0.0, 0.0]),
+        get_dofs_position=lambda **kwargs: stand.copy(),
+    )
+    go2 = object.__new__(Go2Locomotion)
+    go2._entity = entity
+    go2._mirror = False
+    go2._leg_dof_idxs = list(range(12))
+    go2._kin = SimpleNamespace(stand_q=stand)
+    go2._controller = SimpleNamespace(
+        _bridge=bridge, reset=lambda: setattr(bridge, "last_q", None),
+    )
+    go2._camera_root_pos = np.array([3.0, 1.0, 0.1])
+    go2._camera_root_quat = np.array([0.7, 0.0, 0.7, 0.0])
+    go2._camera_leg_q = np.zeros(12)
+    go2.reset_locomotion()
+    joints, pos, quat = go2.camera_render_state()
+    assert pos == (0.0, 0.0, 0.32)
+    assert quat == (1.0, 0.0, 0.0, 0.0)
+    assert joints == GO2_STAND_Q
+
+
+def test_respawn_invalidates_all_scene_camera_pose_caches():
+    scene = SimScene()
+    scene._camera_joint_position_cache = {"old_joint": 1.0}
+    scene._camera_root_pos_cache = (4.0, 5.0, 0.1)
+    scene._camera_root_quat_cache = (0.7, 0.0, 0.7, 0.0)
+    scene.reset_environment()
+    assert scene._camera_joint_position_cache == {}
+    assert scene._camera_root_pos_cache is None
+    assert scene._camera_root_quat_cache is None
 
 
 class _Joint:

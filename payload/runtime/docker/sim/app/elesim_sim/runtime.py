@@ -862,6 +862,12 @@ class Go2Locomotion:
         self._arm_q = (0.0, 0.0, 0.0, 0.0)
         if self._mirror:
             self._init_mirror_kinematic()
+        # Respawn can leave the controller idle (or the simulation paused),
+        # so no new MPC sample will refresh the visual mirror. Read the reset
+        # pose once now instead of retaining the last fallen/walking frame.
+        self._camera_root_pos = self._read_entity_pos()
+        self._camera_root_quat = self._read_entity_quat()
+        self._camera_leg_q = self._read_leg_q()
 
     def set_planar_velocity(self, vx: float, vy: float, wz: float) -> None:
         if self._mirror or self._controller is None:
@@ -1898,6 +1904,9 @@ class SimScene(_SimSceneKinematicsMixin):
         self._next_observer_camera_publish_sim_t = 0.0
         self._latest_camera_axes = None
         self._last_visualizer_update_t = 0.0
+        self._camera_joint_position_cache.clear()
+        self._camera_root_pos_cache = None
+        self._camera_root_quat_cache = None
         self.camera_render_epoch += 1
         if self.camera_render_worker is not None:
             self.camera_render_worker.bump_epoch()
