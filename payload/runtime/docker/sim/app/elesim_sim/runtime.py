@@ -3122,6 +3122,12 @@ class RuntimePrep:
         t_build = time.perf_counter()
         print("[runtime] building scene: solver, collision filtering and kernel compilation", flush=True)
         a.sim_scene.scene.build()
+        if attach_scene_cameras and (eye_camera is not None or observer_camera is not None):
+            from elesim_sim.vision.render_device import check_camera_renderer
+
+            renderer = a.sim_scene.scene.visualizer.rasterizer._renderer
+            if renderer is not None:
+                check_camera_renderer(renderer, use_gpu=bool(a.cfg.use_gpu), label="sync_legacy")
         if floor_ent is not None:
             floor_ent.set_friction(float(a.go2_locomotion_config.mpc_physical_friction))
         print("[runtime] scene built in %.2fs" % (time.perf_counter() - t_build), flush=True)

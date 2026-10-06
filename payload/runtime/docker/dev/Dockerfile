@@ -146,6 +146,12 @@ RUN username="${USERNAME}"; \
 
 COPY --chmod=0755 dev-env.sh /usr/local/bin/elesim-dev-env
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/elesim-dev-entrypoint
+# NVIDIA driver libraries can be mounted without their EGL vendor manifest.
+# Keep development camera rendering on the same hardware path as Sim images.
+RUN mkdir -p /usr/share/glvnd/egl_vendor.d && \
+    printf '%s\n' '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
+      > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+
 USER ${UID}:${GID}
 ENTRYPOINT ["/usr/local/bin/elesim-dev-entrypoint"]
 CMD ["sleep", "infinity"]

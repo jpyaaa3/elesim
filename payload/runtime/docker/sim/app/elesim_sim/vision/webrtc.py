@@ -7,6 +7,7 @@ import os
 import threading
 import time
 from fractions import Fraction
+from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
 import numpy as np
@@ -240,7 +241,12 @@ def configure_h264_encoder(mode: Optional[str] = None) -> str:
     if not raw:
         cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
         nvidia_visible = os.environ.get("NVIDIA_VISIBLE_DEVICES", "").strip().lower()
-        gpu_device_present = os.path.exists("/dev/nvidia0") or nvidia_visible not in {
+        # Docker preserves host device-node numbers: a GPU-2 reservation
+        # exposes /dev/nvidia2, without /dev/nvidia0 or NVIDIA_VISIBLE_DEVICES.
+        gpu_device_present = any(
+            path.name.removeprefix("nvidia").isdecimal()
+            for path in Path("/dev").glob("nvidia[0-9]*")
+        ) or nvidia_visible not in {
             "",
             "none",
             "void",

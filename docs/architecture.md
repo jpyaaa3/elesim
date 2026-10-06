@@ -224,9 +224,13 @@ operator view는 under-slung 180도 roll mount를
 두 카메라의 capture cadence는 wall clock과 simulation time을 모두 만족해야
 한다. 느린 physics step이 wall-clock 주기를 항상 초과하더라도 매 step마다 두
 render를 강제하여 real-time factor를 더 악화시키지 않는다.
-GPU 모드의 Genesis는 `performance_mode`를 사용한다. Headless Sim은 EGL을
-사용하며 숫자형 `CUDA_VISIBLE_DEVICES`가 하나면 동일한 `EGL_DEVICE_ID`를
-선택해 렌더링과 계산이 서로 다른 GPU에 걸리지 않게 한다. Genesis의 정규화된
+Genesis의 `performance_mode`는 명시적으로 선택한다. Headless Sim은 EGL을
+사용한다. Sim/개발 이미지는 NVIDIA EGL vendor manifest를 포함하여, 드라이버
+라이브러리만 주입되는 Docker 환경에서도 Mesa llvmpipe로 잘못 선택되지 않게
+한다. 단일 노출 GPU는 컨테이너 안의 EGL index 0을 사용하며 호스트 GPU 번호를
+그대로 다시 적용하지 않는다. 카메라 준비 시 실제 GL vendor/renderer를 기록하고,
+GPU 모드에서 소프트웨어 렌더러가 선택되면 준비 완료 전에 오류를 낸다.
+Genesis의 정규화된
 RGB는 resize, channel reorder, uint8 변환까지 CUDA에서 처리하고 DDS/PyAV가
 요구하는 최종 host frame만 한 번 전송한다. Native Viewer는 창 시스템의 OpenGL
 선택을 유지한다.
@@ -235,6 +239,8 @@ signaling은 Sim 소유의 reliable DDS request/reply이고, 픽셀은 DTLS/SRTP
 Coturn은 필요할 때 ICE media candidate만 relay하며 DDS discovery/control/
 RGB-D/signaling을 relay하지 않는다.
 
+Compose의 빈 encoder override는 Sim GPU/CPU 설정에 따른 기본값으로 처리한다.
+자동 감지는 `/dev/nvidia2`처럼 0이 아닌 장치 번호도 인식한다.
 H.264 encoder는 NVIDIA/FFmpeg NVENC가 노출되면 `h264_nvenc`를 시도하고,
 권한·드라이버 실패 시 `libx264`로 되돌아간다. `ELESIM_WEBRTC_ENCODER=cpu`
 또는 `nvenc`는 의도적인 A/B·요청 모드이며 계약과 latest-only semantics를

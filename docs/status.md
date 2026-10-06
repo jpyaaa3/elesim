@@ -6,6 +6,34 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### GPU 카메라 렌더링 / 인코딩 경로 수정 (2026-10-06)
+
+- 열린 `test` 세션(`elesim-merry-test-sim`, GPU 2)을 읽기 전용으로 점검했다.
+  실제 카메라 프로세스에 `swrast_dri.so`가 로드되어 있었고, 같은 컨테이너의
+  EGL probe는 `Mesa / llvmpipe (LLVM 15.0.7, 256 bits)`를 반환했다.
+  NVIDIA graphics/video 라이브러리는 있었지만 EGL vendor JSON은 Mesa 것만
+  있었다. 따라서 해상도 자체나 GPU MPC 경쟁을 이 세션의 원인으로 단정하지 않는다.
+- Sim runtime/release 및 dev Dockerfile에 `10_nvidia.json`을 등록했다.
+  driver 설치 없이 런타임이 제공하는 `libEGL_nvidia.so.0`을 GLVND가 찾게 하며,
+  무거운 의존성 layer 뒤에 두어 재빌드 범위를 줄인다. CPU host의 Mesa는 유지한다.
+- 빈 Compose encoder override는 실제 Sim GPU/CPU 기본값을 따른다. 자동
+  NVENC 감지는 `/dev/nvidia0`뿐 아니라 `/dev/nvidia2` 등도 인식한다.
+  headless async/sync 카메라는 준비 전에 실제 GL vendor/renderer를 기록하며,
+  GPU 요청에 소프트웨어 렌더러가 선택되면 오류를 낸다. 두 카메라 720p는 유지한다.
+- 수정 소스와 Dockerfile에서 추출한 NVIDIA manifest를 별도 짧은 진단
+  프로세스에 적용했다. Mesa manifest를 함께 남겨도 RTX A6000 / software=false,
+  자동 encoder `h264_nvenc`, 720p 12개 입력에서 8,498 bytes 출력을 확인했다.
+  이는 실제 GPU context/encoding 확인이며 full scene FPS/step 개선 측정은 아니다.
+- 기존 배포 YAML의 GPU MPC 기본값 변경에 뒤처진 config test 기대값을
+  `jax_mppi`로 맞췄다. 이번 수정은 실행 중 `acados` MPC 설정을 바꾸지 않는다.
+- 기존 설치의 Compose dev 실행 경로에서 Sim 전체 + Dockerfile cache/shell
+  검사 **554 passed / 3 skipped**. GPU 2 자동 encoder 선택, 빈 Compose override,
+  소프트웨어 GL 거부와 context 해제 회귀를 포함한다. `git diff --check` 통과.
+- 실행 중 세션과 설치 pin은 변경하지 않았다. 반영에는 수정 이미지 발행 및
+  Sim instance 교체가 필요하다. 기존 지시대로 컨테이너 교체/삭제는 자동 수행하지
+  않았으며, canonical required/extended 전체와 release 재빌드도 이번 범위에서는
+  실행하지 않았다. 증거: `workbench/evidence/generated/readiness/20261006-live-performance/`.
+
 ### 선택형 GPU MPC (2026-10-06, 진행)
 
 - 후속 사용자 요청으로 배포 Sim YAML의 `solver_backend` 기본값을

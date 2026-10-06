@@ -50,6 +50,13 @@ def _default_config_root() -> Path:
 _CONFIG_ROOT = _default_config_root()
 
 
+def _configure_video_encoder_environment(*, use_gpu: bool) -> None:
+    # Compose emits an empty value for an unset override. Respect intentional
+    # selections while making the default follow the actual Sim backend.
+    if not os.environ.get("ELESIM_WEBRTC_ENCODER", "").strip():
+        os.environ["ELESIM_WEBRTC_ENCODER"] = "auto" if use_gpu else "cpu"
+
+
 def _configure_gpu_render_environment(*, use_gpu: bool, viewer: bool) -> None:
     """Keep headless OpenGL and CUDA on the operator-selected GPU."""
 
@@ -121,12 +128,9 @@ def _run() -> None:
     # aiortc defaults to software libx264.  Tie the media-worker default to
     # the same Sim backend policy while still allowing an explicit operator
     # override through ELESIM_WEBRTC_ENCODER.
-    if "ELESIM_WEBRTC_ENCODER" not in os.environ:
-        os.environ["ELESIM_WEBRTC_ENCODER"] = (
-            "cpu"
-            if "--cpu" in sim_args or not bool(bundle.sim_config.use_gpu)
-            else "auto"
-        )
+    _configure_video_encoder_environment(
+        use_gpu=bool(bundle.sim_config.use_gpu) and "--cpu" not in sim_args,
+    )
 
     _configure_gpu_render_environment(
         use_gpu=bool(bundle.sim_config.use_gpu) and "--cpu" not in sim_args,

@@ -463,6 +463,13 @@ def _camera_render_process_main(
             )
         t_build = time.perf_counter()
         scene.build()
+        from elesim_sim.vision.render_device import check_camera_renderer
+
+        check_camera_renderer(
+            scene.visualizer.rasterizer._renderer,
+            use_gpu=bool(spec.use_gpu),
+            label=",".join(streams),
+        )
         print(f"[sim-camera-worker] {streams} scene built in {time.perf_counter() - t_build:.2f}s", flush=True)
         robot_dof_indices = resolve_single_dof_indices(entity, spec.robot_joint_names)
         if eye is not None:

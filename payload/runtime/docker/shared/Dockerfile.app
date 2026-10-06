@@ -136,6 +136,15 @@ RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -
     python -m pip check && \
     rm -rf /tmp/elesim
 
+# The NVIDIA runtime mounts driver libraries but runc's --gpus hook may omit
+# the GLVND vendor manifest. Without it EGL silently selects Mesa/llvmpipe.
+# GLVND skips an unavailable vendor on CPU-only hosts; no driver is installed.
+RUN if [ "$ROLE" = sim ]; then \
+      mkdir -p /usr/share/glvnd/egl_vendor.d && \
+      printf '%s\n' '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
+        > /usr/share/glvnd/egl_vendor.d/10_nvidia.json; \
+    fi
+
 COPY entrypoint /usr/local/bin/elesim-entrypoint
 RUN chmod 0755 /usr/local/bin/elesim-entrypoint
 WORKDIR /opt/elesim

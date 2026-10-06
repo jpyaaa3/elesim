@@ -8,11 +8,29 @@ from types import SimpleNamespace
 import pytest
 import elesim_sim.runtime as runtime
 from elesim_sim.config import load_app_config
-from elesim_sim.main import _configure_gpu_render_environment
+from elesim_sim.main import _configure_gpu_render_environment, _configure_video_encoder_environment
 
 
 REPO_ROOT = next(parent for parent in Path(__file__).resolve().parents if (parent / "payload").is_dir())
 CONFIG_ROOT = REPO_ROOT / "payload" / "config" / "sim"
+
+
+@pytest.mark.parametrize("value", [None, "", "  "])
+@pytest.mark.parametrize("use_gpu,expected", [(True, "auto"), (False, "cpu")])
+def test_empty_compose_encoder_override_uses_sim_backend(monkeypatch, value, use_gpu, expected):
+    if value is None:
+        monkeypatch.delenv("ELESIM_WEBRTC_ENCODER", raising=False)
+    else:
+        monkeypatch.setenv("ELESIM_WEBRTC_ENCODER", value)
+    _configure_video_encoder_environment(use_gpu=use_gpu)
+    assert os.environ["ELESIM_WEBRTC_ENCODER"] == expected
+
+
+@pytest.mark.parametrize("value", ["cpu", "nvenc"])
+def test_explicit_encoder_override_is_preserved(monkeypatch, value):
+    monkeypatch.setenv("ELESIM_WEBRTC_ENCODER", value)
+    _configure_video_encoder_environment(use_gpu=True)
+    assert os.environ["ELESIM_WEBRTC_ENCODER"] == value
 
 
 def test_headless_gpu_render_remaps_single_selected_device_for_egl(monkeypatch) -> None:

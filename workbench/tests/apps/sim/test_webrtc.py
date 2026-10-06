@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import numpy as np
+import pytest
+import elesim_sim.vision.webrtc as webrtc
 
 from elesim_sim.vision.webrtc import (
     LatestFrameTrack,
@@ -12,6 +15,23 @@ from elesim_sim.vision.webrtc import (
 
 def _recv(track: LatestFrameTrack):
     return asyncio.run(track.recv())
+
+
+@pytest.mark.parametrize("device", ["nvidia0", "nvidia2", None])
+def test_default_encoder_detects_nonzero_docker_gpu(monkeypatch, device):
+    import aiortc.codecs as codecs
+
+    for name in ("ELESIM_WEBRTC_ENCODER", "CUDA_VISIBLE_DEVICES", "NVIDIA_VISIBLE_DEVICES"):
+        monkeypatch.setenv(name, "")
+    monkeypatch.setattr(webrtc.Path, "glob", lambda self, pattern: iter(
+        [Path("/dev") / device] if device else []
+    ))
+    monkeypatch.setattr(webrtc.av, "codecs_available", {"h264_nvenc"})
+    monkeypatch.setattr(webrtc, "_NVENC_ENCODER_CONFIGURED", False)
+    monkeypatch.setattr(webrtc, "_ORIGINAL_H264_ENCODER", None)
+    monkeypatch.setattr(codecs, "H264Encoder", codecs.H264Encoder)
+
+    assert webrtc.configure_h264_encoder() == ("h264_nvenc" if device else "libx264")
 
 
 def test_latest_frame_track_uses_black_frame_after_provider_failure() -> None:

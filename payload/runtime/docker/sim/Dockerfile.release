@@ -37,6 +37,12 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip ins
 COPY config/ /opt/elesim/config/
 COPY data/ /opt/elesim/data/
 
+# Register the NVIDIA EGL library mounted by the container runtime. Mesa
+# remains available when the host provides no NVIDIA graphics driver.
+RUN mkdir -p /usr/share/glvnd/egl_vendor.d && \
+    printf '%s\n' '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
+      > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+
 WORKDIR /opt/elesim
 
 CMD ["elesim-sim", "--config", "/opt/elesim/config/config.yaml", "--runtime-config", "/opt/elesim/config/runtime.yaml"]
