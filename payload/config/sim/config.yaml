@@ -185,8 +185,8 @@ robot:
       mpc:
         # GPU default requires CUDA; select acados explicitly for CPU (no fallback).
         solver_backend: jax_mppi
-        gpu_samples: 2048
-        gpu_iterations: 3
+        gpu_samples: 1024
+        gpu_iterations: 4
         gpu_seed: 42
         # Bound teleop velocity changes; hold zero before switching to stand.
         command_accel_mps2: 1.2

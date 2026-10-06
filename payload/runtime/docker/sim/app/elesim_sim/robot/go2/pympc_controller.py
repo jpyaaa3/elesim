@@ -491,14 +491,21 @@ class PyMpcGenesisController:
     def _torques(self, sample: PyMpcInput, feet: np.ndarray, foot_vel: np.ndarray,
                  jacobians: np.ndarray, joint_vel: np.ndarray) -> np.ndarray:
         contacts = sample.contacts[:, 0]
+        support_changed = not np.array_equal(contacts, self._last_contacts)
         # A force solution is valid only for the support set it was solved for.
         # In particular a newly grounded foot must not reuse its swing zero.
-        if (self._step_i % self._solve_stride == 0
-                or not np.array_equal(contacts, self._last_contacts)):
+        if self._step_i % self._solve_stride == 0 or support_changed:
             started = time.perf_counter()
             self._force_requested = self._solver.solve(sample)
             alpha = float(np.clip(self._config.force_filter_alpha, 0.05, 1.0))
-            filtered = alpha * self._force_requested + (1.0 - alpha) * self._forces
+            # The previous distribution balances a different support set.
+            # Blending it across liftoff loses its removed foot's force/moment;
+            # at touchdown it also mixes the new support with a swing zero.
+            # Start the new support phase with its freshly solved distribution.
+            filtered = (
+                self._force_requested.copy() if support_changed
+                else alpha * self._force_requested + (1.0 - alpha) * self._forces
+            )
             mu = float(self._config.optimization_friction)
             fz_max = float(self._config.fz_max_n)
             for i in range(4):
@@ -544,7 +551,12 @@ class PyMpcGenesisController:
         tau = tau * self._torque_scale() + auxiliary
         self._tau_limited = np.clip(tau, -self._tau_lim, self._tau_lim)
         alpha = float(np.clip(self._config.tau_filter_alpha, 0.05, 1.0))
-        self._tau_filt = alpha * self._tau_limited + (1.0 - alpha) * self._tau_filt
+        # All stance legs may redistribute load at a contact change. Do not
+        # reintroduce the obsolete support distribution through torque history.
+        self._tau_filt = (
+            self._tau_limited.copy() if support_changed
+            else alpha * self._tau_limited + (1.0 - alpha) * self._tau_filt
+        )
         # Do not drag the preceding support torque through a short swing.
         # Preserve the same local force/torque limits in both support modes.
         self._tau_filt[swing_dofs] = self._tau_limited[swing_dofs]

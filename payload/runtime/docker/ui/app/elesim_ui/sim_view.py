@@ -8,7 +8,8 @@ from typing import Any
 
 import imgui
 
-from .helpers import _color_u32, _draw_rect_filled, _draw_text, _xy
+from .helpers import _color_u32, _draw_line, _draw_rect_filled, _draw_text, _xy
+from .panels.go2 import _draw_turn_arrow
 
 try:
     from OpenGL import GL
@@ -59,6 +60,35 @@ _PIP_MARGIN = 12.0
 _PIP_WIDTH_FRACTION = 0.34
 _PIP_MIN_WIDTH = 120.0
 _PIP_MAX_WIDTH = 300.0
+
+
+def camera_icon_button(kind: str, size: float, *, maximized: bool = False) -> bool:
+    """Draw camera controls with vector glyphs, including the existing turn arrow."""
+    clicked = bool(imgui.button(f"##camera-{kind}", size, size))
+    x, y = _xy(imgui.get_item_rect_min())
+    draw_list = imgui.get_window_draw_list()
+    color = imgui.get_color_u32_idx(imgui.COLOR_TEXT)
+    if kind == "reset-view":
+        _draw_turn_arrow(draw_list, x, y, size, direction="left", color=color)
+        tooltip = "카메라 초기위치"
+    else:
+        # Four L-shaped corners point outwards to expand, inwards to restore.
+        low, high = size * 0.24, size * 0.76
+        arm = size * 0.18
+        thickness = max(1.5, size * 0.07)
+        for cx, cy, dx, dy in (
+            (low, low, 1, 1), (high, low, -1, 1),
+            (low, high, 1, -1), (high, high, -1, -1),
+        ):
+            if maximized:
+                cx, cy = cx + dx * arm, cy + dy * arm
+                dx, dy = -dx, -dy
+            _draw_line(draw_list, x + cx, y + cy, x + cx + dx * arm, y + cy, color, thickness)
+            _draw_line(draw_list, x + cx, y + cy, x + cx, y + cy + dy * arm, color, thickness)
+        tooltip = "원래 크기로" if maximized else "전체화면"
+    if imgui.is_item_hovered():
+        imgui.set_tooltip(tooltip)
+    return clicked
 
 
 def _fit_aspect_size(

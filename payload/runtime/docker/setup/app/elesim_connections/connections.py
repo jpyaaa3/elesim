@@ -1099,15 +1099,17 @@ class ConnectionDeploymentRunner:
         if digest != ConnectionDeploymentRunner._scoped_topology_digest(topology):
             # A completed/rolled-back journal is historical evidence, not an
             # outstanding recovery obligation.  The operator may legitimately
-            # edit the topology before the next transaction; keeping the old
-            # digest must not block that new transaction.  Incomplete journals
+            # edit the topology (including its security profile) before the
+            # next transaction; keeping the old digest must not block it.
+            # The historical profile must still be a supported value.
+            # Incomplete journals
             # remain fail-closed because recovery must use the exact topology
             # that was journaled.
             if (
                 payload.get("status") in _SCOPED_TERMINAL_STATUSES
                 and payload.get("phase") == "complete"
                 and payload.get("action") in {"deploy", "provision", "rotate"}
-                and payload.get("security_profile") == topology.security_profile
+                and payload.get("security_profile") in {"trusted-network", "sros2"}
             ):
                 return
             raise RuntimeError(

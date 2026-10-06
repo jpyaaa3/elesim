@@ -20,7 +20,7 @@ from elesim_ui.models import (
     gaze_config_to_dict,
 )
 from elesim_ui.helpers import scaled, set_panel_header_font
-from elesim_ui.sim_view import SimView
+from elesim_ui.sim_view import SimView, camera_icon_button
 from elesim_ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_font_with_korean_ranges
 from elesim_ui import file_dialog
 
@@ -290,18 +290,20 @@ class ControlPanel:
         self._sim_view.draw()
         imgui.end_child()
         spacing = float(imgui.get_style().item_spacing.x)
-        padding = float(imgui.get_style().frame_padding.x) * 2.0
-        button_width = sum(float(imgui.calc_text_size(label).x) + padding
-                           for label in ("전체화면", "카메라 초기위치"))
+        button_size = float(imgui.get_frame_height())
+        button_width = button_size * 2.0
         imgui.push_item_width(max(80.0, imgui.get_content_region_available_width()
                                   - button_width - spacing * 2.0))
         self._draw_endpoint_selector(dropdown=True)
         imgui.pop_item_width()
         imgui.same_line()
-        if imgui.button("전체화면##camera-maximize"):
+        maximized = self._camera_window is not None and bool(
+            glfw.get_window_attrib(self._camera_window, glfw.MAXIMIZED)
+        )
+        if camera_icon_button("maximize", button_size, maximized=maximized):
             self._toggle_camera_maximized()
         imgui.same_line()
-        if imgui.button("카메라 초기위치##camera-reset-view"):
+        if camera_icon_button("reset-view", button_size):
             self._sim_view.session.send_command("reset_view")
 
     def _toggle_camera_maximized(self) -> None:
