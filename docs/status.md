@@ -6,6 +6,26 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### SROS2 생성 도메인 전달 수정 (2026-10-06)
+
+- `test`의 UI/Pilot/Sim 로그에서 `Could not find domain 42 in governance`
+  를 확인했다. 기존 서명 governance/permissions는 domain 0을 포함했다.
+- Humble SROS2가 읽는 `ROS_DOMAIN_ID`를 topology의 domain_id로 각 발급
+  subprocess에 명시한다. keystore, enclave, permission 생성에 동일하게
+  적용하며 manager의 전역 환경은 변경하지 않는다.
+- 평문 instance를 최초 SROS2 provision으로 교체한 journal에는 이전
+  security_generation이 없는 것이 정상이다. 그 경우를 허용하되 기존
+  SROS2 instance 및 rotate의 이전 generation 검증은 유지한다.
+- 자동 테스트는 실행하지 않았다. 기존 잘못된 서명 정책은 소스 수정만으로
+  갱신되지 않으며 새 generation의 회전 배포가 필요하다.
+- 사용자 승인으로 기존 manager 환경에서 수정된 소스를 사용해 `test`를
+  회전 배포했다. generation `g-20261006t112106637873z-feddb33c4c36`의
+  operator/UI 및 compute/Pilot·Sim 서명 governance/permissions에서 domain
+  42를 읽어 확인했다. 등록 트랜잭션은 정상 완료됐다. 발급 전 ROS 환경 누락으로
+  실패한 시도는 동일 발급 완료 후 정규 recover로 복구했다. runtime 재시작과
+  실제 DDS discovery는 이번 작업에서 실행하지 않았다. manager 이미지 자체는
+  교체하지 않았으므로 영구 적용에는 수정 소스로 manager 업데이트가 필요하다.
+
 ### PyMPC 접촉 전환의 지지력/토크 필터 수정 (2026-10-06)
 
 - 전진 시 앞발, 후진 시 뒷발이 끌리며 몸통이 기우는 증상에 대한 코드 조사:

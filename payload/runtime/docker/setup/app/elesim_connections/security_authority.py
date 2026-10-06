@@ -81,6 +81,7 @@ def subprocess_command_runner(command: Sequence[str]) -> None:
     application environment.
     """
 
+    operation = command[4] if command[0] == "env" else command[2]
     environment = os.environ.copy()
     distro_site = Path("/usr/lib/python3/dist-packages")
     if distro_site.is_dir():
@@ -100,12 +101,12 @@ def subprocess_command_runner(command: Sequence[str]) -> None:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SecurityAuthorityError(
-            f"ROS 2 security command could not complete: {command[2]}"
+            f"ROS 2 security command could not complete: {operation}"
         ) from exc
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "no diagnostic output")[-4096:]
         raise SecurityAuthorityError(
-            f"ROS 2 security command failed ({command[2]}): {detail.strip()}"
+            f"ROS 2 security command failed ({operation}): {detail.strip()}"
         )
 
 
@@ -129,8 +130,11 @@ class Sros2Authority:
         system_id: str,
         *,
         generation: str | None = None,
+        domain_id: int = 0,
     ) -> "AuthorityGeneration":
         validate_system_id(system_id)
+        if type(domain_id) is not int or not 0 <= domain_id <= 232:
+            raise ValueError("SROS2 domain_id must be an integer from 0 to 232")
         generation_id = generation or new_generation_id()
         validate_generation(generation_id)
         self._bind_system(system_id)
@@ -144,7 +148,13 @@ class Sros2Authority:
         staging.mkdir(mode=0o700)
         keystore = staging / "keystore"
         try:
-            self.runner(("ros2", "security", "create_keystore", str(keystore)))
+            # Humble's governance and permission generators read this variable.
+            # Bind it per child command; manager jobs must not share a mutable
+            # process-wide ROS_DOMAIN_ID or inherit an unrelated default.
+            self.runner((
+                "env", f"ROS_DOMAIN_ID={domain_id}",
+                "ros2", "security", "create_keystore", str(keystore),
+            ))
             materialize_keystore_symlinks(keystore)
             validate_keystore(keystore, require_private=True)
             harden_tree(staging)
@@ -157,6 +167,7 @@ class Sros2Authority:
             generation=generation_id,
             location=staging,
             state="staging",
+            domain_id=domain_id,
         )
 
     def active(self) -> ActivationMetadata | None:
@@ -288,12 +299,14 @@ class AuthorityGeneration:
         generation: str,
         location: Path,
         state: str,
+        domain_id: int = 0,
     ) -> None:
         self.authority = authority
         self.system_id = system_id
         self.generation = generation
         self._location = location
         self._state = state
+        self._domain_id = domain_id
         self._identities: dict[str, EnclaveIdentity] = {}
         self._assigned_hosts: dict[str, str] = {}
 
@@ -329,6 +342,8 @@ class AuthorityGeneration:
 
         self.authority.runner(
             (
+                "env",
+                f"ROS_DOMAIN_ID={self._domain_id}",
                 "ros2",
                 "security",
                 "create_enclave",
@@ -339,6 +354,8 @@ class AuthorityGeneration:
         if policy_path is not None:
             self.authority.runner(
                 (
+                    "env",
+                    f"ROS_DOMAIN_ID={self._domain_id}",
                     "ros2",
                     "security",
                     "create_permission",

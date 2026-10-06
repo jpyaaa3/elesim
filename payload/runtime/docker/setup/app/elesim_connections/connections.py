@@ -1306,7 +1306,10 @@ class ConnectionDeploymentRunner:
             if topology.security_profile == "sros2":
                 if target.security_generation != target_authority:
                     raise RuntimeError(f"scoped transaction journal target generation mismatch on {host_id}/{unit_id}")
-                if before is not None and not before.security_generation:
+                # Initial provisioning may replace a plaintext registration,
+                # which correctly has no previous security generation.
+                if (before is not None and not before.security_generation
+                        and (before.security_profile == "sros2" or action == "rotate")):
                     raise RuntimeError(f"scoped transaction journal prior generation is missing on {host_id}/{unit_id}")
             elif target.security_generation:
                 raise RuntimeError("trusted-network scoped journal contains a security generation")

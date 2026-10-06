@@ -4345,7 +4345,7 @@ class Sros2BundleIssuer:
             for assignment in host.assignments
         }
         transaction = self._authority.begin_generation(  # type: ignore[attr-defined]
-            topology.system_id, generation=generation
+            topology.system_id, generation=generation, domain_id=topology.dds_graph.domain_id
         )
         with transaction, tempfile.TemporaryDirectory(
             prefix="elesim-sros2-policies-"
