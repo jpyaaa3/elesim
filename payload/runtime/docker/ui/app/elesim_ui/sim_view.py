@@ -147,8 +147,6 @@ class SimViewState:
 class SimView:
     """Render two named streams and issue simulation-session commands."""
 
-    SPEEDS = (0.25, 0.5, 1.0, 2.0, 4.0)
-
     def __init__(self, session: Any) -> None:
         self.session = session
         self.state = SimViewState()
@@ -158,13 +156,12 @@ class SimView:
 
     def draw(self) -> None:
         snapshot = self.session.snapshot
-        self._draw_toolbar(snapshot)
         if snapshot.last_error:
             imgui.text_colored(snapshot.last_error, 0.78, 0.18, 0.18)
 
-        available = max(180.0, float(imgui.get_content_region_available_width()))
+        available = max(1.0, float(imgui.get_content_region_available_width()))
         available_height = self._available_content_height(fallback=available * 0.75)
-        observer_max_height = max(240.0, min(720.0, available_height))
+        observer_max_height = max(1.0, available_height - imgui.get_frame_height_with_spacing())
         _, observer_rect = self._draw_stream(
             "observer",
             width=available,
@@ -189,53 +186,6 @@ class SimView:
                 connected="hand_eye_preview" in snapshot.connected_streams,
                 display_aspect=4.0 / 3.0,
                 center=True,
-            )
-
-    def _draw_toolbar(self, snapshot: Any) -> None:
-        status = snapshot.status
-        active = snapshot.active_sim_id or snapshot.requested_sim_id or "none"
-        connected = len(snapshot.connected_streams)
-        imgui.text(f"SIM {active} | video {connected}/2")
-
-        paused = bool(status.paused) if status is not None else False
-        if imgui.button(">##sim-run" if paused else "||##sim-pause"):
-            self.session.send_command("resume" if paused else "pause")
-        self._tooltip("Resume simulation" if paused else "Pause simulation")
-        imgui.same_line()
-        if imgui.button(">|##sim-step") and paused:
-            self.session.send_command("step", {"count": 1})
-        self._tooltip("Advance one physics step while paused")
-        imgui.same_line()
-        if imgui.button("R##sim-reset"):
-            self.session.send_command("reset")
-        self._tooltip("Reset simulation state")
-        imgui.same_line()
-        if imgui.button("V##sim-reset-view"):
-            self.session.send_command("reset_view")
-        self._tooltip("Reset observer camera")
-
-        speed = float(status.speed) if status is not None else 1.0
-        speed_index = min(
-            range(len(self.SPEEDS)),
-            key=lambda index: abs(self.SPEEDS[index] - speed),
-        )
-        changed, selected = imgui.combo(
-            "Speed##sim-speed",
-            speed_index,
-            [f"{value:g}x" for value in self.SPEEDS],
-        )
-        if changed:
-            self.session.send_command("set_speed", {"scale": self.SPEEDS[int(selected)]})
-
-        debug_visible = bool(status.debug_visible) if status is not None else True
-        changed, visible = imgui.checkbox("Debug markers##sim-debug", debug_visible)
-        if changed:
-            self.session.send_command("set_debug_visible", {"visible": bool(visible)})
-
-        if status is not None:
-            run_state = "paused" if status.paused else "running"
-            imgui.text_disabled(
-                f"epoch {status.epoch} | {run_state} | t={status.sim_time_s:.2f}s"
             )
 
     def _draw_stream(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import time
 import sys
 from typing import Callable, Optional
@@ -79,8 +80,8 @@ class ControlPanel:
         *,
         use_hardware: bool = False,
         use_go2: bool = False,
-        go2_teleop_vx_mps: float = 1.2,
-        go2_teleop_vy_mps: float = 0.5,
+        go2_teleop_vx_mps: float = 0.8,
+        go2_teleop_vy_mps: float = 0.35,
         go2_teleop_wz_radps: float = 0.80,
         hardware_cfg: HardwareConfig | None = None,
         perception_cfg: PerceptionConfig | None = None,
@@ -199,7 +200,7 @@ class ControlPanel:
         self._ui_style_base_vectors: dict[str, tuple[float, float]] = {}
         self._pending_file_browse: Optional[tuple[str, str]] = None
 
-    def _draw_endpoint_selector(self) -> None:
+    def _draw_endpoint_selector(self, *, dropdown: bool = False) -> None:
         now = time.monotonic()
         if now - self._endpoint_cache_at >= 0.5:
             try:
@@ -226,6 +227,24 @@ class ControlPanel:
             if role.strip().lower() in {"sim", "robot"}:
                 endpoints.append(endpoint)
         active = self._active_endpoint_cache
+        if dropdown:
+            entries = [
+                (str(e.get("endpoint_id", "")), str(e.get("role", "")))
+                if isinstance(e, dict)
+                else (str(getattr(e, "endpoint_id", "")), str(getattr(e, "role", "")))
+                for e in endpoints
+            ]
+            entries = [(eid, role) for eid, role in entries if eid]
+            labels = ["Target: 선택 없음"] + [f"{role}: {eid}" for eid, role in entries]
+            selected = next((i + 1 for i, (eid, _) in enumerate(entries) if eid == active), 0)
+            changed, index = imgui.combo("##camera-target", selected, labels)
+            if changed and index > 0:
+                endpoint_id, role = entries[index - 1]
+                if self._endpoint_select is not None:
+                    self._endpoint_select(endpoint_id, role)
+                else:
+                    self.service.select_endpoint(endpoint_id)
+            return
         if not endpoints:
             imgui.text_disabled("TARGET: waiting for endpoint")
             return
@@ -266,8 +285,35 @@ class ControlPanel:
         if self._sim_view is None:
             imgui.text_disabled("Sim session is not configured")
             return
-        self._draw_endpoint_selector()
+        footer_height = imgui.get_frame_height_with_spacing()
+        imgui.begin_child("camera-video", 0.0, -footer_height, False)
         self._sim_view.draw()
+        imgui.end_child()
+        spacing = float(imgui.get_style().item_spacing.x)
+        padding = float(imgui.get_style().frame_padding.x) * 2.0
+        button_width = sum(float(imgui.calc_text_size(label).x) + padding
+                           for label in ("전체화면", "카메라 초기위치"))
+        imgui.push_item_width(max(80.0, imgui.get_content_region_available_width()
+                                  - button_width - spacing * 2.0))
+        self._draw_endpoint_selector(dropdown=True)
+        imgui.pop_item_width()
+        imgui.same_line()
+        if imgui.button("전체화면##camera-maximize"):
+            self._toggle_camera_maximized()
+        imgui.same_line()
+        if imgui.button("카메라 초기위치##camera-reset-view"):
+            self._sim_view.session.send_command("reset_view")
+
+    def _toggle_camera_maximized(self) -> None:
+        window = self._camera_window
+        if window is None:
+            return
+        # Native maximization uses the monitor containing this window and
+        # preserves its normal geometry for the next restore.
+        if glfw.get_window_attrib(window, glfw.MAXIMIZED):
+            glfw.restore_window(window)
+        else:
+            glfw.maximize_window(window)
 
     @staticmethod
     def _set_imgui_context(context: object | None) -> None:
@@ -338,6 +384,9 @@ class ControlPanel:
         flags = (
             getattr(imgui, "WINDOW_NO_TITLE_BAR", 0)
             | getattr(imgui, "WINDOW_NO_MOVE", 0)
+            | getattr(imgui, "WINDOW_NO_RESIZE", 0)
+            | getattr(imgui, "WINDOW_NO_SCROLLBAR", 0)
+            | getattr(imgui, "WINDOW_NO_SCROLL_WITH_MOUSE", 0)
         )
         opened = imgui.begin("Sim Camera###sim_camera_window", True, flags=flags)
         visible = opened[0] if isinstance(opened, tuple) else bool(opened)
@@ -885,8 +934,8 @@ class ControlPanel:
         if self._sim_view is not None:
             glfw.window_hint(glfw.RESIZABLE, glfw.TRUE)
             camera_window = glfw.create_window(
-                960,
-                720,
+                800,
+                660,
                 "Sim Camera",
                 None,
                 window,
@@ -914,6 +963,18 @@ class ControlPanel:
                 # context with a font object owned by this context.
                 self._install_ui_font(install_header=False)
                 self._install_ui_style()
+                style = imgui.get_style()
+                # Fit the initial client area to a 4:3 image, its label, and
+                # the single footer row using the actual font/style metrics.
+                camera_width = 800
+                image_height = (camera_width - 2.0 * style.window_padding.x) * 0.75
+                camera_height = math.ceil(
+                    image_height + 2.0 * style.window_padding.y
+                    + imgui.get_text_line_height_with_spacing()
+                    + imgui.get_frame_height_with_spacing()
+                    + style.item_spacing.y
+                )
+                glfw.set_window_size(camera_window, camera_width, camera_height)
                 camera_impl = GlfwRenderer(camera_window)
                 self._camera_imgui_impl = camera_impl
                 glfw.make_context_current(window)
