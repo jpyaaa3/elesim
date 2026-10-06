@@ -59,8 +59,8 @@ class PyMpcForceSolver:
         max_normal_force_n: float = 180.0,
         solver_factory: Callable[[], object] | None = None,
         backend: str = "acados",
-        gpu_samples: int = 4096,
-        gpu_iterations: int = 4,
+        gpu_samples: int = 2048,
+        gpu_iterations: int = 2,
         gpu_seed: int = 42,
     ) -> None:
         if horizon < 2 or dt <= 0 or friction <= 0 or max_normal_force_n <= 0:

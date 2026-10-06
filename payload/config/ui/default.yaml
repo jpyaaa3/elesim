@@ -28,8 +28,8 @@ presentation:
   use_hardware: false
   use_go2: true
   go2:
-    vx_mps: 0.35
-    vy_mps: 0.25
+    vx_mps: 1.2
+    vy_mps: 0.5
     wz_radps: 0.8
 hardware:
   current_yellow_ma: 1800
