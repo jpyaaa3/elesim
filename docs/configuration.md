@@ -87,12 +87,14 @@ robot:
   go2:
     locomotion:
       mpc:
-        solver_backend: acados  # 기본값; GPU 옵션은 jax_mppi
+        solver_backend: jax_mppi  # 배포 YAML 기본값; CPU는 acados로 명시
         gpu_samples: 4096       # 64..32768, 병렬 후보 수
         gpu_iterations: 4      # 1..8, solve별 고정 반복 수
         gpu_seed: 42            # 0..2147483647, reset 시 재설정
 ```
 
+배포 YAML은 `jax_mppi`를 기본으로 선택한다. 기존 설치 설정은 자동 변경되지
+않으며, 키를 생략한 코드 수준 기본값은 호환성을 위해 `acados`로 유지한다.
 `jax_mppi`는 실험적 sampling MPC이며 acados와 동일한 최적화 알고리즘이 아니다.
 시작 시에만 backend를 선택하고, 설치 GPU 설정에서 정확히 한 GPU를 노출해야 한다.
 CUDA/JAX가 없거나 초기화에 실패하면 명확히 실패하며 CPU로 자동 전환하지 않는다.

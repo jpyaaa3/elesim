@@ -183,8 +183,8 @@ robot:
         enable: true
         mass_kg: 0.0
       mpc:
-        # CPU remains the default; jax_mppi explicitly requires a CUDA GPU.
-        solver_backend: acados
+        # GPU default requires CUDA; select acados explicitly for CPU (no fallback).
+        solver_backend: jax_mppi
         gpu_samples: 4096
         gpu_iterations: 4
         gpu_seed: 42

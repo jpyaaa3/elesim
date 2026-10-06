@@ -8,6 +8,11 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### 선택형 GPU MPC (2026-10-06, 진행)
 
+- 후속 사용자 요청으로 배포 Sim YAML의 `solver_backend` 기본값을
+  `jax_mppi`로 변경했다. 아래 CPU 기본값 기록은 이 변경 이전 검증 이력이다.
+  CPU `acados` 구현과 키 생략 시 코드 기본값은 보존하며 자동 CPU fallback은
+  없다. 기존 설치/실행 인스턴스는 변경하지 않았다. 이번 기본값 변경에서는
+  테스트와 이미지 재빌드를 실행하지 않았다.
 - 사용자 승인 범위: CPU acados를 기본값으로 보존하고 GPU 병렬 MPC를 선택
   옵션으로 추가한다. 기존 R0–R5와 별도 작업이며 Robot 물리 제어는 변경하지 않는다.
 - G1 인터페이스/설정: `robot.go2.locomotion.mpc.solver_backend`는 `acados`
