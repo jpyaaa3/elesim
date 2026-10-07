@@ -16,8 +16,8 @@ class Go2MpcConfig:
     stand_kv: float = 4.0
     ctrl_hz: float = 200.0
     solver_backend: str = "acados"
-    gpu_samples: int = 1024
-    gpu_iterations: int = 4
+    gpu_samples: int = 4096
+    gpu_iterations: int = 2
     gpu_seed: int = 42
     command_ramp_s: float = 0.15
     command_accel_mps2: float = 1.2
