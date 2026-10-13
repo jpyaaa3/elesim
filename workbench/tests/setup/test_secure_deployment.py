@@ -722,7 +722,7 @@ def test_scoped_security_upload_failure_cleans_only_exact_staging_generation() -
         )
 
     assert session.commands[-1][0] == (
-        "/usr/local/bin/elesim-instance-register",
+        "/usr/local/bin/elesim-register",
         "cleanup-staging",
         "--system",
         "lab",

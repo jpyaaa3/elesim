@@ -497,7 +497,7 @@ def _validate_command(
         elif remainder:
             raise HostHelperError("scoped lifecycle command has unsupported options")
         return
-    register = str(bin_dir / "elesim-instance-register")
+    register = str(bin_dir / "elesim-register")
     if argv[0] == register:
         if len(argv) < 2 or argv[1] not in {
             "register",

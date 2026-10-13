@@ -421,13 +421,13 @@ function roleReleaseChoices(slot, role) {
 
 function releaseOptionLabel(release, role) {
   const roleLabel = release?.role_labels?.[role];
-  if (typeof roleLabel === "string" && roleLabel.trim()) {
-    const prefix = typeof release.label === "string"
-      ? release.label.match(/^\d+\.\s*/)?.[0] || ""
-      : "";
-    return `${prefix}${roleLabel}`;
-  }
-  return typeof release.label === "string" ? release.label : release.key;
+  const label = typeof roleLabel === "string" && roleLabel.trim()
+    ? roleLabel
+    : (typeof release.label === "string" ? release.label : release.key);
+  const unnumbered = label.replace(/^\d+\.\s*/, "");
+  const roleEntry = unnumbered.split(",").map((part) => part.trim())
+    .find((part) => part.startsWith(`${role}:`));
+  return (roleEntry || unnumbered).replace(/^(pilot|sim|ui|robot):\s*/, "").trim();
 }
 
 function refreshRoleReleaseSelect(roleCard, select) {

@@ -1934,7 +1934,7 @@ class _LocalSession:
                 "elesim-status",
                 "elesim-up",
                 "elesim-instance",
-                "elesim-instance-register",
+                "elesim-register",
                 "elesim-viewer-cleanup",
             }
         ):
@@ -2531,7 +2531,7 @@ class InstalledElesimLifecycle:
                 # wrapper before allowing the caller to retry.  Never issue a
                 # generic recursive delete from the manager boundary.
                 cleanup_command = (
-                    str(PurePosixPath(unit.bin_dir) / "elesim-instance-register"),
+                    str(PurePosixPath(unit.bin_dir) / "elesim-register"),
                     "cleanup-staging",
                     "--system",
                     system_id,
@@ -2547,7 +2547,7 @@ class InstalledElesimLifecycle:
                     ) from upload_error
                 raise
         command = [
-            str(PurePosixPath(unit.bin_dir) / "elesim-instance-register"),
+            str(PurePosixPath(unit.bin_dir) / "elesim-register"),
             "replace" if replace_existing else "register",
             "--system", system_id,
             "--release", str(instance.release_key),
@@ -2647,7 +2647,7 @@ class InstalledElesimLifecycle:
         self._validate_scoped_target(session, unit, local=host.local)
         session.run(
             (
-                str(PurePosixPath(unit.bin_dir) / "elesim-instance-register"),
+                str(PurePosixPath(unit.bin_dir) / "elesim-register"),
                 "remove",
                 "--system",
                 system_id,

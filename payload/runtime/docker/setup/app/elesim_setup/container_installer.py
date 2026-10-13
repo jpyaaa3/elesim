@@ -451,6 +451,22 @@ class ContainerInstaller:
                 ),
             )
         with transaction:
+            # Retire only the exact old wrapper owned by this installation.
+            # RefreshControlRollback retains it if the update later fails.
+            retired_names = ["elesim-instance-register"]
+            if self._scoped_namespace:
+                retired_names.extend(("elesim-up", "elesim-down"))
+            for retired_name in retired_names:
+                retired_register = self.state.bin_path / retired_name
+                if ownership_refresh is None or not os.path.lexists(retired_register):
+                    continue
+                recorded = next((w for w in ownership_refresh.wrappers
+                                 if Path(w.path) == retired_register), None)
+                if (recorded is None or retired_register.is_symlink()
+                        or not retired_register.is_file()
+                        or hashlib.sha256(retired_register.read_bytes()).hexdigest() != recorded.sha256):
+                    raise ValueError("retired wrapper is not unchanged install-owned content")
+                retired_register.unlink()
             self.log("[1/6] Preparing installation directory and runtime data")
             self._image_fingerprints.clear()
             self._release_aliases.clear()
@@ -2104,7 +2120,7 @@ class ContainerInstaller:
             # handoff.  The manager never receives the Docker socket; its
             # short-lived host helper invokes this exact wrapper instead.
             write_executable(
-                self.state.bin_path / "elesim-instance-register",
+                self.state.bin_path / "elesim-register",
                 "#!/usr/bin/env bash\nset -euo pipefail\n"
                 + guard
                 + f"exec {command} run --rm --no-deps tools elesim-setup "
@@ -2113,7 +2129,7 @@ class ContainerInstaller:
             scoped_refusal = _scoped_lifecycle_refusal(
                 instance_command=str(self.state.bin_path / "elesim-instance")
             )
-            for lifecycle_name in ("elesim-up", "elesim-down", "elesim-logs", "elesim-status"):
+            for lifecycle_name in ("elesim-logs", "elesim-status"):
                 content = scoped_refusal
                 if lifecycle_name == "elesim-status":
                     content = content.replace(
@@ -2548,8 +2564,6 @@ class ContainerInstaller:
         names = [
             "elesim",
             "elesim-build",
-            "elesim-up",
-            "elesim-down",
             "elesim-logs",
             "elesim-status",
             "elesim-setup",
@@ -2566,7 +2580,10 @@ class ContainerInstaller:
             names.append("elesim-dev")
         if self._scoped_namespace:
             names.append("elesim-instance")
+            names.append("elesim-register")
             names.append("elesim-release")
+        if not self._scoped_namespace:
+            names.extend(("elesim-up", "elesim-down"))
         if include_uninstaller:
             names.append("elesim-uninstall")
         return tuple(self.state.bin_path / name for name in names)

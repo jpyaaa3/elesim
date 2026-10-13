@@ -393,6 +393,9 @@ rollout은 현재 질량·body inertia를 매 solve의 입력으로 받으며 JI
 고정하지 않는다. backend는 시작 시 선택하고 GPU 실패를 CPU 성공으로 숨기지 않는다.
 GPU 경로는 시작 시 bounded sampling kernel을 JIT/동기화한 뒤 readiness를
 진행한다. JIT는 설치된 코드만 사용하며 runtime download나 model rebuild가 아니다.
+MPPI는 컨테이너에 보이는 첫 CUDA GPU를 사용한다. 여러 GPU가 노출된 inherit
+설정도 허용하며, 특정 GPU 예약은 Docker의 장치 노출을 따른다. 여러 GPU에
+rollout을 분산하지는 않는다. 시작 로그에 선택 장치와 노출 GPU 수를 기록한다.
 고정 sample/iteration budget은 wall-clock deadline 보장을 의미하지 않는다.
 
 - physics loop에는 network peer, WebRTC encoder, DDS subscriber backlog를

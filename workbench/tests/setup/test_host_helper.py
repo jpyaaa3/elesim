@@ -372,7 +372,7 @@ def test_host_helper_limits_network_cli_to_installed_wrapper() -> None:
 
 def test_host_helper_scoped_staging_cleanup_is_manager_system_bound() -> None:
     compose, bin_dir = _paths()
-    register = str(bin_dir / "elesim-instance-register")
+    register = str(bin_dir / "elesim-register")
     valid = (
         register,
         "cleanup-staging",

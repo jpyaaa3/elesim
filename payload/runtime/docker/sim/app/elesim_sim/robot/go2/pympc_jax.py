@@ -78,8 +78,11 @@ class JaxMppiSolver:
             devices = jax.devices("gpu")
         except Exception as exc:
             raise RuntimeError("jax_mppi requires a working CUDA GPU; CPU fallback is disabled") from exc
-        if len(devices) != 1:
-            raise RuntimeError("jax_mppi requires exactly one visible GPU; select one in EleSim GPU settings")
+        if not devices:
+            raise RuntimeError("jax_mppi requires a working CUDA GPU; CPU fallback is disabled")
+        # Respect the container visibility/order in both inherit and specific
+        # modes. One solve uses the first visible GPU; additional GPUs need
+        # not be hidden and are not used for distributed rollout here.
         self.device = devices[0]
         if self.device.platform != "gpu":
             raise RuntimeError("jax_mppi did not select a GPU")
@@ -101,7 +104,8 @@ class JaxMppiSolver:
                              inertia=np.diag([.2, .5, .5]).reshape(9), elapsed_s=0.)
         self.warmup_s = time.perf_counter() - began
         self.reset()
-        print(f"[go2_pympc] GPU={self.device.device_kind} samples={samples} "
+        print(f"[go2_pympc] GPU={self.device.device_kind} device={self.device.id} "
+              f"visible_gpus={len(devices)} samples={samples} "
               f"iterations={iterations} JIT warmup={self.warmup_s:.3f}s")
 
     def reset(self) -> None:

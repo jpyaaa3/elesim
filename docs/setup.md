@@ -656,3 +656,13 @@ elesim-dev python3 workbench/tools/release/verify.py dist/releases
 이는 실제 두 host의 NAT, SROS2 enforce, GPU/X11, TURN relay, Genesis viewer,
 Jetson safety를 증명하지 않는다. 그 항목은 [`status.md`](status.md)의
 수동 gate로 남긴다.
+
+등록 CLI는 `elesim-register`이다. 기존 `elesim-instance-register`는 업데이트 시
+소유권과 해시가 검증된 파일만 제거한다. 연결 관리자와 각 호스트의 설치를 함께
+업데이트해야 새 등록 명령을 사용할 수 있다. 인스턴스 실행은 기존
+`elesim-instance <system> up` 경로를 사용한다.
+
+인스턴스 기반 설치는 `elesim-up`, `elesim-down`을 생성하지 않는다.
+실행·중지는 `elesim-instance <system> up|down` 또는 `elesim up|down <system>`을
+사용한다. 업데이트는 소유권·해시가 확인된 이전 wrapper를 제거한다.
+인스턴스가 없는 legacy 고정 프로젝트 설치에는 기존 lifecycle 경로를 유지한다.

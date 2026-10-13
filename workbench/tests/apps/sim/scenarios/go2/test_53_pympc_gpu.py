@@ -74,10 +74,27 @@ def test_explicit_gpu_request_does_not_fall_back_to_cpu(monkeypatch):
                       samples=64, iterations=1, seed=42)
 
 
-def test_multiple_visible_gpus_require_explicit_device_selection(monkeypatch):
+@pytest.mark.parametrize("count", [1, 3])
+def test_visible_gpus_select_first_without_restricting_visibility(monkeypatch, count):
+    from types import SimpleNamespace
     jax = pytest.importorskip('jax')
-    monkeypatch.setattr(jax, 'devices', lambda _: [object(), object()])
-    with pytest.raises(RuntimeError, match='exactly one'):
+    devices = [SimpleNamespace(platform="gpu", device_kind="test GPU", id=i)
+               for i in range(count)]
+    monkeypatch.setattr(jax, 'devices', lambda _: devices)
+    selected = []
+    monkeypatch.setattr(jax, 'jit', lambda function, *, device: selected.append(device))
+    monkeypatch.setattr(jax, 'device_put', lambda value, device: value)
+    monkeypatch.setattr(JaxMppiSolver, 'compute_control', lambda *args, **kwargs: None)
+    solver = JaxMppiSolver(horizon=12, dt=.02, friction=.55, max_normal_force_n=180.,
+                           samples=64, iterations=1, seed=42)
+    assert solver.device is devices[0]
+    assert selected == [devices[0]]
+
+
+def test_empty_gpu_inventory_reports_no_gpu(monkeypatch):
+    jax = pytest.importorskip('jax')
+    monkeypatch.setattr(jax, 'devices', lambda _: [])
+    with pytest.raises(RuntimeError, match='working CUDA GPU'):
         JaxMppiSolver(horizon=12, dt=.02, friction=.55, max_normal_force_n=180.,
                       samples=64, iterations=1, seed=42)
 

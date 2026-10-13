@@ -141,7 +141,7 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
     state = local_state(roles=("pilot", "sim"), install_mode="container")
 
     ContainerInstaller(state).run()
-    register = (state.bin_path / "elesim-instance-register").read_text()
+    register = (state.bin_path / "elesim-register").read_text()
     assert "run --rm --no-deps tools elesim-setup" in register
     assert "--no-build" not in register
 
@@ -174,8 +174,8 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
         image != "elesim/pilot:local" and image != "elesim/tools:local"
         for image in manifest["docker"]["local_images"]
     )
-    wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
-    assert "docker container inspect elesim-pilot" not in wrapper
+    assert not (state.bin_path / "elesim-up").exists()
+    assert not (state.bin_path / "elesim-down").exists()
     assert "docker image inspect elesim/tools:local" not in (
         (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     )
@@ -254,7 +254,7 @@ def test_fresh_container_install_uses_an_install_scoped_namespace(
     )
     assert gpu_result.returncode == 0
     assert gpu_result.stdout == "0, GPU-test\n"
-    for name in ("elesim-up", "elesim-down", "elesim-logs", "elesim-status"):
+    for name in ("elesim-logs", "elesim-status"):
         lifecycle = (state.bin_path / name).read_text(encoding="utf-8")
         assert "has no global runtime" in lifecycle
         assert "docker" not in lifecycle
@@ -913,15 +913,12 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "IFS=',' read -r -a compose_files" in wrapper
     assert "compose_match != 1" in wrapper
     assert f"--local-install-root {state.prefix_path}" in wrapper
-    up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
+    assert not (state.bin_path / "elesim-up").exists()
     viewer_cleanup_wrapper = (
         state.bin_path / "elesim-viewer-cleanup"
     ).read_text(encoding="utf-8")
     update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
-    down_wrapper = (state.bin_path / "elesim-down").read_text(encoding="utf-8")
-    assert "has no global runtime" in up_wrapper
-    assert "elesim-instance <system>" in up_wrapper
-    assert "docker" not in up_wrapper
+    assert not (state.bin_path / "elesim-down").exists()
     net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     assert "docker_backend_name" in net_wrapper
     assert "docker_backend_kind=docker-desktop" in net_wrapper
@@ -930,8 +927,6 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     )
     assert "tailscale[0-9]+" in manager_wrapper
     assert "ELESIM_TAILSCALE_INTERFACE" in manager_wrapper
-    assert "has no global runtime" in down_wrapper
-    assert "docker" not in down_wrapper
     assert "viewer_xhost_cleanup" in viewer_cleanup_wrapper
     assert "docker" not in viewer_cleanup_wrapper
     for role in state.roles:
@@ -942,8 +937,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "docker image prune" not in update_wrapper
     assert (state.prefix_path / "security").stat().st_mode & 0o777 == 0o700
     for generated_wrapper in (
-        state.bin_path / "elesim-up",
-        state.bin_path / "elesim-down",
+        state.bin_path / "elesim-instance",
         state.bin_path / "elesim-viewer-cleanup",
     ):
         assert subprocess.run(
@@ -1043,7 +1037,7 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
         encoding="utf-8"
     )
     net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
-    up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
+    assert not (state.bin_path / "elesim-up").exists()
     status_wrapper = (state.bin_path / "elesim-status").read_text(encoding="utf-8")
     update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
     assert "export DOCKER_CONTEXT=\"$expected_docker_context\"" in compose_wrapper
@@ -1059,8 +1053,6 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     assert "exec docker compose" in compose_wrapper
     assert "has no global runtime" in status_wrapper
     assert "docker compose" not in status_wrapper
-    assert "has no global runtime" in up_wrapper
-    assert "docker compose" not in up_wrapper
     assert "login --hostname=elesim-deadbeef0123" in tailscale_wrapper
     assert "up --force-reauth --hostname=elesim-deadbeef0123" in tailscale_wrapper
     assert "login [--if-needed]" in tailscale_wrapper
@@ -1112,14 +1104,15 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
         ).returncode == 0
 
 
+@pytest.mark.parametrize("wrapper_name", ["elesim-pilot", "elesim-instance-register", "elesim-up", "elesim-down"])
 def test_container_refresh_removes_manifest_owned_legacy_role_wrappers(
-    local_state,
+    local_state, wrapper_name,
 ) -> None:
     state = local_state(roles=("pilot", "sim", "ui"))
     installer = ContainerInstaller(state)
     installer.run()
 
-    legacy = state.bin_path / "elesim-pilot"
+    legacy = state.bin_path / wrapper_name
     legacy.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
     legacy.chmod(0o755)
     manifest_path = state.prefix_path / "install-ownership.json"
@@ -3141,8 +3134,7 @@ def test_static_discovery_is_exported_to_every_service(local_state) -> None:
         assert environment["ELESIM_DDS_NETWORK_INTERFACE"] == "eth1"
     net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     assert "namespace-check" in net_wrapper
-    up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
-    assert "no global runtime" in up_wrapper
+    assert not (state.bin_path / "elesim-up").exists()
 
 
 def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
@@ -3309,15 +3301,15 @@ def test_pending_managed_sros2_installs_coturn_but_refuses_application_start(
     environment = os.environ.copy()
     environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
     result = subprocess.run(
-        (state.bin_path / "elesim-up",),
+        (state.bin_path / "elesim-instance", "test", "up"),
         env=environment,
         text=True,
         capture_output=True,
         check=False,
     )
 
-    assert result.returncode == 64
-    assert "has no global runtime" in result.stderr
+    assert result.returncode == 3
+    assert "Unregistered instance: test" in result.stderr
 
 
 def test_managed_coturn_rejects_empty_existing_secret(
