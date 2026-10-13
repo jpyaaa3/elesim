@@ -39,6 +39,9 @@ def test_developer_attachment_joins_the_canonical_runtime_project(local_state) -
     )
     manifest = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
     assert manifest.docker is not None
+    assert {str(p) for p in state.bin_path.iterdir() if p.is_file()} == {
+        wrapper.path for wrapper in manifest.wrappers
+    }
     install_name = manifest.docker.install_name
     assert compose["name"] == project_name(
         manifest.install_uuid, install_name=install_name

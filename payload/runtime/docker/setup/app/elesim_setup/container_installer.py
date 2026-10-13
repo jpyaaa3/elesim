@@ -462,7 +462,10 @@ class ContainerInstaller:
                     continue
                 recorded = next((w for w in ownership_refresh.wrappers
                                  if Path(w.path) == retired_register), None)
-                if (recorded is None or retired_register.is_symlink()
+                if recorded is None:
+                    self.log(f"[ownership] Preserving unrecorded retired wrapper: {retired_register}")
+                    continue
+                if (retired_register.is_symlink()
                         or not retired_register.is_file()
                         or hashlib.sha256(retired_register.read_bytes()).hexdigest() != recorded.sha256):
                     raise ValueError("retired wrapper is not unchanged install-owned content")
@@ -746,7 +749,7 @@ class ContainerInstaller:
             # adopted by the consolidated ``elesim-up`` surface.
             *(self.state.bin_path / name for name in CONTAINER_ROLE_WRAPPER_NAMES),
             *(
-                (self.state.bin_path / "elesim-instance",)
+                tuple(self.state.bin_path / name for name in ("elesim-instance", "elesim-register"))
                 if self._claim_scoped_roots
                 else ()
             ),

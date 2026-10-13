@@ -6,6 +6,22 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 설치 파일 소유권 감사 (2026-10-13)
+
+- `/home/user/ws/newsim`의 실제 bin 17개를 manifest와 대조했다.
+  `elesim-instance-register`만 wrapper 목록에서 누락됐고 나머지 16개는
+  기록과 SHA-256이 일치했다. prefix의 파일을 정확한 inventory와 managed,
+  log, authority, external 경계에 대조했을 때 경계 밖의 추가 누락은 없었다.
+  관리 루트 안의 동적 파일은 디렉터리 소유권으로 포함되며 개별 해시 검증을
+  수행했다는 의미는 아니다. compute 실물 설치는 이번 감사에 포함하지 않았다.
+- 컨테이너/native 생성 코드와 wrapper 목록을 대조하고, 새 `elesim-register`의
+  설치 전 경로 충돌 검사에도 명시적인 claim을 추가했다.
+- 미기록된 이전 wrapper는 자동 인수·삭제하지 않고 경로를 안내하며 보존한다.
+  이 경우 업데이트를 계속하지만, 기록된 wrapper의 해시 불일치는 계속 거부한다.
+- 컨테이너 UI/Sim/전체 역할 및 native Robot, 개발 attachment에 생성된 bin
+  파일 전체와 manifest wrapper 목록의 일치 검사를 추가했다. 실제 설치 파일과
+  manifest를 직접 수정하지 않았다.
+
 ### SROS2 생성 도메인 전달 수정 (2026-10-06)
 
 - `test`의 UI/Pilot/Sim 로그에서 `Could not find domain 42 in governance`

@@ -273,6 +273,9 @@ def test_native_install_records_host_uninstaller_and_exact_systemd_hashes(
     manifest = OwnershipManifest.load(manifest_path)
     assert manifest.path == manifest_path
     assert manifest.docker is None
+    assert {str(p) for p in state.bin_path.iterdir() if p.is_file()} == {
+        wrapper.path for wrapper in manifest.wrappers
+    }
     from elesim_setup.network import main as net_main
     from elesim_setup.instance_identity import parse_native_identity
     import json

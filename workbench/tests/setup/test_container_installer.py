@@ -3870,3 +3870,29 @@ def test_runtime_log_alias_colors_only_live_role_prefix() -> None:
     assert "\x1b[32melesim-cozy-test-ui\x1b[0m" in colored
     assert "-t 1" in colored
     assert "\x1b[" not in archived
+
+
+@pytest.mark.parametrize("roles", [("ui",), ("sim",), ("pilot", "sim", "ui")])
+def test_all_generated_bin_files_have_ownership(local_state, roles):
+    state = local_state(roles=roles)
+    ContainerInstaller(state).run()
+    manifest = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
+    actual = {str(p) for p in state.bin_path.iterdir() if p.is_file()}
+    assert actual == {w.path for w in manifest.wrappers}
+    for wrapper in manifest.wrappers:
+        assert hashlib.sha256(Path(wrapper.path).read_bytes()).hexdigest() == wrapper.sha256
+
+
+def test_refresh_preserves_unrecorded_retired_wrapper(local_state):
+    state = local_state(roles=("ui",))
+    ContainerInstaller(state).run()
+    old = state.bin_path / "elesim-instance-register"
+    content = b"#!/bin/sh\nexit 0\n"
+    old.write_bytes(content)
+    messages = []
+    ContainerInstaller(state, log=messages.append).run()
+    assert old.read_bytes() == content
+    manifest = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
+    assert str(old) not in {w.path for w in manifest.wrappers}
+    assert str(state.bin_path / "elesim-register") in {w.path for w in manifest.wrappers}
+    assert any(str(old) in message and "Preserving" in message for message in messages)
