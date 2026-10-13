@@ -398,6 +398,12 @@ MPPI는 컨테이너에 보이는 첫 CUDA GPU를 사용한다. 여러 GPU가 �
 rollout을 분산하지는 않는다. 시작 로그에 선택 장치와 노출 GPU 수를 기록한다.
 고정 sample/iteration budget은 wall-clock deadline 보장을 의미하지 않는다.
 
+PyMPC 착지 계획은 현재 수평 COM 속도와 각 발의 남은 swing 시간으로 몸통
+이동을 예측하고, 기존 목표속도 기반 반 stance 보폭에 더한다. 예측 이동은
+수평 벡터 길이 0.15 m로 제한한다(완전한 관절 도달 가능성 검사는 아니다).
+착지점은 liftoff에서 고정하여 swing 제어와 MPC가 같은 목표를 사용한다.
+수직 이동 예측이나 pitch 보정, swing 도중 착지점 재계획은 적용하지 않는다.
+
 - physics loop에는 network peer, WebRTC encoder, DDS subscriber backlog를
   동기적으로 기다리는 코드가 없어야 한다.
 - 모든 입력 queue와 media frame slot은 유한하다. full이면 입력을 거부하거나

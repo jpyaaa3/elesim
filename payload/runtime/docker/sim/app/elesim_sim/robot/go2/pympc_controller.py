@@ -92,9 +92,19 @@ def touchdown_offsets_body(
 
 
 def touchdown_candidates_world(base_position, placements, *, yaw_rotation,
-                               velocity_world, desired_velocity_world) -> np.ndarray:
-    """Keep flat-ground foot placement level and bound velocity correction."""
+                               velocity_world, desired_velocity_world,
+                               remaining_swing_s=0.0) -> np.ndarray:
+    """Predict horizontal body travel before touchdown, then add stance lead."""
     candidates = np.asarray(base_position) + np.asarray(placements) @ yaw_rotation.T
+    remaining = np.broadcast_to(np.asarray(remaining_swing_s, dtype=float), (len(candidates),))
+    if not np.all(np.isfinite(remaining)) or np.any(remaining < 0.0):
+        raise ValueError("remaining swing time must be finite and nonnegative")
+    travel = remaining[:, None] * np.asarray(velocity_world, dtype=float)[None, :2]
+    # Bound the added prediction, including diagonal motion, so a velocity
+    # spike cannot move the landing target arbitrarily far away. This is an
+    # incremental bound, not a full kinematic reachability guarantee.
+    travel *= np.minimum(1.0, 0.15 / np.maximum(np.linalg.norm(travel, axis=1), 1e-12))[:, None]
+    candidates[:, :2] += travel
     # Land toward excess body motion to brake it. Limit the correction so a
     # transient velocity estimate cannot drag a foot outside its local stride.
     candidates[:, :2] += np.clip(
@@ -465,6 +475,12 @@ class PyMpcGenesisController:
         candidates = touchdown_candidates_world(
             q[:3], placements, yaw_rotation=yaw_rot,
             velocity_world=vel, desired_velocity_world=cmd_world,
+            remaining_swing_s=np.where(
+                contacts[:, 0] == 0,
+                (1.0 - ((self._gait_time() * float(self._config.gait_hz)
+                         + _PHASE_OFFSETS) % 1.0)) / float(self._config.gait_hz),
+                0.0,
+            ),
         )
         candidates[:, 2] = floor_z
         footholds = planned_footholds(
