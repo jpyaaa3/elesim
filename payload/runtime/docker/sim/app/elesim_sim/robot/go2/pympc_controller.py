@@ -34,6 +34,53 @@ _LEGS = (LegId.FL, LegId.FR, LegId.RL, LegId.RR)
 _PHASE_OFFSETS = np.array((0.0, 0.5, 0.5, 0.0))
 
 
+class ContactGatedGait:
+    """Pause the gait clock until scheduled support has actually landed."""
+
+    def __init__(self):
+        self.time = 0.0
+        self.blocked = True
+        self.confirmed = np.zeros(4, dtype=bool)
+        self.contact_age = np.zeros(4)
+        self.missing_age = np.zeros(4)
+        self.search = np.zeros(4, dtype=bool)
+        self.load = np.zeros(4)
+
+    def update(self, normal_forces, *, dt, gait_hz, duty, horizon_dt, horizon, settling):
+        normal = np.asarray(normal_forces, dtype=float)
+        if normal.shape != (4,) or not np.all(np.isfinite(normal)):
+            raise RuntimeError("invalid foot contact force feedback")
+        # Hysteresis suppresses tiny impulses; loss removes support immediately.
+        touching = normal > np.where(self.confirmed, 2.0, 5.0)
+        self.contact_age = np.where(touching, self.contact_age + dt, 0.0)
+        self.confirmed = touching & (self.contact_age >= 0.04 - 1e-9)
+        if not self.blocked and not settling:
+            self.time += dt
+        schedule = contact_schedule(
+            self.time, gait_hz=gait_hz, duty=duty, dt=horizon_dt, horizon=horizon,
+        )
+        if settling:
+            schedule.fill(1.0)
+        planned = schedule[:, 0].astype(bool)
+        self.search = planned & ~self.confirmed
+        self.missing_age = np.where(self.search, self.missing_age + dt, 0.0)
+        if np.any(self.missing_age > 0.30):
+            legs = ",".join(_LEGS[i].value for i in np.flatnonzero(self.search))
+            raise RuntimeError(f"touchdown timeout after 0.30s: {legs}")
+        self.load = np.where(
+            planned & self.confirmed,
+            np.clip((self.contact_age - 0.04 + dt) / 0.06, 0.0, 1.0), 0.0,
+        )
+        self.blocked = bool(np.any(planned & (self.load < 1.0)))
+        support = (planned & self.confirmed).astype(float)
+        if self.blocked:
+            # Do not promise future support or lift the old pair while waiting.
+            schedule[:] = support[:, None]
+        else:
+            schedule[:, 0] = support
+        return schedule
+
+
 def planned_footholds(feet, candidates, contacts, previous_contacts, touchdowns) -> np.ndarray:
     """Give MPC the same touchdown held by the swing controller until landing."""
     result = np.asarray(feet, dtype=float).copy()
@@ -228,6 +275,9 @@ class PyMpcGenesisController:
         self._swing_starts = np.zeros((4, 3))
         self._touchdowns = np.zeros((4, 3))
         self._last_contacts = np.ones(4)
+        self._contact_gait = ContactGatedGait()
+        self._search_targets = np.zeros((4, 3))
+        self._was_searching = np.zeros(4, dtype=bool)
         self._set_stand_actuation()
         self._entity.set_dofs_position(self._kin.stand_q, dofs_idx_local=self._leg_dof_idxs)
         self._apply_physics_params()
@@ -350,8 +400,7 @@ class PyMpcGenesisController:
                     and np.max(np.abs(tilt)) < 0.15)
 
     def _gait_time(self) -> float:
-        return (0.0 if self._walk_started_s is None
-                else max(0.0, self._sim_time - self._walk_started_s))
+        return self._contact_gait.time
 
     def _command_scale(self) -> float:
         if self._walk_started_s is None:
@@ -373,6 +422,9 @@ class PyMpcGenesisController:
         self._arm_q = tuple(float(x) for x in arm_q)
 
     def reset(self) -> None:
+        self._contact_gait = ContactGatedGait()
+        self._was_searching.fill(False)
+        self._search_targets.fill(0.0)
         self._cmd = Go2Command()
         self._command_shaper.reset()
         self._sim_time = 0.0
@@ -454,15 +506,25 @@ class PyMpcGenesisController:
         ref_rpy = rpy.copy()
         ref_rpy[0:2] = 0.0
         ref_rpy[2] += horizon_t * yaw_rate
-        contacts = contact_schedule(
-            self._gait_time(),
+        # Actual support feedback is required even with CSV diagnostics off.
+        link_forces = to_numpy_1d(self._entity.get_links_net_contact_force()).reshape(-1, 3)
+        normal_forces = np.array([
+            link_forces[self._entity.get_link(f"{leg.value}_foot").idx_local, 2]
+            for leg in _LEGS
+        ])
+        contacts = self._contact_gait.update(
+            normal_forces, dt=self._dt,
             gait_hz=float(self._config.gait_hz),
             duty=float(self._config.gait_duty),
-            dt=self._solver.dt,
+            horizon_dt=self._solver.dt,
             horizon=self._solver.horizon,
+            settling=getattr(self, "_settling", False),
         )
-        if getattr(self, "_settling", False):
-            contacts.fill(1.0)
+        if self._contact_gait.blocked:
+            cmd_world = np.zeros(3)
+            ref_com[:2] = com[:2]
+            ref_rpy[2] = rpy[2]
+            yaw_rate = 0.0
         floor_z = 0.025
         half_stance_s = 0.5 * float(self._config.gait_duty / self._config.gait_hz)
         placements = touchdown_offsets_body(
@@ -510,7 +572,10 @@ class PyMpcGenesisController:
         support_changed = not np.array_equal(contacts, self._last_contacts)
         # A force solution is valid only for the support set it was solved for.
         # In particular a newly grounded foot must not reuse its swing zero.
-        if self._step_i % self._solve_stride == 0 or support_changed:
+        if not np.any(contacts):
+            self._force_requested.fill(0.0)
+            self._forces.fill(0.0)
+        elif self._step_i % self._solve_stride == 0 or support_changed:
             started = time.perf_counter()
             self._force_requested = self._solver.solve(sample)
             alpha = float(np.clip(self._config.force_filter_alpha, 0.05, 1.0))
@@ -541,7 +606,24 @@ class PyMpcGenesisController:
         for i in range(4):
             sl = slice(i * 3, i * 3 + 3)
             if contacts[i] == 1:
-                tau[sl] = -jacobians[i].T @ self._forces[i]
+                tau[sl] = -jacobians[i].T @ (self._forces[i] * self._contact_gait.load[i])
+            elif self._contact_gait.search[i]:
+                if not self._was_searching[i]:
+                    self._search_targets[i] = feet[i]
+                    print(f"[go2_pympc] touchdown search leg={_LEGS[i].value} "
+                          f"sim_time={self._sim_time:.3f} foot_z={feet[i, 2]:.3f}")
+                # Keep XY at the missed landing location and search downward
+                # at 0.15 m/s, at most 4 cm below the entry position.
+                self._search_targets[i, 2] -= min(
+                    0.15 * self._dt,
+                    max(0.0, 0.04 - 0.15 * (self._contact_gait.missing_age[i] - self._dt)),
+                )
+                desired_vel = np.array((0.0, 0.0, -0.15))
+                task_force = (1000.0 * (self._search_targets[i] - feet[i])
+                              + 20.0 * (desired_vel - foot_vel[i]))
+                norm = np.linalg.norm(task_force)
+                task_force *= min(1.0, 60.0 / max(norm, 1e-12))
+                tau[sl] = jacobians[i].T @ task_force
             else:
                 if self._last_contacts[i] == 1:
                     self._swing_starts[i] = feet[i]
@@ -554,6 +636,7 @@ class PyMpcGenesisController:
                 task_force = 1000.0 * (target - feet[i]) + 20.0 * (desired_vel - foot_vel[i])
                 tau[sl] = jacobians[i].T @ task_force
             tau[sl] -= 0.5 * joint_vel[sl]
+        self._was_searching = self._contact_gait.search.copy()
         self._last_contacts = contacts.copy()
         if not np.all(np.isfinite(tau)):
             raise RuntimeError("PyMPC produced nonfinite joint torque")
@@ -613,7 +696,8 @@ class PyMpcGenesisController:
             elapsed_s=(self._dt if self._step_i == 0 else
                        self._contact_diagnostics.cadence_steps * self._dt),
             stance={leg: bool(sample.contacts[i, 0]) for i, leg in enumerate(_LEGS)},
-            desired_grf_world={leg: self._forces[i] for i, leg in enumerate(_LEGS)},
+            desired_grf_world={leg: self._forces[i] * self._contact_gait.load[i]
+                               for i, leg in enumerate(_LEGS)},
             physical_mu=float(self._config.physical_friction),
         )
         if diagnostic is not None:
@@ -659,6 +743,8 @@ class PyMpcGenesisController:
             return
 
         if stop_ready and self._pose_stage == "walk":
+            stop_ready = bool(np.all(self._contact_gait.confirmed)) and not self._contact_gait.blocked
+        if stop_ready and self._pose_stage == "walk":
             stop_ready = bool(np.all(contact_schedule(
                 self._gait_time(), gait_hz=float(self._config.gait_hz),
                 duty=float(self._config.gait_duty), dt=self._dt, horizon=2,
@@ -700,6 +786,8 @@ class PyMpcGenesisController:
             if self._sim_time >= self._ready_until and not target_idle:
                 self._pose_stage = "walk"
                 self._walk_started_s = self._sim_time
+                self._contact_gait = ContactGatedGait()
+                self._was_searching.fill(False)
                 self._step_i = 0
                 if self._contact_diagnostics is not None:
                     self._contact_diagnostics.reset()

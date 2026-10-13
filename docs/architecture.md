@@ -404,6 +404,17 @@ PyMPC 착지 계획은 현재 수평 COM 속도와 각 발의 남은 swing 시�
 착지점은 liftoff에서 고정하여 swing 제어와 MPC가 같은 목표를 사용한다.
 수직 이동 예측이나 pitch 보정, swing 도중 착지점 재계획은 적용하지 않는다.
 
+PyMPC는 매 제어 tick에 실제 foot link 수직 접촉력을 읽는다(CSV 진단과 독립).
+5 N 이상을 40 ms 확인해 지지를 허용하고, 확인된 접촉은 2 N 이하에서 해제한다.
+예정 지지발이 아직 접촉하지 않았거나 60 ms 하중 인계 중이면 gait clock을
+멈추고, MPC horizon도 확인된 지지발만 유지한다. 이 동안 추진 목표속도는 0이다.
+접촉하지 않은 예정 지지발은 현재 XY를 유지하며 0.15 m/s로 최대 4 cm 하강하고,
+탐색 task force는 60 N 및 기존 관절 토크 한계로 제한한다. 300 ms 동안
+확인되지 않으면 기존 latched fault/stand 경로로 전환한다. 접촉이 확인된 발의
+토크 변환에는 점진적 하중 계수를 적용하며 CSV desired GRF에도 반영한다.
+이는 실험적 flat-ground 접촉 전환이며, 하중 ramp는 최적화 후 적용되므로
+MPC 예측과 실제 힘의 완전한 일치를 보장하지 않는다. 실제 보행 검증은 별도다.
+
 - physics loop에는 network peer, WebRTC encoder, DDS subscriber backlog를
   동기적으로 기다리는 코드가 없어야 한다.
 - 모든 입력 queue와 media frame slot은 유한하다. full이면 입력을 거부하거나
