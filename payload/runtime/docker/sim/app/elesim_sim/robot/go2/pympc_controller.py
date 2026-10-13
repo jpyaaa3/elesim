@@ -42,18 +42,27 @@ class ContactGatedGait:
         self.blocked = True
         self.confirmed = np.zeros(4, dtype=bool)
         self.contact_age = np.zeros(4)
+        self.loss_age = np.zeros(4)
         self.missing_age = np.zeros(4)
         self.search = np.zeros(4, dtype=bool)
         self.load = np.zeros(4)
 
-    def update(self, normal_forces, *, dt, gait_hz, duty, horizon_dt, horizon, settling):
+    def prime(self, normal_forces, *, dt):
+        """Observe the already loaded feet while position control holds ready."""
         normal = np.asarray(normal_forces, dtype=float)
         if normal.shape != (4,) or not np.all(np.isfinite(normal)):
             raise RuntimeError("invalid foot contact force feedback")
-        # Hysteresis suppresses tiny impulses; loss removes support immediately.
-        touching = normal > np.where(self.confirmed, 2.0, 5.0)
-        self.contact_age = np.where(touching, self.contact_age + dt, 0.0)
-        self.confirmed = touching & (self.contact_age >= 0.04 - 1e-9)
+        self.contact_age = np.where(normal > 5.0, self.contact_age + dt, 0.0)
+        self.confirmed = self.contact_age >= 0.04 - 1e-9
+        # Existing support must not be unloaded and ramped again at startup.
+        self.load = self.confirmed.astype(float)
+        self.blocked = not bool(np.all(self.confirmed))
+
+    def update(self, normal_forces, *, dt, gait_hz, duty, horizon_dt, horizon, settling,
+               foot_heights):
+        normal = np.asarray(normal_forces, dtype=float)
+        if normal.shape != (4,) or not np.all(np.isfinite(normal)):
+            raise RuntimeError("invalid foot contact force feedback")
         if not self.blocked and not settling:
             self.time += dt
         schedule = contact_schedule(
@@ -62,15 +71,25 @@ class ContactGatedGait:
         if settling:
             schedule.fill(1.0)
         planned = schedule[:, 0].astype(bool)
+        heights = np.asarray(foot_heights, dtype=float)
+        if heights.shape != (4,) or not np.all(np.isfinite(heights)):
+            raise RuntimeError("invalid foot height feedback")
+        # Liftoff explicitly clears the old contact. During stance tolerate a
+        # brief unloading impulse, but never retain a visibly airborne foot.
+        self.confirmed &= planned
+        self.loss_age = np.where(planned & (normal <= 2.0), self.loss_age + dt, 0.0)
+        lost = (self.loss_age >= 0.08 - 1e-9) | ((normal <= 2.0) & (heights > 0.05))
+        self.confirmed &= ~lost
+        self.contact_age = np.where(planned & (normal > 5.0), self.contact_age + dt, 0.0)
+        self.confirmed |= planned & (self.contact_age >= 0.04 - 1e-9)
+        # Load age is independent of instantaneous contact force. A brief
+        # unloading must not repeatedly restart the landing ramp.
+        self.load = np.where(self.confirmed, np.minimum(1.0, self.load + dt / 0.06), 0.0)
         self.search = planned & ~self.confirmed
         self.missing_age = np.where(self.search, self.missing_age + dt, 0.0)
         if np.any(self.missing_age > 0.30):
             legs = ",".join(_LEGS[i].value for i in np.flatnonzero(self.search))
             raise RuntimeError(f"touchdown timeout after 0.30s: {legs}")
-        self.load = np.where(
-            planned & self.confirmed,
-            np.clip((self.contact_age - 0.04 + dt) / 0.06, 0.0, 1.0), 0.0,
-        )
         self.blocked = bool(np.any(planned & (self.load < 1.0)))
         support = (planned & self.confirmed).astype(float)
         if self.blocked:
@@ -209,6 +228,11 @@ class PyMpcGenesisController:
         self._data = self._model.createData()
         self._nominal_foot_offsets_body = np.asarray(
             [NOMINAL_FOOT_OFFSET_BODY[leg] for leg in _LEGS], dtype=float
+        )
+        # Slight hip abduction: widen each side by 1 cm without increasing
+        # forward stride or rotating the foot frame. Keep front/rear symmetry.
+        self._nominal_foot_offsets_body[:, 1] += (
+            np.sign(self._nominal_foot_offsets_body[:, 1]) * 0.01
         )
         self._entity = entity
         self._kin = Go2KinematicsModel.from_entity(entity)
@@ -361,6 +385,8 @@ class PyMpcGenesisController:
         if self._payload is not None:
             self._payload.reset()
         self._solver.reset()
+        self._contact_gait = ContactGatedGait()
+        self._was_searching.fill(False)
         self._pose_transition.begin(self._current_leg_pose(), self._kin.ready_q)
         self._pose_stage = "to_ready"
         self._active = True
@@ -507,18 +533,14 @@ class PyMpcGenesisController:
         ref_rpy[0:2] = 0.0
         ref_rpy[2] += horizon_t * yaw_rate
         # Actual support feedback is required even with CSV diagnostics off.
-        link_forces = to_numpy_1d(self._entity.get_links_net_contact_force()).reshape(-1, 3)
-        normal_forces = np.array([
-            link_forces[self._entity.get_link(f"{leg.value}_foot").idx_local, 2]
-            for leg in _LEGS
-        ])
         contacts = self._contact_gait.update(
-            normal_forces, dt=self._dt,
+            self._normal_contact_forces(), dt=self._dt,
             gait_hz=float(self._config.gait_hz),
             duty=float(self._config.gait_duty),
             horizon_dt=self._solver.dt,
             horizon=self._solver.horizon,
             settling=getattr(self, "_settling", False),
+            foot_heights=feet[:, 2],
         )
         if self._contact_gait.blocked:
             cmd_world = np.zeros(3)
@@ -565,6 +587,13 @@ class PyMpcGenesisController:
             simulation_time_s=self._sim_time,
         )
         return sample, feet, foot_vel, jacobians, dq[6:18]
+
+    def _normal_contact_forces(self) -> np.ndarray:
+        forces = to_numpy_1d(self._entity.get_links_net_contact_force()).reshape(-1, 3)
+        return np.array([
+            forces[self._entity.get_link(f"{leg.value}_foot").idx_local, 2]
+            for leg in _LEGS
+        ])
 
     def _torques(self, sample: PyMpcInput, feet: np.ndarray, foot_vel: np.ndarray,
                  jacobians: np.ndarray, joint_vel: np.ndarray) -> np.ndarray:
@@ -783,10 +812,10 @@ class PyMpcGenesisController:
             self._entity.control_dofs_position(
                 self._kin.ready_q, dofs_idx_local=self._leg_dof_idxs
             )
+            self._contact_gait.prime(self._normal_contact_forces(), dt=self._dt)
             if self._sim_time >= self._ready_until and not target_idle:
                 self._pose_stage = "walk"
                 self._walk_started_s = self._sim_time
-                self._contact_gait = ContactGatedGait()
                 self._was_searching.fill(False)
                 self._step_i = 0
                 if self._contact_diagnostics is not None:
