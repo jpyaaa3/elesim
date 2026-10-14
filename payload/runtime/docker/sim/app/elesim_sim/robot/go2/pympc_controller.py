@@ -27,6 +27,7 @@ from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
 from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge
 from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
 from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput
+from elesim_sim.robot.go2.foot_workspace import project_ground_target
 from elesim_sim.simulation.genesis.utils import to_numpy_1d
 
 
@@ -265,6 +266,8 @@ class PyMpcGenesisController:
         if any(frame >= self._model.nframes for frame in self._frames):
             raise RuntimeError("GO2 PyMPC URDF is missing a foot frame")
         self._data = self._model.createData()
+        self._foot_lower = self._model.lowerPositionLimit[7:19].reshape(4, 3).copy() + .04
+        self._foot_upper = self._model.upperPositionLimit[7:19].reshape(4, 3).copy() - .04
         self._nominal_foot_offsets_body = np.asarray(
             [NOMINAL_FOOT_OFFSET_BODY[leg] for leg in _LEGS], dtype=float
         )
@@ -605,6 +608,9 @@ class PyMpcGenesisController:
             remaining_swing_s=self._contact_gait.swing_remaining,
         )
         candidates[:, 2] = floor_z
+        for i in range(4):
+            if contacts[i, 0] == 0 and self._last_contacts[i] == 1:
+                candidates[i] = self._reachable_target(i, candidates[i])
         footholds = planned_footholds(
             feet, candidates, contacts[:, 0], self._last_contacts, self._touchdowns,
         )
@@ -625,6 +631,19 @@ class PyMpcGenesisController:
             simulation_time_s=self._sim_time,
         )
         return sample, feet, foot_vel, jacobians, dq[6:18]
+
+    def _reachable_target(self, leg: int, target: np.ndarray, *, max_shift=None) -> np.ndarray:
+        q = self._bridge.last_q
+        projected, feasible = project_ground_target(
+            leg, target, q[:3], Rotation.from_quat(q[3:7]).as_matrix(),
+            self._foot_lower[leg], self._foot_upper[leg],
+        )
+        if not feasible:
+            return target.copy()  # Contact timeout remains authoritative.
+        delta = projected - target
+        if max_shift is not None:
+            delta *= min(1., max_shift / max(np.linalg.norm(delta), 1e-12))
+        return target + delta
 
     def _normal_contact_forces(self) -> np.ndarray:
         forces = to_numpy_1d(self._entity.get_links_net_contact_force()).reshape(-1, 3)
@@ -694,6 +713,11 @@ class PyMpcGenesisController:
                 )
                 self._search_targets[i, 2] -= descent
                 desired_vel = np.array((0.0, 0.0, -descent / self._dt))
+                previous_target = self._search_targets[i].copy()
+                self._search_targets[i] = self._reachable_target(
+                    i, previous_target, max_shift=1.5 * self._dt,
+                )
+                desired_vel += (self._search_targets[i] - previous_target) / self._dt
                 task_force = (1000.0 * (self._search_targets[i] - feet[i])
                               + 20.0 * (desired_vel - foot_vel[i]))
                 norm = np.linalg.norm(task_force)

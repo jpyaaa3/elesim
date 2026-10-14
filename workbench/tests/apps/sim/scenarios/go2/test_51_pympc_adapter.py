@@ -106,6 +106,7 @@ def _init_contact_state(controller, elapsed_s=0.0):
     controller._was_searching = np.zeros(4, dtype=bool)
     controller._search_targets = np.zeros((4, 3))
     controller._normal_contact_forces = lambda: np.full(4, 50.)
+    controller._reachable_target = lambda _leg, target, **_kwargs: target.copy()
 
 
 def _init_torque_controller(controller, *, elapsed_s=1.0, config=None):
@@ -955,3 +956,19 @@ def test_search_depth_cap_also_stops_velocity_feedforward():
     state = PyMpcInput(**{**vars(sample()), 'contacts': np.zeros((4, 3))})
     tau = c._torques(state, feet, np.zeros((4, 3)), np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
     np.testing.assert_allclose(tau, np.zeros(12), atol=1e-10)
+
+
+def test_search_retarget_velocity_matches_lateral_reference_motion():
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(c)
+    c._dt = .02
+    c._last_contacts.fill(0)
+    c._was_searching.fill(True)
+    c._contact_gait.search.fill(True)
+    c._contact_gait.missing_age.fill(.30)
+    feet = sample().feet_world.copy()
+    c._search_targets[:] = feet
+    c._reachable_target = lambda _leg, target, **kw: target + np.array([.01,0,0])
+    state = PyMpcInput(**{**vars(sample()), 'contacts': np.zeros((4, 3))})
+    tau = c._torques(state, feet, np.zeros((4, 3)), np.tile(np.eye(3),(4,1,1)), np.zeros(12))
+    np.testing.assert_allclose(tau.reshape(4,3), np.tile([20.,0,0],(4,1)))

@@ -6,6 +6,27 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 발행 릴리즈 기반 TDD 및 착지 도달 범위 (2026-10-14)
+
+- `a46fbaa8be4c2ab7e7790a408b897143a2a9c31e`를 main에 push하고 양쪽의 설치된
+  `elesim-update`를 실행했다. 양쪽 release manifest의 source_revision을 확인했다.
+  원격 Sim `merry-eel`에서 네 방향 실패가 다시 재현됐다. 임시 app 소스를
+  덮어쓰지 않고 발행 이미지의 site-packages를 사용했다.
+- 원격 `tddwalk` Sim 전용 인스턴스는 GPU 2 UUID
+  `GPU-a40782b2-881c-e285-2a8e-66cae9162a01` 하나만 Docker에 예약한다.
+  컨테이너 nvidia-smi/torch/JAX에서도 장치 하나를 확인했다. 테스트는 실제
+  Genesis와 MPPI 4096×2를 사용하며 DDS, 카메라, Robot을 실행하지 않는다.
+  기존 `test` 인스턴스의 pin/보안 설정은 유지했다.
+- 새 TDD는 이동한 몸통에서 뒤에 남은 지면 목표의 관절 도달 범위를 검증한다.
+  해석적 FK/IK 및 동일 지면 투영 회귀는 5 failed/6 passed에서 green으로 전환.
+  배포 URDF/Pinocchio FK 교차 검사와 보정 속도 제한/속도 feedforward 회귀를
+  추가했다. 관절 여유 0.04 rad, 탐색 중 수평 목표 변화 상한 1.5 m/s이며
+  힘/토크 한계와 접촉 timeout은 유지한다. 해가 없으면 기존 timeout으로 실패한다.
+- canonical 개발 attachment의 Sim 전체: **563 passed, 3 skipped**.
+  제외는 qpOASES 1개와 opt-in 실제 camera worker smoke 2개다.
+  도달 범위 수정의 원격 발행 이미지 보행 비교는 아직 진행 전이다.
+  단위 테스트 성공은 보행 안정화의 증거가 아니다.
+
 ### URDF 영점 및 착지 목표 TDD (2026-10-14)
 
 - 고정 몸통/공중 발 추종 실험으로 MPC·보행 위상·바닥 충돌을 제외하고 실제
