@@ -4,7 +4,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput
+from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput, support_load_horizon
 from elesim_sim.robot.go2.pympc_jax import JaxMppiSolver
 
 
@@ -52,6 +52,47 @@ def test_gpu_receives_payload_and_actual_elapsed_time_then_reset():
     solver.reset()
     solver.solve(standing(time=0.))
     assert fake.resets == 1 and fake.received[-1]['elapsed_s'] == 0.
+
+
+def test_support_load_horizon_matches_contact_gate_ramp_and_liftoff():
+    # Stage zero is the load that will multiply the current GRF in _torques.
+    # A future landing starts the same 60 ms ramp only after its first stance.
+    contacts = np.array([[1., 1., 1., 1., 0.],
+                         [0., 0., 1., 1., 1.],
+                         [1., 1., 0., 1., 1.],
+                         [0., 0., 0., 0., 0.]])
+    loads = support_load_horizon(contacts, np.array([1/3, 0., 1., 0.]), .02)
+    np.testing.assert_allclose(loads[:, 0], [1/3, 2/3, 1., 1., 0.])
+    np.testing.assert_allclose(loads[:, 1], [0., 0., 1/3, 2/3, 1.])
+    np.testing.assert_allclose(loads[:, 2], [1., 1., 0., 1/3, 2/3])
+    np.testing.assert_array_equal(loads[:, 3], 0.)
+
+
+def test_gpu_passes_measured_support_load_without_changing_cpu_contract():
+    class RecordingReferenceBackend(RecordingBackend):
+        def compute_control(self, state, reference, contacts, **parameters):
+            self.reference = reference
+            return super().compute_control(state, reference, contacts, **parameters)
+
+    sample = replace(standing(), support_loads=np.array([1/3, 1., 1., 0.]))
+    gpu = RecordingReferenceBackend()
+    PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: gpu).solve(sample)
+    np.testing.assert_allclose(gpu.reference['support_loads'][0], sample.support_loads)
+    np.testing.assert_allclose(gpu.reference['support_loads'][1, 0], 2/3)
+    cpu = RecordingReferenceBackend()
+    PyMpcForceSolver(solver_factory=lambda: cpu).solve(sample)
+    assert 'support_loads' not in cpu.reference
+
+
+@pytest.mark.parametrize('support_loads', [np.array([-0.1, 1., 1., 1.]),
+                                                   np.array([1.1, 1., 1., 1.]),
+                                                   np.array([np.nan, 1., 1., 1.])])
+def test_invalid_support_load_rejected_before_gpu_dispatch(support_loads):
+    fake = RecordingBackend()
+    with pytest.raises(ValueError, match='support_loads'):
+        PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: fake).solve(
+            replace(standing(), support_loads=support_loads))
+    assert not fake.received
 
 
 @pytest.mark.parametrize('field,value', [('samples', 0), ('samples', 100000), ('samples', True),
@@ -131,6 +172,27 @@ def test_dynamic_mass_support_bounds_and_reset_determinism(cpu_math):
     assert np.all(forces[:, 2] >= 0.) and np.all(forces[:, 2] <= 180.)
     assert np.all(np.abs(forces[:, :2]) <= .55*forces[:, 2:3] + 1e-6)
     assert np.isfinite(cpu_math.last_cost)
+
+
+def test_landing_load_is_used_when_allocating_vertical_support(cpu_math):
+    adapter = PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: cpu_math)
+    # A forward moving, pitched body with a newly landed front-left foot.
+    # Scoring full requested GRF overestimates support from that foot.
+    sample = replace(standing(), com_position=np.array([.1, 0., .3]),
+                     com_velocity=np.array([.8, 0., 0.]),
+                     rpy=np.array([0., .3, 0.]),
+                     angular_velocity_body=np.array([0., .5, 0.]),
+                     desired_com_position=np.array([.15, 0., .3]),
+                     desired_com_velocity=np.array([.8, 0., 0.]))
+    sample.contacts[3] = 0.
+    loads = np.array([1/3, 1., 1., 0.])
+    ignored = adapter.solve(sample)
+    adapter.reset()
+    aware = adapter.solve(replace(sample, support_loads=loads))
+    old_applied = float(np.dot(ignored[:, 2], loads))
+    new_applied = float(np.dot(aware[:, 2], loads))
+    assert new_applied > old_applied + 20., (ignored, aware, old_applied, new_applied)
+    assert new_applied > 150.
 
 
 def test_rising_body_recovers_height_despite_horizontal_command_and_warm_start(cpu_math):

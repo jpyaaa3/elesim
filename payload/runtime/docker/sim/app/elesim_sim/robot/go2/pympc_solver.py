@@ -39,6 +39,7 @@ class PyMpcInput:
     inertia_body: np.ndarray
     simulation_time_s: float | None = None
     preview_footholds_world: np.ndarray | None = None
+    support_loads: np.ndarray | None = None
 
 
 def _finite_array(name: str, value: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
@@ -46,6 +47,32 @@ def _finite_array(name: str, value: np.ndarray, shape: tuple[int, ...]) -> np.nd
     if result.shape != shape or not np.all(np.isfinite(result)):
         raise ValueError(f"PyMPC {name} must be finite with shape {shape}, got {result.shape}")
     return result.copy()
+
+
+def support_load_horizon(contacts: np.ndarray, current: np.ndarray, dt: float) -> np.ndarray:
+    """Predict the force multiplier used by the contact-gated torque controller.
+
+    Rows in ``contacts`` are legs; rows in the result are horizon stages. The
+    current stage uses the measured gate load, then confirmed stance ramps by
+    one controller step per 60 ms. A future planned landing is an estimate:
+    actual confirmation can be later and will pause the gait clock.
+    """
+    contact = np.asarray(contacts, dtype=float)
+    if contact.ndim != 2 or contact.shape[0] != 4 or contact.shape[1] < 1:
+        raise ValueError("PyMPC contacts must have four legs and a nonempty horizon")
+    if not np.all(np.isfinite(contact)) or np.any((contact != 0.) & (contact != 1.)):
+        raise ValueError("PyMPC contact schedule must be binary")
+    load = _finite_array("support_loads", current, (4,))
+    if np.any((load < 0.) | (load > 1.)):
+        raise ValueError("PyMPC support_loads must be within [0, 1]")
+    if not np.isfinite(dt) or dt <= 0.:
+        raise ValueError("PyMPC support load horizon dt must be positive")
+    result = np.zeros((contact.shape[1], 4), dtype=float)
+    result[0] = contact[:, 0] * load
+    for stage in range(1, contact.shape[1]):
+        result[stage] = np.where(contact[:, stage] == 1.,
+                                 np.minimum(1., result[stage - 1] + dt / 0.06), 0.)
+    return result
 
 
 class PyMpcForceSolver:
@@ -245,6 +272,9 @@ class PyMpcForceSolver:
                 reference[f"preview_foot_{leg}"] = preview[index : index + 1]
         parameters = dict(mass=mass, inertia=inertia.reshape(9))
         if self.backend == "jax_mppi":
+            if sample.support_loads is not None:
+                reference["support_loads"] = support_load_horizon(
+                    contacts, sample.support_loads, self.dt)
             now = sample.simulation_time_s
             if now is not None and (not np.isfinite(now) or now < 0):
                 raise ValueError("PyMPC simulation time must be finite and nonnegative")

@@ -659,6 +659,7 @@ class PyMpcGenesisController:
             footholds_world=footholds,
             preview_footholds_world=preview,
             contacts=contacts,
+            support_loads=self._contact_gait.load.copy(),
             mass_kg=mass,
             inertia_body=inertia_body,
             simulation_time_s=self._sim_time,
