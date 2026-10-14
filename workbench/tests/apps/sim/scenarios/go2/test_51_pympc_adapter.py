@@ -13,6 +13,7 @@ from elesim_sim.robot.go2.pympc_controller import (
     ContactGatedGait,
     contact_schedule,
     planned_footholds,
+    future_touchdown_times,
     swing_foot_reference,
     touchdown_offsets_body,
 )
@@ -30,6 +31,16 @@ def test_planner_holds_swing_touchdown_while_body_and_candidates_move():
     later = planned_footholds(feet, candidates + 100, [1, 0, 0, 1], [1, 0, 0, 1], result)
     np.testing.assert_array_equal(later[[1, 2]], result[[1, 2]])
     assert not np.shares_memory(result, feet)
+
+
+def test_next_stance_touchdown_is_previewed_only_when_it_reenters_horizon():
+    schedule = contact_schedule(0., gait_hz=2.5, duty=.6, dt=.02, horizon=12)
+    np.testing.assert_allclose(
+        future_touchdown_times(schedule, gait_time=0., gait_hz=2.5),
+        [0., .2, .2, 0.], atol=1e-9,
+    )
+    held = np.tile(schedule[:, :1], (1, 12))
+    np.testing.assert_array_equal(future_touchdown_times(held, gait_time=0., gait_hz=2.5), 0.)
 
 
 def test_swing_velocity_matches_position_derivative():

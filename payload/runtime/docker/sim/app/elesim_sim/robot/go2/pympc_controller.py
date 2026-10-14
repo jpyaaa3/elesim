@@ -149,6 +149,16 @@ def planned_footholds(feet, candidates, contacts, previous_contacts, touchdowns)
     return result
 
 
+def future_touchdown_times(contacts, *, gait_time: float, gait_hz: float) -> np.ndarray:
+    """Nominal time to recontact only for a stance leg that cycles in horizon."""
+    support = np.asarray(contacts, dtype=float)
+    if support.ndim != 2 or support.shape[0] != 4 or gait_hz <= 0:
+        raise ValueError("future touchdown needs four contact rows and positive gait rate")
+    phase = (float(gait_time) * gait_hz + _PHASE_OFFSETS) % 1.0
+    recontact = np.any((support[:, 1:] > support[:, :-1]), axis=1)
+    return np.where((support[:, 0] == 1.) & recontact, (1. - phase) / gait_hz, 0.)
+
+
 def swing_foot_reference(progress, start, touchdown, *, duration_s, height_m=0.06,
                          phase_rate=1.0):
     """Position and matching world velocity for the bounded swing trajectory."""
@@ -616,6 +626,26 @@ class PyMpcGenesisController:
         footholds = planned_footholds(
             feet, candidates, contacts[:, 0], self._last_contacts, self._touchdowns,
         )
+        preview = footholds.copy()
+        if self._solver.backend == "jax_mppi":
+            future_s = future_touchdown_times(
+                contacts, gait_time=self._gait_time(), gait_hz=float(self._config.gait_hz),
+            )
+            if np.any(future_s):
+                base_velocity_world = rot_m @ dq[:3]
+                future = touchdown_candidates_world(
+                    q[:3], placements, yaw_rotation=yaw_rot,
+                    velocity_world=base_velocity_world, desired_velocity_world=cmd_world,
+                    remaining_swing_s=future_s,
+                )
+                future[:, 2] = floor_z
+                for i in np.flatnonzero(future_s):
+                    predicted_base = q[:3] + base_velocity_world * future_s[i]
+                    projected, feasible = project_ground_target(
+                        int(i), future[i], predicted_base, rot_m,
+                        self._foot_lower[i], self._foot_upper[i],
+                    )
+                    preview[i] = projected if feasible else future[i]
         sample = PyMpcInput(
             com_position=com,
             com_velocity=vel,
@@ -627,6 +657,7 @@ class PyMpcGenesisController:
             desired_rpy=ref_rpy,
             desired_angular_velocity_body=np.array((0.0, 0.0, yaw_rate)),
             footholds_world=footholds,
+            preview_footholds_world=preview,
             contacts=contacts,
             mass_kg=mass,
             inertia_body=inertia_body,

@@ -414,6 +414,11 @@ liftoff 후보는 현재 몸통 자세와 URDF 관절 한계(0.04 rad 여유)로
 이동시킨다. 분석적 GO2 FK는 배포 URDF/Pinocchio와 교차 검사한다.
 착지점은 liftoff에서 고정하여 swing 제어와 MPC가 같은 목표를 사용한다.
 수직 이동 예측이나 pitch 보정, swing 도중 착지점 재계획은 적용하지 않는다.
+JAX MPPI는 현재 지지발이 horizon 안에서 liftoff/재착지를 모두 거칠 때
+예상 착지 시점의 base 이동과 발 목표를 별도 preview로 사용한다. Liftoff
+전에는 실제 발 위치를, 그 뒤에는 예상 착지 목표를 사용한다. Swing 제어가
+고정해 둔 touchdown과 acados의 기존 발 상태 계약은 건드리지 않는다.
+Acados 고정 모델은 발 속도 상태가 0이라 이 preview를 지원하지 않는다.
 
 팔 payload의 COM 높이 목표는 nominal 몸통 높이에 현재 COM-base 높이 차를
 더한다. 몸통 전체가 상승해도 목표가 같이 상승하지 않도록 실제 base 높이를

@@ -256,11 +256,14 @@ class JaxMppiSolver:
         feet = (np.array([state[f"foot_{leg}"] for leg in LEGS])-origin).astype(np.float32)
         targets_world = np.array([reference[f"ref_foot_{leg}"][0] for leg in LEGS])
         targets = (targets_world-origin).astype(np.float32)
+        preview_world = np.array([reference.get(f"preview_foot_{leg}",
+                                   reference[f"ref_foot_{leg}"])[0] for leg in LEGS])
+        preview = (preview_world-origin).astype(np.float32)
         contact = np.asarray(contacts.T, dtype=np.float32)
         # A foot keeps its measured support position until its first swing;
         # after that, the controller's latched touchdown owns its next stance.
         has_swung = np.maximum.accumulate(1.-contact, axis=0).astype(bool)
-        feet_horizon = np.where(has_swung[..., None], targets[None], feet[None])
+        feet_horizon = np.where(has_swung[..., None], preview[None], feet[None])
         inertia = np.asarray(inertia, dtype=np.float32).reshape(3, 3)
         mean = self._mean
         fresh = mean is None or elapsed_s >= self.horizon*self.dt

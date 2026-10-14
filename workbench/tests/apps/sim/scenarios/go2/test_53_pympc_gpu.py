@@ -154,6 +154,45 @@ def test_rising_body_recovers_height_despite_horizontal_command_and_warm_start(c
     assert max(heights) < .38 and vz < 0., (forces, heights, vz)
 
 
+def test_future_stance_support_uses_preview_only_after_liftoff():
+    from types import SimpleNamespace
+    from elesim_sim.robot.go2.pympc_controller import contact_schedule
+    from elesim_sim.robot.go2.pympc_jax import JaxMppiSolver
+    adapter = JaxMppiSolver.__new__(JaxMppiSolver)
+    adapter.horizon, adapter.dt = 12, .02
+    adapter._jax = SimpleNamespace(device_put=lambda value, _device: value)
+    adapter.device = object()
+    adapter._key = np.array([0, 42], dtype=np.uint32)
+    adapter._mean = None
+    seen = {}
+
+    def optimize(x, ref, feet, contacts, *rest):
+        seen['feet'] = np.asarray(feet)
+        seen['contacts'] = np.asarray(contacts)
+        return np.zeros((12, 4, 3)), adapter._key, 0.
+
+    adapter._optimize = optimize
+    nominal = standing()
+    schedule = contact_schedule(0., gait_hz=2.5, duty=.6, dt=.02, horizon=12)
+    state = dict(position=nominal.com_position, linear_velocity=nominal.com_velocity,
+                 orientation=nominal.rpy, angular_velocity=nominal.angular_velocity_body)
+    ref = dict(ref_position=nominal.desired_com_position,
+               ref_linear_velocity=nominal.desired_com_velocity,
+               ref_orientation=nominal.desired_rpy,
+               ref_angular_velocity=nominal.desired_angular_velocity_body)
+    for leg, foot in zip(('FL','FR','RL','RR'), nominal.feet_world):
+        state[f'foot_{leg}'] = foot
+        ref[f'ref_foot_{leg}'] = foot[None]
+        ref[f'preview_foot_{leg}'] = foot[None] + [0.2, 0., 0.]
+    adapter.compute_control(state, ref, schedule, mass=18.,
+                            inertia=np.diag([.2,.5,.5]).reshape(9), elapsed_s=0.)
+    origin = nominal.com_position
+    np.testing.assert_allclose(seen['feet'][0, 1], nominal.feet_world[1]-origin, atol=1e-6)
+    np.testing.assert_allclose(seen['feet'][-1, 1], nominal.feet_world[1]+[.2,0,0]-origin, atol=1e-6)
+    np.testing.assert_allclose(seen['feet'][:, 0],
+                               np.tile(nominal.feet_world[0]-origin, (12,1)), atol=1e-6)
+
+
 def test_dynamic_inertia_changes_solution_without_recompiling(cpu_math):
     adapter = PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: cpu_math)
     sample = replace(standing(), rpy=np.array([.1, .15, 0.]))

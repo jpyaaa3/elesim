@@ -38,6 +38,7 @@ class PyMpcInput:
     mass_kg: float
     inertia_body: np.ndarray
     simulation_time_s: float | None = None
+    preview_footholds_world: np.ndarray | None = None
 
 
 def _finite_array(name: str, value: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
@@ -218,6 +219,8 @@ class PyMpcForceSolver:
             "desired_angular_velocity_body", sample.desired_angular_velocity_body, (3,)
         )
         footholds = _finite_array("footholds_world", sample.footholds_world, (4, 3))
+        preview = (_finite_array("preview_footholds_world", sample.preview_footholds_world, (4, 3))
+                   if sample.preview_footholds_world is not None else footholds)
         contacts = _finite_array("contacts", sample.contacts, (4, self.horizon))
         if np.any((contacts != 0.0) & (contacts != 1.0)):
             raise ValueError("PyMPC contact schedule must be binary")
@@ -238,6 +241,8 @@ class PyMpcForceSolver:
         for index, leg in enumerate(LEGS):
             state[f"foot_{leg}"] = feet[index]
             reference[f"ref_foot_{leg}"] = footholds[index : index + 1]
+            if self.backend == "jax_mppi":
+                reference[f"preview_foot_{leg}"] = preview[index : index + 1]
         parameters = dict(mass=mass, inertia=inertia.reshape(9))
         if self.backend == "jax_mppi":
             now = sample.simulation_time_s

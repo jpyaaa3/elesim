@@ -8,6 +8,16 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### 발행 릴리즈 기반 TDD 및 착지 도달 범위 (2026-10-14)
 
+- `fa85b44`를 push/양쪽 update하고 원격 GPU2 Sim `merry-elephant`로
+  4096×2, 50 Hz, substeps=4, 전후좌우 6초 명령+2초 정지를 실행했다.
+  좌우는 통과(+0.616/-0.511 m), 전진은 7.08 s/+1.111 m,
+  후진은 6.16 s/-0.570 m에 넘어져 미통과. 전진의 최대 roll 0.775 rad였다.
+  필터만 force/tau alpha 1로 바꾸는 A/B는 네 방향 모두 더 빨리 실패했다.
+  현장 설정 .7/.5 필터의 지연은 약 37 ms이며 이 값은 유지한다.
+- 추가 MPPI horizon TDD: 현재 지지발이 horizon 중 swing 후 재접촉할 때
+  기존 모델은 그 발을 이전 위치에 다시 둔다. 예측 착지 시점을 계산해 그
+  이후 지지 위치만 앞으로 이동한 목표로 표시하고, 이미 시작한 swing의
+  latch는 유지한다. 해당 회귀와 실제 새 이미지 보행 비교를 진행한다.
 - `731c5ca`도 push 및 양쪽 `elesim-update` 완료. 원격 Sim `merry-orca`의
   기본 50 Hz 전후좌우는 모두 실패(3.88/3.18/5.24/5.88 s).
   같은 이미지에서 dt=0.005, MPPI solve 25 Hz로 비교하면 좌우는 6초 명령과
