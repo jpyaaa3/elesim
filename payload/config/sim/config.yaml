@@ -45,7 +45,8 @@ profiles:
 simulation:
   physics:
     dt: 0.02
-    substeps: 1
+    # Keep 50 Hz control while resolving foot contacts at 200 Hz.
+    substeps: 4
     realtime: true
     realtime_factor: 1.0
     gravity: [0.0, 0.0, 0.0]

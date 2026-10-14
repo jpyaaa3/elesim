@@ -14,12 +14,23 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   2초 정지까지 통과(각 약 0.57 m, 최대 roll/pitch 약 0.12 rad)했다.
   전진은 4.52 s/+0.486 m, 후진은 7.24 s/-1.395 m에 실패했다.
   각 시간은 settle 2초를 포함한다. 이는 단일 trial이며 기본 dt 변경 근거로
-  확정하지 않는다. 물리 substeps=4 비교는 별도 진행한다.
+  확정하지 않는다. dt=0.02/substeps=4도 좌우는 통과했으나 전후는 실패했다.
+  물리 1 step에서 -5.5 cm였던 최소 foot Z는 4 substeps에서 +1.6 cm 이상이었다.
+  200 Hz control의 step median 약 14 ms 대비 50 Hz/4 substeps는 약 21 ms였다.
 - 전진 실패에서 base z=0.38 m 및 rear calf 신전 한계 포화를 확인했다.
   payload 높이 목표가 `max(nominal, current COM - .01)`이라 몸통 상승에 대한
   복원 오차가 1 cm로 제한되는 결함을 수정한다. 목표를 nominal body height +
   현재 COM-base 높이 차로 정해 팔의 COM 상승과 몸통 상승을 구분한다.
-  새 높이 회귀 red 확인 후 구현했으며 실제 발행 이미지 비교는 진행 전이다.
+  `0efbe67`로 push/양쪽 update 후 Sim `merry-magpie`에서 회귀 green 및
+  substeps=4 물리 보행을 확인했다. 전후 실패가 남고 좌측만 정지까지 통과해
+  높이 기준 수정만으로 보행이 안정화됐다고 판단하지 않는다.
+- 추가 계측에서 base가 목표보다 6 cm 높고 상승 중에도 MPPI 요청 Fz가
+  207 N(중력 약 153 N)을 기록했다. 솔버 단독의 상승/warm-start 회귀도 red였다.
+  수직 높이/속도 및 roll/pitch 비용을 강화하고 현재 상태 seed도 결정적
+  incumbent 후보에 포함한다. 240 ms 계획의 추가 상승을 2 cm 이하로 제한하고
+  끝에서 하강하도록 검사한다. canonical 개발 attachment에서 Sim+보행 진행
+  회귀 **566 passed, 3 skipped**. 강한 벌점의 실제 보행 영향은 발행 이미지로
+  별도 검증해야 하며 이 단계의 성공을 아직 선언하지 않는다.
 - `a46fbaa8be4c2ab7e7790a408b897143a2a9c31e`를 main에 push하고 양쪽의 설치된
   `elesim-update`를 실행했다. 양쪽 release manifest의 source_revision을 확인했다.
   원격 Sim `merry-eel`에서 네 방향 실패가 다시 재현됐다. 임시 app 소스를
@@ -36,7 +47,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   힘/토크 한계와 접촉 timeout은 유지한다. 해가 없으면 기존 timeout으로 실패한다.
 - canonical 개발 attachment의 Sim 전체: **563 passed, 3 skipped**.
   제외는 qpOASES 1개와 opt-in 실제 camera worker smoke 2개다.
-  도달 범위 수정의 원격 발행 이미지 보행 비교는 아직 진행 전이다.
+  도달 범위 수정의 원격 발행 이미지 보행 비교도 위와 같이 미통과다.
   단위 테스트 성공은 보행 안정화의 증거가 아니다.
 
 ### URDF 영점 및 착지 목표 TDD (2026-10-14)

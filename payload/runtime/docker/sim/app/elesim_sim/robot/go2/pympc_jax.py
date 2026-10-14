@@ -160,8 +160,9 @@ class JaxMppiSolver:
                 x = x + dt*derivative(mid, force, foot, mass, inertia, inverse)
                 error = x-reference
                 error = error.at[6:9].set(angle_error(x[6:9], reference[6:9]))
-                # Prioritize commanded planar velocity over force economy.
-                q = jp.array([0., 0., 1500., 2000., 2000., 200., 500., 500., 0., 20., 20., 2000.])
+                # Horizontal tracking must not buy speed by launching or
+                # tipping the body out of the legs' support workspace.
+                q = jp.array([0., 0., 200000., 2000., 2000., 8000., 8000., 8000., 0., 200., 200., 2000.])
                 state_cost = jp.sum(q*error**2)
                 nominal_z = mass*9.81/jp.maximum(jp.sum(contact), 1.)
                 force_error = force - contact[:, None]*jp.array([0., 0., nominal_z])
@@ -229,8 +230,13 @@ class JaxMppiSolver:
                 # Keep an improving weighted update. Selecting a single lucky
                 # noisy rollout injects force/yaw jitter into the physical gait.
                 weighted_cost = score(x, reference, feet, contacts, mass, inertia, inverse, weighted)
-                incumbent_cost = costs[0]
-                result = jp.where(weighted_cost <= incumbent_cost, weighted, mean)
+                # The fresh feedback seed is a deterministic candidate too.
+                # Do not discard it when averaging noisy trajectories makes
+                # a worse solution than that available recovery trajectory.
+                seed_better = costs[1] < costs[0]
+                incumbent = jp.where(seed_better, seed, mean)
+                incumbent_cost = jp.minimum(costs[0], costs[1])
+                result = jp.where(weighted_cost <= incumbent_cost, weighted, incumbent)
                 return result, key
             mean, key = jax.lax.fori_loop(0, iterations, improve, (mean, key))
             cost = score(x, reference, feet, contacts, mass, inertia, inverse, mean)

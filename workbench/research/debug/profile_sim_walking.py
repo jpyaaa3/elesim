@@ -111,6 +111,21 @@ def main() -> None:
                 scene.start_frame_dispatchers()
             entity = scene.go2_entity
             controller = scene.go2._controller
+            latest_control = {}
+            original_sample = controller._sample
+
+            def observe_control_sample():
+                result = original_sample()
+                sample = result[0]
+                latest_control.update(
+                    com=sample.com_position.tolist(),
+                    desired_com=sample.desired_com_position.tolist(),
+                    velocity=sample.com_velocity.tolist(),
+                    desired_velocity=sample.desired_com_velocity.tolist(),
+                )
+                return result
+
+            controller._sample = observe_control_sample
             solve_times = []
             controller._timing_sink = lambda name, seconds: (
                 solve_times.append(seconds) if name == "go2_pympc_solve" else None
@@ -125,6 +140,7 @@ def main() -> None:
                       camera_target_hz=[cfg.sim_camera_max_hz, cfg.sim_observer_camera_max_hz] if args.cameras else None))
             for trial in range(args.repeat):
                 scene.reset_environment(mapping_cfg=app._proto_cfg)
+                latest_control.clear()
                 began = time.perf_counter()
                 samples = []
                 solve_times.clear()
@@ -192,6 +208,12 @@ def main() -> None:
                             tau_limited=controller._tau_limited.tolist(),
                             touchdowns=controller._touchdowns.tolist(),
                             search_targets=controller._search_targets.tolist(),
+                        )
+                    if latest_control:
+                        row["centroidal_control"] = dict(
+                            **latest_control,
+                            requested_forces=controller._force_requested.tolist(),
+                            applied_forces=(controller._forces * controller._contact_gait.load[:, None]).tolist(),
                         )
                     gate = getattr(controller, "_contact_gait", None)
                     if gate is not None:

@@ -133,6 +133,27 @@ def test_dynamic_mass_support_bounds_and_reset_determinism(cpu_math):
     assert np.isfinite(cpu_math.last_cost)
 
 
+def test_rising_body_recovers_height_despite_horizontal_command_and_warm_start(cpu_math):
+    """An old propulsive solution must not keep launching an elevated body."""
+    adapter = PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: cpu_math)
+    sample = replace(standing(), com_position=np.array([0., 0., .36]),
+                     com_velocity=np.array([0., 0., .25]),
+                     desired_com_velocity=np.array([.8, 0., 0.]))
+    cpu_math._mean = cpu_math._jax.device_put(
+        np.tile([20., 0., 55.], (12, 4, 1)).astype(np.float32), cpu_math.device)
+    forces = adapter.solve(sample)
+    z, vz = sample.com_position[2], sample.com_velocity[2]
+    heights = []
+    for stage in np.asarray(cpu_math._mean):
+        acceleration = stage[:, 2].sum() / sample.mass_kg - 9.81
+        z += vz * cpu_math.dt + .5 * acceleration * cpu_math.dt**2
+        vz += acceleration * cpu_math.dt
+        heights.append(z)
+    # At +0.25 m/s some further rise is unavoidable. Bound it to 2 cm and
+    # require descent by the end of the 240 ms prediction horizon.
+    assert max(heights) < .38 and vz < 0., (forces, heights, vz)
+
+
 def test_dynamic_inertia_changes_solution_without_recompiling(cpu_math):
     adapter = PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: cpu_math)
     sample = replace(standing(), rpy=np.array([.1, .15, 0.]))
