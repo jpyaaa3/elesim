@@ -3054,9 +3054,9 @@ class RuntimePrep:
                     merge_fixed_links=False,
                 )
             )
-            from elesim_sim.robot.go2.initial_pose import prepare_neutral_stand_pose
+            from elesim_sim.robot.go2.initial_pose import validate_initial_stand_pose
 
-            prepare_neutral_stand_pose(ent)
+            validate_initial_stand_pose(ent)
             go2_entity = ent
             print(f"[runtime] GO2+arm spawned at {go2_pos} fixed=false from {urdf_path}")
         else:

@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from elesim_sim.robot.go2.initial_pose import (
-    prepare_neutral_joint_positions,
-    prepare_neutral_stand_pose,
+    validate_initial_joint_positions,
+    validate_initial_stand_pose,
 )
 from elesim_sim.robot.go2.locomotion.kinematics import GO2_STAND_Q
 
@@ -20,19 +20,19 @@ def entity():
     return SimpleNamespace(is_built=False, get_joint=joints.__getitem__), joints
 
 
-def test_stand_is_written_before_build_with_original_float_dtype():
+def test_stand_validation_preserves_urdf_zero_reference():
     robot, joints = entity()
-    prepare_neutral_stand_pose(robot)
+    validate_initial_stand_pose(robot)
     for name, value in GO2_STAND_Q.items():
         assert joints[name].desc.init_qpos.dtype == np.float32
-        assert joints[name].desc.init_qpos[0] == pytest.approx(value)
+        assert joints[name].desc.init_qpos[0] == 0
 
 
-def test_configured_pose_is_not_replaced_by_runtime_stand():
+def test_ready_pose_validation_never_shifts_joint_limit_coordinates():
     robot, joints = entity()
-    prepare_neutral_joint_positions(robot, {"FL_thigh_joint": 0.9, "FL_calf_joint": -1.8})
-    assert joints["FL_thigh_joint"].desc.init_qpos[0] == pytest.approx(0.9)
-    assert joints["FL_calf_joint"].desc.init_qpos[0] == pytest.approx(-1.8)
+    validate_initial_joint_positions(robot, {"FL_thigh_joint": 0.9, "FL_calf_joint": -1.8})
+    assert joints["FL_thigh_joint"].desc.init_qpos[0] == 0
+    assert joints["FL_calf_joint"].desc.init_qpos[0] == 0
     assert joints["FR_thigh_joint"].desc.init_qpos[0] == 0
 
 
@@ -50,7 +50,7 @@ def test_invalid_joint_leaves_all_descriptions_unchanged(invalid):
         joints[last].desc.dofs_limit = np.array([[np.nan, np.nan]])
     before = {name: joint.desc.init_qpos.copy() for name, joint in joints.items()}
     with pytest.raises(ValueError):
-        prepare_neutral_stand_pose(robot)
+        validate_initial_stand_pose(robot)
     for name, joint in joints.items():
         np.testing.assert_array_equal(joint.desc.init_qpos, before[name])
 
@@ -59,4 +59,16 @@ def test_built_scene_is_never_mutated():
     robot, _ = entity()
     robot.is_built = True
     with pytest.raises(RuntimeError, match="before scene.build"):
-        prepare_neutral_stand_pose(robot)
+        validate_initial_stand_pose(robot)
+
+
+def test_ready_angle_and_joint_limits_share_the_urdf_reference():
+    robot, joints = entity()
+    calf = joints['FL_calf_joint'].desc
+    calf.dofs_limit = np.array([[-2.7227, -.83776]])
+    before = calf.dofs_limit.copy()
+    validate_initial_stand_pose(robot)
+    ready = -1.8
+    raw_qpos = ready + calf.init_qpos[0]  # Genesis set_dofs_position contract
+    assert calf.dofs_limit[0, 0] <= raw_qpos <= calf.dofs_limit[0, 1]
+    np.testing.assert_array_equal(calf.dofs_limit, before)

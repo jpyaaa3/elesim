@@ -37,7 +37,8 @@ def test_sim_configs_load_with_role_owned_schema(name: str) -> None:
     assert bundle.sim_config.visualizer_max_hz == 30.0
     assert bundle.go2_locomotion_config.mode == "pympc"
     assert bundle.go2_locomotion_config.mpc_solver_backend == "jax_mppi"
-    assert bundle.go2_locomotion_config.mpc_gpu_iterations == 4
+    assert bundle.go2_locomotion_config.mpc_gpu_samples == 4096
+    assert bundle.go2_locomotion_config.mpc_gpu_iterations == 2
     assert not hasattr(bundle, "pick_config")
     assert not hasattr(bundle, "perception_config")
     assert not hasattr(bundle, "gaze_stabilizer_config")
@@ -64,7 +65,7 @@ def test_gpu_mpc_selection_is_explicit(tmp_path):
     bundle = load_app_config(str(config))
     assert bundle.go2_locomotion_config.mpc_solver_backend == "jax_mppi"
     assert bundle.go2_locomotion_config.mpc_gpu_samples == 2048
-    assert bundle.go2_locomotion_config.mpc_gpu_iterations == 4
+    assert bundle.go2_locomotion_config.mpc_gpu_iterations == 2
 
 
 @pytest.mark.parametrize("key,value", [("solver_backend", "auto"), ("gpu_samples", 0),

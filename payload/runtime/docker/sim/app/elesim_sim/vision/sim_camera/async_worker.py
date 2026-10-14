@@ -427,9 +427,9 @@ def _camera_render_process_main(
             )
         )
         if "FL_calf_joint" in spec.robot_joint_names:
-            from elesim_sim.robot.go2.initial_pose import prepare_neutral_stand_pose
+            from elesim_sim.robot.go2.initial_pose import validate_initial_stand_pose
 
-            prepare_neutral_stand_pose(entity)
+            validate_initial_stand_pose(entity)
         print(f"[sim-camera-worker] {streams} robot loaded in {time.perf_counter() - t_model:.2f}s", flush=True)
 
         mock_entities: dict[str, Any] = {}

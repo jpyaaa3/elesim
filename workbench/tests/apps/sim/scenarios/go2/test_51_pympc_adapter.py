@@ -10,6 +10,7 @@ from elesim_sim.robot.go2.locomotion.pose import JointPoseTransition, smoothstep
 from elesim_sim.robot.go2.locomotion.types import ALL_LEGS, Go2Command
 from elesim_sim.robot.go2.pympc_controller import (
     PyMpcGenesisController,
+    ContactGatedGait,
     contact_schedule,
     planned_footholds,
     swing_foot_reference,
@@ -97,7 +98,18 @@ def _torque_config(**overrides):
     return SimpleNamespace(**values)
 
 
+def _init_contact_state(controller, elapsed_s=0.0):
+    controller._contact_gait = ContactGatedGait()
+    controller._contact_gait.prime([50.] * 4, dt=.04)
+    controller._contact_gait.time = elapsed_s
+    controller._contact_gait.phase_rate = 1.0
+    controller._was_searching = np.zeros(4, dtype=bool)
+    controller._search_targets = np.zeros((4, 3))
+    controller._normal_contact_forces = lambda: np.full(4, 50.)
+
+
 def _init_torque_controller(controller, *, elapsed_s=1.0, config=None):
+    _init_contact_state(controller, elapsed_s)
     controller._metrics = None
     controller._contact_diagnostics = None
     controller._step_i = 0
@@ -107,6 +119,10 @@ def _init_torque_controller(controller, *, elapsed_s=1.0, config=None):
     )
     controller._timing_sink = None
     controller._config = config or _torque_config()
+    phase = (elapsed_s * controller._config.gait_hz + np.array([0., .5, .5, 0.])) % 1.
+    controller._contact_gait.swing_progress = np.clip(
+        (phase - controller._config.gait_duty) / (1. - controller._config.gait_duty), 0., 1.)
+    controller._contact_gait._swinging[:] = True
     controller._sim_time = elapsed_s
     controller._walk_started_s = 0.0
     controller._last_contacts = np.ones(4)
@@ -218,6 +234,7 @@ def test_invalid_inertia_and_contact_are_rejected_before_solver() -> None:
 
 def test_stance_ground_reaction_is_opposed_by_joint_torque() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(controller)
     _init_torque_controller(controller)
     controller._solver = SimpleNamespace(solve=lambda _sample: np.tile([0, 0, 50], (4, 1)))
     state = PyMpcInput(**{**vars(sample()), "contacts": np.ones((4, 3))})
@@ -230,6 +247,7 @@ def test_stance_ground_reaction_is_opposed_by_joint_torque() -> None:
 
 def test_force_filter_reprojects_stance_and_zeros_swing_legs() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(controller)
     _init_torque_controller(
         controller,
         config=_torque_config(
@@ -265,6 +283,7 @@ def test_force_filter_reprojects_stance_and_zeros_swing_legs() -> None:
 
 def test_swing_uses_velocity_reference_without_stance_damping_or_old_torque():
     c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(c)
     _init_torque_controller(c, elapsed_s=.32, config=_torque_config(
         gait_hz=2.5, gait_duty=.6, aux_kv=100., tau_filter_alpha=.1,
     ))
@@ -287,6 +306,7 @@ def test_swing_uses_velocity_reference_without_stance_damping_or_old_torque():
 
 def test_torque_startup_ramp_fades_ready_pose_assist() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(controller)
     _init_torque_controller(
         controller,
         elapsed_s=0.11,
@@ -309,11 +329,23 @@ def test_torque_startup_ramp_fades_ready_pose_assist() -> None:
         ramped.reshape(4, 3), [[1.1625, 1.1625, -32.5875]] * 4
     )
     controller._sim_time = 0.17
+    controller._contact_gait.time = 0.17
     controller._step_i = 1  # reuse the filtered GRF; do not solve again
     completed = controller._torques(
         state, state.feet_world, np.zeros((4, 3)), jacobians, joint_velocity
     )
     np.testing.assert_allclose(completed.reshape(4, 3), [[-6.5, -6.5, -56.5]] * 4)
+
+
+def test_contact_wait_does_not_freeze_startup_torque_or_pose_assistance():
+    controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(controller, elapsed_s=1.,
+                           config=_torque_config(torque_warmup_s=.05, torque_ramp_s=.12,
+                                                 aux_kp=15., aux_kv=2.))
+    controller._contact_gait.time = 0.
+    controller._contact_gait.blocked = True
+    assert controller._torque_scale() == 1.
+    np.testing.assert_array_equal(controller._aux_pd_torque(np.zeros(12)), np.zeros(12))
 
 
 def test_payload_com_height_does_not_request_a_sudden_drop() -> None:
@@ -327,6 +359,7 @@ def test_payload_com_height_does_not_request_a_sudden_drop() -> None:
 @pytest.mark.parametrize("moving", [False, True])
 def test_idle_clears_previous_gait_force_and_rearms_torque_mode(moving) -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(controller)
     controller._metrics = None
     controller._contact_diagnostics = None
     controller._dt = 0.02
@@ -398,6 +431,7 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode(moving) -> None:
 
 def test_idle_startup_stays_in_stand_during_stop_dwell() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(controller)
     controller._metrics = None
     controller._contact_diagnostics = None
     controller._dt = 0.02
@@ -524,6 +558,7 @@ def test_new_pose_transition_can_interrupt_from_current_joint_pose() -> None:
 
 def test_idle_to_motion_interpolates_stand_pose_before_ready_hold() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(controller)
     controller._metrics = None
     controller._contact_diagnostics = None
     controller._metrics = None
@@ -628,6 +663,7 @@ def test_pympc_records_contact_forces_and_preclip_torque():
     from unittest.mock import Mock
 
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(controller)
     controller._metrics = None
     controller._contact_diagnostics = None
     controller._metrics = Mock()
@@ -659,6 +695,7 @@ def test_pympc_records_contact_forces_and_preclip_torque():
 def test_pympc_emits_walking_rows_in_stand_and_torque_modes():
     from unittest.mock import Mock
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(controller)
     controller._step = Mock()
     controller._metrics = Mock()
     controller._entity = object()
@@ -683,6 +720,7 @@ def test_pympc_emits_walking_rows_in_stand_and_torque_modes():
 def test_contact_transition_forces_solve_between_regular_ticks():
     from unittest.mock import Mock
     c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(c)
     _init_torque_controller(c, elapsed_s=1.0)
     c._step_i = 1
     c._solve_stride = 2
@@ -697,18 +735,23 @@ def test_contact_transition_forces_solve_between_regular_ticks():
 
 def test_gait_starts_at_same_support_phase_independent_of_uptime():
     c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(c)
     for start in (0.0, 7.13, 103.29):
         c._walk_started_s = start
         c._sim_time = start
         mask = contact_schedule(c._gait_time(), gait_hz=2.5, duty=0.6, dt=0.02, horizon=12)
         np.testing.assert_array_equal(mask[:, 0], np.ones(4))
-        c._sim_time = start + 0.04
+        c._sim_time = start + 10.0
+        assert c._gait_time() == 0.0  # Wall/simulation uptime cannot advance the gated clock.
+        c._contact_gait.time = 0.04
         assert c._gait_time() == pytest.approx(0.04)
+        c._contact_gait.time = 0.0
 
 
 def test_solver_failure_returns_to_stand_without_pose_step():
     from unittest.mock import Mock
     c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(c)
     c._dt = 0.02
     c._sim_time = 10.0
     c._walk_started_s = 9.0
@@ -745,6 +788,7 @@ def test_controller_reset_preempts_command_and_resets_solver_and_bridge():
     from unittest.mock import Mock
 
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(controller)
     controller._command_shaper = SimpleNamespace(reset=Mock())
     controller._contact_diagnostics = None
     controller._pose_transition = SimpleNamespace(reset=Mock())
@@ -837,6 +881,7 @@ def test_genesis_bridge_estimates_stale_zero_base_twist_from_pose_delta():
 def test_stand_transition_requires_actual_settled_body(twist, tilt, expected):
     from scipy.spatial.transform import Rotation
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_contact_state(controller)
     controller._bridge = SimpleNamespace(
         last_q=np.r_[np.zeros(3), Rotation.from_euler("x", tilt).as_quat(), np.zeros(12)],
         last_dq=np.r_[twist, np.zeros(12)],
@@ -877,3 +922,36 @@ def test_touchdown_velocity_correction_is_world_aligned_and_bounded(actual, desi
     expected[:, :2] += shift
     np.testing.assert_allclose(result, expected)
     np.testing.assert_array_equal(offsets, original)
+
+
+def test_missed_landing_keeps_ground_target_instead_of_resetting_to_air():
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(c)
+    c._dt = .02
+    c._last_contacts.fill(0)
+    c._contact_gait.search.fill(True)
+    c._contact_gait.swing_progress.fill(1.)
+    c._contact_gait.missing_age.fill(.02)
+    c._touchdowns[:] = sample().footholds_world
+    c._touchdowns[:, 2] = .025
+    feet = c._touchdowns.copy()
+    feet[:, 2] = .08
+    state = PyMpcInput(**{**vars(sample()), 'contacts': np.zeros((4, 3))})
+    c._torques(state, feet, np.zeros((4, 3)), np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
+    np.testing.assert_allclose(c._search_targets[:, :2], c._touchdowns[:, :2])
+    assert np.all(c._search_targets[:, 2] <= .025)
+
+
+def test_search_depth_cap_also_stops_velocity_feedforward():
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(c)
+    c._dt = .02
+    c._last_contacts.fill(0)
+    c._was_searching.fill(True)
+    c._contact_gait.search.fill(True)
+    c._contact_gait.missing_age.fill(.30)
+    feet = sample().feet_world.copy()
+    c._search_targets[:] = feet
+    state = PyMpcInput(**{**vars(sample()), 'contacts': np.zeros((4, 3))})
+    tau = c._torques(state, feet, np.zeros((4, 3)), np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
+    np.testing.assert_allclose(tau, np.zeros(12), atol=1e-10)

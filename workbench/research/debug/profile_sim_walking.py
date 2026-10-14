@@ -12,9 +12,21 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 import json
+import math
 from pathlib import Path
 import time
 from unittest.mock import patch
+
+
+def has_commanded_progress(command, displacement, *, duration):
+    """Reject frozen/opposite straight walking; this is not a tracking gate."""
+    speed = math.hypot(command[0], command[1])
+    if speed <= 1e-6 or abs(command[2]) > 1e-6:
+        return True  # Straight XY trials only; turning requires a yaw metric.
+    if displacement is None:
+        return False
+    along = (displacement[0] * command[0] + displacement[1] * command[1]) / speed
+    return math.isfinite(along) and along >= max(.05, .1 * speed * duration)
 
 
 def main() -> None:
@@ -29,6 +41,7 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--cycles", type=int, default=1, help="walk/stop cycles without respawn")
     parser.add_argument("--dt", type=float)
+    parser.add_argument("--sample-period", type=float, default=.1)
     parser.add_argument("--backend", choices=("acados", "jax_mppi"))
     parser.add_argument("--gpu-samples", type=int)
     parser.add_argument("--gpu-iterations", type=int)
@@ -52,6 +65,8 @@ def main() -> None:
         parser.error("finite commands, positive duration/repeat and nonnegative settle/stop required")
     if args.dt is not None and (not np.isfinite(args.dt) or args.dt <= 0):
         parser.error("dt must be finite and positive")
+    if not np.isfinite(args.sample_period) or args.sample_period <= 0:
+        parser.error("sample period must be finite and positive")
     bundle = load_app_config(args.config, mode="remote")
     params = bundle.sim_param if args.dt is None else replace(bundle.sim_param, dt=args.dt)
     cfg = replace(bundle.sim_config, build_dir=str(Path(args.model_bundle).resolve()),
@@ -150,7 +165,7 @@ def main() -> None:
                     step_times.append(elapsed_step)
                     if moving:
                         moving_step_times.append(elapsed_step)
-                    if step % max(1, round(0.1 / dt)):
+                    if step % max(1, round(args.sample_period / dt)):
                         continue
                     pos = to_numpy_1d(entity.get_pos())
                     quat = to_numpy_1d(entity.get_quat())
@@ -169,6 +184,27 @@ def main() -> None:
                                model_inertia_trace=float(np.trace(controller._data.Ig.inertia)),
                                feet=[to_numpy_1d(entity.get_link(leg + "_foot").get_pos()).tolist()
                                      for leg in ("FL", "FR", "RL", "RR")])
+                    if controller._bridge.last_q is not None:
+                        row["leg_control"] = dict(
+                            q=controller._bridge.last_q[7:19].tolist(),
+                            dq=controller._bridge.last_dq[6:18].tolist(),
+                            tau_raw=controller._tau_raw.tolist(),
+                            tau_limited=controller._tau_limited.tolist(),
+                            touchdowns=controller._touchdowns.tolist(),
+                            search_targets=controller._search_targets.tolist(),
+                        )
+                    gate = getattr(controller, "_contact_gait", None)
+                    if gate is not None:
+                        row["contact_gate"] = dict(
+                            time=gate.time, blocked=gate.blocked,
+                            confirmed=gate.confirmed.tolist(), search=gate.search.tolist(),
+                            load=gate.load.tolist(), missing_age=gate.missing_age.tolist(),
+                            normal_forces=controller._normal_contact_forces().tolist(),
+                            observed_normal=gate.observed_normal.tolist(),
+                            observed_heights=gate.observed_heights.tolist(),
+                            contact_age=gate.contact_age.tolist(),
+                            swing_progress=gate.swing_progress.tolist(),
+                        )
                     emit(row)
                     samples.append(row)
                     if moving:
@@ -180,6 +216,9 @@ def main() -> None:
                 displacement = (command_end - command_start).tolist() if command_start is not None else None
                 completed = bool(samples and samples[-1]["t"] >= total_s - 0.11
                                  and not samples[-1]["fallen"] and not samples[-1]["faulted"])
+                progress_ok = has_commanded_progress(args.command, displacement,
+                                                     duration=args.duration * args.cycles)
+                completed = completed and progress_ok
                 if args.stop > 0:
                     completed = completed and samples[-1]["pose_stage"] == "stand"
                 wall_s = time.perf_counter() - began
@@ -189,6 +228,7 @@ def main() -> None:
                 failed_trials += int(not completed)
                 emit(dict(kind="summary", trial=trial, samples=len(samples),
                           completed=completed,
+                          commanded_progress_ok=progress_ok,
                           wall_s=wall_s, displacement=displacement,
                           rendered_fps={name: frame_counts[name]/wall_s for name in streams} if hub else None,
                           capture_to_observation_ms_p95={name: float(np.percentile(frame_ages[name], 95)*1000)

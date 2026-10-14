@@ -39,6 +39,7 @@ class ContactGatedGait:
 
     def __init__(self):
         self.time = 0.0
+        self.phase_rate = 0.0
         self.blocked = True
         self.confirmed = np.zeros(4, dtype=bool)
         self.contact_age = np.zeros(4)
@@ -46,6 +47,15 @@ class ContactGatedGait:
         self.missing_age = np.zeros(4)
         self.search = np.zeros(4, dtype=bool)
         self.load = np.zeros(4)
+        self._contact_window = []
+        self._previous_planned = np.ones(4, dtype=bool)
+        self._swinging = np.zeros(4, dtype=bool)
+        self._finished_swing = np.zeros(4, dtype=bool)
+        self.swing_elapsed = np.zeros(4)
+        self.swing_progress = np.zeros(4)
+        self.swing_remaining = np.zeros(4)
+        self.observed_normal = np.zeros(4)
+        self.observed_heights = np.zeros(4)
 
     def prime(self, normal_forces, *, dt):
         """Observe the already loaded feet while position control holds ready."""
@@ -63,25 +73,53 @@ class ContactGatedGait:
         normal = np.asarray(normal_forces, dtype=float)
         if normal.shape != (4,) or not np.all(np.isfinite(normal)):
             raise RuntimeError("invalid foot contact force feedback")
-        if not self.blocked and not settling:
+        heights = np.asarray(foot_heights, dtype=float)
+        if heights.shape != (4,) or not np.all(np.isfinite(heights)):
+            raise RuntimeError("invalid foot height feedback")
+        self.observed_normal = normal.copy()
+        self.observed_heights = heights.copy()
+        # Observe loss BEFORE advancing the clock across the next liftoff.
+        old_planned = contact_schedule(self.time, gait_hz=gait_hz, duty=duty,
+                                       dt=horizon_dt, horizon=horizon)[:, 0].astype(bool)
+        loss_now = (normal <= 2.0) & ((self.loss_age + dt >= 0.08 - 1e-9) | (heights > 0.05))
+        self.phase_rate = float(not self.blocked and not settling and not np.any(old_planned & loss_now))
+        if self.phase_rate:
             self.time += dt
         schedule = contact_schedule(
             self.time, gait_hz=gait_hz, duty=duty, dt=horizon_dt, horizon=horizon,
         )
         if settling:
             schedule.fill(1.0)
-        planned = schedule[:, 0].astype(bool)
-        heights = np.asarray(foot_heights, dtype=float)
-        if heights.shape != (4,) or not np.all(np.isfinite(heights)):
-            raise RuntimeError("invalid foot height feedback")
+        nominal = schedule[:, 0].astype(bool)
+        liftoff = self._previous_planned & ~nominal
+        self._previous_planned = nominal.copy()
+        self._swinging |= liftoff
+        self.swing_elapsed[self._swinging] += dt
+        self.swing_elapsed[liftoff] = 0.0
+        duration = (1.0 - duty) / gait_hz
+        finished = self._swinging & (self.swing_elapsed >= duration - 1e-9)
+        self._swinging &= ~finished
+        self._finished_swing = (self._finished_swing | finished) & ~nominal
+        self.swing_progress = np.clip(self.swing_elapsed / duration, 0.0, 1.0)
+        self.swing_remaining = np.where(self._swinging, np.maximum(0., duration - self.swing_elapsed), 0.)
+        # Holding new liftoffs must not suspend feet already in the air.
+        planned = (nominal | self._finished_swing) & ~self._swinging
         # Liftoff explicitly clears the old contact. During stance tolerate a
         # brief unloading impulse, but never retain a visibly airborne foot.
         self.confirmed &= planned
         self.loss_age = np.where(planned & (normal <= 2.0), self.loss_age + dt, 0.0)
         lost = (self.loss_age >= 0.08 - 1e-9) | ((normal <= 2.0) & (heights > 0.05))
         self.confirmed &= ~lost
-        self.contact_age = np.where(planned & (normal > 5.0), self.contact_age + dt, 0.0)
-        self.confirmed |= planned & (self.contact_age >= 0.04 - 1e-9)
+        # Genesis impulse contacts may alternate loaded/unloaded ticks at
+        # 50 Hz. Require 40 ms of evidence within 80 ms, not uninterrupted
+        # force. Clear all old evidence for a deliberately lifted foot.
+        self._contact_window.append((planned & (normal > 5.0)).astype(float) * dt)
+        self._contact_window = self._contact_window[-max(1, int(np.ceil(.08 / dt))):]
+        for evidence in self._contact_window:
+            evidence[~planned] = 0.0
+        self.contact_age = np.sum(self._contact_window, axis=0)
+        self.confirmed |= (planned & (normal > 5.0) & (heights <= .035)
+                           & (self.contact_age >= 0.04 - 1e-9))
         # Load age is independent of instantaneous contact force. A brief
         # unloading must not repeatedly restart the landing ramp.
         self.load = np.where(self.confirmed, np.minimum(1.0, self.load + dt / 0.06), 0.0)
@@ -92,7 +130,7 @@ class ContactGatedGait:
             raise RuntimeError(f"touchdown timeout after 0.30s: {legs}")
         self.blocked = bool(np.any(planned & (self.load < 1.0)))
         support = (planned & self.confirmed).astype(float)
-        if self.blocked:
+        if self.blocked or np.any(self._finished_swing):
             # Do not promise future support or lift the old pair while waiting.
             schedule[:] = support[:, None]
         else:
@@ -110,16 +148,17 @@ def planned_footholds(feet, candidates, contacts, previous_contacts, touchdowns)
     return result
 
 
-def swing_foot_reference(progress, start, touchdown, *, duration_s, height_m=0.06):
+def swing_foot_reference(progress, start, touchdown, *, duration_s, height_m=0.06,
+                         phase_rate=1.0):
     """Position and matching world velocity for the bounded swing trajectory."""
     progress = float(np.clip(progress, 0.0, 1.0))
     smooth = progress * progress * (3.0 - 2.0 * progress)
     delta = np.asarray(touchdown) - np.asarray(start)
     target = np.asarray(start) + smooth * delta
-    target[2] += height_m * np.sin(np.pi * progress)
+    target[2] += height_m * 16.0 * progress**2 * (1.0 - progress)**2
     velocity = 6.0 * progress * (1.0 - progress) / duration_s * delta
-    velocity[2] += height_m * np.pi * np.cos(np.pi * progress) / duration_s
-    return target, velocity
+    velocity[2] += height_m * 32.0 * progress * (1.0 - progress) * (1.0 - 2.0 * progress) / duration_s
+    return target, velocity * phase_rate
 
 
 def contact_schedule(time_s: float, *, gait_hz: float, duty: float, dt: float, horizon: int) -> np.ndarray:
@@ -428,6 +467,10 @@ class PyMpcGenesisController:
     def _gait_time(self) -> float:
         return self._contact_gait.time
 
+    def _walk_elapsed(self) -> float:
+        return (0.0 if self._walk_started_s is None
+                else max(0.0, self._sim_time - self._walk_started_s))
+
     def _command_scale(self) -> float:
         if self._walk_started_s is None:
             return 0.0
@@ -559,12 +602,7 @@ class PyMpcGenesisController:
         candidates = touchdown_candidates_world(
             q[:3], placements, yaw_rotation=yaw_rot,
             velocity_world=vel, desired_velocity_world=cmd_world,
-            remaining_swing_s=np.where(
-                contacts[:, 0] == 0,
-                (1.0 - ((self._gait_time() * float(self._config.gait_hz)
-                         + _PHASE_OFFSETS) % 1.0)) / float(self._config.gait_hz),
-                0.0,
-            ),
+            remaining_swing_s=self._contact_gait.swing_remaining,
         )
         candidates[:, 2] = floor_z
         footholds = planned_footholds(
@@ -630,7 +668,6 @@ class PyMpcGenesisController:
                 self._timing_sink("go2_pympc_solve", time.perf_counter() - started)
         contacts = sample.contacts[:, 0]
         tau = np.zeros(12)
-        phase = (self._gait_time() * float(self._config.gait_hz) + _PHASE_OFFSETS) % 1.0
         duty = float(self._config.gait_duty)
         for i in range(4):
             sl = slice(i * 3, i * 3 + 3)
@@ -638,16 +675,25 @@ class PyMpcGenesisController:
                 tau[sl] = -jacobians[i].T @ (self._forces[i] * self._contact_gait.load[i])
             elif self._contact_gait.search[i]:
                 if not self._was_searching[i]:
-                    self._search_targets[i] = feet[i]
+                    # A late swing must keep trying to reach its ground target.
+                    # Resetting the target to the measured airborne foot both
+                    # brakes the descent and can leave the entire 4 cm search
+                    # above the floor. A newly lost stance has no active swing
+                    # target, so retain its measured XY and height instead.
+                    finished_swing = (
+                        self._last_contacts[i] == 0
+                        and self._contact_gait.swing_progress[i] >= 1.0
+                    )
+                    self._search_targets[i] = self._touchdowns[i] if finished_swing else feet[i]
                     print(f"[go2_pympc] touchdown search leg={_LEGS[i].value} "
                           f"sim_time={self._sim_time:.3f} foot_z={feet[i, 2]:.3f}")
-                # Keep XY at the missed landing location and search downward
-                # at 0.15 m/s, at most 4 cm below the entry position.
-                self._search_targets[i, 2] -= min(
+                # Search below the retained reference, with bounded force.
+                descent = min(
                     0.15 * self._dt,
                     max(0.0, 0.04 - 0.15 * (self._contact_gait.missing_age[i] - self._dt)),
                 )
-                desired_vel = np.array((0.0, 0.0, -0.15))
+                self._search_targets[i, 2] -= descent
+                desired_vel = np.array((0.0, 0.0, -descent / self._dt))
                 task_force = (1000.0 * (self._search_targets[i] - feet[i])
                               + 20.0 * (desired_vel - foot_vel[i]))
                 norm = np.linalg.norm(task_force)
@@ -657,10 +703,11 @@ class PyMpcGenesisController:
                 if self._last_contacts[i] == 1:
                     self._swing_starts[i] = feet[i]
                     self._touchdowns[i] = sample.footholds_world[i]
-                progress = np.clip((phase[i] - duty) / (1.0 - duty), 0.0, 1.0)
+                progress = self._contact_gait.swing_progress[i]
                 target, desired_vel = swing_foot_reference(
                     progress, self._swing_starts[i], self._touchdowns[i],
                     duration_s=(1.0 - duty) / float(self._config.gait_hz),
+                    phase_rate=float(self._contact_gait._swinging[i]),
                 )
                 task_force = 1000.0 * (target - feet[i]) + 20.0 * (desired_vel - foot_vel[i])
                 tau[sl] = jacobians[i].T @ task_force
@@ -693,7 +740,7 @@ class PyMpcGenesisController:
     def _torque_scale(self) -> float:
         warmup_s = max(0.0, float(self._config.torque_warmup_s))
         ramp_s = max(1e-3, float(self._config.torque_ramp_s))
-        elapsed = self._gait_time()
+        elapsed = self._walk_elapsed()
         if elapsed < warmup_s:
             return 0.35
         return float(min(1.0, 0.35 + 0.65 * ((elapsed - warmup_s) / ramp_s)))
@@ -701,7 +748,7 @@ class PyMpcGenesisController:
     def _aux_pd_torque(self, joint_vel: np.ndarray) -> np.ndarray:
         warmup_s = max(0.0, float(self._config.torque_warmup_s))
         ramp_s = max(1e-3, float(self._config.torque_ramp_s))
-        elapsed = self._gait_time() - warmup_s
+        elapsed = self._walk_elapsed() - warmup_s
         tau = -float(self._config.aux_kv) * np.asarray(joint_vel, dtype=float)
         if 0.0 < elapsed < ramp_s:
             q_leg = to_numpy_1d(

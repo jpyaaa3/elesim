@@ -1,10 +1,95 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-06. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-14. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### URDF 영점 및 착지 목표 TDD (2026-10-14)
+
+- 고정 몸통/공중 발 추종 실험으로 MPC·보행 위상·바닥 충돌을 제외하고 실제
+  Genesis 조립 모델, 관절 물성, production `_torques` 경로를 검증했다.
+  `profile_fixed_foot.py --legacy-reference`가 이전 기준점 오류를 재현한다.
+- **확정 원인:** 빌드 전 `desc.init_qpos`에 stand 각도를 쓰면서 `qpos0`가
+  변경됐다. Genesis FK/DOF는 `qpos - qpos0`, 제한 검사는 raw `qpos`를 사용한다.
+  실제 기록에서 calf DOF -1.8 rad가 raw -3.3 rad가 되어 하한 -2.7227 rad를
+  위반했고, 거의 정지한 calf에 약 -9 Nm가 입력돼도 제한 반력이 상쇄했다.
+  Pinocchio의 중력 토크는 약 -0.15 Nm였다. 이는 샘플 수나 게인 문제의 증거가
+  아니라 좌표 기준 불일치의 재현이다.
+- 초기 자세 helper는 검증만 수행하고 URDF 기준점/물리 한계를 수정하지 않는다.
+  Runtime, camera worker, RL scene 호출부를 함께 변경했다. 실제 자세는 기존
+  build 후 설정 경로가 담당한다. Zero-neutral calf 범위 경고는 예상되며,
+  이를 없애려고 기준점/한계를 바꾼 과거 기록의 접근을 철회한다.
+- 동일 RL 발, dt=0.02, 고정 몸통 1초 유지 → 목표를 3 cm 하강 → 유지:
+  최대 발 오차 **73.638 mm → 4.657 mm**, 최대 속도 **1.305 → 0.157 m/s**.
+  로컬 RTX3050와 원격 A6000에서 동일 결과. 이 실험은 다른 세 발의 목표도
+  고정한 공중 토크 제어이며 부유 몸통/보행 안정성을 대신하지 않는다.
+- TDD: 영점 불변식 2개 red→green, 실제 물리 추적의 정착 오차 10 mm 및
+  유지 구간 변동 2 mm gate red→green. Raw qpos 제한 좌표 회귀도 추가했다.
+- 영점 수정 후 보행 계측에서 별도 착지 전환 오류를 확인했다. 미착지 swing의
+  기존 지면 목표를 현재 공중 발 위치로 덮어써 탐색 종료 목표가 z=0.0348 m에
+  남았다. 기존 touchdown을 유지하고 그 아래로 탐색하도록 수정했으며, 최대
+  탐색 깊이에서 잔류 하강 속도 명령도 제거했다. 두 회귀 red→green; 관련
+  adapter/contact suite 57 passed. 힘 60 N, 추가 하강 4 cm, 300 ms timeout은 유지.
+- 최종 canonical 개발 attachment: `pytest workbench/tests/apps/sim
+  workbench/tests/research/debug/test_fixed_foot_tracking.py
+  workbench/tests/research/experiments/test_contact_walking_progress.py -q --tb=short -rs`,
+  `ELESIM_FIXED_FOOT_TRACE=workbench/evidence/generated/contact-gait/fixed-zero-reference.jsonl`:
+  **552 passed, 3 skipped**. 제외는 qpOASES 미설치 1개와 opt-in 실제 camera worker
+  smoke 2개. 전체 required/extended 및 release build/verify는 이번 범위에서 미실행.
+- **보행 gate는 미통과.** 최종 4096×2, 50 Hz, 명령 6초+정지 2초 시험에서
+  전진 3.56 s / 후진 3.18 s / 좌측 5.26 s / 우측 4.10 s에 모두 착지 timeout.
+  시간에는 초기 settle 2초가 포함된다. 방향별 이동은 +0.244 / -0.150 m X,
+  +0.243 / -0.087 m Y. 이는 보행 안정화 성공이나 전 방향 성능 향상의 증거가 아니다.
+  MPPI solve p95는 약 4.5–4.9 ms였다.
+- 남은 전진 실패에서는 RL calf=-0.765 rad(신전 상한 -0.83776 rad를 넘어선
+  soft-limit 상태), 발 z=0.053 m, 탐색 목표 z=0.011 m를 기록했다. 몸통 이동
+  동안 뒤쪽에 남은 목표의 도달 가능성과 부유 몸통/지지력 전환을 다음에 검증한다.
+  고정 몸통 결과만으로 높은 게인 하나를 원인으로 확정하지 않는다.
+- 원시 결과는 Git-ignored `workbench/evidence/generated/contact-gait/`의
+  `fixed-legacy-qpos.jsonl`, `fixed-zero-reference.jsonl`,
+  `zero-search-remote-evidence.tgz`, `zero-search-summary.json`에 보관한다.
+  원격 archive에는 두 수정 단계의 보행 JSONL/log와 사용한 소스 사본이 포함된다.
+- 실제 Sim/Robot 인스턴스나 선택 릴리즈는 변경하지 않았다. 원격 실험은 기존
+  `elesim-merry-dev` 내부 `/tmp/elesim-contact-tdd-20261013` 사본에서 DDS 없이 수행.
+  MPPI 4096×2 및 기본 dt=0.02는 그대로다. 200 Hz 비교는 수용시험을 통과하지
+  못했으므로 기본값에 반영하지 않았다.
+
+### 접촉 기반 보행 TDD 및 원격 재현 (2026-10-13, 미완료 보행 gate)
+
+- `75b3fcf` 이후 수정본에서 실패 테스트를 먼저 재현했다: 착지 끝에서도
+  내려가는 swing 속도, 접촉 상실 tick의 다음 liftoff 진행, gait 정지에 따른
+  startup torque/ready 보정 동결, 반복 충격 접촉의 미확인, 기존 swing의 공중 정지.
+  끝점 속도 0의 quartic swing, 접촉 판정 선행, startup 시간 분리,
+  80 ms 창 내 40 ms 접촉 증거, 발별 swing 진행으로 수정했다.
+- 새 접촉 상태를 사용하는 테스트 fixture와 오래된 iteration=4 검사를 갱신했다.
+  현재 canonical 개발 attachment에서 `pytest workbench/tests/apps/sim
+  workbench/tests/research/experiments/test_contact_walking_progress.py -q --tb=short -rs`:
+  **548 passed, 3 skipped**. 제외는 qpOASES 플러그인 1개, opt-in 실제 카메라
+  smoke 2개다. 보행 성공을 의미하지 않는다.
+- 로컬 개발 JAX는 CPU-only라 실제 GPU MPPI 실행을 거부했다. 원격의 기존
+  `elesim-merry-dev` venv에는 JAX가 없어 Dockerfile과 동일한 JAX/CUDA plugin
+  0.4.38 및 NumPy 1.26.4를 설치했다. 호스트 Python은 변경하지 않았다.
+  `/tmp/elesim-contact-tdd-20261013`에 수정 Sim 소스를 분리하여 사용했고,
+  원격 checkout이나 내려간 운영 Sim은 교체/재시작하지 않았다.
+- 원격 A6000 GPU 1에서 실제 Genesis GO2+arm 장면, MPPI 4096x2,
+  dt=0.02, settle 2 s, command 6 s, stop 2 s로 전후 +/-0.8 m/s,
+  좌우 +/-0.35 m/s를 실행했다. 카메라/네트워크/물리 Robot은 포함하지 않았다.
+  여러 접촉 전환 수정 단계에서 네 방향 모두 보호 상태로 종료하여 **수용 실패**다.
+  20 ms 샘플에서 공중 RL 발 높이가 tick마다 약 2 cm 진동하며 실제 접촉력이
+  0인 구간을 확인했다. 접촉 gate만으로 발 추종 진동을 해결하지 못했다.
+- 임시 복사본에서만 PD 250/5, 추가 하향 preload 15 N, dt=0.005를 각각
+  비교했다. 모두 완주 실패라 이 gain/preload/dt 변경은 source에 채택하지 않았다.
+  단순 타임아웃 연장이나 보호 기능 해제로 통과시켜서는 안 된다.
+- 진단 runner에 접촉 판정 입력/출력, 발별 진행률, sample-period 옵션과
+  명령 방향 최소 진행량 검사를 추가했다. 정지한 채 버티는 것은 보행 통과가 아니다.
+  원본 및 단계별 결과는 `workbench/evidence/generated/contact-gait/remote-evidence.zip`,
+  요약은 같은 디렉터리 `summary.json`에 회수했다(생성 artifact, Git 제외).
+- 남은 일: 실제 swing/search 발 추종과 관절 토크를 함께 검증하고 안정화한 뒤
+  동일 전후좌우/정지 시험을 다시 통과시킬 것. 이 수정본을 보행 해결 완료로
+  배포하지 않았다. 전체 required/extended/release gate는 이번 좁은 TDD 범위에서
+  실행하지 않았다.
 
 ### 설치 파일 소유권 감사 (2026-10-13)
 
