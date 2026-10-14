@@ -349,12 +349,19 @@ def test_contact_wait_does_not_freeze_startup_torque_or_pose_assistance():
     np.testing.assert_array_equal(controller._aux_pd_torque(np.zeros(12)), np.zeros(12))
 
 
-def test_payload_com_height_does_not_request_a_sudden_drop() -> None:
+def test_payload_com_height_keeps_body_height_error_when_arm_raises_com() -> None:
     from elesim_sim.robot.go2.pympc_controller import payload_aware_com_height
 
-    assert payload_aware_com_height(0.42, 0.30, payload_active=False) == pytest.approx(0.30)
-    assert payload_aware_com_height(0.42, 0.30, payload_active=True) == pytest.approx(0.41)
-    assert payload_aware_com_height(0.29, 0.30, payload_active=True) == pytest.approx(0.30)
+    assert payload_aware_com_height(0.42, 0.30, payload_active=False,
+                                   base_height=0.30) == pytest.approx(0.30)
+    # The arm may raise COM without requiring the legs to extend farther.
+    assert payload_aware_com_height(0.42, 0.30, payload_active=True,
+                                   base_height=0.30) == pytest.approx(0.42)
+    # Raising the whole robot by 8 cm must retain an 8 cm restoring error.
+    assert payload_aware_com_height(0.50, 0.30, payload_active=True,
+                                   base_height=0.38) == pytest.approx(0.42)
+    assert payload_aware_com_height(0.36, 0.30, payload_active=True,
+                                   base_height=0.24) == pytest.approx(0.42)
 
 
 @pytest.mark.parametrize("moving", [False, True])

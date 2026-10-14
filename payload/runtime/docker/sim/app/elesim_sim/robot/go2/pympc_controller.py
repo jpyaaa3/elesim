@@ -221,13 +221,14 @@ def touchdown_candidates_world(base_position, placements, *, yaw_rotation,
 
 
 def payload_aware_com_height(
-    current_com_z: float, nominal_com_z: float, *, payload_active: bool
+    current_com_z: float, nominal_com_z: float, *, payload_active: bool,
+    base_height: float,
 ) -> float:
-    """Avoid asking a raised arm payload to lower the robot's COM abruptly."""
+    """Account for raised payload COM while retaining body height feedback."""
     nominal = float(nominal_com_z)
     if not payload_active:
         return nominal
-    return max(nominal, float(current_com_z) - 0.01)
+    return nominal + float(current_com_z) - float(base_height)
 
 
 class PyMpcGenesisController:
@@ -574,6 +575,7 @@ class PyMpcGenesisController:
             float(com[2]),
             float(self._config.z_pos_des_m),
             payload_active=self._payload is not None,
+            base_height=float(q[2]),
         )
         ref_rpy = rpy.copy()
         ref_rpy[0:2] = 0.0

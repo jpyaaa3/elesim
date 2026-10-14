@@ -8,6 +8,18 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### 발행 릴리즈 기반 TDD 및 착지 도달 범위 (2026-10-14)
 
+- `731c5ca`도 push 및 양쪽 `elesim-update` 완료. 원격 Sim `merry-orca`의
+  기본 50 Hz 전후좌우는 모두 실패(3.88/3.18/5.24/5.88 s).
+  같은 이미지에서 dt=0.005, MPPI solve 25 Hz로 비교하면 좌우는 6초 명령과
+  2초 정지까지 통과(각 약 0.57 m, 최대 roll/pitch 약 0.12 rad)했다.
+  전진은 4.52 s/+0.486 m, 후진은 7.24 s/-1.395 m에 실패했다.
+  각 시간은 settle 2초를 포함한다. 이는 단일 trial이며 기본 dt 변경 근거로
+  확정하지 않는다. 물리 substeps=4 비교는 별도 진행한다.
+- 전진 실패에서 base z=0.38 m 및 rear calf 신전 한계 포화를 확인했다.
+  payload 높이 목표가 `max(nominal, current COM - .01)`이라 몸통 상승에 대한
+  복원 오차가 1 cm로 제한되는 결함을 수정한다. 목표를 nominal body height +
+  현재 COM-base 높이 차로 정해 팔의 COM 상승과 몸통 상승을 구분한다.
+  새 높이 회귀 red 확인 후 구현했으며 실제 발행 이미지 비교는 진행 전이다.
 - `a46fbaa8be4c2ab7e7790a408b897143a2a9c31e`를 main에 push하고 양쪽의 설치된
   `elesim-update`를 실행했다. 양쪽 release manifest의 source_revision을 확인했다.
   원격 Sim `merry-eel`에서 네 방향 실패가 다시 재현됐다. 임시 app 소스를
