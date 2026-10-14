@@ -154,7 +154,37 @@ def test_slow_body_does_not_place_rear_foot_for_full_command_speed():
     body_velocity = rotation @ np.array([.02695699, -.00377471, .03388461])
     result, feasible = stance_end_foothold(
         2, target, base, rotation, body_velocity, np.array([.8, 0., 0.]),
-        .16, .6/2.2, LO+.04, HI-.04,
+        .16, .6/2.2, LO+.04, HI-.04, gait_age_s=.48,
     )
     assert feasible
     assert result[0]-target[0] < .025
+
+
+@pytest.mark.parametrize('leg,base,rpy,body_velocity,target,command,gait_age,minimum_shift', [
+    # Published d3b0762 GPU2 forward RR liftoff at t=6.76. The robot had
+    # already walked for 2.12 gait seconds, but a brief slowdown caused the
+    # instantaneous speed blend to predict only about 0.51 instead of 0.8 m/s.
+    (3, [1.39033449, .31061938, .31431293],
+     [-.03599213, .26394030, .10201528], [.25732701, .07692941, .0331505],
+     [1.35601770, .14076478, .025], .8, 2.12, .08),
+    # Published reverse FL liftoff at t=4.92. Its prior 1.2 gait seconds
+    # matter more than the temporary -0.13 m/s body speed during a gate hold.
+    (0, [-.74260318, -.05165738, .29962528],
+     [.08051289, -.26374641, .09716753], [-.12877926, -.17608234, -.13431689],
+     [-.69325040, .09413158, .025], -.8, 1.20, .065),
+])
+def test_established_walk_does_not_underpredict_stance_end_after_brief_slowdown(
+    leg, base, rpy, body_velocity, target, command, gait_age, minimum_shift,
+):
+    base = np.array(base)
+    rotation = Rotation.from_euler('xyz', rpy).as_matrix()
+    target = np.array(target)
+    result, feasible = stance_end_foothold(
+        leg, target, base, rotation, np.array(body_velocity),
+        np.array([command, 0., 0.]), (1-.6)/2.2, .6/2.2,
+        LO+.04, HI-.04, gait_age_s=gait_age,
+    )
+    end_base = base + np.array([command, 0., 0.])*((1-.6)/2.2 + .6/2.2 + .06)
+    assert feasible
+    assert (result[0]-target[0])*np.sign(command) > minimum_shift
+    assert reachable(leg, result, end_base, rotation, LO+.04, HI-.04)

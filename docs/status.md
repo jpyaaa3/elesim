@@ -30,10 +30,19 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   초반 실제 몸통 속도가 거의 0인데도 목표 속도 0.8 m/s를 미래 이동량으로
   적용해 전진 발을 과도하게 앞에 두는 역효과가 확인됐다. 원시 JSONL은
   `workbench/evidence/generated/contact-gait/ba38e6b/`에 있다.
-- 후속 TDD는 저속 출발의 과도한 목표 이동을 재현해 red→green으로 고치고,
-  전후 방향의 실제 진행 속도가 충분할 때만 해당 속도 예측을 키운다.
-  Sim+보행 회귀 601 passed/4 skipped. 발행 이미지 수용시험 전이므로 전후
-  안정화 여부는 아직 확정하지 않는다.
+- `d3b0762`는 저속 출발의 과도한 목표 이동을 재현해 red→green으로 고치고,
+  전후 방향의 실제 진행 속도가 충분할 때만 해당 속도 예측을 키웠다.
+  Sim+보행 회귀 601 passed/4 skipped. push/양쪽 update 후 원격 GPU2
+  `merry-pelican` 실보행은 전진 8.28 s/+1.819 m, 후진 5.42 s/-0.977 m에
+  착지 timeout으로 실패했고 좌/우는 모두 통과(+0.551/-0.631 m).
+  전진은 6초 명령 구간 뒤 정지 무렵 오른쪽 뒷발 접촉을 잃었다. 전진 RR은
+  지지력 약 70 N 중에도 접촉이 끊겼고 후진 FL은 종아리 신전 한계에 닿았다.
+  원시 JSONL은 `workbench/evidence/generated/contact-gait/d3b0762/`에 있다.
+- 후속 TDD는 보행 중 일시적인 저속 구간의 실제 속도만으로 미래 지지 종료를
+  예측해 발을 뒤에 남기는 문제를 두 실패 자세에서 재현했다. 첫 약 한 주기에는
+  기존 저속 출발 제한을 유지하고 이후 명령 속도를 점진적으로 반영한다.
+  해당 자세 회귀 2개 red→green, Sim+보행 회귀 603 passed/4 skipped.
+  발행 이미지의 전후좌우 시험 전이므로 안정화 여부는 아직 확정하지 않는다.
 - `fa85b44`를 push/양쪽 update하고 원격 GPU2 Sim `merry-elephant`로
   4096×2, 50 Hz, substeps=4, 전후좌우 6초 명령+2초 정지를 실행했다.
   좌우는 통과(+0.616/-0.511 m), 전진은 7.08 s/+1.111 m,

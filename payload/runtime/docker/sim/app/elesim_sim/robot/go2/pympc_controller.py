@@ -235,6 +235,7 @@ def stance_end_foothold(
     base_rotation: np.ndarray, body_velocity_world: np.ndarray,
     desired_velocity_world: np.ndarray, remaining_swing_s: float,
     stance_duration_s: float, lower: np.ndarray, upper: np.ndarray,
+    *, gait_age_s: float = 0.0,
 ) -> tuple[np.ndarray, bool]:
     """Keep a new touchdown in reach through its predicted support interval.
 
@@ -245,6 +246,8 @@ def stance_end_foothold(
     gait clock. During initial forward/backward acceleration, blend the
     forecast toward commanded speed only after measured progress is present;
     otherwise distant goals can brake the body before it starts walking.
+    Once the gait has advanced through a cycle, a brief low-speed phase must
+    not make the next foot anticipate an entire stance at that transient speed.
     Only plan this at liftoff; a planted foot stays fixed in world.
     """
     velocity = np.asarray(body_velocity_world, dtype=float)
@@ -257,7 +260,9 @@ def stance_end_foothold(
         direction = desired[:2] / command_speed
         actual_progress = float(np.dot(velocity[:2], direction))
         requested_progress = float(np.dot(forecast[:2], direction))
-        blend = float(np.clip((actual_progress - .15) / .20, 0., 1.))
+        speed_blend = np.clip((actual_progress - .15) / .20, 0., 1.)
+        gait_blend = np.clip((float(gait_age_s) - .5) / .5, 0., 1.)
+        blend = float(max(speed_blend, gait_blend))
         forecast[:2] -= (1. - blend) * (requested_progress - actual_progress) * direction
     forecast[2] = 0.0
     base = np.asarray(base_position, dtype=float)
@@ -668,6 +673,7 @@ class PyMpcGenesisController:
                     i, candidates[i], q[:3], rot_m, base_velocity_world, cmd_world,
                     self._contact_gait.swing_remaining[i], stance_duration_s,
                     self._foot_lower[i], self._foot_upper[i],
+                    gait_age_s=self._gait_time(),
                 )
                 candidates[i] = (projected if feasible
                                  else self._reachable_target(i, candidates[i]))
@@ -692,6 +698,7 @@ class PyMpcGenesisController:
                         int(i), future[i], q[:3], rot_m, base_velocity_world,
                         cmd_world, future_s[i], stance_duration_s,
                         self._foot_lower[i], self._foot_upper[i],
+                        gait_age_s=self._gait_time(),
                     )
                     if not feasible:
                         projected, feasible = project_ground_target(
