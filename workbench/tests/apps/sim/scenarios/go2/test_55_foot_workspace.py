@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 from elesim_sim.robot.go2.foot_workspace import foot_angles_body, foot_position_body, project_ground_target, reachable
+from elesim_sim.robot.go2.pympc_controller import stance_end_foothold
 
 LO = np.array([-1.0472, -.5236, -2.7227])
 HI = np.array([1.0472, 4.5379, -.83776])
@@ -87,3 +88,56 @@ def test_controller_recovery_bounds_target_motion_and_preserves_ground_height():
     for _ in range(20):
         recovered = c._reachable_target(2, recovered, max_shift=.03)
     assert reachable(2, recovered, c._bridge.last_q[:3], np.eye(3), LO+.04, HI-.04)
+
+
+def test_forward_rear_touchdown_remains_reachable_through_stance_end():
+    # Published GPU2 trace at t=4.6 s: this rear target landed, but the body
+    # passed it during stance and the calf hit its extension limit at t=5.4.
+    base = np.array([.56152445, .12331772, .32730103])
+    rotation = Rotation.from_euler('xyz', [-.04439852, .26618691, .06768182]).as_matrix()
+    target = np.array([.47353240, .28040362, .025])
+    body_velocity = rotation @ np.array([.37531962, -.09266569, -.03856721])
+    desired_velocity = np.array([.8, 0., 0.])
+    remaining_swing = .12
+    stance_duration = .6/2.2
+    lower, upper = LO+.04, HI-.04
+    result, feasible = stance_end_foothold(
+        2, target, base, rotation, body_velocity, desired_velocity,
+        remaining_swing, stance_duration, lower, upper,
+    )
+    forecast_velocity = np.where(abs(desired_velocity) > abs(body_velocity),
+                                 desired_velocity, body_velocity)
+    forecast_velocity[2] = 0.
+    landing_base = base + forecast_velocity*remaining_swing
+    end_base = base + forecast_velocity*(remaining_swing+stance_duration+.06)
+    assert feasible
+    assert result[0] > target[0] + .1
+    assert result[2] == pytest.approx(target[2])
+    assert reachable(2, result, landing_base, rotation, lower, upper)
+    assert reachable(2, result, end_base, rotation, lower, upper)
+
+
+def test_backward_front_touchdown_remains_reachable_through_stance_end():
+    # The same trailing-leg failure appears on the front leg in reverse.
+    base = np.array([-.74260318, -.05165738, .29962528])
+    rotation = Rotation.from_euler('xyz', [.08051289, -.26374641, .09716753]).as_matrix()
+    target = np.array([-.69325040, .09413158, .025])
+    body_velocity = rotation @ np.array([-.17524780, -.16961450, -.07841714])
+    desired_velocity = np.array([-.8, 0., 0.])
+    remaining_swing = (1-.6)/2.2
+    stance_duration = .6/2.2
+    lower, upper = LO+.04, HI-.04
+    result, feasible = stance_end_foothold(
+        0, target, base, rotation, body_velocity, desired_velocity,
+        remaining_swing, stance_duration, lower, upper,
+    )
+    forecast_velocity = np.where(abs(desired_velocity) > abs(body_velocity),
+                                 desired_velocity, body_velocity)
+    forecast_velocity[2] = 0.
+    landing_base = base + forecast_velocity*remaining_swing
+    end_base = base + forecast_velocity*(remaining_swing+stance_duration+.06)
+    assert feasible
+    assert result[0] < target[0] - .1
+    assert result[2] == pytest.approx(target[2])
+    assert reachable(0, result, landing_base, rotation, lower, upper)
+    assert reachable(0, result, end_base, rotation, lower, upper)

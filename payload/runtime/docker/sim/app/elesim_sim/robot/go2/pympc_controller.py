@@ -27,7 +27,7 @@ from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
 from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge
 from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
 from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput
-from elesim_sim.robot.go2.foot_workspace import project_ground_target
+from elesim_sim.robot.go2.foot_workspace import project_ground_target, reachable
 from elesim_sim.simulation.genesis.utils import to_numpy_1d
 
 
@@ -228,6 +228,34 @@ def touchdown_candidates_world(base_position, placements, *, yaw_rotation,
         -0.04, 0.04,
     )
     return candidates
+
+
+def stance_end_foothold(
+    leg: int, target: np.ndarray, base_position: np.ndarray,
+    base_rotation: np.ndarray, body_velocity_world: np.ndarray,
+    desired_velocity_world: np.ndarray, remaining_swing_s: float,
+    stance_duration_s: float, lower: np.ndarray, upper: np.ndarray,
+) -> tuple[np.ndarray, bool]:
+    """Keep a new touchdown in reach through its predicted support interval.
+
+    A target can be easy to reach when the foot first lands, yet trail beyond
+    the calf extension limit as the body travels over it. Use the larger of
+    measured and requested horizontal speed for that travel estimate. The
+    extra 60 ms covers the contact gate's landing load ramp, which holds the
+    gait clock. Only plan this at liftoff; a planted foot stays fixed in world.
+    """
+    velocity = np.asarray(body_velocity_world, dtype=float)
+    desired = np.asarray(desired_velocity_world, dtype=float)
+    forecast = np.where(np.abs(desired) > np.abs(velocity), desired, velocity).copy()
+    forecast[2] = 0.0
+    base = np.asarray(base_position, dtype=float)
+    landing_base = base + forecast * float(remaining_swing_s)
+    end_base = base + forecast * (float(remaining_swing_s) + float(stance_duration_s) + .06)
+    projected, feasible = project_ground_target(
+        leg, target, end_base, base_rotation, lower, upper)
+    if feasible and reachable(leg, projected, landing_base, base_rotation, lower, upper):
+        return projected, True
+    return np.asarray(target, dtype=float).copy(), False
 
 
 def payload_aware_com_height(
@@ -606,7 +634,8 @@ class PyMpcGenesisController:
             ref_rpy[2] = rpy[2]
             yaw_rate = 0.0
         floor_z = 0.025
-        half_stance_s = 0.5 * float(self._config.gait_duty / self._config.gait_hz)
+        stance_duration_s = float(self._config.gait_duty / self._config.gait_hz)
+        half_stance_s = 0.5 * stance_duration_s
         placements = touchdown_offsets_body(
             self._nominal_foot_offsets_body,
             command_body=cmd_body,
@@ -620,9 +649,16 @@ class PyMpcGenesisController:
             remaining_swing_s=self._contact_gait.swing_remaining,
         )
         candidates[:, 2] = floor_z
+        base_velocity_world = rot_m @ dq[:3]
         for i in range(4):
             if contacts[i, 0] == 0 and self._last_contacts[i] == 1:
-                candidates[i] = self._reachable_target(i, candidates[i])
+                projected, feasible = stance_end_foothold(
+                    i, candidates[i], q[:3], rot_m, base_velocity_world, cmd_world,
+                    self._contact_gait.swing_remaining[i], stance_duration_s,
+                    self._foot_lower[i], self._foot_upper[i],
+                )
+                candidates[i] = (projected if feasible
+                                 else self._reachable_target(i, candidates[i]))
         footholds = planned_footholds(
             feet, candidates, contacts[:, 0], self._last_contacts, self._touchdowns,
         )
@@ -632,7 +668,6 @@ class PyMpcGenesisController:
                 contacts, gait_time=self._gait_time(), gait_hz=float(self._config.gait_hz),
             )
             if np.any(future_s):
-                base_velocity_world = rot_m @ dq[:3]
                 future = touchdown_candidates_world(
                     q[:3], placements, yaw_rotation=yaw_rot,
                     velocity_world=base_velocity_world, desired_velocity_world=cmd_world,
@@ -641,10 +676,16 @@ class PyMpcGenesisController:
                 future[:, 2] = floor_z
                 for i in np.flatnonzero(future_s):
                     predicted_base = q[:3] + base_velocity_world * future_s[i]
-                    projected, feasible = project_ground_target(
-                        int(i), future[i], predicted_base, rot_m,
+                    projected, feasible = stance_end_foothold(
+                        int(i), future[i], q[:3], rot_m, base_velocity_world,
+                        cmd_world, future_s[i], stance_duration_s,
                         self._foot_lower[i], self._foot_upper[i],
                     )
+                    if not feasible:
+                        projected, feasible = project_ground_target(
+                            int(i), future[i], predicted_base, rot_m,
+                            self._foot_lower[i], self._foot_upper[i],
+                        )
                     preview[i] = projected if feasible else future[i]
         sample = PyMpcInput(
             com_position=com,
