@@ -242,11 +242,23 @@ def stance_end_foothold(
     the calf extension limit as the body travels over it. Use the larger of
     measured and requested horizontal speed for that travel estimate. The
     extra 60 ms covers the contact gate's landing load ramp, which holds the
-    gait clock. Only plan this at liftoff; a planted foot stays fixed in world.
+    gait clock. During initial forward/backward acceleration, blend the
+    forecast toward commanded speed only after measured progress is present;
+    otherwise distant goals can brake the body before it starts walking.
+    Only plan this at liftoff; a planted foot stays fixed in world.
     """
     velocity = np.asarray(body_velocity_world, dtype=float)
     desired = np.asarray(desired_velocity_world, dtype=float)
     forecast = np.where(np.abs(desired) > np.abs(velocity), desired, velocity).copy()
+    body_command = np.asarray(base_rotation, dtype=float).T @ desired
+    command_speed = float(np.linalg.norm(desired[:2]))
+    if (command_speed > .2
+            and abs(body_command[0]) > 1.5 * abs(body_command[1])):
+        direction = desired[:2] / command_speed
+        actual_progress = float(np.dot(velocity[:2], direction))
+        requested_progress = float(np.dot(forecast[:2], direction))
+        blend = float(np.clip((actual_progress - .15) / .20, 0., 1.))
+        forecast[:2] -= (1. - blend) * (requested_progress - actual_progress) * direction
     forecast[2] = 0.0
     base = np.asarray(base_position, dtype=float)
     landing_base = base + forecast * float(remaining_swing_s)

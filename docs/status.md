@@ -24,8 +24,16 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   계속 이동해 calf 신전 한계 부근에서 지지를 잃었다. 발을 들어 올릴 때
   예상 착지와 지지 종료 양쪽에서 닿을 수 있는 지면 목표를 선택하고, 이미
   지지 중인 발의 세계 좌표는 유지한다. 두 실제 실패 자세의 목표 회귀는
-  red→green, Sim+보행 회귀 600 passed/4 skipped. 발행 이미지 실보행
-  수용시험은 아직 진행 전이며 개선 여부는 확정하지 않는다.
+  red→green, Sim+보행 회귀 600 passed/4 skipped. `ba38e6b`로 push/양쪽
+  update 후 원격 GPU2 `merry-quail` 실보행은 전진 4.64 s/-0.033 m,
+  후진 6.78 s/-0.629 m에 실패했으나 좌/우는 모두 통과(+0.551/-0.631 m).
+  초반 실제 몸통 속도가 거의 0인데도 목표 속도 0.8 m/s를 미래 이동량으로
+  적용해 전진 발을 과도하게 앞에 두는 역효과가 확인됐다. 원시 JSONL은
+  `workbench/evidence/generated/contact-gait/ba38e6b/`에 있다.
+- 후속 TDD는 저속 출발의 과도한 목표 이동을 재현해 red→green으로 고치고,
+  전후 방향의 실제 진행 속도가 충분할 때만 해당 속도 예측을 키운다.
+  Sim+보행 회귀 601 passed/4 skipped. 발행 이미지 수용시험 전이므로 전후
+  안정화 여부는 아직 확정하지 않는다.
 - `fa85b44`를 push/양쪽 update하고 원격 GPU2 Sim `merry-elephant`로
   4096×2, 50 Hz, substeps=4, 전후좌우 6초 명령+2초 정지를 실행했다.
   좌우는 통과(+0.616/-0.511 m), 전진은 7.08 s/+1.111 m,

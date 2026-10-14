@@ -122,7 +122,9 @@ def test_backward_front_touchdown_remains_reachable_through_stance_end():
     base = np.array([-.74260318, -.05165738, .29962528])
     rotation = Rotation.from_euler('xyz', [.08051289, -.26374641, .09716753]).as_matrix()
     target = np.array([-.69325040, .09413158, .025])
-    body_velocity = rotation @ np.array([-.17524780, -.16961450, -.07841714])
+    # Use the same trace's established reverse speed at t=5.1 s: the
+    # low-speed liftoff itself must not assume an immediate -0.8 m/s body.
+    body_velocity = np.array([-.64, -.17, 0.])
     desired_velocity = np.array([-.8, 0., 0.])
     remaining_swing = (1-.6)/2.2
     stance_duration = .6/2.2
@@ -141,3 +143,18 @@ def test_backward_front_touchdown_remains_reachable_through_stance_end():
     assert result[2] == pytest.approx(target[2])
     assert reachable(0, result, landing_base, rotation, lower, upper)
     assert reachable(0, result, end_base, rotation, lower, upper)
+
+
+def test_slow_body_does_not_place_rear_foot_for_full_command_speed():
+    # ba38e6b advanced the next rear foot by 7 cm while base speed was
+    # 0.03 m/s. The foot then braked the body and forward progress stopped.
+    base = np.array([.14502032, .02931007, .31952688])
+    rotation = Rotation.from_euler('xyz', [.03234908, .03885711, .06875277]).as_matrix()
+    target = np.array([.06175619, .20981782, .025])
+    body_velocity = rotation @ np.array([.02695699, -.00377471, .03388461])
+    result, feasible = stance_end_foothold(
+        2, target, base, rotation, body_velocity, np.array([.8, 0., 0.]),
+        .16, .6/2.2, LO+.04, HI-.04,
+    )
+    assert feasible
+    assert result[0]-target[0] < .025
