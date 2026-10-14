@@ -38,11 +38,20 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   전진은 6초 명령 구간 뒤 정지 무렵 오른쪽 뒷발 접촉을 잃었다. 전진 RR은
   지지력 약 70 N 중에도 접촉이 끊겼고 후진 FL은 종아리 신전 한계에 닿았다.
   원시 JSONL은 `workbench/evidence/generated/contact-gait/d3b0762/`에 있다.
-- 후속 TDD는 보행 중 일시적인 저속 구간의 실제 속도만으로 미래 지지 종료를
-  예측해 발을 뒤에 남기는 문제를 두 실패 자세에서 재현했다. 첫 약 한 주기에는
-  기존 저속 출발 제한을 유지하고 이후 명령 속도를 점진적으로 반영한다.
-  해당 자세 회귀 2개 red→green, Sim+보행 회귀 603 passed/4 skipped.
-  발행 이미지의 전후좌우 시험 전이므로 안정화 여부는 아직 확정하지 않는다.
+- `ca52d30`은 보행 중 순간 저속에도 명령 속도를 예상 지지 종료에 반영했다.
+  회귀 603 passed/4 skipped 후 push/양쪽 update, 원격 GPU2 `merry-eagle`의
+  전진은 5.42 s/+0.948 m, 후진은 5.06 s/-0.782 m로 더 일찍 착지 실패했다.
+  좌/우는 같은 +0.551/-0.631 m로 통과했다. 이 gait-age 예측 변경은 취소하고
+  `d3b0762`의 발 배치로 돌아간다. 원시 결과는
+  `workbench/evidence/generated/contact-gait/ca52d30/`에 있다.
+- 다음 TDD는 예정 착지 때 발 중앙이 0.026~0.027 m, 실제 normal=0인데
+  목표가 0.025 m에서 속도 0으로 끝나는 현상에 집중한다. 힘을 받는 실제
+  발 중앙은 약 0.023 m였다. 스윙 actuator 끝점만 nominal 지면보다 8 mm
+  아래로 내려 하중을 유도하고, 미착지 시 탐색이 끝점에서 이어지도록 한다.
+  MPC 지면 목표는 유지하며 스윙 편향과 탐색을 합한 추가 깊이는 최대 4 cm다.
+  두 회귀 red→green, adapter/contact/workspace 77 passed,
+  Sim+보행 회귀 603 passed/4 skipped. 물리 착지 시각과
+  안정성에 대한 효과는 새 발행 이미지의 GPU2 전후좌우 시험으로 판단한다.
 - `fa85b44`를 push/양쪽 update하고 원격 GPU2 Sim `merry-elephant`로
   4096×2, 50 Hz, substeps=4, 전후좌우 6초 명령+2초 정지를 실행했다.
   좌우는 통과(+0.616/-0.511 m), 전진은 7.08 s/+1.111 m,

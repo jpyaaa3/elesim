@@ -55,6 +55,27 @@ def test_swing_velocity_matches_position_derivative():
     assert target[2] > max(start[2], end[2])
 
 
+def test_terminal_swing_loads_the_measured_support_plane_without_moving_mpc_foothold():
+    # d3b0762 GPU2: terminal FL/RL centers remained at 0.026--0.027 m,
+    # normal force 0. Loaded feet settled near 0.023 m. A zero-velocity
+    # reference at 0.025 m can leave the foot unloaded above that plane.
+    start, end = np.array([0., .17, .023]), np.array([.1, .17, .025])
+    position, velocity = swing_foot_reference(
+        1., start, end, duration_s=.18, touchdown_depth_m=.008,
+    )
+    task_force = 1000.*(position-np.array([.1, .17, .023])) + 20.*velocity
+    assert task_force[2] < -5.
+    np.testing.assert_array_equal(end, [.1, .17, .025])
+    np.testing.assert_array_equal(velocity, np.zeros(3))
+    np.testing.assert_allclose(swing_foot_reference(
+        0., start, end, duration_s=.18, touchdown_depth_m=.008)[0], start)
+    p, epsilon = .8, 1e-6
+    before, _ = swing_foot_reference(p-epsilon, start, end, duration_s=.18, touchdown_depth_m=.008)
+    after, _ = swing_foot_reference(p+epsilon, start, end, duration_s=.18, touchdown_depth_m=.008)
+    _, velocity = swing_foot_reference(p, start, end, duration_s=.18, touchdown_depth_m=.008)
+    np.testing.assert_allclose(velocity, (after-before)/(2*epsilon*.18), atol=1e-8)
+
+
 class FakeSolver:
     def __init__(self, force=None, status=0):
         self.force = np.asarray(
@@ -116,6 +137,7 @@ def _init_contact_state(controller, elapsed_s=0.0):
     controller._contact_gait.phase_rate = 1.0
     controller._was_searching = np.zeros(4, dtype=bool)
     controller._search_targets = np.zeros((4, 3))
+    controller._search_min_z = np.zeros(4)
     controller._normal_contact_forces = lambda: np.full(4, 50.)
     controller._reachable_target = lambda _leg, target, **_kwargs: target.copy()
 
@@ -308,6 +330,7 @@ def test_swing_uses_velocity_reference_without_stance_damping_or_old_torque():
     phase = (.32 * 2.5 + np.array([0., .5, .5, 0.])) % 1.
     feet, velocities = zip(*(swing_foot_reference(
         np.clip((p - .6) / .4, 0, 1), c._swing_starts[i], c._touchdowns[i], duration_s=.16,
+        touchdown_depth_m=.008,
     ) for i, p in enumerate(phase)))
     # Perfect task tracking leaves only the bounded 0.5 joint damping. A
     # stale 90-Nm support filter or the 100-Nm stance damping must not leak in.
@@ -961,6 +984,25 @@ def test_missed_landing_keeps_ground_target_instead_of_resetting_to_air():
     assert np.all(c._search_targets[:, 2] <= .025)
 
 
+def test_missed_swing_continues_downward_from_loaded_endpoint_with_total_depth_cap():
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(c)
+    c._dt = .02
+    c._last_contacts.fill(0)
+    c._contact_gait.search.fill(True)
+    c._contact_gait.swing_progress.fill(1.)
+    c._contact_gait.missing_age.fill(.02)
+    c._touchdowns[:] = [.1, .17, .025]
+    feet = np.tile([.1, .17, .017], (4, 1))
+    state = PyMpcInput(**{**vars(sample()), 'contacts': np.zeros((4, 3))})
+    c._torques(state, feet, np.zeros((4, 3)), np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
+    assert np.all(c._search_targets[:, 2] < feet[:, 2])
+    for step in range(1, 15):
+        c._contact_gait.missing_age.fill((step+1)*c._dt)
+        c._torques(state, feet, np.zeros((4, 3)), np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
+    np.testing.assert_allclose(c._search_targets[:, 2], .025-.04, atol=1e-10)
+
+
 def test_search_depth_cap_also_stops_velocity_feedforward():
     c = PyMpcGenesisController.__new__(PyMpcGenesisController)
     _init_torque_controller(c)
@@ -971,6 +1013,7 @@ def test_search_depth_cap_also_stops_velocity_feedforward():
     c._contact_gait.missing_age.fill(.30)
     feet = sample().feet_world.copy()
     c._search_targets[:] = feet
+    c._search_min_z[:] = feet[:, 2]
     state = PyMpcInput(**{**vars(sample()), 'contacts': np.zeros((4, 3))})
     tau = c._torques(state, feet, np.zeros((4, 3)), np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
     np.testing.assert_allclose(tau, np.zeros(12), atol=1e-10)
@@ -986,6 +1029,7 @@ def test_search_retarget_velocity_matches_lateral_reference_motion():
     c._contact_gait.missing_age.fill(.30)
     feet = sample().feet_world.copy()
     c._search_targets[:] = feet
+    c._search_min_z[:] = feet[:, 2]
     c._reachable_target = lambda _leg, target, **kw: target + np.array([.01,0,0])
     state = PyMpcInput(**{**vars(sample()), 'contacts': np.zeros((4, 3))})
     tau = c._torques(state, feet, np.zeros((4, 3)), np.tile(np.eye(3),(4,1,1)), np.zeros(12))

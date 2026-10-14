@@ -33,6 +33,7 @@ from elesim_sim.simulation.genesis.utils import to_numpy_1d
 
 _LEGS = (LegId.FL, LegId.FR, LegId.RL, LegId.RR)
 _PHASE_OFFSETS = np.array((0.0, 0.5, 0.5, 0.0))
+_SWING_TOUCHDOWN_DEPTH_M = .008
 
 
 class ContactGatedGait:
@@ -160,11 +161,15 @@ def future_touchdown_times(contacts, *, gait_time: float, gait_hz: float) -> np.
 
 
 def swing_foot_reference(progress, start, touchdown, *, duration_s, height_m=0.06,
-                         phase_rate=1.0):
+                         phase_rate=1.0, touchdown_depth_m=0.0):
     """Position and matching world velocity for the bounded swing trajectory."""
     progress = float(np.clip(progress, 0.0, 1.0))
     smooth = progress * progress * (3.0 - 2.0 * progress)
-    delta = np.asarray(touchdown) - np.asarray(start)
+    endpoint = np.asarray(touchdown, dtype=float).copy()
+    # A small actuator penetration creates downward load at the support
+    # plane. The latched MPC foothold remains on the nominal ground surface.
+    endpoint[2] -= float(touchdown_depth_m)
+    delta = endpoint - np.asarray(start)
     target = np.asarray(start) + smooth * delta
     target[2] += height_m * 16.0 * progress**2 * (1.0 - progress)**2
     velocity = 6.0 * progress * (1.0 - progress) / duration_s * delta
@@ -235,7 +240,6 @@ def stance_end_foothold(
     base_rotation: np.ndarray, body_velocity_world: np.ndarray,
     desired_velocity_world: np.ndarray, remaining_swing_s: float,
     stance_duration_s: float, lower: np.ndarray, upper: np.ndarray,
-    *, gait_age_s: float = 0.0,
 ) -> tuple[np.ndarray, bool]:
     """Keep a new touchdown in reach through its predicted support interval.
 
@@ -246,8 +250,6 @@ def stance_end_foothold(
     gait clock. During initial forward/backward acceleration, blend the
     forecast toward commanded speed only after measured progress is present;
     otherwise distant goals can brake the body before it starts walking.
-    Once the gait has advanced through a cycle, a brief low-speed phase must
-    not make the next foot anticipate an entire stance at that transient speed.
     Only plan this at liftoff; a planted foot stays fixed in world.
     """
     velocity = np.asarray(body_velocity_world, dtype=float)
@@ -260,9 +262,7 @@ def stance_end_foothold(
         direction = desired[:2] / command_speed
         actual_progress = float(np.dot(velocity[:2], direction))
         requested_progress = float(np.dot(forecast[:2], direction))
-        speed_blend = np.clip((actual_progress - .15) / .20, 0., 1.)
-        gait_blend = np.clip((float(gait_age_s) - .5) / .5, 0., 1.)
-        blend = float(max(speed_blend, gait_blend))
+        blend = float(np.clip((actual_progress - .15) / .20, 0., 1.))
         forecast[:2] -= (1. - blend) * (requested_progress - actual_progress) * direction
     forecast[2] = 0.0
     base = np.asarray(base_position, dtype=float)
@@ -399,6 +399,7 @@ class PyMpcGenesisController:
         self._last_contacts = np.ones(4)
         self._contact_gait = ContactGatedGait()
         self._search_targets = np.zeros((4, 3))
+        self._search_min_z = np.zeros(4)
         self._was_searching = np.zeros(4, dtype=bool)
         self._set_stand_actuation()
         self._entity.set_dofs_position(self._kin.stand_q, dofs_idx_local=self._leg_dof_idxs)
@@ -553,6 +554,7 @@ class PyMpcGenesisController:
         self._contact_gait = ContactGatedGait()
         self._was_searching.fill(False)
         self._search_targets.fill(0.0)
+        self._search_min_z.fill(0.0)
         self._cmd = Go2Command()
         self._command_shaper.reset()
         self._sim_time = 0.0
@@ -673,7 +675,6 @@ class PyMpcGenesisController:
                     i, candidates[i], q[:3], rot_m, base_velocity_world, cmd_world,
                     self._contact_gait.swing_remaining[i], stance_duration_s,
                     self._foot_lower[i], self._foot_upper[i],
-                    gait_age_s=self._gait_time(),
                 )
                 candidates[i] = (projected if feasible
                                  else self._reachable_target(i, candidates[i]))
@@ -698,7 +699,6 @@ class PyMpcGenesisController:
                         int(i), future[i], q[:3], rot_m, base_velocity_world,
                         cmd_world, future_s[i], stance_duration_s,
                         self._foot_lower[i], self._foot_upper[i],
-                        gait_age_s=self._gait_time(),
                     )
                     if not feasible:
                         projected, feasible = project_ground_target(
@@ -798,12 +798,15 @@ class PyMpcGenesisController:
                         and self._contact_gait.swing_progress[i] >= 1.0
                     )
                     self._search_targets[i] = self._touchdowns[i] if finished_swing else feet[i]
+                    self._search_min_z[i] = self._search_targets[i, 2] - .04
+                    if finished_swing:
+                        self._search_targets[i, 2] -= _SWING_TOUCHDOWN_DEPTH_M
                     print(f"[go2_pympc] touchdown search leg={_LEGS[i].value} "
                           f"sim_time={self._sim_time:.3f} foot_z={feet[i, 2]:.3f}")
                 # Search below the retained reference, with bounded force.
                 descent = min(
                     0.15 * self._dt,
-                    max(0.0, 0.04 - 0.15 * (self._contact_gait.missing_age[i] - self._dt)),
+                    max(0.0, self._search_targets[i, 2] - self._search_min_z[i]),
                 )
                 self._search_targets[i, 2] -= descent
                 desired_vel = np.array((0.0, 0.0, -descent / self._dt))
@@ -826,6 +829,7 @@ class PyMpcGenesisController:
                     progress, self._swing_starts[i], self._touchdowns[i],
                     duration_s=(1.0 - duty) / float(self._config.gait_hz),
                     phase_rate=float(self._contact_gait._swinging[i]),
+                    touchdown_depth_m=_SWING_TOUCHDOWN_DEPTH_M,
                 )
                 task_force = 1000.0 * (target - feet[i]) + 20.0 * (desired_vel - foot_vel[i])
                 tau[sl] = jacobians[i].T @ task_force
