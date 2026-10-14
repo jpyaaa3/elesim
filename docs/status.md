@@ -44,14 +44,24 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   좌/우는 같은 +0.551/-0.631 m로 통과했다. 이 gait-age 예측 변경은 취소하고
   `d3b0762`의 발 배치로 돌아간다. 원시 결과는
   `workbench/evidence/generated/contact-gait/ca52d30/`에 있다.
-- 다음 TDD는 예정 착지 때 발 중앙이 0.026~0.027 m, 실제 normal=0인데
+- `b0b35ed` TDD는 예정 착지 때 발 중앙이 0.026~0.027 m, 실제 normal=0인데
   목표가 0.025 m에서 속도 0으로 끝나는 현상에 집중한다. 힘을 받는 실제
   발 중앙은 약 0.023 m였다. 스윙 actuator 끝점만 nominal 지면보다 8 mm
   아래로 내려 하중을 유도하고, 미착지 시 탐색이 끝점에서 이어지도록 한다.
   MPC 지면 목표는 유지하며 스윙 편향과 탐색을 합한 추가 깊이는 최대 4 cm다.
   두 회귀 red→green, adapter/contact/workspace 77 passed,
-  Sim+보행 회귀 603 passed/4 skipped. 물리 착지 시각과
-  안정성에 대한 효과는 새 발행 이미지의 GPU2 전후좌우 시험으로 판단한다.
+  Sim+보행 회귀 603 passed/4 skipped. push/양쪽 update 후 원격 GPU2
+  `merry-walrus`는 전진 +1.215 m, 후진 -1.743 m로 각각 6초 명령+2초 정지
+  및 stand 복귀를 통과했다. 두 방향의 예정 착지→실제 접촉 지연 중앙값은
+  40→0 ms였다. 최대 pitch는 전진 .343→.165, 후진 .514→.239 rad였다.
+  그러나 좌측은 6.88 s/+0.111 m, 우측은 3.82 s/반대 방향 +0.128 m에
+  착지 실패해 **전체 보행 gate는 여전히 미통과**다. 원시 결과는
+  `workbench/evidence/generated/contact-gait/b0b35ed/`에 있다.
+- 후속 TDD는 8 mm actuator 하강을 명령의 앞뒤 성분 비율로 정하고 발을
+  들어 올릴 때 고정한다. 순수 좌우는 이전 끝점으로 되돌리고, stop 도중
+  이미 진행 중인 swing의 끝점은 바뀌지 않는다. 방향별 3개 회귀 red→green,
+  Sim+보행 회귀 608 passed/4 skipped.
+  새 발행 이미지의 전후좌우 및 긴 보행 시험은 아직 실행 전이다.
 - `fa85b44`를 push/양쪽 update하고 원격 GPU2 Sim `merry-elephant`로
   4096×2, 50 Hz, substeps=4, 전후좌우 6초 명령+2초 정지를 실행했다.
   좌우는 통과(+0.616/-0.511 m), 전진은 7.08 s/+1.111 m,

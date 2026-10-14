@@ -76,6 +76,34 @@ def test_terminal_swing_loads_the_measured_support_plane_without_moving_mpc_foot
     np.testing.assert_allclose(velocity, (after-before)/(2*epsilon*.18), atol=1e-8)
 
 
+@pytest.mark.parametrize('command,depth', [
+    (Go2Command(vx=.8), .008),
+    (Go2Command(vx=-.8), .008),
+    (Go2Command(vy=.35), 0.),
+    (Go2Command(vy=-.35), 0.),
+    (Go2Command(vx=.8, vy=.35), .008*.8**2/(.8**2+.35**2)),
+])
+def test_swing_landing_load_tracks_command_direction_and_is_latched_through_stop(command, depth):
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(c)
+    c._dt = .02
+    c._cmd = command
+    c._contact_gait.swing_progress.fill(1.)
+    c._last_contacts.fill(1.)
+    state = PyMpcInput(**{**vars(sample()), 'contacts': np.zeros((4, 3))})
+    state.footholds_world[:, 2] = .025
+    feet = state.footholds_world.copy()
+    c._swing_starts[:] = feet
+    jacobians = np.tile(np.eye(3), (4, 1, 1))
+    first = c._torques(state, feet, np.zeros((4, 3)), jacobians, np.zeros(12))
+    np.testing.assert_allclose(first.reshape(4, 3)[:, 2], -1000.*depth)
+    # A user stop during the current swing must not move the actuator's
+    # terminal height upwards before the foot lands.
+    c._cmd = Go2Command()
+    second = c._torques(state, feet, np.zeros((4, 3)), jacobians, np.zeros(12))
+    np.testing.assert_allclose(second, first)
+
+
 class FakeSolver:
     def __init__(self, force=None, status=0):
         self.force = np.asarray(
@@ -138,6 +166,7 @@ def _init_contact_state(controller, elapsed_s=0.0):
     controller._was_searching = np.zeros(4, dtype=bool)
     controller._search_targets = np.zeros((4, 3))
     controller._search_min_z = np.zeros(4)
+    controller._touchdown_depths = np.full(4, .008)
     controller._normal_contact_forces = lambda: np.full(4, 50.)
     controller._reachable_target = lambda _leg, target, **_kwargs: target.copy()
 
@@ -167,6 +196,7 @@ def _init_torque_controller(controller, *, elapsed_s=1.0, config=None):
     controller._tau_raw = np.zeros(12)
     controller._swing_starts = np.zeros((4, 3))
     controller._touchdowns = np.zeros((4, 3))
+    controller._cmd = Go2Command(vx=.8)
     controller._tau_lim = np.full(12, 100.0)
     controller._kin = SimpleNamespace(ready_q=np.ones(12))
     controller._leg_dof_idxs = list(range(12))
@@ -862,6 +892,7 @@ def test_controller_reset_preempts_command_and_resets_solver_and_bridge():
     assert not np.any(controller._tau_hold)
     assert not np.any(controller._swing_starts)
     assert not np.any(controller._touchdowns)
+    assert not np.any(controller._touchdown_depths)
     assert controller._faulted is False
 
 

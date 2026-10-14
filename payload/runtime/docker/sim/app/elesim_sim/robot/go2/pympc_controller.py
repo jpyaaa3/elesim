@@ -396,6 +396,7 @@ class PyMpcGenesisController:
         self._tau_raw = np.zeros(12)
         self._swing_starts = np.zeros((4, 3))
         self._touchdowns = np.zeros((4, 3))
+        self._touchdown_depths = np.zeros(4)
         self._last_contacts = np.ones(4)
         self._contact_gait = ContactGatedGait()
         self._search_targets = np.zeros((4, 3))
@@ -555,6 +556,7 @@ class PyMpcGenesisController:
         self._was_searching.fill(False)
         self._search_targets.fill(0.0)
         self._search_min_z.fill(0.0)
+        self._touchdown_depths.fill(0.0)
         self._cmd = Go2Command()
         self._command_shaper.reset()
         self._sim_time = 0.0
@@ -800,7 +802,7 @@ class PyMpcGenesisController:
                     self._search_targets[i] = self._touchdowns[i] if finished_swing else feet[i]
                     self._search_min_z[i] = self._search_targets[i, 2] - .04
                     if finished_swing:
-                        self._search_targets[i, 2] -= _SWING_TOUCHDOWN_DEPTH_M
+                        self._search_targets[i, 2] -= self._touchdown_depths[i]
                     print(f"[go2_pympc] touchdown search leg={_LEGS[i].value} "
                           f"sim_time={self._sim_time:.3f} foot_z={feet[i, 2]:.3f}")
                 # Search below the retained reference, with bounded force.
@@ -824,12 +826,20 @@ class PyMpcGenesisController:
                 if self._last_contacts[i] == 1:
                     self._swing_starts[i] = feet[i]
                     self._touchdowns[i] = sample.footholds_world[i]
+                    # The forward/reverse trajectory needs earlier loading;
+                    # the tested lateral trajectory retains its ground end.
+                    # Latch the blend so changing intent mid-swing cannot
+                    # move the foot's endpoint vertically before landing.
+                    vx, vy = float(self._cmd.vx), float(self._cmd.vy)
+                    self._touchdown_depths[i] = (
+                        _SWING_TOUCHDOWN_DEPTH_M * vx*vx / max(vx*vx + vy*vy, 1e-12)
+                    )
                 progress = self._contact_gait.swing_progress[i]
                 target, desired_vel = swing_foot_reference(
                     progress, self._swing_starts[i], self._touchdowns[i],
                     duration_s=(1.0 - duty) / float(self._config.gait_hz),
                     phase_rate=float(self._contact_gait._swinging[i]),
-                    touchdown_depth_m=_SWING_TOUCHDOWN_DEPTH_M,
+                    touchdown_depth_m=self._touchdown_depths[i],
                 )
                 task_force = 1000.0 * (target - feet[i]) + 20.0 * (desired_vel - foot_vel[i])
                 tau[sl] = jacobians[i].T @ task_force
