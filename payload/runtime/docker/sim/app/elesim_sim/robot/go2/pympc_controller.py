@@ -16,6 +16,7 @@ from scipy.spatial.transform import Rotation
 
 from elesim_sim.robot.go2.locomotion.kinematics import (
     GO2_LEG_JOINTS,
+    HIP_OFFSET_BODY,
     NOMINAL_FOOT_OFFSET_BODY,
     Go2KinematicsModel,
 )
@@ -723,6 +724,8 @@ class PyMpcGenesisController:
             preview_footholds_world=preview,
             contacts=contacts,
             support_loads=self._contact_gait.load.copy(),
+            hip_offsets_com_body=(np.array([HIP_OFFSET_BODY[leg] for leg in _LEGS])
+                                  + (rot_m.T @ (q[:3] - com))[None, :]),
             mass_kg=mass,
             inertia_body=inertia_body,
             simulation_time_s=self._sim_time,

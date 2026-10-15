@@ -46,6 +46,16 @@ import numpy as np
 from .pympc_solver import LEGS
 
 
+def _support_extension_cost(array, hip_to_foot_body, support):
+    """Softly retain 20 mm reach before the GO2 calf's safe extension limit."""
+    # The 95.5 mm hip-to-thigh offset rotates with abduction. Removing its
+    # squared length leaves the radius of the two 213 mm sagittal links.
+    radius = array.sqrt(array.maximum(array.sum(hip_to_foot_body**2, axis=-1)-.0955**2, 1e-12))
+    soft_limit = 2.*.213*np.cos(.5*(-.83776-.04))-.02
+    excess = array.maximum((radius-soft_limit)/.02, 0.)
+    return 200.*array.sum(array.asarray(support)*excess**2)
+
+
 def _bounded_integer(name: str, value: int, lower: int, upper: int) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or not lower <= value <= upper:
         raise ValueError(f"{name} must be an integer in [{lower}, {upper}]")
@@ -151,7 +161,7 @@ class JaxMppiSolver:
             linear = jp.sum(force, axis=0)/mass + jp.array([0., 0., -9.81])
             return jp.concatenate((x[3:6], linear, rate, angular))
 
-        def score(x0, reference, feet, contacts, loads, mass, inertia, inverse, forces):
+        def score(x0, reference, feet, contacts, loads, mass, inertia, inverse, hips, geometry, forces):
             def step(carry, values):
                 x, total = carry
                 force, foot, contact, load = values
@@ -171,14 +181,16 @@ class JaxMppiSolver:
                 nominal_z = mass*9.81/jp.maximum(jp.sum(contact*load), 1.)
                 force_error = requested - contact[:, None]*jp.array([0., 0., nominal_z])
                 effort = jp.sum(force_error**2*jp.array([.001, .001, .0001]))
+                body_feet = (foot-x[:3]) @ rotation(x[6:9])
+                extension = geometry*_support_extension_cost(jp, body_feet-hips, contact*load)
                 invalid = jp.any(jp.abs(x[6:8]) > 1.2) | ~jp.all(jp.isfinite(x))
-                cost = jp.where(invalid, jp.inf, state_cost + effort)
+                cost = jp.where(invalid, jp.inf, state_cost + effort + extension)
                 return (x, total + dt*cost), None
             (_, total), _ = jax.lax.scan(
                 step, (x0, jp.float32(0.)), (forces, feet, contacts, loads))
             return total
 
-        batch_score = jax.vmap(score, in_axes=(None, None, None, None, None, None, None, None, 0))
+        batch_score = jax.vmap(score, in_axes=(None,)*10 + (0,))
 
         def initial_forces(x, reference, feet, contacts, loads, mass, inertia):
             # A regularized wrench distribution seeds sampling with a useful
@@ -201,7 +213,8 @@ class JaxMppiSolver:
                 return project(f.reshape(4, 3), contact), allocation.reshape(4, 3, 6)
             return jax.vmap(distribute)(feet, contacts, loads)
 
-        def optimize(x, reference, feet, contacts, loads, mass, inertia, inverse, mean, use_mean, elapsed, key):
+        def optimize(x, reference, feet, contacts, loads, mass, inertia, inverse, mean, use_mean, elapsed, key,
+                     hips, geometry):
             seed, allocation = initial_forces(x, reference, feet, contacts, loads, mass, inertia)
             index = jp.minimum(jp.arange(horizon, dtype=jp.float32) + elapsed/dt, horizon-1.)
             lo = jp.floor(index).astype(jp.int32)
@@ -226,14 +239,16 @@ class JaxMppiSolver:
                 candidates = project(mean[None]+perturbation, contacts[None])
                 # Preserve both the incumbent and fresh feedback seed.
                 candidates = candidates.at[0].set(mean).at[1].set(seed)
-                costs = batch_score(x, reference, feet, contacts, loads, mass, inertia, inverse, candidates)
+                costs = batch_score(x, reference, feet, contacts, loads, mass, inertia, inverse,
+                                    hips, geometry, candidates)
                 finite = jp.isfinite(costs)
                 best = jp.min(jp.where(finite, costs, jp.inf))
                 weights = jp.where(finite, jp.exp(-jp.clip(costs-best, 0., 80.)/1.), 0.)
                 weighted = jp.sum(candidates*weights[:, None, None, None], axis=0)/jp.maximum(jp.sum(weights), 1e-20)
                 # Keep an improving weighted update. Selecting a single lucky
                 # noisy rollout injects force/yaw jitter into the physical gait.
-                weighted_cost = score(x, reference, feet, contacts, loads, mass, inertia, inverse, weighted)
+                weighted_cost = score(x, reference, feet, contacts, loads, mass, inertia, inverse,
+                                      hips, geometry, weighted)
                 # The fresh feedback seed is a deterministic candidate too.
                 # Do not discard it when averaging noisy trajectories makes
                 # a worse solution than that available recovery trajectory.
@@ -243,7 +258,7 @@ class JaxMppiSolver:
                 result = jp.where(weighted_cost <= incumbent_cost, weighted, incumbent)
                 return result, key
             mean, key = jax.lax.fori_loop(0, iterations, improve, (mean, key))
-            cost = score(x, reference, feet, contacts, loads, mass, inertia, inverse, mean)
+            cost = score(x, reference, feet, contacts, loads, mass, inertia, inverse, hips, geometry, mean)
             return mean, key, cost
         return optimize
 
@@ -270,12 +285,16 @@ class JaxMppiSolver:
         has_swung = np.maximum.accumulate(1.-contact, axis=0).astype(bool)
         feet_horizon = np.where(has_swung[..., None], preview[None], feet[None])
         inertia = np.asarray(inertia, dtype=np.float32).reshape(3, 3)
+        hips = reference.get("hip_offsets_com_body")
+        geometry = np.float32(hips is not None)
+        hips = np.zeros((4, 3), dtype=np.float32) if hips is None else np.asarray(hips, dtype=np.float32)
         mean = self._mean
         fresh = mean is None or elapsed_s >= self.horizon*self.dt
         if mean is None:
             mean = np.zeros((self.horizon, 4, 3), dtype=np.float32)
         values = (x, ref, feet_horizon, contact, loads, np.float32(mass), inertia,
-                  np.linalg.inv(inertia), mean, np.bool_(not fresh), np.float32(elapsed_s), self._key)
+                  np.linalg.inv(inertia), mean, np.bool_(not fresh), np.float32(elapsed_s), self._key,
+                  hips, geometry)
         args = [self._jax.device_put(value, self.device) for value in values]
         solution, key, cost = self._optimize(*args)
         # D2H is intentional: Genesis torque conversion is on CPU. Waiting

@@ -40,6 +40,7 @@ class PyMpcInput:
     simulation_time_s: float | None = None
     preview_footholds_world: np.ndarray | None = None
     support_loads: np.ndarray | None = None
+    hip_offsets_com_body: np.ndarray | None = None
 
 
 def _finite_array(name: str, value: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
@@ -272,6 +273,9 @@ class PyMpcForceSolver:
                 reference[f"preview_foot_{leg}"] = preview[index : index + 1]
         parameters = dict(mass=mass, inertia=inertia.reshape(9))
         if self.backend == "jax_mppi":
+            if sample.hip_offsets_com_body is not None:
+                reference["hip_offsets_com_body"] = _finite_array(
+                    "hip_offsets_com_body", sample.hip_offsets_com_body, (4, 3))
             if sample.support_loads is not None:
                 reference["support_loads"] = support_load_horizon(
                     contacts, sample.support_loads, self.dt)

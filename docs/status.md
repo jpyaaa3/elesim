@@ -27,6 +27,16 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   deselected 1개는 별도로 보존한 미완성 다리 신전 비용 TDD다.
 - 이 물성 수정의 발행 이미지 실보행 및 긴 보행 gate는 아직 미검증이다.
   실물 팔 질량 측정값은 없으므로 선언 질량 0.5779 kg는 변경하지 않았다.
+- 다음 신전 비용 TDD는 2 failed/3 passed → 5 passed. MPPI 상태/힘 비용에
+  지지발의 hip→foot 도달 반경을 추가했다. 95.5 mm hip lateral offset을
+  제거한 두 링크 반경에 대해 calf 안전 상한(URDF upper-.04 rad)보다
+  20 mm 안쪽에서 연속 벌점을 준다. 예측 COM/자세 및 실제 COM-relative
+  hip 위치를 사용하며 swing은 제외하고 landing load를 곱한다.
+  신규 비용이 실제 optimizer 출력과 예측 하강을 바꾸는 회귀를 포함한다.
+  geometry 없는 기존 solver 호출과 acados 계약은 유지한다.
+- 위 신전 비용까지 포함한 같은 canonical Sim/보행 명령은 제외 없이
+  593 passed/4 skipped. GPU2에서 물성만 수정한 `e728f71` 실보행을 먼저
+  실행 중이다. 신전 비용 수정의 원격 실보행은 아직 미검증이다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 

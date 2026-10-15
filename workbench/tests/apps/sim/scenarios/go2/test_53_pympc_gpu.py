@@ -195,6 +195,82 @@ def test_landing_load_is_used_when_allocating_vertical_support(cpu_math):
     assert new_applied > 150.
 
 
+def test_supported_legs_near_extension_make_mppi_lower_the_predicted_body(cpu_math):
+    from elesim_sim.robot.go2.foot_workspace import foot_position_body
+    from elesim_sim.robot.go2.locomotion.kinematics import HIP_OFFSET_BODY
+    from elesim_sim.robot.go2.locomotion.types import ALL_LEGS
+    # The long GPU2 traces reach the calf's -0.83776 extension limit after
+    # body roll/height makes support unreachable. Start 20 mm before that
+    # limit with a height reference that alone would retain this posture.
+    base = np.array([0., 0., .37])
+    com_offset = np.array([.02, 0., -.02])
+    feet = base + np.array([foot_position_body(leg, [0., .9, -.9]) for leg in range(4)])
+    hips = np.array([HIP_OFFSET_BODY[leg] for leg in ALL_LEGS])-com_offset
+    sample = replace(standing(mass=15.6), com_position=base+com_offset,
+                     desired_com_position=base+com_offset,
+                     feet_world=feet, footholds_world=feet.copy())
+    adapter = PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: cpu_math)
+    ignored = adapter.solve(sample)
+    adapter.reset()
+    aware = adapter.solve(replace(sample, hip_offsets_com_body=hips))
+    # Confirm that the actual optimizer scoring path changes the force,
+    # rather than merely exposing a disconnected geometry calculation.
+    assert aware[:, 2].sum() < ignored[:, 2].sum()-15., (ignored, aware)
+    z, vz = float(sample.com_position[2]), 0.
+    for stage in np.asarray(cpu_math._mean):
+        acceleration = stage[:, 2].sum()/sample.mass_kg-9.81
+        z += vz*cpu_math.dt+.5*acceleration*cpu_math.dt**2
+        vz += acceleration*cpu_math.dt
+    assert z < sample.com_position[2]-.01
+
+
+def test_support_extension_penalty_matches_urdf_limit_and_ignores_swing():
+    from pathlib import Path
+    import xml.etree.ElementTree as ET
+    from elesim_sim.robot.go2.pympc_jax import _support_extension_cost
+    from elesim_sim.robot.go2.foot_workspace import foot_position_body
+    from elesim_sim.robot.go2.locomotion.kinematics import HIP_OFFSET_BODY
+    from elesim_sim.robot.go2.locomotion.types import ALL_LEGS
+    root = next(p for p in Path(__file__).resolve().parents if (p/'payload').is_dir())
+    urdf = ET.parse(root/'payload/data/models/assemblies/zed-mini/assets/go2/go2.urdf')
+    limit = float(urdf.find(".//joint[@name='FL_calf_joint']/limit").get('upper'))-.04
+    hips = np.array([HIP_OFFSET_BODY[leg] for leg in ALL_LEGS])
+    def vectors(calf, hip):
+        return np.array([foot_position_body(i, [hip, -calf/2, calf]) for i in range(4)])-hips
+    # Hip abduction changes direction, not the two-link extension radius.
+    nominal = vectors(-1.8, .2)
+    assert _support_extension_cost(np, nominal, np.ones(4)) == 0.
+    straight = vectors(limit, .3)
+    np.testing.assert_allclose(_support_extension_cost(np, straight, np.ones(4)), 800., rtol=1e-5)
+    np.testing.assert_allclose(_support_extension_cost(np, vectors(limit, -.3), np.ones(4)), 800., rtol=1e-5)
+    assert _support_extension_cost(np, straight, np.zeros(4)) == 0.
+    np.testing.assert_allclose(_support_extension_cost(np, straight, [1., .5, 0., 0.]), 300., rtol=1e-5)
+
+
+def test_gpu_receives_com_relative_hip_geometry_without_changing_cpu_contract():
+    class GeometryBackend(RecordingBackend):
+        def compute_control(self, state, reference, contacts, **parameters):
+            self.reference = reference
+            return super().compute_control(state, reference, contacts, **parameters)
+    hips = np.arange(12, dtype=float).reshape(4, 3)/100.
+    sample = replace(standing(), hip_offsets_com_body=hips)
+    gpu = GeometryBackend()
+    PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: gpu).solve(sample)
+    np.testing.assert_array_equal(gpu.reference['hip_offsets_com_body'], hips)
+    cpu = GeometryBackend()
+    PyMpcForceSolver(solver_factory=lambda: cpu).solve(sample)
+    assert 'hip_offsets_com_body' not in cpu.reference
+
+
+@pytest.mark.parametrize('hips', [np.zeros((3, 3)), np.full((4, 3), np.nan)])
+def test_bad_hip_geometry_is_rejected_before_gpu_dispatch(hips):
+    fake = RecordingBackend()
+    with pytest.raises(ValueError, match='hip_offsets_com_body'):
+        PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: fake).solve(
+            replace(standing(), hip_offsets_com_body=hips))
+    assert not fake.received
+
+
 def test_rising_body_recovers_height_despite_horizontal_command_and_warm_start(cpu_math):
     """An old propulsive solution must not keep launching an elevated body."""
     adapter = PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: cpu_math)
