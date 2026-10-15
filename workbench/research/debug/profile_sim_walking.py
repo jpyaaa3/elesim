@@ -29,6 +29,20 @@ def has_commanded_progress(command, displacement, *, duration):
     return math.isfinite(along) and along >= max(.05, .1 * speed * duration)
 
 
+def override_physics(params, *, dt=None, substeps=None):
+    """Override the diagnostic cadence without mutating installed defaults."""
+    changes = {}
+    if dt is not None:
+        if not math.isfinite(dt) or dt <= 0:
+            raise ValueError("dt must be finite and positive")
+        changes['dt'] = dt
+    if substeps is not None:
+        if isinstance(substeps, bool) or not isinstance(substeps, int) or substeps < 1:
+            raise ValueError("substeps must be a positive integer")
+        changes['substeps'] = substeps
+    return replace(params, **changes)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config")
@@ -41,6 +55,7 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--cycles", type=int, default=1, help="walk/stop cycles without respawn")
     parser.add_argument("--dt", type=float)
+    parser.add_argument("--substeps", type=int)
     parser.add_argument("--sample-period", type=float, default=.1)
     parser.add_argument("--backend", choices=("acados", "jax_mppi"))
     parser.add_argument("--gpu-samples", type=int)
@@ -68,7 +83,10 @@ def main() -> None:
     if not np.isfinite(args.sample_period) or args.sample_period <= 0:
         parser.error("sample period must be finite and positive")
     bundle = load_app_config(args.config, mode="remote")
-    params = bundle.sim_param if args.dt is None else replace(bundle.sim_param, dt=args.dt)
+    try:
+        params = override_physics(bundle.sim_param, dt=args.dt, substeps=args.substeps)
+    except ValueError as exc:
+        parser.error(str(exc))
     cfg = replace(bundle.sim_config, build_dir=str(Path(args.model_bundle).resolve()),
                   enable_viewer=False, sim_camera_enable=args.cameras,
                   sim_observer_camera_enable=args.cameras)
@@ -131,7 +149,7 @@ def main() -> None:
                 solve_times.append(seconds) if name == "go2_pympc_solve" else None
             )
             dt = float(params.dt)
-            emit(dict(kind="configuration", dt=dt, command=args.command,
+            emit(dict(kind="configuration", dt=dt, substeps=params.substeps, command=args.command,
                       duration=args.duration, settle=args.settle, stop=args.stop, cycles=args.cycles,
                       fixed_target=bool(args.keep_target), controller=type(controller).__name__,
                       backend=locomotion.mpc_solver_backend, gpu_samples=locomotion.mpc_gpu_samples,

@@ -152,6 +152,20 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   현재 Pinocchio g는 진단에 계속 기록하지만 동적 접촉력 추종이 검증되기
   전에는 actuation에 더하지 않는다. 이 변경의 회귀 1 failed/2 passed →
   green, canonical Sim/보행 620 passed/4 skipped. 원격 gate는 미검증이다.
+- `1d0594f`를 push/양쪽 update 후 GPU2 Sim `merry-parrot`에서 확인했다.
+  후진/좌/우는 통과(-1.606/+.480/-.512 m)했으나 전진은 5.78 s/+.893 m에
+  RL timeout이었다. max pitch=.423 rad, 공중 지지력은 네 방향 모두 0회다.
+  g 제거만으로는 search 기하 비용 후보의 퇴보를 회복하지 못했다.
+  원시는 `contact-gait/1d0594f/`에 회수했다.
+- 설치 Genesis `constraint/solver.py`의 `func_update_contact_force`는 매 solve에
+  링크 force를 0으로 초기화하고 이번 contact force를 합산한다. rigid substep의
+  constraint solve에서 호출되며 `get_links_net_contact_force()`는 이 배열의
+  현재 snapshot이다. 현재 20 ms/4 substeps에서는 제어·접촉 관측 50 Hz와
+  물리 적분 200 Hz가 다르다. 실제 영향은 별도 cadence A/B가 필요하다.
+- 진단 도구에 `--substeps`를 추가하고 dt/substeps를 함께 기록한다. 설치
+  기본값은 바꾸지 않고, 20 ms/4와 5 ms/1의 같은 5 ms 적분 간격을 비교한다.
+  순수 회귀 5 failed/2 passed → green, canonical Sim/보행 625 passed/4 skipped.
+  이 주기 비교의 원격 보행 및 성능 gate는 아직 미검증이다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 
