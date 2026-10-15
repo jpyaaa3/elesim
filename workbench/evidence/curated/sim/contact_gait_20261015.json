@@ -1,0 +1,312 @@
+{
+  "date": "2026-10-15",
+  "source_revision": "ddc9a8fce33b993a53c1e546d1aa3c0eae24d61e",
+  "controller_sha256": "57c80bea7af9cae8efdd8d01c1625a74a678791e16c6dc4475d3976dad2c6e75",
+  "host": "hckang@100.74.222.24",
+  "instance": "tddwalk",
+  "image": "elesim/sim:merry-tuna",
+  "release_key": "0155a0ea3f20e4aab9f37a909ea51814d2f5c8bcb038025606969c33e9445dd9",
+  "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+  "configuration": {
+    "dt_s": 0.01,
+    "substeps": 2,
+    "solver_dt_s": 0.02,
+    "solver_stride": 2,
+    "backend": "jax_mppi",
+    "samples": 4096,
+    "iterations": 2,
+    "record_period_s": 0.02,
+    "forward_speed_command_m_s": 0.8,
+    "lateral_speed_command_m_s": 0.35,
+    "cameras": false,
+    "dds": false,
+    "physical_robot": false,
+    "physics_override": false
+  },
+  "gate": {
+    "progress": "Along-command displacement >= max(0.05 m, 10% of commanded speed * movement duration). This is not a velocity tracking criterion.",
+    "fall": "Base height >=0.16 m and absolute roll/pitch <=0.85 rad.",
+    "completion": "Finish the full duration without a latched fault and reach stand at every 2 s stop.",
+    "airborne_force": "Count pre-step observed normal <=2 N, observed foot height >0.03 m and applied vertical GRF >5 N. This does not detect every airborne oscillation."
+  },
+  "software_tests": {
+    "passed": 653,
+    "skipped": 4,
+    "scope": "Sim, fixed-foot diagnostic, walking progress/cycle diagnostic",
+    "full_required_extended_release_gates_run": false
+  },
+  "stop_checks": {
+    "basic_passed": 14,
+    "basic_total": 14,
+    "stress_passed": 23,
+    "stress_total": 23
+  },
+  "basic": [
+    {
+      "name": "backward",
+      "passed": true,
+      "sim_end_s": 9.98,
+      "displacement_m": [
+        -1.1223387150093913,
+        -0.06854501633824839,
+        0.0044439733028411865
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.09917830580662254,
+        0.08265049116167345
+      ],
+      "sim_per_wall": 1.1094711218953417
+    },
+    {
+      "name": "backward20",
+      "passed": true,
+      "sim_end_s": 23.98,
+      "displacement_m": [
+        -4.5141448406502604,
+        -0.2221445542472793,
+        0.004260599613189697
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.11183227722476262,
+        0.13246437071435446
+      ],
+      "sim_per_wall": 0.9149118437821121
+    },
+    {
+      "name": "backward_cycles",
+      "passed": true,
+      "sim_end_s": 25.98,
+      "displacement_m": [
+        -3.6499392418190837,
+        -0.7012533050674392,
+        0.006489068269729614
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.13687542473376785,
+        0.1304828013760484
+      ],
+      "sim_per_wall": 0.9841317561850261
+    },
+    {
+      "name": "forward",
+      "passed": true,
+      "sim_end_s": 9.98,
+      "displacement_m": [
+        1.212654766626656,
+        -0.01410201645376219,
+        0.02599361538887024
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.07778352146902401,
+        0.13605106876641382
+      ],
+      "sim_per_wall": 1.0879844375203536
+    },
+    {
+      "name": "forward20",
+      "passed": true,
+      "sim_end_s": 23.98,
+      "displacement_m": [
+        3.9486449332907796,
+        -0.22419958828868403,
+        0.02638930082321167
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.10178113788047288,
+        0.18959506270470539
+      ],
+      "sim_per_wall": 0.9848200468085583
+    },
+    {
+      "name": "forward_cycles",
+      "passed": true,
+      "sim_end_s": 25.98,
+      "displacement_m": [
+        4.460437354631722,
+        0.7799113291603135,
+        0.019427746534347534
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.07778352146902401,
+        0.25868494975593426
+      ],
+      "sim_per_wall": 1.0624923062705236
+    },
+    {
+      "name": "left",
+      "passed": true,
+      "sim_end_s": 9.98,
+      "displacement_m": [
+        -0.06852305959910154,
+        0.39801516116676794,
+        0.009075075387954712
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.14705961746404816,
+        0.10759182381396082
+      ],
+      "sim_per_wall": 1.0561518853648006
+    },
+    {
+      "name": "left20",
+      "passed": true,
+      "sim_end_s": 23.98,
+      "displacement_m": [
+        -0.08692733477801085,
+        1.1143768328529404,
+        0.007749617099761963
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.14705961746404816,
+        0.13163363468119837
+      ],
+      "sim_per_wall": 0.879644099868599
+    },
+    {
+      "name": "right",
+      "passed": true,
+      "sim_end_s": 9.98,
+      "displacement_m": [
+        -0.049405879341065884,
+        -0.43527505814017786,
+        0.010508924722671509
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.13287691097574064,
+        0.0745363233796188
+      ],
+      "sim_per_wall": 1.0572979834305514
+    },
+    {
+      "name": "right20",
+      "passed": true,
+      "sim_end_s": 23.98,
+      "displacement_m": [
+        -0.0645953519269824,
+        -1.3906492692130996,
+        0.013092637062072754
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.13287691097574064,
+        0.1473852415337631
+      ],
+      "sim_per_wall": 0.9128751031886557
+    }
+  ],
+  "stress": [
+    {
+      "name": "backward_cycles10",
+      "passed": true,
+      "sim_end_s": 81.98,
+      "displacement_m": [
+        -12.577043476514518,
+        -4.11091167746963,
+        -0.0033636093139648438
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.16818193017663757,
+        0.17125118885428137
+      ],
+      "sim_per_wall": 0.9809301975324937
+    },
+    {
+      "name": "forward60",
+      "passed": true,
+      "sim_end_s": 63.980000000000004,
+      "displacement_m": [
+        12.608073291368783,
+        -0.787882159342189,
+        0.01741659641265869
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.24272920841604373,
+        0.3843291082485416
+      ],
+      "sim_per_wall": 0.8807796042825385
+    },
+    {
+      "name": "forward_cycles10",
+      "passed": true,
+      "sim_end_s": 81.98,
+      "displacement_m": [
+        15.535858211107552,
+        -0.7418753605979873,
+        0.03146788477897644
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.15347773039736262,
+        0.3798047579787145
+      ],
+      "sim_per_wall": 0.969442329617449
+    },
+    {
+      "name": "left40",
+      "passed": true,
+      "sim_end_s": 43.980000000000004,
+      "displacement_m": [
+        -0.14218986313790083,
+        2.5250579613548325,
+        0.01077955961227417
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.21902379262576605,
+        0.19303555405246287
+      ],
+      "sim_per_wall": 0.8913264822172453
+    },
+    {
+      "name": "right40",
+      "passed": true,
+      "sim_end_s": 43.980000000000004,
+      "displacement_m": [
+        0.32183700520545244,
+        -2.549361298670192,
+        0.010523855686187744
+      ],
+      "final_stage": "stand",
+      "airborne_force_ticks": 0,
+      "max_abs_roll_pitch_rad": [
+        0.14119997236760462,
+        0.18729765484276495
+      ],
+      "sim_per_wall": 0.9262569161777139
+    }
+  ],
+  "raw_directories": [
+    "workbench/evidence/generated/contact-gait/ddc9a8f-defaults/",
+    "workbench/evidence/generated/contact-gait/ddc9a8f-defaults-stress/"
+  ],
+  "remaining": [
+    "Velocity tracking: forward20 t=4..22 s mean vx 0.202 m/s for commanded 0.8 m/s; blocked about 40%.",
+    "Direction and posture: backward_cycles10 lateral displacement -4.111 m; forward60 maximum pitch 0.384 rad.",
+    "Camera workers, moving arm, DDS/UI, WebRTC and physical hardware are not covered by these walking trials."
+  ]
+}

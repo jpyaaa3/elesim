@@ -29,6 +29,27 @@ def has_commanded_progress(command, displacement, *, duration):
     return math.isfinite(along) and along >= max(.05, .1 * speed * duration)
 
 
+def stop_cycle_results(samples, *, settle, duration, stop, cycles, sample_interval):
+    """Require a settled stand at every restart boundary in a cyclic trial."""
+    if stop <= 0:
+        return []
+    results = []
+    for cycle in range(cycles):
+        start = settle + cycle * (duration + stop) + duration
+        end = start + stop
+        rows = [row for row in samples if start <= row['t'] < end]
+        last = rows[-1] if rows else None
+        complete = bool(last is not None and last['t'] >= end - sample_interval - 1e-9
+                        and last['pose_stage'] == 'stand'
+                        and not last['faulted'] and not last['fallen'])
+        first_stand = next((row['t'] - start for row in rows if row['pose_stage'] == 'stand'), None)
+        results.append(dict(cycle=cycle + 1, completed=complete,
+                            last_t=last['t'] if last else None,
+                            last_stage=last['pose_stage'] if last else None,
+                            stand_after_s=first_stand))
+    return results
+
+
 def override_physics(params, *, dt=None, substeps=None):
     """Override the diagnostic cadence without mutating installed defaults."""
     changes = {}
@@ -260,8 +281,11 @@ def main() -> None:
                 progress_ok = has_commanded_progress(args.command, displacement,
                                                      duration=args.duration * args.cycles)
                 completed = completed and progress_ok
-                if args.stop > 0:
-                    completed = completed and samples[-1]["pose_stage"] == "stand"
+                cycle_stops = stop_cycle_results(
+                    samples, settle=args.settle, duration=args.duration, stop=args.stop,
+                    cycles=args.cycles, sample_interval=dt * max(1, round(args.sample_period / dt)),
+                )
+                completed = completed and all(row['completed'] for row in cycle_stops)
                 wall_s = time.perf_counter() - began
                 if hub is not None:
                     completed = (completed and all(frame_counts[name] > 0 for name in streams)
@@ -270,6 +294,7 @@ def main() -> None:
                 emit(dict(kind="summary", trial=trial, samples=len(samples),
                           completed=completed,
                           commanded_progress_ok=progress_ok,
+                          cycle_stops=cycle_stops,
                           wall_s=wall_s, displacement=displacement,
                           rendered_fps={name: frame_counts[name]/wall_s for name in streams} if hub else None,
                           capture_to_observation_ms_p95={name: float(np.percentile(frame_ages[name], 95)*1000)

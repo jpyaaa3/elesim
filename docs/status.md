@@ -211,6 +211,35 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   명령은 647 passed/4 skipped다. 설치된 기본 config를 덮어쓰지 않는 원격 시험은
   다음 단계이며 아직 통과로 선언하지 않는다. full required/extended 및 isolated
   release build/verify는 이번 보행 범위에서 미실행이다.
+- `ddc9a8f`를 push하고 두 호스트의 공식 `elesim-update`를 완료했다. 원격
+  GPU2 전용 `tddwalk`의 공식 Sim `merry-tuna`에서 controller SHA와 설치 기본값
+  dt=.01/substeps=2, MPPI 4096×2를 검사하고 dt override 없이 실행했다.
+  단기 전후좌우, 20초 전후좌우, 전진/후진 이동·정지 3회 모두 통과했다(10/10).
+  20초 이동량은 +3.949/-4.514/+1.114/-1.391 m이며 모든 시험이 stand로 끝났다.
+  전진 반복은 +4.460 m로 끝났고 중간 3회 정지 모두 2초 안에 stand로 복귀했다.
+  원시는 `workbench/evidence/generated/contact-gait/ddc9a8f-defaults/`에 회수했다.
+- 위 10개 시험의 공중 지지력 샘플(관측 normal<=2 N, foot height>.03 m,
+  적용 GRFz>5 N)은 모두 0회다. 착지 확인 지연 중앙값은 전진/후진/좌/우
+  100/80/120/120 ms다. 이는 정해진 샘플 판정이며 모든 공중 발 떨림이나
+  자연스러운 보행을 입증하는 지표는 아니다. 카메라 없는 진단 sim/wall은
+  .88~1.11이고, 통신·영상·실물 검증을 포함하지 않는다.
+- 속도 추종은 미해결이다. 20초 전진의 t=4~22 s에서 평균 실측 vx=.202 m/s,
+  평균 reference vx=.479 m/s이고, 명령은 .8 m/s다. 착지 대기 비율은 약 40%다.
+  같은 좌측 평균 vy=.054 m/s/명령 .35 m/s이고 yaw도 누적된다. 넘어짐 gate의
+  통과를 목표속도나 직진 품질의 통과로 확대하지 않는다.
+- 반복 진단이 마지막 정지만 검사하던 공백도 보강했다. 이제 각 이동·정지
+  주기의 마지막 sample에서 stand/fault/fall/시간 커버리지를 검사하고 summary에
+  남긴다. 회귀 6 failed/7 passed → 13 passed, canonical Sim/보행 명령은
+  653 passed/4 skipped다. 기존 원시 10개도 강화된 판정으로 14/14 정지를 통과했다.
+- 같은 `ddc9a8f` 설치 기본값의 추가 긴 시험도 5/5 통과했다. 전진/후진
+  6초 이동·2초 정지 10회(총 82초)는 +15.536/-12.577 m, 전진 60초는
+  +12.608 m, 좌/우 40초는 +2.525/-2.549 m였다. 모두 stand 복귀, fault/낙상과
+  위 공중 지지력 샘플은 0회다. 진단 sim/wall은 .88~.98이다.
+  전진 60초의 max pitch=.384 rad, 후진 반복의 옆 방향 누적 이동=-4.111 m라
+  자세 품질과 방향 유지까지 해결됐다고 선언하지 않는다. 별도 카메라/팔 동작
+  결합 검증을 이어간다. 원시는 `contact-gait/ddc9a8f-defaults-stress/`에 보존한다.
+  강화된 판정으로 긴 시험의 정지 23/23도 통과했다. 설정·판정 범위·15개 수치는
+  [검토용 요약](../workbench/evidence/curated/sim/contact_gait_20261015.json)에 보존한다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 
