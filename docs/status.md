@@ -93,7 +93,16 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   읽으며 기존 force/torque cap과 contact gate는 유지한다.
   세 모드 회귀 3 failed → green, canonical Sim/보행 604 passed/4 skipped.
   fixed-foot 진단도 production torque path와 같은 중력 입력을 사용한다.
-  이 중력 보상 수정의 발행 이미지 보행 및 긴 gate는 아직 미검증이다.
+- `ca35984`를 push/양쪽 update 후 GPU2 Sim `merry-peacock`에서 실제 중력
+  벡터와 소스 SHA를 확인했다. 후진/좌/우는 통과(-.755/+.528/-.523 m),
+  전진은 6.64 s/+1.201 m에 RL/RR 착지 실패해 퇴보했다. 공중 지지력은
+  전 방향 0회지만 전진 보행 gate는 미통과다. 이 후보의 긴 시험은
+  실행하지 않았고, 원시는 `contact-gait/ca35984/`에 회수했다.
+- 다음 후보는 확인된 지지발의 GRF→토크 변환에만 g를 더한다.
+  공중 swing/search에 g를 더하면 기존 착지 추종 하중도 바뀌므로, 이
+  변경을 제거한 A/B다. 세 모드 회귀 2 failed/1 passed → green,
+  canonical Sim/보행 604 passed/4 skipped. 이 후보의 원격 보행/긴
+  gate는 아직 미검증이다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 

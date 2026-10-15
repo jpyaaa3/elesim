@@ -810,7 +810,10 @@ class PyMpcGenesisController:
         for i in range(4):
             sl = slice(i * 3, i * 3 + 3)
             if contacts[i] == 1:
-                tau[sl] = -jacobians[i].T @ (self._forces[i] * self._contact_gait.load[i])
+                # Inverse statics: tau = g(q) - J.T @ GRF. Account for the
+                # supporting leg's own weight before applying the planned GRF.
+                tau[sl] = self._joint_gravity[sl] - jacobians[i].T @ (
+                    self._forces[i] * self._contact_gait.load[i])
             elif self._contact_gait.search[i]:
                 if not self._was_searching[i]:
                     # A late swing must keep trying to reach its ground target.
@@ -869,10 +872,6 @@ class PyMpcGenesisController:
             tau[sl] -= 0.5 * joint_vel[sl]
         self._was_searching = self._contact_gait.search.copy()
         self._last_contacts = contacts.copy()
-        # tau = g(q) - J.T @ GRF in stance. Without the leg's own gravity,
-        # measured support exceeds the planned force even at zero velocity.
-        # Swing/search use the same compensation for their task-space force.
-        tau += self._joint_gravity
         if not np.all(np.isfinite(tau)):
             raise RuntimeError("PyMPC produced nonfinite joint torque")
         self._tau_raw = tau.copy()
