@@ -81,12 +81,32 @@ class ArmPayloadCompensator:
         self._previous_com_world = None
         self._warned_stale_velocity = False
 
+    def _link_states(self, links):
+        fields = (('pos', 3), ('quat', 4), ('vel', 3), ('ang', 3))
+        methods = [getattr(self._arm, f'get_links_{name}', None) for name, _ in fields]
+        if not all(callable(method) for method in methods) or not all(
+                hasattr(link, 'idx_local') for link in links):
+            return [tuple(_to_numpy_1d(getattr(link, f'get_{name}')())[:width]
+                          for name, width in fields) for link in links]
+        # Entity and link getters use the same authored link origin and world
+        # velocity. Read each field once instead of synchronizing four times
+        # per arm link on every control tick.
+        indices = np.array([link.idx_local for link in links], dtype=np.int32)
+        values = []
+        for (name, width), method in zip(fields, methods):
+            flat = _to_numpy_1d(method(links_idx_local=indices))
+            if flat.size != len(links)*width or not np.all(np.isfinite(flat)):
+                raise ValueError(f'payload {name} must contain {len(links)} finite {width}-vectors')
+            values.append(flat.reshape(len(links), width))
+        return zip(*values)
+
     def measure(self, *, dt: float | None = None) -> ArmPayloadSnapshot | None:
         elapsed = None if dt is None else float(dt)
         if elapsed is not None and (not np.isfinite(elapsed) or elapsed <= 0.0):
             raise ValueError(f"dt must be finite and positive, got {dt}")
         link_samples: list[tuple[float, np.ndarray, np.ndarray, np.ndarray | None]] = []
 
+        links = []
         for link in self._arm.links:
             if (
                 self._link_names is not None
@@ -98,10 +118,14 @@ class ArmPayloadCompensator:
             mass = inertial.mass
             if mass is None or float(mass) <= 1e-9:
                 continue
+            links.append(link)
+        if not links:
+            return None
 
-            mass = float(mass)
-            pos = _to_numpy_1d(link.get_pos())[:3]
-            quat_xyzw = _quat_wxyz_to_xyzw(_to_numpy_1d(link.get_quat())[:4])
+        for link, (pos, quaternion, vel, ang) in zip(links, self._link_states(links)):
+            inertial = link.desc
+            mass = float(inertial.mass)
+            quat_xyzw = _quat_wxyz_to_xyzw(quaternion)
             rot = Rot.from_quat(quat_xyzw)
             rot_m = rot.as_matrix()
             inertial_pos = inertial.inertial_pos
@@ -112,8 +136,6 @@ class ArmPayloadCompensator:
             offset_world = rot_m @ offset
             com_world = pos + offset_world
 
-            vel = _to_numpy_1d(link.get_vel())[:3]
-            ang = _to_numpy_1d(link.get_ang())[:3]
             vel_com = vel + np.cross(ang, offset_world)
 
             inertia_link = inertia_in_link_frame(inertial)

@@ -181,6 +181,14 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   현재는 stage-0 힘을 40 ms 동안 유지해 20 ms 예측과 실행이 달랐다.
   실제 토크 루프 호출 간격 및 CPU acados의 기존 25 Hz 유지 회귀를 포함해
   canonical Sim/보행 635 passed/4 skipped다. 원격 보행/성능 gate는 미검증이다.
+- 별도 성능 수정은 팔의 질량/COM/관성을 계산할 때 링크별 pos/quat/vel/ang
+  네 readback을 entity의 네 배치 조회로 바꾼다. 살아 있는 선택 링크만 읽고
+  local index/순서를 유지한다. scalar-only entity는 기존 경로를 유지하되,
+  bulk API가 잘못된 배열을 반환하면 숨기지 않고 거절한다. 링크의 질량·관성
+  값, 주축 회전, 속도 유한차분과 reset 의미는 유지한다.
+  세 회귀 3 failed → green. 새 force 주기까지 포함한 canonical Sim/보행 명령은
+  638 passed/4 skipped다. GPU 실물 API 동등성과 실제 step 절감은 다음
+  원격 후보에서 측정하며, 단위시험만으로 가속을 선언하지 않는다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 

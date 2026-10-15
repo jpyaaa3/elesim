@@ -69,7 +69,78 @@ class _FakeEntity:
         return self._links_by_name[name]
 
 
+class _BulkEntity(_FakeEntity):
+    def __init__(self, links):
+        super().__init__(links)
+        self.calls = []
+        self.states = {}
+        for index, link in zip([11, 3, 8, 19], links):
+            link.idx_local = index
+            self.states[index] = [np.asarray(getattr(link, f'get_{name}')()).copy()
+                                  for name in ('pos', 'quat', 'vel', 'ang')]
+
+    def _read(self, field, indices):
+        self.calls.append((field, list(indices)))
+        return np.array([self.states[int(index)][field] for index in indices])
+
+    def get_links_pos(self, links_idx_local):
+        return self._read(0, links_idx_local)
+
+    def get_links_quat(self, links_idx_local):
+        return self._read(1, links_idx_local)
+
+    def get_links_vel(self, links_idx_local):
+        return self._read(2, links_idx_local)
+
+    def get_links_ang(self, links_idx_local):
+        return self._read(3, links_idx_local)
+
+
 class PayloadModelTests(unittest.TestCase):
+    def test_bulk_payload_reads_four_selected_arrays_with_identical_physics(self):
+        links = [_FakeLink('base', 10., [0., 0., 0.]),
+                 _FakeLink('plate', .15, [.2, .1, .4], inertial_pos=[.01, .02, -.03],
+                           inertia=np.diag([.002, .003, .004])),
+                 _FakeLink('node9', .05, [.3, -.2, .5], inertial_pos=[-.02, .03, .01],
+                           inertia=np.diag([.003, .004, .005])),
+                 _FakeLink('massless', 0., [9., 9., 9.])]
+        for i, link in enumerate(links):
+            rotation = Rotation.from_euler('xyz', [.1*i, -.2*i, .3*i])
+            quat = rotation.as_quat()[[3, 0, 1, 2]]
+            link.get_quat = lambda q=quat: q
+            link.get_vel = lambda i=i: np.array([.1*i, -.2*i, .3*i])
+            link.get_ang = lambda i=i: np.array([-.3*i, .1*i, .2*i])
+            link.desc.inertial_quat = Rotation.from_euler('x', .2*i).as_quat()[[3, 0, 1, 2]]
+        names = {'plate', 'node9', 'massless'}
+        reference = ArmPayloadCompensator(_FakeEntity(links), link_names=names).measure()
+        entity = _BulkEntity(links)
+        def scalar_read_is_forbidden():
+            raise AssertionError('payload used a per-link GPU readback')
+        for link in links:
+            for name in ('pos', 'quat', 'vel', 'ang'):
+                setattr(link, f'get_{name}', scalar_read_is_forbidden)
+        actual = ArmPayloadCompensator(entity, link_names=names).measure()
+        self.assertEqual(entity.calls, [(field, [3, 8]) for field in range(4)])
+        self.assertEqual(actual.mass_kg, reference.mass_kg)
+        for name in ('com_world', 'vel_world', 'inertia_world'):
+            np.testing.assert_allclose(getattr(actual, name), getattr(reference, name), atol=1e-12)
+
+    def test_bulk_payload_retains_position_difference_velocity_and_reset(self):
+        entity = _BulkEntity([_FakeLink('plate', 2., [0., 0., .2])])
+        payload = ArmPayloadCompensator(entity)
+        payload.measure(dt=.02)
+        entity.states[11][0][0] += .002
+        np.testing.assert_allclose(payload.measure(dt=.02).vel_world, [.1, 0., 0.])
+        payload.reset()
+        entity.states[11][0][0] += .5
+        np.testing.assert_array_equal(payload.measure(dt=.02).vel_world, np.zeros(3))
+
+    def test_bulk_payload_rejects_invalid_array_instead_of_using_scalar_fallback(self):
+        entity = _BulkEntity([_FakeLink('plate', 2., [0., 0., .2])])
+        entity.get_links_quat = lambda **kw: np.array([[1., 0., 0.]])
+        with self.assertRaisesRegex(ValueError, 'quat'):
+            ArmPayloadCompensator(entity).measure()
+
     def test_payload_rotates_principal_inertia_into_link_then_world_frame(self) -> None:
         link = _FakeLink("plate", 2.0, [1.0, 0.0, 0.0], inertia=np.diag([.2, .3, .4]))
         principal = Rotation.from_euler("xyz", [.3, -.4, .7])
