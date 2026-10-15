@@ -20,6 +20,42 @@ from elesim_sim.robot.go2.pympc_controller import (
 from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput
 
 
+@pytest.mark.parametrize('sim_dt,backend,expected', [
+    (.02, 'jax_mppi', 1), (.005, 'jax_mppi', 4),
+    (.01, 'jax_mppi', 2), (.007, 'jax_mppi', 2),
+    (.02, 'acados', 2), (.005, 'acados', 8),
+])
+def test_gpu_force_refresh_matches_prediction_stage_and_preserves_cpu_cadence(sim_dt, backend, expected):
+    from elesim_sim.robot.go2.pympc_controller import solver_update_stride
+    assert solver_update_stride(sim_dt, .02, backend=backend) == expected
+
+
+@pytest.mark.parametrize('sim_dt,prediction_dt', [(0., .02), (.02, float('nan'))])
+def test_force_refresh_rejects_invalid_intervals(sim_dt, prediction_dt):
+    from elesim_sim.robot.go2.pympc_controller import solver_update_stride
+    with pytest.raises(ValueError):
+        solver_update_stride(sim_dt, prediction_dt, backend='jax_mppi')
+
+
+@pytest.mark.parametrize('sim_dt', [.02, .005])
+def test_gpu_torque_loop_requests_fresh_force_at_each_prediction_stage(sim_dt):
+    from elesim_sim.robot.go2.pympc_controller import solver_update_stride
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(c)
+    c._dt = sim_dt
+    c._solve_stride = solver_update_stride(sim_dt, .02, backend='jax_mppi')
+    ticks = []
+    def solve(_sample):
+        ticks.append(c._step_i)
+        return np.tile([0., 0., 50.], (4, 1))
+    c._solver = SimpleNamespace(solve=solve)
+    state = PyMpcInput(**{**vars(sample()), 'contacts':np.ones((4, 3))})
+    for c._step_i in range(round(.06/sim_dt)):
+        c._torques(state, state.feet_world, np.zeros((4, 3)),
+                   np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
+    np.testing.assert_allclose(np.array(ticks)*sim_dt, [0., .02, .04])
+
+
 def test_planner_holds_swing_touchdown_while_body_and_candidates_move():
     feet = np.arange(12, dtype=float).reshape(4, 3)
     candidates = feet + 10

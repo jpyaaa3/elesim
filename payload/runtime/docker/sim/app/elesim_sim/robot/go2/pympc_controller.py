@@ -41,6 +41,17 @@ _MAX_GROUND_FOOT_HEIGHT_M = .03
 _MIN_SUPPORT_FORCE_N = 10.0
 
 
+def solver_update_stride(sim_dt: float, prediction_dt: float, *, backend: str) -> int:
+    """Refresh GPU forces within one prediction stage; retain CPU cadence."""
+    if not np.isfinite([sim_dt, prediction_dt]).all() or min(sim_dt, prediction_dt) <= 0.:
+        raise ValueError("solver update intervals must be finite and positive")
+    if backend == "acados":
+        return max(1, int(round(1./(25.*sim_dt))))
+    if backend != "jax_mppi":
+        raise ValueError(f"unknown PyMPC backend: {backend}")
+    return max(1, int(np.floor(prediction_dt/sim_dt + 1e-9)))
+
+
 class ContactGatedGait:
     """Pause the gait clock until scheduled support has actually landed."""
 
@@ -365,7 +376,6 @@ class PyMpcGenesisController:
         self._command_source = str(command_source)
         self._timing_sink = timing_sink
         self._rate_info = ControlRateInfo.from_sim_dt(self._dt, float(config.ctrl_hz))
-        self._solve_stride = max(1, int(round(1.0 / (25.0 * self._dt))))
         self._solver = PyMpcForceSolver(
             horizon=12,
             dt=0.02,
@@ -376,6 +386,9 @@ class PyMpcGenesisController:
             gpu_samples=config.gpu_samples,
             gpu_iterations=config.gpu_iterations,
             gpu_seed=config.gpu_seed,
+        )
+        self._solve_stride = solver_update_stride(
+            self._dt, self._solver.dt, backend=self._solver.backend,
         )
         self._tau_lim = self._read_torque_limits()
         self._cmd = Go2Command()

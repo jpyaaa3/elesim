@@ -166,6 +166,21 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   기본값은 바꾸지 않고, 20 ms/4와 5 ms/1의 같은 5 ms 적분 간격을 비교한다.
   순수 회귀 5 failed/2 passed → green, canonical Sim/보행 625 passed/4 skipped.
   이 주기 비교의 원격 보행 및 성능 gate는 아직 미검증이다.
+- `39c1bcc`까지 push/양쪽 update하고 동일 controller SHA의 GPU2 공식 Sim
+  `merry-wren`에서 진단 설정 5 ms/1 substep을 실행했다. 5 ms 적분은 유지하고
+  접촉 관측·다리 제어를 200 Hz로 높였다. 기본 YAML은 20 ms/4로 유지한다.
+  단기 네 방향은 stand까지 통과(+.991/-1.210/+.389/-.387 m), 전진 max pitch는
+  .118 rad였다. 20초 전진/후진/우측도 통과(+4.679/-3.787/-1.085 m)했고
+  후진 이동·정지 3회는 -2.880 m로 통과했다.
+  좌측 20초는 14.315 s에 finite trajectory 실패, 전진 3회는 25.995 s에 fault 없이
+  끝났으나 walk에 남아 미통과다. 모든 공중 지지력 샘플은 0회다.
+  원시는 `contact-gait/39c1bcc-hz200/`에 회수한다.
+  진단 trace를 포함한 sim/wall은 .28~.42, step 중앙값은 14~17 ms라 200 Hz
+  실시간을 충족하지 않는다. 기본 주기를 바꿀 근거로 사용하지 않는다.
+- 다음 후보는 GPU MPPI force 갱신을 25 → 50 Hz로 예측 stage dt=.02에 맞춘다.
+  현재는 stage-0 힘을 40 ms 동안 유지해 20 ms 예측과 실행이 달랐다.
+  실제 토크 루프 호출 간격 및 CPU acados의 기존 25 Hz 유지 회귀를 포함해
+  canonical Sim/보행 635 passed/4 skipped다. 원격 보행/성능 gate는 미검증이다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 

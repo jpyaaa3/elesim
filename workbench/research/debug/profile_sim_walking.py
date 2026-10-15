@@ -150,6 +150,7 @@ def main() -> None:
             )
             dt = float(params.dt)
             emit(dict(kind="configuration", dt=dt, substeps=params.substeps, command=args.command,
+                      solver_dt=controller._solver.dt, solver_stride=controller._solve_stride,
                       duration=args.duration, settle=args.settle, stop=args.stop, cycles=args.cycles,
                       fixed_target=bool(args.keep_target), controller=type(controller).__name__,
                       backend=locomotion.mpc_solver_backend, gpu_samples=locomotion.mpc_gpu_samples,
