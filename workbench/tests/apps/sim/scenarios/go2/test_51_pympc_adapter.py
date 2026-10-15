@@ -311,7 +311,7 @@ def test_stance_ground_reaction_is_opposed_by_joint_torque() -> None:
 
 
 @pytest.mark.parametrize('mode', ['stance', 'swing', 'search'])
-def test_stance_gravity_compensation_preserves_swing_and_search_torques(mode):
+def test_diagnostic_joint_gravity_does_not_change_actuation_after_gait_regression(mode):
     state = sample()
     state.contacts[:] = float(mode == 'stance')
     def run(gravity):
@@ -330,8 +330,7 @@ def test_stance_gravity_compensation_preserves_swing_and_search_torques(mode):
     plain, plain_grf = run(np.zeros(12))
     gravity = np.linspace(-1.2, 1.2, 12)
     compensated, compensated_grf = run(gravity)
-    expected = gravity if mode == 'stance' else np.zeros(12)
-    np.testing.assert_allclose(compensated-plain, expected, atol=1e-10)
+    np.testing.assert_allclose(compensated-plain, np.zeros(12), atol=1e-10)
     np.testing.assert_array_equal(compensated_grf, plain_grf)
 
 

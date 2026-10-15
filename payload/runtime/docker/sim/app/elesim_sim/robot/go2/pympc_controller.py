@@ -813,9 +813,10 @@ class PyMpcGenesisController:
         for i in range(4):
             sl = slice(i * 3, i * 3 + 3)
             if contacts[i] == 1:
-                # Inverse statics: tau = g(q) - J.T @ GRF. Account for the
-                # supporting leg's own weight before applying the planned GRF.
-                tau[sl] = self._joint_gravity[sl] - jacobians[i].T @ (
+                # Direct leg-gravity feedforward regressed contact retention
+                # in Genesis. Keep that vector diagnostic until its dynamic
+                # force tracking is validated, and retain the tested GRF path.
+                tau[sl] = -jacobians[i].T @ (
                     self._forces[i] * self._contact_gait.load[i])
             elif self._contact_gait.search[i]:
                 if not self._was_searching[i]:

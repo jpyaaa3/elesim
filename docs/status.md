@@ -143,6 +143,15 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   GRF와 contact/load는 여전히 0이며 접촉 확인 없이 지지를 약속하지 않는다.
   실제 optimizer 출력 및 production `_sample` 입력 경계를 포함한
   canonical Sim/보행 명령은 620 passed/4 skipped다. 원격 보행 gate는 미검증.
+- `6800d01`을 push/양쪽 update 후 GPU2 Sim `merry-mule`에서 확인했다.
+  후진/좌/우는 통과(-.961/+.530/-.494 m), 전진은 5.70 s/+.915 m에
+  RL timeout으로 실패했다. 전진 max pitch는 .348 rad로 줄었지만 성공은
+  더 짧아졌다. 공중 지지력은 네 방향 모두 0회. 원시는 `contact-gait/6800d01/`.
+- 다음 A/B는 반복 퇴보한 다리 중력 feedforward를 토크에서 제거한다.
+  실제 물성 동기화, 감쇠, 지지력 하한과 search 기하 비용은 유지한다.
+  현재 Pinocchio g는 진단에 계속 기록하지만 동적 접촉력 추종이 검증되기
+  전에는 actuation에 더하지 않는다. 이 변경의 회귀 1 failed/2 passed →
+  green, canonical Sim/보행 620 passed/4 skipped. 원격 gate는 미검증이다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 
