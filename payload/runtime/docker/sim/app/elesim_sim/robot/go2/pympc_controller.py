@@ -400,6 +400,7 @@ class PyMpcGenesisController:
         self._tau_hold = np.zeros(12)
         self._tau_limited = np.zeros(12)
         self._tau_raw = np.zeros(12)
+        self._joint_gravity = np.zeros(12)
         self._swing_starts = np.zeros((4, 3))
         self._touchdowns = np.zeros((4, 3))
         self._touchdown_depths = np.zeros(4)
@@ -522,6 +523,7 @@ class PyMpcGenesisController:
         self._tau_hold.fill(0.0)
         self._tau_limited.fill(0.0)
         self._tau_raw.fill(0.0)
+        self._joint_gravity.fill(0.0)
         self._swing_starts.fill(0.0)
         self._touchdowns.fill(0.0)
         self._last_contacts.fill(1.0)
@@ -592,6 +594,7 @@ class PyMpcGenesisController:
         self._tau_hold.fill(0.0)
         self._tau_limited.fill(0.0)
         self._tau_raw.fill(0.0)
+        self._joint_gravity.fill(0.0)
         self._swing_starts.fill(0.0)
         self._touchdowns.fill(0.0)
         self._last_contacts.fill(1.0)
@@ -608,6 +611,9 @@ class PyMpcGenesisController:
         q, dq = self._bridge.read_pin_q_dq(dt=self._dt)
         self._bridge.last_q = q.copy()
         self._bridge.last_dq = dq.copy()
+        self._joint_gravity = np.asarray(
+            pin.computeGeneralizedGravity(self._model, self._data, q), dtype=float
+        )[6:18].copy()
         pin.forwardKinematics(self._model, self._data, q, dq)
         pin.updateFramePlacements(self._model, self._data)
         pin.computeJointJacobians(self._model, self._data, q)
@@ -863,6 +869,10 @@ class PyMpcGenesisController:
             tau[sl] -= 0.5 * joint_vel[sl]
         self._was_searching = self._contact_gait.search.copy()
         self._last_contacts = contacts.copy()
+        # tau = g(q) - J.T @ GRF in stance. Without the leg's own gravity,
+        # measured support exceeds the planned force even at zero velocity.
+        # Swing/search use the same compensation for their task-space force.
+        tau += self._joint_gravity
         if not np.all(np.isfinite(tau)):
             raise RuntimeError("PyMPC produced nonfinite joint torque")
         self._tau_raw = tau.copy()

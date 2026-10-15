@@ -73,6 +73,9 @@ def main():
             t = step * a.dt
             q, dq = c._bridge.read_pin_q_dq(dt=a.dt)
             pin = c._pin
+            c._joint_gravity = np.asarray(
+                pin.computeGeneralizedGravity(c._model, c._data, q)
+            )[6:18].copy()
             pin.forwardKinematics(c._model, c._data, q, dq)
             pin.updateFramePlacements(c._model, c._data)
             pin.computeJointJacobians(c._model, c._data, q)
@@ -103,7 +106,7 @@ def main():
                        internal_force=to_numpy_1d(entity.get_dofs_force(dofs_idx_local=c._leg_dof_idxs))[3*leg:3*leg+3].tolist(),
                        contact_forces=to_numpy_1d(entity.get_links_net_contact_force()).tolist(),
                        control_force=to_numpy_1d(entity.get_dofs_control_force(dofs_idx_local=c._leg_dof_idxs))[3*leg:3*leg+3].tolist(),
-                       pin_gravity=pin.computeGeneralizedGravity(c._model, c._model.createData(), q)[6+3*leg:9+3*leg].tolist(),
+                       pin_gravity=c._joint_gravity[3*leg:3*leg+3].tolist(),
                        jacobian=jac[leg].tolist(),
                        engine_qpos=to_numpy_1d(entity.get_qpos())[entity.get_joint(a.leg+'_calf_joint').qs_idx_local].tolist(),
                        q=q[7+leg*3:10+leg*3].tolist(), dq=dq[6+leg*3:9+leg*3].tolist(),

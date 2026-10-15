@@ -8,6 +8,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### 물성 수정 및 보행 TDD 재개 (2026-10-15)
 
+- 아래 실보행 t는 초기 settle 2초를 포함한다.
 - 사용자 지시로 TDD를 재개했다. 먼저 Genesis의 주축 관성 회전을 링크
   좌표계에 적용하고, bare GO2 Pinocchio 모델의 BODY frame별 물성을 실제
   Genesis descriptor로 교체한다. 고정 링크는 해당 부모 관절에 합산하며
@@ -69,7 +70,30 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 - 실제 적용된 감쇠 3의 진행량/착지 지연 퇴보 때문에 source override를
   PyMPC 기본값 1로 되돌린다(실제 passive 총합 3.1 → 1.1).
   앞 실패 자세의 선형 근사 radius=.8892이나 실제 보행 성공의 증거는
-  아니다. 위 두 수정의 발행 이미지 실보행 및 긴 gate는 아직 미검증이다.
+  아니다.
+- `6ba6b4b`를 push/양쪽 update하고 GPU2 발행 Sim `merry-ibis`에서
+  force-mode damping 1.1과 설치 소스 SHA를 확인했다. 단기 네 방향은
+  낙상/timeout 없이 끝났고 공중 지지력 샘플은 모두 0회다.
+  후진/좌/우는 stand까지 통과(-.991/+.486/-.341 m). 전진은 +1.437 m로
+  이동했지만 정지 2초 뒤 pitch=.15998 rad가 handoff 기준 .15보다 커
+  walk에 남았다. 따라서 전 방향 단기 gate 완료로 선언하지 않는다.
+- 같은 `6ba6b4b`의 독립 긴 시험: 후진/좌/우 20초 및 후진 이동·정지
+  3회 반복은 통과(-4.322/+1.298/-1.133/-3.450 m).
+  전진은 15.70 s/+3.754 m에 RL touchdown timeout. 전진 3회 반복은
+  25.98 s/+4.964 m까지 fault 없이 움직였지만 마지막 stand 복귀가 안 됐다.
+  긴 시험도 공중 지지력 샘플은 전부 0회다. 원시는
+  `workbench/evidence/generated/contact-gait/6ba6b4b/`에 회수한다.
+- 전진 정지 9.5~9.98 s의 명령 Fz=134.37 N, 실제 Fz=154.87 N으로
+  평균 20.50 N 차이가 났다. 같은 실제 물성 모델에서 누락된 다리 중력의
+  등가 Fz=14.09 N, 중력+감쇠 근사는 18.63 N이다. 이는 quasi-static
+  근사이며 나머지 관성/마찰/필터 영향까지 동일하다는 주장은 아니다.
+  계산 원시는 `contact-gait/analyze_force_bias.py`와 `.json`.
+- 토크 변환을 stance에서 `g_leg(q)-J.T@GRF`로 수정하고 swing/search에도
+  같은 다리 중력 보상을 더한다. 현재 자세의 Pinocchio g를 매 sample에
+  읽으며 기존 force/torque cap과 contact gate는 유지한다.
+  세 모드 회귀 3 failed → green, canonical Sim/보행 604 passed/4 skipped.
+  fixed-foot 진단도 production torque path와 같은 중력 입력을 사용한다.
+  이 중력 보상 수정의 발행 이미지 보행 및 긴 gate는 아직 미검증이다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 

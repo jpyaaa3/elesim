@@ -159,6 +159,7 @@ def _torque_config(**overrides):
 
 
 def _init_contact_state(controller, elapsed_s=0.0):
+    controller._joint_gravity = np.zeros(12)
     controller._contact_gait = ContactGatedGait()
     controller._contact_gait.prime([50.] * 4, dt=.04)
     controller._contact_gait.time = elapsed_s
@@ -307,6 +308,30 @@ def test_stance_ground_reaction_is_opposed_by_joint_torque() -> None:
         state, state.feet_world, np.zeros((4, 3)), jacobians, np.zeros(12)
     )
     np.testing.assert_array_equal(torques.reshape(4, 3), np.tile([0, 0, -50], (4, 1)))
+
+
+@pytest.mark.parametrize('mode', ['stance', 'swing', 'search'])
+def test_force_conversion_compensates_leg_gravity_in_every_support_mode(mode):
+    state = sample()
+    state.contacts[:] = float(mode == 'stance')
+    def run(gravity):
+        c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+        _init_torque_controller(c)
+        c._dt = .02
+        c._joint_gravity = gravity.copy()
+        c._touchdowns[:] = state.footholds_world
+        if mode == 'search':
+            c._contact_gait.search.fill(True)
+            c._last_contacts.fill(0.)
+            c._contact_gait.swing_progress.fill(1.)
+        tau = c._torques(state, state.feet_world, np.zeros((4, 3)),
+                         np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
+        return tau, c._forces
+    plain, plain_grf = run(np.zeros(12))
+    gravity = np.linspace(-1.2, 1.2, 12)
+    compensated, compensated_grf = run(gravity)
+    np.testing.assert_allclose(compensated-plain, gravity, atol=1e-10)
+    np.testing.assert_array_equal(compensated_grf, plain_grf)
 
 
 def test_force_filter_reprojects_stance_and_zeros_swing_legs() -> None:
