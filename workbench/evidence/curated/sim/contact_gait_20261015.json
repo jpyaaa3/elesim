@@ -39,7 +39,9 @@
     "basic_passed": 14,
     "basic_total": 14,
     "stress_passed": 23,
-    "stress_total": 23
+    "stress_total": 23,
+    "integration_passed": 5,
+    "integration_total": 5
   },
   "basic": [
     {
@@ -307,6 +309,129 @@
   "remaining": [
     "Velocity tracking: forward20 t=4..22 s mean vx 0.202 m/s for commanded 0.8 m/s; blocked about 40%.",
     "Direction and posture: backward_cycles10 lateral displacement -4.111 m; forward60 maximum pitch 0.384 rad.",
-    "Camera workers, moving arm, DDS/UI, WebRTC and physical hardware are not covered by these walking trials."
-  ]
+    "Camera/arm tests cover three forward scenarios. Other directions with simultaneous cameras/arm motion, DDS/UI, WebRTC encoding/network delivery and physical hardware are not covered.",
+    "Combined camera/arm diagnostic sim/wall was 0.681, below real time. Initial camera-only FPS was 4.77/4.60; the later camera/arm run was 19.90/20.16. Warmup influence was not isolated."
+  ],
+  "integration": {
+    "source_revision": "f49ece6fe341f6226cfb5bb9e27cf1038a4e8648",
+    "controller_sha256": "57c80bea7af9cae8efdd8d01c1625a74a678791e16c6dc4475d3976dad2c6e75",
+    "release_key": "751cea28df77810f59f77cf1b1e1f8a5adcd652d892647f8a755e73d8ece7265",
+    "configuration": "Same GPU 2 and installed physics/MPPI defaults as the baseline; optional camera/arm flags only.",
+    "camera_resolution": [
+      1280,
+      720
+    ],
+    "camera_target_hz": 30,
+    "arm_motion": "theta1 += 0.12*sin(2*pi*t/8), theta2 += 0.08*sin(2*pi*t/8) radians.",
+    "trials": [
+      {
+        "name": "forward_arm20",
+        "passed": true,
+        "displacement_m": [
+          3.4555842829868197,
+          0.10564243366661685,
+          0.032880693674087524
+        ],
+        "final_stage": "stand",
+        "cycle_stops": [
+          {
+            "cycle": 1,
+            "completed": true,
+            "last_t": 23.98,
+            "last_stage": "stand",
+            "stand_after_s": 1.5800000000000018
+          }
+        ],
+        "airborne_force_ticks": 0,
+        "max_abs_roll_pitch_rad": [
+          0.11444136092542882,
+          0.12675212176235218
+        ],
+        "sim_per_wall": 0.8272759766396903,
+        "rendered_fps": null,
+        "capture_to_observation_ms_p95": null
+      },
+      {
+        "name": "forward_camera20",
+        "passed": true,
+        "displacement_m": [
+          4.5680952640250325,
+          0.9370732206207322,
+          0.025341510772705078
+        ],
+        "final_stage": "stand",
+        "cycle_stops": [
+          {
+            "cycle": 1,
+            "completed": true,
+            "last_t": 23.98,
+            "last_stage": "stand",
+            "stand_after_s": 1.5399999999999991
+          }
+        ],
+        "airborne_force_ticks": 0,
+        "max_abs_roll_pitch_rad": [
+          0.1087670697974581,
+          0.2124580956569686
+        ],
+        "sim_per_wall": 0.8233963066139234,
+        "rendered_fps": {
+          "hand_eye_preview": 4.770824786133195,
+          "observer": 4.599212383754303
+        },
+        "capture_to_observation_ms_p95": {
+          "hand_eye_preview": 24.101901054382324,
+          "observer": 23.41628074645996
+        }
+      },
+      {
+        "name": "forward_camera_arm_cycles",
+        "passed": true,
+        "displacement_m": [
+          4.767853612080216,
+          0.2506428990409404,
+          0.026440024375915527
+        ],
+        "final_stage": "stand",
+        "cycle_stops": [
+          {
+            "cycle": 1,
+            "completed": true,
+            "last_t": 9.98,
+            "last_stage": "stand",
+            "stand_after_s": 1.2400000000000002
+          },
+          {
+            "cycle": 2,
+            "completed": true,
+            "last_t": 17.98,
+            "last_stage": "stand",
+            "stand_after_s": 1.4000000000000021
+          },
+          {
+            "cycle": 3,
+            "completed": true,
+            "last_t": 25.98,
+            "last_stage": "stand",
+            "stand_after_s": 1.6600000000000001
+          }
+        ],
+        "airborne_force_ticks": 0,
+        "max_abs_roll_pitch_rad": [
+          0.07828253526966815,
+          0.20487872207814228
+        ],
+        "sim_per_wall": 0.6813758375898391,
+        "rendered_fps": {
+          "hand_eye_preview": 19.898586407490875,
+          "observer": 20.160754871357685
+        },
+        "capture_to_observation_ms_p95": {
+          "hand_eye_preview": 29.836320877075195,
+          "observer": 30.498874187469468
+        }
+      }
+    ],
+    "raw_directory": "workbench/evidence/generated/contact-gait/f49ece6-defaults-integration/"
+  }
 }

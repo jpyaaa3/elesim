@@ -240,6 +240,21 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   결합 검증을 이어간다. 원시는 `contact-gait/ddc9a8f-defaults-stress/`에 보존한다.
   강화된 판정으로 긴 시험의 정지 23/23도 통과했다. 설정·판정 범위·15개 수치는
   [검토용 요약](../workbench/evidence/curated/sim/contact_gait_20261015.json)에 보존한다.
+- `f49ece6`도 push/양쪽 공식 update를 마쳤다. 원격 release
+  `751cea28df77810f59f77cf1b1e1f8a5adcd652d892647f8a755e73d8ece7265`를
+  `tddwalk`에 등록하고 같은 GPU2/controller SHA/설치 기본값으로 결합 검증했다.
+  두 1280×720 카메라를 켠 전진 20초(+4.568 m), 작은 팔 굽힘 운동을 넣은
+  전진 20초(+3.456 m), 두 부하를 함께 넣은 전진·정지 3회(+4.768 m) 모두
+  통과했다. 추가 정지 5/5도 실제 stand에 도달했다. 현재 이 범위는 총 18/18,
+  정지 42/42이며 timeout/낙상과 위 공중 지지력 샘플은 0회다.
+  팔 시험은 theta1/2에 각각 .12/.08 rad, 8초 주기 사인 운동을 더한다.
+- 카메라 첫 실행은 hand-eye/observer 4.77/4.60 FPS, 뒤의 카메라+팔 시험은
+  19.90/20.16 FPS였다. 초기 준비의 영향은 별도 분리하지 않았다. 결합 시험의
+  sim/wall=.681로 실시간에는 미달하며, camera-only=.823, arm-only=.827이다.
+  이 시험은 실제 GPU 렌더/FrameHub까지 포함하지만 인코더, DDS, WebRTC,
+  UI 화면이나 실물을 포함하지 않는다. 영상 수용시험의 완료로 확대하지 않는다.
+  원시는 `workbench/evidence/generated/contact-gait/f49ece6-defaults-integration/`,
+  세부 요약은 위 검토용 JSON의 `integration`이다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 
