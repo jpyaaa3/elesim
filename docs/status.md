@@ -114,6 +114,20 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   가중 후보가 0으로 퇴화할 때도 평가와 반환이 같도록 다시 project한다.
   위 canonical Sim/보행 명령은 610 passed/4 skipped다.
   이 하한이 실제 접촉 유지나 전진 성공을 보장하는지는 별도 GPU 시험 대상이다.
+- `cb9e55d`를 push/양쪽 update하고 GPU2 Sim `merry-koi`에서 단기 네 방향을
+  검증했다. 하중이 있는 발의 실제 토크 변환 전 Fz 하한은 trace에서도
+  10 N으로 확인됐다. 후진/좌/우는 stand까지 통과(-1.167/+.551/-.423 m),
+  전진은 7.38 s/+1.542 m에 RR touchdown timeout으로 실패했다.
+  네 방향 모두 공중 지지력 샘플은 0회이며 원시는 `contact-gait/cb9e55d/`.
+  MPPI solve 중앙값은 약 5 ms이고, 평지/카메라 없는 물리 step 중앙값은
+  17~20 ms다. 전체 UI/영상 포함 실시간 성능을 입증하는 시험은 아니다.
+- 전진 trace에서 대기 때마다 목표 vx=.8→0이 반복되고 nose-down pitch가
+  증가했다. 다음 후보는 사용자가 계속 이동을 명령한 착지 대기 동안만
+  실측 수평 속도의 75%를 reference로 사용한다. seed의 속도 feedback
+  gain=8 기준 오차를 실측 속도의 25%로 줄이는 가설이며, 실제 감속 상한을
+  보장하지 않는다. 사용자 정지 명령과 접촉/timeout 판정은 유지한다.
+  실제 Pinocchio 모델을 거친 production `_sample` 회귀 3 failed/2 passed →
+  green이며, canonical Sim/보행 명령은 615 passed/4 skipped다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 

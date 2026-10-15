@@ -439,6 +439,45 @@ def test_contact_wait_does_not_freeze_startup_torque_or_pose_assistance():
     np.testing.assert_array_equal(controller._aux_pd_torque(np.zeros(12)), np.zeros(12))
 
 
+@pytest.mark.parametrize('command,velocity,waiting,expected', [
+    (Go2Command(vx=.8), [.7, 0., .1], True, [.525, 0., 0.]),
+    (Go2Command(vx=-.8), [-.7, 0., -.1], True, [-.525, 0., 0.]),
+    (Go2Command(vy=.35), [.1, .3, .1], True, [.075, .225, 0.]),
+    (Go2Command(), [.7, 0., .1], True, [0., 0., 0.]),
+    (Go2Command(vx=.8), [.7, 0., .1], False, [.8, 0., 0.]),
+])
+def test_landing_wait_brakes_from_measured_velocity_without_a_stop_pulse(
+        command, velocity, waiting, expected):
+    from pathlib import Path
+    import pinocchio as pin
+    from elesim_sim.robot.go2.mpc.config import Go2MpcConfig
+    root = next(p for p in Path(__file__).resolve().parents if (p/'payload').is_dir())
+    model = pin.buildModelFromUrdf(
+        str(root/'payload/data/models/assemblies/zed-mini/assets/go2/go2.urdf'),
+        pin.JointModelFreeFlyer())
+    q = pin.neutral(model)
+    q[:3] = [0., 0., .32]
+    q[7:] = np.tile([0., .9, -1.8], 4)
+    dq = np.r_[velocity, np.zeros(model.nv-3)]
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    c._pin = pin
+    c._model, c._data = model, model.createData()
+    c._frames = [model.getFrameId(f'{leg.value}_foot') for leg in ALL_LEGS]
+    c._bridge = SimpleNamespace(read_pin_q_dq=lambda **kw: (q, dq))
+    c._config, c._payload = Go2MpcConfig(), None
+    c._solver = SimpleNamespace(backend='jax_mppi', horizon=12, dt=.02)
+    c._command_scale = lambda: 1.
+    c._normal_contact_forces = lambda: np.full(4, 40.)
+    c._contact_gait = SimpleNamespace(
+        update=lambda *a, **kw: np.ones((4, 12)), blocked=waiting,
+        load=np.ones(4), swing_remaining=np.zeros(4), time=0.)
+    c._cmd, c._dt, c._sim_time = command, .02, 1.
+    c._last_contacts, c._touchdowns = np.ones(4), np.zeros((4, 3))
+    c._nominal_foot_offsets_body = np.array([NOMINAL_FOOT_OFFSET_BODY[leg] for leg in ALL_LEGS])
+    state, *_ = c._sample()
+    np.testing.assert_allclose(state.desired_com_velocity, expected, atol=1e-9)
+
+
 def test_payload_com_height_keeps_body_height_error_when_arm_raises_com() -> None:
     from elesim_sim.robot.go2.pympc_controller import payload_aware_com_height
 
