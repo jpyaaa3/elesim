@@ -415,6 +415,7 @@ class PyMpcGenesisController:
         self._tau_limited = np.zeros(12)
         self._tau_raw = np.zeros(12)
         self._joint_gravity = np.zeros(12)
+        self._base_velocity_world = np.zeros(3)
         self._swing_starts = np.zeros((4, 3))
         self._touchdowns = np.zeros((4, 3))
         self._touchdown_depths = np.zeros(4)
@@ -538,6 +539,7 @@ class PyMpcGenesisController:
         self._tau_limited.fill(0.0)
         self._tau_raw.fill(0.0)
         self._joint_gravity.fill(0.0)
+        self._base_velocity_world = np.zeros(3)
         self._swing_starts.fill(0.0)
         self._touchdowns.fill(0.0)
         self._last_contacts.fill(1.0)
@@ -609,6 +611,7 @@ class PyMpcGenesisController:
         self._tau_limited.fill(0.0)
         self._tau_raw.fill(0.0)
         self._joint_gravity.fill(0.0)
+        self._base_velocity_world = np.zeros(3)
         self._swing_starts.fill(0.0)
         self._touchdowns.fill(0.0)
         self._last_contacts.fill(1.0)
@@ -706,6 +709,7 @@ class PyMpcGenesisController:
         )
         candidates[:, 2] = floor_z
         base_velocity_world = rot_m @ dq[:3]
+        self._base_velocity_world = base_velocity_world.copy()
         for i in range(4):
             if contacts[i, 0] == 0 and self._last_contacts[i] == 1:
                 projected, feasible = stance_end_foothold(
@@ -824,6 +828,9 @@ class PyMpcGenesisController:
         tau = np.zeros(12)
         damping_error = np.asarray(joint_vel, dtype=float).copy()
         stance_velocity_reference = getattr(self._solver, "backend", None) == "jax_mppi"
+        if stance_velocity_reference:
+            horizontal_velocity = self._base_velocity_world.copy()
+            horizontal_velocity[2] = 0.0
         duty = float(self._config.gait_duty)
         # Direct gravity feedforward regressed dynamic walking. Use inverse
         # statics only during a quiet, fully loaded four-foot stop, where the
@@ -842,13 +849,11 @@ class PyMpcGenesisController:
                 tau[sl] = -jacobians[i].T @ (
                     self._forces[i] * self._contact_gait.load[i])
                 if stance_velocity_reference:
-                    # Follow the joint motion needed to keep a world-fixed
-                    # foot under a moving body. Damp actual foot slip and
-                    # retain damping in the Jacobian null space. Truncating
-                    # small singular values bounds the inverse near extension.
+                    # Follow only horizontal base translation. Keep damping
+                    # against body rotation, vertical motion and foot slip.
+                    # A minimum-norm reference also retains null-space damping.
                     reference = np.linalg.lstsq(
-                        jacobians[i], jacobians[i] @ joint_vel[sl] - foot_vel[i],
-                        rcond=1e-3,
+                        jacobians[i], -horizontal_velocity, rcond=1e-3,
                     )[0]
                     damping_error[sl] -= self._contact_gait.load[i] * reference
                 if static_gravity:

@@ -290,6 +290,19 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   컴파일한 NumPy-only 제한 수치 진단은 3 failed/3 passed → 6 passed였다.
   runtime import나 물리를 포함하지 않아 canonical 회귀/실보행 gate로
   계산하지 않는다. 실제 개발 attachment 회귀와 공식 release A/B는 미검증이다.
+- 초기 후보 `c90de7c`는 push/양쪽 공식 update 후 GPU2 전용 `tddwalk`에서
+  같은 카메라 포함 3속도 시험을 마쳤다. .2/.4 m/s는 12초에
+  +1.239/+2.523 m로 stand까지 통과했지만, .8 m/s는 t=8.14 s/+3.098 m에
+  `GPU MPC produced no finite force trajectory`로 실패했다. 최대 pitch는
+  .458 rad였고 공중 지지력 샘플은 세 경우 모두 0회다. 속도 증가가 보행
+  안정성을 입증하지 않으므로 이 후보를 채택하지 않는다. 원시는
+  `contact-gait/c90de7c-defaults-speed-sweep/`에 보존한다.
+- 다음 후보는 수평 base 이동만 감쇠 기준으로 삼고 회전/수직 움직임의
+  감쇠는 남긴다. 발을 고정하는 모든 관절 속도를 제외하면 자세가 무너질
+  때의 제동도 사라지는 초기 후보의 문제를 분리한다. 같은 sample에서
+  읽은 세계 base 속도를 캐시하며 추가 Genesis readback은 없다.
+  제한 수치 진단은 새 회전/수직 제동 회귀에서 2 failed/6 passed → 8 passed다.
+  canonical 회귀와 새 공식 release 보행은 아직 미검증이다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 

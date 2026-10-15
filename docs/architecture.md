@@ -432,13 +432,14 @@ Acados 고정 모델은 발 속도 상태가 0이라 이 preview를 지원하지
 위해 몸통을 띄우는 해를 억제한다. 이전 해, 현재 상태에서 만든 seed,
 가중 평균 해 중 비용이 가장 낮은 결정적 후보를 보존한다.
 
-GPU 경로의 stance 관절 감쇠는 발을 세계 좌표에 고정하면서 몸통 이동을
-허용하는 관절 속도를 기준으로 한다. 세계 foot velocity에서 leg Jacobian의
-관절 기여를 분리하고 최소제곱으로 기준 속도를 구해, 확인된 하중 계수만큼
-원시 관절 속도에서 뺀다. 실제 발 미끄러짐과 Jacobian null space의 관절
-움직임은 감쇠하며, 작은 특이값은 상대 기준 1e-3으로 제외한다. 같은 오차를
-직접 관절 감쇠와 stance 보조 감쇠에 사용한다. 물리 substep의 passive 감쇠,
-swing/search task 제어와 CPU acados 경로는 기존 속도 기준을 유지한다.
+GPU 경로의 stance 관절 감쇠는 발을 고정하면서 몸통의 수평 이동을 허용하는
+관절 속도를 기준으로 한다. 같은 제어 sample의 실제 base 속도를 세계
+좌표로 바꾸고 수직 성분을 제거한 뒤, leg Jacobian의 최소제곱 역변환으로
+기준 속도를 구해 하중 계수만큼 원시 관절 속도에서 뺀다. 몸통 회전·수직
+움직임·발 미끄러짐과 Jacobian null space는 계속 감쇠하며, 작은 특이값은
+상대 기준 1e-3으로 제외한다. 같은 오차를 직접 관절 감쇠와 stance 보조
+감쇠에 사용한다. 물리 substep의 passive 감쇠, swing/search task 제어와
+CPU acados 경로는 기존 속도 기준을 유지한다.
 
 PyMPC는 매 제어 tick에 실제 foot link 수직 접촉력을 읽는다(CSV 진단과 독립).
 보행 중 최근 80 ms 안에서 5 N 초과 증거를 40 ms 누적하고, 현재 힘도 5 N
