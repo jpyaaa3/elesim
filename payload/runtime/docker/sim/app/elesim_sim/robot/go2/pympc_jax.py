@@ -167,7 +167,7 @@ class JaxMppiSolver:
             return jp.concatenate((x[3:6], linear, rate, angular))
 
         def score(x0, reference, feet, contacts, loads, mass, inertia, inverse, hips, geometry,
-                  force_floor, forces):
+                  force_floor, landing_search, forces):
             def step(carry, values):
                 x, total = carry
                 force, foot, contact, load = values
@@ -188,7 +188,10 @@ class JaxMppiSolver:
                 force_error = requested - contact[:, None]*jp.array([0., 0., nominal_z])
                 effort = jp.sum(force_error**2*jp.array([.001, .001, .0001]))
                 body_feet = (foot-x[:3]) @ rotation(x[6:9])
-                extension = geometry*_support_extension_cost(jp, body_feet-hips, contact*load)
+                # Missing contact cannot supply a GRF, but its ground target
+                # must stay reachable while the body balances on other feet.
+                reach = jp.maximum(contact*load, landing_search)
+                extension = geometry*_support_extension_cost(jp, body_feet-hips, reach)
                 invalid = jp.any(jp.abs(x[6:8]) > 1.2) | ~jp.all(jp.isfinite(x))
                 cost = jp.where(invalid, jp.inf, state_cost + effort + extension)
                 return (x, total + dt*cost), None
@@ -196,7 +199,7 @@ class JaxMppiSolver:
                 step, (x0, jp.float32(0.)), (forces, feet, contacts, loads))
             return total
 
-        batch_score = jax.vmap(score, in_axes=(None,)*11 + (0,))
+        batch_score = jax.vmap(score, in_axes=(None,)*12 + (0,))
 
         def initial_forces(x, reference, feet, contacts, loads, mass, inertia, force_floor):
             # A regularized wrench distribution seeds sampling with a useful
@@ -220,7 +223,7 @@ class JaxMppiSolver:
             return jax.vmap(distribute)(feet, contacts, loads)
 
         def optimize(x, reference, feet, contacts, loads, mass, inertia, inverse, mean, use_mean, elapsed, key,
-                     hips, geometry, force_floor):
+                     hips, geometry, force_floor, landing_search):
             seed, allocation = initial_forces(x, reference, feet, contacts, loads, mass, inertia, force_floor)
             index = jp.minimum(jp.arange(horizon, dtype=jp.float32) + elapsed/dt, horizon-1.)
             lo = jp.floor(index).astype(jp.int32)
@@ -246,7 +249,7 @@ class JaxMppiSolver:
                 # Preserve both the incumbent and fresh feedback seed.
                 candidates = candidates.at[0].set(mean).at[1].set(seed)
                 costs = batch_score(x, reference, feet, contacts, loads, mass, inertia, inverse,
-                                    hips, geometry, force_floor, candidates)
+                                    hips, geometry, force_floor, landing_search, candidates)
                 finite = jp.isfinite(costs)
                 best = jp.min(jp.where(finite, costs, jp.inf))
                 weights = jp.where(finite, jp.exp(-jp.clip(costs-best, 0., 80.)/1.), 0.)
@@ -255,7 +258,7 @@ class JaxMppiSolver:
                 # Keep an improving weighted update. Selecting a single lucky
                 # noisy rollout injects force/yaw jitter into the physical gait.
                 weighted_cost = score(x, reference, feet, contacts, loads, mass, inertia, inverse,
-                                      hips, geometry, force_floor, weighted)
+                                      hips, geometry, force_floor, landing_search, weighted)
                 # The fresh feedback seed is a deterministic candidate too.
                 # Do not discard it when averaging noisy trajectories makes
                 # a worse solution than that available recovery trajectory.
@@ -266,7 +269,7 @@ class JaxMppiSolver:
                 return result, key
             mean, key = jax.lax.fori_loop(0, iterations, improve, (mean, key))
             cost = score(x, reference, feet, contacts, loads, mass, inertia, inverse,
-                         hips, geometry, force_floor, mean)
+                         hips, geometry, force_floor, landing_search, mean)
             return mean, key, cost
         return optimize
 
@@ -297,13 +300,14 @@ class JaxMppiSolver:
         geometry = np.float32(hips is not None)
         hips = np.zeros((4, 3), dtype=np.float32) if hips is None else np.asarray(hips, dtype=np.float32)
         force_floor = np.float32(reference.get("support_force_floor_n", 0.))
+        landing_search = np.asarray(reference.get("landing_search", np.zeros(4)), dtype=np.float32)
         mean = self._mean
         fresh = mean is None or elapsed_s >= self.horizon*self.dt
         if mean is None:
             mean = np.zeros((self.horizon, 4, 3), dtype=np.float32)
         values = (x, ref, feet_horizon, contact, loads, np.float32(mass), inertia,
                   np.linalg.inv(inertia), mean, np.bool_(not fresh), np.float32(elapsed_s), self._key,
-                  hips, geometry, force_floor)
+                  hips, geometry, force_floor, landing_search)
         args = [self._jax.device_put(value, self.device) for value in values]
         solution, key, cost = self._optimize(*args)
         # D2H is intentional: Genesis torque conversion is on CPU. Waiting

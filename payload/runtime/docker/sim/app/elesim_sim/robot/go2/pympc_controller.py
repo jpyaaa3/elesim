@@ -39,7 +39,6 @@ _SWING_TOUCHDOWN_DEPTH_M = .008
 # local offset cannot support the body once its frame clears 30 mm.
 _MAX_GROUND_FOOT_HEIGHT_M = .03
 _MIN_SUPPORT_FORCE_N = 10.0
-_LANDING_WAIT_VELOCITY_RATIO = .75
 
 
 class ContactGatedGait:
@@ -674,11 +673,6 @@ class PyMpcGenesisController:
         )
         if self._contact_gait.blocked:
             cmd_world = np.zeros(3)
-            if np.any(cmd_body[:2]):
-                # A late landing must not generate a full-speed-to-zero
-                # braking pulse on every stride. Slow the measured motion
-                # while the gate holds new liftoffs; zero intent still stops.
-                cmd_world[:2] = _LANDING_WAIT_VELOCITY_RATIO * vel[:2]
             ref_com[:2] = com[:2]
             ref_rpy[2] = rpy[2]
             yaw_rate = 0.0
@@ -751,6 +745,7 @@ class PyMpcGenesisController:
             contacts=contacts,
             support_loads=self._contact_gait.load.copy(),
             support_force_floor_n=(_MIN_SUPPORT_FORCE_N if self._solver.backend == "jax_mppi" else 0.),
+            landing_search=self._contact_gait.search.copy(),
             hip_offsets_com_body=(np.array([HIP_OFFSET_BODY[leg] for leg in _LEGS])
                                   + (rot_m.T @ (q[:3] - com))[None, :]),
             mass_kg=mass,

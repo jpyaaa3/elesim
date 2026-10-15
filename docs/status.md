@@ -128,6 +128,21 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   보장하지 않는다. 사용자 정지 명령과 접촉/timeout 판정은 유지한다.
   실제 Pinocchio 모델을 거친 production `_sample` 회귀 3 failed/2 passed →
   green이며, canonical Sim/보행 명령은 615 passed/4 skipped다.
+- `0783bd3`도 push/양쪽 update 후 GPU2 Sim `merry-chicken`에서 확인했다.
+  후진/좌/우는 stand까지 통과(-1.490/+.520/-.511 m)했으나 전진은
+  6.64 s/+1.394 m에 RR timeout, max pitch=.466 rad로 퇴보했다.
+  공중 지지력은 전부 0회. 원시는 `contact-gait/0783bd3/`에 회수하며,
+  착지 대기 속도 reference 변경은 취소하고 `cb9e55d`의 대기 동작으로 돌아간다.
+- 별도 누락: 접촉을 잃어 search 중인 발은 지지력뿐 아니라 MPPI의 도달
+  범위 비용에서도 제외되고 있었다. `cb9e55d` 마지막 자세/목표를 재구성하면
+  RR의 지면 도달 반경은 약 .399 m로 calf 안전 반경 .386 m를 넘는다.
+  이 재구성은 post-step pose와 진단 목표의 근사이며 시간 정렬된 전체 상태
+  재현은 아니다. 이를 반올림한 별도 수치 회귀에서 search mask를 전달해도
+  force가 완전히 같은 1 failed/4 passed로 누락을 재현했다.
+- 현재 search mask는 지면 목표의 기하 비용에만 포함한다. 미확인 발의
+  GRF와 contact/load는 여전히 0이며 접촉 확인 없이 지지를 약속하지 않는다.
+  실제 optimizer 출력 및 production `_sample` 입력 경계를 포함한
+  canonical Sim/보행 명령은 620 passed/4 skipped다. 원격 보행 gate는 미검증.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 

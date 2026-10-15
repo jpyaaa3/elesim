@@ -42,6 +42,7 @@ class PyMpcInput:
     support_loads: np.ndarray | None = None
     hip_offsets_com_body: np.ndarray | None = None
     support_force_floor_n: float = 0.0
+    landing_search: np.ndarray | None = None
 
 
 def _finite_array(name: str, value: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
@@ -278,6 +279,11 @@ class PyMpcForceSolver:
             if not np.isfinite(floor) or not 0. <= floor <= self.max_normal_force_n:
                 raise ValueError("PyMPC support_force_floor_n must be finite within the normal force cap")
             reference["support_force_floor_n"] = floor
+            if sample.landing_search is not None:
+                search = _finite_array("landing_search", sample.landing_search, (4,))
+                if np.any((search != 0.) & (search != 1.)):
+                    raise ValueError("PyMPC landing_search must be binary")
+                reference["landing_search"] = search
             if sample.hip_offsets_com_body is not None:
                 reference["hip_offsets_com_body"] = _finite_array(
                     "hip_offsets_com_body", sample.hip_offsets_com_body, (4, 3))

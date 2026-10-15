@@ -440,13 +440,13 @@ def test_contact_wait_does_not_freeze_startup_torque_or_pose_assistance():
 
 
 @pytest.mark.parametrize('command,velocity,waiting,expected', [
-    (Go2Command(vx=.8), [.7, 0., .1], True, [.525, 0., 0.]),
-    (Go2Command(vx=-.8), [-.7, 0., -.1], True, [-.525, 0., 0.]),
-    (Go2Command(vy=.35), [.1, .3, .1], True, [.075, .225, 0.]),
+    (Go2Command(vx=.8), [.7, 0., .1], True, [0., 0., 0.]),
+    (Go2Command(vx=-.8), [-.7, 0., -.1], True, [0., 0., 0.]),
+    (Go2Command(vy=.35), [.1, .3, .1], True, [0., 0., 0.]),
     (Go2Command(), [.7, 0., .1], True, [0., 0., 0.]),
     (Go2Command(vx=.8), [.7, 0., .1], False, [.8, 0., 0.]),
 ])
-def test_landing_wait_brakes_from_measured_velocity_without_a_stop_pulse(
+def test_landing_wait_keeps_search_reach_separate_from_ground_support(
         command, velocity, waiting, expected):
     from pathlib import Path
     import pinocchio as pin
@@ -468,14 +468,18 @@ def test_landing_wait_brakes_from_measured_velocity_without_a_stop_pulse(
     c._solver = SimpleNamespace(backend='jax_mppi', horizon=12, dt=.02)
     c._command_scale = lambda: 1.
     c._normal_contact_forces = lambda: np.full(4, 40.)
+    search = np.array([0., 0., 1., 1.]) if waiting else np.zeros(4)
+    contacts = np.tile((1.-search)[:, None], (1, 12))
     c._contact_gait = SimpleNamespace(
-        update=lambda *a, **kw: np.ones((4, 12)), blocked=waiting,
-        load=np.ones(4), swing_remaining=np.zeros(4), time=0.)
+        update=lambda *a, **kw: contacts.copy(), blocked=waiting,
+        load=1.-search, search=search, swing_remaining=np.zeros(4), time=0.)
     c._cmd, c._dt, c._sim_time = command, .02, 1.
-    c._last_contacts, c._touchdowns = np.ones(4), np.zeros((4, 3))
+    c._last_contacts, c._touchdowns = contacts[:, 0].copy(), np.zeros((4, 3))
     c._nominal_foot_offsets_body = np.array([NOMINAL_FOOT_OFFSET_BODY[leg] for leg in ALL_LEGS])
     state, *_ = c._sample()
     np.testing.assert_allclose(state.desired_com_velocity, expected, atol=1e-9)
+    np.testing.assert_array_equal(state.landing_search, search)
+    np.testing.assert_array_equal(state.contacts[search.astype(bool)], 0.)
 
 
 def test_payload_com_height_keeps_body_height_error_when_arm_raises_com() -> None:

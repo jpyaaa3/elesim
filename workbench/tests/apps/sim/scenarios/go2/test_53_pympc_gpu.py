@@ -107,6 +107,61 @@ def test_bad_support_force_floor_is_rejected_before_gpu_dispatch(floor):
     assert not fake.received
 
 
+def test_gpu_receives_search_reach_mask_without_promising_ground_force():
+    class ReferenceBackend(RecordingBackend):
+        def compute_control(self, state, reference, contacts, **parameters):
+            self.reference = reference
+            return super().compute_control(state, reference, contacts, **parameters)
+    sample = replace(standing(), landing_search=np.array([0., 0., 1., 1.]))
+    sample.contacts[2:] = 0.
+    gpu = ReferenceBackend()
+    force = PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: gpu).solve(sample)
+    np.testing.assert_array_equal(gpu.reference['landing_search'], sample.landing_search)
+    np.testing.assert_array_equal(force[2:], 0.)
+    cpu = ReferenceBackend()
+    PyMpcForceSolver(solver_factory=lambda: cpu).solve(sample)
+    assert 'landing_search' not in cpu.reference
+
+
+@pytest.mark.parametrize('search', [np.ones(3), np.array([0., 0., np.nan, 1.]),
+                                   np.array([0., 0., -1., 0.])])
+def test_invalid_landing_search_rejected_before_gpu_dispatch(search):
+    fake = RecordingBackend()
+    with pytest.raises(ValueError, match='landing_search'):
+        PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: fake).solve(
+            replace(standing(), landing_search=search))
+    assert not fake.received
+
+
+def test_unlanded_rear_feet_still_limit_body_extension_without_receiving_grf(cpu_math):
+    from scipy.spatial.transform import Rotation
+    from elesim_sim.robot.go2.locomotion.kinematics import HIP_OFFSET_BODY
+    from elesim_sim.robot.go2.locomotion.types import ALL_LEGS
+    # Rounded GPU2 failure geometry: the nose-down body lifts the rear hips
+    # until a ground target exceeds the calf extension limit. Arithmetic only.
+    position = np.array([1.47175, .02996, .30479])
+    com = np.array([1.46515, .02835, .28155])
+    rpy = np.array([.0414, .3895, .0489])
+    feet = np.array([[1.42832, .23518, .02136], [1.60777, -.16167, .02251],
+                     [1.25748, .16997, .02530], [1.14572, -.11029, .03005]])
+    targets = feet.copy()
+    targets[2:] = [[1.25588, .17304, .025], [1.12638, -.11198, .025]]
+    hips = np.array([HIP_OFFSET_BODY[leg] for leg in ALL_LEGS])
+    hips += (Rotation.from_euler('xyz', rpy).as_matrix().T @ (position-com))[None]
+    sample = replace(standing(mass=15.881), com_position=com,
+                     com_velocity=np.array([.3216, .0944, .0793]), rpy=rpy,
+                     desired_com_position=np.array([1.46515, .02835, .27845]),
+                     feet_world=feet, footholds_world=targets, hip_offsets_com_body=hips,
+                     support_force_floor_n=10.)
+    sample.contacts[2:] = 0.
+    adapter = PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: cpu_math)
+    ignored = adapter.solve(sample)
+    adapter.reset()
+    aware = adapter.solve(replace(sample, landing_search=np.array([0., 0., 1., 1.])))
+    assert aware[:, 2].sum() < ignored[:, 2].sum()-1., (ignored, aware)
+    np.testing.assert_array_equal(aware[2:], 0.)
+
+
 @pytest.mark.parametrize('swing_leg', [None, 1])
 def test_mppi_retains_ground_load_after_landing_without_loading_swing(cpu_math, swing_leg):
     from elesim_sim.robot.go2.foot_workspace import foot_position_body
