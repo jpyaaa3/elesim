@@ -25,8 +25,12 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   결과 591 passed/4 skipped/1 deselected. 제외는 qpOASES, opt-in 실제 camera
   worker 2개, 이번 실행에서 trace를 주지 않은 fixed-foot 물리 검사다.
   deselected 1개는 별도로 보존한 미완성 다리 신전 비용 TDD다.
-- 이 물성 수정의 발행 이미지 실보행 및 긴 보행 gate는 아직 미검증이다.
-  실물 팔 질량 측정값은 없으므로 선언 질량 0.5779 kg는 변경하지 않았다.
+- `e728f71`을 push/양쪽 update하고 GPU2 발행 Sim `merry-dolphin`에서
+  같은 단기 전후좌우 시험을 했다. 전진 6.06 s/+1.045 m, 후진 3.20 s/-0.143 m에
+  착지 실패했고 좌/우는 통과(+0.282/-0.452 m). 물성 일치는 보행 개선을
+  보장하지 않았으며, 이전 `fbc599e`보다 전후 gate가 퇴보했다.
+  실측값이 없으므로 팔 선언 질량 0.5779 kg는 변경하지 않았다.
+  원시는 `workbench/evidence/generated/contact-gait/e728f71/`에 회수했다.
 - 다음 신전 비용 TDD는 2 failed/3 passed → 5 passed. MPPI 상태/힘 비용에
   지지발의 hip→foot 도달 반경을 추가했다. 95.5 mm hip lateral offset을
   제거한 두 링크 반경에 대해 calf 안전 상한(URDF upper-.04 rad)보다
@@ -35,8 +39,22 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   신규 비용이 실제 optimizer 출력과 예측 하강을 바꾸는 회귀를 포함한다.
   geometry 없는 기존 solver 호출과 acados 계약은 유지한다.
 - 위 신전 비용까지 포함한 같은 canonical Sim/보행 명령은 제외 없이
-  593 passed/4 skipped. GPU2에서 물성만 수정한 `e728f71` 실보행을 먼저
-  실행 중이다. 신전 비용 수정의 원격 실보행은 아직 미검증이다.
+  593 passed/4 skipped. `2ad0aa4`를 push/양쪽 update하고 GPU2 발행 Sim
+  `merry-oyster`로 검증했다. 후진/우측은 통과(-1.619/-0.457 m)했지만,
+  전진 7.12 s/+1.515 m에 RR 착지 실패, 좌측 9.14 s/+0.655 m에
+  finite rollout 실패다. 따라서 전체 보행 gate는 미통과이며 긴 시험은
+  실행하지 않았다. 원시는 `contact-gait/2ad0aa4/`에 회수했다.
+- 별도 확정 결함: 설치된 Genesis `abd/forward_dynamics.py`는 FORCE=2에서
+  actuator KV를 사용하지 않는다. 기존 `_set_torque_actuation()`의
+  `leg_kv_damping=3`은 실제로 적용되지 않고 passive joint damping=.1만
+  substep마다 작동했다. FORCE 모드에서 passive damping을 .1+3으로
+  적용하고 stand/ready에서는 .1로 복구한다. 회귀 1 failed → green,
+  같은 canonical Sim/보행 명령 594 passed/4 skipped.
+- 실제 descriptor/armature=.01을 포함한 전진 실패 자세의 고정 자세 선형
+  근사에서 50 Hz 폐루프 spectral radius는 1.0515 → .9482였다.
+  이 근사는 Genesis 보행 증거가 아니다. 원시 계산은
+  `contact-gait/analyze_foot_pd.py`와 `.json`에 있으며, 감쇠 수정의 발행
+  이미지 실보행 및 긴 보행 gate는 아직 미검증이다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 

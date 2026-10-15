@@ -451,6 +451,9 @@ class PyMpcGenesisController:
                 raise RuntimeError(f"Genesis GO2 {stem} differs from configured value")
 
     def _set_stand_actuation(self) -> None:
+        self._entity.set_dofs_damping(
+            np.full(12, float(self._config.joint_damping)), dofs_idx_local=self._leg_dof_idxs
+        )
         self._entity.set_dofs_kp(
             np.full(12, float(self._config.stand_kp)), dofs_idx_local=self._leg_dof_idxs
         )
@@ -459,6 +462,9 @@ class PyMpcGenesisController:
         )
 
     def _set_ready_actuation(self) -> None:
+        self._entity.set_dofs_damping(
+            np.full(12, float(self._config.joint_damping)), dofs_idx_local=self._leg_dof_idxs
+        )
         self._entity.set_dofs_kp(
             np.full(12, float(self._config.ready_kp)), dofs_idx_local=self._leg_dof_idxs
         )
@@ -542,8 +548,11 @@ class PyMpcGenesisController:
 
     def _set_torque_actuation(self) -> None:
         self._entity.set_dofs_kp(np.zeros(12), dofs_idx_local=self._leg_dof_idxs)
-        self._entity.set_dofs_kv(
-            np.full(12, float(self._config.leg_kv_damping)),
+        self._entity.set_dofs_kv(np.zeros(12), dofs_idx_local=self._leg_dof_idxs)
+        # Genesis FORCE mode bypasses actuator KV. Use the passive term so
+        # configured motor damping is evaluated at every physics substep.
+        self._entity.set_dofs_damping(
+            np.full(12, float(self._config.joint_damping) + float(self._config.leg_kv_damping)),
             dofs_idx_local=self._leg_dof_idxs,
         )
 

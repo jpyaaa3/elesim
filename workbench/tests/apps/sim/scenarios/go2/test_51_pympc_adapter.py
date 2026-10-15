@@ -865,7 +865,7 @@ def test_controller_reset_preempts_command_and_resets_solver_and_bridge():
     controller._contact_diagnostics = None
     controller._pose_transition = SimpleNamespace(reset=Mock())
     controller._kin = SimpleNamespace(stand_q=np.zeros(12))
-    controller._config = SimpleNamespace(stand_kp=20.0, stand_kv=1.0)
+    controller._config = SimpleNamespace(stand_kp=20.0, stand_kv=1.0, joint_damping=.1)
     controller._entity = Mock()
     controller._leg_dof_idxs = list(range(12))
     controller._payload = None
@@ -894,6 +894,26 @@ def test_controller_reset_preempts_command_and_resets_solver_and_bridge():
     assert not np.any(controller._touchdowns)
     assert not np.any(controller._touchdown_depths)
     assert controller._faulted is False
+
+
+def test_force_mode_damping_is_passive_and_restored_for_position_control():
+    from unittest.mock import Mock
+    from elesim_sim.robot.go2.mpc.config import Go2MpcConfig
+    controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._entity = Mock()
+    controller._leg_dof_idxs = list(range(12))
+    controller._config = Go2MpcConfig(joint_damping=.1, leg_kv_damping=3.)
+    # Genesis FORCE mode bypasses actuator KV entirely. Passive damping is
+    # evaluated each physics substep and remains active in that mode.
+    for transition, expected in [(controller._set_torque_actuation, 3.1),
+                                 (controller._set_stand_actuation, .1),
+                                 (controller._set_torque_actuation, 3.1),
+                                 (controller._set_ready_actuation, .1)]:
+        transition()
+        assert controller._entity.set_dofs_damping.call_args is not None
+        args, kwargs = controller._entity.set_dofs_damping.call_args
+        np.testing.assert_allclose(args[0], np.full(12, expected))
+        assert kwargs['dofs_idx_local'] == controller._leg_dof_idxs
 
 
 def test_genesis_bridge_estimates_stale_zero_base_twist_from_pose_delta():
