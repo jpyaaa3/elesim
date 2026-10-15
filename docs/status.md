@@ -101,8 +101,19 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 - 다음 후보는 확인된 지지발의 GRF→토크 변환에만 g를 더한다.
   공중 swing/search에 g를 더하면 기존 착지 추종 하중도 바뀌므로, 이
   변경을 제거한 A/B다. 세 모드 회귀 2 failed/1 passed → green,
-  canonical Sim/보행 604 passed/4 skipped. 이 후보의 원격 보행/긴
-  gate는 아직 미검증이다.
+  canonical Sim/보행 604 passed/4 skipped.
+- `1b3498f`를 push/양쪽 update 후 GPU2 Sim `merry-boar`에서 검증했다.
+  후진/좌/우는 통과(-.815/+.392/-.463 m)했으나 전진은 3.70 s/+.352 m에
+  RL/RR 착지 실패로 더 퇴보했다. 공중 지지력은 네 방향 모두 0회다.
+  긴 시험은 실행하지 않았고 원시는 `contact-gait/1b3498f/`에 회수했다.
+- 직전 두 후보의 전진 trace에서 착지 확인 직후 MPPI가 뒤 지지발의 Fz를
+  거의 0으로 줄인 뒤 실제 접촉을 잃는 구간을 확인했다. 다음 TDD는 확인된
+  지지발의 ramp 적용 후 명령 Fz 하한 10 N을 넣는다. 회귀 2 failed/4 passed로
+  무시되는 입력을 재현했다. 하한은 seed/후보/평가/반환에 동일하게 적용하고,
+  swing은 계속 0, 기존 상한과 접촉 확인·높이·timeout 기준은 유지한다.
+  가중 후보가 0으로 퇴화할 때도 평가와 반환이 같도록 다시 project한다.
+  위 canonical Sim/보행 명령은 610 passed/4 skipped다.
+  이 하한이 실제 접촉 유지나 전진 성공을 보장하는지는 별도 GPU 시험 대상이다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 

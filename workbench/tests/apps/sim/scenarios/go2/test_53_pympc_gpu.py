@@ -84,6 +84,54 @@ def test_gpu_passes_measured_support_load_without_changing_cpu_contract():
     assert 'support_loads' not in cpu.reference
 
 
+def test_gpu_passes_support_force_floor_without_changing_cpu_contract():
+    class ReferenceBackend(RecordingBackend):
+        def compute_control(self, state, reference, contacts, **parameters):
+            self.reference = reference
+            return super().compute_control(state, reference, contacts, **parameters)
+    sample = replace(standing(), support_force_floor_n=10.)
+    gpu = ReferenceBackend()
+    PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: gpu).solve(sample)
+    assert gpu.reference['support_force_floor_n'] == 10.
+    cpu = ReferenceBackend()
+    PyMpcForceSolver(solver_factory=lambda: cpu).solve(sample)
+    assert 'support_force_floor_n' not in cpu.reference
+
+
+@pytest.mark.parametrize('floor', [-1., np.nan, 181.])
+def test_bad_support_force_floor_is_rejected_before_gpu_dispatch(floor):
+    fake = RecordingBackend()
+    with pytest.raises(ValueError, match='support_force_floor_n'):
+        PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: fake).solve(
+            replace(standing(), support_force_floor_n=floor))
+    assert not fake.received
+
+
+@pytest.mark.parametrize('swing_leg', [None, 1])
+def test_mppi_retains_ground_load_after_landing_without_loading_swing(cpu_math, swing_leg):
+    from elesim_sim.robot.go2.foot_workspace import foot_position_body
+    base = np.array([0., 0., .37])
+    feet = base + np.array([foot_position_body(i, [0., .9, -.9]) for i in range(4)])
+    sample = replace(standing(mass=15.6), com_position=base+[.02, 0., -.02],
+                     desired_com_position=base+[.02, 0., -.02],
+                     feet_world=feet, footholds_world=feet.copy(),
+                     support_loads=np.array([1., 1., 1/3, 1.]))
+    if swing_leg is not None:
+        sample.contacts[swing_leg] = 0.
+        sample.support_loads[swing_leg] = 0.
+    adapter = PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: cpu_math)
+    ignored = adapter.solve(sample)
+    support = sample.contacts[:, 0].astype(bool)
+    assert np.min(ignored[support, 2]*sample.support_loads[support]) < 5.
+    adapter.reset()
+    force = adapter.solve(replace(sample, support_force_floor_n=10.))
+    # The torque path uses the ramped force, rather than the uncapped raw
+    # request. Do not cancel a just-confirmed landing with a near-zero GRF.
+    assert np.all(force[support, 2]*sample.support_loads[support] >= 10.-1e-4)
+    if swing_leg is not None:
+        np.testing.assert_array_equal(force[swing_leg], 0.)
+
+
 @pytest.mark.parametrize('support_loads', [np.array([-0.1, 1., 1., 1.]),
                                                    np.array([1.1, 1., 1., 1.]),
                                                    np.array([np.nan, 1., 1., 1.])])

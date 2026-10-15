@@ -38,6 +38,7 @@ _SWING_TOUCHDOWN_DEPTH_M = .008
 # Current footholds target the flat floor. A 22 mm foot sphere with a 2 mm
 # local offset cannot support the body once its frame clears 30 mm.
 _MAX_GROUND_FOOT_HEIGHT_M = .03
+_MIN_SUPPORT_FORCE_N = 10.0
 
 
 class ContactGatedGait:
@@ -743,6 +744,7 @@ class PyMpcGenesisController:
             preview_footholds_world=preview,
             contacts=contacts,
             support_loads=self._contact_gait.load.copy(),
+            support_force_floor_n=(_MIN_SUPPORT_FORCE_N if self._solver.backend == "jax_mppi" else 0.),
             hip_offsets_com_body=(np.array([HIP_OFFSET_BODY[leg] for leg in _LEGS])
                                   + (rot_m.T @ (q[:3] - com))[None, :]),
             mass_kg=mass,
