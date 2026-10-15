@@ -256,6 +256,41 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   원시는 `workbench/evidence/generated/contact-gait/f49ece6-defaults-integration/`,
   세부 요약은 위 검토용 JSON의 `integration`이다.
 
+### 보행 품질 재점검 (2026-10-15)
+
+- 사용자의 낮은 자세·취권 보행 피드백을 받아 속도 추종과 자세를 다시
+  측정한다. 기존 18/18 낙상 방지 gate는 자연스러운 보행이나 .8 m/s 추종을
+  입증하지 않는다. 조회 시 실제 `test` Sim은 정지 상태여서 조작하지 않고,
+  공식 `4144148` release를 격리된 `tddwalk`에 등록해 GPU2에서 재생했다.
+- 설치 기본 dt=.01/substeps=2, MPPI 4096×2를 유지하고 두 1280×720 카메라를
+  켠 채 .2/.4/.8 m/s 전진을 각각 12초 수행했다. 세 시험 모두 낙상/fault 없이
+  정지 후 stand로 복귀했지만, t=4~14 s의 평균 실제 전진 속도는
+  .061/.162/.225 m/s다. 평균 MPC 속도 참조는 .119/.237/.470 m/s이고
+  착지 대기는 40.4/40.8/41.2%다. 목표속도를 낮춰도 추종 손실이 남는다.
+- 준비 자세 전환은 몸통 높이를 .304 → .262 m로 낮춘다. 반면 정상 보행
+  구간의 높이 중앙값은 .320/.322/.331 m로 nominal .3 m보다 높고,
+  pitch RMS는 3.79/7.28/6.87도다. 낮은 준비 자세와 보행 중 기울기는
+  별도로 다룬다. 관절 토크 포화나 6 rad/s 초과 샘플은 이 구간에 없었다.
+- 완전 하중 지지발의 실제 Fz−명령 Fz 차는 .8 m/s에서 평균 22.20 N이다.
+  같은 자세의 준정적 근사는 중력 7.66 N, 원시 관절속도 감쇠 13.76 N을
+  예측한다. 감쇠의 등가 수평 성분은 -15.80 N이다. 관성·접촉 과도·한 tick
+  시간 차를 생략한 근사이므로 원인 확정이나 정확한 힘 복원으로 취급하지
+  않는다. 지지 중 몸통 이동을 관절 감쇠가 제동하는지 별도 TDD로 확인한다.
+- 원시는 `workbench/evidence/generated/contact-gait/4144148-defaults-speed-sweep/`,
+  [검토용 수치](../workbench/evidence/curated/sim/walking_quality_20261015.json)에
+  설정·판정 범위·제약을 기록했다. PNG 저장 부하가 있으므로 처리율 benchmark로
+  사용하지 않는다. 이 직접 scene probe는 idle camera cache를 갱신하지 않아
+  준비 자세의 높이는 이미지 대신 수치 기록으로 판정했다.
+- GPU stance 감쇠 후보는 몸통 이동을 상쇄해 발을 고정하는 관절 속도를
+  최소제곱으로 구하고, 하중 계수로 blend한 속도 오차를 사용한다. 실제 slip과
+  Jacobian null space는 계속 감쇠하고 작은 특이값의 역변환은 제한한다.
+  passive 감쇠 1.1, swing/search, CPU acados, 접촉·토크 안전 기준은 유지한다.
+- 공식 개발 이미지가 현재 설정 alias로 존재하지 않아 생성된 `elesim-dev`
+  wrapper로 빌드 중이다. 기다리는 동안 production 토크 함수 본문을 그대로
+  컴파일한 NumPy-only 제한 수치 진단은 3 failed/3 passed → 6 passed였다.
+  runtime import나 물리를 포함하지 않아 canonical 회귀/실보행 gate로
+  계산하지 않는다. 실제 개발 attachment 회귀와 공식 release A/B는 미검증이다.
+
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 
 - 사용자 요청으로 보행 TDD를 멈추고 읽기/수치 감사만 수행했다. 아직 물성이나

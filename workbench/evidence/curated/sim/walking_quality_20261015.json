@@ -1,0 +1,237 @@
+{
+  "date": "2026-10-15",
+  "source_revision": "41441483da85ae571675e7031716cec2c6a05407",
+  "controller_sha256": "57c80bea7af9cae8efdd8d01c1625a74a678791e16c6dc4475d3976dad2c6e75",
+  "release_key": "93e1f8d116e496ad13bdfff7478d876c375358c4f220adb39e94254b68060bb6",
+  "host": "hckang@100.74.222.24",
+  "instance": "tddwalk",
+  "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+  "configuration": {
+    "dt_s": 0.01,
+    "substeps": 2,
+    "solver_dt_s": 0.02,
+    "solver_stride": 2,
+    "backend": "jax_mppi",
+    "samples": 4096,
+    "iterations": 2,
+    "physics_override": false,
+    "settle_s": 2,
+    "move_s": 12,
+    "stop_s": 2,
+    "cameras": true,
+    "camera_resolution": [
+      1280,
+      720
+    ],
+    "arm_motion": false,
+    "dds": false,
+    "webrtc": false,
+    "physical_robot": false,
+    "steady_analysis_window_sim_s": [
+      4,
+      14
+    ]
+  },
+  "trials": [
+    {
+      "name": "forward02",
+      "command": [
+        0.2,
+        0.0,
+        0.0
+      ],
+      "duration": 12.0,
+      "completed": true,
+      "displacement": [
+        0.62443189881742,
+        0.06670768690105433,
+        0.014037907123565674
+      ],
+      "stand_height_median_m": 0.3044499307870865,
+      "ready_height_min_m": 0.26181676983833313,
+      "steady_height_min_m": 0.30575990676879883,
+      "steady_height_median_m": 0.31989482045173645,
+      "steady_height_max_m": 0.33075258135795593,
+      "steady_height_std_m": 0.004848166319606909,
+      "steady_roll_pitch_rms_deg": [
+        1.0001445581127975,
+        3.787848009147914
+      ],
+      "steady_roll_pitch_max_deg": [
+        2.4539412471749884,
+        6.129069122242898
+      ],
+      "mean_forward_body_m_s": 0.06052361401926947,
+      "mean_requested_forward_m_s": 0.1191999662889681,
+      "blocked_fraction": 0.404,
+      "gait_time_per_sim_time": 0.5731462925851606,
+      "max_leg_joint_speed_rad_s": 3.1946260929107666,
+      "samples_with_joint_speed_over_6_fraction": 0,
+      "samples_at_torque_limit_fraction": 0,
+      "joint_at_torque_limit_fractions": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "hip_abs_max_deg": 11.269347677657478,
+      "velocity_reference_switches": 52,
+      "solve_hz": 53.707414829659314,
+      "captures": 219
+    },
+    {
+      "name": "forward04",
+      "command": [
+        0.4,
+        0.0,
+        0.0
+      ],
+      "duration": 12.0,
+      "completed": true,
+      "displacement": [
+        1.7730445768684149,
+        0.3080712495445823,
+        0.018460869789123535
+      ],
+      "stand_height_median_m": 0.3044499307870865,
+      "ready_height_min_m": 0.26181676983833313,
+      "steady_height_min_m": 0.31038013100624084,
+      "steady_height_median_m": 0.3216969072818756,
+      "steady_height_max_m": 0.3315965235233307,
+      "steady_height_std_m": 0.0029948288461263614,
+      "steady_roll_pitch_rms_deg": [
+        1.9168985583714262,
+        7.278258031730721
+      ],
+      "steady_roll_pitch_max_deg": [
+        5.035944910920788,
+        10.756575352888202
+      ],
+      "mean_forward_body_m_s": 0.16239853544081706,
+      "mean_requested_forward_m_s": 0.23679991595219385,
+      "blocked_fraction": 0.408,
+      "gait_time_per_sim_time": 0.5731462925851606,
+      "max_leg_joint_speed_rad_s": 4.722222805023193,
+      "samples_with_joint_speed_over_6_fraction": 0,
+      "samples_at_torque_limit_fraction": 0,
+      "joint_at_torque_limit_fractions": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "hip_abs_max_deg": 13.080753119132588,
+      "velocity_reference_switches": 51,
+      "solve_hz": 53.80761523046092,
+      "captures": 216
+    },
+    {
+      "name": "forward08",
+      "command": [
+        0.8,
+        0.0,
+        0.0
+      ],
+      "duration": 12.0,
+      "completed": true,
+      "displacement": [
+        2.504314413294196,
+        -0.2644118430018807,
+        0.0346846878528595
+      ],
+      "stand_height_median_m": 0.3044499307870865,
+      "ready_height_min_m": 0.26181676983833313,
+      "steady_height_min_m": 0.31778857111930847,
+      "steady_height_median_m": 0.33119867742061615,
+      "steady_height_max_m": 0.3411300480365753,
+      "steady_height_std_m": 0.005304653978722448,
+      "steady_roll_pitch_rms_deg": [
+        2.0213166558178695,
+        6.86535703297535
+      ],
+      "steady_roll_pitch_max_deg": [
+        5.410057345556014,
+        10.299851503294933
+      ],
+      "mean_forward_body_m_s": 0.22450011556073707,
+      "mean_requested_forward_m_s": 0.47039972218422943,
+      "blocked_fraction": 0.412,
+      "gait_time_per_sim_time": 0.5751503006011927,
+      "max_leg_joint_speed_rad_s": 4.487489223480225,
+      "samples_with_joint_speed_over_6_fraction": 0,
+      "samples_at_torque_limit_fraction": 0,
+      "joint_at_torque_limit_fractions": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "hip_abs_max_deg": 13.656486839745886,
+      "velocity_reference_switches": 51,
+      "solve_hz": 53.80761523046092,
+      "captures": 222
+    }
+  ],
+  "quasistatic_force_bias": [
+    {
+      "name": "forward02",
+      "loaded_observed_minus_target_fz_N": 10.331473138470646,
+      "gravity_equivalent_fz_N": 8.071706974270386,
+      "damping_equivalent_fz_N": 3.0245045231372933,
+      "inverse_static_bias_fz_N": 9.97415190794265,
+      "gravity_equivalent_fx_N": -2.884895199850622,
+      "damping_equivalent_fx_N": -4.228143682768576
+    },
+    {
+      "name": "forward04",
+      "loaded_observed_minus_target_fz_N": 13.341988190884717,
+      "gravity_equivalent_fz_N": 8.35406698949725,
+      "damping_equivalent_fz_N": 4.609530727063739,
+      "inverse_static_bias_fz_N": 12.621425871266197,
+      "gravity_equivalent_fx_N": -2.581814107203191,
+      "damping_equivalent_fx_N": -10.124492480514176
+    },
+    {
+      "name": "forward08",
+      "loaded_observed_minus_target_fz_N": 22.196713093645055,
+      "gravity_equivalent_fz_N": 7.65704348834316,
+      "damping_equivalent_fz_N": 13.763532414118849,
+      "inverse_static_bias_fz_N": 20.513761407555762,
+      "gravity_equivalent_fx_N": -2.5258666869525053,
+      "damping_equivalent_fx_N": -15.795423044810697
+    }
+  ],
+  "limitations": [
+    "Three independent forward trials, not a full direction or long-duration acceptance test.",
+    "Completing without a fall is not velocity tracking or natural gait acceptance.",
+    "Force-bias decomposition is quasistatic, neglects inertia and uses a one-tick orientation offset. It motivates an experiment, not an exact force reconstruction.",
+    "PNG capture adds synchronous overhead, so this is not a real-time performance comparison.",
+    "Idle camera poses in this direct-scene probe are stale; initial ready-height results come from numeric body measurements, not images. Walking camera poses are refreshed by the controller.",
+    "The user test instance was stopped at inspection; these results come from the isolated official tddwalk release replay."
+  ],
+  "raw_directory": "workbench/evidence/generated/contact-gait/4144148-defaults-speed-sweep"
+}
