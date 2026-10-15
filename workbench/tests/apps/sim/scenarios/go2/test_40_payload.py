@@ -30,6 +30,7 @@ except ModuleNotFoundError:
     sys.modules["scipy.spatial.transform"] = transform_mod
 
 from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
+from scipy.spatial.transform import Rotation
 
 
 class _FakeLink:
@@ -69,6 +70,19 @@ class _FakeEntity:
 
 
 class PayloadModelTests(unittest.TestCase):
+    def test_payload_rotates_principal_inertia_into_link_then_world_frame(self) -> None:
+        link = _FakeLink("plate", 2.0, [1.0, 0.0, 0.0], inertia=np.diag([.2, .3, .4]))
+        principal = Rotation.from_euler("xyz", [.3, -.4, .7])
+        world = Rotation.from_euler("xyz", [-.2, .6, -.1])
+        link.desc.inertial_quat = principal.as_quat()[[3, 0, 1, 2]]
+        link.get_quat = lambda: world.as_quat()[[3, 0, 1, 2]]
+        rotation = (world * principal).as_matrix()
+
+        snapshot = ArmPayloadCompensator(_FakeEntity([link])).measure()
+
+        np.testing.assert_allclose(snapshot.inertia_world,
+                                   rotation @ link.desc.inertia @ rotation.T, atol=1e-12)
+
     def test_stale_payload_link_velocity_uses_com_position_difference(self) -> None:
         link = _FakeLink("plate", 2.0, [0.0, 0.0, 0.0])
         payload = ArmPayloadCompensator(_FakeEntity([link]))

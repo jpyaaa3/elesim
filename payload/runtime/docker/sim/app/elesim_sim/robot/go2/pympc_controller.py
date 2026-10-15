@@ -24,7 +24,7 @@ from elesim_sim.robot.go2.locomotion.pose import JointPoseTransition, smoothstep
 from elesim_sim.robot.go2.locomotion.types import Go2Command, LegId
 from elesim_sim.robot.go2.mpc.contact_diagnostics import GenesisContactDiagnostics
 from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
-from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge
+from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge, synchronize_model_inertias
 from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
 from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput
 from elesim_sim.robot.go2.foot_workspace import project_ground_target, reachable
@@ -321,6 +321,7 @@ class PyMpcGenesisController:
         self._frames = tuple(self._model.getFrameId(f"{leg.value}_foot") for leg in _LEGS)
         if any(frame >= self._model.nframes for frame in self._frames):
             raise RuntimeError("GO2 PyMPC URDF is missing a foot frame")
+        synchronize_model_inertias(self._model, entity)
         self._data = self._model.createData()
         self._foot_lower = self._model.lowerPositionLimit[7:19].reshape(4, 3).copy() + .04
         self._foot_upper = self._model.upperPositionLimit[7:19].reshape(4, 3).copy() - .04

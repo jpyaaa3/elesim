@@ -1,10 +1,63 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-14. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-15. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### 물성 수정 및 보행 TDD 재개 (2026-10-15)
+
+- 사용자 지시로 TDD를 재개했다. 먼저 Genesis의 주축 관성 회전을 링크
+  좌표계에 적용하고, bare GO2 Pinocchio 모델의 BODY frame별 물성을 실제
+  Genesis descriptor로 교체한다. 고정 링크는 해당 부모 관절에 합산하며
+  반복 적용은 질량을 누적하지 않는다. 팔은 기존 dynamic payload로만 더한다.
+- 회귀는 4 failed/4 passed → 8 passed. 회전된 관성, 고정 링크 합산,
+  누적 방지와 누락 링크 발견 시 부분 변경 방지를 검사한다.
+- 실제 Genesis descriptor 독립 합산과 production GO2+payload를 세 자세에서
+  대조했다. 총 질량은 15.881010170 kg로 일치하고, 질량/COM/속도/관성의
+  최대 절대 오차는 2e-15 이하이다. 장면 build/step 없는 수치 검증이며
+  원시는 `workbench/evidence/generated/arm-physics-20261015/verify_model_sync.json`.
+- canonical 개발 attachment에서 `pytest workbench/tests/apps/sim
+  workbench/tests/research/debug/test_fixed_foot_tracking.py
+  workbench/tests/research/experiments/test_contact_walking_progress.py
+  -k 'not supported_legs_near_extension_make_mppi_lower_the_predicted_body'`
+  결과 591 passed/4 skipped/1 deselected. 제외는 qpOASES, opt-in 실제 camera
+  worker 2개, 이번 실행에서 trace를 주지 않은 fixed-foot 물리 검사다.
+  deselected 1개는 별도로 보존한 미완성 다리 신전 비용 TDD다.
+- 이 물성 수정의 발행 이미지 실보행 및 긴 보행 gate는 아직 미검증이다.
+  실물 팔 질량 측정값은 없으므로 선언 질량 0.5779 kg는 변경하지 않았다.
+
+### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
+
+- 사용자 요청으로 보행 TDD를 멈추고 읽기/수치 감사만 수행했다. 아직 물성이나
+  제어 동작을 수정하지 않았다. 이전 도달 범위 비용 TDD의 uncommitted 작업은 보존했다.
+- 배포 모델 SHA-256은 로컬/원격 모두
+  `bb949e2b508c23cb4979c41545cbf80373710e211aa6b29cbc4cdcd31866175c`다.
+  팔 17개 링크 질량 합계는 0.5779 kg, bare GO2 URDF는 15.019 kg,
+  MPPI가 사용하는 합계는 15.5969 kg다. 팔 질량의 이중 반영은 없었다.
+- 팔 관성행렬은 모두 양수 및 관성 삼각조건을 만족한다. 원본 URDF의 전체
+  Pinocchio 모델과 bare GO2 + production payload 합성은 세 자세(직선/접음/
+  몸통 회전 및 관절 운동)에서 질량/COM/속도/관성이 약 1e-16 오차로 일치했다.
+- **실제 Genesis 입력에서 관성 회전 누락을 확인했다.** Genesis는
+  `desc.inertia`를 주축 좌표계로 저장하고 `desc.inertial_quat`로 링크 좌표계와
+  연결한다. `ArmPayloadCompensator.measure()`는 이 회전을 적용하지 않고
+  링크 회전만 곱한다. 실제 descriptor로 재계산하면 팔 관성 상대 오차가
+  5.53/14.84/8.20%, 전체 관성 기준 0.53/0.61/0.56%였다. 누락 회전을
+  수치 감사에만 포함하면 최대 절대 오차가 1e-9 kg m² 이하로 줄었다.
+- 별도 불일치: 같은 `merge_fixed_links=False` 파싱에서 Genesis 전체 질량은
+  **15.881010 kg**다. URDF에서 관성이 없는 `*_calflower`, `*_calflower1`
+  8개 링크에 각각 약 37.06/33.96 g를 추정해 총 0.28411 kg(1.82%)를 더한다.
+  MPPI의 bare Pinocchio 모델에는 이 추가 질량이 없다. 팔 질량은 Genesis에서도
+  정확히 0.5779 kg다. 이 결과는 장면 build/step 없이 descriptor를 읽은 감사다.
+- 0.5779 kg의 실물 타당성은 아직 미확인이다. 저장된 관성은 선언 질량과
+  메시 기반 근사값이며 실물 모터/배선 등을 포함한 측정값과의 대조가 필요하다.
+  메시 일부는 닫힌 체적이 아니므로 메시 균일밀도 재계산만으로 물성 오답을
+  확정하지 않았다. 두 모델 불일치의 보행 영향도 아직 검증하지 않았다.
+- 감사 코드와 수치 결과는 Git-ignored
+  `workbench/evidence/generated/arm-physics-20261015/`의 `audit_arm.py`,
+  `audit.json`, `genesis_metadata.py`, `genesis_metadata.json`,
+  `mesh_recheck.json`에 있다. 이 감사 이후 사용자 지시로 위 TDD를 재개했다.
 
 ### 발행 릴리즈 기반 TDD 및 착지 도달 범위 (2026-10-14)
 
@@ -57,11 +110,21 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   그러나 좌측은 6.88 s/+0.111 m, 우측은 3.82 s/반대 방향 +0.128 m에
   착지 실패해 **전체 보행 gate는 여전히 미통과**다. 원시 결과는
   `workbench/evidence/generated/contact-gait/b0b35ed/`에 있다.
-- 후속 TDD는 8 mm actuator 하강을 명령의 앞뒤 성분 비율로 정하고 발을
+- `fbc599e`는 8 mm actuator 하강을 명령의 앞뒤 성분 비율로 정하고 발을
   들어 올릴 때 고정한다. 순수 좌우는 이전 끝점으로 되돌리고, stop 도중
   이미 진행 중인 swing의 끝점은 바뀌지 않는다. 방향별 3개 회귀 red→green,
   Sim+보행 회귀 608 passed/4 skipped.
-  새 발행 이미지의 전후좌우 및 긴 보행 시험은 아직 실행 전이다.
+  push/양쪽 update 후 GPU2 발행 Sim `merry-toad`에서 네 방향 모두
+  6초 명령+2초 정지 및 stand 복귀를 통과했다. 이동은 전진 +1.215 m,
+  후진 -1.743 m, 좌 +0.551 m, 우 -0.631 m다. 전후 예정 착지→접촉 중앙값은
+  0 ms, 좌우는 기존 40 ms이며 timeout은 없었다. 최대 pitch는 전진 .165,
+  후진 .254 rad다. raw JSONL은
+  `workbench/evidence/generated/contact-gait/fbc599e/`에 보관한다.
+  확장 시험은 전진 16.26 s/+2.784 m, 후진 11.24 s/-2.829 m,
+  우측 13.14 s/-1.198 m에 실패했다. 좌측 20초는 통과(+1.751 m).
+  전후 이동·정지 3회 반복은 각각 14.90/13.46 s에 실패했다.
+  긴 보행 gate는 미통과이며, 이 뒤 사용자가 팔 물성 감사만 요청해
+  도달 범위 비용 TDD를 일시 중지했다.
 - `fa85b44`를 push/양쪽 update하고 원격 GPU2 Sim `merry-elephant`로
   4096×2, 50 Hz, substeps=4, 전후좌우 6초 명령+2초 정지를 실행했다.
   좌우는 통과(+0.616/-0.511 m), 전진은 7.08 s/+1.111 m,

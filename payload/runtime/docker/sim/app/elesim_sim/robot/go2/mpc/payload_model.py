@@ -8,6 +8,18 @@ from scipy.spatial.transform import Rotation as Rot
 from elesim_sim.simulation.genesis.utils import quat_wxyz_to_xyzw as _quat_wxyz_to_xyzw, to_numpy_1d as _to_numpy_1d
 
 
+def inertia_in_link_frame(description) -> np.ndarray | None:
+    """Genesis stores inertia in its principal frame, separately from the link."""
+    if description.inertia is None:
+        return None
+    tensor = np.asarray(description.inertia, dtype=float).reshape(3, 3)
+    quaternion = getattr(description, "inertial_quat", None)
+    if quaternion is None:
+        return tensor
+    rotation = Rot.from_quat(_quat_wxyz_to_xyzw(quaternion)).as_matrix()
+    return rotation @ tensor @ rotation.T
+
+
 def _shift_inertia(
     inertia: np.ndarray,
     mass: float,
@@ -104,9 +116,8 @@ class ArmPayloadCompensator:
             ang = _to_numpy_1d(link.get_ang())[:3]
             vel_com = vel + np.cross(ang, offset_world)
 
-            inertia_local = None
-            if inertial.inertia is not None:
-                inertia_local = rot_m @ np.asarray(inertial.inertia, dtype=float).reshape(3, 3) @ rot_m.T
+            inertia_link = inertia_in_link_frame(inertial)
+            inertia_local = None if inertia_link is None else rot_m @ inertia_link @ rot_m.T
 
             link_samples.append((mass, com_world, vel_com, inertia_local))
 

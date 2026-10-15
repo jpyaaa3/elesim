@@ -5,6 +5,38 @@ from scipy.spatial.transform import Rotation as Rot
 
 from elesim_sim.simulation.genesis.utils import quat_wxyz_to_xyzw as _quat_wxyz_to_xyzw
 from elesim_sim.simulation.genesis.utils import to_numpy_1d as _to_numpy_1d
+from elesim_sim.robot.go2.mpc.payload_model import inertia_in_link_frame
+
+
+def synchronize_model_inertias(model, entity) -> None:
+    """Replace GO2 inertias with the properties used by the Genesis scene.
+
+    Pinocchio folds fixed links into their parent joint. Rebuild those sums
+    from each BODY frame so Genesis-inferred calf mass is included once and
+    follows the correct joint, rather than adding a lumped mass to the base.
+    Arm links are absent from this bare GO2 model and remain dynamic payload.
+    """
+    import pinocchio as pin
+
+    inertias = [pin.Inertia.Zero() for _ in range(model.njoints)]
+    for frame in model.frames:
+        if frame.type != pin.BODY:
+            continue
+        try:
+            description = entity.get_link(frame.name).desc
+        except (KeyError, ValueError, AttributeError) as exc:
+            raise ValueError(f"Genesis is missing GO2 body link {frame.name}") from exc
+        mass = float(description.mass or 0.)
+        if mass <= 0.:
+            continue
+        com = (np.zeros(3) if description.inertial_pos is None
+               else np.asarray(description.inertial_pos, dtype=float).reshape(3))
+        tensor = inertia_in_link_frame(description)
+        inertia = pin.Inertia(mass, com, np.zeros((3, 3)) if tensor is None else tensor)
+        inertias[frame.parentJoint] += frame.placement.act(inertia)
+    # Validate every body before replacing any authored property.
+    for joint, inertia in enumerate(inertias):
+        model.inertias[joint] = inertia
 
 
 class GenesisPinBridge:
