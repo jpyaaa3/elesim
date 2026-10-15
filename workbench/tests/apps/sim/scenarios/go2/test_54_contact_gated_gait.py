@@ -31,13 +31,43 @@ def test_brief_unloading_preserves_support_and_load():
     assert gate.load[0] == 1.
 
 
-def test_airborne_support_loss_prevents_next_pair_liftoff_in_same_tick():
+@pytest.mark.parametrize('clearance_height', [.032, .04, .08])
+@pytest.mark.parametrize('normal', [0., 50.])
+def test_airborne_support_loss_prevents_next_pair_liftoff_in_same_tick(clearance_height, normal):
     gate = ready()
     gate.time = .02  # FR/RL liftoff is reached on the next tick.
-    schedule = tick(gate, [0., 50., 50., 50.], [.08, .02, .02, .02])
+    schedule = tick(gate, [normal, 50., 50., 50.], [clearance_height, .02, .02, .02])
     assert gate.time == pytest.approx(.02)
     np.testing.assert_array_equal(schedule[:, 0], [0., 1., 1., 1.])
     assert gate.search[0]
+
+
+def test_airborne_impulses_do_not_confirm_ground_landing():
+    gate = ContactGatedGait()
+    # The authored foot sphere is 22 mm radius; even allowing its 2 mm
+    # origin offset, a 34 mm foot center is clear of the flat ground.
+    # Cached/impulsive force alone must not override that geometry.
+    tick(gate, heights=[.034]*4)
+    tick(gate, heights=[.034]*4)
+    assert not gate.confirmed.any()
+    assert not gate.load.any()
+    tick(gate)  # Airborne impulses must not count toward ground evidence.
+    assert not gate.confirmed.any()
+    tick(gate)
+    assert gate.confirmed.all()
+
+
+def test_airborne_loss_requires_fresh_ground_evidence_before_reloading():
+    gate = ContactGatedGait()
+    tick(gate)
+    tick(gate)
+    assert gate.confirmed.all()
+    tick(gate, heights=[.034, .02, .02, .02])
+    assert not gate.confirmed[0]
+    tick(gate)
+    assert not gate.confirmed[0]
+    tick(gate)
+    assert gate.confirmed[0]
 
 
 def test_missing_contact_never_becomes_support_and_times_out():

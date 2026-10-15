@@ -195,8 +195,9 @@ robot:
         stop_dwell_s: 0.2
         # Blend stand/ready joint targets before entering or leaving MPC gait.
         pose_transition_s: 0.35
-        leg_kv_damping: 3.0
-        # Calibrated with the PyMPC source default at a 50 Hz torque cadence.
+        # FORCE mode applies this as passive damping at each physics substep.
+        leg_kv_damping: 1.0
+        # Additional feedback at the 50 Hz torque cadence.
         aux_kv: 2.0
         tau_filter_alpha: 0.5
         force_filter_alpha: 0.7

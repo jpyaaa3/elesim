@@ -35,6 +35,9 @@ from elesim_sim.simulation.genesis.utils import to_numpy_1d
 _LEGS = (LegId.FL, LegId.FR, LegId.RL, LegId.RR)
 _PHASE_OFFSETS = np.array((0.0, 0.5, 0.5, 0.0))
 _SWING_TOUCHDOWN_DEPTH_M = .008
+# Current footholds target the flat floor. A 22 mm foot sphere with a 2 mm
+# local offset cannot support the body once its frame clears 30 mm.
+_MAX_GROUND_FOOT_HEIGHT_M = .03
 
 
 class ContactGatedGait:
@@ -84,7 +87,8 @@ class ContactGatedGait:
         # Observe loss BEFORE advancing the clock across the next liftoff.
         old_planned = contact_schedule(self.time, gait_hz=gait_hz, duty=duty,
                                        dt=horizon_dt, horizon=horizon)[:, 0].astype(bool)
-        loss_now = (normal <= 2.0) & ((self.loss_age + dt >= 0.08 - 1e-9) | (heights > 0.05))
+        airborne = heights > _MAX_GROUND_FOOT_HEIGHT_M
+        loss_now = airborne | ((normal <= 2.0) & (self.loss_age + dt >= 0.08 - 1e-9))
         self.phase_rate = float(not self.blocked and not settling and not np.any(old_planned & loss_now))
         if self.phase_rate:
             self.time += dt
@@ -111,18 +115,18 @@ class ContactGatedGait:
         # brief unloading impulse, but never retain a visibly airborne foot.
         self.confirmed &= planned
         self.loss_age = np.where(planned & (normal <= 2.0), self.loss_age + dt, 0.0)
-        lost = (self.loss_age >= 0.08 - 1e-9) | ((normal <= 2.0) & (heights > 0.05))
+        lost = (self.loss_age >= 0.08 - 1e-9) | airborne
         self.confirmed &= ~lost
         # Genesis impulse contacts may alternate loaded/unloaded ticks at
         # 50 Hz. Require 40 ms of evidence within 80 ms, not uninterrupted
         # force. Clear all old evidence for a deliberately lifted foot.
-        self._contact_window.append((planned & (normal > 5.0)).astype(float) * dt)
+        ground_contact = planned & ~airborne & (normal > 5.0)
+        self._contact_window.append(ground_contact.astype(float) * dt)
         self._contact_window = self._contact_window[-max(1, int(np.ceil(.08 / dt))):]
         for evidence in self._contact_window:
-            evidence[~planned] = 0.0
+            evidence[~planned | airborne] = 0.0
         self.contact_age = np.sum(self._contact_window, axis=0)
-        self.confirmed |= (planned & (normal > 5.0) & (heights <= .035)
-                           & (self.contact_age >= 0.04 - 1e-9))
+        self.confirmed |= ground_contact & (self.contact_age >= 0.04 - 1e-9)
         # Load age is independent of instantaneous contact force. A brief
         # unloading must not repeatedly restart the landing ramp.
         self.load = np.where(self.confirmed, np.minimum(1.0, self.load + dt / 0.06), 0.0)

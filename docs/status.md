@@ -53,8 +53,23 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 - 실제 descriptor/armature=.01을 포함한 전진 실패 자세의 고정 자세 선형
   근사에서 50 Hz 폐루프 spectral radius는 1.0515 → .9482였다.
   이 근사는 Genesis 보행 증거가 아니다. 원시 계산은
-  `contact-gait/analyze_foot_pd.py`와 `.json`에 있으며, 감쇠 수정의 발행
-  이미지 실보행 및 긴 보행 gate는 아직 미검증이다.
+  `contact-gait/analyze_foot_pd.py`와 `.json`에 있다.
+- `9eaf8ba`도 push/양쪽 update 후 GPU2 Sim `merry-ox`로 검증했다.
+  force-mode passive damping readback은 12 DOF 모두 3.1이었다.
+  3 cm 이상 공중/normal<=2 N/지지 명령>5 N 샘플은 네 방향 모두 0회.
+  그러나 전진/좌측은 끝까지 서기로 복귀했어도 진행량 +0.449/+0.100 m로
+  최소 gate에 미달했고, 후진은 8.00 s/-0.271 m에 RL 착지 실패했다.
+  우측만 통과(-0.401 m). 착지 지연 중앙값은 앞/좌/우 140/170/160 ms로
+  늘었다. 원시는 `contact-gait/9eaf8ba/`에 회수했다.
+- 다음 수정은 22 mm foot sphere/2 mm local offset의 현재 평지 형상에
+  맞춰 지지 높이 상한을 30 mm로 제한한다. 공중 발은 힘 값과 무관하게
+  다음 liftoff 전에 지지에서 제외하고, 공중 충격/이전 접촉 이력으로
+  새 착지를 확인하지 않는다. 재접촉은 기존 40 ms/80 ms 증거가 필요하다.
+  강화 회귀 6 failed/2 passed → green; 같은 전체 명령 601 passed/4 skipped.
+- 실제 적용된 감쇠 3의 진행량/착지 지연 퇴보 때문에 source override를
+  PyMPC 기본값 1로 되돌린다(실제 passive 총합 3.1 → 1.1).
+  앞 실패 자세의 선형 근사 radius=.8892이나 실제 보행 성공의 증거는
+  아니다. 위 두 수정의 발행 이미지 실보행 및 긴 gate는 아직 미검증이다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 
