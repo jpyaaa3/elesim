@@ -44,9 +44,9 @@ profiles:
 # ---- Shared application defaults -----------------------------------------
 simulation:
   physics:
-    dt: 0.02
-    # Keep 50 Hz control while resolving foot contacts at 200 Hz.
-    substeps: 4
+    dt: 0.01
+    # Read contacts and control legs at 100 Hz; keep 5 ms physics integration.
+    substeps: 2
     realtime: true
     realtime_factor: 1.0
     gravity: [0.0, 0.0, 0.0]
@@ -70,7 +70,7 @@ simulation:
     # synchronization on every physics step.  Zero restores legacy behavior.
     visualizer_max_hz: 30.0
     # DDS telemetry is a latest-only state snapshot. It does not need to force
-    # four synchronous Genesis readbacks on every 50 Hz physics step.
+    # four synchronous Genesis readbacks on every 100 Hz control step.
     telemetry_max_hz: 20.0
     floor: true
     use_hardware: false

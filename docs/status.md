@@ -189,6 +189,28 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   세 회귀 3 failed → green. 새 force 주기까지 포함한 canonical Sim/보행 명령은
   638 passed/4 skipped다. GPU 실물 API 동등성과 실제 step 절감은 다음
   원격 후보에서 측정하며, 단위시험만으로 가속을 선언하지 않는다.
+- `961c2eb`(force 50 Hz)와 `678bbb7`(payload bulk)을 push/양쪽 update 후 GPU2
+  Sim `merry-wombat`에서 실물 API를 비교했다. 질량/COM/속도/관성 오차는 모두
+  0이었으며 payload measure 중앙값은 scalar 10.617 → bulk 3.315 ms였다.
+  기존 50 Hz 제어는 후진/좌/우 통과(-1.478/+.385/-.465 m), 전진은
+  9.10 s/+1.651 m에 RR timeout. 카메라 없는 진단 처리율은 실시간의
+  1.29~1.51배였다. 원시는 `contact-gait/678bbb7/`.
+- 같은 공식 이미지에서 10 ms/2 substeps, 기록은 기존과 같은 20 ms로
+  비교했다. 5 ms 물리 적분과 GPU MPPI 50 Hz는 유지하고 제어·관측만 100 Hz다.
+  단기 네 방향은 모두 통과(+1.113/-1.291/+.363/-.435 m). 20초 네 방향도
+  stand까지 통과(+4.001/-4.280/+1.406/-1.200 m), 후진 이동·정지 3회도
+  -4.045 m로 통과했다. 전진 3회만 19.74 s/+3.243 m에 RL timeout이었다.
+  전체 9/10 통과이며 공중 지지력 샘플은 전부 0회다. 진단 처리율은
+  단기 1.08~1.18배, 긴 이동 .91~.98배였다. 원시는 `contact-gait/678bbb7-hz100/`.
+- 전진 반복의 두 번째 정지 끝 t=17.98 s에는 속도가 거의 0이고 4발 full load였지만
+  pitch=.157374 rad로 stand 기준 .15를 넘었다. walk에 남아 다음 출발을 한 뒤
+  무너졌다. 다음 후보는 정지 중의 완전한 네 발 지지, COM speed<.08 m/s,
+  angular speed<.15 rad/s, max joint speed<.5 rad/s에서만 GPU 다리 중력을 더한다.
+  동적 보행, 미착지/부분 하중, CPU acados는 제외한다. stand 판정은 바꾸지 않는다.
+- 위 후보와 100 Hz/2 substeps 기본 설정 회귀는 red→green. canonical Sim/보행
+  명령은 647 passed/4 skipped다. 설치된 기본 config를 덮어쓰지 않는 원격 시험은
+  다음 단계이며 아직 통과로 선언하지 않는다. full required/extended 및 isolated
+  release build/verify는 이번 보행 범위에서 미실행이다.
 
 ### 팔 물성 감사 (2026-10-15, 보행 TDD 일시 중지)
 

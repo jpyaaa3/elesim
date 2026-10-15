@@ -58,6 +58,15 @@ def test_remote_profile_disables_native_viewer_but_keeps_network_cameras() -> No
     assert bundle.sim_config.sim_observer_camera_max_hz == 30.0
 
 
+def test_default_go2_feedback_is_100hz_with_unchanged_5ms_physics_integration():
+    from elesim_sim.robot.go2.pympc_controller import solver_update_stride
+    bundle = load_app_config(str(CONFIG_DIR / 'config.yaml'), mode='remote')
+    assert bundle.sim_param.dt == .01
+    assert bundle.sim_param.substeps == 2
+    assert bundle.sim_param.dt / bundle.sim_param.substeps == .005
+    assert solver_update_stride(bundle.sim_param.dt, .02, backend='jax_mppi') == 2
+
+
 def test_gpu_mpc_selection_is_explicit(tmp_path):
     config = tmp_path / "gpu.yaml"
     config.write_text("schema_version: 1\nrobot:\n  go2:\n    locomotion:\n      mpc:\n"

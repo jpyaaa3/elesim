@@ -215,9 +215,10 @@ def _init_torque_controller(controller, *, elapsed_s=1.0, config=None):
     controller._step_i = 0
     controller._solve_stride = 2
     controller._solver = SimpleNamespace(
-        solve=lambda _sample: np.tile([0.0, 0.0, 50.0], (4, 1))
+        solve=lambda _sample: np.tile([0.0, 0.0, 50.0], (4, 1)), backend='jax_mppi', dt=.02,
     )
     controller._timing_sink = None
+    controller._settling = False
     controller._config = config or _torque_config()
     phase = (elapsed_s * controller._config.gait_hz + np.array([0., .5, .5, 0.])) % 1.
     controller._contact_gait.swing_progress = np.clip(
@@ -368,6 +369,38 @@ def test_diagnostic_joint_gravity_does_not_change_actuation_after_gait_regressio
     compensated, compensated_grf = run(gravity)
     np.testing.assert_allclose(compensated-plain, np.zeros(12), atol=1e-10)
     np.testing.assert_array_equal(compensated_grf, plain_grf)
+
+
+@pytest.mark.parametrize('case,compensated', [
+    ('settled', True), ('walking', False), ('linear_motion', False),
+    ('angular_motion', False), ('joint_motion', False),
+    ('unlanded', False), ('loading', False), ('cpu_backend', False),
+])
+def test_gravity_feedforward_is_limited_to_quasistatic_four_foot_settling(case, compensated):
+    state = PyMpcInput(**{**vars(sample()), 'contacts':np.ones((4, 3)),
+                         'com_velocity':np.zeros(3), 'angular_velocity_body':np.zeros(3)})
+    if case == 'linear_motion':
+        state.com_velocity[0] = .2
+    if case == 'angular_motion':
+        state.angular_velocity_body[1] = .3
+    if case == 'unlanded':
+        state.contacts[2] = 0.
+    joint_velocity = np.full(12, .6 if case == 'joint_motion' else 0.)
+    def run(gravity):
+        c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+        _init_torque_controller(c)
+        c._dt = .01
+        c._settling = case != 'walking'
+        c._joint_gravity = gravity.copy()
+        if case == 'cpu_backend':
+            c._solver.backend = 'acados'
+        if case == 'loading':
+            c._contact_gait.load[2] = .5
+        return c._torques(state, state.feet_world, np.zeros((4, 3)),
+                         np.tile(np.eye(3), (4, 1, 1)), joint_velocity)
+    gravity = np.linspace(-1.2, 1.2, 12)
+    difference = run(gravity)-run(np.zeros(12))
+    np.testing.assert_allclose(difference, gravity if compensated else 0., atol=1e-10)
 
 
 def test_force_filter_reprojects_stance_and_zeros_swing_legs() -> None:

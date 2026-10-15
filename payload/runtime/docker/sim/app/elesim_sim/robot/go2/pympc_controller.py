@@ -823,14 +823,24 @@ class PyMpcGenesisController:
         contacts = sample.contacts[:, 0]
         tau = np.zeros(12)
         duty = float(self._config.gait_duty)
+        # Direct gravity feedforward regressed dynamic walking. Use inverse
+        # statics only during a quiet, fully loaded four-foot stop, where the
+        # measured force bias otherwise leaves a residual body tilt.
+        static_gravity = bool(
+            self._settling and np.all(contacts == 1.)
+            and np.all(self._contact_gait.load >= 1.-1e-9)
+            and np.linalg.norm(sample.com_velocity) < .08
+            and np.linalg.norm(sample.angular_velocity_body) < .15
+            and np.max(np.abs(joint_vel)) < .5
+            and self._solver.backend == "jax_mppi"
+        )
         for i in range(4):
             sl = slice(i * 3, i * 3 + 3)
             if contacts[i] == 1:
-                # Direct leg-gravity feedforward regressed contact retention
-                # in Genesis. Keep that vector diagnostic until its dynamic
-                # force tracking is validated, and retain the tested GRF path.
                 tau[sl] = -jacobians[i].T @ (
                     self._forces[i] * self._contact_gait.load[i])
+                if static_gravity:
+                    tau[sl] += self._joint_gravity[sl]
             elif self._contact_gait.search[i]:
                 if not self._was_searching[i]:
                     # A late swing must keep trying to reach its ground target.
