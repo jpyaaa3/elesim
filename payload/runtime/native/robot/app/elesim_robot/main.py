@@ -11,6 +11,7 @@ from pathlib import Path
 from elesim_protocol import (
     CAPABILITY_MOTION_ARM,
     CAPABILITY_MOTION_GO2,
+    CAPABILITY_ROBOT_STATE_MIRROR,
     CAPABILITY_STREAM_RGBD,
     DdsTransportError,
     EndpointDescriptor,
@@ -42,6 +43,15 @@ def _default_config() -> Path:
 
 
 PROJECT_CONFIG = _default_config()
+
+
+def publish_mirror_telemetry(client: PeerClient, state: dict[str, object]) -> None:
+    """A disappearing read-only viewer must not affect physical authority."""
+    for peer in client.node.discover(role="sim", capability=CAPABILITY_ROBOT_STATE_MIRROR):
+        try:
+            client.send("telemetry", target_id=peer.identity.endpoint_id, payload=state)
+        except DdsTransportError:
+            continue
 
 
 def _format_failures(failures: list[tuple[str, Exception]]) -> str:
@@ -193,17 +203,19 @@ def _run() -> None:
                             )
                 runtime.tick()
                 now = time.monotonic()
-                if runtime.pilot_id and now - last_state >= config.safety.telemetry_period_s:
+                if now - last_state >= config.safety.telemetry_period_s:
                     last_state = now
                     state = runtime.state()
                     if camera is not None:
                         state["camera"] = camera.status()
-                    client.send(
-                        "telemetry",
-                        target_id=runtime.pilot_id,
-                        payload=state,
-                        lease_id=runtime.active_lease,
-                    )
+                    publish_mirror_telemetry(client, state)
+                    if runtime.pilot_id:
+                        client.send(
+                            "telemetry",
+                            target_id=runtime.pilot_id,
+                            payload=state,
+                            lease_id=runtime.active_lease,
+                        )
             except DdsTransportError as exc:
                 # A lost DDS peer must not stop the local safety loop.  Revoke
                 # the motion lease so arm safe-hold runs, keep ticking the

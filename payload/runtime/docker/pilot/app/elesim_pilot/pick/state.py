@@ -33,6 +33,7 @@ class HostState:
     u: Optional[ControlU]
     sim_q: Optional[SimQ] = None
     sim_u: Optional[ControlU] = None
+    claw_closed: Optional[bool] = None
     go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
     go2_base_rpy: Optional[tuple[float, float, float]] = None
     go2_base_pos: Optional[tuple[float, float, float]] = None

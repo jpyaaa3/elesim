@@ -212,6 +212,10 @@ def _draw_lock_and_offset_row(panel, *, editing_offsets: bool) -> None:
 def _draw_gripper_row(panel) -> None:
     _control_label(panel, "Gripper")
     claw_closed = bool(panel.state.claw_closed)
+    host = getattr(panel, "_host_state", None)
+    measured = getattr(host, "claw_closed", None)
+    if getattr(host, "connected", False) and type(measured) is bool:
+        claw_closed = measured
     if toggle_switch(
         panel,
         "gripper_close_switch",

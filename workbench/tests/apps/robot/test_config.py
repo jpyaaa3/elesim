@@ -28,6 +28,18 @@ def test_checked_in_default_config_is_valid() -> None:
     assert config.go2.ros_domain_id != config.dds.domain_id
 
 
+@pytest.mark.parametrize("name,value", [
+    ("max_linear_m_s", 0), ("max_roll_rad_s", -1),
+    ("max_bend_rad_s", float("inf")), ("claw_open_deg", 0),
+    ("claw_closed_deg", 360), ("claw_open_deg", 230),
+])
+def test_bad_motion_limits_or_claw_calibration_fail_before_motor_io(name, value):
+    raw = yaml.safe_load((ROOT / "payload/config/robot/default.yaml").read_text())
+    raw["arm"][name] = value
+    with pytest.raises(ValueError):
+        _load_document(raw)
+
+
 def test_systemd_accounts_match_the_default_ipc_peer_identities() -> None:
     config = load_config(ROOT / "payload/config/robot/default.yaml")
     robot_unit = (ROOT / "payload/runtime/native/robot/systemd/elesim-robot.service").read_text(

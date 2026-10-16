@@ -20,6 +20,7 @@ struct ElesimArmConfig {
   double q_max[4];
   double motor_min_deg[4];
   double motor_max_deg[4];
+  double max_motor_velocity_deg_s[4];
 };
 
 struct ElesimArmSnapshot {
@@ -54,6 +55,7 @@ struct ElesimImuSample {
 
 void* elesim_arm_create(const char* device, const ElesimArmConfig* config,
                         char* error, size_t error_size);
+int elesim_arm_abi_version();
 int elesim_arm_open(void* handle, char* error, size_t error_size);
 int elesim_arm_command_q(void* handle, const double* q,
                          char* error, size_t error_size);

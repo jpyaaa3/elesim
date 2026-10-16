@@ -1777,14 +1777,16 @@ class SimScene(_SimSceneKinematicsMixin):
             self._force_instant_arm_frames = int(hold_instant_frames)
         return start_q
 
-    def apply_sim_q(self, q_errmodel: proto.SimQ) -> Optional[np.ndarray]:
+    def apply_sim_q(self, q_errmodel: proto.SimQ, *, measured: bool = False) -> Optional[np.ndarray]:
         if self.mover is None:
             return None
         linear_m = float(q_errmodel.linear_m)
         roll_rad = float(q_errmodel.roll_rad)
         theta1_rad = float(q_errmodel.theta1_rad)
         theta2_rad = float(q_errmodel.theta2_rad)
-        if int(self._force_instant_arm_frames) > 0:
+        if measured:
+            self.mover.set_4dof_instant(linear_m, roll_rad, theta1_rad, theta2_rad)
+        elif int(self._force_instant_arm_frames) > 0:
             self.mover.set_4dof_instant(linear_m, roll_rad, theta1_rad, theta2_rad)
             self._force_instant_arm_frames -= 1
         else:
@@ -3642,7 +3644,10 @@ class SimRuntime:
                 perf.section("go2", t_sec)
                 t_sec = time.perf_counter()
                 if q_errmodel is not None:
-                    a.sim_scene.apply_sim_q(q_errmodel)
+                    a.sim_scene.apply_sim_q(
+                        q_errmodel,
+                        measured=bool(getattr(a.state_source, "robot_mirror_active", False)),
+                    )
                     # The joint values the sim is actually driving.  Neither the panel
                     # nor the log showed these, so a pose found by hand could not be
                     # carried anywhere else.  Rate limited, and only when it moves.

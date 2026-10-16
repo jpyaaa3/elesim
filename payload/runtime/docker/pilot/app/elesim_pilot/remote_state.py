@@ -197,6 +197,7 @@ class RemoteState:
                 ports=tuple(str(value) for value in data.get("ports", ()) if str(value)),
                 torque_enabled=bool(data.get("torque_enabled", False)),
                 claw_current=_integer(data.get("claw_current")),
+                claw_closed=data.get("claw_closed") if type(data.get("claw_closed")) is bool else None,
                 motor_currents_ma=_number_dict(data.get("motor_currents_ma"), int),
                 motor_positions_raw=_number_dict(data.get("motor_positions_raw"), int),
                 motor_positions_deg=_number_dict(data.get("motor_positions_deg"), float),

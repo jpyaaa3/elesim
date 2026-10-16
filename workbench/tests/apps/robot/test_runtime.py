@@ -42,6 +42,7 @@ class FakeArm:
         self.ids = [1, 2, 3, 4, 5]
         self.direction = {motor_id: 1 for motor_id in self.ids}
         self.target: tuple[float, ...] | None = None
+        self.claw_target: float | None = None
         self.safe_hold_count = 0
         self.torque_off_count = 0
         self.torque_on_count = 0
@@ -57,8 +58,8 @@ class FakeArm:
     def command_4dof_deg(self, *target: float) -> None:
         self.target = tuple(target)
 
-    def command_claw_deg(self, _degrees: float) -> None:
-        pass
+    def command_claw_deg(self, degrees: float) -> None:
+        self.claw_target = degrees
 
     def safe_hold_arm(self) -> None:
         self.safe_hold_count += 1
@@ -175,6 +176,22 @@ def runtime(
     )
     value.hw = arm
     return value, arm
+
+
+@pytest.mark.parametrize("closed,degrees", [(False, 340.0), (True, 230.0)])
+def test_logical_gripper_state_uses_physical_open_and_closed_positions(closed, degrees):
+    value, arm = runtime()
+    value.grant_lease("pilot-a", "lease-a")
+    assert value.apply(command({"command": "target", "claw_closed": closed}))[0]
+    assert arm.claw_target == degrees
+
+
+@pytest.mark.parametrize("degrees,closed", [(340.0, False), (230.0, True)])
+def test_gripper_feedback_comes_from_measured_motor_position(degrees, closed):
+    value, arm = runtime()
+    arm.positions[5] = deg_to_tick_0_360(degrees)
+    value.tick()
+    assert value.state()["claw_closed"] is closed
 
 
 def test_runtime_accepts_only_canonical_q_target() -> None:

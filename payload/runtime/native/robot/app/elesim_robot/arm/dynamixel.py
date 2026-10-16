@@ -42,6 +42,7 @@ class _ArmConfig(ctypes.Structure):
         ("q_max", ctypes.c_double * 4),
         ("motor_min_deg", ctypes.c_double * 4),
         ("motor_max_deg", ctypes.c_double * 4),
+        ("max_motor_velocity_deg_s", ctypes.c_double * 4),
     ]
 
 
@@ -155,6 +156,16 @@ def _native_config(
             mapping.seg_u_max,
             mapping.seg_u_max,
         ),
+        (ctypes.c_double * 4)(
+            hardware.max_linear_m_s * (mapping.linear_u_max - mapping.linear_u_min)
+            / (mapping.linear_q_max_m - mapping.linear_q_min_m),
+            hardware.max_roll_rad_s * (mapping.roll_u_max - mapping.roll_u_min)
+            / (mapping.roll_q_max_rad - mapping.roll_q_min_rad),
+            hardware.max_bend_rad_s * (mapping.seg_u_max - mapping.seg_u_min)
+            / (mapping.seg1_q_max_rad - mapping.seg1_q_min_rad),
+            hardware.max_bend_rad_s * (mapping.seg_u_max - mapping.seg_u_min)
+            / (mapping.seg2_q_max_rad - mapping.seg2_q_min_rad),
+        ),
     )
 
 
@@ -163,6 +174,13 @@ def _load_library(path: Path | None = None) -> ctypes.CDLL:
     if not location.is_file():
         raise RuntimeError(f"Robot C++ arm controller is missing: {location}")
     library = ctypes.CDLL(str(location))
+    abi = getattr(library, "elesim_arm_abi_version", None)
+    if abi is None:
+        raise RuntimeError("Robot C++ arm ABI mismatch; rebuild the native controller")
+    abi.argtypes = []
+    abi.restype = ctypes.c_int
+    if abi() != 2:
+        raise RuntimeError("Robot C++ arm ABI mismatch; rebuild the native controller")
     pointer = ctypes.c_void_p
     error = ctypes.c_void_p
     size = ctypes.c_size_t

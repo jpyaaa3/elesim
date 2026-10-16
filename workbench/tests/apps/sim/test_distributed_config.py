@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+import yaml
+
 from elesim_sim.config import load_runtime_role_config
 
 
@@ -18,6 +21,20 @@ def test_loopback_runtime_uses_trusted_network_dds_without_turn_secret() -> None
     assert config.streams["rgbd_topic"] == "/elesim/sim_default/rgbd/frame"
     assert config.turn.static_auth_secret_file is None
     assert config.turn.credential_file is None
+    assert config.mirror_robot_id == ""
+
+
+@pytest.mark.parametrize("source", ["robot-a", "", 12, "sim-default", "bad id"])
+def test_mirror_requires_an_explicit_valid_robot_endpoint(tmp_path, source):
+    raw = yaml.safe_load((CONFIG_DIR / "runtime.yaml").read_text())
+    raw["runtime"]["mirror_robot_id"] = source
+    path = tmp_path / "runtime.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    if source in ("robot-a", ""):
+        assert load_runtime_role_config(path).mirror_robot_id == source
+    else:
+        with pytest.raises(ValueError):
+            load_runtime_role_config(path)
 
 
 def test_public_runtime_uses_static_dds_peer_sros2_and_managed_turn() -> None:

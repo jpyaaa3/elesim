@@ -442,7 +442,10 @@ class RobotRuntime:
                     motor.u_s2,
                 )
         if "claw_closed" in payload and self.hw is not None:
-            self.hw.command_claw_deg(180.0 if payload["claw_closed"] else 0.0)
+            self.hw.command_claw_deg(
+                self.hardware_config.claw_closed_deg
+                if payload["claw_closed"] else self.hardware_config.claw_open_deg
+            )
         if "go2_sport_pose" in payload and self.go2 is not None:
             pose = str(payload["go2_sport_pose"]).strip()
             if not pose:
@@ -530,6 +533,12 @@ class RobotRuntime:
             result["read_error"] = self._read_error
         snapshot = self._arm_snapshot
         if snapshot is not None:
+            claw_deg = snapshot.degrees.get(5)
+            if claw_deg is not None:
+                result["claw_closed"] = (
+                    abs(claw_deg - self.hardware_config.claw_closed_deg)
+                    < abs(claw_deg - self.hardware_config.claw_open_deg)
+                )
             result.update(
                 {
                     "motor_positions_raw": {

@@ -17,7 +17,7 @@ _CONTROL_TARGETS = {
     "pilot": ("robot", "sim", "ui"),
     "ui": ("pilot", "sim"),
     "sim": ("pilot", "ui"),
-    "robot": ("pilot",),
+    "robot": ("pilot", "sim"),
 }
 _MOTION_TARGETS = {
     "pilot": ("robot", "sim"),

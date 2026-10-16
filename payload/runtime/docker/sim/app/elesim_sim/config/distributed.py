@@ -8,7 +8,7 @@ from typing import Any, Mapping
 
 import yaml
 
-from elesim_protocol import DdsRuntimeSettings
+from elesim_protocol import DdsRuntimeSettings, EndpointDescriptor
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,7 @@ class RuntimeRoleConfig:
     dds: DdsRuntimeSettings = field(default_factory=DdsRuntimeSettings)
     turn: TurnConfig = field(default_factory=TurnConfig)
     rgbd: dict[str, Any] = field(default_factory=dict)
+    mirror_robot_id: str = ""
 
 
 def _rgbd_section(raw: object, source: Path) -> dict[str, Any]:
@@ -87,6 +88,14 @@ def load_runtime_role_config(path: str | Path) -> RuntimeRoleConfig:
         raise ValueError(f"{source}: runtime role must be 'sim', got {role!r}")
     if not endpoint_id:
         raise ValueError(f"{source}: endpoint_id is required")
+    mirror_robot_id = runtime.get("mirror_robot_id", "")
+    if not isinstance(mirror_robot_id, str):
+        raise ValueError(f"{source}: runtime.mirror_robot_id must be a string")
+    mirror_robot_id = mirror_robot_id.strip()
+    if mirror_robot_id:
+        EndpointDescriptor(mirror_robot_id, "robot")
+        if mirror_robot_id == endpoint_id:
+            raise ValueError(f"{source}: Sim cannot mirror itself")
 
     dds_raw = _section(raw, "dds", source)
     for key in ("vendor_config", "keystore"):
@@ -141,4 +150,5 @@ def load_runtime_role_config(path: str | Path) -> RuntimeRoleConfig:
             credential_file=credential_path,
         ),
         rgbd=_rgbd_section(raw.get("rgbd"), source),
+        mirror_robot_id=mirror_robot_id,
     )

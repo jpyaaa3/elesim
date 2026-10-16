@@ -44,6 +44,11 @@ Robot과 Sim은 자기 motion lease의 유일한 authority다. Sim은 UI
 simulation session의 유일한 authority다. discovery, `ROS_DOMAIN_ID`, static
 peer는 이 권한을 부여하지 않는다.
 
+Sim의 선택적 `runtime.mirror_robot_id`는 지정 Robot의 측정 telemetry를
+직접 받아 팔 자세를 표시한다. 이 표시 경로는 motion lease를 만들거나
+Robot 명령을 보내지 않는다. Sim 자신의 motion lease가 있으면 그 제어가
+우선하며, Robot 연결이 끊기면 마지막 수신 자세를 유지한다.
+
 Robot의 Python DDS/runtime은 lease, 명령 검증과 deadman을 맡는다. 승인된 이론 q는
 Jetson 프로세스 안의 C++ arm controller로 전달한다. C++ controller는 로컬
 주기(명목상 5 ms)마다 이론 q와 최신 IMU sample을 `correction_model.cpp`의
@@ -60,6 +65,17 @@ Pilot은 선택 ID가 포함된 Robot telemetry를 확인하기 전까지 적용
 않으며, 선택 명령은 미확인 상태에서 재전송한다. 토크 해제와 safe hold는 보관한 목표를 지운다.
 전류·위치 감시는 별도 설정 주기로 실행하며, Jetson의 스케줄링과 버스 지연 때문에
 5 ms는 보장된 마감 시간이 아니다.
+
+팔 목표는 Robot C++ 루프에서 보정·범위 검사 후 motor-space slew limit를
+거친다. 기본 canonical q 변화율은 직선 0.02 m/s, Roll 0.35 rad/s, 각 굽힘
+0.10 rad/s이며, 드라이버 profile velocity도 해당 모터 환산값 이하로 제한한다.
+수신 스레드는 최종 위치를 직접 쓰지 않는다. 긴 scheduling 지연을 큰 목표
+점프로 보상하지 않으며, torque-on 전에 fresh 측정 위치를 모든 모터의 hold
+goal로 쓴다. hold/torque-off는 남은 목표를 버린다. Native ABI 2는 구형
+shared library와 새 Python 설정 구조가 섞이면 시작을 거부한다.
+
+실제 Robot 측정 자세를 표시하는 Sim 경로는 명령용 rate limiter를 다시
+적용하지 않는다. 일반 Sim 제어 명령의 기존 속도 제한은 유지한다.
 
 ### Unitree 경계
 

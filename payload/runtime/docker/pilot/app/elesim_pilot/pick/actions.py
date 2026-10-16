@@ -2136,7 +2136,9 @@ class ControlService(_MotionFeedbackActions):
                     source=source,
                     target_xyz=(float(self.state.target_x), float(self.state.target_y), float(self.state.target_z)),
                     target_dir=(float(self.state.target_vx), float(self.state.target_vy), float(self.state.target_vz)),
-                    claw_closed=bool(self.state.claw_closed),
+                    # Arm sliders/presets must not replay an unrelated stale
+                    # gripper request. Gripper controls send their own command.
+                    claw_closed=None if source == "slider" else bool(self.state.claw_closed),
                     force=force or bool(source == "target"),
                 )
 

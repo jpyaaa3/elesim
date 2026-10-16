@@ -9,6 +9,21 @@ from elesim_sim.runtime import GenesisApp, Go2Locomotion, JointLayout, SimMover,
 from elesim_sim.robot.go2.locomotion.kinematics import GO2_STAND_Q
 
 
+def test_measured_pose_bypasses_command_smoothing_but_sim_commands_do_not():
+    from elesim_protocol import SimQ
+    calls = []
+    mover = SimpleNamespace(
+        set_4dof_instant=lambda *q: calls.append(("measured", q)),
+        control_4dof=lambda *q: calls.append(("command", q)),
+        target_from_4dof=lambda *q: np.array(q),
+    )
+    scene = SimScene(mover=mover)
+    q = SimQ(-0.1, 0.2, 0.3, -0.3)
+    scene.apply_sim_q(q, measured=True)
+    scene.apply_sim_q(q)
+    assert [kind for kind, _ in calls] == ["measured", "command"]
+
+
 def test_respawn_refreshes_camera_pose_without_another_mpc_step():
     stand = np.array(list(GO2_STAND_Q.values()))
     bridge = SimpleNamespace(last_q=np.ones(19))

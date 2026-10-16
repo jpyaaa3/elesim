@@ -257,6 +257,7 @@ CAPABILITY_OPERATOR_CONTROL = "operator_control"
 CAPABILITY_MOTION_ARM = "motion.arm"
 CAPABILITY_MOTION_GO2 = "motion.go2"
 CAPABILITY_SIM_MOCK_HUG = "simulation.mock_hug.v1"
+CAPABILITY_ROBOT_STATE_MIRROR = "presentation.robot-state.v1"
 CAPABILITY_STREAM_RGBD = "stream.rgbd"
 CAPABILITY_STREAM_RGBD_BROKER = "stream.rgbd.broker.v1"
 CAPABILITY_STREAM_OBSERVER = "stream.observer"
@@ -469,6 +470,8 @@ class Envelope:
     lease_id: str = ""
     trace_context: Optional[dict[str, str]] = None
     version: int = PROTOCOL_VERSION
+    # Receive-only metadata from the existing DDS carrier, never payload data.
+    source_boot_id: str = ""
 
     def __post_init__(self) -> None:
         if isinstance(self.version, bool) or type(self.version) is not int or self.version != PROTOCOL_VERSION:

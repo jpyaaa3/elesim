@@ -28,12 +28,17 @@ class HardwareConfig:
     profile_acc_linear: int = 10
     profile_vel_roll: int = 240
     profile_acc_roll: int = 10
-    profile_vel_seg1: int = 150
-    profile_acc_seg1: int = 20
-    profile_vel_seg2: int = 150
-    profile_acc_seg2: int = 20
-    profile_vel_claw: int = 80
+    profile_vel_seg1: int = 60
+    profile_acc_seg1: int = 6
+    profile_vel_seg2: int = 60
+    profile_acc_seg2: int = 6
+    profile_vel_claw: int = 20
     profile_acc_claw: int = 5
+    max_linear_m_s: float = 0.02
+    max_roll_rad_s: float = 0.35
+    max_bend_rad_s: float = 0.10
+    claw_open_deg: float = 340.0
+    claw_closed_deg: float = 230.0
 
 
 @dataclass(frozen=True)
@@ -148,6 +153,14 @@ def _validate_arm(config: HardwareConfig) -> None:
     if float(config.linear_u_limit_deg) > float(config.linear_u_max_deg):
         raise ValueError("arm.linear_u_limit_deg must not exceed linear_u_max_deg")
     _positive(config.current_limit_ma, name="arm.current_limit_ma")
+    for name in ("max_linear_m_s", "max_roll_rad_s", "max_bend_rad_s"):
+        _positive(getattr(config, name), name=f"arm.{name}")
+    for name in ("claw_open_deg", "claw_closed_deg"):
+        value = _finite(getattr(config, name), name=f"arm.{name}")
+        if not 230.0 <= value <= 340.0:
+            raise ValueError(f"arm.{name} must be within the motor range 230..340")
+    if config.claw_open_deg == config.claw_closed_deg:
+        raise ValueError("arm claw open/closed positions must differ")
     for field in fields(config):
         if field.name.startswith("profile_"):
             _positive(getattr(config, field.name), name=f"arm.{field.name}")

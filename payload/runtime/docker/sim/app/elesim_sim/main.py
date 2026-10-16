@@ -223,6 +223,7 @@ def _run() -> None:
         state=state,
         streams=streams,
         settings=role.dds,
+        mirror_robot_id=role.mirror_robot_id,
         operator_mailbox=operator_mailbox,
         webrtc_offer_handler=None if media is None else media.accept_offer,
         webrtc_session_close_handler=None if media is None else media.close_session,

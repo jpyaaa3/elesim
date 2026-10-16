@@ -56,12 +56,35 @@ notifications for an older lease cannot revoke the current lease.
 | `lease_granted` | Robot/Sim → relevant peers | authority 관찰 | reliable control | Pilot identity |
 | `lease_revoked` | Robot/Sim → relevant peers | authority 종료 | reliable control | reason |
 | `motion_command` | Pilot → Robot/Sim | lease-bound motion | best-effort, depth 1 | validated `MotionCommandRequest` |
-| `telemetry` | Robot/Sim → Pilot/UI | bounded snapshot | reliable control | additive bounded state map |
+| `telemetry` | Robot/Sim → Pilot/UI; Robot → opt-in Sim | bounded snapshot, no motion authority | reliable control | additive bounded state map |
 | `ack` | all → all | legacy-compatible ack | reliable control | `reply_to`, `ok`, optional reason |
 | `error` | all → request source | bounded failure | reliable control | `reply_to`, reason |
 
 `motion_command`는 latest command 성격의 depth-1 best effort다. Estop과 local
 deadman은 이 carrier나 DDS discovery callback에 의존하지 않는다.
+
+Robot presentation mirror restores the former hardware-state display path.
+Protocol major 6 and telemetry payload fields remain unchanged: this is an
+additive receiver/capability extension, not a new message type or field set.
+A Sim configured with `runtime.mirror_robot_id` advertises
+`presentation.robot-state.v1`. Robot sends its existing measured telemetry to
+these live Sim peers even without a Pilot lease. Each send is independent of
+motion authority and a disappearing viewer cannot revoke the Robot's lease.
+Sim accepts only its configured Robot endpoint's exact live boot, increasing
+envelope sequence, and finite measured `q`. It stores only the latest pose and
+freezes it on telemetry loss. A Sim motion lease takes precedence over mirroring.
+This path never emits commands to Robot, enables torque, or grants a lease.
+It also carries available GO2 base/leg state for `mirror_from_host` rendering.
+Old Sim peers do not advertise the capability and receive no new traffic.
+
+Gripper `target.claw_closed` retains its boolean wire meaning. Robot alone maps
+it to calibrated motor degrees (`arm.claw_open_deg=340`, `arm.claw_closed_deg=230`)
+instead of sending logical 0/180 into a physical 230..340 clamp. The additive
+telemetry `claw_closed` reports the nearest calibrated endpoint from measured
+motor 5 position. Pilot/UI keep this feedback separate from requested state;
+Sim mirrors it. Protocol major 6 and existing command/envelope fields remain
+unchanged. Physical speed limits and native controller ABI 2 are host-local
+implementation/configuration changes, not new DDS authority.
 
 IMU 해석 모델 선택은 기존 v6 `motion_command`의 새 명령 값
 `set_imu_model`이다. 새 message type이나 기존 registry field set을 추가하지

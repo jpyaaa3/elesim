@@ -479,6 +479,7 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
             "build.py",
             "control.h",
             "control.cpp",
+            "motion_limits.h",
             "correction_model.h",
             "correction_model.cpp",
             "vendor/LICENSE",

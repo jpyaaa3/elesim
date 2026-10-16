@@ -58,6 +58,7 @@ class SimulationStateSource:
         self._mock_object_state = mock_object_state
         self._last_update_at: Optional[float] = None
         self._torque_enabled = False
+        self._robot_mirror_active = False
 
     def poll(self) -> None:
         return None
@@ -94,6 +95,7 @@ class SimulationStateSource:
         parsed = MotionCommandRequest.from_payload(payload)
         body = parsed.raw
         with self._lock:
+            self._robot_mirror_active = False
             if parsed.mock_hug is not None:
                 if self._mock_object_state is None:
                     raise ValueError("mock hug support is unavailable")
@@ -145,6 +147,7 @@ class SimulationStateSource:
 
     def revoke_control(self) -> None:
         with self._lock:
+            self._robot_mirror_active = False
             self._go2_velocity = (0.0, 0.0, 0.0)
             if (
                 self._mock_object_state is not None
@@ -158,6 +161,7 @@ class SimulationStateSource:
 
     def seed_estimate_q(self, q: SimQ) -> None:
         with self._lock:
+            self._robot_mirror_active = False
             self._q = q
 
     def ik_target_xyz(self) -> Optional[np.ndarray]:
@@ -190,6 +194,38 @@ class SimulationStateSource:
                 self._go2_base_rpy = tuple(_vector(base_rpy, 3, name="go2 base rpy"))
             if leg_q is not None:
                 self._go2_leg_q = tuple(_vector(leg_q, 12, name="go2 leg q"))
+
+    def apply_robot_telemetry(self, payload: Mapping[str, Any]) -> None:
+        """Replace presentation state without creating a motion command."""
+        q = _vector(payload.get("q"), 4, name="measured robot q")
+        claw_closed = payload.get("claw_closed")
+        if claw_closed is not None and type(claw_closed) is not bool:
+            raise ValueError("measured claw_closed must be boolean")
+        go2 = payload.get("go2", {})
+        if not isinstance(go2, Mapping):
+            raise ValueError("go2 telemetry must be an object")
+        optional = {}
+        for key, nested, length in (
+            ("go2_base_pos", "position", 3),
+            ("go2_base_rpy", "rpy", 3),
+            ("go2_leg_q", "leg_q", 12),
+        ):
+            value = payload.get(key, go2.get(nested))
+            optional[key] = None if value is None else tuple(_vector(value, length, name=key))
+        with self._lock:
+            self._q = SimQ(*q)
+            self._robot_mirror_active = True
+            if claw_closed is not None:
+                self._claw_closed = claw_closed
+            self._go2_base_pos = optional["go2_base_pos"]
+            self._go2_base_rpy = optional["go2_base_rpy"]
+            self._go2_leg_q = optional["go2_leg_q"]
+            self._last_update_at = self.clock()
+
+    @property
+    def robot_mirror_active(self) -> bool:
+        with self._lock:
+            return self._robot_mirror_active
 
     def go2_base_pos(self) -> Optional[tuple[float, float, float]]:
         with self._lock:

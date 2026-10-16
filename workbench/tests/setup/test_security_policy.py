@@ -25,6 +25,16 @@ ENDPOINTS = {
 }
 
 
+def test_robot_can_publish_mirror_telemetry_but_sim_cannot_command_robot():
+    robot = render_role_policy(system_id="elesim", role="robot",
+                               endpoint_id=ENDPOINTS["robot"], endpoints=ENDPOINTS)
+    sim = render_role_policy(system_id="elesim", role="sim",
+                             endpoint_id=ENDPOINTS["sim"], endpoints=ENDPOINTS)
+    assert f"/elesim/v6/peers/{peer_node_key(ENDPOINTS['sim'])}/*/control" in _permissions(robot, "publish")
+    assert f"/elesim/v6/peers/{peer_node_key(ENDPOINTS['robot'])}/*/motion" not in _permissions(sim, "publish")
+    assert f"/elesim/v6/peers/{peer_node_key(ENDPOINTS['robot'])}/*/control" not in _permissions(sim, "publish")
+
+
 def _permissions(rendered: str, permission: str) -> set[str]:
     root = ET.fromstring(rendered)
     return {

@@ -23,6 +23,18 @@ def test_measured_q_is_the_canonical_control_state() -> None:
     assert snapshot.torque_enabled is True
 
 
+def test_gripper_feedback_survives_operator_snapshot_and_target_switch():
+    state = RemoteState(SimMappingConfig(), clock=lambda: 10.0)
+    state.peer_connected(True)
+    state.target_changed("robot-a")
+    state.accept_telemetry({"claw_closed": True})
+    assert state.snapshot(tx_seq=0).claw_closed is True
+    state.accept_telemetry({"claw_closed": False})
+    assert state.snapshot(tx_seq=0).claw_closed is False
+    state.target_changed("sim-a")
+    assert state.snapshot(tx_seq=0).claw_closed is None
+
+
 def test_target_switch_clears_previous_robot_measurements() -> None:
     state = RemoteState(SimMappingConfig(), clock=lambda: 10.0)
     state.target_changed("robot-a")

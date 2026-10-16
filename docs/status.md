@@ -6,6 +6,64 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Home 그리퍼 오동작 / 실제 팔 저속 제어 (2026-10-16)
+
+- Home/슬라이더가 기존 `claw_closed` 요청을 부수적으로 재전송하던 경로를
+  제거했다. Robot의 boolean 변환도 논리 0/180°에서 물리 열림 340° / 닫힘
+  230°로 수정했다. 종전에는 두 값 모두 드라이버의 230° 하한으로 clamp되어
+  UI가 열린 상태여도 실제 그리퍼가 닫혔다. Robot motor 5 측정 위치의
+  `claw_closed`를 Pilot snapshot, UI 표시와 Sim mirror까지 전달한다.
+- C++ `command_q`의 즉시 최종 목표 쓰기를 없애고 모든 목표/보정 결과를
+  motor-space slew limiter로 보낸다. 기본 canonical q 상한은 직선
+  0.02 m/s, Roll 0.35 rad/s, 굽힘 0.10 rad/s다. Firmware profile velocity도
+  환산 상한 이하로 제한하며, 긴 loop stall은 20 ms 이상의 목표 점프로
+  보상하지 않는다. Torque-on 전 fresh 측정값을 모든 모터의 hold goal에
+  preload하고 torque-off/hold는 대기 목표를 버린다. Native ABI 2 mismatch는
+  시작을 거부한다. Installer/release 필수 파일에 `motion_limits.h`를 추가했다.
+- Sim은 측정 자세를 추가 rate limiting 없이 표시한다. 일반 Sim motion
+  command는 기존 limiter를 유지한다.
+- macOS focused 회귀 265 passed + 5 subtests, 추가 preset 회귀 포함 focused
+  10 passed. 확장 protocol/Pilot/UI/Sim 및 관련 Robot 검사: **1382 passed,
+  18 skipped, 2 failed + 8 subtests**. 실패 두 개는 기존 replay fixture
+  `problematic_grasp.log`/`healthy_grasp.log`가 checkout에 없기 때문이다.
+  Jetson에서는 실제 native library 빌드와 관련 Robot 테스트 **56 passed**;
+  register-backed SDK double로 goal slew, stall cap, hold-before-torque,
+  torque 재인가 시 stale target 제거를 검증했다. 실제 4프로세스 DDS smoke도 통과했다.
+- 사용자가 토크 OFF와 팔 지지를 확인한 뒤 별도 Jetson stage와 Mac 세
+  프로세스를 갱신·재시작했다. 실제 motor 5 약 230°가 `claw_closed=true`로
+  전달되는 것을 확인했다. Agent는 Home/이동/torque-on을 실행하지 않았다.
+  실제 부하에서의 속도·gripper 끝점·stop deadline 측정과 canonical
+  required/extended/release gates는 미실행이다. R0–R5 완료를 뜻하지 않는다.
+- 이후 사용자 요청으로 Jetson arm stage의 목표 변화율 상한만 10배
+  (0.20 m/s, 3.5 rad/s, 1.0 rad/s)로 조정했다. 모터 profile 제한은 유지하여
+  실제 속도 10배를 보장하지 않는다. 이 값은 저장소 밖의 해당 실행 설정이며
+  위 소스 기본값은 보수적인 저속 설정을 유지한다.
+
+### Robot → Sim 측정 자세 동기화 복구 (2026-10-16)
+
+- 기존 host-state 표시 경로를 직접 DDS telemetry로 복구했다. Sim의
+  `runtime.mirror_robot_id`는 기본 비활성이고, 명시된 Robot의 exact live
+  boot·sequence·measured q만 받아 latest-value 자세를 갱신한다. Sim motion
+  lease가 우선하며, telemetry 손실 시 마지막 자세를 유지한다.
+- protocol major 6, ROSIDL 및 telemetry payload 형식은 유지한다. opt-in
+  capability와 telemetry 수신 role을 확장하고 SROS2 Robot → Sim publish
+  정책을 추가했다. 수신 boot는 기존 carrier에서 로컬 Envelope metadata로
+  보존하며 payload가 identity를 주장할 수 없다. 표시 경로는 Robot 명령이나
+  torque/lease를 만들지 않고, viewer 유실이 Robot motion lease를 해제하지 않는다.
+- macOS `elesim-ros`의 focused protocol/Sim/Robot lifecycle/security policy
+  회귀: **213 passed + 5 subtests**. 실제 CycloneDDS 별도 4프로세스 topology
+  smoke는 Robot → Sim measured-pose 반영을 포함해 통과했다. canonical dev
+  wrapper는 현재 설치에서 제공되지 않아 Docker required/extended 및
+  isolated release gates는 실행하지 않았다.
+- 확장 native host 검사: 908 passed, 18 skipped, 8 failed, 5 errors.
+  실패는 macOS에 없는 Linux SOCK_SEQPACKET/SO_PEERCRED와 Linux 전용
+  native arm builder 경로다. 이를 canonical 통과로 간주하지 않는다.
+- 사용자 확인 후 토크 OFF에서 별도 Jetson arm staging 환경을 갱신했다.
+  Mac Sim에서 실제 `robot-arm` telemetry의 measured-pose 수신·반영 로그와
+  장면/두 WebRTC track 준비를 확인했다. 기존 설치/systemd는 변경하지 않았다.
+  실제 팔 동작을 보내며 시각적 추종·지연·정지 시간을 측정하는 gate와
+  새 SROS2 enforce 정책의 live 검증은 미실행이다. R0–R5 완료를 의미하지 않는다.
+
 ### 접촉력–관절 토크 역동역학 TDD (2026-10-16, 후보 미채택)
 
 - 감쇠 제거 후보 `c90de7c`/`0623a58`는 .8 m/s 실보행 실패로 원복했다.

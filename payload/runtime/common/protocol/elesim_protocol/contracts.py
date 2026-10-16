@@ -134,8 +134,11 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
         ),
     ),
     "telemetry": _contract(
-        "telemetry", ("robot", "sim"), ("pilot", "ui"),
-        qos="reliable-control", notes="bounded state map; fields are additive by design",
+        "telemetry", ("robot", "sim"), ("pilot", "ui", "sim"),
+        qos="reliable-control", notes=(
+            "bounded state map; fields are additive by design; Robot measured state "
+            "may feed opt-in Sim presentation.robot-state.v1 without motion authority"
+        ),
     ),
     "ack": _contract(
         "ack", _ALL, _ALL,

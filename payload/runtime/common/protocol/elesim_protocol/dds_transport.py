@@ -1318,7 +1318,7 @@ class PeerClient:
                 self._send_error(envelope, source, str(exc) or "invalid request")
                 continue
             for item in routed:
-                yield item
+                yield replace(item, source_boot_id=source.boot_id)
         for _ in range(_MAX_RECEIVE_PER_CYCLE):
             if not self._local_queue:
                 break

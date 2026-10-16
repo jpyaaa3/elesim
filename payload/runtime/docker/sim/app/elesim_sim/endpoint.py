@@ -11,6 +11,7 @@ from typing import Any, Callable, Mapping, Optional
 from elesim_protocol import (
     CAPABILITY_MOTION_ARM,
     CAPABILITY_MOTION_GO2,
+    CAPABILITY_ROBOT_STATE_MIRROR,
     CAPABILITY_SIM_MOCK_HUG,
     CAPABILITY_STREAM_HAND_EYE_PREVIEW,
     CAPABILITY_STREAM_OBSERVER,
@@ -87,6 +88,7 @@ class SimEndpoint:
         state: SimulationStateSource,
         streams: Mapping[str, MediaStreamDescriptor],
         settings: Optional[DdsRuntimeSettings] = None,
+        mirror_robot_id: str = "",
         operator_mailbox: Optional[SimulationOperatorMailbox] = None,
         webrtc_offer_handler: Optional[
             Callable[[str, str, str, Optional[TurnCredentials], str], Mapping[str, Any]]
@@ -100,6 +102,9 @@ class SimEndpoint:
         self.state = state
         self.streams = dict(streams)
         self.settings = settings
+        self.mirror_robot_id = str(mirror_robot_id).strip()
+        self._mirror_boot_id = ""
+        self._mirror_seq = -1
         self.operator_mailbox = operator_mailbox or SimulationOperatorMailbox()
         self.webrtc_offer_handler = webrtc_offer_handler
         self.webrtc_session_close_handler = webrtc_session_close_handler
@@ -301,6 +306,9 @@ class SimEndpoint:
 
     def _handle_envelope(self, client: Any, message: Envelope) -> None:
         message_type = message.message_type
+        if message_type == "telemetry":
+            self._mirror_robot_state(client, message)
+            return
         if message_type in {
             "lease_granted",
             "lease_revoked",
@@ -366,6 +374,38 @@ class SimEndpoint:
             return
         if message_type == "webrtc_signal":
             self._handle_webrtc_offer(client, message)
+
+    def _mirror_robot_state(self, client: Any, message: Envelope) -> None:
+        if (
+            not self.mirror_robot_id
+            or message.source_id != self.mirror_robot_id
+            or message.target_id != self.endpoint_id
+            or self.active_lease
+        ):
+            return
+        peer = client.node.resolve(self.mirror_robot_id)
+        if (
+            peer is None
+            or peer.descriptor.role != "robot"
+            or not message.source_boot_id
+            or message.source_boot_id != peer.identity.boot_id
+        ):
+            return
+        if message.source_boot_id == self._mirror_boot_id and message.seq <= self._mirror_seq:
+            return
+        payload = message.payload or {}
+        if payload.get("q_source") != "measured":
+            return
+        try:
+            self.state.apply_robot_telemetry(payload)
+        except ValueError:
+            return
+        self._mirror_boot_id = message.source_boot_id
+        self._mirror_seq = message.seq
+        self._diagnostic(
+            "mirror", dedupe="robot-state", source=self.mirror_robot_id,
+            target=self.endpoint_id, state="measured-pose", interval=5.0,
+        )
 
     def _close_webrtc_session_async(self, session_id: str) -> None:
         handler = self.webrtc_session_close_handler
@@ -777,6 +817,8 @@ class SimEndpoint:
             CAPABILITY_MOTION_GO2,
             CAPABILITY_SIM_MOCK_HUG,
         ]
+        if self.mirror_robot_id:
+            capabilities.append(CAPABILITY_ROBOT_STATE_MIRROR)
         if "rgbd" in self.streams:
             capabilities.append(CAPABILITY_STREAM_RGBD)
         if "observer" in self.streams:

@@ -2,6 +2,8 @@ schema_version: 2
 runtime:
   role: sim
   endpoint_id: sim-default
+  # Opt in to read-only measured-state presentation of this Robot endpoint.
+  mirror_robot_id: ""
   streams:
     rgbd_topic: /elesim/sim_default/rgbd/frame
     observer: webrtc://sim-default/observer

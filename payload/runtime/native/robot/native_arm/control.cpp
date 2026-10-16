@@ -1,5 +1,6 @@
 #include "control.h"
 #include "correction_model.h"
+#include "motion_limits.h"
 
 #include "dynamixel_sdk/dynamixel_sdk.h"
 
@@ -64,6 +65,8 @@ void validate_config(const ElesimArmConfig& cfg) {
         !std::isfinite(cfg.q_min[i]) || !std::isfinite(cfg.q_max[i]) ||
         !std::isfinite(cfg.motor_min_deg[i]) ||
         !std::isfinite(cfg.motor_max_deg[i]) ||
+        !std::isfinite(cfg.max_motor_velocity_deg_s[i]) ||
+        cfg.max_motor_velocity_deg_s[i] <= 0.0 ||
         cfg.q_min[i] >= cfg.q_max[i] ||
         cfg.motor_min_deg[i] >= cfg.motor_max_deg[i]) {
       throw std::invalid_argument("invalid arm axis mapping");
@@ -162,13 +165,11 @@ class ArmController {
     std::lock_guard<std::mutex> guard(mutex_);
     require_open();
     require_healthy();
-    // Send the first goal now. The local monitor thread revisits this same
-    // theoretical target on every control tick until hold/torque-off.
+    // Validate now, but only the rate-limited local loop may write a target.
     const auto corrected =
         elesim_arm::correct_q(theoretical, current_imu_locked(), model_);
-    write_arm_degrees(map_q(config_, corrected));
+    (void)map_q(config_, corrected);
     theoretical_q_ = theoretical;
-    last_corrected_q_ = corrected;
   }
 
   void select_model(const char* id, int32_t version,
@@ -243,11 +244,32 @@ class ArmController {
       torque_off_locked();
       for (uint8_t id : kIds) write1(id, kOperatingMode, 3);
       for (size_t index = 0; index < kIds.size(); ++index) {
+        int velocity = config_.profile_velocity[index];
+        if (index < 4) {
+          velocity = std::min(velocity, std::max(1, static_cast<int>(std::floor(
+              config_.max_motor_velocity_deg_s[index] / (0.229 * 6.0)))));
+        }
         write4(kIds[index], kProfileVelocity,
-               static_cast<uint32_t>(config_.profile_velocity[index]));
+               static_cast<uint32_t>(velocity));
         write4(kIds[index], kProfileAcceleration,
                static_cast<uint32_t>(config_.profile_acceleration[index]));
       }
+      // Position-mode changes can reset multi-turn encoders. Read afterwards
+      // and preload every goal before torque-on so no old goal can cause a jump.
+      std::array<int32_t, 5> ticks{};
+      read_positions(ticks);
+      std::array<double, 4> degrees{};
+      for (size_t i = 0; i < kIds.size(); ++i) {
+        if (ticks[i] < 0 || ticks[i] > kTickMax)
+          throw std::runtime_error("motor position outside single-turn range");
+        write4(kIds[i], kGoalPosition, static_cast<uint32_t>(ticks[i]));
+        if (i < 4) {
+          const int oriented = config_.motor_direction[i] < 0 ? kTickMax - ticks[i] : ticks[i];
+          degrees[i] = static_cast<double>(oriented) * 360.0 / kTickMax;
+        }
+      }
+      commanded_degrees_ = degrees;
+      last_control_at_ = std::chrono::steady_clock::now();
       for (uint8_t id : kIds) write1(id, kTorqueEnable, 1);
       torque_enabled_ = true;
     } catch (...) {
@@ -280,6 +302,8 @@ class ArmController {
       degrees[i] = static_cast<double>(oriented) * 360.0 / kTickMax;
     }
     write_arm_degrees(degrees);
+    commanded_degrees_ = degrees;
+    last_control_at_ = std::chrono::steady_clock::now();
   }
 
   void clear_fault() {
@@ -351,6 +375,7 @@ class ArmController {
   void torque_off_locked() {
     theoretical_q_.reset();
     last_corrected_q_.reset();
+    commanded_degrees_.reset();
     std::string first_error;
     for (uint8_t id : kIds) {
       try {
@@ -443,6 +468,8 @@ class ArmController {
       std::lock_guard<std::mutex> guard(mutex_);
       if (!opened_ || !fault_.empty()) continue;
       const auto now = std::chrono::steady_clock::now();
+      const double elapsed_s = std::chrono::duration<double>(now - last_control_at_).count();
+      last_control_at_ = now;
       if (now >= next_telemetry) {
         next_telemetry = now +
             std::chrono::duration_cast<std::chrono::steady_clock::duration>(
@@ -459,13 +486,16 @@ class ArmController {
           continue;
         }
       }
-      if (!fault_.empty() || !torque_enabled_ || !theoretical_q_) continue;
+      if (!fault_.empty() || !torque_enabled_ || !theoretical_q_ || !commanded_degrees_) continue;
       try {
         const auto corrected = elesim_arm::correct_q(
             *theoretical_q_, current_imu_locked(), model_);
-        if (last_corrected_q_ != corrected) {
-          write_arm_degrees(map_q(config_, corrected));
-          last_corrected_q_ = corrected;
+        const auto next = elesim_arm::limit_motor_step(
+            *commanded_degrees_, map_q(config_, corrected),
+            config_.max_motor_velocity_deg_s, elapsed_s);
+        if (*commanded_degrees_ != next) {
+          write_arm_degrees(next);
+          commanded_degrees_ = next;
         }
       } catch (const std::exception& error) {
         trip_fault_locked(std::string("local control failed: ") + error.what());
@@ -489,6 +519,8 @@ class ArmController {
   ElesimArmSnapshot snapshot_{};
   std::optional<std::array<double, 4>> theoretical_q_;
   std::optional<std::array<double, 4>> last_corrected_q_;
+  std::optional<std::array<double, 4>> commanded_degrees_;
+  std::chrono::steady_clock::time_point last_control_at_{};
   elesim_arm::ImuSample imu_{};
   elesim_arm::Program model_ = elesim_arm::identity_program();
   std::string model_id_ = "identity";
@@ -518,6 +550,8 @@ ArmController& arm(void* handle) {
 }  // namespace
 
 extern "C" {
+
+int elesim_arm_abi_version() { return 2; }
 
 void* elesim_arm_create(const char* device, const ElesimArmConfig* config,
                         char* error, size_t error_size) {

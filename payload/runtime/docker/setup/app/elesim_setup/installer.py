@@ -351,6 +351,7 @@ class Installer:
                 for name in (
                     "build.py",
                     "control.cpp",
+                    "motion_limits.h",
                     "correction_model.cpp",
                     "vendor/LICENSE",
                     "vendor/dynamixel_sdk/dynamixel_sdk.h",

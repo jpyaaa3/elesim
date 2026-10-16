@@ -125,6 +125,27 @@ authentication/access-control/encryption을 사용한다. `ROS_DOMAIN_ID`만으�
 `system_id`와 `domain_id`를 사용한다. 서로 다른 EleSim system은 고유한
 `system_id` namespace와 SROS2 권한을 사용하므로 같은 DDS domain을 공유할 수 있다.
 
+### Robot 측정 자세를 Sim에 표시
+
+Robot `arm.max_linear_m_s`, `max_roll_rad_s`, `max_bend_rad_s`는 실제 팔의
+canonical q 목표 변화율 상한이다. 기본값은 각각 0.02 m/s, 0.35 rad/s,
+0.10 rad/s다. 로컬 C++ 루프와 motor profile velocity가 함께 제한하며
+실제 부하·버스 지연을 포함한 속도/정지 성능 측정은 별도다.
+`arm.claw_open_deg`와 `claw_closed_deg`는 물리 그리퍼 모터 목표이고 기본
+340°/230°다. 두 값은 서로 달라야 하며 230–340° 범위 안이어야 한다.
+UI Gripper 표시는 연결된 Robot의 측정 상태가 있으면 그 값을 사용한다.
+
+Sim의 runtime YAML에서 `runtime.mirror_robot_id: robot-go2`처럼 실제 Robot
+endpoint ID를 지정한다. 기본값 `""`는 동기화를 끈다. 같은 DDS graph의
+Robot이 측정 telemetry를 직접 보내며, Sim은 해당 Robot의 살아 있는 boot와
+증가하는 sequence만 받아 마지막 자세를 교체한다. 연결이 끊기면 마지막
+자세를 유지하고, Sim 자체의 motion lease가 활성일 때는 그 제어가 우선한다.
+`simulation.runtime.use_hardware`를 켜거나 Robot 토크를 켤 필요는 없다.
+이 설정은 GO2 보행 controller를 켜지 않는다. GO2 측정 자세도 표시하려면
+별도로 `mirror_from_host`와 GO2 렌더링 구성을 사용한다.
+기존 SROS2 설치에는 Robot → Sim control topic publish 권한을 포함한
+정책 generation을 정상 rotation 절차로 적용해야 한다.
+
 ## 3. Topology 필드
 
 connection topology schema v6는 다음을 분리한다.

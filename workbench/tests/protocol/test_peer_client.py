@@ -114,6 +114,16 @@ def _messages(client: PeerClient) -> list[object]:
     return list(client.receive())
 
 
+def test_received_telemetry_preserves_carrier_boot_without_changing_payload_wire_shape():
+    bus = _Bus()
+    robot = PeerClient(EndpointDescriptor("robot", "robot"), node_factory=bus.factory)
+    sim = PeerClient(EndpointDescriptor("sim", "sim"), node_factory=bus.factory)
+    robot.send("telemetry", target_id="sim", payload={"q": [-0.1, 0.2, 0.3, -0.3]})
+    received = _messages(sim)[0]
+    assert received.source_boot_id == robot.node.identity.boot_id
+    assert "source_boot_id" not in received.to_dict()
+
+
 def test_startup_racing_message_waits_for_exact_source_descriptor() -> None:
     now = [10.0]
     node = object.__new__(DdsPeerNode)
