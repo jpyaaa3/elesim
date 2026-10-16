@@ -415,7 +415,6 @@ class PyMpcGenesisController:
         self._tau_limited = np.zeros(12)
         self._tau_raw = np.zeros(12)
         self._joint_gravity = np.zeros(12)
-        self._base_velocity_world = np.zeros(3)
         self._swing_starts = np.zeros((4, 3))
         self._touchdowns = np.zeros((4, 3))
         self._touchdown_depths = np.zeros(4)
@@ -539,7 +538,6 @@ class PyMpcGenesisController:
         self._tau_limited.fill(0.0)
         self._tau_raw.fill(0.0)
         self._joint_gravity.fill(0.0)
-        self._base_velocity_world = np.zeros(3)
         self._swing_starts.fill(0.0)
         self._touchdowns.fill(0.0)
         self._last_contacts.fill(1.0)
@@ -611,7 +609,6 @@ class PyMpcGenesisController:
         self._tau_limited.fill(0.0)
         self._tau_raw.fill(0.0)
         self._joint_gravity.fill(0.0)
-        self._base_velocity_world = np.zeros(3)
         self._swing_starts.fill(0.0)
         self._touchdowns.fill(0.0)
         self._last_contacts.fill(1.0)
@@ -709,7 +706,6 @@ class PyMpcGenesisController:
         )
         candidates[:, 2] = floor_z
         base_velocity_world = rot_m @ dq[:3]
-        self._base_velocity_world = base_velocity_world.copy()
         for i in range(4):
             if contacts[i, 0] == 0 and self._last_contacts[i] == 1:
                 projected, feasible = stance_end_foothold(
@@ -826,11 +822,6 @@ class PyMpcGenesisController:
                 self._timing_sink("go2_pympc_solve", time.perf_counter() - started)
         contacts = sample.contacts[:, 0]
         tau = np.zeros(12)
-        damping_error = np.asarray(joint_vel, dtype=float).copy()
-        stance_velocity_reference = getattr(self._solver, "backend", None) == "jax_mppi"
-        if stance_velocity_reference:
-            horizontal_velocity = self._base_velocity_world.copy()
-            horizontal_velocity[2] = 0.0
         duty = float(self._config.gait_duty)
         # Direct gravity feedforward regressed dynamic walking. Use inverse
         # statics only during a quiet, fully loaded four-foot stop, where the
@@ -848,14 +839,6 @@ class PyMpcGenesisController:
             if contacts[i] == 1:
                 tau[sl] = -jacobians[i].T @ (
                     self._forces[i] * self._contact_gait.load[i])
-                if stance_velocity_reference:
-                    # Follow only horizontal base translation. Keep damping
-                    # against body rotation, vertical motion and foot slip.
-                    # A minimum-norm reference also retains null-space damping.
-                    reference = np.linalg.lstsq(
-                        jacobians[i], -horizontal_velocity, rcond=1e-3,
-                    )[0]
-                    damping_error[sl] -= self._contact_gait.load[i] * reference
                 if static_gravity:
                     tau[sl] += self._joint_gravity[sl]
             elif self._contact_gait.search[i]:
@@ -913,7 +896,7 @@ class PyMpcGenesisController:
                 )
                 task_force = 1000.0 * (target - feet[i]) + 20.0 * (desired_vel - foot_vel[i])
                 tau[sl] = jacobians[i].T @ task_force
-            tau[sl] -= 0.5 * damping_error[sl]
+            tau[sl] -= 0.5 * joint_vel[sl]
         self._was_searching = self._contact_gait.search.copy()
         self._last_contacts = contacts.copy()
         if not np.all(np.isfinite(tau)):
@@ -921,7 +904,7 @@ class PyMpcGenesisController:
         self._tau_raw = tau.copy()
         tau = np.clip(tau, -self._tau_lim, self._tau_lim)
         swing_dofs = np.repeat(contacts == 0, 3)
-        auxiliary = self._aux_pd_torque(damping_error)
+        auxiliary = self._aux_pd_torque(joint_vel)
         # Stance damping must not fight the commanded swing velocity. The
         # swing task already supplies its own velocity feedback.
         auxiliary[swing_dofs] = 0.0

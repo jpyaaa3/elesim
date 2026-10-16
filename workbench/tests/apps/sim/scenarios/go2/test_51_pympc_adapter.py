@@ -196,7 +196,6 @@ def _torque_config(**overrides):
 
 def _init_contact_state(controller, elapsed_s=0.0):
     controller._joint_gravity = np.zeros(12)
-    controller._base_velocity_world = np.zeros(3)
     controller._contact_gait = ContactGatedGait()
     controller._contact_gait.prime([50.] * 4, dt=.04)
     controller._contact_gait.time = elapsed_s
@@ -480,10 +479,9 @@ def test_torque_startup_ramp_fades_ready_pose_assist() -> None:
     state = PyMpcInput(**{**vars(sample()), "contacts": np.ones((4, 3))})
     jacobians = np.tile(np.eye(3), (4, 1, 1))
     joint_velocity = np.ones(12)
-    foot_velocity = np.ones((4, 3))  # Fixed-base slip: v_foot = J @ qdot.
 
     ramped = controller._torques(
-        state, state.feet_world, foot_velocity, jacobians, joint_velocity
+        state, state.feet_world, np.zeros((4, 3)), jacobians, joint_velocity
     )
 
     np.testing.assert_allclose(
@@ -493,7 +491,7 @@ def test_torque_startup_ramp_fades_ready_pose_assist() -> None:
     controller._contact_gait.time = 0.17
     controller._step_i = 1  # reuse the filtered GRF; do not solve again
     completed = controller._torques(
-        state, state.feet_world, foot_velocity, jacobians, joint_velocity
+        state, state.feet_world, np.zeros((4, 3)), jacobians, joint_velocity
     )
     np.testing.assert_allclose(completed.reshape(4, 3), [[-6.5, -6.5, -56.5]] * 4)
 
@@ -507,81 +505,6 @@ def test_contact_wait_does_not_freeze_startup_torque_or_pose_assistance():
     controller._contact_gait.blocked = True
     assert controller._torque_scale() == 1.
     np.testing.assert_array_equal(controller._aux_pd_torque(np.zeros(12)), np.zeros(12))
-
-
-@pytest.mark.parametrize('load', [1., .5, 0.])
-def test_stance_damping_does_not_brake_body_motion_over_a_planted_foot(load):
-    state = PyMpcInput(**{**vars(sample()), 'contacts':np.ones((4, 3))})
-    velocity = np.array([.4, .15, 0.])
-    joint_velocity = np.tile(-velocity, 4)
-
-    def run(moving):
-        c = PyMpcGenesisController.__new__(PyMpcGenesisController)
-        _init_torque_controller(c, config=_torque_config(aux_kv=2., tau_filter_alpha=1.))
-        c._contact_gait.load.fill(load)
-        c._base_velocity_world = velocity.copy() if moving else np.zeros(3)
-        return c._torques(state, state.feet_world, np.zeros((4, 3)),
-                          np.tile(np.eye(3), (4, 1, 1)), joint_velocity if moving else np.zeros(12))
-    # A planted foot can have zero world velocity while joints move as the
-    # floating body passes over it. Do not add a body-speed braking wrench.
-    difference = run(True) - run(False)
-    np.testing.assert_allclose(difference, -2.5*(1.-load)*joint_velocity, atol=1e-10)
-
-
-@pytest.mark.parametrize('backend', ['jax_mppi', 'acados'])
-def test_stance_damping_still_opposes_real_foot_slip_and_preserves_cpu_path(backend):
-    state = PyMpcInput(**{**vars(sample()), 'contacts':np.ones((4, 3))})
-    jacobian = np.array([[.2, 0., .1], [0., .3, 0.], [.1, 0., -.2]])
-    def run(joint_velocity, foot_velocity):
-        c = PyMpcGenesisController.__new__(PyMpcGenesisController)
-        _init_torque_controller(c, config=_torque_config(aux_kv=2., tau_filter_alpha=1.))
-        c._solver.backend = backend
-        return c._torques(state, state.feet_world, foot_velocity,
-                          np.tile(jacobian, (4, 1, 1)), joint_velocity)
-    baseline = run(np.zeros(12), np.zeros((4, 3)))
-    sliding = run(np.ones(12), np.tile(jacobian@np.ones(3), (4, 1)))
-    np.testing.assert_allclose(sliding-baseline, -2.5, atol=1e-10)
-    if backend == 'acados':
-        np.testing.assert_allclose(run(np.ones(12), np.zeros((4, 3)))-baseline, -2.5)
-
-
-def test_stance_damping_preserves_joint_motion_in_a_singular_foot_jacobian():
-    state = PyMpcInput(**{**vars(sample()), 'contacts': np.ones((4, 3))})
-    jacobians = np.tile(np.diag([.2, .3, 0.]), (4, 1, 1))
-
-    def run(joint_velocity):
-        c = PyMpcGenesisController.__new__(PyMpcGenesisController)
-        _init_torque_controller(c, config=_torque_config(aux_kv=2.))
-        c._base_velocity_world = -jacobians[0] @ joint_velocity[:3]
-        return c._torques(state, state.feet_world, np.zeros((4, 3)),
-                          jacobians, joint_velocity)
-
-    difference = run(np.ones(12)) - run(np.zeros(12))
-    # Body motion can explain the first two joint rates. A joint rate in
-    # the Jacobian null space still needs damping, even at a planted foot.
-    np.testing.assert_allclose(difference.reshape(4, 3), [[0., 0., -2.5]]*4,
-                               atol=1e-10)
-
-
-@pytest.mark.parametrize('motion', ['pitch', 'vertical'])
-def test_stance_damping_retains_body_attitude_and_vertical_braking(motion):
-    state = PyMpcInput(**{**vars(sample()), 'contacts': np.ones((4, 3))})
-    omega = np.array([0., .4, 0.]) if motion == 'pitch' else np.zeros(3)
-    velocity = np.array([0., 0., .2]) if motion == 'vertical' else np.zeros(3)
-    relative_feet = state.feet_world - state.com_position
-    joint_velocity = -(velocity + np.cross(omega, relative_feet)).reshape(-1)
-    if motion == 'vertical':
-        joint_velocity = np.tile(-velocity, 4)
-
-    def run(moving):
-        c = PyMpcGenesisController.__new__(PyMpcGenesisController)
-        _init_torque_controller(c, config=_torque_config(aux_kv=2.))
-        c._base_velocity_world = velocity.copy() if moving else np.zeros(3)
-        return c._torques(state, state.feet_world, np.zeros((4, 3)),
-                          np.tile(np.eye(3), (4, 1, 1)), joint_velocity if moving else np.zeros(12))
-
-    difference = run(True) - run(False)
-    np.testing.assert_allclose(difference, -2.5*joint_velocity, atol=1e-10)
 
 
 @pytest.mark.parametrize('command,velocity,waiting,expected', [
@@ -623,7 +546,6 @@ def test_landing_wait_keeps_search_reach_separate_from_ground_support(
     c._nominal_foot_offsets_body = np.array([NOMINAL_FOOT_OFFSET_BODY[leg] for leg in ALL_LEGS])
     state, *_ = c._sample()
     np.testing.assert_allclose(state.desired_com_velocity, expected, atol=1e-9)
-    np.testing.assert_allclose(c._base_velocity_world, velocity, atol=1e-9)
     np.testing.assert_array_equal(state.landing_search, search)
     np.testing.assert_array_equal(state.contacts[search.astype(bool)], 0.)
 
