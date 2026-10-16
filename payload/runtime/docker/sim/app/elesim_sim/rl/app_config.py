@@ -25,6 +25,8 @@ up against the mechanism.  So the mechanism is the source of truth.
 
 from __future__ import annotations
 
+from elesim_protocol import linear_effective_q_bounds
+
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -105,7 +107,7 @@ def load_mechanism(path: Optional[str | Path] = None) -> MechanismFacts:
         )
 
     return MechanismFacts(
-        linear_m=(float(mapping.linear_q_min_m), float(mapping.linear_q_max_m)),
+        linear_m=linear_effective_q_bounds(mapping),
         roll_rad=(float(limit.roll_min_rad()), float(limit.roll_max_rad())),
         bend_per_node_rad=float(limit.bend_lim_rad()),
         go2_spawn_height_m=float(spawn.go2_spawn_height),

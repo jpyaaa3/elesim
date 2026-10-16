@@ -22,7 +22,7 @@ class HardwareConfig:
     motor_direction: tuple[int, int, int, int] = (1, -1, 1, -1)
     baudrate: int = 1_000_000
     linear_u_max_deg: float = 250.0
-    linear_u_limit_deg: float = 250.0
+    linear_u_limit_deg: float = 213.0
     current_limit_ma: int = 2500
     profile_vel_linear: int = 240
     profile_acc_linear: int = 10

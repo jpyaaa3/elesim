@@ -6,6 +6,25 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Linear 보정의 저장소·학습 공통 적용 (2026-10-16)
+
+- 장비별 임시 설정에 있던 213° 운용 제한을 protocol/Pilot/Sim/Robot의
+  schema와 배포 기본 YAML에 반영했다. 환산 기준 250° = 166.667 mm는
+  유지하므로 213° 목표는 142 mm 이동이다. 시작 자세도 213°로 맞췄다.
+- 두 카메라 assembly의 URDF/blueprint와 bundle digest, Pilot IK 모델을
+  소스에서 재생성했다. IK 재생성은 현재 zed-mini asset의 camera transform
+  metadata도 갱신한다. RL은 전체 환산 범위 대신 설정의 effective q bounds를
+  읽으므로 기본 범위는 [-0.142, 0] m이고 사용자 제한도 따라간다.
+- 모델의 base/housing 대향면 간격은 182 → 40 mm다. 실측 0 위치는
+  183 mm였으며 새 끝점의 실측과 마찰·하중·구동 응답 검증은 남아 있다.
+  기존 설치의 명시적 설정과 학습 artifact는 자동 변경되지 않는다.
+  재배포 시 설정을 병합하고 모델/policy interface를 재생성해야 한다.
+- 기존 Conda elesim-ros에서 calibration/model-bundle/Robot config 45 passed,
+  protocol 및 Sim/Pilot 설정·mapping 183 passed + 8 subtests,
+  RL limits/deploy/overrides 38 passed. canonical required/extended/release
+  gates는 생성된 development wrapper가 없어 실행하지 않았다.
+  이번 저장소 반영에서는 실물 명령·프로세스 재시작을 수행하지 않았다.
+
 ### Home 그리퍼 오동작 / 실제 팔 저속 제어 (2026-10-16)
 
 - Home/슬라이더가 기존 `claw_closed` 요청을 부수적으로 재전송하던 경로를

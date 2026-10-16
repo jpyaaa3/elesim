@@ -8,7 +8,7 @@ import os
 from typing import Dict, List, Optional
 
 import numpy as np
-from elesim_protocol.messages import LINEAR_TRAVEL_M
+from elesim_protocol.messages import LINEAR_OPERATING_TRAVEL_M
 from scipy.spatial.transform import Rotation as Rot
 
 from elesim_model_builder.robot_defs import (
@@ -283,7 +283,7 @@ class AssemblyDesigner:
         robot_graph.connect(
             "plate",
             "housing",
-            JointSpec(name="j_plate_housing", type=JointType.prismatic, limit_deg=(-LINEAR_TRAVEL_M, 0.0)),
+            JointSpec(name="j_plate_housing", type=JointType.prismatic, limit_deg=(-LINEAR_OPERATING_TRAVEL_M, 0.0)),
         )
         robot_graph.connect("housing", "wedge", JointSpec(name="j_housing_wedge", type=JointType.revolute, axis_rule_key="housing_wedge"))
         robot_graph.connect("wedge", "node0", JointSpec(name="j_wedge_node0", type=JointType.revolute, axis_rule_key="wedge_node"))

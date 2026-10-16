@@ -31,7 +31,7 @@ class SimQ:
 # Default arm pose at startup / sim reset (control-panel display [u]).
 # Spawn/reset + perception-friendly arm pose (display [u]).
 DEFAULT_START_CONTROL_U = ControlU(
-    u_linear=250.0,
+    u_linear=213.0,
     u_roll=180.0,
     u_s1=85.0,
     u_s2=45.0,
@@ -43,15 +43,17 @@ PERCEPTION_READY_CONTROL_U = DEFAULT_START_CONTROL_U
 # Design calibration: 1.5 motor degrees per mm of rack travel.
 # Zero is fully forward; 15 degrees retracts 10 mm. Rack length is not stroke.
 LINEAR_TRAVEL_M = 250.0 / 1.5 / 1000.0
+# Operating cap: 142 mm travel leaves 40 mm between the model facing surfaces.
+LINEAR_OPERATING_TRAVEL_M = 213.0 / 1.5 / 1000.0
 
 
 @dataclass(frozen=True)
 class SimMappingConfig:
     linear_u_min: float = 0.0
-    # Linear actuator usable travel in motor/display [u] units.
-    # The motor can rotate farther, but values beyond this collide with hardware.
+    # Calibration endpoints in motor/display [u] units; retain their scale.
+    # The separate operating cap limits travel to a model surface gap of 40 mm.
     linear_u_max: float = 250.0
-    linear_u_limit: float = 250.0
+    linear_u_limit: float = 213.0
     roll_u_min: float = 0.0
     roll_u_max: float = 360.0
     seg_u_min: float = 0.0

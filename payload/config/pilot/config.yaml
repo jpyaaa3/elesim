@@ -220,7 +220,7 @@ robot:
       current_yellow_ma: 1800
       host_hw_cmd_hz: 30.0
       host_hw_read_hz: 20.0
-      linear_u_limit_deg: 250.0
+      linear_u_limit_deg: 213.0
       linear_u_max_deg: 250.0
       lji_velocity_accel_limit_deg_s2: 350.0
       lji_velocity_deadman_s: 3.0

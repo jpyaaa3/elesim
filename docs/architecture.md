@@ -308,8 +308,12 @@ confirmed design ratio is 1.5 motor degrees per millimetre: zero is fully
 forward, and 15 degrees retracts 10 mm. The previous -0.230 m endpoint overstated
 retraction by 63.333333 mm. This replaces the provisional 84 mm outer-diameter
 estimate; travel = angle / 1.5 / 1000 metres. The 295.31 mm rack length does not
-establish usable stroke. Motor limits remain 0–250 degrees and collision
-filtering is unchanged. This is a default calibration correction,
+establish usable stroke. The conversion scale retains 0–250 degrees; the operating cap is now
+213 degrees (142 mm travel), leaving a model surface gap of 40 mm. Protocol,
+Pilot, Sim and Robot defaults, generated URDF/IK models and RL action bounds
+share this cap. RL uses the effective configured bounds, including custom caps.
+The measured zero gap was 183 mm versus 182 mm in the mesh; the 40 mm endpoint
+is a geometry prediction, not a measured endpoint or dynamics validation. This is a default calibration correction,
 not a wire format change. Existing installed configuration, release pins and
 exported RL policy interfaces retain their old calibration and require explicit
 review/rebuild; trained policy compatibility is not established by this change.

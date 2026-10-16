@@ -98,7 +98,7 @@ class ArmMappingConfig:
 
     command_direction: tuple[int, int, int, int] = (1, 1, 1, -1)
     linear_u_max_deg: float = 250.0
-    linear_u_limit_deg: float = 250.0
+    linear_u_limit_deg: float = 213.0
 
 
 @dataclass(frozen=True)
