@@ -97,19 +97,6 @@ class _BulkEntity(_FakeEntity):
 
 
 class PayloadModelTests(unittest.TestCase):
-    def test_apply_returns_the_same_payload_snapshot_without_another_gpu_read(self):
-        entity = _BulkEntity([_FakeLink('plate', .5779, [.1, 0., .4])])
-        state = SimpleNamespace(
-            data=SimpleNamespace(Ig=SimpleNamespace(mass=15., inertia=np.eye(3)),
-                                 com=[np.array([0., 0., .3])], vcom=[np.zeros(3)]),
-            pos_com_world=np.array([0., 0., .3]), vel_com_world=np.zeros(3))
-        snapshot = ArmPayloadCompensator(entity).apply(state, dt=.01)
-        self.assertIsNotNone(snapshot)
-        self.assertAlmostEqual(snapshot.mass_kg, .5779)
-        np.testing.assert_array_equal(snapshot.com_world, [.1, 0., .4])
-        self.assertEqual(entity.calls, [(field, [11]) for field in range(4)])
-        self.assertAlmostEqual(state.data.Ig.mass, 15.5779)
-
     def test_bulk_payload_reads_four_selected_arrays_with_identical_physics(self):
         links = [_FakeLink('base', 10., [0., 0., 0.]),
                  _FakeLink('plate', .15, [.2, .1, .4], inertial_pos=[.01, .02, -.03],

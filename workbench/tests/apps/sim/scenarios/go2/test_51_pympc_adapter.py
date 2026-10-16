@@ -183,7 +183,6 @@ def _torque_config(**overrides):
         gait_duty=0.6,
         force_filter_alpha=1.0,
         optimization_friction=0.55,
-        physical_friction=0.8,
         fz_max_n=180.0,
         torque_warmup_s=0.0,
         torque_ramp_s=0.001,
@@ -211,7 +210,6 @@ def _init_contact_state(controller, elapsed_s=0.0):
 
 def _init_torque_controller(controller, *, elapsed_s=1.0, config=None):
     _init_contact_state(controller, elapsed_s)
-    controller._contact_dynamics = None
     controller._metrics = None
     controller._contact_diagnostics = None
     controller._step_i = 0
@@ -243,140 +241,6 @@ def _init_torque_controller(controller, *, elapsed_s=1.0, config=None):
     controller._entity = SimpleNamespace(
         get_dofs_position=lambda **_kwargs: np.zeros(12)
     )
-
-
-def _torque_dynamics_terms():
-    jacobians = np.zeros((4, 3, 18))
-    for i in range(4):
-        jacobians[i, :, :3] = np.eye(3)
-        jacobians[i, :, 6+3*i:9+3*i] = .2*np.eye(3)
-    return SimpleNamespace(mass_matrix=np.diag([16.]*3+[.5]*3+[.03]*12), bias=np.zeros(18),
-                           foot_jacobians=jacobians, foot_acceleration_bias=np.zeros((4, 3)))
-
-
-@pytest.mark.parametrize('limit', [5., 1000.])
-def test_solver_receives_the_same_clipped_filtered_actuation_that_controller_applies(limit):
-    from unittest.mock import Mock
-    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
-    _init_torque_controller(c, config=_torque_config(force_filter_alpha=.7, tau_filter_alpha=.5))
-    c._config.joint_damping, c._config.leg_kv_damping = .1, 1.
-    velocity = np.linspace(-.4, .5, 12)
-    c._bridge = SimpleNamespace(last_q=np.zeros(19), last_dq=np.r_[np.zeros(6), velocity])
-    c._payload_snapshot = None
-    c._contact_dynamics = SimpleNamespace(terms=Mock(return_value=_torque_dynamics_terms()))
-    c._forces[:] = [0., 0., 50.]
-    c._tau_filt[:] = np.linspace(-1., 1., 12)
-    c._tau_lim[:] = limit
-    predicted = []
-    def solve(state):
-        assert state.first_stage_actuation is not None
-        forces = np.tile([0., 0., 60.], (4, 1))
-        predicted.append(state.first_stage_actuation.predict(forces))
-        return forces
-    c._solver.solve = solve
-    state = PyMpcInput(**{**vars(sample()), 'contacts':np.ones((4, 3))})
-    actual = c._torques(state, state.feet_world, np.zeros((4, 3)),
-                        np.tile(.2*np.eye(3), (4, 1, 1)), velocity)
-    np.testing.assert_allclose(actual, predicted[0].applied_torque, atol=1e-10)
-    c._contact_dynamics.terms.assert_called_once()
-
-
-def test_gpu_stance_inverse_dynamics_receives_ramped_force_and_actual_swing_torque():
-    from unittest.mock import Mock
-    from elesim_sim.robot.go2.mpc.contact_inverse_dynamics import ContactInverseDynamicsResult
-    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
-    _init_torque_controller(c)
-    c._config.joint_damping = .1
-    c._config.leg_kv_damping = 1.
-    c._config.aux_kv = 2.
-    c._contact_gait.load[:] = [.5, 0., 0., 1.]
-    c._bridge = SimpleNamespace(last_q=np.r_[np.zeros(6), 1., np.zeros(12)],
-                                last_dq=np.linspace(-.2, .2, 18))
-    c._payload_snapshot = object()
-    terms = _torque_dynamics_terms()
-    c._contact_dynamics = SimpleNamespace(terms=Mock(return_value=terms))
-    state = sample()
-    velocity = np.arange(12, dtype=float)*.1
-    foot_velocity = np.full((4, 3), .03)
-    result = ContactInverseDynamicsResult(np.zeros(18), np.arange(12, dtype=float))
-    from unittest.mock import patch
-    with patch('elesim_sim.robot.go2.pympc_controller.contact_inverse_dynamics',
-               return_value=result) as inverse:
-        torque = c._torques(state, state.feet_world, foot_velocity,
-                            np.tile(np.eye(3), (4, 1, 1)), velocity)
-    call = inverse.call_args
-    np.testing.assert_allclose(call.args[5], [[0., 0., 25.], [0., 0., 0.],
-                                             [0., 0., 0.], [0., 0., 50.]])
-    np.testing.assert_allclose(call.kwargs['passive_torque'], -1.1*velocity)
-    np.testing.assert_array_equal(call.kwargs['contact_acceleration'], np.zeros((4, 3)))
-    c._contact_dynamics.terms.assert_called_once_with(
-        c._bridge.last_q, c._bridge.last_dq, payload=c._payload_snapshot)
-    stance = np.repeat(state.contacts[:, 0].astype(bool), 3)
-    np.testing.assert_array_equal(torque[stance], result.torque[stance])
-    np.testing.assert_array_equal(torque[~stance], call.kwargs['swing_torque'][~stance])
-
-
-def test_inverse_dynamics_cannot_bypass_joint_limits_or_change_swing_torque():
-    from unittest.mock import patch
-    from elesim_sim.robot.go2.mpc.contact_inverse_dynamics import ContactInverseDynamicsResult
-    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
-    _init_torque_controller(c)
-    c._config.joint_damping = .1
-    c._config.leg_kv_damping = 1.
-    c._bridge = SimpleNamespace(last_q=np.zeros(19), last_dq=np.zeros(18))
-    c._payload_snapshot = None
-    terms = _torque_dynamics_terms()
-    c._contact_dynamics = SimpleNamespace(terms=lambda *a, **k: terms)
-    c._tau_lim.fill(5.)
-    state = sample()
-    with patch('elesim_sim.robot.go2.pympc_controller.contact_inverse_dynamics',
-               return_value=ContactInverseDynamicsResult(np.zeros(18), np.full(12, 1000.))):
-        actual = c._torques(state, state.feet_world, np.zeros((4, 3)),
-                            np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
-    stance = np.repeat(state.contacts[:, 0].astype(bool), 3)
-    np.testing.assert_array_equal(actual[stance], 5.)
-    assert np.all(np.abs(actual) <= 5.)
-
-
-def test_inverse_dynamics_retains_existing_ready_assistance_during_initial_warmup():
-    from unittest.mock import Mock
-    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
-    _init_torque_controller(c, elapsed_s=.01,
-                           config=_torque_config(torque_warmup_s=.05, torque_ramp_s=.12))
-    dynamics = Mock()
-    c._contact_dynamics = dynamics
-    state = sample()
-    c._torques(state, state.feet_world, np.zeros((4, 3)),
-               np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
-    dynamics.terms.assert_not_called()
-
-
-def test_controller_torque_recovers_requested_force_with_stationary_ground_constraint():
-    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
-    _init_torque_controller(c)
-    c._config.joint_damping = .1
-    c._config.leg_kv_damping = 1.
-    c._bridge = SimpleNamespace(last_q=np.zeros(19), last_dq=np.zeros(18))
-    c._payload_snapshot = None
-    mass = np.diag([16.]*3+[.5]*3+[.03]*12)
-    jacobians = np.zeros((4, 3, 18))
-    for i in range(4):
-        jacobians[i, :, :3] = np.eye(3)
-        jacobians[i, :, 6+3*i:9+3*i] = .2*np.eye(3)
-    bias = np.r_[0., 0., 156., np.zeros(15)]
-    terms = SimpleNamespace(mass_matrix=mass, bias=bias, foot_jacobians=jacobians,
-                             foot_acceleration_bias=np.zeros((4, 3)))
-    c._contact_dynamics = SimpleNamespace(terms=lambda *a, **k: terms)
-    state = PyMpcInput(**{**vars(sample()), 'contacts': np.ones((4, 3))})
-    torque = c._torques(state, state.feet_world, np.full((4, 3), .03),
-                        np.tile(.2*np.eye(3), (4, 1, 1)), np.zeros(12))
-    contact_j = jacobians.reshape(12, 18)
-    system = np.block([[mass, -contact_j.T], [contact_j, np.zeros((12, 12))]])
-    # Physical stationary ground imposes zero contact acceleration. The
-    # measured foot velocity must not silently change this forward model.
-    rhs = np.r_[np.r_[np.zeros(6), torque]-bias, np.zeros(12)]
-    actual = np.linalg.solve(system, rhs)[18:].reshape(4, 3)
-    np.testing.assert_allclose(actual, np.tile([0., 0., 50.], (4, 1)), atol=1e-10)
 
 
 def test_diagonal_contact_sequence() -> None:

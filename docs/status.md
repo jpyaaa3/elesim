@@ -6,7 +6,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 접촉력–관절 토크 역동역학 TDD (2026-10-16)
+### 접촉력–관절 토크 역동역학 TDD (2026-10-16, 후보 미채택)
 
 - 감쇠 제거 후보 `c90de7c`/`0623a58`는 .8 m/s 실보행 실패로 원복했다.
   원복 `d55683e`를 push하고 양쪽 공식 update를 완료했다. 사용자 `test`
@@ -65,6 +65,25 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   재생은 모두 유효한 후보를 반환했고 JIT cache entry는 1개였다. 이 재생은
   current support를 horizon에 고정하므로 실제 gait/Genesis 성공 증거가 아니다.
   새 공식 release의 Genesis 보행 gate는 아직 미검증이다.
+- 위 첫-stage 후보 `e0f05af`도 push/양쪽 update 후 GPU2에서 실제 보행을
+  마쳤다. .2 m/s는 t=10.42 s/+1.467 m에 RL/RR touchdown timeout으로
+  실패했다. .4 m/s는 +3.398 m 후 stand에 도달했으나, .8 m/s는
+  t=11.42 s/+4.777 m에 finite-force fault로 실패했다. 중단 요청 때는
+  세 속도 기록이 이미 완료되어 있었다. 공중 지지력 sample은 모두 0이다.
+  solve median은 8.96~9.20 ms, 별도 actuator 행렬 구성은 약 1 ms다.
+- 저속 gate도 퇴보하여 전신 역동역학/첫-stage 예측 후보의 runtime과 해당
+  테스트를 모두 원복했다. controller와 기존 GPU solver는 `d55683e`와
+  byte-for-byte 일치한다. canonical Sim/관련 보행 회귀는 다시
+  **653 passed / 4 skipped**다. 구현과 수치 회귀는 후보 commit에,
+  실제 원시·검토용 evidence는 현재 작업 기록에 남긴다. 향후 이 실험을
+  재생할 때는 해당 commit의 모듈을 사용해야 한다.
+- 다음 범위는 안정했던 몸통 제어를 유지한 swing 궤적 추종이다. `4a368de`
+  실제 기록을 liftoff부터 재구성한 swing 오차는 median 44.9 mm/p95 99.8 mm,
+  가속 구간 속도 투영 추종은 .658이다. 요구 관절 속도 최대 23.29 rad/s,
+  실제 최대 12.59 rad/s이며, raw/passive 총 감쇠 1.6을 그대로 이겨야 하는
+  기준 감쇠 토크의 p95는 24.82 Nm다. 궤적/좌표를 재구성한 진단으로
+  보상 후 성공을 뜻하지 않는다. swing의 감쇠와 기준 속도 보상을 별도
+  TDD로 검증하고, 기존 stance 제동·토크/접촉/탐색 제한은 유지한다.
 
 ### 물성 수정 및 보행 TDD 재개 (2026-10-15)
 

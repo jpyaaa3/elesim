@@ -12,8 +12,6 @@ from typing import Callable
 
 import numpy as np
 
-from .mpc.actuator_prediction import FirstStageActuation
-
 
 LEGS = ("FL", "FR", "RL", "RR")
 NOMINAL_HORIZON = 12
@@ -45,7 +43,6 @@ class PyMpcInput:
     hip_offsets_com_body: np.ndarray | None = None
     support_force_floor_n: float = 0.0
     landing_search: np.ndarray | None = None
-    first_stage_actuation: FirstStageActuation | None = None
 
 
 def _finite_array(name: str, value: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
@@ -278,12 +275,6 @@ class PyMpcForceSolver:
                 reference[f"preview_foot_{leg}"] = preview[index : index + 1]
         parameters = dict(mass=mass, inertia=inertia.reshape(9))
         if self.backend == "jax_mppi":
-            if sample.first_stage_actuation is not None:
-                model = sample.first_stage_actuation
-                if (not isinstance(model, FirstStageActuation)
-                        or not np.array_equal(model.contacts, contacts[:, 0].astype(bool))):
-                    raise ValueError('PyMPC first-stage model must match current support')
-                reference['first_stage_actuation'] = model.as_arrays()
             floor = float(sample.support_force_floor_n)
             if not np.isfinite(floor) or not 0. <= floor <= self.max_normal_force_n:
                 raise ValueError("PyMPC support_force_floor_n must be finite within the normal force cap")

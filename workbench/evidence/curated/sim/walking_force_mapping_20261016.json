@@ -752,87 +752,350 @@
           ]
         }
       ]
-    }
-  ],
-  "candidate": {
-    "method": "local first-stage actuator model; inverse torque, force filter, torque clipping/history and contact forward dynamics; model-aware force seed",
-    "controller_sha256": "87d60fc742a50e24798b808766fe037c0c7b9b4450d204032b9e9049b9208985",
-    "canonical_tests": {
-      "passed": 695,
-      "skipped": 4
     },
-    "physical_gate": "pending",
-    "jax_sha256": "e86b80686c00c0fc5feeedc2dec7d20482882045e8288d5f0eb0ada545a1a858",
-    "offline_replay": {
-      "scope": "offline CPU arithmetic, 4096x2; measured state; current support held in horizon",
-      "kernel_cache_entries": 1,
-      "snapshots": [
-        {
-          "t": 3.1,
-          "results": {
-            "srbd": {
-              "valid": true,
-              "predicted_angular": [
-                -16.69547588113404,
-                -0.5975712044852912,
-                2.496806012386452
-              ]
+    {
+      "revision": "e0f05af",
+      "accepted": false,
+      "release_key": "88106e522785ff3d528e6741c80da31f15fd24e8c7188d9433c2b6a0c6a33cd0",
+      "rejection": "0.2 m/s RL/RR touchdown timeout; 0.8 m/s no finite force trajectory",
+      "numerical_gate": {
+        "method": "local first-stage actuator model; inverse torque, force filter, torque clipping/history and contact forward dynamics; model-aware force seed",
+        "controller_sha256": "87d60fc742a50e24798b808766fe037c0c7b9b4450d204032b9e9049b9208985",
+        "canonical_tests": {
+          "passed": 695,
+          "skipped": 4
+        },
+        "physical_gate": "pending",
+        "jax_sha256": "e86b80686c00c0fc5feeedc2dec7d20482882045e8288d5f0eb0ada545a1a858",
+        "offline_replay": {
+          "scope": "offline CPU arithmetic, 4096x2; measured state; current support held in horizon",
+          "kernel_cache_entries": 1,
+          "snapshots": [
+            {
+              "t": 3.1,
+              "results": {
+                "srbd": {
+                  "valid": true,
+                  "predicted_angular": [
+                    -16.69547588113404,
+                    -0.5975712044852912,
+                    2.496806012386452
+                  ]
+                },
+                "actuator": {
+                  "valid": true,
+                  "predicted_angular": [
+                    -24.741353704274143,
+                    -11.27538782298079,
+                    1.155776841597918
+                  ]
+                }
+              }
             },
-            "actuator": {
-              "valid": true,
-              "predicted_angular": [
-                -24.741353704274143,
-                -11.27538782298079,
-                1.155776841597918
-              ]
+            {
+              "t": 4.0,
+              "results": {
+                "srbd": {
+                  "valid": true,
+                  "predicted_angular": [
+                    5.355395785118532,
+                    -6.807186996704503,
+                    -5.79215853942791
+                  ]
+                },
+                "actuator": {
+                  "valid": true,
+                  "predicted_angular": [
+                    8.154250499779515,
+                    5.670771845230443,
+                    -3.523667353819172
+                  ]
+                }
+              }
+            },
+            {
+              "t": 4.78,
+              "results": {
+                "srbd": {
+                  "valid": true,
+                  "predicted_angular": [
+                    -266.8225111433266,
+                    -5.035164582801329,
+                    43.704831522965954
+                  ]
+                },
+                "actuator": {
+                  "valid": true,
+                  "predicted_angular": [
+                    -211.40368871848221,
+                    2.424893480350029,
+                    42.96568557244828
+                  ]
+                }
+              }
             }
-          }
+          ]
+        }
+      },
+      "trials": [
+        {
+          "name": "forward02",
+          "command": [
+            0.2,
+            0.0,
+            0.0
+          ],
+          "duration": 12.0,
+          "completed": false,
+          "displacement": [
+            1.467094650492072,
+            0.8970265923142051,
+            -0.03293749690055847
+          ],
+          "stand_height_median_m": 0.3044499307870865,
+          "ready_height_min_m": 0.26181676983833313,
+          "steady_height_min_m": 0.2765929698944092,
+          "steady_height_median_m": 0.31202957034111023,
+          "steady_height_max_m": 0.34070101380348206,
+          "steady_height_std_m": 0.007891306800915203,
+          "steady_roll_pitch_rms_deg": [
+            5.040297758730509,
+            2.65955814163859
+          ],
+          "steady_roll_pitch_max_deg": [
+            22.108413449419373,
+            12.731486199072515
+          ],
+          "mean_forward_body_m_s": 0.2108456748222977,
+          "mean_requested_forward_m_s": 0.11900302090624272,
+          "blocked_fraction": 0.40498442367601245,
+          "gait_time_per_sim_time": 0.5687499999999917,
+          "max_leg_joint_speed_rad_s": 16.886262893676758,
+          "samples_with_joint_speed_over_6_fraction": 0.037383177570093455,
+          "samples_at_torque_limit_fraction": 0.0529595015576324,
+          "joint_at_torque_limit_fractions": [
+            0.006230529595015576,
+            0.006230529595015576,
+            0,
+            0,
+            0.006230529595015576,
+            0,
+            0.003115264797507788,
+            0.018691588785046728,
+            0.006230529595015576,
+            0.018691588785046728,
+            0,
+            0
+          ],
+          "hip_abs_max_deg": 34.53660906645394,
+          "velocity_reference_switches": 32,
+          "solve_hz": 53.90625,
+          "captures": 146
         },
         {
-          "t": 4.0,
-          "results": {
-            "srbd": {
-              "valid": true,
-              "predicted_angular": [
-                5.355395785118532,
-                -6.807186996704503,
-                -5.79215853942791
-              ]
-            },
-            "actuator": {
-              "valid": true,
-              "predicted_angular": [
-                8.154250499779515,
-                5.670771845230443,
-                -3.523667353819172
-              ]
-            }
-          }
+          "name": "forward04",
+          "command": [
+            0.4,
+            0.0,
+            0.0
+          ],
+          "duration": 12.0,
+          "completed": true,
+          "displacement": [
+            3.397677001543343,
+            0.017526504705529078,
+            0.004324227571487427
+          ],
+          "stand_height_median_m": 0.3044499605894089,
+          "ready_height_min_m": 0.26181674003601074,
+          "steady_height_min_m": 0.25964656472206116,
+          "steady_height_median_m": 0.30932439863681793,
+          "steady_height_max_m": 0.32525745034217834,
+          "steady_height_std_m": 0.00927804211066813,
+          "steady_roll_pitch_rms_deg": [
+            3.2666944906617825,
+            4.642012741378636
+          ],
+          "steady_roll_pitch_max_deg": [
+            8.784577297532183,
+            18.726631595475677
+          ],
+          "mean_forward_body_m_s": 0.3048433538354724,
+          "mean_requested_forward_m_s": 0.24639977569085056,
+          "blocked_fraction": 0.384,
+          "gait_time_per_sim_time": 0.5921843687374648,
+          "max_leg_joint_speed_rad_s": 12.579803466796875,
+          "samples_with_joint_speed_over_6_fraction": 0.04,
+          "samples_at_torque_limit_fraction": 0.046,
+          "joint_at_torque_limit_fractions": [
+            0,
+            0.01,
+            0,
+            0,
+            0.016,
+            0,
+            0.002,
+            0.01,
+            0,
+            0.006,
+            0.004,
+            0
+          ],
+          "hip_abs_max_deg": 26.38327735797361,
+          "velocity_reference_switches": 52,
+          "solve_hz": 53.40681362725451,
+          "captures": 225
         },
         {
-          "t": 4.78,
-          "results": {
-            "srbd": {
-              "valid": true,
-              "predicted_angular": [
-                -266.8225111433266,
-                -5.035164582801329,
-                43.704831522965954
-              ]
-            },
-            "actuator": {
-              "valid": true,
-              "predicted_angular": [
-                -211.40368871848221,
-                2.424893480350029,
-                42.96568557244828
-              ]
+          "name": "forward08",
+          "command": [
+            0.8,
+            0.0,
+            0.0
+          ],
+          "duration": 12.0,
+          "completed": false,
+          "displacement": [
+            4.777060499414802,
+            -1.0030752481818581,
+            -0.021484702825546265
+          ],
+          "stand_height_median_m": 0.3044499307870865,
+          "ready_height_min_m": 0.26181676983833313,
+          "steady_height_min_m": 0.2814702093601227,
+          "steady_height_median_m": 0.3090696930885315,
+          "steady_height_max_m": 0.3402899205684662,
+          "steady_height_std_m": 0.011292250827968133,
+          "steady_roll_pitch_rms_deg": [
+            5.551072308349345,
+            7.67688998462382
+          ],
+          "steady_roll_pitch_max_deg": [
+            18.64337302759202,
+            24.00413414119306
+          ],
+          "mean_forward_body_m_s": 0.5645079217560236,
+          "mean_requested_forward_m_s": 0.48301641500457976,
+          "blocked_fraction": 0.39622641509433965,
+          "gait_time_per_sim_time": 0.5837837837837747,
+          "max_leg_joint_speed_rad_s": 17.966062545776367,
+          "samples_with_joint_speed_over_6_fraction": 0.2695417789757412,
+          "samples_at_torque_limit_fraction": 0.18328840970350405,
+          "joint_at_torque_limit_fractions": [
+            0,
+            0.05929919137466307,
+            0.0026954177897574125,
+            0.008086253369272238,
+            0.07008086253369272,
+            0.0026954177897574125,
+            0,
+            0.029649595687331536,
+            0,
+            0,
+            0.03504043126684636,
+            0.016172506738544475
+          ],
+          "hip_abs_max_deg": 39.79445795367849,
+          "velocity_reference_switches": 38,
+          "solve_hz": 53.51351351351351,
+          "captures": 158
+        }
+      ],
+      "physical_report": [
+        {
+          "name": "forward02",
+          "completed": false,
+          "t": 10.42,
+          "displacement": [
+            1.467094650492072,
+            0.8970265923142051,
+            -0.03293749690055847
+          ],
+          "roll_pitch": [
+            0.3858646070845649,
+            0.264419433219389
+          ],
+          "airborne_force_ticks": 0,
+          "faults": [
+            "[go2_pympc] fault; latched safe stand until reset: touchdown timeout after 0.30s: RL,RR"
+          ],
+          "cycle_stops": [
+            {
+              "cycle": 1,
+              "completed": false,
+              "last_t": null,
+              "last_stage": null,
+              "stand_after_s": null
             }
-          }
+          ],
+          "solve_ms": [
+            9.053551591932774,
+            12.988331145606935
+          ]
+        },
+        {
+          "name": "forward04",
+          "completed": true,
+          "t": 15.98,
+          "displacement": [
+            3.397677001543343,
+            0.017526504705529078,
+            0.004324227571487427
+          ],
+          "roll_pitch": [
+            0.15331979723788214,
+            0.3268413791490494
+          ],
+          "airborne_force_ticks": 0,
+          "faults": [],
+          "cycle_stops": [
+            {
+              "cycle": 1,
+              "completed": true,
+              "last_t": 15.98,
+              "last_stage": "stand",
+              "stand_after_s": 0.9199999999999999
+            }
+          ],
+          "solve_ms": [
+            8.963242173194885,
+            11.892928229644893
+          ]
+        },
+        {
+          "name": "forward08",
+          "completed": false,
+          "t": 11.42,
+          "displacement": [
+            4.777060499414802,
+            -1.0030752481818581,
+            -0.021484702825546265
+          ],
+          "roll_pitch": [
+            0.3553338918149982,
+            0.4189511748542003
+          ],
+          "airborne_force_ticks": 0,
+          "faults": [
+            "[go2_pympc] fault; latched safe stand until reset: GPU MPC produced no finite force trajectory"
+          ],
+          "cycle_stops": [
+            {
+              "cycle": 1,
+              "completed": false,
+              "last_t": null,
+              "last_stage": null,
+              "stand_after_s": null
+            }
+          ],
+          "solve_ms": [
+            9.199587861075997,
+            13.450368912890552
+          ]
         }
       ]
     }
-  },
+  ],
   "limits": [
     "Failed runs have shorter analysis windows; their mean velocities cannot be compared as completed 12 s trials.",
     "Camera probes do not include DDS or WebRTC delivery. PNG storage makes wall-clock speed unsuitable for a performance claim.",
@@ -974,5 +1237,86 @@
       "Only stable, fully loaded and matching planned/physical foot sets enter physical-error statistics."
     ],
     "raw": "workbench/evidence/generated/contact-gait/4a368de-defaults-inverse-audit/forward08_audit.inverse-analysis.json"
+  },
+  "active_controller": {
+    "restored_from": "d55683e",
+    "controller_sha256": "57c80bea7af9cae8efdd8d01c1625a74a678791e16c6dc4475d3976dad2c6e75",
+    "jax_sha256": "941dac00e785dfa9299a75037b19e8cb1954007d65b90195d8f27ae4a2ab0c0e",
+    "canonical_tests": {
+      "passed": 653,
+      "skipped": 4
+    },
+    "new_gait_improvement_accepted": false
+  },
+  "swing_tracking_audit": {
+    "scope": "installed 4a368de camera-free trace; actual current liftoff, endpoint and unchanged swing reference",
+    "damping_coefficient_nm_s_per_rad": 1.6,
+    "summary": {
+      "all": {
+        "n": 240,
+        "position_error_p50_p95_mm": [
+          44.9111144752696,
+          99.82510659258556
+        ],
+        "desired_speed_p50_p95": [
+          2.187170622011984,
+          3.810615300628886
+        ],
+        "actual_speed_p50_p95": [
+          1.863859238279061,
+          4.025797989075131
+        ],
+        "velocity_projection_ratio": 0.8118098108628775,
+        "velocity_error_rms_mps": 1.1844521212666956,
+        "max_desired_joint_speed_rad_s": 23.294033583013597,
+        "max_actual_joint_speed_rad_s": 12.594531059265137,
+        "reference_damping_torque_p95_nm": 24.81547473002855
+      },
+      "accelerating_half": {
+        "n": 128,
+        "position_error_p50_p95_mm": [
+          38.68263292462873,
+          100.52862526704527
+        ],
+        "desired_speed_p50_p95": [
+          2.195914322254921,
+          3.8128291499551685
+        ],
+        "actual_speed_p50_p95": [
+          1.348240955399557,
+          3.2885621348833625
+        ],
+        "velocity_projection_ratio": 0.6584221666022257,
+        "velocity_error_rms_mps": 1.1551454199866278,
+        "max_desired_joint_speed_rad_s": 23.294033583013597,
+        "max_actual_joint_speed_rad_s": 11.995128631591797,
+        "reference_damping_torque_p95_nm": 28.662244204436856
+      },
+      "decelerating_half": {
+        "n": 112,
+        "position_error_p50_p95_mm": [
+          50.11689572843304,
+          96.85330539954619
+        ],
+        "desired_speed_p50_p95": [
+          2.17063885621077,
+          3.7393906001432025
+        ],
+        "actual_speed_p50_p95": [
+          2.2706006235300458,
+          4.260661479823468
+        ],
+        "velocity_projection_ratio": 0.9888849937032883,
+        "velocity_error_rms_mps": 1.2170816901253685,
+        "max_desired_joint_speed_rad_s": 15.938661249969574,
+        "max_actual_joint_speed_rad_s": 12.594531059265137,
+        "reference_damping_torque_p95_nm": 16.9218109048815
+      }
+    }
+  },
+  "candidate": {
+    "method": "swing tracking damping/reference compensation",
+    "implementation_status": "not yet implemented",
+    "physical_gate": "not run"
   }
 }

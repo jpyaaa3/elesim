@@ -444,30 +444,8 @@ ready 자세의 위치 제어 중 접촉을 미리 관찰하여 이미 하중을
 멈추고, MPC horizon도 확인된 지지발만 유지한다. 이 동안 추진 목표속도는 0이다.
 GPU MPPI는 ramp 적용 후 지지력 명령 하한 10 N을 기존 상한 안에서 예측과
 반환에 함께 적용한다. 미착지 search 발은 GRF 없이 지면 목표 도달 범위 비용에만
-포함한다.
-
-GPU stance 토크 변환은 18 DOF floating-base 역동역학을 사용한다. 요청한
-하중 ramp 적용 후 GRF, 실제 swing 토크, 접지발 가속도 조건을 함께 풀어
-관절 중력·관성과 passive 감쇠의 힘 편향을 줄인다. 접지발의 가속도는 고정
-지면 조건인 0으로 둔다. 시작 시 기존 ready assistance에서 torque ramp에
-맞춰 전환하며 최종 토크 제한·접촉 변경 시 history 초기화·토크 필터를 적용한다.
-별도 Pinocchio model/data는 Genesis와 동기화한 GO2 물성 및 motor armature를
-사용한다. 팔 snapshot은 기존 네 배치 조회 결과를 재사용해 base에 현재 자세의
-강체 관성으로 더한다. 내부 팔 가속도와 Coulomb friction의 정확한 역보상은
-포함하지 않는다. 이 수치 모델 일치와 실제 Genesis 보행 수용시험은 별도 gate다.
-
-GPU의 첫 horizon stage는 현재 상태의 actuator 모델로 평가한다. 접촉 역동역학의
-힘→토크 행렬, 실제 force filter, 토크 한계·history filter, rigid-contact
-순동역학을 연결해 적용 접촉력과 base 각가속도를 예측한다. 그 결과를 같은
-질량/COM 상태 적분에 사용하고, 음의 지지력이나 friction/force 범위를 벗어난
-예측은 선택하지 않는다. 초기 force seed와 첫 wrench-noise 분배도 이 모델의
-국소 Jacobian으로 보정한다. swing/search 토크는 force solve 전에 계산하고
-물성 조회는 제어 tick당 한 번 재사용한다. 시작 ramp 뒤에 활성화하며 현재
-support와 다른 행렬은 거부한다. 고정 shape의 runtime 배열로 전달하므로
-활성화 시 별도 JIT를 하지 않는다. 현재 tick의 상태를 고정한 근사이며,
-후속 horizon stage는 기존 SRBD를 사용한다. 미래 swing의 관성 변화를
-모두 예측하는 whole-body horizon 최적화로 간주하지 않는다.
-
+포함한다. GPU 경로의 다리 중력은 동적 보행에 더하지 않고, 정지 의도·네 발 완전 지지·낮은
+몸통/관절 속도가 모두 성립할 때만 준정적 정지 보상에 사용한다.
 팔 물성은 선택한 링크의 pos/quat/vel/ang를 네 배치 조회로 읽는다. 링크별
 조회와 같은 authored origin/세계 속도를 사용하고, 관성 주축 회전과 COM 합성,
 속도 유한차분 및 reset 의미는 동일하다.

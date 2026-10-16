@@ -44,7 +44,6 @@ import time
 import numpy as np
 
 from .pympc_solver import LEGS
-from .mpc.actuator_prediction import apply_actuator_prediction, empty_actuator_parameters
 
 
 def _support_extension_cost(array, hip_to_foot_body, support):
@@ -153,7 +152,7 @@ class JaxMppiSolver:
             xy = jp.clip(force[..., :2], -friction*z[..., None], friction*z[..., None])
             return jp.concatenate((xy, z[..., None]), axis=-1) * contacts[..., None]
 
-        def derivative(x, force, feet, mass, inertia, inverse, use_actuation, actual_angular):
+        def derivative(x, force, feet, mass, inertia, inverse):
             r, p = x[6:8]
             w = x[9:12]
             sr, cr = jp.sin(r), jp.cos(r)
@@ -164,37 +163,21 @@ class JaxMppiSolver:
                              cr*w[1]-sr*w[2], (sr*w[1]+cr*w[2])/cp])
             torque = jp.sum(jp.cross(feet-x[:3], force), axis=0)
             angular = inverse @ (rotation(x[6:9]).T @ torque - jp.cross(w, inertia @ w))
-            angular = jp.where(use_actuation, actual_angular, angular)
             linear = jp.sum(force, axis=0)/mass + jp.array([0., 0., -9.81])
             return jp.concatenate((x[3:6], linear, rate, angular))
 
         def score(x0, reference, feet, contacts, loads, mass, inertia, inverse, hips, geometry,
-                  force_floor, landing_search, actuation, actuation_enabled, forces):
+                  force_floor, landing_search, forces):
             def step(carry, values):
                 x, total = carry
-                force, foot, contact, load, first = values
+                force, foot, contact, load = values
                 requested = project(force, contact, load, force_floor)
                 # The torque controller scales an already capped GRF by this
                 # landing load. Score the force that actually reaches the
                 # Jacobian, for both translation and rotation.
                 applied = requested*load[:, None]
-                use_actuation = first & actuation_enabled
-                def actual_step():
-                    _, _, actual, angular = apply_actuator_prediction(jp, applied, actuation)
-                    # A bilateral contact solve cannot be used to buy support
-                    # from a negative normal or an unrealizable friction force.
-                    invalid = (jp.any(contact*(force_floor-actual[:, 2]) > .01)
-                        | jp.any(actual[:, 2] > force_cap+.01)
-                        | jp.any(jp.linalg.norm(actual[:, :2], axis=1)
-                                 -actuation[-1]*jp.maximum(actual[:, 2], 0.) > .01))
-                    return actual, angular, invalid
-                applied, actual_angular, actuator_invalid = jax.lax.cond(
-                    use_actuation, actual_step,
-                    lambda: (applied, jp.zeros(3, dtype=jp.float32), jp.bool_(False)))
-                mid = x + .5*dt*derivative(x, applied, foot, mass, inertia, inverse,
-                                           use_actuation, actual_angular)
-                x = x + dt*derivative(mid, applied, foot, mass, inertia, inverse,
-                                      use_actuation, actual_angular)
+                mid = x + .5*dt*derivative(x, applied, foot, mass, inertia, inverse)
+                x = x + dt*derivative(mid, applied, foot, mass, inertia, inverse)
                 error = x-reference
                 error = error.at[6:9].set(angle_error(x[6:9], reference[6:9]))
                 # Horizontal tracking must not buy speed by launching or
@@ -209,14 +192,14 @@ class JaxMppiSolver:
                 # must stay reachable while the body balances on other feet.
                 reach = jp.maximum(contact*load, landing_search)
                 extension = geometry*_support_extension_cost(jp, body_feet-hips, reach)
-                invalid = jp.any(jp.abs(x[6:8]) > 1.2) | ~jp.all(jp.isfinite(x)) | actuator_invalid
+                invalid = jp.any(jp.abs(x[6:8]) > 1.2) | ~jp.all(jp.isfinite(x))
                 cost = jp.where(invalid, jp.inf, state_cost + effort + extension)
                 return (x, total + dt*cost), None
             (_, total), _ = jax.lax.scan(
-                step, (x0, jp.float32(0.)), (forces, feet, contacts, loads, jp.arange(horizon) == 0))
+                step, (x0, jp.float32(0.)), (forces, feet, contacts, loads))
             return total
 
-        batch_score = jax.vmap(score, in_axes=(None,)*14 + (0,))
+        batch_score = jax.vmap(score, in_axes=(None,)*12 + (0,))
 
         def initial_forces(x, reference, feet, contacts, loads, mass, inertia, force_floor):
             # A regularized wrench distribution seeds sampling with a useful
@@ -240,31 +223,8 @@ class JaxMppiSolver:
             return jax.vmap(distribute)(feet, contacts, loads)
 
         def optimize(x, reference, feet, contacts, loads, mass, inertia, inverse, mean, use_mean, elapsed, key,
-                     hips, geometry, force_floor, landing_search, actuation, actuation_enabled):
+                     hips, geometry, force_floor, landing_search):
             seed, allocation = initial_forces(x, reference, feet, contacts, loads, mass, inertia, force_floor)
-            def actuator_seed():
-                requested, _, actual, actual_angular = apply_actuator_prediction(
-                    jp, seed[0]*loads[0, :, None], actuation)
-                t_map, _, a_map, _, f_map, _, limits, _, alpha, _, f_alpha, _ = actuation
-                # The derivative of the actual clipping/filter path supplies
-                # both a feedback seed and a useful wrench-noise allocation.
-                free = (jp.abs(requested) < limits).astype(jp.float32)
-                torque_jacobian = (alpha*free)[:, None]*t_map*f_alpha*jp.repeat(loads[0], 3)[None]
-                force_sum = f_map.reshape(4, 3, 12).sum(axis=0)
-                matrix = jp.concatenate((force_sum @ torque_jacobian,
-                                         inertia @ a_map @ torque_jacobian), axis=0)
-                local_allocation = matrix.T @ jp.linalg.solve(
-                    matrix @ matrix.T+.001*jp.eye(6), jp.eye(6))
-                acceleration = ((reference[:3]-x[:3])*jp.array([0., 0., 60.])
-                                + (reference[3:6]-x[3:6])*8.)
-                angular = (angle_error(reference[6:9], x[6:9])*jp.array([40., 40., 10.])
-                           + (reference[9:12]-x[9:12])*8.)
-                target = jp.concatenate((mass*(acceleration+jp.array([0., 0., 9.81])), inertia @ angular))
-                observed = jp.concatenate((actual.sum(axis=0), inertia @ actual_angular))
-                first = project(seed[0]+(local_allocation @ (target-observed)).reshape(4, 3),
-                                contacts[0], loads[0], force_floor)
-                return seed.at[0].set(first), allocation.at[0].set(local_allocation.reshape(4, 3, 6))
-            seed, allocation = jax.lax.cond(actuation_enabled, actuator_seed, lambda: (seed, allocation))
             index = jp.minimum(jp.arange(horizon, dtype=jp.float32) + elapsed/dt, horizon-1.)
             lo = jp.floor(index).astype(jp.int32)
             hi = jp.minimum(lo+1, horizon-1)
@@ -289,7 +249,7 @@ class JaxMppiSolver:
                 # Preserve both the incumbent and fresh feedback seed.
                 candidates = candidates.at[0].set(mean).at[1].set(seed)
                 costs = batch_score(x, reference, feet, contacts, loads, mass, inertia, inverse,
-                                    hips, geometry, force_floor, landing_search, actuation, actuation_enabled, candidates)
+                                    hips, geometry, force_floor, landing_search, candidates)
                 finite = jp.isfinite(costs)
                 best = jp.min(jp.where(finite, costs, jp.inf))
                 weights = jp.where(finite, jp.exp(-jp.clip(costs-best, 0., 80.)/1.), 0.)
@@ -298,7 +258,7 @@ class JaxMppiSolver:
                 # Keep an improving weighted update. Selecting a single lucky
                 # noisy rollout injects force/yaw jitter into the physical gait.
                 weighted_cost = score(x, reference, feet, contacts, loads, mass, inertia, inverse,
-                                      hips, geometry, force_floor, landing_search, actuation, actuation_enabled, weighted)
+                                      hips, geometry, force_floor, landing_search, weighted)
                 # The fresh feedback seed is a deterministic candidate too.
                 # Do not discard it when averaging noisy trajectories makes
                 # a worse solution than that available recovery trajectory.
@@ -309,7 +269,7 @@ class JaxMppiSolver:
                 return result, key
             mean, key = jax.lax.fori_loop(0, iterations, improve, (mean, key))
             cost = score(x, reference, feet, contacts, loads, mass, inertia, inverse,
-                         hips, geometry, force_floor, landing_search, actuation, actuation_enabled, mean)
+                         hips, geometry, force_floor, landing_search, mean)
             return mean, key, cost
         return optimize
 
@@ -341,16 +301,13 @@ class JaxMppiSolver:
         hips = np.zeros((4, 3), dtype=np.float32) if hips is None else np.asarray(hips, dtype=np.float32)
         force_floor = np.float32(reference.get("support_force_floor_n", 0.))
         landing_search = np.asarray(reference.get("landing_search", np.zeros(4)), dtype=np.float32)
-        actuation = reference.get('first_stage_actuation')
-        actuation_enabled = np.bool_(actuation is not None)
-        actuation = empty_actuator_parameters() if actuation is None else actuation
         mean = self._mean
         fresh = mean is None or elapsed_s >= self.horizon*self.dt
         if mean is None:
             mean = np.zeros((self.horizon, 4, 3), dtype=np.float32)
         values = (x, ref, feet_horizon, contact, loads, np.float32(mass), inertia,
                   np.linalg.inv(inertia), mean, np.bool_(not fresh), np.float32(elapsed_s), self._key,
-                  hips, geometry, force_floor, landing_search, actuation, actuation_enabled)
+                  hips, geometry, force_floor, landing_search)
         args = [self._jax.device_put(value, self.device) for value in values]
         solution, key, cost = self._optimize(*args)
         # D2H is intentional: Genesis torque conversion is on CPU. Waiting
