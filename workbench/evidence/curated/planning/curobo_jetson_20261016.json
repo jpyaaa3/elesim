@@ -1,0 +1,49 @@
+{
+  "gpu_fk_samples": 33,
+  "max_fk_error_m": 6.923884517753259e-07,
+  "max_sphere_error_m": 6.661398156693199e-07,
+  "max_orientation_error_rad": 2.4893396467997038e-06,
+  "collision_free_samples": 26,
+  "waypoints": 93,
+  "trajectory_dt_s": 0.05,
+  "start": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "goal": [
+    -0.01,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "ik_solution": [
+    -0.009964073076844215,
+    -3.3339405490551144e-05,
+    0.00029801015625707805,
+    -0.000630736059974879
+  ],
+  "obstacle_rejected": true,
+  "self_collision_recovery": true,
+  "initialization_s": 57.54220823400101,
+  "first_plan_s": 30.841636205001123,
+  "repeat_plan_s": 10.602742442999443,
+  "first_ik_s": 56.22626182299973,
+  "repeat_ik_s": 2.0990629930001887,
+  "elapsed_s": 158.7768325850011,
+  "environment": {
+    "gpu": "Orin",
+    "torch": "2.11.0",
+    "cuda": "12.6",
+    "curobo": "0.7.8+elesim.1",
+    "numpy": "1.26.4"
+  },
+  "model_sha256": "aa5cfaaa57d2403ba716f23b73eb37275dd46a43e62344a8e087239317a89c5f",
+  "scope": "Offline GPU software probe; no DDS or physical motion commands",
+  "source_hashes": {
+    "adapter": "d1b9b8c34894e8ebed44146ee4ef0c01e136771d15486db235b02cb9f3f0adbc",
+    "generator": "1d01dbad6ab66ce41b4551d24f40c7d52a5f45ffb3e90cde0cbadbdc2511bfd8",
+    "cuda_self_collision": "1cbf5fdb24fa4ad468ebe967f637f40b8932cb9ae64fbf512620808c2d319d49"
+  }
+}

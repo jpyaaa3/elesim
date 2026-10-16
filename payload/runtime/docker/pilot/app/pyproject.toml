@@ -21,6 +21,7 @@ test = ["pytest>=8,<9"]
 
 [project.scripts]
 elesim-pilot = "elesim_pilot.main:main"
+elesim-plan = "elesim_pilot.robot.arm.curobo:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

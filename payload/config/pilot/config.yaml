@@ -403,6 +403,9 @@ robot:
       revolute_velocity: null
       robot_name: Robot
     ik:
+      backend: native
+      curobo_model: ../../data/models/planning/zed-mini
+      curobo_world: ""
       damping_down: 0.7
       damping_init: 0.01
       damping_max: 100.0

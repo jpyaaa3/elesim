@@ -14,7 +14,11 @@ dependencies = [
   "PyYAML>=6,<7",
 ]
 
+[project.optional-dependencies]
+curobo = ["trimesh>=4,<6"]
+
 [project.scripts]
+elesim-build-curobo-model = "elesim_model_builder.curobo:main"
 elesim-build-arm-model = "elesim_model_builder.cli:arm_model_main"
 elesim-build-sim-bundle = "elesim_model_builder.cli:sim_bundle_main"
 

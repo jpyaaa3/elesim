@@ -209,3 +209,15 @@ def test_robot_install_script_only_reports_privileged_follow_up() -> None:
     assert "systemctl " not in text
     assert "useradd " not in text
     assert "groupadd " not in text
+
+
+def test_pilot_release_includes_portable_planning_artifact(tmp_path: Path) -> None:
+    import json
+    import xml.etree.ElementTree as ET
+    release = tmp_path / "pilot"
+    copy_role_data("pilot", release)
+    model = release / "data/models/planning/zed-mini"
+    metadata = json.loads((model / "metadata.json").read_text())
+    assert len(metadata["joint_names"]) == 4
+    assert (model / "robot.yml").is_file()
+    assert not ET.parse(model / "arm.urdf").findall(".//mesh")

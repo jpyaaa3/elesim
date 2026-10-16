@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from functools import lru_cache
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
@@ -56,11 +57,47 @@ def load_solver_context(
             context["limit"] = JointLimit(**dict(limit_raw.get("value", {})))
         if not isinstance(context.get("limit"), JointLimit):
             raise RuntimeError(f"arm model is missing JointLimit: {model_path}")
+        backend = bundle.ik_config.backend
+        if backend not in {"native", "curobo"}:
+            raise ValueError("robot.arm.ik.backend must be native or curobo")
+        if backend == "curobo":
+            if not bundle.ik_config.curobo_world:
+                raise ValueError("cuRobo requires an explicit plate-frame curobo_world YAML")
+            directory = os.path.dirname(os.path.abspath(config_path))
+            context["curobo_paths"] = (
+                os.path.abspath(os.path.join(directory, bundle.ik_config.curobo_model)),
+                os.path.abspath(os.path.join(directory, bundle.ik_config.curobo_world)),
+            )
+            from elesim_protocol import linear_effective_q_bounds
+            with open(os.path.join(context["curobo_paths"][0], "metadata.json"), encoding="utf-8") as handle:
+                planning = json.load(handle)
+            linear_bounds = linear_effective_q_bounds(bundle.mapping_config)
+            limit = bundle.joint_limit
+            expected_bounds = [linear_bounds, (limit.roll_min_rad(), limit.roll_max_rad()),
+                               (-limit.bend_lim_rad(), limit.bend_lim_rad()),
+                               (-limit.bend_lim_rad(), limit.bend_lim_rad())]
+            if not np.allclose(planning["q_bounds"], expected_bounds, atol=1e-10, rtol=0):
+                raise ValueError("cuRobo model differs from configured joint limits; rebuild models")
+            if not np.allclose([context["linear_min_m"], context["linear_max_m"]], linear_bounds, atol=1e-10, rtol=0):
+                raise ValueError("Pilot IK model differs from configured Linear limits; rebuild models")
         return bundle, context
 
     raise FileNotFoundError(
         f"generated arm model not found: {model_path}; run elesim-build-arm-model"
     )
+
+
+@lru_cache(maxsize=2)
+def _load_curobo(model_path: str, world_path: str):
+    from pathlib import Path
+    import yaml
+    from ..curobo import CuRoboPlanner
+    return CuRoboPlanner(model_path, world=yaml.safe_load(Path(world_path).read_text()))
+
+
+def validate_backend_configuration(context, q) -> None:
+    if "curobo_paths" in context:
+        _load_curobo(*context["curobo_paths"]).validate_configuration(q)
 
 
 def _optimize_position(
@@ -121,6 +158,24 @@ def solve_ik(
     bent_seed: Optional[Sequence[float]] = None,
     current_seed: Optional[Sequence[float]] = None,
 ) -> IkSolveResult:
+    if "curobo_paths" in context:
+        from .kinematics import base_world_transform_from_context
+        planner = _load_curobo(*context["curobo_paths"])
+        target = np.asarray(target_world, dtype=float).reshape(3)
+        base = base_world_transform_from_context(context)
+        local_target = base[:3, :3].T @ (target - base[:3, 3])
+        seed = current_seed if current_seed is not None else Q_NEUTRAL
+        try:
+            solution = np.asarray(planner.solve_position(local_target, seed=seed,
+                                                        tolerance_m=position_tol_m))
+            model = _ReachModel(context=context, limit=context["limit"])
+            error = float(np.linalg.norm(model.error_vec(solution, target)))
+            if error > position_tol_m:
+                return IkSolveResult(False, None, error, "curobo", 0, "Pilot/cuRobo FK mismatch")
+            planner.validate_configuration(solution)
+            return IkSolveResult(True, solution, error, "curobo", 0, "converged")
+        except RuntimeError as exc:
+            return IkSolveResult(False, None, float("inf"), "curobo", 0, str(exc))
     request = IkSolveRequest(
         target_world=np.asarray(target_world, dtype=float).reshape(3),
         position_tol_m=float(position_tol_m),

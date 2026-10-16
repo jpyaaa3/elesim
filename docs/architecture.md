@@ -302,6 +302,20 @@ Mock hug 기능은 protocol major 6의 capability-gated additive extension이다
 
 ## 6. 모델과 설정 lifecycle
 
+Pilot의 선택적 `robot.arm.ik.backend=curobo`는 Jetson CUDA에서 position IK를
+계산한다. 기본값은 `native`이며 새 DDS participant나 Robot 의존성을 만들지
+않는다. 별도 `CuRoboPlanner.plan_joint` API와 `elesim-plan` CLI는 시간 간격을
+포함한 4축 경로를 생성하고 실물 명령을 보내지 않는다. cuRobo v0.7.8 모델은
+기존 arm URDF collision mesh와 IK 모델에서 생성하며 각 구간의 마디들은
+mimic 관계로 결합한다. 전체 경로 실행, GO2/주변 물체의 live scene 동기화와
+접촉 허용 정책은 이 IK backend 선택으로 활성화되지 않는다. 모델 생성,
+Jetson 설치 및 검증 경계는 `curobo.md`를 따른다.
+
+FK context의 fixed/prismatic neutral origin은 connector anchor 대신 child
+CAD pose를 사용하고 parent rotation의 역변환을 적용한다. 이 구분이 빠지면
+gripper/camera의 고정 오프셋이 사라진다. 생성 모델은 active chain뿐 아니라
+모든 고정 branch의 위치·회전을 URDF와 비교한다.
+
 Linear rack calibration (2026-09-11): motor/display 0–250 degrees maps to
 q=0 to approximately -0.166666667 m along the plate's +X joint axis. The
 confirmed design ratio is 1.5 motor degrees per millimetre: zero is fully

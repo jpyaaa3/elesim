@@ -459,7 +459,7 @@
         "name": "j_node9_gripper_base",
         "origin_parent": [
           0.04999999999999999,
-          0.0,
+          -0.012000000000000004,
           0.0
         ],
         "parent": "node9",
@@ -491,9 +491,9 @@
         ],
         "name": "j_gripper_base_claw_left",
         "origin_parent": [
-          0.0,
-          0.0,
-          0.0
+          0.010459999999999999,
+          -0.025870000000000004,
+          -0.01900000000000002
         ],
         "parent": "gripper_base",
         "type": "prismatic"
@@ -524,18 +524,18 @@
         ],
         "name": "j_gripper_base_claw_right",
         "origin_parent": [
-          0.0,
-          0.0,
-          0.0
+          0.010459999999999999,
+          0.025870000000000008,
+          -0.01900000000000002
         ],
         "parent": "gripper_base",
         "type": "prismatic"
       },
       {
         "axis_parent": [
+          1.0,
           0.0,
-          0.0,
-          1.0
+          0.0
         ],
         "child": "camera",
         "child_rot_parent": [
@@ -557,9 +557,9 @@
         ],
         "name": "j_gripper_base_camera",
         "origin_parent": [
-          0.0,
-          0.0,
-          0.0
+          -0.04206200000000002,
+          -0.006320000000000004,
+          -0.005021000000000054
         ],
         "parent": "gripper_base",
         "type": "fixed"

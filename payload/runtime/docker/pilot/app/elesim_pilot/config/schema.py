@@ -147,6 +147,9 @@ class UrdfExportConfig:
 
 @dataclass(frozen=True)
 class IkConfig:
+    backend: str = "native"
+    curobo_model: str = "../../data/models/planning/zed-mini"
+    curobo_world: str = ""
     tol: float = 1e-4
     max_iters: int = 200
     stall_limit: int = 40

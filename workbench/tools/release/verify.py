@@ -469,6 +469,9 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
         _require_path(release / "config/runtime.yaml")
     if role == "pilot":
         _require_path(release / "data/models/arm/default.json")
+        _require_path(release / "data/models/planning/zed-mini/robot.yml")
+        _require_path(release / "data/models/planning/zed-mini/arm.urdf")
+        _require_path(release / "data/models/planning/zed-mini/metadata.json")
         _require_path(release / "data/models/perception/yolov8n-seg.pt")
     if role == "robot":
         _require_path(release / "install.sh")

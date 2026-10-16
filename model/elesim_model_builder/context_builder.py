@@ -113,19 +113,16 @@ def build_solver_context(
         anchor = _pick_manifest_value(meta, "anchor_root", default=[0.0, 0.0, 0.0])
         axis = _pick_manifest_value(meta, "axis_root", default=[1.0, 0.0, 0.0])
         p_parent = part_pose_root.get(parent, np.zeros(3, dtype=float))
-        origin_parent = np.array(
-            [
-                float(anchor[0]) - float(p_parent[0]),
-                float(anchor[1]) - float(p_parent[1]),
-                float(anchor[2]) - float(p_parent[2]),
-            ],
-            dtype=float,
-        )
-        axis_parent = np.array([float(axis[0]), float(axis[1]), float(axis[2])], dtype=float)
+        q_parent = part_rot_root.get(parent, np.eye(3, dtype=float))
+        # Fixed/prismatic link frames start at the child CAD pose, not at the
+        # connector anchor. This matches the URDF converter's neutral frames.
+        origin_root = (part_pose_root[child] if jtype in {"fixed", "prismatic"}
+                       else np.asarray(anchor, dtype=float))
+        origin_parent = q_parent.T @ (np.asarray(origin_root, dtype=float) - p_parent)
+        axis_parent = q_parent.T @ np.asarray(axis, dtype=float)
         n = float(np.linalg.norm(axis_parent))
         if n > 1e-12:
             axis_parent /= n
-        q_parent = part_rot_root.get(parent, np.eye(3, dtype=float))
         q_child = part_rot_root.get(child, np.eye(3, dtype=float))
         child_rot_parent = np.asarray(q_parent, dtype=float).reshape(3, 3).T @ np.asarray(q_child, dtype=float).reshape(3, 3)
         fk_chain.append(

@@ -111,6 +111,7 @@ def copy_role_data(role: str, release: Path) -> None:
         copy_tree(ROOT / "payload/data/calibration", release / "data/calibration")
     if role == "pilot":
         copy_tree(ROOT / "payload/data/models/arm", release / "data/models/arm")
+        copy_tree(ROOT / "payload/data/models/planning", release / "data/models/planning")
         copy_tree(
             ROOT / "payload/data/models/perception",
             release / "data/models/perception",
@@ -130,6 +131,8 @@ def bind_release_data_paths(release: Path, role: str) -> None:
     hand_eye["config"] = "../data/calibration/cameras/zed_mini.hand_eye.json"
     if role == "sim":
         raw["simulation"]["assembly"]["build_dir"] = "../data/models/assemblies/zed-mini"
+    if role == "pilot":
+        raw["robot"]["arm"]["ik"]["curobo_model"] = "../data/models/planning/zed-mini"
     config_path.write_text(
         yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )

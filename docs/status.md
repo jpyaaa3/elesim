@@ -6,6 +6,42 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 선택적 Jetson cuRobo 연동 (2026-10-16)
+
+- Pilot에 선택 가능한 position IK backend와 timed joint trajectory API /
+  `elesim-plan` offline CLI를 추가했다. 기본 IK는 native이며 live process를
+  전환하거나 실제 명령을 전송하지 않았다. DDS/Robot authority는 변경하지 않는다.
+- 기존 arm collision mesh와 IK 모델에서 휴대 가능한 4축 mimic URDF,
+  911개 collision sphere와 source/artifact hash를 생성해 Pilot release에
+  포함한다. 원본 mesh의 전체 독립 관절 범위에 대한 +X interval bound가
+  양수인 22개 링크 쌍만 추가 self-collision 제외한다. 연결·rigid subassembly
+  기본 제외 정책은 별도이며 실제 물리 clearance를 보증하지 않는다.
+- FK context 생성 시 fixed/prismatic neutral child origin을 connector anchor로
+  잘못 대체하던 경로와 parent-frame 변환을 수정했다. 그리퍼·카메라 fixed
+  branch의 최대 약 4 cm 차이를 없애고 IK 모델을 재생성했다. 기존 active
+  grasp FK는 유지하며 모든 링크 위치·회전을 URDF와 비교한다.
+- Orin / R36.5 / CUDA 12.6 / PyTorch 2.11 / NumPy 1.26.4의 별도 cache
+  venv에 `cuRobo 0.7.8+elesim.1`을 빌드·설치했다. Source hash 검증을 거쳐
+  pair-index capacity / CUDA loop counter / warp block 크기를 보정한다.
+  원래 serial fallback의 stale collision 결과·gradient와 넓은 loop counter
+  overflow를 피하면서 모든 collision pair를 유지한다. Runtime은 stock
+  버전과 serial fallback을 거부한다. 기존 Robot stage/system 환경은 유지한다.
+- 실제 GPU probe: FK/회전/911개 collision sphere를 33개 자세에서 비교했다.
+  최대 위치 오차 6.92e-7 m, sphere 오차 6.66e-7 m, 회전 오차 2.49e-6 rad.
+  26개 자세가 collision-free였고, 10 mm 이동 경로 93 points / 0.05 s,
+  position IK, enclosing obstacle 거부 및 collision→free 복귀를 통과했다.
+  증거는 `workbench/evidence/curated/planning/curobo_jetson_20261016.json`.
+- 이 모델의 초기화 57.5 s, 첫/반복 경로 계획 30.8/10.6 s,
+  첫/반복 IK 56.2/2.10 s다. 실시간 성능은 충족하지 않으며 기본값을 바꾸지
+  않았다. Sphere fit / collision cost와 planner 설정 최적화는 후속 과제다.
+- Conda host partial: model/Pilot(Replay 제외)/release 및 patch-tool 검사
+  **521 passed + 3 subtests**. 기존 Replay fixture가 없어 해당 디렉터리는
+  제외했다. canonical required/extended/release Docker gates는 generated
+  development wrapper 부재로 실행하지 않았다.
+- live Genesis scene 전송, Home/slider/workflow의 자동 trajectory 실행,
+  접촉 허용, GO2 whole-body planning은 아직 연결하지 않았다. 현재 모델은
+  plate를 포함한 arm/open-claw 정적 geometry다. 사용·검증 절차는 `curobo.md`.
+
 ### Linear 보정의 저장소·학습 공통 적용 (2026-10-16)
 
 - 장비별 임시 설정에 있던 213° 운용 제한을 protocol/Pilot/Sim/Robot의

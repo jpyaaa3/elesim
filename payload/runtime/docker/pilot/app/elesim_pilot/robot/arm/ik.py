@@ -32,6 +32,17 @@ class SolveAndAlignResult:
     reason: str = ""
 
 
+
+def _checked_result(*, context: dict, **values) -> SolveAndAlignResult:
+    # CPU orientation refinement must not bypass the selected GPU collision check.
+    if values.get("success") and values.get("q") is not None:
+        try:
+            ik_solver.validate_backend_configuration(context, values["q"])
+        except RuntimeError as exc:
+            values.update(success=False, q=None, reason=str(exc))
+    return SolveAndAlignResult(**values)
+
+
 def load_solver_context(config_path: str, *, mode: str | None = None):
     return ik_solver.load_solver_context(config_path, mode=mode)
 
@@ -96,7 +107,7 @@ def solve_position_only(
             current_seed=current_seed,
         )
     if (not result.success) or result.q is None:
-        return SolveAndAlignResult(
+        return _checked_result(context=context,
             success=False,
             q=None if result.q is None else np.asarray(result.q, dtype=float).reshape(4).copy(),
             position_error_m=float(result.position_error_m),
@@ -118,7 +129,7 @@ def solve_position_only(
             direction_angle_rad = _direction_angle_rad(actual_dir, unit_dir)
             initial_direction_angle_rad = float(direction_angle_rad)
 
-    return SolveAndAlignResult(
+    return _checked_result(context=context,
         success=True,
         q=q,
         position_error_m=err_m,
@@ -162,7 +173,7 @@ def solve_then_align(
             current_seed=current_seed,
         )
     if (not result.success) or result.q is None:
-        return SolveAndAlignResult(
+        return _checked_result(context=context,
             success=False,
             q=None if result.q is None else np.asarray(result.q, dtype=float).reshape(4).copy(),
             position_error_m=float(result.position_error_m),
@@ -239,7 +250,7 @@ def solve_then_align(
     elif align_skipped:
         reason = "position_converged_align_skipped"
 
-    return SolveAndAlignResult(
+    return _checked_result(context=context,
         success=True,
         q=q,
         position_error_m=err_m,
@@ -301,7 +312,7 @@ def solve_then_look_at_tweak(
             current_seed=current_seed,
         )
     if (not result.success) or result.q is None:
-        return SolveAndAlignResult(
+        return _checked_result(context=context,
             success=False,
             q=None if result.q is None else np.asarray(result.q, dtype=float).reshape(4).copy(),
             position_error_m=float(result.position_error_m),
@@ -413,7 +424,7 @@ def solve_then_look_at_tweak(
     elif align_skipped:
         reason = "position_converged_tweak_skipped"
 
-    return SolveAndAlignResult(
+    return _checked_result(context=context,
         success=True,
         q=q,
         position_error_m=err_m,
