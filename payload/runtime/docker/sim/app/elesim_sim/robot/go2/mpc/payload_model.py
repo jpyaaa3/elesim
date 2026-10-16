@@ -178,7 +178,7 @@ class ArmPayloadCompensator:
             inertia_world=inertia_world,
         )
 
-    def apply(self, pin_model, *, dt: float | None = None) -> None:
+    def apply(self, pin_model, *, dt: float | None = None) -> ArmPayloadSnapshot | None:
         payload = self.measure(dt=dt)
         if payload is None or payload.mass_kg <= 1e-9:
             return
@@ -206,6 +206,7 @@ class ArmPayloadCompensator:
         pin_model.data.vcom[0] = vel_total
         pin_model.pos_com_world = com_total
         pin_model.vel_com_world = vel_total
+        return payload
 
     def measure_com_body(self, go2_entity) -> np.ndarray | None:
         """Payload COM in GO2 base body frame (updates with arm joint angles)."""

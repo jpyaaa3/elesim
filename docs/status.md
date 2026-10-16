@@ -1,10 +1,33 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-15. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-16. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### 접촉력–관절 토크 역동역학 TDD (2026-10-16)
+
+- 감쇠 제거 후보 `c90de7c`/`0623a58`는 .8 m/s 실보행 실패로 원복했다.
+  원복 `d55683e`를 push하고 양쪽 공식 update를 완료했다. 사용자 `test`
+  instance의 release pin이나 lifecycle은 변경하지 않았다.
+- 접지발 가속도 및 unactuated base 방정식과 실제 swing 토크를 함께 푸는
+  18 DOF 역동역학을 GPU stance 경로에 연결했다. 관절 중력·관성, motor
+  armature=.01, passive 감쇠를 포함하며 접촉 가속도 목표는 `-20*v_foot`이다.
+  GRF/하중 램프/토크 제한·필터와 기존 접촉 안전 기준은 유지한다.
+- 별도 Pinocchio model/data를 사용하며 팔의 네 배치 조회 snapshot을 그대로
+  재사용한다. 현재 자세의 강체 payload 근사로, 내부 팔 가속도와 Coulomb
+  friction의 정확한 보상은 포함하지 않는다. 시작 구간은 기존 ready
+  assistance에서 점진적으로 전환한다.
+- 수치 TDD는 synthetic forward contact solve와의 힘 왕복, 실제 GO2 RNEA,
+  세계 좌표 foot 가속도의 유한차분, payload 좌표 변환/누적 방지, actuator
+  제한과 swing 유지 등을 검사한다. 공식 개발 attachment에서 신규 21개를
+  포함한 전체 Sim/관련 보행 회귀는 **674 passed / 4 skipped**다. skip은
+  qpOASES, opt-in 실제 camera worker 2개, 미지정 fixed-foot trace다.
+- MPPI 4096×2, 설치 물리 기본값 및 UI 목표속도 .8/.35/.8은 유지한다.
+  후보를 push/양쪽 update한 뒤 격리 `tddwalk`/원격 GPU2에서 카메라 포함
+  .2/.4/.8 m/s 동일 시험을 진행한다. 새 후보의 실제 보행 효과는 아직
+  검증하지 않았으며 수치 회귀를 보행 개선으로 간주하지 않는다.
 
 ### 물성 수정 및 보행 TDD 재개 (2026-10-15)
 

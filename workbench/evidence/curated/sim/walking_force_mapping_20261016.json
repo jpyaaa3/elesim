@@ -1,0 +1,183 @@
+{
+  "date": "2026-10-16",
+  "baseline": "walking_quality_20261015.json",
+  "host": "hckang@100.74.222.24",
+  "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+  "instance": "tddwalk",
+  "rejected_candidates": [
+    {
+      "revision": "c90de7c",
+      "accepted": false,
+      "rejection": "0.8 m/s: no finite GPU force trajectory at t=8.14 s",
+      "raw_directory": "workbench/evidence/generated/contact-gait/c90de7c-defaults-speed-sweep",
+      "trials": [
+        {
+          "name": "forward02",
+          "command": [
+            0.2,
+            0.0,
+            0.0
+          ],
+          "completed": true,
+          "displacement": [
+            1.2392157223075628,
+            0.24944465738531107,
+            0.011879056692123413
+          ],
+          "mean_forward_body_m_s": 0.11895657481547943,
+          "blocked_fraction": 0.418,
+          "steady_roll_pitch_rms_deg": [
+            2.144319874261236,
+            4.266649514687944
+          ],
+          "steady_roll_pitch_max_deg": [
+            7.171305564225322,
+            9.895440661746289
+          ]
+        },
+        {
+          "name": "forward04",
+          "command": [
+            0.4,
+            0.0,
+            0.0
+          ],
+          "completed": true,
+          "displacement": [
+            2.523392667993903,
+            0.26814549547430033,
+            0.012234389781951904
+          ],
+          "mean_forward_body_m_s": 0.2381848803881926,
+          "blocked_fraction": 0.404,
+          "steady_roll_pitch_rms_deg": [
+            1.5994709058309142,
+            5.099195463599276
+          ],
+          "steady_roll_pitch_max_deg": [
+            3.7170789038250387,
+            8.089666220194541
+          ]
+        },
+        {
+          "name": "forward08",
+          "command": [
+            0.8,
+            0.0,
+            0.0
+          ],
+          "completed": false,
+          "displacement": [
+            3.0982513334602118,
+            0.08963064980503077,
+            -0.0013085603713989258
+          ],
+          "mean_forward_body_m_s": 0.6011757755908682,
+          "blocked_fraction": 0.3961352657004831,
+          "steady_roll_pitch_rms_deg": [
+            3.0631066923054195,
+            11.866167574375092
+          ],
+          "steady_roll_pitch_max_deg": [
+            16.66592641808085,
+            25.306610244223506
+          ]
+        }
+      ]
+    },
+    {
+      "revision": "0623a58",
+      "accepted": false,
+      "rejection": "0.8 m/s: RL touchdown timeout at t=6.10 s",
+      "raw_directory": "workbench/evidence/generated/contact-gait/0623a58-defaults-speed-sweep",
+      "trials": [
+        {
+          "name": "forward02",
+          "command": [
+            0.2,
+            0.0,
+            0.0
+          ],
+          "completed": true,
+          "displacement": [
+            0.6905568148940802,
+            -0.07789903748039251,
+            0.014744400978088379
+          ],
+          "mean_forward_body_m_s": 0.062380911142059445,
+          "blocked_fraction": 0.412,
+          "steady_roll_pitch_rms_deg": [
+            2.973218979460871,
+            2.456438631154422
+          ],
+          "steady_roll_pitch_max_deg": [
+            9.249068750936535,
+            4.684357476330813
+          ]
+        },
+        {
+          "name": "forward04",
+          "command": [
+            0.4,
+            0.0,
+            0.0
+          ],
+          "completed": true,
+          "displacement": [
+            2.336539974436164,
+            0.30139627438779826,
+            0.017979830503463745
+          ],
+          "mean_forward_body_m_s": 0.2171216928619306,
+          "blocked_fraction": 0.406,
+          "steady_roll_pitch_rms_deg": [
+            2.349460269037887,
+            5.597585379579305
+          ],
+          "steady_roll_pitch_max_deg": [
+            6.322774554418732,
+            8.933719994878563
+          ]
+        },
+        {
+          "name": "forward08",
+          "command": [
+            0.8,
+            0.0,
+            0.0
+          ],
+          "completed": false,
+          "displacement": [
+            1.3167821075767279,
+            -0.0039850087762260955,
+            -0.0068184733390808105
+          ],
+          "mean_forward_body_m_s": 0.4579179925423738,
+          "blocked_fraction": 0.5238095238095238,
+          "steady_roll_pitch_rms_deg": [
+            2.2260482270818103,
+            7.3360959902306995
+          ],
+          "steady_roll_pitch_max_deg": [
+            4.272158862457324,
+            16.69213469833402
+          ]
+        }
+      ]
+    }
+  ],
+  "candidate": {
+    "method": "prescribed GRF with floating-base and stance-acceleration inverse dynamics",
+    "controller_sha256": "6c91937b904c1af81ba1af843febda9a70bbdf9945825febbe332c5670033724",
+    "canonical_tests": {
+      "passed": 674,
+      "skipped": 4
+    },
+    "physical_gate": "pending"
+  },
+  "limits": [
+    "Failed runs have shorter analysis windows; their mean velocities cannot be compared as completed 12 s trials.",
+    "Camera probes do not include DDS or WebRTC delivery. PNG storage makes wall-clock speed unsuitable for a performance claim.",
+    "Rigid arm snapshot does not model internal arm acceleration. Coulomb friction is not cancelled."
+  ]
+}

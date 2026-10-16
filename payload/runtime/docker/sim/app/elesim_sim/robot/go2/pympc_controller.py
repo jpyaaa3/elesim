@@ -25,8 +25,10 @@ from elesim_sim.robot.go2.locomotion.pose import JointPoseTransition, smoothstep
 from elesim_sim.robot.go2.locomotion.types import Go2Command, LegId
 from elesim_sim.robot.go2.mpc.contact_diagnostics import GenesisContactDiagnostics
 from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
+from elesim_sim.robot.go2.mpc.contact_inverse_dynamics import contact_inverse_dynamics
 from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge, synchronize_model_inertias
 from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
+from elesim_sim.robot.go2.mpc.pin_contact_dynamics import PinContactDynamics
 from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput
 from elesim_sim.robot.go2.foot_workspace import project_ground_target, reachable
 from elesim_sim.simulation.genesis.utils import to_numpy_1d
@@ -390,6 +392,11 @@ class PyMpcGenesisController:
         self._solve_stride = solver_update_stride(
             self._dt, self._solver.dt, backend=self._solver.backend,
         )
+        self._contact_dynamics = (
+            PinContactDynamics(self._model, self._frames, joint_armature=float(config.joint_armature))
+            if self._solver.backend == 'jax_mppi' else None
+        )
+        self._payload_snapshot = None
         self._tau_lim = self._read_torque_limits()
         self._cmd = Go2Command()
         self._command_shaper = Go2CommandShaper(
@@ -538,6 +545,7 @@ class PyMpcGenesisController:
         self._tau_limited.fill(0.0)
         self._tau_raw.fill(0.0)
         self._joint_gravity.fill(0.0)
+        self._payload_snapshot = None
         self._swing_starts.fill(0.0)
         self._touchdowns.fill(0.0)
         self._last_contacts.fill(1.0)
@@ -635,9 +643,10 @@ class PyMpcGenesisController:
         pin.ccrba(self._model, self._data, q, dq)
         com = np.asarray(self._data.com[0], dtype=float).copy()
         vel = np.asarray(self._data.vcom[0], dtype=float).copy()
+        self._payload_snapshot = None
         if self._payload is not None:
             state = SimpleNamespace(data=self._data, pos_com_world=com, vel_com_world=vel)
-            self._payload.apply(state, dt=self._dt)
+            self._payload_snapshot = self._payload.apply(state, dt=self._dt)
             com = np.asarray(state.pos_com_world, dtype=float).copy()
             vel = np.asarray(state.vel_com_world, dtype=float).copy()
         rot = Rotation.from_quat(q[3:7])
@@ -909,6 +918,30 @@ class PyMpcGenesisController:
         # swing task already supplies its own velocity feedback.
         auxiliary[swing_dofs] = 0.0
         tau = tau * self._torque_scale() + auxiliary
+        if self._contact_dynamics is not None and np.any(contacts):
+            # Solve the unactuated base and planted-foot acceleration equations
+            # with the actual swing torque. Leg gravity/inertia and passive
+            # motor damping must not become an unmodelled contact wrench.
+            # Keep the existing ready-pose assistance during the startup ramp.
+            blend = float(np.clip((self._torque_scale()-.35)/.65, 0., 1.))
+            if blend > 0.:
+                started = time.perf_counter()
+                terms = self._contact_dynamics.terms(
+                    self._bridge.last_q, self._bridge.last_dq, payload=self._payload_snapshot)
+                passive = -(float(self._config.joint_damping)
+                            + float(self._config.leg_kv_damping)) * joint_vel
+                inverse = contact_inverse_dynamics(
+                    terms.mass_matrix, terms.bias, terms.foot_jacobians,
+                    terms.foot_acceleration_bias, contacts,
+                    self._forces * self._contact_gait.load[:, None],
+                    swing_torque=np.clip(tau, -self._tau_lim, self._tau_lim),
+                    passive_torque=passive, contact_acceleration=-20.*foot_vel,
+                )
+                stance_dofs = ~swing_dofs
+                tau[stance_dofs] += blend * (inverse.torque[stance_dofs]-tau[stance_dofs])
+                self._tau_raw = tau.copy()
+                if self._timing_sink is not None:
+                    self._timing_sink('go2_inverse_dynamics', time.perf_counter()-started)
         self._tau_limited = np.clip(tau, -self._tau_lim, self._tau_lim)
         alpha = float(np.clip(self._config.tau_filter_alpha, 0.05, 1.0))
         # All stance legs may redistribute load at a contact change. Do not
