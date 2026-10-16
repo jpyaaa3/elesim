@@ -448,8 +448,8 @@ GPU MPPI는 ramp 적용 후 지지력 명령 하한 10 N을 기존 상한 안에
 
 GPU stance 토크 변환은 18 DOF floating-base 역동역학을 사용한다. 요청한
 하중 ramp 적용 후 GRF, 실제 swing 토크, 접지발 가속도 조건을 함께 풀어
-관절 중력·관성과 passive 감쇠의 힘 편향을 줄인다. 발 속도는 접촉 가속도
-목표 `-20 * v_foot`로 감쇠한다. 시작 시 기존 ready assistance에서 torque ramp에
+관절 중력·관성과 passive 감쇠의 힘 편향을 줄인다. 접지발의 가속도는 고정
+지면 조건인 0으로 둔다. 시작 시 기존 ready assistance에서 torque ramp에
 맞춰 전환하며 최종 토크 제한·접촉 변경 시 history 초기화·토크 필터를 적용한다.
 별도 Pinocchio model/data는 Genesis와 동기화한 GO2 물성 및 motor armature를
 사용한다. 팔 snapshot은 기존 네 배치 조회 결과를 재사용해 base에 현재 자세의

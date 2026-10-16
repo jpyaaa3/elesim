@@ -273,7 +273,7 @@ def test_gpu_stance_inverse_dynamics_receives_ramped_force_and_actual_swing_torq
     np.testing.assert_allclose(call.args[5], [[0., 0., 25.], [0., 0., 0.],
                                              [0., 0., 0.], [0., 0., 50.]])
     np.testing.assert_allclose(call.kwargs['passive_torque'], -1.1*velocity)
-    np.testing.assert_allclose(call.kwargs['contact_acceleration'], -20.*foot_velocity)
+    np.testing.assert_array_equal(call.kwargs['contact_acceleration'], np.zeros((4, 3)))
     c._contact_dynamics.terms.assert_called_once_with(
         c._bridge.last_q, c._bridge.last_dq, payload=c._payload_snapshot)
     stance = np.repeat(state.contacts[:, 0].astype(bool), 3)
@@ -316,6 +316,34 @@ def test_inverse_dynamics_retains_existing_ready_assistance_during_initial_warmu
     c._torques(state, state.feet_world, np.zeros((4, 3)),
                np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
     dynamics.terms.assert_not_called()
+
+
+def test_controller_torque_recovers_requested_force_with_stationary_ground_constraint():
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(c)
+    c._config.joint_damping = .1
+    c._config.leg_kv_damping = 1.
+    c._bridge = SimpleNamespace(last_q=np.zeros(19), last_dq=np.zeros(18))
+    c._payload_snapshot = None
+    mass = np.diag([16.]*3+[.5]*3+[.03]*12)
+    jacobians = np.zeros((4, 3, 18))
+    for i in range(4):
+        jacobians[i, :, :3] = np.eye(3)
+        jacobians[i, :, 6+3*i:9+3*i] = .2*np.eye(3)
+    bias = np.r_[0., 0., 156., np.zeros(15)]
+    terms = SimpleNamespace(mass_matrix=mass, bias=bias, foot_jacobians=jacobians,
+                             foot_acceleration_bias=np.zeros((4, 3)))
+    c._contact_dynamics = SimpleNamespace(terms=lambda *a, **k: terms)
+    state = PyMpcInput(**{**vars(sample()), 'contacts': np.ones((4, 3))})
+    torque = c._torques(state, state.feet_world, np.full((4, 3), .03),
+                        np.tile(.2*np.eye(3), (4, 1, 1)), np.zeros(12))
+    contact_j = jacobians.reshape(12, 18)
+    system = np.block([[mass, -contact_j.T], [contact_j, np.zeros((12, 12))]])
+    # Physical stationary ground imposes zero contact acceleration. The
+    # measured foot velocity must not silently change this forward model.
+    rhs = np.r_[np.r_[np.zeros(6), torque]-bias, np.zeros(12)]
+    actual = np.linalg.solve(system, rhs)[18:].reshape(4, 3)
+    np.testing.assert_allclose(actual, np.tile([0., 0., 50.], (4, 1)), atol=1e-10)
 
 
 def test_diagonal_contact_sequence() -> None:

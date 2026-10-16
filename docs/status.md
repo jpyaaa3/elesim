@@ -13,7 +13,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   instance의 release pin이나 lifecycle은 변경하지 않았다.
 - 접지발 가속도 및 unactuated base 방정식과 실제 swing 토크를 함께 푸는
   18 DOF 역동역학을 GPU stance 경로에 연결했다. 관절 중력·관성, motor
-  armature=.01, passive 감쇠를 포함하며 접촉 가속도 목표는 `-20*v_foot`이다.
+  armature=.01, passive 감쇠를 포함하며 접촉 가속도 목표는 고정 지면의 0이다.
   GRF/하중 램프/토크 제한·필터와 기존 접촉 안전 기준은 유지한다.
 - 별도 Pinocchio model/data를 사용하며 팔의 네 배치 조회 snapshot을 그대로
   재사용한다. 현재 자세의 강체 payload 근사로, 내부 팔 가속도와 Coulomb
@@ -28,6 +28,19 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   후보를 push/양쪽 update한 뒤 격리 `tddwalk`/원격 GPU2에서 카메라 포함
   .2/.4/.8 m/s 동일 시험을 진행한다. 새 후보의 실제 보행 효과는 아직
   검증하지 않았으며 수치 회귀를 보행 개선으로 간주하지 않는다.
+- `af22bc6`를 push/양쪽 update한 뒤 GPU2/두 카메라/설치 기본값으로
+  동일 3속도 시험을 했다. .2/.4 m/s는 +1.367/+2.754 m 후 stand에
+  도달했으나, .8 m/s는 t=4.36 s/+0.451 m, max roll=.772 rad에서
+  finite-force fault로 실패했다. 공중 지지력 샘플은 세 경우 모두 0이다.
+  .2 m/s의 평균 실제 속도는 .119 m/s, pitch RMS=1.57도이나 roll RMS는
+  2.94도로 늘었다. 전체 개선으로 채택하지 않는다. 역동역학 추가 시간은
+  세 경우 median .59~.61 ms/p95 .82~.85 ms다(PNG 부하 포함, 성능 gate 아님).
+- 실패 후 실제 지면 가속도 0으로 독립 순동역학을 풀자, 새로 넣은
+  `-20*v_foot` 접촉 가속도 servo가 요청 GRF와의 일치를 깨는 회귀를
+  재현했다(2 failed). 이 servo를 제거한 같은 canonical 회귀는
+  **675 passed / 4 skipped**다. 새 후보의 실제 보행은 아직 미검증이다.
+  [수치와 실패 기록](../workbench/evidence/curated/sim/walking_force_mapping_20261016.json)에
+  같은 선택 조건의 force 편향 및 원시 경로를 보존한다.
 
 ### 물성 수정 및 보행 TDD 재개 (2026-10-15)
 

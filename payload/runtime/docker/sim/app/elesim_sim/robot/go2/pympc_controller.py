@@ -935,7 +935,10 @@ class PyMpcGenesisController:
                     terms.foot_acceleration_bias, contacts,
                     self._forces * self._contact_gait.load[:, None],
                     swing_torque=np.clip(tau, -self._tau_lim, self._tau_lim),
-                    passive_torque=passive, contact_acceleration=-20.*foot_vel,
+                    # The ground's acceleration constraint must match the
+                    # forward contact model. A velocity servo here changes
+                    # the realized GRF even with exact inverse dynamics.
+                    passive_torque=passive, contact_acceleration=np.zeros((4, 3)),
                 )
                 stance_dofs = ~swing_dofs
                 tau[stance_dofs] += blend * (inverse.torque[stance_dofs]-tau[stance_dofs])
