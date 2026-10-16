@@ -28,6 +28,37 @@ class RecordingBackend:
         return np.tile([0., 0., 50.], 4), None, None, 0
 
 
+def test_mppi_first_stage_accounts_for_actuator_body_rotation_without_recompiling(cpu_math):
+    from elesim_sim.robot.go2.mpc.actuator_prediction import FirstStageActuation
+    sample = standing()
+    angular = np.zeros((3, 12))
+    for i, foot in enumerate(sample.feet_world):
+        x, y, z = foot-sample.com_position
+        cross = np.array([[0., -z, y], [z, 0., -x], [-y, x, 0.]])
+        angular[:, 3*i:3*i+3] = np.linalg.solve(sample.inertia_body, cross)
+    model = FirstStageActuation(np.eye(12), np.zeros(12), angular, np.array([8., 0., 0.]),
+        np.eye(12), np.zeros(12), np.full(12, 1000.), np.zeros(12), np.ones(12),
+        np.zeros(12), 1., np.ones(4, dtype=bool))
+    adapter = PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: cpu_math)
+    ignored = adapter.solve(sample)
+    adapter.reset()
+    aware = adapter.solve(replace(sample, first_stage_actuation=model))
+    assert abs(model.predict(aware).angular_acceleration[0]) < abs(model.predict(ignored).angular_acceleration[0])-.5
+    assert cpu_math._optimize._cache_size() == 1
+
+
+def test_first_stage_model_requires_the_current_support_set_before_gpu_dispatch():
+    from elesim_sim.robot.go2.mpc.actuator_prediction import FirstStageActuation
+    model = FirstStageActuation(np.eye(12), np.zeros(12), np.zeros((3, 12)), np.zeros(3),
+        np.eye(12), np.zeros(12), np.ones(12), np.zeros(12), np.ones(12), np.zeros(12), 1.,
+        np.zeros(4, dtype=bool))
+    fake = RecordingBackend()
+    with pytest.raises(ValueError, match='support'):
+        PyMpcForceSolver(backend='jax_mppi', solver_factory=lambda: fake).solve(
+            replace(standing(), first_stage_actuation=model))
+    assert not fake.received
+
+
 def test_backend_selection_preserves_cpu_default():
     fake = RecordingBackend()
     cpu = PyMpcForceSolver(solver_factory=lambda: fake)

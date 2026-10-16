@@ -456,6 +456,18 @@ GPU stance 토크 변환은 18 DOF floating-base 역동역학을 사용한다. �
 강체 관성으로 더한다. 내부 팔 가속도와 Coulomb friction의 정확한 역보상은
 포함하지 않는다. 이 수치 모델 일치와 실제 Genesis 보행 수용시험은 별도 gate다.
 
+GPU의 첫 horizon stage는 현재 상태의 actuator 모델로 평가한다. 접촉 역동역학의
+힘→토크 행렬, 실제 force filter, 토크 한계·history filter, rigid-contact
+순동역학을 연결해 적용 접촉력과 base 각가속도를 예측한다. 그 결과를 같은
+질량/COM 상태 적분에 사용하고, 음의 지지력이나 friction/force 범위를 벗어난
+예측은 선택하지 않는다. 초기 force seed와 첫 wrench-noise 분배도 이 모델의
+국소 Jacobian으로 보정한다. swing/search 토크는 force solve 전에 계산하고
+물성 조회는 제어 tick당 한 번 재사용한다. 시작 ramp 뒤에 활성화하며 현재
+support와 다른 행렬은 거부한다. 고정 shape의 runtime 배열로 전달하므로
+활성화 시 별도 JIT를 하지 않는다. 현재 tick의 상태를 고정한 근사이며,
+후속 horizon stage는 기존 SRBD를 사용한다. 미래 swing의 관성 변화를
+모두 예측하는 whole-body horizon 최적화로 간주하지 않는다.
+
 팔 물성은 선택한 링크의 pos/quat/vel/ang를 네 배치 조회로 읽는다. 링크별
 조회와 같은 authored origin/세계 속도를 사용하고, 관성 주축 회전과 COM 합성,
 속도 유한차분 및 reset 의미는 동일하다.

@@ -183,6 +183,7 @@ def _torque_config(**overrides):
         gait_duty=0.6,
         force_filter_alpha=1.0,
         optimization_friction=0.55,
+        physical_friction=0.8,
         fz_max_n=180.0,
         torque_warmup_s=0.0,
         torque_ramp_s=0.001,
@@ -244,6 +245,42 @@ def _init_torque_controller(controller, *, elapsed_s=1.0, config=None):
     )
 
 
+def _torque_dynamics_terms():
+    jacobians = np.zeros((4, 3, 18))
+    for i in range(4):
+        jacobians[i, :, :3] = np.eye(3)
+        jacobians[i, :, 6+3*i:9+3*i] = .2*np.eye(3)
+    return SimpleNamespace(mass_matrix=np.diag([16.]*3+[.5]*3+[.03]*12), bias=np.zeros(18),
+                           foot_jacobians=jacobians, foot_acceleration_bias=np.zeros((4, 3)))
+
+
+@pytest.mark.parametrize('limit', [5., 1000.])
+def test_solver_receives_the_same_clipped_filtered_actuation_that_controller_applies(limit):
+    from unittest.mock import Mock
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(c, config=_torque_config(force_filter_alpha=.7, tau_filter_alpha=.5))
+    c._config.joint_damping, c._config.leg_kv_damping = .1, 1.
+    velocity = np.linspace(-.4, .5, 12)
+    c._bridge = SimpleNamespace(last_q=np.zeros(19), last_dq=np.r_[np.zeros(6), velocity])
+    c._payload_snapshot = None
+    c._contact_dynamics = SimpleNamespace(terms=Mock(return_value=_torque_dynamics_terms()))
+    c._forces[:] = [0., 0., 50.]
+    c._tau_filt[:] = np.linspace(-1., 1., 12)
+    c._tau_lim[:] = limit
+    predicted = []
+    def solve(state):
+        assert state.first_stage_actuation is not None
+        forces = np.tile([0., 0., 60.], (4, 1))
+        predicted.append(state.first_stage_actuation.predict(forces))
+        return forces
+    c._solver.solve = solve
+    state = PyMpcInput(**{**vars(sample()), 'contacts':np.ones((4, 3))})
+    actual = c._torques(state, state.feet_world, np.zeros((4, 3)),
+                        np.tile(.2*np.eye(3), (4, 1, 1)), velocity)
+    np.testing.assert_allclose(actual, predicted[0].applied_torque, atol=1e-10)
+    c._contact_dynamics.terms.assert_called_once()
+
+
 def test_gpu_stance_inverse_dynamics_receives_ramped_force_and_actual_swing_torque():
     from unittest.mock import Mock
     from elesim_sim.robot.go2.mpc.contact_inverse_dynamics import ContactInverseDynamicsResult
@@ -256,9 +293,7 @@ def test_gpu_stance_inverse_dynamics_receives_ramped_force_and_actual_swing_torq
     c._bridge = SimpleNamespace(last_q=np.r_[np.zeros(6), 1., np.zeros(12)],
                                 last_dq=np.linspace(-.2, .2, 18))
     c._payload_snapshot = object()
-    terms = SimpleNamespace(mass_matrix=np.eye(18), bias=np.zeros(18),
-                             foot_jacobians=np.zeros((4, 3, 18)),
-                             foot_acceleration_bias=np.zeros((4, 3)))
+    terms = _torque_dynamics_terms()
     c._contact_dynamics = SimpleNamespace(terms=Mock(return_value=terms))
     state = sample()
     velocity = np.arange(12, dtype=float)*.1
@@ -290,9 +325,7 @@ def test_inverse_dynamics_cannot_bypass_joint_limits_or_change_swing_torque():
     c._config.leg_kv_damping = 1.
     c._bridge = SimpleNamespace(last_q=np.zeros(19), last_dq=np.zeros(18))
     c._payload_snapshot = None
-    terms = SimpleNamespace(mass_matrix=np.eye(18), bias=np.zeros(18),
-                             foot_jacobians=np.zeros((4, 3, 18)),
-                             foot_acceleration_bias=np.zeros((4, 3)))
+    terms = _torque_dynamics_terms()
     c._contact_dynamics = SimpleNamespace(terms=lambda *a, **k: terms)
     c._tau_lim.fill(5.)
     state = sample()

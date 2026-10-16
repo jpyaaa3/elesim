@@ -41,6 +41,30 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   **675 passed / 4 skipped**다. 새 후보의 실제 보행은 아직 미검증이다.
   [수치와 실패 기록](../workbench/evidence/curated/sim/walking_force_mapping_20261016.json)에
   같은 선택 조건의 force 편향 및 원시 경로를 보존한다.
+- 고정 접촉 가속도 후보 `4a368de`도 push/양쪽 update 후 GPU2·카메라·설치
+  기본값으로 재검증했다. .2/.4 m/s는 +1.368/+3.103 m 후 stand에 도달했으나,
+  .8 m/s는 t=5.80 s/+1.582 m에 RR touchdown timeout으로 실패했다.
+  max roll/pitch=.284/.434 rad이며 이 후보도 안정한 보행으로 채택하지 않는다.
+  같은 설치 소스에 관측만 추가한 camera-free 재현은 t=5.82 s/+1.268 m에
+  finite-force fault로 끝났다. solver나 반환 토크는 수정하지 않았다.
+- 위 재현의 pre-step q/dq/payload, 적용 토크, post-step 3D 접촉력을 수집했다.
+  접촉 집합이 일치하고 완전히 하중을 받은 137 sample에서 요청 Fz의 실제
+  대비 MAE=6.68 N, 토크 한계 및 history filter를 거친 모델의 MAE=1.88 N다.
+  22 mm sphere 접촉 모델은 1.79 N으로 차이가 작아 기하 변경은 보류했다.
+  clipping 전 원래 frame 접촉 모델의 힘 왕복 오차는 1e-13 N 이하다.
+  실제 base 각가속도 대비 pitch RMS 오차는 기존 SRBD 10.37 rad/s²,
+  필터 포함 전신 모델 4.91 rad/s²다. 지면 안정화·Coulomb friction·한 step
+  측정 차이는 이 계산에 남으며, 접촉 전환 구간으로 확대하지 않는다.
+- 다음 후보는 첫 horizon stage에 현재 전신 물성, 실제 swing 토크,
+  force/torque filter 및 토크 한계를 넣는다. 초기 힘 분배와 첫 탐색
+  wrench도 실제 행렬로 보정한다. 수치 회귀는 force→torque→limit/filter→
+  independent forward dynamics 왕복, solver/controller 적용 토크의 일치,
+  실제 첫-step bias에 대한 MPC 반응과 JIT 재사용을 포함한다.
+  전체 canonical 회귀는 **695 passed / 4 skipped**다. 최종 physical friction
+  cone 적용 후에도 같은 결과다. 실제 기록의 세 상태에서 4096×2 CPU 수치
+  재생은 모두 유효한 후보를 반환했고 JIT cache entry는 1개였다. 이 재생은
+  current support를 horizon에 고정하므로 실제 gait/Genesis 성공 증거가 아니다.
+  새 공식 release의 Genesis 보행 gate는 아직 미검증이다.
 
 ### 물성 수정 및 보행 TDD 재개 (2026-10-15)
 

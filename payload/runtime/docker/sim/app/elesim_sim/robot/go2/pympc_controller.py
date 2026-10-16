@@ -8,6 +8,7 @@ separate from successful solver initialization.
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 import time
 from types import SimpleNamespace
 
@@ -25,6 +26,7 @@ from elesim_sim.robot.go2.locomotion.pose import JointPoseTransition, smoothstep
 from elesim_sim.robot.go2.locomotion.types import Go2Command, LegId
 from elesim_sim.robot.go2.mpc.contact_diagnostics import GenesisContactDiagnostics
 from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
+from elesim_sim.robot.go2.mpc.actuator_prediction import build_actuator_prediction
 from elesim_sim.robot.go2.mpc.contact_inverse_dynamics import contact_inverse_dynamics
 from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge, synchronize_model_inertias
 from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
@@ -796,61 +798,16 @@ class PyMpcGenesisController:
             for leg in _LEGS
         ])
 
-    def _torques(self, sample: PyMpcInput, feet: np.ndarray, foot_vel: np.ndarray,
-                 jacobians: np.ndarray, joint_vel: np.ndarray) -> np.ndarray:
+    def _task_torques(self, sample, feet, foot_vel, jacobians, joint_vel):
+        """Compute current swing/search action before forecasting actuation."""
         contacts = sample.contacts[:, 0]
-        support_changed = not np.array_equal(contacts, self._last_contacts)
-        # A force solution is valid only for the support set it was solved for.
-        # In particular a newly grounded foot must not reuse its swing zero.
-        if not np.any(contacts):
-            self._force_requested.fill(0.0)
-            self._forces.fill(0.0)
-        elif self._step_i % self._solve_stride == 0 or support_changed:
-            started = time.perf_counter()
-            self._force_requested = self._solver.solve(sample)
-            alpha = float(np.clip(self._config.force_filter_alpha, 0.05, 1.0))
-            # The previous distribution balances a different support set.
-            # Blending it across liftoff loses its removed foot's force/moment;
-            # at touchdown it also mixes the new support with a swing zero.
-            # Start the new support phase with its freshly solved distribution.
-            filtered = (
-                self._force_requested.copy() if support_changed
-                else alpha * self._force_requested + (1.0 - alpha) * self._forces
-            )
-            mu = float(self._config.optimization_friction)
-            fz_max = float(self._config.fz_max_n)
-            for i in range(4):
-                if contacts[i] == 0:
-                    filtered[i] = 0.0
-                    continue
-                fz = float(np.clip(filtered[i, 2], 0.0, fz_max))
-                filtered[i, 2] = fz
-                filtered[i, :2] = np.clip(filtered[i, :2], -mu * fz, mu * fz)
-            self._forces = filtered
-            if self._timing_sink is not None:
-                self._timing_sink("go2_pympc_solve", time.perf_counter() - started)
-        contacts = sample.contacts[:, 0]
-        tau = np.zeros(12)
         duty = float(self._config.gait_duty)
-        # Direct gravity feedforward regressed dynamic walking. Use inverse
-        # statics only during a quiet, fully loaded four-foot stop, where the
-        # measured force bias otherwise leaves a residual body tilt.
-        static_gravity = bool(
-            self._settling and np.all(contacts == 1.)
-            and np.all(self._contact_gait.load >= 1.-1e-9)
-            and np.linalg.norm(sample.com_velocity) < .08
-            and np.linalg.norm(sample.angular_velocity_body) < .15
-            and np.max(np.abs(joint_vel)) < .5
-            and self._solver.backend == "jax_mppi"
-        )
+        tau = np.zeros(12)
         for i in range(4):
-            sl = slice(i * 3, i * 3 + 3)
+            sl = slice(i*3, i*3+3)
             if contacts[i] == 1:
-                tau[sl] = -jacobians[i].T @ (
-                    self._forces[i] * self._contact_gait.load[i])
-                if static_gravity:
-                    tau[sl] += self._joint_gravity[sl]
-            elif self._contact_gait.search[i]:
+                continue
+            if self._contact_gait.search[i]:
                 if not self._was_searching[i]:
                     # A late swing must keep trying to reach its ground target.
                     # Resetting the target to the measured airborne foot both
@@ -905,7 +862,90 @@ class PyMpcGenesisController:
                 )
                 task_force = 1000.0 * (target - feet[i]) + 20.0 * (desired_vel - foot_vel[i])
                 tau[sl] = jacobians[i].T @ task_force
-            tau[sl] -= 0.5 * joint_vel[sl]
+        return tau - .5*joint_vel
+
+    def _torques(self, sample: PyMpcInput, feet: np.ndarray, foot_vel: np.ndarray,
+                 jacobians: np.ndarray, joint_vel: np.ndarray) -> np.ndarray:
+        contacts = sample.contacts[:, 0]
+        support_changed = not np.array_equal(contacts, self._last_contacts)
+        tau = self._task_torques(sample, feet, foot_vel, jacobians, joint_vel)
+        scale = self._torque_scale()
+        blend = float(np.clip((scale-.35)/.65, 0., 1.))
+        terms, passive, preparation_s = None, None, 0.
+        if self._contact_dynamics is not None and np.any(contacts) and blend > 0.:
+            prepared = time.perf_counter()
+            terms = self._contact_dynamics.terms(
+                self._bridge.last_q, self._bridge.last_dq, payload=self._payload_snapshot)
+            passive = -(float(self._config.joint_damping)
+                        + float(self._config.leg_kv_damping))*joint_vel
+            preparation_s = time.perf_counter()-prepared
+        # A force solution is valid only for the support set it was solved for.
+        # In particular a newly grounded foot must not reuse its swing zero.
+        if not np.any(contacts):
+            self._force_requested.fill(0.0)
+            self._forces.fill(0.0)
+        elif self._step_i % self._solve_stride == 0 or support_changed:
+            solve_sample = sample
+            if terms is not None and blend >= 1.:
+                prepared = time.perf_counter()
+                torque_alpha = np.full(12, float(np.clip(self._config.tau_filter_alpha, .05, 1.)))
+                torque_alpha[np.repeat(contacts == 0, 3)] = 1.
+                if support_changed:
+                    torque_alpha.fill(1.)
+                previous_forces = np.where(contacts[:, None] == 1,
+                    self._forces*self._contact_gait.load[:, None], 0.)
+                model = build_actuator_prediction(terms, contacts,
+                    swing_torque=np.clip(tau, -self._tau_lim, self._tau_lim)*scale,
+                    passive_torque=passive, torque_limits=self._tau_lim,
+                    previous_torque=self._tau_filt, torque_alpha=torque_alpha,
+                    previous_forces=previous_forces,
+                    physical_friction=float(self._config.physical_friction),
+                    force_alpha=(1. if support_changed else
+                                 float(np.clip(self._config.force_filter_alpha, .05, 1.))))
+                solve_sample = replace(sample, first_stage_actuation=model)
+                if self._timing_sink is not None:
+                    self._timing_sink('go2_actuator_model', time.perf_counter()-prepared)
+            started = time.perf_counter()
+            self._force_requested = self._solver.solve(solve_sample)
+            alpha = float(np.clip(self._config.force_filter_alpha, 0.05, 1.0))
+            # The previous distribution balances a different support set.
+            # Blending it across liftoff loses its removed foot's force/moment;
+            # at touchdown it also mixes the new support with a swing zero.
+            # Start the new support phase with its freshly solved distribution.
+            filtered = (
+                self._force_requested.copy() if support_changed
+                else alpha * self._force_requested + (1.0 - alpha) * self._forces
+            )
+            mu = float(self._config.optimization_friction)
+            fz_max = float(self._config.fz_max_n)
+            for i in range(4):
+                if contacts[i] == 0:
+                    filtered[i] = 0.0
+                    continue
+                fz = float(np.clip(filtered[i, 2], 0.0, fz_max))
+                filtered[i, 2] = fz
+                filtered[i, :2] = np.clip(filtered[i, :2], -mu * fz, mu * fz)
+            self._forces = filtered
+            if self._timing_sink is not None:
+                self._timing_sink("go2_pympc_solve", time.perf_counter() - started)
+        contacts = sample.contacts[:, 0]
+        # Direct gravity feedforward regressed dynamic walking. Use inverse
+        # statics only during a quiet, fully loaded four-foot stop, where the
+        # measured force bias otherwise leaves a residual body tilt.
+        static_gravity = bool(
+            self._settling and np.all(contacts == 1.)
+            and np.all(self._contact_gait.load >= 1.-1e-9)
+            and np.linalg.norm(sample.com_velocity) < .08
+            and np.linalg.norm(sample.angular_velocity_body) < .15
+            and np.max(np.abs(joint_vel)) < .5
+            and self._solver.backend == "jax_mppi"
+        )
+        for i in range(4):
+            if contacts[i] == 1:
+                sl = slice(i*3, i*3+3)
+                tau[sl] -= jacobians[i].T @ (self._forces[i]*self._contact_gait.load[i])
+                if static_gravity:
+                    tau[sl] += self._joint_gravity[sl]
         self._was_searching = self._contact_gait.search.copy()
         self._last_contacts = contacts.copy()
         if not np.all(np.isfinite(tau)):
@@ -917,34 +957,21 @@ class PyMpcGenesisController:
         # Stance damping must not fight the commanded swing velocity. The
         # swing task already supplies its own velocity feedback.
         auxiliary[swing_dofs] = 0.0
-        tau = tau * self._torque_scale() + auxiliary
-        if self._contact_dynamics is not None and np.any(contacts):
-            # Solve the unactuated base and planted-foot acceleration equations
-            # with the actual swing torque. Leg gravity/inertia and passive
-            # motor damping must not become an unmodelled contact wrench.
-            # Keep the existing ready-pose assistance during the startup ramp.
-            blend = float(np.clip((self._torque_scale()-.35)/.65, 0., 1.))
-            if blend > 0.:
-                started = time.perf_counter()
-                terms = self._contact_dynamics.terms(
-                    self._bridge.last_q, self._bridge.last_dq, payload=self._payload_snapshot)
-                passive = -(float(self._config.joint_damping)
-                            + float(self._config.leg_kv_damping)) * joint_vel
-                inverse = contact_inverse_dynamics(
-                    terms.mass_matrix, terms.bias, terms.foot_jacobians,
-                    terms.foot_acceleration_bias, contacts,
-                    self._forces * self._contact_gait.load[:, None],
-                    swing_torque=np.clip(tau, -self._tau_lim, self._tau_lim),
-                    # The ground's acceleration constraint must match the
-                    # forward contact model. A velocity servo here changes
-                    # the realized GRF even with exact inverse dynamics.
-                    passive_torque=passive, contact_acceleration=np.zeros((4, 3)),
-                )
-                stance_dofs = ~swing_dofs
-                tau[stance_dofs] += blend * (inverse.torque[stance_dofs]-tau[stance_dofs])
-                self._tau_raw = tau.copy()
-                if self._timing_sink is not None:
-                    self._timing_sink('go2_inverse_dynamics', time.perf_counter()-started)
+        tau = tau * scale + auxiliary
+        if terms is not None:
+            started = time.perf_counter()
+            inverse = contact_inverse_dynamics(
+                terms.mass_matrix, terms.bias, terms.foot_jacobians,
+                terms.foot_acceleration_bias, contacts,
+                self._forces*self._contact_gait.load[:, None],
+                swing_torque=np.clip(tau, -self._tau_lim, self._tau_lim),
+                passive_torque=passive, contact_acceleration=np.zeros((4, 3)),
+            )
+            stance_dofs = ~swing_dofs
+            tau[stance_dofs] += blend*(inverse.torque[stance_dofs]-tau[stance_dofs])
+            self._tau_raw = tau.copy()
+            if self._timing_sink is not None:
+                self._timing_sink('go2_inverse_dynamics', preparation_s+time.perf_counter()-started)
         self._tau_limited = np.clip(tau, -self._tau_lim, self._tau_lim)
         alpha = float(np.clip(self._config.tau_filter_alpha, 0.05, 1.0))
         # All stance legs may redistribute load at a contact change. Do not

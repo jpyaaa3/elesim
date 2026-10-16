@@ -503,16 +503,335 @@
           ]
         }
       ]
+    },
+    {
+      "revision": "4a368de",
+      "accepted": false,
+      "release_key": "dfebace666493cae1d77ee2065167c1f463a313ad29e5e0db5df5f0b880bdf8e",
+      "rejection": "0.8 m/s: RR touchdown timeout at t=5.80 s",
+      "trials": [
+        {
+          "name": "forward02",
+          "command": [
+            0.2,
+            0.0,
+            0.0
+          ],
+          "duration": 12.0,
+          "completed": true,
+          "displacement": [
+            1.3683401253074408,
+            0.12890412789579386,
+            0.007277965545654297
+          ],
+          "stand_height_median_m": 0.3044499307870865,
+          "ready_height_min_m": 0.26181676983833313,
+          "steady_height_min_m": 0.2944604754447937,
+          "steady_height_median_m": 0.3097243160009384,
+          "steady_height_max_m": 0.3253157436847687,
+          "steady_height_std_m": 0.006191556474011055,
+          "steady_roll_pitch_rms_deg": [
+            2.3161758714206915,
+            1.627183190424877
+          ],
+          "steady_roll_pitch_max_deg": [
+            9.554839509128893,
+            6.0048469063996865
+          ],
+          "mean_forward_body_m_s": 0.1234478427628425,
+          "mean_requested_forward_m_s": 0.1171999414765482,
+          "blocked_fraction": 0.414,
+          "gait_time_per_sim_time": 0.5701402805611125,
+          "max_leg_joint_speed_rad_s": 7.169364929199219,
+          "samples_with_joint_speed_over_6_fraction": 0.002,
+          "samples_at_torque_limit_fraction": 0.008,
+          "joint_at_torque_limit_fractions": [
+            0,
+            0.002,
+            0,
+            0,
+            0.006,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "hip_abs_max_deg": 24.661127121024936,
+          "velocity_reference_switches": 50,
+          "solve_hz": 53.607214428857716,
+          "captures": 223
+        },
+        {
+          "name": "forward04",
+          "command": [
+            0.4,
+            0.0,
+            0.0
+          ],
+          "duration": 12.0,
+          "completed": true,
+          "displacement": [
+            3.1028394605964422,
+            -0.12564094978574758,
+            0.003275632858276367
+          ],
+          "stand_height_median_m": 0.3044499307870865,
+          "ready_height_min_m": 0.26181676983833313,
+          "steady_height_min_m": 0.2963855266571045,
+          "steady_height_median_m": 0.309317409992218,
+          "steady_height_max_m": 0.32094505429267883,
+          "steady_height_std_m": 0.005228507503296516,
+          "steady_roll_pitch_rms_deg": [
+            3.859799552755776,
+            3.9047182493055277
+          ],
+          "steady_roll_pitch_max_deg": [
+            10.115964303674883,
+            10.95898321142898
+          ],
+          "mean_forward_body_m_s": 0.2903708955779691,
+          "mean_requested_forward_m_s": 0.23119974305653915,
+          "blocked_fraction": 0.422,
+          "gait_time_per_sim_time": 0.5551102204408724,
+          "max_leg_joint_speed_rad_s": 10.80920124053955,
+          "samples_with_joint_speed_over_6_fraction": 0.062,
+          "samples_at_torque_limit_fraction": 0.026,
+          "joint_at_torque_limit_fractions": [
+            0,
+            0.02,
+            0,
+            0,
+            0.006,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "hip_abs_max_deg": 27.19519048234949,
+          "velocity_reference_switches": 49,
+          "solve_hz": 54.70941883767535,
+          "captures": 225
+        },
+        {
+          "name": "forward08",
+          "command": [
+            0.8,
+            0.0,
+            0.0
+          ],
+          "duration": 12.0,
+          "completed": false,
+          "displacement": [
+            1.5824558641761541,
+            -0.049729114949741415,
+            -0.01769876480102539
+          ],
+          "stand_height_median_m": 0.3044499307870865,
+          "ready_height_min_m": 0.26181676983833313,
+          "steady_height_min_m": 0.25631070137023926,
+          "steady_height_median_m": 0.30213239789009094,
+          "steady_height_max_m": 0.30716150999069214,
+          "steady_height_std_m": 0.013248566148359734,
+          "steady_roll_pitch_rms_deg": [
+            5.564031586114126,
+            11.520269017222645
+          ],
+          "steady_roll_pitch_max_deg": [
+            9.993884657810803,
+            24.863978021105737
+          ],
+          "mean_forward_body_m_s": 0.5519083135679203,
+          "mean_requested_forward_m_s": 0.34666416000756367,
+          "blocked_fraction": 0.5666666666666667,
+          "gait_time_per_sim_time": 0.4269662921348318,
+          "max_leg_joint_speed_rad_s": 13.072607040405273,
+          "samples_with_joint_speed_over_6_fraction": 0.2222222222222222,
+          "samples_at_torque_limit_fraction": 0.07777777777777778,
+          "joint_at_torque_limit_fractions": [
+            0,
+            0.022222222222222223,
+            0,
+            0,
+            0.03333333333333333,
+            0,
+            0,
+            0.011111111111111112,
+            0,
+            0,
+            0.022222222222222223,
+            0
+          ],
+          "hip_abs_max_deg": 24.510441195103407,
+          "velocity_reference_switches": 7,
+          "solve_hz": 51.685393258426956,
+          "captures": 73
+        }
+      ],
+      "physical_report": [
+        {
+          "name": "forward02",
+          "completed": true,
+          "t": 15.98,
+          "displacement": [
+            1.3683401253074408,
+            0.12890412789579386,
+            0.007277965545654297
+          ],
+          "roll_pitch": [
+            0.16676340893393798,
+            0.10480434959487028
+          ],
+          "airborne_force_ticks": 0,
+          "faults": [],
+          "cycle_stops": [
+            {
+              "cycle": 1,
+              "completed": true,
+              "last_t": 15.98,
+              "last_stage": "stand",
+              "stand_after_s": 1.2599999999999998
+            }
+          ]
+        },
+        {
+          "name": "forward04",
+          "completed": true,
+          "t": 15.98,
+          "displacement": [
+            3.1028394605964422,
+            -0.12564094978574758,
+            0.003275632858276367
+          ],
+          "roll_pitch": [
+            0.17655688411334222,
+            0.21195291913934122
+          ],
+          "airborne_force_ticks": 0,
+          "faults": [],
+          "cycle_stops": [
+            {
+              "cycle": 1,
+              "completed": true,
+              "last_t": 15.98,
+              "last_stage": "stand",
+              "stand_after_s": 1.58
+            }
+          ]
+        },
+        {
+          "name": "forward08",
+          "completed": false,
+          "t": 5.8,
+          "displacement": [
+            1.5824558641761541,
+            -0.049729114949741415,
+            -0.01769876480102539
+          ],
+          "roll_pitch": [
+            0.2838788805641214,
+            0.4339582816117993
+          ],
+          "airborne_force_ticks": 0,
+          "faults": [
+            "[go2_pympc] fault; latched safe stand until reset: touchdown timeout after 0.30s: RR"
+          ],
+          "cycle_stops": [
+            {
+              "cycle": 1,
+              "completed": false,
+              "last_t": null,
+              "last_stage": null,
+              "stand_after_s": null
+            }
+          ]
+        }
+      ]
     }
   ],
   "candidate": {
-    "method": "prescribed GRF with zero acceleration of grounded feet; removed inconsistent velocity servo",
-    "controller_sha256": "6f438122dab98225215a09e7bf24466eb3a93b99842e31c2a5fa322a45ede33b",
+    "method": "local first-stage actuator model; inverse torque, force filter, torque clipping/history and contact forward dynamics; model-aware force seed",
+    "controller_sha256": "87d60fc742a50e24798b808766fe037c0c7b9b4450d204032b9e9049b9208985",
     "canonical_tests": {
-      "passed": 675,
+      "passed": 695,
       "skipped": 4
     },
-    "physical_gate": "pending"
+    "physical_gate": "pending",
+    "jax_sha256": "e86b80686c00c0fc5feeedc2dec7d20482882045e8288d5f0eb0ada545a1a858",
+    "offline_replay": {
+      "scope": "offline CPU arithmetic, 4096x2; measured state; current support held in horizon",
+      "kernel_cache_entries": 1,
+      "snapshots": [
+        {
+          "t": 3.1,
+          "results": {
+            "srbd": {
+              "valid": true,
+              "predicted_angular": [
+                -16.69547588113404,
+                -0.5975712044852912,
+                2.496806012386452
+              ]
+            },
+            "actuator": {
+              "valid": true,
+              "predicted_angular": [
+                -24.741353704274143,
+                -11.27538782298079,
+                1.155776841597918
+              ]
+            }
+          }
+        },
+        {
+          "t": 4.0,
+          "results": {
+            "srbd": {
+              "valid": true,
+              "predicted_angular": [
+                5.355395785118532,
+                -6.807186996704503,
+                -5.79215853942791
+              ]
+            },
+            "actuator": {
+              "valid": true,
+              "predicted_angular": [
+                8.154250499779515,
+                5.670771845230443,
+                -3.523667353819172
+              ]
+            }
+          }
+        },
+        {
+          "t": 4.78,
+          "results": {
+            "srbd": {
+              "valid": true,
+              "predicted_angular": [
+                -266.8225111433266,
+                -5.035164582801329,
+                43.704831522965954
+              ]
+            },
+            "actuator": {
+              "valid": true,
+              "predicted_angular": [
+                -211.40368871848221,
+                2.424893480350029,
+                42.96568557244828
+              ]
+            }
+          }
+        }
+      ]
+    }
   },
   "limits": [
     "Failed runs have shorter analysis windows; their mean velocities cannot be compared as completed 12 s trials.",
@@ -572,5 +891,88 @@
       }
     ],
     "limit": "One control tick separates the measured force from this command; these are bias diagnostics, not exact instantaneous force reconstruction."
+  },
+  "actuator_audit": {
+    "summary": {
+      "trace": "workbench/evidence/generated/contact-gait/4a368de-defaults-inverse-audit/forward08_audit.jsonl",
+      "consistent_contact_samples": 137,
+      "unfiltered_frame_force_roundtrip_max_n": 9.947598300641403e-14,
+      "request_error": {
+        "mean_normal_n": 2.613982469215658,
+        "mae_normal_n": 6.681744972334324,
+        "norm_p50_p95_n": [
+          7.068645562709514,
+          20.025056450992295
+        ]
+      },
+      "limited_frame_prediction_error": {
+        "mean_normal_n": 0.9414937569405284,
+        "mae_normal_n": 5.069262086362624,
+        "norm_p50_p95_n": [
+          6.962967332429969,
+          18.501211627513594
+        ]
+      },
+      "frame_prediction_error": {
+        "mean_normal_n": 0.6777415485558982,
+        "mae_normal_n": 1.8788019983429198,
+        "norm_p50_p95_n": [
+          2.894442383247088,
+          6.876918379599426
+        ]
+      },
+      "sphere_prediction_error": {
+        "mean_normal_n": 0.23620027930034046,
+        "mae_normal_n": 1.7892734871063203,
+        "norm_p50_p95_n": [
+          1.9923618990322614,
+          5.957561533822011
+        ]
+      },
+      "frame_velocity_p50_p95_mps": [
+        0.028861538113363686,
+        0.08296847146021698
+      ],
+      "sphere_velocity_p50_p95_mps": [
+        0.026396895658389936,
+        0.07803935437674192
+      ],
+      "base_vs_srb_angular_error_rms_rad_s2": [
+        45.404041878528375,
+        12.878583616937496,
+        6.161467425875962
+      ],
+      "inverse_base_angular_actual_error_rms_rad_s2": [
+        28.74645348387504,
+        6.135863983293,
+        3.6351484830048837
+      ],
+      "frame_angular_actual_error_rms_rad_s2": [
+        18.822428540244253,
+        4.913574190818697,
+        2.4488822643128754
+      ],
+      "sphere_angular_actual_error_rms_rad_s2": [
+        18.805531238069236,
+        4.943146652504419,
+        2.441395145181307
+      ],
+      "srb_angular_actual_error_rms_rad_s2": [
+        23.933176333665138,
+        10.369055402761592,
+        6.153880198749398
+      ],
+      "srb_actual_force_angular_actual_error_rms_rad_s2": [
+        28.743458720753623,
+        11.542501881095498,
+        5.618816858630414
+      ]
+    },
+    "limits": [
+      "Pre-state vs post-force has one physics step; passive/Coulomb and contact stabilization are approximate.",
+      "Force prediction is linear bilateral contact; unilateral/friction violations are not projected.",
+      "Only stable, fully loaded and matching planned/physical foot sets enter physical-error statistics."
+    ],
+    "raw": "workbench/evidence/generated/contact-gait/4a368de-defaults-inverse-audit/forward08_audit.inverse-analysis.json"
   }
 }
