@@ -6,7 +6,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 스윙 기준 속도 감쇠 TDD (2026-10-17, 후보 검증 중)
+### 스윙 기준 속도 감쇠 TDD (2026-10-17, 추종 개선 확인·속도 미해결)
 
 - 원격 Robot 상태 동기화·선형축 보정·cuRobo 변경 `a7b3962` 위에 보관한
   `test_57`을 복원하고 `a24e487`로 push했다. 기존 보행 runtime은 유지했다.
@@ -23,10 +23,32 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   (`rl/test_start_path.py`)다. 이 보행 후보와 무관하며 경유점을 임의로 바꾸지
   않았다. 특이 자세에서 개별 관절 clipping이 null-space 토크를 만드는
   추가 red를 재현하고 공통 비율 제한으로 수정했다. 해당 RL 1건을 명시적으로
-  제외한 canonical Sim/고정발/보행 회귀는 **687 passed / 4 skipped /
+  제외한 canonical Sim/고정발/보행 및 분석기 회귀는 **692 passed / 4 skipped /
   1 deselected**다. skip은 qpOASES, opt-in 실제 camera worker 2개와 미지정
-  fixed-foot trace다. 원격 GPU2 공식 release 보행 비교는 진행 중이며,
-  아직 보행 개선으로 채택하지 않는다.
+  fixed-foot trace다. 분석기는 정확한 추종·공중 정지·search 제외·미기록 start
+  거부 및 CLI 재현을 검사하며, baseline/후보의 실제 원시 기록에서도 이전
+  분석 결과를 동일하게 재현했다.
+- `9231adf`를 push하고 양쪽 공식 update를 완료했다. 원격 GPU2 격리
+  `tddwalk`에서 설치 revision과 controller hash, 단일 GPU2 UUID, dt=.01 /
+  substeps=2 / MPPI 4096×2를 확인하고 기존 `a24e487`과 같은 두 카메라
+  포함 .2/.4/.8 m/s 시험을 했다. 양쪽 모두 세 시험을 완주·정지했다.
+- .8 m/s의 free-swing 위치 오차 p95는 **49.44→5.99 mm**, 하강 중 공중
+  정지 sample 비율은 **52.08→0%**(192/188 관측), 착지 지연 중앙값은
+  **100→40 ms**다. .2/.4 m/s도 오차 p95 35.29/44.24→7.00/6.76 mm,
+  공중 정지 37.0/48.47→0/0%다. 이는 원하는 Vz<-.1 m/s, 실제 Z>.03 m인
+  free-swing에서 실제 Vz>=-.03 m/s를 멈칫으로 센 수치다.
+- 추가로 카메라 없는 전후좌우 6초·20초, 전진/후진 각 3회 출발·정지까지
+  10개를 모두 완주했고 모든 stop이 stand에 도달했다. 후보 실제 Genesis
+  13개 시험에서 fault/넘어짐과 공중 지지력 sample은 0이다.
+- 전진 속도 추종은 해결되지 않았다. .8 m/s 평균 실제 속도는 .260→.125 m/s,
+  12초 전진량은 2.786→1.438 m로 줄었다. pitch RMS는 9.68→5.47도로
+  줄었으나 스윙 개선을 전체 보행/속도 개선으로 간주하지 않는다. 다음 분리
+  대상은 지지 중 원시 관절 속도 감쇠와 실제 전진 토크다. 확인한 스윙
+  추종을 유지하고 지지발의 제동 원인을 계측한다.
+- [비교·회귀 수치](../workbench/evidence/curated/sim/walking_swing_tracking_20261017.json)에
+  release/hash/GPU와 원시 경로를 보존했다. 계측·분석은 production Genesis와
+  카메라 worker를 사용하되 DDS 참여나 실제 Robot 명령을 만들지 않는다.
+  PNG 저장 부하가 있어 이 timing을 실시간 성능 gate로 사용하지 않는다.
 
 ### 선택적 Jetson cuRobo 연동 (2026-10-16)
 

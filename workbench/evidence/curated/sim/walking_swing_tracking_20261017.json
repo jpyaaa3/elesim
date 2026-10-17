@@ -1,0 +1,500 @@
+{
+  "date": "2026-10-17",
+  "scope": "Measured swing tracking improvement; command velocity tracking remains unresolved",
+  "baseline_revision": "a24e487045e4c97d5e5db3e2e28bd1bdb35d175c",
+  "candidate_revision": "9231adf2237a22efbe662bc1e56bc62be74f1901",
+  "baseline_controller_sha256": "57c80bea7af9cae8efdd8d01c1625a74a678791e16c6dc4475d3976dad2c6e75",
+  "candidate_controller_sha256": "c0fe02aa4aa596951990d98cda0a71af9534b5a12162f1d644283714517f7d42",
+  "host": "hckang@100.74.222.24",
+  "instance": "tddwalk",
+  "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+  "baseline_release": "df1c4b656c7b1b079a98fe4078477ca97fcb74ff354dc0df3111a2202ce5304c",
+  "candidate_release": "7825ad5e41780f2c0eb42a29a40ac0c7d30acef83beb7c62359ad00e5b1b3fdd",
+  "both_hosts_officially_updated_before_candidate_tests": true,
+  "physics": {
+    "dt_s": 0.01,
+    "substeps": 2,
+    "model_mass_kg": 15.881010170045974,
+    "mppi_samples": 4096,
+    "mppi_iterations": 2
+  },
+  "method": {
+    "speed_sweep": "0.2/0.4/0.8 m/s forward, 2 s settle + 12 s command + 2 s stop, two 1280x720 cameras",
+    "regression": "6 s and 20 s forward/backward/left/right plus three forward/backward start-stop cycles, without cameras",
+    "measurement": "Pre-step world foot feedback and exact latched swing start, touchdown and depth; sample interval .02 s",
+    "steady_window": "4 <= t < settle+duration, free swing with progress 0.05..0.95",
+    "stalled_sample": "desired foot Vz < -.1 m/s, measured foot Z > .03 m, measured Vz >= -.03 m/s",
+    "analysis": "python3 -m workbench.research.analysis.walking_swing <recording-directory>",
+    "runtime": "Production immutable Sim release through installed Compose, pinned Tailscale SSH; no diagnostic DDS participant",
+    "timing": "PNG capture affects timings; this is not a real-time performance acceptance test"
+  },
+  "forward_speed_sweep": [
+    {
+      "name": "forward02",
+      "baseline": {
+        "completed": true,
+        "last_stage": "stand",
+        "displacement_m": [
+          0.7607214208692312,
+          -0.014917295033228584,
+          0.01964813470840454
+        ],
+        "mean_forward_body_m_s": 0.07349940307008346,
+        "mean_requested_forward_m_s": 0.11879997143898084,
+        "steady_roll_pitch_rms_deg": [
+          1.9973914606052021,
+          4.744197421731176
+        ],
+        "steady_height_median_m": 0.3199297934770584,
+        "blocked_fraction": 0.406,
+        "swing_position_error_p50_p95_mm": [
+          21.4515316883555,
+          35.2913871009255
+        ],
+        "swing_velocity_projection_ratio": 0.4148884387225662,
+        "descending_airborne_samples": 200,
+        "descending_airborne_stalled_fraction": 0.37,
+        "touchdown_delay_median_ms": 99.99999999999964,
+        "airborne_force_ticks": 0
+      },
+      "candidate": {
+        "completed": true,
+        "last_stage": "stand",
+        "displacement_m": [
+          0.6368227954953909,
+          -0.18697204029012937,
+          0.016427278518676758
+        ],
+        "mean_forward_body_m_s": 0.0614336745731134,
+        "mean_requested_forward_m_s": 0.1419999191455,
+        "steady_roll_pitch_rms_deg": [
+          2.2254005546389224,
+          3.9316109951028837
+        ],
+        "steady_height_median_m": 0.32486867904663086,
+        "blocked_fraction": 0.29,
+        "swing_position_error_p50_p95_mm": [
+          4.313377844830634,
+          6.998893184404216
+        ],
+        "swing_velocity_projection_ratio": 0.9853806180596513,
+        "descending_airborne_samples": 197,
+        "descending_airborne_stalled_fraction": 0.0,
+        "touchdown_delay_median_ms": 40.000000000000036,
+        "airborne_force_ticks": 0
+      }
+    },
+    {
+      "name": "forward04",
+      "baseline": {
+        "completed": true,
+        "last_stage": "stand",
+        "displacement_m": [
+          2.221318757161498,
+          -0.11580008601595182,
+          0.013348489999771118
+        ],
+        "mean_forward_body_m_s": 0.20790607210519352,
+        "mean_requested_forward_m_s": 0.23439991573243923,
+        "steady_roll_pitch_rms_deg": [
+          1.941766236589519,
+          9.396596215517027
+        ],
+        "steady_height_median_m": 0.3187403082847595,
+        "blocked_fraction": 0.414,
+        "swing_position_error_p50_p95_mm": [
+          26.219130237563252,
+          44.2374472532214
+        ],
+        "swing_velocity_projection_ratio": 0.667882984027532,
+        "descending_airborne_samples": 196,
+        "descending_airborne_stalled_fraction": 0.4846938775510204,
+        "touchdown_delay_median_ms": 80.00000000000007,
+        "airborne_force_ticks": 0
+      },
+      "candidate": {
+        "completed": true,
+        "last_stage": "stand",
+        "displacement_m": [
+          1.290547763928771,
+          -0.015379466654849239,
+          0.018815040588378906
+        ],
+        "mean_forward_body_m_s": 0.11667730508689658,
+        "mean_requested_forward_m_s": 0.28799986361694213,
+        "steady_roll_pitch_rms_deg": [
+          1.2447393770347275,
+          2.6753594141068815
+        ],
+        "steady_height_median_m": 0.3264346569776535,
+        "blocked_fraction": 0.28,
+        "swing_position_error_p50_p95_mm": [
+          4.442557897991353,
+          6.764921162236466
+        ],
+        "swing_velocity_projection_ratio": 0.9914524416091713,
+        "descending_airborne_samples": 195,
+        "descending_airborne_stalled_fraction": 0.0,
+        "touchdown_delay_median_ms": 39.99999999999915,
+        "airborne_force_ticks": 0
+      }
+    },
+    {
+      "name": "forward08",
+      "baseline": {
+        "completed": true,
+        "last_stage": "stand",
+        "displacement_m": [
+          2.7856457587331533,
+          0.7956818457896588,
+          0.028726905584335327
+        ],
+        "mean_forward_body_m_s": 0.26005045935273347,
+        "mean_requested_forward_m_s": 0.46239970952785325,
+        "steady_roll_pitch_rms_deg": [
+          3.542214062488648,
+          9.677325459070605
+        ],
+        "steady_height_median_m": 0.327753022313118,
+        "blocked_fraction": 0.422,
+        "swing_position_error_p50_p95_mm": [
+          28.66655499497238,
+          49.43884199245778
+        ],
+        "swing_velocity_projection_ratio": 0.7397898076691783,
+        "descending_airborne_samples": 192,
+        "descending_airborne_stalled_fraction": 0.5208333333333334,
+        "touchdown_delay_median_ms": 99.99999999999964,
+        "airborne_force_ticks": 0
+      },
+      "candidate": {
+        "completed": true,
+        "last_stage": "stand",
+        "displacement_m": [
+          1.4376831408590078,
+          0.08995002174924593,
+          0.04058048129081726
+        ],
+        "mean_forward_body_m_s": 0.12481663035106555,
+        "mean_requested_forward_m_s": 0.5439996662187536,
+        "steady_roll_pitch_rms_deg": [
+          1.5061226390414888,
+          5.471579148815234
+        ],
+        "steady_height_median_m": 0.3441157042980194,
+        "blocked_fraction": 0.32,
+        "swing_position_error_p50_p95_mm": [
+          4.43555490051419,
+          5.994004189042555
+        ],
+        "swing_velocity_projection_ratio": 0.9922863073682316,
+        "descending_airborne_samples": 188,
+        "descending_airborne_stalled_fraction": 0.0,
+        "touchdown_delay_median_ms": 40.000000000000036,
+        "airborne_force_ticks": 0
+      }
+    }
+  ],
+  "regressions": [
+    {
+      "name": "backward",
+      "completed": true,
+      "displacement": [
+        -1.3426804207265377,
+        -0.042898608138784766,
+        0.00212898850440979
+      ],
+      "roll_pitch": [
+        0.08038609727812863,
+        0.07159889324441182
+      ],
+      "last_stage": "stand",
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": true,
+          "last_t": 9.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.5
+        }
+      ],
+      "airborne_force_ticks": 0,
+      "faults": []
+    },
+    {
+      "name": "backward20",
+      "completed": true,
+      "displacement": [
+        -4.33947416767478,
+        -0.6576300242450088,
+        0.010778337717056274
+      ],
+      "roll_pitch": [
+        0.11661904970435627,
+        0.1581242341346616
+      ],
+      "last_stage": "stand",
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": true,
+          "last_t": 23.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.4600000000000009
+        }
+      ],
+      "airborne_force_ticks": 0,
+      "faults": []
+    },
+    {
+      "name": "backward_cycles",
+      "completed": true,
+      "displacement": [
+        -4.077593293040991,
+        -0.8881906846072525,
+        0.0005398094654083252
+      ],
+      "roll_pitch": [
+        0.13435490470189348,
+        0.13644676231266772
+      ],
+      "last_stage": "stand",
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": true,
+          "last_t": 9.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.5
+        },
+        {
+          "cycle": 2,
+          "completed": true,
+          "last_t": 17.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.379999999999999
+        },
+        {
+          "cycle": 3,
+          "completed": true,
+          "last_t": 25.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.4600000000000009
+        }
+      ],
+      "airborne_force_ticks": 0,
+      "faults": []
+    },
+    {
+      "name": "forward",
+      "completed": true,
+      "displacement": [
+        0.8930949307978153,
+        0.17350545735098422,
+        0.03993195295333862
+      ],
+      "roll_pitch": [
+        0.0845178431354165,
+        0.1310334337345036
+      ],
+      "last_stage": "stand",
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": true,
+          "last_t": 9.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.42
+        }
+      ],
+      "airborne_force_ticks": 0,
+      "faults": []
+    },
+    {
+      "name": "forward20",
+      "completed": true,
+      "displacement": [
+        2.901940379291773,
+        0.7278453132603317,
+        0.040485918521881104
+      ],
+      "roll_pitch": [
+        0.148008881167448,
+        0.1310334337345036
+      ],
+      "last_stage": "stand",
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": true,
+          "last_t": 23.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.6600000000000001
+        }
+      ],
+      "airborne_force_ticks": 0,
+      "faults": []
+    },
+    {
+      "name": "forward_cycles",
+      "completed": true,
+      "displacement": [
+        2.9312291480600834,
+        0.277118923375383,
+        0.037590086460113525
+      ],
+      "roll_pitch": [
+        0.09343403356750726,
+        0.1310334337345036
+      ],
+      "last_stage": "stand",
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": true,
+          "last_t": 9.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.42
+        },
+        {
+          "cycle": 2,
+          "completed": true,
+          "last_t": 17.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.6799999999999997
+        },
+        {
+          "cycle": 3,
+          "completed": true,
+          "last_t": 25.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.5199999999999996
+        }
+      ],
+      "airborne_force_ticks": 0,
+      "faults": []
+    },
+    {
+      "name": "left",
+      "completed": true,
+      "displacement": [
+        -0.12146660313010216,
+        0.29874658794142306,
+        0.00977170467376709
+      ],
+      "roll_pitch": [
+        0.0877122052295951,
+        0.0758194256458149
+      ],
+      "last_stage": "stand",
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": true,
+          "last_t": 9.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.0199999999999996
+        }
+      ],
+      "airborne_force_ticks": 0,
+      "faults": []
+    },
+    {
+      "name": "left20",
+      "completed": true,
+      "displacement": [
+        -0.17136773094534874,
+        1.00313556403853,
+        0.014215916395187378
+      ],
+      "roll_pitch": [
+        0.0877122052295951,
+        0.13561337771208315
+      ],
+      "last_stage": "stand",
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": true,
+          "last_t": 23.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.1600000000000001
+        }
+      ],
+      "airborne_force_ticks": 0,
+      "faults": []
+    },
+    {
+      "name": "right",
+      "completed": true,
+      "displacement": [
+        0.08829508535563946,
+        -0.32006045019079465,
+        0.011763721704483032
+      ],
+      "roll_pitch": [
+        0.08861292130998158,
+        0.13093424763338657
+      ],
+      "last_stage": "stand",
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": true,
+          "last_t": 9.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.2400000000000002
+        }
+      ],
+      "airborne_force_ticks": 0,
+      "faults": []
+    },
+    {
+      "name": "right20",
+      "completed": true,
+      "displacement": [
+        -0.41717835888266563,
+        -1.1330581882502884,
+        0.00911828875541687
+      ],
+      "roll_pitch": [
+        0.11710909325090416,
+        0.13250753534495097
+      ],
+      "last_stage": "stand",
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": true,
+          "last_t": 23.98,
+          "last_stage": "stand",
+          "stand_after_s": 1.4000000000000021
+        }
+      ],
+      "airborne_force_ticks": 0,
+      "faults": []
+    }
+  ],
+  "software": {
+    "canonical_passed": 692,
+    "skipped": 4,
+    "deselected": 1,
+    "excluded": "Existing RL start path -0.166 m exceeds new calibrated lower limit -0.142 m; test_the_shipped_path_ends_where_the_wrap_is",
+    "skips": "qpOASES, two opt-in actual camera-worker cases, unspecified fixed-foot trace"
+  },
+  "remaining": [
+    "Forward command velocity tracking regressed: .8 m/s steady actual mean .260 to .125 m/s despite improved foot tracking",
+    "Diagnose stance actuation and raw joint-velocity damping without sacrificing the now verified swing tracking",
+    "Resolve the separately imported RL waypoint/calibrated-limit mismatch"
+  ],
+  "raw_directories": [
+    "workbench/evidence/generated/contact-gait/a24e487-defaults-speed-sweep",
+    "workbench/evidence/generated/contact-gait/9231adf-defaults-speed-sweep",
+    "workbench/evidence/generated/contact-gait/9231adf-defaults"
+  ],
+  "regression_raw_archive": {
+    "path": "workbench/evidence/generated/contact-gait/9231adf-defaults/bundle.json.gz",
+    "sha256": "2b2ac5bac337b45c23c8ccae69e51fd039e5055f6c29f2157dc3ed0a016004bf",
+    "bytes": 14705058
+  }
+}

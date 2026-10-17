@@ -161,6 +161,10 @@ def main() -> None:
                     desired_com=sample.desired_com_position.tolist(),
                     velocity=sample.com_velocity.tolist(),
                     desired_velocity=sample.desired_com_velocity.tolist(),
+                    contacts=sample.contacts[:, 0].tolist(),
+                    feet_world=sample.feet_world.tolist(),
+                    foot_velocity_world=result[2].tolist(),
+                    foot_jacobians_world=result[3].tolist(),
                 )
                 return result
 
@@ -172,6 +176,7 @@ def main() -> None:
             dt = float(params.dt)
             emit(dict(kind="configuration", dt=dt, substeps=params.substeps, command=args.command,
                       solver_dt=controller._solver.dt, solver_stride=controller._solve_stride,
+                      gait_hz=controller._config.gait_hz, gait_duty=controller._config.gait_duty,
                       duration=args.duration, settle=args.settle, stop=args.stop, cycles=args.cycles,
                       fixed_target=bool(args.keep_target), controller=type(controller).__name__,
                       backend=locomotion.mpc_solver_backend, gpu_samples=locomotion.mpc_gpu_samples,
