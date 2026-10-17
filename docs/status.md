@@ -1,6 +1,6 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-17. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-18. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
@@ -21,7 +21,8 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 - 지지 중 실제 진행속도의 명령 방향 성분만 0..현재 shaped 목표속도로
   제한하고, 지면 고정발의 관절 기준속도로 변환해 기존 감쇠의 기준 토크를
   더한다. 수직·측면·회전·역방향·과속·정지 오차와 null space는 계속 감쇠한다.
-  확인된 지지발에만 기존 착지 하중을 곱하고 최종 토크 제한·필터를 통과한다.
+  확인된 지지발에만 허용하고 최종 토크 제한·필터를 통과한다. GRF에는 기존
+  착지 하중을 곱하지만, 일정한 motor damping의 기준 토크는 하중으로 줄이지 않는다.
 - 착지 대기는 새 liftoff를 계속 막되, 이미 달성한 명령 방향 속도를 매번
   0으로 제동하지 않는다. 횡방향 drift나 아직 달성하지 않은 가속은 요청하지
   않는다. 진행 방향쪽 목표 높이를 유지하는 뒤쪽 1 cm body-reference trim도 적용한다.
@@ -63,7 +64,23 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   Reference에는 load를 곱하지 않고, 실제 확인된 접촉 mask로만 허용한다.
   GRF의 기존 load ramp와 접촉·최종 토크 제한은 유지한다.
 - 이 수정 후 동일 canonical 전체는 **777 passed / 4 skipped / 1 deselected**다.
-  새 설치본 실제 보행의 재검증은 아직 완료하지 않았다.
+- `734a36d`도 양쪽 공식 update/설치 해시/GPU2 확인 후 실제 10개 시험을 했다.
+  전후좌우 6초·정지와 전진/좌/우 20초는 완주했으며, 20초 전진의 실제
+  평균 속도는 .798 m/s, roll/pitch RMS는 1.93/1.87도였다. 그러나 후진 20초는
+  t=10.02 s, 전진/후진 반복은 각각 정지/재출발 구간에서 실패했다. 7/10 완주이며
+  안정성 완료로 보고하지 않는다.
+- 후진 FL의 t=9.62 s 기록에서 요청한 적용 GRF 10 N에 비해 감쇠 환산 upward
+  약 25.5 N, passive를 포함한 적용 토크의 환산 downward -15.3 N이었다.
+  실제 normal은 0 N이고, 무하중이 이어져 확인된 접촉을 다시 잃었다. 이 환산은
+  quasi-static actuator 추정이며 새 물리 측정값이 아니다.
+- 보정 전 `test_60`은 **3 failed / 4 passed**로, .1 m/s 수직 base 운동에서
+  지지 10 N이 감쇠 후 upward 6.15 N이 되는 현상을 재현했다. 확인된 지지발의
+  최종 active 토크와 passive damping을 환산해 기존 solved normal 하한에 부족한
+  성분만 최대 60 N 범위의 motor bias로 보상한다. 접선 감쇠, 충분한 지지의 감쇠,
+  MPC force/load 요청과 contact gate, 최종 토크 상한·필터 및 CPU는 유지한다.
+  특이 Jacobian에서는 보상을 만들지 않는다. 관련 focused 회귀는 **51 passed**다.
+  동일 canonical 전체는 **790 passed / 4 skipped / 1 deselected**다.
+  새 수정의 설치본 실제 GPU2 재검증은 다음 push/양쪽 공식 update 후 진행한다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.

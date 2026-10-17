@@ -120,6 +120,36 @@ def swing_damping_reference_torque(jacobian, joint_velocity, measured_velocity,
     return float(damping) * reference
 
 
+def support_damping_floor_torque(jacobian, active_torque, joint_velocity, *,
+                                 passive_damping, minimum_force_n, correction_limit_n=60.):
+    """Keep motor drag from reversing an already confirmed support force.
+
+    The optimizer's floor describes ground reaction after actuation. Include
+    passive damping in the quasi-static actuator force, and restore only its
+    missing downward normal component. Tangential damping remains intact.
+    This is bounded motor-bias compensation, not a new GRF or contact claim.
+    Final actuator limits and filtering still own the applied joint torque.
+    """
+    jacobian = np.asarray(jacobian, dtype=float)
+    active_torque = np.asarray(active_torque, dtype=float)
+    joint_velocity = np.asarray(joint_velocity, dtype=float)
+    if (jacobian.shape != (3, 3) or active_torque.shape != (3,)
+            or joint_velocity.shape != (3,)
+            or not all(np.isfinite(value).all() for value in
+                       (jacobian, active_torque, joint_velocity))
+            or not np.isfinite([passive_damping, minimum_force_n, correction_limit_n]).all()
+            or min(passive_damping, minimum_force_n) < 0. or correction_limit_n <= 0.):
+        raise ValueError('support damping floor needs finite actuator data and nonnegative gains')
+    if minimum_force_n == 0.:
+        return np.zeros(3)
+    equivalent, _, rank, _ = np.linalg.lstsq(
+        jacobian.T, active_torque-passive_damping*joint_velocity, rcond=1e-3)
+    if rank < 3:
+        return np.zeros(3)
+    correction = float(np.clip(minimum_force_n+equivalent[2], 0., correction_limit_n))
+    return -jacobian[2]*correction
+
+
 def solver_update_stride(sim_dt: float, prediction_dt: float, *, backend: str) -> int:
     """Refresh GPU forces within one prediction stage; retain CPU cadence."""
     if not np.isfinite([sim_dt, prediction_dt]).all() or min(sim_dt, prediction_dt) <= 0.:
@@ -1036,7 +1066,27 @@ class PyMpcGenesisController:
         # Stance damping must not fight the commanded swing velocity. The
         # swing task already supplies its own velocity feedback.
         auxiliary[swing_dofs] = 0.0
-        tau = tau * self._torque_scale() + auxiliary
+        torque_scale = self._torque_scale()
+        tau = tau * torque_scale + auxiliary
+        if self._solver.backend == 'jax_mppi' and sample.support_force_floor_n > 0.:
+            for i in range(4):
+                if contacts[i] != 1.:
+                    continue
+                sl = slice(3*i, 3*i+3)
+                # Preserve the solved/load-ramped support floor, including
+                # the motor's passive load at every physics substep. Do not
+                # turn the quiet stop's gravity compensation into a GRF.
+                support_torque = tau[sl]
+                if static_gravity:
+                    support_torque = support_torque-torque_scale*self._joint_gravity[sl]
+                floor = min(float(sample.support_force_floor_n),
+                            torque_scale*self._forces[i, 2]*self._contact_gait.load[i])
+                tau[sl] += support_damping_floor_torque(
+                    jacobians[i], support_torque, joint_vel[sl],
+                    passive_damping=(float(self._config.joint_damping)
+                                     +float(self._config.leg_kv_damping)),
+                    minimum_force_n=floor,
+                    correction_limit_n=min(60., float(self._config.fz_max_n)))
         self._tau_limited = np.clip(tau, -self._tau_lim, self._tau_lim)
         alpha = float(np.clip(self._config.tau_filter_alpha, 0.05, 1.0))
         # All stance legs may redistribute load at a contact change. Do not
