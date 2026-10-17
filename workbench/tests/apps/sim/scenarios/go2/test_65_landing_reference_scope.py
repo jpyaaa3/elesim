@@ -16,27 +16,24 @@ def test_fully_loaded_feet_keep_the_previous_bounded_body_feedback(body_motion, 
     c._cmd = Go2Command(vx=-.8)
     c._settling = settling
     velocity = np.linalg.solve(JACOBIAN, -np.array(body_motion))
-    actual = c._stance_damping_reference(state, np.tile(JACOBIAN, (4, 1, 1)),
-        joint_velocity=np.tile(velocity, 4), foot_velocity=np.zeros((4, 3)))
+    actual = c._stance_damping_reference(state, np.tile(JACOBIAN, (4, 1, 1)))
     progress = np.zeros(3) if settling else commanded_progress_velocity(body_motion, [-.8, 0., 0.])
     expected = 3.6*np.linalg.solve(JACOBIAN, -progress)
     np.testing.assert_allclose(actual.reshape(4, 3), np.tile(expected, (4, 1)), atol=1e-10)
 
 
-def test_new_landing_does_not_remove_body_feedback_from_the_other_three_feet():
+def test_new_landing_preserves_the_previous_bounded_support_feedback():
     c, state = controller()
     body_motion = np.array([.3, .1, .1])
     c._base_velocity_world = body_motion
     c._contact_gait.load[0] = 2/3
     velocity = np.linalg.solve(JACOBIAN, -body_motion)
-    actual = c._stance_damping_reference(state, np.tile(JACOBIAN, (4, 1, 1)),
-        joint_velocity=np.tile(velocity, 4), foot_velocity=np.zeros((4, 3)))
+    actual = c._stance_damping_reference(state, np.tile(JACOBIAN, (4, 1, 1)))
     expected = np.tile(3.6*np.linalg.solve(JACOBIAN, [-.3, 0., 0.]), (4, 1))
-    expected[0] = 3.6*velocity
     np.testing.assert_allclose(actual.reshape(4, 3), expected, atol=1e-10)
 
 
-def test_return_from_landing_still_uses_the_existing_torque_filter():
+def test_landing_load_changes_still_use_the_existing_torque_filter():
     c, state = controller()
     c._config.tau_filter_alpha = .25
     c._base_velocity_world = np.array([.3, .1, .1])

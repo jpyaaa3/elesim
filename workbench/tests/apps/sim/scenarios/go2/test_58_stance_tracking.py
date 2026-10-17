@@ -55,7 +55,7 @@ def test_actual_stance_motor_load_preserves_error_damping_and_not_progress_drag(
 
 
 @pytest.mark.parametrize('inactive', ['stopped', 'opposite', 'settling', 'cpu', 'turning'])
-def test_stop_rotation_and_cpu_keep_the_existing_fully_loaded_damping(inactive):
+def test_stop_rotation_and_cpu_keep_the_existing_damping(inactive):
     c, state = controller()
     if inactive == 'stopped':
         c._cmd = Go2Command()
@@ -67,9 +67,7 @@ def test_stop_rotation_and_cpu_keep_the_existing_fully_loaded_damping(inactive):
         c._solver.backend = 'acados'
     elif inactive == 'turning':
         c._cmd = Go2Command(yaw_rate=.8)
-    velocity = np.tile([-.3, 0., 0.], 4)
-    reference = c._stance_damping_reference(state, np.tile(np.eye(3), (4, 1, 1)),
-        joint_velocity=velocity, foot_velocity=np.zeros((4, 3)))
+    reference = c._stance_damping_reference(state, np.tile(np.eye(3), (4, 1, 1)))
     np.testing.assert_array_equal(reference, np.zeros(12))
 
 
@@ -78,8 +76,7 @@ def test_only_confirmed_stance_receives_the_motion_reference():
     state.contacts[1:3] = 0.
     c._contact_gait.search[1] = True
     c._contact_gait.load[:] = [1., 1., 1., .25]
-    reference = c._stance_damping_reference(state, np.tile(np.eye(3), (4, 1, 1)),
-        joint_velocity=np.tile([-.3, 0., 0.], 4), foot_velocity=np.zeros((4, 3)))
+    reference = c._stance_damping_reference(state, np.tile(np.eye(3), (4, 1, 1)))
     np.testing.assert_allclose(reference.reshape(4, 3),
         [[-1.08, 0., 0.], [0., 0., 0.], [0., 0., 0.], [-1.08, 0., 0.]])
 
@@ -100,12 +97,11 @@ def test_landing_load_scales_support_force_and_not_the_unscaled_damping_referenc
 def test_world_heading_rotation_preserves_joint_reference_torque():
     c, state = controller()
     jacobians = np.tile(np.diag([.2, .15, .1]), (4, 1, 1))
-    values = dict(joint_velocity=np.tile([-1.5, 0., 0.], 4), foot_velocity=np.zeros((4, 3)))
-    expected = c._stance_damping_reference(state, jacobians, **values)
+    expected = c._stance_damping_reference(state, jacobians)
     r = Rotation.from_euler('z', .7).as_matrix()
     c._base_velocity_world = r@c._base_velocity_world
     turned = replace(state, rpy=np.array([0., 0., .7]))
-    actual = c._stance_damping_reference(turned, r@jacobians, **values)
+    actual = c._stance_damping_reference(turned, r@jacobians)
     np.testing.assert_allclose(actual, expected, atol=1e-12)
 
 
@@ -122,11 +118,10 @@ def test_swing_diagnostic_does_not_change_the_native_stance_reference(monkeypatc
     import elesim_sim.robot.go2.pympc_controller as module
     c, state = controller()
     jacobians = np.tile(np.eye(3), (4, 1, 1))
-    values = dict(joint_velocity=np.tile([-.3, 0., 0.], 4), foot_velocity=np.zeros((4, 3)))
-    expected = c._stance_damping_reference(state, jacobians, **values)
+    expected = c._stance_damping_reference(state, jacobians)
     assert np.any(expected)
     monkeypatch.setattr(module, 'swing_damping_reference_torque', lambda *args, **kw: np.zeros(3))
-    np.testing.assert_array_equal(c._stance_damping_reference(state, jacobians, **values), expected)
+    np.testing.assert_array_equal(c._stance_damping_reference(state, jacobians), expected)
 
 
 @pytest.mark.parametrize('actual,command', [([float('nan'), 0., 0.], [.8, 0., 0.]),

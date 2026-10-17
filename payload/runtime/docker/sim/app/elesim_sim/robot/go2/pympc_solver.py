@@ -44,6 +44,9 @@ class PyMpcInput:
     support_force_floor_n: float = 0.0
     landing_search: np.ndarray | None = None
     actuation_scales: np.ndarray | None = None
+    support_torque_maps: np.ndarray | None = None
+    support_torque_offsets: np.ndarray | None = None
+    support_torque_limits: np.ndarray | None = None
 
 
 def _finite_array(name: str, value: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
@@ -77,6 +80,28 @@ def support_load_horizon(contacts: np.ndarray, current: np.ndarray, dt: float) -
         result[stage] = np.where(contact[:, stage] == 1.,
                                  np.minimum(1., result[stage - 1] + dt / 0.06), 0.)
     return result
+
+
+def project_support_motor_limits(array, force, loads, maps, offsets, limits):
+    """Scale a force ray into both affine motor-torque boxes.
+
+    Scaling preserves unilateral support and the friction cone. An infeasible
+    normal-force floor must yield to the actual motor bounds. Zero maps leave
+    the existing force projection exactly unchanged.
+    """
+    direction = array.einsum('...ijk,...ik->...ij', maps, force*loads[..., None])
+    nonzero = array.abs(direction) > 1e-12
+    divisor = array.where(nonzero, direction, 1.)
+    first, second = (-limits-offsets)/divisor, (limits-offsets)/divisor
+    valid_bias = array.abs(offsets) <= limits
+    low = array.where(nonzero, array.minimum(first, second),
+                      array.where(valid_bias, -array.inf, array.inf))
+    high = array.where(nonzero, array.maximum(first, second),
+                       array.where(valid_bias, array.inf, -array.inf))
+    lower = array.maximum(0., array.max(low, axis=-1))
+    upper = array.minimum(1., array.min(high, axis=-1))
+    scale = array.where(upper >= lower, array.maximum(0., upper), 0.)
+    return force*scale[..., None]
 
 
 class PyMpcForceSolver:
@@ -276,6 +301,16 @@ class PyMpcForceSolver:
                 reference[f"preview_foot_{leg}"] = preview[index : index + 1]
         parameters = dict(mass=mass, inertia=inertia.reshape(9))
         if self.backend == "jax_mppi":
+            motor_fields = ('support_torque_maps', 'support_torque_offsets', 'support_torque_limits')
+            present = [getattr(sample, name) is not None for name in motor_fields]
+            if any(present) and not all(present):
+                raise ValueError('support motor constraints require maps, offsets and limits together')
+            if all(present):
+                for name, shape in zip(motor_fields, ((self.horizon, 4, 6, 3),
+                                                      (self.horizon, 4, 6), (self.horizon, 4, 6))):
+                    reference[name] = _finite_array(name, getattr(sample, name), shape)
+                if np.any(reference['support_torque_limits'] <= 0.):
+                    raise ValueError('support_torque_limits must be positive')
             floor = float(sample.support_force_floor_n)
             if not np.isfinite(floor) or not 0. <= floor <= self.max_normal_force_n:
                 raise ValueError("PyMPC support_force_floor_n must be finite within the normal force cap")

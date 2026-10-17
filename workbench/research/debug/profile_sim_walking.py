@@ -307,6 +307,21 @@ def main() -> None:
                 return result
 
             controller._sample = observe_control_sample
+            original_force_solve = controller._solver.solve
+            def observe_force_solution(sample):
+                forces = original_force_solve(sample)
+                active = getattr(sample, 'support_torque_maps', None) is not None
+                latest_control['support_motor_constraints_active'] = active
+                if active:
+                    loads = sample.support_loads if sample.support_loads is not None else sample.contacts[:, 0]
+                    gain = sample.actuation_scales[0] if sample.actuation_scales is not None else 1.
+                    applied = forces*np.asarray(loads)[:, None]*gain
+                    torque = (np.einsum('ijk,ik->ij', sample.support_torque_maps[0], applied)
+                              + sample.support_torque_offsets[0])
+                    latest_control['planned_motor_torque_max_ratio'] = float(np.max(
+                        np.abs(torque)/sample.support_torque_limits[0]))
+                return forces
+            controller._solver.solve = observe_force_solution
             solve_times = []
             controller._timing_sink = lambda name, seconds: (
                 solve_times.append(seconds) if name == "go2_pympc_solve" else None
@@ -325,6 +340,8 @@ def main() -> None:
                       diagnostic_stance_progress_compensation=args.stance_progress_compensation,
                       diagnostic_coast_during_landing=args.coast_during_landing,
                       runtime_stance_reference=(native_stance_reference is not None
+                          and controller._solver.backend == 'jax_mppi'),
+                      runtime_motor_constraints=(hasattr(controller_module, 'support_actuator_constraints')
                           and controller._solver.backend == 'jax_mppi'),
                       runtime_trailing_crouch_m=(getattr(controller_module, '_WALK_TRAILING_CROUCH_M', 0.)
                           if controller._solver.backend == 'jax_mppi' else 0.),

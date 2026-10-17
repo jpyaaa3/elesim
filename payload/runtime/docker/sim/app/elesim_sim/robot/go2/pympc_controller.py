@@ -28,7 +28,7 @@ from elesim_sim.robot.go2.mpc.contact_diagnostics import GenesisContactDiagnosti
 from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
 from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge, synchronize_model_inertias
 from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
-from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput
+from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput, project_support_motor_limits
 from elesim_sim.robot.go2.foot_workspace import project_ground_target, reachable
 from elesim_sim.simulation.genesis.utils import to_numpy_1d
 
@@ -118,6 +118,36 @@ def swing_damping_reference_torque(jacobian, joint_velocity, measured_velocity,
     # independently can inject a null-space command at a singular pose.
     reference /= max(1., float(np.max(np.abs(reference) / limits)))
     return float(damping) * reference
+
+
+def support_actuator_constraints(jacobians, raw_torque_bias, auxiliary_torque,
+                                  torque_limits, actuation_scales):
+    """Map applied GRF into the two existing motor clipping stages.
+
+    Freeze measured leg Jacobians over this short horizon. The first box is
+    before the startup gain; the second includes that gain and auxiliary PD.
+    Passive Genesis damping is outside the motor command and is not a motor
+    torque offset. No actuator bound is raised.
+    """
+    jacobians = np.asarray(jacobians, dtype=float)
+    raw_bias = np.asarray(raw_torque_bias, dtype=float)
+    auxiliary = np.asarray(auxiliary_torque, dtype=float)
+    limits = np.asarray(torque_limits, dtype=float)
+    gains = np.asarray(actuation_scales, dtype=float)
+    if (jacobians.shape != (4, 3, 3) or any(value.shape != (12,) for value in
+            (raw_bias, auxiliary, limits)) or gains.ndim != 1 or len(gains) < 1
+            or not all(np.isfinite(value).all() for value in
+                       (jacobians, raw_bias, auxiliary, limits, gains))
+            or np.any(limits <= 0.) or np.any((gains <= 0.) | (gains > 1.))):
+        raise ValueError('support actuator constraints need finite leg inputs, positive limits and gains')
+    shape = (len(gains), 4, 3, 3)
+    final_maps = np.broadcast_to(-jacobians.transpose(0, 2, 1), shape)
+    maps = np.concatenate((final_maps/gains[:, None, None, None], final_maps), axis=2)
+    raw_bias = np.broadcast_to(raw_bias.reshape(4, 3), shape[:-1])
+    final_bias = gains[:, None, None]*raw_bias + auxiliary.reshape(4, 3)
+    offsets = np.concatenate((raw_bias, final_bias), axis=2)
+    limits = np.tile(limits.reshape(4, 3), (len(gains), 1, 2))
+    return maps, offsets, limits
 
 
 def solver_update_stride(sim_dt: float, prediction_dt: float, *, backend: str) -> int:
@@ -928,6 +958,16 @@ class PyMpcGenesisController:
     def _torques(self, sample: PyMpcInput, feet: np.ndarray, foot_vel: np.ndarray,
                  jacobians: np.ndarray, joint_vel: np.ndarray) -> np.ndarray:
         contacts = sample.contacts[:, 0]
+        auxiliary = self._aux_pd_torque(joint_vel)
+        auxiliary += self._stance_damping_reference(sample, jacobians)
+        static_gravity = bool(
+            self._settling and np.all(contacts == 1.)
+            and np.all(self._contact_gait.load >= 1.-1e-9)
+            and np.linalg.norm(sample.com_velocity) < .08
+            and np.linalg.norm(sample.angular_velocity_body) < .15
+            and np.max(np.abs(joint_vel)) < .5
+            and self._solver.backend == "jax_mppi"
+        )
         swing_previous = self._swing_previous_contacts(contacts)
         support_changed = not np.array_equal(contacts, self._last_contacts)
         fresh_distribution = support_changed or (self._solver.backend == 'jax_mppi' and self._step_i == 0)
@@ -938,15 +978,32 @@ class PyMpcGenesisController:
             self._forces.fill(0.0)
         elif self._step_i % self._solve_stride == 0 or support_changed:
             started = time.perf_counter()
-            self._force_requested = self._solver.solve(sample)
+            solver_sample = sample
+            if self._solver.backend == 'jax_mppi':
+                raw_bias = -.5*joint_vel + (self._joint_gravity if static_gravity else 0.)
+                support_dofs = np.repeat(contacts == 1., 3)
+                gains = (sample.actuation_scales if sample.actuation_scales is not None else
+                         np.full(sample.contacts.shape[1], self._torque_scale()))
+                maps, offsets, limits = support_actuator_constraints(jacobians,
+                    np.where(support_dofs, raw_bias, 0.), np.where(support_dofs, auxiliary, 0.),
+                    self._tau_lim, gains)
+                solver_sample = replace(sample, support_torque_maps=maps,
+                    support_torque_offsets=offsets, support_torque_limits=limits)
+            self._force_requested = self._solver.solve(solver_sample)
             alpha = float(np.clip(self._config.force_filter_alpha, 0.05, 1.0))
+            history = self._forces
+            if self._solver.backend == 'jax_mppi' and not fresh_distribution:
+                # The old force was feasible at an older pose/bias. Keep the
+                # configured filter, but blend two currently feasible forces.
+                history = project_support_motor_limits(np, history,
+                    self._contact_gait.load*gains[0], maps[0], offsets[0], limits[0])
             # The previous distribution balances a different support set.
             # Blending it across liftoff loses its removed foot's force/moment;
             # at touchdown it also mixes the new support with a swing zero.
             # Start the new support phase with its freshly solved distribution.
             filtered = (
                 self._force_requested.copy() if fresh_distribution
-                else alpha * self._force_requested + (1.0 - alpha) * self._forces
+                else alpha * self._force_requested + (1.0 - alpha) * history
             )
             mu = float(self._config.optimization_friction)
             fz_max = float(self._config.fz_max_n)
@@ -971,14 +1028,6 @@ class PyMpcGenesisController:
         # Direct gravity feedforward regressed dynamic walking. Use inverse
         # statics only during a quiet, fully loaded four-foot stop, where the
         # measured force bias otherwise leaves a residual body tilt.
-        static_gravity = bool(
-            self._settling and np.all(contacts == 1.)
-            and np.all(self._contact_gait.load >= 1.-1e-9)
-            and np.linalg.norm(sample.com_velocity) < .08
-            and np.linalg.norm(sample.angular_velocity_body) < .15
-            and np.max(np.abs(joint_vel)) < .5
-            and self._solver.backend == "jax_mppi"
-        )
         for i in range(4):
             sl = slice(i * 3, i * 3 + 3)
             if contacts[i] == 1:
@@ -1061,9 +1110,6 @@ class PyMpcGenesisController:
         self._tau_raw = tau.copy()
         tau = np.clip(tau, -self._tau_lim, self._tau_lim)
         swing_dofs = np.repeat(contacts == 0, 3)
-        auxiliary = self._aux_pd_torque(joint_vel)
-        auxiliary += self._stance_damping_reference(sample, jacobians,
-            joint_velocity=joint_vel, foot_velocity=foot_vel)
         # Stance damping must not fight the commanded swing velocity. The
         # swing task already supplies its own velocity feedback.
         auxiliary[swing_dofs] = 0.0
@@ -1090,33 +1136,32 @@ class PyMpcGenesisController:
         return previous
 
     def _stance_damping_reference(self, sample: PyMpcInput, jacobians: np.ndarray, *,
-                                  joint_velocity: np.ndarray, foot_velocity: np.ndarray,
                                   reference_solver=swing_damping_reference_torque) -> np.ndarray:
-        """Match the search frame while a newly confirmed foot takes load.
+        """Damp stance errors without braking existing commanded translation.
 
-        Fully loaded feet retain the bounded progress reference and existing
-        body damping. During the existing landing ramp only, keep the same
-        measured ground frame used immediately before contact confirmation.
-        The normal torque filter smooths the return at full load. Contact
-        evidence, load multipliers and actuator limits remain unchanged.
+        Keep the original damping gains and substep damping. Only the bounded
+        commanded component receives a matching reference torque; vertical,
+        rotational and cross-command motion retain their existing damping.
+        Contact confirmation gates the reference. Landing load scales the
+        support force, while damping and its reference remain unscaled.
+        Final torque limits and filtering still apply.
         """
         reference = np.zeros(12)
-        if self._solver.backend != 'jax_mppi':
+        if self._solver.backend != 'jax_mppi' or self._settling:
             return reference
         command_world = Rotation.from_euler('z', sample.rpy[2]).apply(
             [self._cmd.vx, self._cmd.vy, 0.])
-        progress = (np.zeros(3) if self._settling else
-                    commanded_progress_velocity(self._base_velocity_world, command_world))
+        progress = commanded_progress_velocity(self._base_velocity_world, command_world)
+        if not np.any(progress):
+            return reference
         damping = (.5*self._torque_scale()+float(self._config.joint_damping)
                    +float(self._config.leg_kv_damping)+float(self._config.aux_kv))
         for i in range(4):
             if sample.contacts[i, 0] != 1.:
                 continue
             sl = slice(3*i, 3*i+3)
-            loading = self._contact_gait.load[i] < 1.-1e-9
             reference[sl] = reference_solver(
-                jacobians[i], joint_velocity[sl] if loading else np.zeros(3),
-                foot_velocity[i] if loading else progress, np.zeros(3), damping=damping,
+                jacobians[i], np.zeros(3), progress, np.zeros(3), damping=damping,
                 velocity_limits=self._swing_velocity_limits[sl])
         return reference
 

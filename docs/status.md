@@ -156,6 +156,30 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   복귀도 기존 torque filter를 통과한다. 새 시간상수·접촉 완화·force 보정은
   추가하지 않았다. Canonical 전체는 **839 passed / 4 skipped / 1 deselected**다.
   이 범위 축소 후보의 실제 보행 결과는 다음 설치본 검증에서 확인한다.
+- `3d6a0ac`도 push/양쪽 update와 설치 해시/GPU2를 확인했지만 **6/10**이었다.
+  짧은 전후좌우와 긴 좌/우는 완주·정지했으며 후진 20초는 4.60 s,
+  전진 반복 19.88 s, 후진 반복 25.42 s, 전진 20초 23.74 s에 fault였다.
+  착지 중에만 적용한 보상도 채택하지 않고 `d0eee6c`의 지지 감쇠로 돌아간다.
+- 추가 분해에서 후진 FL t=14.86 s upward 환산 28.2 N의 주성분은
+  lateral translation 16.7 N과 rotation 16.2 N이며 root vertical은 3.1 N이다.
+  Foot-error 등의 반대 성분도 포함한 합이며, 단순 수직 보상으로 단정하지 않는다.
+- 같은 기록에서 calf 명령이 31.995 Nm 상한에 잘리는 구간이 있었지만
+  MPPI rollout에는 180 N GRF cap과 friction만 있고 실제 joint torque box가
+  없었다. 실제 JAX 계산의 **7 failed / 1 passed**로 startup/load와 bias를
+  포함한 raw/final 모터 상한 초과를 재현했다. Seed·모든 sample·weighted
+  update를 기존 두 clipping 단계의 affine torque box에 넣고 그 힘을 그대로
+  scoring한다. 불가능한 normal floor보다 실제 상한을 우선한다.
+- 기존 force history가 새 자세의 상한을 다시 넘기는 추가 red 1개도 재현했다.
+  이전 힘을 현재 가능한 범위로 줄인 뒤 기존 계수로 섞는다. 미래 Jacobian과
+  auxiliary offset은 짧은 horizon 동안 고정하는 근사이며, 전체 leg dynamics나
+  필터 지연을 모두 모델링했다는 뜻은 아니다. 새 모터 상한·접촉 완화는 없다.
+  어떤 지지력으로도 motor bias를 만족할 수 없는 추가 red **1 failed /
+  1 passed**도 재현해 실제 지지 후보 scoring에서 배제했다. Swing의 offset은
+  이 지지 조건에 넣지 않는다. Canonical 전체는 **851 passed / 4 skipped /
+  1 deselected**다. 관측에는
+  제약 활성 여부와 실제 solver 반환 힘의 raw/final 토크 비율을 기록한다.
+  다음 push/양쪽 공식 update 뒤 controller·solver·JAX 해시를 모두 검사하고
+  실제 GPU2에서 긴 후진부터 같은 수용시험을 다시 진행한다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.
