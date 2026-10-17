@@ -1,6 +1,6 @@
 {
   "date": "2026-10-17",
-  "state": "828 canonical regressions passed; measured ground-frame stance correction awaiting installed GPU2 acceptance",
+  "state": "Global ground-frame compensation rejected3of10. Landing-only correction passes839 canonical regressions; installed GPU2 acceptance pending.",
   "purpose": "Restore before briskness while preserving physical landing and lower trailing body slightly.",
   "environment": {
     "host": "hckang@100.74.222.24 via pinned Tailscale SSH",
@@ -15,7 +15,7 @@
     "physics": "Production Genesis GO2+arm, no DDS participant, no cameras in prototype sweeps"
   },
   "canonical_regression": {
-    "passed": 828,
+    "passed": 839,
     "skipped": 4,
     "deselected": 1,
     "deselected_test": "rl/test_start_path.py::test_the_shipped_path_ends_where_the_wrap_is (existing -0.166 vs -0.142 m mismatch)",
@@ -38,7 +38,7 @@
     "completed": true,
     "explanation": "All observed stopped-descending samples are isolated single samples at progress .55 near apex. Original before had runs up to three samples and stalls through progress .825. Original all-descent metric is retained, not replaced by the phase split."
   },
-  "production_controller_sha256": "ab8a5c8df8726e8bcf1f195809aad8169ef0c84b693032e487f5053166eb77e3",
+  "production_controller_sha256": "9a4957854a5ec1170653d3078485acbc4d94455f8522ceb4d762171b00a2e3ff",
   "production_default_runs": [
     {
       "source_revision": "git-029ed33c65d137aa939a4bb670f425a084ad8a79",
@@ -3033,6 +3033,552 @@
           ]
         }
       ]
+    },
+    {
+      "source_revision": "git-ca6f1e7df43cd9ad6e5c1e16572c69011819b463",
+      "release_key": "97ad5f7e17f5167aa332ad491ea5a173d230893a870705c998c1fc6901d84ac8",
+      "controller_sha256": "ab8a5c8df8726e8bcf1f195809aad8169ef0c84b693032e487f5053166eb77e3",
+      "solver_sha256": "2683d63340a85e51eec42215996c6bb66242e0cd218a00d77cea4847ec702d31",
+      "raw_bundle": {
+        "path": "workbench/evidence/generated/contact-gait/native-ca6f1e7-bundle.json",
+        "sha256": "56c791eff6a7ba7e9b126d339f7b725d739d2fbc41d91253891e17c2f75f428f"
+      },
+      "report": {
+        "directory": "/tmp/elesim-tdd-release-ca6f1e7-restarts-defaults",
+        "done": true,
+        "trials": [
+          {
+            "name": "backward",
+            "completed": false,
+            "t": 7.22,
+            "outer_dt": 0.01,
+            "substeps": 2,
+            "wall_s": 6.793346079066396,
+            "sim_per_wall": 1.064276707803706,
+            "displacement": [
+              -2.4999916218221188,
+              -0.20195267884992063,
+              -0.028145641088485718
+            ],
+            "roll_pitch": [
+              0.42829676493648144,
+              0.3452036487702206
+            ],
+            "mass_kg": 15.881010170045974,
+            "solve_ms": [
+              5.316962022334337,
+              5.703916773200035
+            ],
+            "step_ms": [
+              7.645230274647474,
+              14.89533968269825
+            ],
+            "last_stage": "fault",
+            "cycle_stops": [
+              {
+                "cycle": 1,
+                "completed": false,
+                "last_t": null,
+                "last_stage": null,
+                "stand_after_s": null
+              }
+            ],
+            "rendered_fps": null,
+            "capture_to_observation_ms_p95": null,
+            "touchdown_delay_median_ms": 49.99999999999982,
+            "touchdown_events": 24,
+            "search_ticks": [
+              16,
+              22,
+              33,
+              16
+            ],
+            "airborne_force_ticks": 0,
+            "faults": [
+              "[go2_pympc] fault; latched safe stand until reset: GPU MPC produced no finite force trajectory"
+            ]
+          },
+          {
+            "name": "backward20",
+            "completed": false,
+            "t": 7.22,
+            "outer_dt": 0.01,
+            "substeps": 2,
+            "wall_s": 7.0283430786803365,
+            "sim_per_wall": 1.0286919575584417,
+            "displacement": [
+              -2.4999916218221188,
+              -0.20195267884992063,
+              -0.028145641088485718
+            ],
+            "roll_pitch": [
+              0.42829676493648144,
+              0.3452036487702206
+            ],
+            "mass_kg": 15.881010170045974,
+            "solve_ms": [
+              5.446107126772404,
+              5.867945030331612
+            ],
+            "step_ms": [
+              8.029447868466377,
+              15.416039200499652
+            ],
+            "last_stage": "fault",
+            "cycle_stops": [
+              {
+                "cycle": 1,
+                "completed": false,
+                "last_t": null,
+                "last_stage": null,
+                "stand_after_s": null
+              }
+            ],
+            "rendered_fps": null,
+            "capture_to_observation_ms_p95": null,
+            "touchdown_delay_median_ms": 49.99999999999982,
+            "touchdown_events": 24,
+            "search_ticks": [
+              16,
+              22,
+              33,
+              16
+            ],
+            "airborne_force_ticks": 0,
+            "faults": [
+              "[go2_pympc] fault; latched safe stand until reset: GPU MPC produced no finite force trajectory"
+            ]
+          },
+          {
+            "name": "backward_cycles",
+            "completed": false,
+            "t": 7.22,
+            "outer_dt": 0.01,
+            "substeps": 2,
+            "wall_s": 6.704970262944698,
+            "sim_per_wall": 1.0783045586282314,
+            "displacement": [
+              -2.4999916218221188,
+              -0.20195267884992063,
+              -0.028145641088485718
+            ],
+            "roll_pitch": [
+              0.42829676493648144,
+              0.3452036487702206
+            ],
+            "mass_kg": 15.881010170045974,
+            "solve_ms": [
+              5.171230062842369,
+              5.468748044222593
+            ],
+            "step_ms": [
+              7.6840282417833805,
+              14.483978180214763
+            ],
+            "last_stage": "fault",
+            "cycle_stops": [
+              {
+                "cycle": 1,
+                "completed": false,
+                "last_t": null,
+                "last_stage": null,
+                "stand_after_s": null
+              },
+              {
+                "cycle": 2,
+                "completed": false,
+                "last_t": null,
+                "last_stage": null,
+                "stand_after_s": null
+              },
+              {
+                "cycle": 3,
+                "completed": false,
+                "last_t": null,
+                "last_stage": null,
+                "stand_after_s": null
+              }
+            ],
+            "rendered_fps": null,
+            "capture_to_observation_ms_p95": null,
+            "touchdown_delay_median_ms": 49.99999999999982,
+            "touchdown_events": 24,
+            "search_ticks": [
+              16,
+              22,
+              33,
+              16
+            ],
+            "airborne_force_ticks": 0,
+            "faults": [
+              "[go2_pympc] fault; latched safe stand until reset: GPU MPC produced no finite force trajectory"
+            ]
+          },
+          {
+            "name": "forward",
+            "completed": true,
+            "t": 9.98,
+            "outer_dt": 0.01,
+            "substeps": 2,
+            "wall_s": 9.417709020897746,
+            "sim_per_wall": 1.0607675367578622,
+            "displacement": [
+              3.738023314625025,
+              -0.3555286207702011,
+              0.0006397366523742676
+            ],
+            "roll_pitch": [
+              0.20228756821014413,
+              0.21996913108533733
+            ],
+            "mass_kg": 15.881010170045974,
+            "solve_ms": [
+              5.313595291227102,
+              5.680831149220467
+            ],
+            "step_ms": [
+              7.7443893533200026,
+              14.634564588777721
+            ],
+            "last_stage": "stand",
+            "cycle_stops": [
+              {
+                "cycle": 1,
+                "completed": true,
+                "last_t": 9.98,
+                "last_stage": "stand",
+                "stand_after_s": 1.4800000000000004
+              }
+            ],
+            "rendered_fps": null,
+            "capture_to_observation_ms_p95": null,
+            "touchdown_delay_median_ms": 40.000000000000036,
+            "touchdown_events": 38,
+            "search_ticks": [
+              23,
+              25,
+              21,
+              21
+            ],
+            "airborne_force_ticks": 0,
+            "faults": []
+          },
+          {
+            "name": "forward20",
+            "completed": false,
+            "t": 23.98,
+            "outer_dt": 0.01,
+            "substeps": 2,
+            "wall_s": 27.15529860276729,
+            "sim_per_wall": 0.8834371645449436,
+            "displacement": [
+              14.104568038135767,
+              -2.65957093029283,
+              -0.012519478797912598
+            ],
+            "roll_pitch": [
+              0.20228756821014413,
+              0.21727834689767578
+            ],
+            "mass_kg": 15.881010170045974,
+            "solve_ms": [
+              5.243921652436256,
+              5.6316390400752425
+            ],
+            "step_ms": [
+              8.809485007077456,
+              14.699009805917738
+            ],
+            "last_stage": "to_stand",
+            "cycle_stops": [
+              {
+                "cycle": 1,
+                "completed": false,
+                "last_t": 23.98,
+                "last_stage": "to_stand",
+                "stand_after_s": null
+              }
+            ],
+            "rendered_fps": null,
+            "capture_to_observation_ms_p95": null,
+            "touchdown_delay_median_ms": 40.000000000000924,
+            "touchdown_events": 122,
+            "search_ticks": [
+              71,
+              78,
+              74,
+              71
+            ],
+            "airborne_force_ticks": 0,
+            "faults": []
+          },
+          {
+            "name": "forward_cycles",
+            "completed": false,
+            "t": 18.240000000000002,
+            "outer_dt": 0.01,
+            "substeps": 2,
+            "wall_s": 19.277279497124255,
+            "sim_per_wall": 0.9467103489744235,
+            "displacement": [
+              8.404555831104517,
+              0.090800421545282,
+              -0.03793215751647949
+            ],
+            "roll_pitch": [
+              0.450986333980088,
+              0.25155846432496043
+            ],
+            "mass_kg": 15.881010170045974,
+            "solve_ms": [
+              5.345013923943043,
+              5.70650864392519
+            ],
+            "step_ms": [
+              8.167655672878027,
+              14.888808317482471
+            ],
+            "last_stage": "fault",
+            "cycle_stops": [
+              {
+                "cycle": 1,
+                "completed": true,
+                "last_t": 9.98,
+                "last_stage": "stand",
+                "stand_after_s": 1.4800000000000004
+              },
+              {
+                "cycle": 2,
+                "completed": false,
+                "last_t": 17.98,
+                "last_stage": "walk",
+                "stand_after_s": null
+              },
+              {
+                "cycle": 3,
+                "completed": false,
+                "last_t": null,
+                "last_stage": null,
+                "stand_after_s": null
+              }
+            ],
+            "rendered_fps": null,
+            "capture_to_observation_ms_p95": null,
+            "touchdown_delay_median_ms": 40.00000000000048,
+            "touchdown_events": 76,
+            "search_ticks": [
+              46,
+              55,
+              43,
+              45
+            ],
+            "airborne_force_ticks": 0,
+            "faults": [
+              "[go2_pympc] fault; latched safe stand until reset: GPU MPC produced no finite force trajectory"
+            ]
+          },
+          {
+            "name": "left",
+            "completed": true,
+            "t": 9.98,
+            "outer_dt": 0.01,
+            "substeps": 2,
+            "wall_s": 9.308069789316505,
+            "sim_per_wall": 1.0732622580318631,
+            "displacement": [
+              -0.12637558206915855,
+              1.6801555177662522,
+              0.009764552116394043
+            ],
+            "roll_pitch": [
+              0.19742889165534838,
+              0.2773486496955815
+            ],
+            "mass_kg": 15.881010170045974,
+            "solve_ms": [
+              5.25401346385479,
+              5.557588767260313
+            ],
+            "step_ms": [
+              7.649814477190375,
+              14.487466705031693
+            ],
+            "last_stage": "stand",
+            "cycle_stops": [
+              {
+                "cycle": 1,
+                "completed": true,
+                "last_t": 9.98,
+                "last_stage": "stand",
+                "stand_after_s": 1.42
+              }
+            ],
+            "rendered_fps": null,
+            "capture_to_observation_ms_p95": null,
+            "touchdown_delay_median_ms": 60.0000000000005,
+            "touchdown_events": 32,
+            "search_ticks": [
+              19,
+              33,
+              17,
+              39
+            ],
+            "airborne_force_ticks": 0,
+            "faults": []
+          },
+          {
+            "name": "left20",
+            "completed": false,
+            "t": 21.72,
+            "outer_dt": 0.01,
+            "substeps": 2,
+            "wall_s": 26.688096796162426,
+            "sim_per_wall": 0.8142206679617796,
+            "displacement": [
+              0.6390422936528921,
+              4.930950832014787,
+              -0.012089639902114868
+            ],
+            "roll_pitch": [
+              0.4970086872784576,
+              0.6123490043137809
+            ],
+            "mass_kg": 15.881010170045974,
+            "solve_ms": [
+              5.572983995079994,
+              5.930137168616056
+            ],
+            "step_ms": [
+              9.73234698176384,
+              16.046611685305834
+            ],
+            "last_stage": "fault",
+            "cycle_stops": [
+              {
+                "cycle": 1,
+                "completed": false,
+                "last_t": null,
+                "last_stage": null,
+                "stand_after_s": null
+              }
+            ],
+            "rendered_fps": null,
+            "capture_to_observation_ms_p95": null,
+            "touchdown_delay_median_ms": 60.0000000000005,
+            "touchdown_events": 100,
+            "search_ticks": [
+              60,
+              116,
+              68,
+              128
+            ],
+            "airborne_force_ticks": 0,
+            "faults": [
+              "[go2_pympc] fault; latched safe stand until reset: GPU MPC produced no finite force trajectory"
+            ]
+          },
+          {
+            "name": "right",
+            "completed": true,
+            "t": 9.98,
+            "outer_dt": 0.01,
+            "substeps": 2,
+            "wall_s": 9.061356725171208,
+            "sim_per_wall": 1.102483910852902,
+            "displacement": [
+              0.24891382828354836,
+              -1.8832737186457962,
+              -0.020939916372299194
+            ],
+            "roll_pitch": [
+              0.1873827421902374,
+              0.18245657913393853
+            ],
+            "mass_kg": 15.881010170045974,
+            "solve_ms": [
+              5.276610143482685,
+              5.707473028451204
+            ],
+            "step_ms": [
+              7.650871528312564,
+              14.59773953538388
+            ],
+            "last_stage": "stand",
+            "cycle_stops": [
+              {
+                "cycle": 1,
+                "completed": true,
+                "last_t": 9.98,
+                "last_stage": "stand",
+                "stand_after_s": 1.08
+              }
+            ],
+            "rendered_fps": null,
+            "capture_to_observation_ms_p95": null,
+            "touchdown_delay_median_ms": 60.00000000000006,
+            "touchdown_events": 32,
+            "search_ticks": [
+              37,
+              16,
+              33,
+              15
+            ],
+            "airborne_force_ticks": 0,
+            "faults": []
+          },
+          {
+            "name": "right20",
+            "completed": false,
+            "t": 10.1,
+            "outer_dt": 0.01,
+            "substeps": 2,
+            "wall_s": 10.182467828970402,
+            "sim_per_wall": 0.9928830780329869,
+            "displacement": [
+              0.6713276840746403,
+              -2.5527977922465652,
+              0.0015959739685058594
+            ],
+            "roll_pitch": [
+              0.40240596931738215,
+              0.23780128197060546
+            ],
+            "mass_kg": 15.881010170045974,
+            "solve_ms": [
+              5.153293954208493,
+              5.432882462628186
+            ],
+            "step_ms": [
+              8.130224887281656,
+              14.52429685741663
+            ],
+            "last_stage": "fault",
+            "cycle_stops": [
+              {
+                "cycle": 1,
+                "completed": false,
+                "last_t": null,
+                "last_stage": null,
+                "stand_after_s": null
+              }
+            ],
+            "rendered_fps": null,
+            "capture_to_observation_ms_p95": null,
+            "touchdown_delay_median_ms": 60.00000000000006,
+            "touchdown_events": 38,
+            "search_ticks": [
+              45,
+              19,
+              54,
+              20
+            ],
+            "airborne_force_ticks": 0,
+            "faults": [
+              "[go2_pympc] fault; latched safe stand until reset: GPU MPC produced no finite force trajectory"
+            ]
+          }
+        ]
+      }
     }
   ],
   "sweeps": [
@@ -4345,10 +4891,18 @@
     "implementation": "GPU confirmed stance uses the same measured-world-zero-foot-velocity inverse reference as search. Existing total active/passive/aux damping, joint limits, torque filters and confirmed-contact gate remain. MPC alone supplies body feedback and braking. CPU unchanged.",
     "red": "Seven failing physical net-torque cases before change; full first run 826 passed and 2 failed on synthetic stationary-body fixtures with inconsistent foot/joint velocities. Those two now supply J*qdot for foot velocity, preserving their original torque assertions.",
     "canonical_pending": false,
-    "gpu_verified": false,
+    "gpu_verified": true,
     "full_canonical_passed": 828,
     "skipped": 4,
     "deselected": 1,
-    "optimizer_braking": "CPU execution of the unchanged JAX optimizer confirms a zero-velocity request still produces opposing total horizontal force; no GPU acceptance claim."
+    "optimizer_braking": "CPU execution of the unchanged JAX optimizer confirms a zero-velocity request still produces opposing total horizontal force; no GPU acceptance claim.",
+    "accepted": false,
+    "gpu_result": "Only3of10 complete/stand (forward/left/right short). Allbackward fault7.22, forwardcycles18.24, left20 21.72, right20 10.10. Forward20 notstandby23.98. Globalgroundreference rejected; existing fullyloadedbodyfeedback must remain."
+  },
+  "landing_reference_scope": {
+    "red": "test65:7failed1passed before narrowing global reference",
+    "implementation": "Same measured ground reference as search only while confirmed landing load<1; fullyloadedfeet retain d0 boundedprogress, rotation/heave and settling damping. Existing tau filter smooths the return. No new timers/gains/forcebias/contact changes.",
+    "canonical_passed": 839,
+    "gpu_verified": false
   }
 }

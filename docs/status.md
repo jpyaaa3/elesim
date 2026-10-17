@@ -144,6 +144,18 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   기존 기대 토크를 그대로 검증한다. Zero-velocity 요청의 실제 JAX optimizer
   제동도 CPU에서 확인했다. Canonical 전체는 **828 passed / 4 skipped /
   1 deselected**이며 새 설치본 GPU2 재검증은 다음 push/양쪽 update 뒤 진행한다.
+- `ca6f1e7`도 push/양쪽 공식 update/해시/GPU2를 확인했지만 실제 결과는
+  **3/10**으로 악화됐다. 짧은 전진·좌·우만 완주·정지했고, 후진은 7.22 s,
+  전진 반복은 18.24 s, 긴 좌/우도 각각 21.72/10.10 s에 fault였다.
+  긴 전진도 23.98 s에 아직 to_stand여서 완료로 세지 않는다. 모든 지지발에
+  적용한 지면 기준 보상은 채택하지 않는다.
+- `test_65` **7 failed / 1 passed**로 기존 fully loaded 지지발의 자세 감쇠를
+  보존해야 하는 조건을 재현했다. 확인된 새 발의 기존 60 ms load ramp
+  동안에만 search와 같은 측정 기준을 쓰고, fully loaded 발은 이전 bounded
+  progress 기준과 자세/정지 감쇠를 유지하도록 범위를 줄였다. Ramp 종료의
+  복귀도 기존 torque filter를 통과한다. 새 시간상수·접촉 완화·force 보정은
+  추가하지 않았다. Canonical 전체는 **839 passed / 4 skipped / 1 deselected**다.
+  이 범위 축소 후보의 실제 보행 결과는 다음 설치본 검증에서 확인한다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.

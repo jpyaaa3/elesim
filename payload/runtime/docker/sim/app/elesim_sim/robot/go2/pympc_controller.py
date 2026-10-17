@@ -1092,25 +1092,31 @@ class PyMpcGenesisController:
     def _stance_damping_reference(self, sample: PyMpcInput, jacobians: np.ndarray, *,
                                   joint_velocity: np.ndarray, foot_velocity: np.ndarray,
                                   reference_solver=swing_damping_reference_torque) -> np.ndarray:
-        """Damp support-foot motion in the same ground frame used in search.
+        """Match the search frame while a newly confirmed foot takes load.
 
-        Body translation, rotation and heave all require nominal leg motion
-        while the foot stays planted. Preserve damping of measured foot error
-        and unresolved joint directions. MPC supplies body feedback, including
-        braking; motor drag must not add an unpredicted body wrench.
-        Only confirmed support receives this reference, before final limits.
+        Fully loaded feet retain the bounded progress reference and existing
+        body damping. During the existing landing ramp only, keep the same
+        measured ground frame used immediately before contact confirmation.
+        The normal torque filter smooths the return at full load. Contact
+        evidence, load multipliers and actuator limits remain unchanged.
         """
         reference = np.zeros(12)
         if self._solver.backend != 'jax_mppi':
             return reference
+        command_world = Rotation.from_euler('z', sample.rpy[2]).apply(
+            [self._cmd.vx, self._cmd.vy, 0.])
+        progress = (np.zeros(3) if self._settling else
+                    commanded_progress_velocity(self._base_velocity_world, command_world))
         damping = (.5*self._torque_scale()+float(self._config.joint_damping)
                    +float(self._config.leg_kv_damping)+float(self._config.aux_kv))
         for i in range(4):
             if sample.contacts[i, 0] != 1.:
                 continue
             sl = slice(3*i, 3*i+3)
+            loading = self._contact_gait.load[i] < 1.-1e-9
             reference[sl] = reference_solver(
-                jacobians[i], joint_velocity[sl], foot_velocity[i], np.zeros(3), damping=damping,
+                jacobians[i], joint_velocity[sl] if loading else np.zeros(3),
+                foot_velocity[i] if loading else progress, np.zeros(3), damping=damping,
                 velocity_limits=self._swing_velocity_limits[sl])
         return reference
 

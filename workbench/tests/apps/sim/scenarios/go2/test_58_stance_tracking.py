@@ -55,7 +55,7 @@ def test_actual_stance_motor_load_preserves_error_damping_and_not_progress_drag(
 
 
 @pytest.mark.parametrize('inactive', ['stopped', 'opposite', 'settling', 'cpu', 'turning'])
-def test_body_intent_does_not_change_the_stance_frame_and_cpu_keeps_its_damping(inactive):
+def test_stop_rotation_and_cpu_keep_the_existing_fully_loaded_damping(inactive):
     c, state = controller()
     if inactive == 'stopped':
         c._cmd = Go2Command()
@@ -70,8 +70,7 @@ def test_body_intent_does_not_change_the_stance_frame_and_cpu_keeps_its_damping(
     velocity = np.tile([-.3, 0., 0.], 4)
     reference = c._stance_damping_reference(state, np.tile(np.eye(3), (4, 1, 1)),
         joint_velocity=velocity, foot_velocity=np.zeros((4, 3)))
-    expected = np.zeros(12) if inactive == 'cpu' else 3.6*velocity
-    np.testing.assert_allclose(reference, expected, atol=1e-12)
+    np.testing.assert_array_equal(reference, np.zeros(12))
 
 
 def test_only_confirmed_stance_receives_the_motion_reference():

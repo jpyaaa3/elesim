@@ -1,4 +1,4 @@
-"""Searching and supporting feet must use the same measured ground frame."""
+"""Retain the search frame during the newly confirmed landing load ramp."""
 from dataclasses import replace
 
 import numpy as np
@@ -11,7 +11,7 @@ from workbench.tests.apps.sim.scenarios.go2.test_53_pympc_gpu import cpu_math, s
 
 
 @pytest.mark.parametrize('body_motion', [[-.8, .1, .1], [.5, -.2, -.05], [0., 0., .1]])
-@pytest.mark.parametrize('load', [1/6, 1.])
+@pytest.mark.parametrize('load', [1/6, 2/3, 5/6])
 def test_contact_confirmation_does_not_turn_nominal_body_motion_into_an_unloading_torque(body_motion, load):
     c, state = controller()
     c._base_velocity_world = np.asarray(body_motion)
@@ -26,10 +26,11 @@ def test_contact_confirmation_does_not_turn_nominal_body_motion_into_an_unloadin
     np.testing.assert_allclose(net, np.tile(expected, (4, 1)), atol=1e-10)
 
 
-def test_stop_still_applies_the_mpc_braking_wrench_without_an_extra_motor_bias():
+def test_a_landing_during_stop_keeps_the_mpc_braking_wrench_without_an_extra_motor_bias():
     c, state = controller()
     c._cmd = Go2Command()
     c._settling = True
+    c._contact_gait.load[:] = 2/3
     state = replace(state, desired_com_velocity=np.zeros(3))
     requested = np.tile([-10., 0., 40.], (4, 1))
     c._solver.solve = lambda _: requested
@@ -38,7 +39,7 @@ def test_stop_still_applies_the_mpc_braking_wrench_without_an_extra_motor_bias()
                        np.tile(JACOBIAN, (4, 1, 1)), np.tile(velocity, 4))
     actual = np.array([-np.linalg.solve(JACOBIAN.T, value-1.1*velocity)
                        for value in torque.reshape(4, 3)])
-    np.testing.assert_allclose(actual, requested, atol=1e-10)
+    np.testing.assert_allclose(actual, requested*(2/3), atol=1e-10)
     np.testing.assert_array_equal(state.desired_com_velocity, np.zeros(3))
 
 
