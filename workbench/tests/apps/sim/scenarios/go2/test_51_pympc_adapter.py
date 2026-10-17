@@ -591,6 +591,7 @@ def test_payload_com_height_keeps_body_height_error_when_arm_raises_com() -> Non
 def test_idle_clears_previous_gait_force_and_rearms_torque_mode(moving) -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
     _init_contact_state(controller)
+    controller._solver = SimpleNamespace(backend='jax_mppi')
     controller._metrics = None
     controller._contact_diagnostics = None
     controller._dt = 0.02
@@ -662,6 +663,7 @@ def test_idle_clears_previous_gait_force_and_rearms_torque_mode(moving) -> None:
 
 def test_idle_startup_stays_in_stand_during_stop_dwell() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._solver = SimpleNamespace(backend='jax_mppi')
     _init_contact_state(controller)
     controller._metrics = None
     controller._contact_diagnostics = None
@@ -984,6 +986,7 @@ def test_solver_failure_returns_to_stand_without_pose_step():
     from unittest.mock import Mock
     c = PyMpcGenesisController.__new__(PyMpcGenesisController)
     _init_contact_state(c)
+    c._solver = SimpleNamespace(backend='jax_mppi')
     c._dt = 0.02
     c._sim_time = 10.0
     c._walk_started_s = 9.0

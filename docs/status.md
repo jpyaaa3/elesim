@@ -180,6 +180,28 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   제약 활성 여부와 실제 solver 반환 힘의 raw/final 토크 비율을 기록한다.
   다음 push/양쪽 공식 update 뒤 controller·solver·JAX 해시를 모두 검사하고
   실제 GPU2에서 긴 후진부터 같은 수용시험을 다시 진행한다.
+- `2f60449`를 push/양쪽 공식 update한 뒤 controller·solver·JAX의 세 해시와
+  GPU2를 검사했다. **전후좌우 6초/20초와 후진 3회 반복은 완주·정지**했다.
+  전진 반복은 fault 없이 25.98 s에 아직 to_stand여서 **9/10 완료**다.
+  전진/후진 20초는 실제 .782/.785 m/s, roll/pitch RMS 2.47/2.34도와
+  2.72/2.36도다. 왼쪽 짧은 보행은 roll RMS 4.12도로 4도 screen을 초과했다.
+  Motion screen은 정지 미완료도 포함해 8/10이며 기준 초과를 숨기지 않는다.
+  모든 trial의 late_descent 공중 정지는 0이고 기존 전체 하강 지표는 보존한다.
+- 모든 trial에서 실제 solver에 모터 제약이 켜졌고 계획 토크 비율은 1 이하다.
+  50 Hz solve 사이 100 Hz 제어에서는 후진/전진 반복에 각각 7/3개의 확인된
+  stance raw 상한 초과 관측이 남아 최종 보호 clipping은 유지한다. 모든
+  substep에서 완전히 같은 힘을 예측했다는 뜻은 아니다. 실제 설치 filter는
+  force .7 / torque .5이며 dataclass 기본 .35/.25와 구분한다.
+- 전진 마지막 stop t=24.72 s에는 실제 vxy .042 m/s인데 새 swing이 시작됐다.
+  Settling 진입은 25.54 s, to_stand는 25.76 s였다. 벽시계 support window와
+  접촉 대기로 늦어진 실제 gait phase를 동시에 기다리는 정지 race다.
+  `test_67` **6 failed / 5 passed**로 재현했다. GPU는 감속/dwell 뒤 새 liftoff를
+  먼저 동결하며 기존 swing은 끝내고 실제 네 발 접촉·load·몸통 정지를 확인한
+  뒤 위치 제어로 복귀한다. CPU nominal-window 규칙은 유지한다.
+- 최소 `__new__` fixture 네 곳에 실제 controller의 backend 필드를 추가해
+  기존 기대값을 그대로 검증한 canonical 전체는 **862 passed / 4 skipped /
+  1 deselected**다. 이 정지 수정본은 다음 push/양쪽 update와 네 소스 해시
+  확인 후 실제 전 방향·반복 정지 및 카메라/팔/장시간 시험을 진행한다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.

@@ -1262,12 +1262,17 @@ class PyMpcGenesisController:
     def _step(self) -> None:
         self._sim_time += self._dt
         self._cmd = self._command_shaper.update(self._dt)
-        stop_ready = self._command_shaper.stop_ready(
-            time_s=self._sim_time,
-            threshold=float(self._config.command_idle_threshold),
-            gait_hz=float(self._config.gait_hz),
-            gait_duty=float(self._config.gait_duty),
-        )
+        gpu = self._solver.backend == 'jax_mppi'
+        if gpu:
+            stop_ready = self._command_shaper.braking_ready(time_s=self._sim_time,
+                threshold=float(self._config.command_idle_threshold))
+        else:
+            stop_ready = self._command_shaper.stop_ready(
+                time_s=self._sim_time,
+                threshold=float(self._config.command_idle_threshold),
+                gait_hz=float(self._config.gait_hz),
+                gait_duty=float(self._config.gait_duty),
+            )
         target_idle = self._command_shaper.target.is_idle(
             float(self._config.command_idle_threshold)
         )
@@ -1278,16 +1283,22 @@ class PyMpcGenesisController:
             )
             return
 
-        if stop_ready and self._pose_stage == "walk":
+        if gpu and stop_ready and self._pose_stage == "walk":
+            # Freeze new liftoffs now. The contact gate keeps existing swings
+            # moving and still requires their real touchdown/load evidence.
+            self._settling = True
+            stop_ready = (bool(np.all(self._contact_gait.confirmed))
+                          and not self._contact_gait.blocked and self._body_ready_to_stand())
+        if not gpu and stop_ready and self._pose_stage == "walk":
             stop_ready = bool(np.all(self._contact_gait.confirmed)) and not self._contact_gait.blocked
-        if stop_ready and self._pose_stage == "walk":
+        if not gpu and stop_ready and self._pose_stage == "walk":
             stop_ready = bool(np.all(contact_schedule(
                 self._gait_time(), gait_hz=float(self._config.gait_hz),
                 duty=float(self._config.gait_duty), dt=self._dt, horizon=2,
             )[:, 0])) if self._config.gait_duty > 0.5 else stop_ready
         if not target_idle:
             self._settling = False
-        if stop_ready and self._pose_stage == "walk":
+        if not gpu and stop_ready and self._pose_stage == "walk":
             # Finish the current swing, then balance on four feet while the
             # body brakes. Continuing to trot prevents a quiet stand handoff.
             self._settling = True

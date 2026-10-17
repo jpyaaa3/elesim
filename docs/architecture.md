@@ -475,9 +475,17 @@ liftoff에서는 이전 접촉 확인을 명시적으로 지운다.
 ready 자세의 위치 제어 중 접촉을 미리 관찰하여 이미 하중을 받는 발은
 보행 시작 때 지지력을 0으로 낮추거나 착지 ramp를 다시 시작하지 않는다.
 예정 지지발이 아직 접촉하지 않았거나 60 ms 하중 인계 중이면 gait clock을
-멈추고, MPC horizon도 확인된 지지발만 유지한다. 이 동안 추진 목표속도는 0이다.
+멈추고, MPC horizon도 확인된 지지발만 유지한다. GPU는 이미 달성한 명령 방향
+진행속도만 현재 명령속도 이내에서 유지하며, 새 가속이나 횡방향 drift를
+추진 목표로 만들지 않는다. 다음 지지 쌍이 fully loaded이면 떠날 이전 쌍의
+unloading 때문에 handover가 교착되지 않게 하되 다음 liftoff의 실제 지지는 확인한다.
 GPU MPPI는 ramp 적용 후 지지력 명령 하한 10 N을 기존 상한 안에서 예측과
-반환에 함께 적용한다. 미착지 search 발은 GRF 없이 지면 목표 도달 범위 비용에만
+반환에 함께 적용하되 실제 모터 상한과 양립할 수 없는 하한은 우선하지 않는다.
+MPPI는 측정 Jacobian·active bias와 startup gain으로 raw/final 두 torque box를
+구성해 seed·sample·가중 평균을 제한하고 그 힘을 scoring한다. 미래 Jacobian과
+bias는 짧은 horizon 동안 고정하는 근사다. 이전 force history도 현재 box에
+넣은 뒤 기존 계수로 섞으며 최종 actuator clipping은 유지한다.
+미착지 search 발은 GRF 없이 지면 목표 도달 범위 비용에만
 포함한다. GPU 경로의 다리 중력은 동적 보행에 더하지 않고, 정지 의도·네 발 완전 지지·낮은
 몸통/관절 속도가 모두 성립할 때만 준정적 정지 보상에 사용한다.
 팔 물성은 선택한 링크의 pos/quat/vel/ang를 네 배치 조회로 읽는다. 링크별
@@ -501,12 +509,17 @@ GPU MPPI는 ramp 적용 후 지지력 명령 하한 10 N을 기존 상한 안에
 swing은 발별 경과 시간으로 끝까지 수행하므로 다른 지지발을 기다린다는 이유로
 공중에 멈추지 않는다. Swing 높이는 양 끝 속도가 0인 quartic 궤적이다.
 초기 토크 ramp와 ready 자세 보조의 종료 시간도 gait clock과 분리된 실제
-simulation 경과 시간을 사용한다. 접촉 전환 변경은 소프트웨어 회귀 검증을
+simulation 경과 시간을 사용한다. GPU 정지는 명령 감속과 dwell 뒤 새 liftoff를
+먼저 동결하고 이미 진행 중인 swing·search를 끝낸다. 실제 네 발 접촉과 load,
+몸통 저속·작은 기울기를 확인한 뒤 stand 위치 제어로 복귀한다. 벽시계의
+nominal support phase는 이 실제 접촉 gate에 중복 적용하지 않는다. CPU의
+기존 nominal-window 규칙은 유지한다. 접촉 전환 변경은 소프트웨어 회귀 검증을
 통과했지만 실제 보행 수용시험은 아직 미완료다. 2026-10-14 초기 기준점 오류를
 수정한 고정 몸통 발 추종 실험은 통과했으며 전후좌우 보행은 별도로 검증한다. 안정 보행으로
 간주하지 않으며 상세 근거와 후속 범위는 status.md를 따른다.
-이는 실험적 flat-ground 접촉 전환이며, 하중 ramp는 최적화 후 적용되므로
-MPC 예측과 실제 힘의 완전한 일치를 보장하지 않는다. 실제 보행 검증은 별도다.
+이는 실험적 flat-ground 접촉 전환이다. GPU horizon은 contact-load ramp와
+startup torque gain을 반영하지만 전체 leg dynamics와 모든 제어 substep의
+필터 지연을 모델링한 것은 아니다. 실제 보행 검증은 별도다.
 
 - physics loop에는 network peer, WebRTC encoder, DDS subscriber backlog를
   동기적으로 기다리는 코드가 없어야 한다.

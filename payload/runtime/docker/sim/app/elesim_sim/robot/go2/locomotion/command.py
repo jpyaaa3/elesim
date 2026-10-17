@@ -107,20 +107,8 @@ class Go2CommandShaper:
         )
         return self.current
 
-    def stop_ready(
-        self,
-        *,
-        time_s: float,
-        threshold: float,
-        gait_hz: float,
-        gait_duty: float,
-    ) -> bool:
-        """Allow stand-pose control after braking and a support window.
-
-        If a gait has no four-foot support window (duty <= 0.5), wait at most
-        one gait period after reaching zero so a stop cannot wait forever.
-        """
-
+    def braking_ready(self, *, time_s: float, threshold: float) -> bool:
+        """Finish command braking/dwell; actual contact owns the support gate."""
         now = float(time_s)
         idle_threshold = float(threshold)
         if not math.isfinite(now) or not math.isfinite(idle_threshold) or idle_threshold < 0.0:
@@ -131,7 +119,19 @@ class Go2CommandShaper:
 
         if self._zero_since_s is None:
             self._zero_since_s = now
-        if now - self._zero_since_s < self.stop_dwell_s:
+        return now - self._zero_since_s >= self.stop_dwell_s
+
+    def stop_ready(
+        self,
+        *,
+        time_s: float,
+        threshold: float,
+        gait_hz: float,
+        gait_duty: float,
+    ) -> bool:
+        """Retain the nominal support-window rule for the legacy gait."""
+        now = float(time_s)
+        if not self.braking_ready(time_s=now, threshold=threshold):
             return False
         if trot_all_stance(now, gait_hz=gait_hz, duty=gait_duty):
             return True
