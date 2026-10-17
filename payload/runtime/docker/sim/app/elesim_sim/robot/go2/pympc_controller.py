@@ -41,6 +41,33 @@ _MAX_GROUND_FOOT_HEIGHT_M = .03
 _MIN_SUPPORT_FORCE_N = 10.0
 
 
+def swing_damping_reference_torque(jacobian, joint_velocity, measured_velocity,
+                                   desired_velocity, *, damping, velocity_limits):
+    """Cancel damping of reference motion, retaining damping of tracking error.
+
+    Foot velocities and the leg Jacobian are world aligned. Subtract the
+    measured base contribution before solving for the reference joint speed.
+    The minimum-norm solve leaves unresolved joint directions damped.
+    """
+    jacobian = np.asarray(jacobian, dtype=float)
+    joint_velocity = np.asarray(joint_velocity, dtype=float)
+    measured_velocity = np.asarray(measured_velocity, dtype=float)
+    desired_velocity = np.asarray(desired_velocity, dtype=float)
+    limits = np.asarray(velocity_limits, dtype=float)
+    if (jacobian.shape != (3, 3) or any(value.shape != (3,) for value in
+            (joint_velocity, measured_velocity, desired_velocity, limits))
+            or not all(np.all(np.isfinite(value)) for value in
+                (jacobian, joint_velocity, measured_velocity, desired_velocity, limits))
+            or np.any(limits <= 0.) or not np.isfinite(damping) or damping < 0.):
+        raise ValueError("swing damping needs finite 3D inputs and positive velocity limits")
+    base_velocity = measured_velocity - jacobian @ joint_velocity
+    reference = np.linalg.lstsq(jacobian, desired_velocity - base_velocity, rcond=1e-3)[0]
+    # A common scale preserves the resolved direction. Clipping each joint
+    # independently can inject a null-space command at a singular pose.
+    reference /= max(1., float(np.max(np.abs(reference) / limits)))
+    return float(damping) * reference
+
+
 def solver_update_stride(sim_dt: float, prediction_dt: float, *, backend: str) -> int:
     """Refresh GPU forces within one prediction stage; retain CPU cadence."""
     if not np.isfinite([sim_dt, prediction_dt]).all() or min(sim_dt, prediction_dt) <= 0.:
@@ -342,6 +369,10 @@ class PyMpcGenesisController:
         self._data = self._model.createData()
         self._foot_lower = self._model.lowerPositionLimit[7:19].reshape(4, 3).copy() + .04
         self._foot_upper = self._model.upperPositionLimit[7:19].reshape(4, 3).copy() - .04
+        self._swing_velocity_limits = np.asarray(self._model.velocityLimit[6:18], dtype=float).copy()
+        if (not np.all(np.isfinite(self._swing_velocity_limits))
+                or np.any(self._swing_velocity_limits <= 0.)):
+            raise RuntimeError("GO2 swing joint velocity limits must be finite and positive")
         self._nominal_foot_offsets_body = np.asarray(
             [NOMINAL_FOOT_OFFSET_BODY[leg] for leg in _LEGS], dtype=float
         )
@@ -575,6 +606,19 @@ class PyMpcGenesisController:
             np.full(12, float(self._config.joint_damping) + float(self._config.leg_kv_damping)),
             dofs_idx_local=self._leg_dof_idxs,
         )
+        self._swing_damping_mask = np.zeros(4, dtype=bool)
+
+    def _set_swing_damping(self, free_swing: np.ndarray) -> None:
+        """Keep substep damping in stance/search; track swing velocity actively."""
+        free_swing = np.asarray(free_swing, dtype=bool)
+        if free_swing.shape != (4,):
+            raise ValueError("swing damping needs one mask value per leg")
+        if np.array_equal(free_swing, getattr(self, "_swing_damping_mask", None)):
+            return
+        damping = (float(self._config.joint_damping)
+                   + float(self._config.leg_kv_damping) * np.repeat(~free_swing, 3))
+        self._entity.set_dofs_damping(damping, dofs_idx_local=self._leg_dof_idxs)
+        self._swing_damping_mask = free_swing.copy()
 
     def set_command(self, cmd: Go2Command) -> None:
         self._command_shaper.set_target(cmd)
@@ -823,6 +867,11 @@ class PyMpcGenesisController:
         contacts = sample.contacts[:, 0]
         tau = np.zeros(12)
         duty = float(self._config.gait_duty)
+        free_swing = (contacts == 0.) & ~self._contact_gait.search
+        if self._solver.backend == "jax_mppi":
+            self._set_swing_damping(free_swing)
+        else:
+            free_swing = np.zeros(4, dtype=bool)
         # Direct gravity feedforward regressed dynamic walking. Use inverse
         # statics only during a quiet, fully loaded four-foot stop, where the
         # measured force bias otherwise leaves a residual body tilt.
@@ -896,6 +945,14 @@ class PyMpcGenesisController:
                 )
                 task_force = 1000.0 * (target - feet[i]) + 20.0 * (desired_vel - foot_vel[i])
                 tau[sl] = jacobians[i].T @ task_force
+                if free_swing[i]:
+                    moved_damping = float(self._config.leg_kv_damping)
+                    tau[sl] -= moved_damping * joint_vel[sl]
+                    tau[sl] += swing_damping_reference_torque(
+                        jacobians[i], joint_vel[sl], foot_vel[i], desired_vel,
+                        damping=(.5 + moved_damping + float(self._config.joint_damping)),
+                        velocity_limits=self._swing_velocity_limits[sl],
+                    )
             tau[sl] -= 0.5 * joint_vel[sl]
         self._was_searching = self._contact_gait.search.copy()
         self._last_contacts = contacts.copy()

@@ -246,6 +246,8 @@ def main() -> None:
                             dq=controller._bridge.last_dq[6:18].tolist(),
                             tau_raw=controller._tau_raw.tolist(),
                             tau_limited=controller._tau_limited.tolist(),
+                            swing_starts=controller._swing_starts.tolist(),
+                            touchdown_depths=controller._touchdown_depths.tolist(),
                             touchdowns=controller._touchdowns.tolist(),
                             search_targets=controller._search_targets.tolist(),
                         )

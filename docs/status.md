@@ -1,10 +1,32 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-16. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-17. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### 스윙 기준 속도 감쇠 TDD (2026-10-17, 후보 검증 중)
+
+- 원격 Robot 상태 동기화·선형축 보정·cuRobo 변경 `a7b3962` 위에 보관한
+  `test_57`을 복원하고 `a24e487`로 push했다. 기존 보행 runtime은 유지했다.
+- `test_57`의 미구현 import 실패부터 재개했다. GPU free swing에서만 motor
+  passive 감쇠 중 `leg_kv_damping`을 active 오차 감쇠로 옮기고, 몸통 운동을
+  뺀 world foot 기준 속도를 Jacobian으로 변환해 기존 총 감쇠의 기준 토크를
+  더한다. 실제 추종 오차와 Jacobian null space는 계속 감쇠한다. URDF 속도
+  상한은 공통 비율로 적용해 특이 자세에서 새 null-space 구동을 만들지 않는다.
+- Stance/search, CPU acados, 접촉 확인, 공중 지지력 금지, 토크/힘 상한과
+  필터는 유지한다. damping setter는 발의 support mode가 바뀔 때만 호출한다.
+  원시 진단에 실제 latched swing start와 touchdown depth를 기록한다.
+- 첫 canonical Sim/보행 검사: **685 passed / 3 skipped / 1 failed**.
+  실패는 원격 선형축 하한 -0.142 m와 기존 RL 경유점 -0.166 m의 불일치
+  (`rl/test_start_path.py`)다. 이 보행 후보와 무관하며 경유점을 임의로 바꾸지
+  않았다. 특이 자세에서 개별 관절 clipping이 null-space 토크를 만드는
+  추가 red를 재현하고 공통 비율 제한으로 수정했다. 해당 RL 1건을 명시적으로
+  제외한 canonical Sim/고정발/보행 회귀는 **687 passed / 4 skipped /
+  1 deselected**다. skip은 qpOASES, opt-in 실제 camera worker 2개와 미지정
+  fixed-foot trace다. 원격 GPU2 공식 release 보행 비교는 진행 중이며,
+  아직 보행 개선으로 채택하지 않는다.
 
 ### 선택적 Jetson cuRobo 연동 (2026-10-16)
 

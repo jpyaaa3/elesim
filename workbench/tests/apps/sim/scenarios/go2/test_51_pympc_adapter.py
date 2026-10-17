@@ -48,7 +48,7 @@ def test_gpu_torque_loop_requests_fresh_force_at_each_prediction_stage(sim_dt):
     def solve(_sample):
         ticks.append(c._step_i)
         return np.tile([0., 0., 50.], (4, 1))
-    c._solver = SimpleNamespace(solve=solve)
+    c._solver = SimpleNamespace(solve=solve, backend='jax_mppi')
     state = PyMpcInput(**{**vars(sample()), 'contacts':np.ones((4, 3))})
     for c._step_i in range(round(.06/sim_dt)):
         c._torques(state, state.feet_world, np.zeros((4, 3)),
@@ -189,6 +189,8 @@ def _torque_config(**overrides):
         aux_kp=0.0,
         aux_kv=0.0,
         tau_filter_alpha=1.0,
+        joint_damping=.1,
+        leg_kv_damping=1.,
     )
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -236,10 +238,12 @@ def _init_torque_controller(controller, *, elapsed_s=1.0, config=None):
     controller._touchdowns = np.zeros((4, 3))
     controller._cmd = Go2Command(vx=.8)
     controller._tau_lim = np.full(12, 100.0)
+    controller._swing_velocity_limits = np.full(12, 30.)
     controller._kin = SimpleNamespace(ready_q=np.ones(12))
     controller._leg_dof_idxs = list(range(12))
     controller._entity = SimpleNamespace(
-        get_dofs_position=lambda **_kwargs: np.zeros(12)
+        get_dofs_position=lambda **_kwargs: np.zeros(12),
+        set_dofs_damping=lambda *_args, **_kwargs: None,
     )
 
 
@@ -338,7 +342,7 @@ def test_stance_ground_reaction_is_opposed_by_joint_torque() -> None:
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
     _init_contact_state(controller)
     _init_torque_controller(controller)
-    controller._solver = SimpleNamespace(solve=lambda _sample: np.tile([0, 0, 50], (4, 1)))
+    controller._solver = SimpleNamespace(solve=lambda _sample: np.tile([0, 0, 50], (4, 1)), backend='jax_mppi')
     state = PyMpcInput(**{**vars(sample()), "contacts": np.ones((4, 3))})
     jacobians = np.tile(np.eye(3), (4, 1, 1))
     torques = controller._torques(
@@ -415,7 +419,7 @@ def test_force_filter_reprojects_stance_and_zeros_swing_legs() -> None:
         ),
     )
     controller._solver = SimpleNamespace(
-        solve=lambda _sample: np.tile([60.0, -60.0, 100.0], (4, 1))
+        solve=lambda _sample: np.tile([60.0, -60.0, 100.0], (4, 1)), backend='jax_mppi',
     )
     controller._forces[:] = [0.0, 0.0, 20.0]
     state = PyMpcInput(
@@ -456,11 +460,11 @@ def test_swing_uses_velocity_reference_without_stance_damping_or_old_torque():
         np.clip((p - .6) / .4, 0, 1), c._swing_starts[i], c._touchdowns[i], duration_s=.16,
         touchdown_depth_m=.008,
     ) for i, p in enumerate(phase)))
-    # Perfect task tracking leaves only the bounded 0.5 joint damping. A
+    # Perfect tracking offsets the remaining passive .1 joint damping. A
     # stale 90-Nm support filter or the 100-Nm stance damping must not leak in.
     tau = c._torques(state, np.array(feet), np.array(velocities),
                      np.tile(np.eye(3), (4, 1, 1)), np.ones(12))
-    np.testing.assert_allclose(tau, -.5)
+    np.testing.assert_allclose(tau, .1)
 
 
 def test_torque_startup_ramp_fades_ready_pose_assist() -> None:
@@ -933,7 +937,7 @@ def test_contact_transition_forces_solve_between_regular_ticks():
     _init_torque_controller(c, elapsed_s=1.0)
     c._step_i = 1
     c._solve_stride = 2
-    c._solver = SimpleNamespace(solve=Mock(return_value=np.tile([0, 0, 50.], (4, 1))))
+    c._solver = SimpleNamespace(solve=Mock(return_value=np.tile([0, 0, 50.], (4, 1))), backend='jax_mppi')
     c._last_contacts = np.zeros(4)
     state = PyMpcInput(**{**vars(sample()), "contacts": np.ones((4, 3))})
     tau = c._torques(state, state.feet_world, np.zeros((4, 3)),
