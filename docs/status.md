@@ -95,8 +95,16 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   해당 전환만 현재 발에서 새 궤적을 latch하고 새 foothold를 계산하도록 했다.
   실제 접촉 이력과 진행 중 swing의 고정 목표는 유지한다.
 - 이 handover/새 swing 수정의 canonical 전체는 **793 passed / 4 skipped /
-  1 deselected**다. 설치본 실제 GPU2의 다방향·긴 보행·반복 정지는 다음
-  push/양쪽 공식 update 뒤 다시 확인한다.
+  1 deselected**다. `3615957`도 push/양쪽 공식 update/해시·GPU2 확인 후 실제
+  10개 시험을 했다. 전후좌우 6초와 후진/좌/우 20초는 완주했지만, 전진
+  20초는 t=5.04 s에 touchdown timeout, 전후진 반복도 후반 cycle에서 실패했다.
+  후진 20초 평균 속도는 .687 m/s지만 pitch RMS 8.04도로 자세도 미해결이다.
+- 네 발 overlap에서 이전 쌍만 fully loaded여도 clock을 진행시킨 추가 변경은
+  원복한다. 착지 ramp 동안 기존 pause를 유지하며, 새 지지 쌍이 fully loaded인
+  뒤 떠날 이전 발 때문에 생기는 교착만 해제한다. 다음 liftoff의 실제 지지
+  확인과 새 swing 재계획은 유지한다. 이 timing 보존 red 1개를 수정한 전체
+  canonical도 **793 passed / 4 skipped / 1 deselected**다. 실제 재검증은 다음
+  push/양쪽 공식 update 뒤 진행한다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.

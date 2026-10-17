@@ -62,12 +62,12 @@ def test_next_liftoff_waits_until_remaining_pair_is_fully_loaded(incoming_load):
     assert not np.any(gait._swinging)
 
 
-def test_clock_can_use_overlap_while_old_pair_supports_the_landing_ramp():
+def test_incoming_load_ramp_retains_the_original_clock_pause():
     gait = gait_at(5.01)
     gait.load[[0, 3]] = .5
     gait.blocked = True
     advance(gait, np.full(4, 50.), np.full(4, .023))
-    assert gait.time == pytest.approx(5.02)
+    assert gait.time == pytest.approx(5.01)
     assert gait.blocked
     assert not np.any(gait._swinging)
 

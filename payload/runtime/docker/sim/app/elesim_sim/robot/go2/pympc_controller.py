@@ -190,12 +190,14 @@ class ContactGatedGait:
                 # already be unloaded; they do not own the next support set.
                 supported = bool(np.all(loaded[proposed]))
             elif np.all(old_planned):
-                # Use the overlap while either verified diagonal supports
-                # the body. The boundary check above still waits for the new
-                # pair's complete contact evidence and 60 ms load ramp.
-                supported = bool(np.all(loaded[[0, 3]]) or np.all(loaded[[1, 2]]))
+                # Retain the landing ramp's original pause. Only the incoming
+                # diagonal can release it; an unloaded departing foot must
+                # not then prevent that verified pair from taking over.
+                incoming_offset = 0. if (self.time*gait_hz) % 1. < .5 else .5
+                incoming = _PHASE_OFFSETS == incoming_offset
+                supported = bool(np.all(loaded[incoming]))
             else:
-                supported = bool(np.all(loaded[old_planned]))
+                supported = bool(not self.blocked and np.all(loaded[old_planned]))
             self.phase_rate = float(supported and not settling)
         else:
             self.phase_rate = float(not self.blocked and not settling
