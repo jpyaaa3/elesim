@@ -669,6 +669,10 @@ class PyMpcGenesisController:
     def _command_scale(self) -> float:
         if self._walk_started_s is None:
             return 0.0
+        if self._solver.backend == 'jax_mppi':
+            # The shaper starts at physical walking, so a second multiplier
+            # would bypass its acceleration bound while that multiplier rises.
+            return 1.0
         ramp_s = max(1e-3, float(self._config.command_ramp_s))
         return smoothstep_quintic((self._sim_time - self._walk_started_s) / ramp_s)
 
@@ -800,7 +804,7 @@ class PyMpcGenesisController:
             duty=float(self._config.gait_duty),
             horizon_dt=self._solver.dt,
             horizon=self._solver.horizon,
-            settling=getattr(self, "_settling", False),
+            settling=self._balance_only(),
             foot_heights=feet[:, 2],
             support_handover=self._solver.backend == 'jax_mppi',
         )
@@ -879,6 +883,7 @@ class PyMpcGenesisController:
             preview_footholds_world=preview,
             contacts=contacts,
             support_loads=self._contact_gait.load.copy(),
+            actuation_scales=self._actuation_scale_horizon(),
             support_force_floor_n=(_MIN_SUPPORT_FORCE_N if self._solver.backend == "jax_mppi" else 0.),
             landing_search=self._contact_gait.search.copy(),
             hip_offsets_com_body=(np.array([HIP_OFFSET_BODY[leg] for leg in _LEGS])
@@ -925,6 +930,7 @@ class PyMpcGenesisController:
         contacts = sample.contacts[:, 0]
         swing_previous = self._swing_previous_contacts(contacts)
         support_changed = not np.array_equal(contacts, self._last_contacts)
+        fresh_distribution = support_changed or (self._solver.backend == 'jax_mppi' and self._step_i == 0)
         # A force solution is valid only for the support set it was solved for.
         # In particular a newly grounded foot must not reuse its swing zero.
         if not np.any(contacts):
@@ -939,7 +945,7 @@ class PyMpcGenesisController:
             # at touchdown it also mixes the new support with a swing zero.
             # Start the new support phase with its freshly solved distribution.
             filtered = (
-                self._force_requested.copy() if support_changed
+                self._force_requested.copy() if fresh_distribution
                 else alpha * self._force_requested + (1.0 - alpha) * self._forces
             )
             mu = float(self._config.optimization_friction)
@@ -1066,7 +1072,7 @@ class PyMpcGenesisController:
         # All stance legs may redistribute load at a contact change. Do not
         # reintroduce the obsolete support distribution through torque history.
         self._tau_filt = (
-            self._tau_limited.copy() if support_changed
+            self._tau_limited.copy() if fresh_distribution
             else alpha * self._tau_limited + (1.0 - alpha) * self._tau_filt
         )
         # Do not drag the preceding support torque through a short swing.
@@ -1101,7 +1107,7 @@ class PyMpcGenesisController:
         progress = commanded_progress_velocity(self._base_velocity_world, command_world)
         if not np.any(progress):
             return reference
-        damping = (.5+float(self._config.joint_damping)
+        damping = (.5*self._torque_scale()+float(self._config.joint_damping)
                    +float(self._config.leg_kv_damping)+float(self._config.aux_kv))
         for i in range(4):
             if sample.contacts[i, 0] != 1.:
@@ -1123,13 +1129,30 @@ class PyMpcGenesisController:
         The task controller alone requests the bounded search descent.
         """
         return reference_solver(jacobian, joint_velocity, measured_velocity, np.zeros(3),
-            damping=(.5+float(self._config.joint_damping)+float(self._config.leg_kv_damping)),
+            # This reference is added before the active torque ramp; passive
+            # damping remains fully present at every Genesis substep.
+            damping=(.5+(float(self._config.joint_damping)
+                         +float(self._config.leg_kv_damping))/self._torque_scale()),
             velocity_limits=velocity_limits)
 
-    def _torque_scale(self) -> float:
+    def _balance_only(self) -> bool:
+        """Keep four-foot support until the startup torque ramp can carry a trot."""
+        return bool(self._settling or (
+            self._solver.backend == 'jax_mppi' and self._torque_scale() < 1.-1e-9))
+
+    def _actuation_scale_horizon(self) -> np.ndarray | None:
+        if self._solver.backend != 'jax_mppi':
+            return None
+        elapsed = self._walk_elapsed()
+        return np.array([self._torque_scale(elapsed_s=elapsed+stage*self._solver.dt)
+                         for stage in range(self._solver.horizon)])
+
+    def _torque_scale(self, *, elapsed_s: float | None = None) -> float:
         warmup_s = max(0.0, float(self._config.torque_warmup_s))
         ramp_s = max(1e-3, float(self._config.torque_ramp_s))
-        elapsed = self._walk_elapsed()
+        elapsed = self._walk_elapsed() if elapsed_s is None else float(elapsed_s)
+        if not np.isfinite(elapsed) or elapsed < 0.:
+            raise ValueError('torque ramp elapsed time must be finite and nonnegative')
         if elapsed < warmup_s:
             return 0.35
         return float(min(1.0, 0.35 + 0.65 * ((elapsed - warmup_s) / ramp_s)))
@@ -1156,12 +1179,13 @@ class PyMpcGenesisController:
     def _record_contact_metrics(self, sample: PyMpcInput) -> None:
         if self._metrics is None or self._contact_diagnostics is None:
             return
+        actuation = 1. if sample.actuation_scales is None else float(sample.actuation_scales[0])
         diagnostic = self._contact_diagnostics.sample(
             step_index=self._step_i,
             elapsed_s=(self._dt if self._step_i == 0 else
                        self._contact_diagnostics.cadence_steps * self._dt),
             stance={leg: bool(sample.contacts[i, 0]) for i, leg in enumerate(_LEGS)},
-            desired_grf_world={leg: self._forces[i] * self._contact_gait.load[i]
+            desired_grf_world={leg: self._forces[i] * self._contact_gait.load[i] * actuation
                                for i, leg in enumerate(_LEGS)},
             physical_mu=float(self._config.physical_friction),
         )
@@ -1252,6 +1276,11 @@ class PyMpcGenesisController:
             if self._sim_time >= self._ready_until and not target_idle:
                 self._pose_stage = "walk"
                 self._walk_started_s = self._sim_time
+                if self._solver.backend == 'jax_mppi':
+                    held = self._command_shaper.target
+                    self._command_shaper.reset()
+                    self._command_shaper.set_target(held)
+                    self._cmd = Go2Command()
                 self._was_searching.fill(False)
                 self._step_i = 0
                 if self._contact_diagnostics is not None:

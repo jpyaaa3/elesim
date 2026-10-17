@@ -298,6 +298,8 @@ def main() -> None:
                     velocity=sample.com_velocity.tolist(),
                     desired_velocity=sample.desired_com_velocity.tolist(),
                     contacts=sample.contacts[:, 0].tolist(),
+                    actuation_scales=(sample.actuation_scales.tolist()
+                        if getattr(sample, 'actuation_scales', None) is not None else None),
                     feet_world=sample.feet_world.tolist(),
                     foot_velocity_world=result[2].tolist(),
                     foot_jacobians_world=result[3].tolist(),
@@ -406,7 +408,8 @@ def main() -> None:
                         row["centroidal_control"] = dict(
                             **latest_control,
                             requested_forces=controller._force_requested.tolist(),
-                            applied_forces=(controller._forces * controller._contact_gait.load[:, None]).tolist(),
+                            applied_forces=(controller._forces * controller._contact_gait.load[:, None]
+                                * (latest_control.get('actuation_scales') or [1.])[0]).tolist(),
                         )
                     gate = getattr(controller, "_contact_gait", None)
                     if gate is not None:

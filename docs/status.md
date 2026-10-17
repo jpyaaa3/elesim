@@ -105,6 +105,26 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   확인과 새 swing 재계획은 유지한다. 이 timing 보존 red 1개를 수정한 전체
   canonical도 **793 passed / 4 skipped / 1 deselected**다. 실제 재검증은 다음
   push/양쪽 공식 update 뒤 진행한다.
+- `c0bcb46`도 같은 push/양쪽 update/정확한 해시/GPU2로 실제 10개를 비교했다.
+  전후좌우 6초와 20초 **8개는 모두 완주·정지**했다. 전진 20초 실제 .814 m/s,
+  roll/pitch RMS 3.10/3.40도, 후진 .739 m/s와 2.32/5.01도다. 하지만 전진
+  반복 t=16.24 s, 후진 반복 t=23.22 s에 fault가 남았다. 정지 전부터 기울기가
+  컸으므로 '정지 제동만의 문제'로 확정하지 않는다.
+- 출발 준비 자세 중 command shaper가 미리 목표속도까지 올라가 실제 걷기
+  시작에서 가속 제한을 건너뛰는 현상을 `test_62` **5 failed / 1 passed**로
+  재현했다. GPU의 ready→walk에서 held target을 유지하고 현재 속도만 0으로
+  되돌린다. 실제 보행부터 단일 가속 제한기를 쓰며 추가 quintic 배율은 CPU에만 유지한다.
+- 실제 actuator torque는 처음 .35에서 시작하지만 rollout은 1로 계산하던
+  차이를 `test_63` **13 failed / 1 passed**로 재현했다. 내부 `PyMpcInput`의
+  별도 `actuation_scales` horizon을 contact-load preview와 곱해 실제 force gain을
+  예측한다. 실행에서 다시 곱하지 않는다. gain 상승이 완료될 때까지 네 발 지지를
+  유지하며, 같은 gain을 반영해 stance/search 감쇠 참조와 계측도 일치시킨다.
+  실제 passive damping과 힘·토크 상한은 유지한다.
+- 첫 force/torque 분배에 유효하지 않은 zero history를 섞는 추가 red
+  **1 failed / 1 passed**도 재현했다. 첫 GPU 분배만 새 분배로 시작하고 이후
+  기존 필터를 유지한다. Search의 startup passive 보정 추가 red도 통과했다.
+  이 수정 후 canonical 전체는 **819 passed / 4 skipped / 1 deselected**다.
+  새 설치본의 반복 출발·정지 우선 실제 GPU2 검증은 다음 push/양쪽 update 뒤 진행한다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.

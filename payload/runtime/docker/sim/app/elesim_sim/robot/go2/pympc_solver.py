@@ -43,6 +43,7 @@ class PyMpcInput:
     hip_offsets_com_body: np.ndarray | None = None
     support_force_floor_n: float = 0.0
     landing_search: np.ndarray | None = None
+    actuation_scales: np.ndarray | None = None
 
 
 def _finite_array(name: str, value: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
@@ -290,6 +291,12 @@ class PyMpcForceSolver:
             if sample.support_loads is not None:
                 reference["support_loads"] = support_load_horizon(
                     contacts, sample.support_loads, self.dt)
+            if sample.actuation_scales is not None:
+                scales = _finite_array('actuation_scales', sample.actuation_scales, (self.horizon,))
+                if np.any((scales < 0.) | (scales > 1.)):
+                    raise ValueError('PyMPC actuation_scales must be within [0, 1]')
+                loads = reference.get('support_loads', contacts.T)
+                reference['support_loads'] = loads*scales[:, None]
             now = sample.simulation_time_s
             if now is not None and (not np.isfinite(now) or now < 0):
                 raise ValueError("PyMPC simulation time must be finite and nonnegative")

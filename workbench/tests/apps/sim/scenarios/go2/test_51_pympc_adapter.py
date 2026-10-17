@@ -554,6 +554,7 @@ def test_landing_wait_keeps_search_reach_separate_from_ground_support(
         update=update_contacts, blocked=waiting,
         load=1.-search, search=search, swing_remaining=np.zeros(4), time=0.)
     c._cmd, c._dt, c._sim_time = command, .02, 1.
+    c._walk_started_s, c._settling = 0., False
     c._last_contacts, c._touchdowns = contacts[:, 0].copy(), np.zeros((4, 3))
     c._was_searching = np.zeros(4, dtype=bool)
     c._nominal_foot_offsets_body = np.array([NOMINAL_FOOT_OFFSET_BODY[leg] for leg in ALL_LEGS])
@@ -832,7 +833,7 @@ def test_idle_to_motion_interpolates_stand_pose_before_ready_hold() -> None:
     controller._set_ready_actuation = lambda: None
     from unittest.mock import Mock
     controller._bridge = SimpleNamespace(reset=Mock())
-    controller._solver = SimpleNamespace(reset=Mock())
+    controller._solver = SimpleNamespace(reset=Mock(), backend='acados')
     controller._payload = SimpleNamespace(reset=Mock())
     controller._set_torque_actuation = lambda: None
 
@@ -876,6 +877,7 @@ def test_idle_to_motion_interpolates_stand_pose_before_ready_hold() -> None:
 
 def test_pympc_uses_a_smooth_startup_command_ramp() -> None:
     pympc = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    pympc._solver = SimpleNamespace(backend='acados')
     pympc._config = SimpleNamespace(command_ramp_s=0.4)
     pympc._sim_time = 1.2
     pympc._walk_started_s = 1.0
