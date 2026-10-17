@@ -10,7 +10,7 @@ obstruct the walking path. This never commands a connected Robot or live Sim.
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
+from dataclasses import asdict, replace
 import json
 import math
 from pathlib import Path
@@ -35,6 +35,19 @@ def trailing_crouch_reference(sample, *, command_vx, crouch_m):
     position[2] -= .5*abs(signed_drop)
     rpy[1] -= math.asin(signed_drop/(2.*.1934))
     return replace(sample, desired_com_position=position, desired_rpy=rpy)
+
+
+def swing_reference_for_axes(original, jacobian, joint_velocity, measured_velocity,
+                             desired_velocity, *, axes, scale, **options):
+    """Separate vertical landing feedforward from horizontal swing reaction."""
+    import numpy as np
+    desired = np.asarray(desired_velocity, dtype=float).copy()
+    if axes == 'vertical':
+        base = np.asarray(measured_velocity)-np.asarray(jacobian)@joint_velocity
+        desired[:2] = base[:2]
+    elif axes != 'all':
+        raise ValueError('diagnostic swing axes must be all or vertical')
+    return scale*original(jacobian, joint_velocity, measured_velocity, desired, **options)
 
 
 def has_commanded_progress(command, displacement, *, duration):
@@ -104,6 +117,9 @@ def main() -> None:
                         help="diagnostic body reference: 0..0.03 m trailing hip drop")
     parser.add_argument("--swing-reference-scale", type=float, default=1.,
                         help="diagnostic scale 0..1 of swing damping reference feedforward")
+    parser.add_argument("--swing-reference-axes", choices=('all', 'vertical'), default='all')
+    parser.add_argument("--aux-kv", type=float, help="diagnostic auxiliary damping override, 0..6")
+    parser.add_argument("--leg-kv-damping", type=float, help="diagnostic leg damping override, 0..6")
     parser.add_argument("--cameras", action="store_true", help="include both async render workers")
     parser.add_argument("--arm-motion", action="store_true", help="small bounded arm bend oscillations")
     parser.add_argument("--keep-target", action="store_true")
@@ -130,6 +146,9 @@ def main() -> None:
         parser.error("trailing crouch must be in 0..0.03 m")
     if not np.isfinite(args.swing_reference_scale) or not 0. <= args.swing_reference_scale <= 1.:
         parser.error("swing reference scale must be in 0..1")
+    for value in (args.aux_kv, args.leg_kv_damping):
+        if value is not None and (not np.isfinite(value) or not 0. <= value <= 6.):
+            parser.error("diagnostic damping must be finite and in 0..6")
     bundle = load_app_config(args.config, mode="remote")
     try:
         params = override_physics(bundle.sim_param, dt=args.dt, substeps=args.substeps)
@@ -143,6 +162,7 @@ def main() -> None:
     overrides = {key: value for key, value in (
         ("mpc_solver_backend", args.backend), ("mpc_gpu_samples", args.gpu_samples),
         ("mpc_gpu_iterations", args.gpu_iterations),
+        ("mpc_aux_kv", args.aux_kv), ("mpc_leg_kv_damping", args.leg_kv_damping),
     ) if value is not None}
     locomotion = replace(locomotion, **overrides)
     hub = FrameHub(("rgbd", "hand_eye_preview", "observer")) if args.cameras else None
@@ -182,7 +202,8 @@ def main() -> None:
             from elesim_sim.robot.go2 import pympc_controller as controller_module
             original_swing_reference = controller_module.swing_damping_reference_torque
             def scaled_swing_reference(*values, **options):
-                return args.swing_reference_scale*original_swing_reference(*values, **options)
+                return swing_reference_for_axes(original_swing_reference, *values,
+                    axes=args.swing_reference_axes, scale=args.swing_reference_scale, **options)
             controller_module.swing_damping_reference_torque = scaled_swing_reference
             latest_control = {}
             original_sample = controller._sample
@@ -219,6 +240,8 @@ def main() -> None:
                       gpu_iterations=locomotion.mpc_gpu_iterations, cameras=args.cameras,
                       diagnostic_trailing_crouch_m=args.trailing_crouch,
                       diagnostic_swing_reference_scale=args.swing_reference_scale,
+                      diagnostic_swing_reference_axes=args.swing_reference_axes,
+                      locomotion_config=asdict(locomotion),
                       arm_motion=args.arm_motion,
                       camera_target_hz=[cfg.sim_camera_max_hz, cfg.sim_observer_camera_max_hz] if args.cameras else None))
             for trial in range(args.repeat):
