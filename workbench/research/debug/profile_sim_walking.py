@@ -18,6 +18,25 @@ import time
 from unittest.mock import patch
 
 
+def trailing_crouch_reference(sample, *, command_vx, crouch_m):
+    """Diagnostic intervention: lower trailing hips, retain leading height.
+
+    Change the body reference, never the ground height or contact evidence.
+    The existing shaped forward command fades the intervention at start/stop.
+    Production behavior is unchanged when the diagnostic option is omitted.
+    """
+    if not math.isfinite(command_vx) or not math.isfinite(crouch_m) or not 0. <= crouch_m <= .03:
+        raise ValueError('diagnostic crouch needs finite velocity and 0..0.03 m drop')
+    if crouch_m == 0. or command_vx == 0.:
+        return sample
+    signed_drop = crouch_m*max(-1., min(1., command_vx/.2))
+    position = sample.desired_com_position.copy()
+    rpy = sample.desired_rpy.copy()
+    position[2] -= .5*abs(signed_drop)
+    rpy[1] -= math.asin(signed_drop/(2.*.1934))
+    return replace(sample, desired_com_position=position, desired_rpy=rpy)
+
+
 def has_commanded_progress(command, displacement, *, duration):
     """Reject frozen/opposite straight walking; this is not a tracking gate."""
     speed = math.hypot(command[0], command[1])
@@ -81,6 +100,10 @@ def main() -> None:
     parser.add_argument("--backend", choices=("acados", "jax_mppi"))
     parser.add_argument("--gpu-samples", type=int)
     parser.add_argument("--gpu-iterations", type=int)
+    parser.add_argument("--trailing-crouch", type=float, default=0., metavar="METERS",
+                        help="diagnostic body reference: 0..0.03 m trailing hip drop")
+    parser.add_argument("--swing-reference-scale", type=float, default=1.,
+                        help="diagnostic scale 0..1 of swing damping reference feedforward")
     parser.add_argument("--cameras", action="store_true", help="include both async render workers")
     parser.add_argument("--arm-motion", action="store_true", help="small bounded arm bend oscillations")
     parser.add_argument("--keep-target", action="store_true")
@@ -103,6 +126,10 @@ def main() -> None:
         parser.error("dt must be finite and positive")
     if not np.isfinite(args.sample_period) or args.sample_period <= 0:
         parser.error("sample period must be finite and positive")
+    if not np.isfinite(args.trailing_crouch) or not 0. <= args.trailing_crouch <= .03:
+        parser.error("trailing crouch must be in 0..0.03 m")
+    if not np.isfinite(args.swing_reference_scale) or not 0. <= args.swing_reference_scale <= 1.:
+        parser.error("swing reference scale must be in 0..1")
     bundle = load_app_config(args.config, mode="remote")
     try:
         params = override_physics(bundle.sim_param, dt=args.dt, substeps=args.substeps)
@@ -150,12 +177,21 @@ def main() -> None:
                 scene.start_frame_dispatchers()
             entity = scene.go2_entity
             controller = scene.go2._controller
+            # Explicit research intervention, recorded with the trial. This
+            # does not edit the installed controller or its default settings.
+            from elesim_sim.robot.go2 import pympc_controller as controller_module
+            original_swing_reference = controller_module.swing_damping_reference_torque
+            def scaled_swing_reference(*values, **options):
+                return args.swing_reference_scale*original_swing_reference(*values, **options)
+            controller_module.swing_damping_reference_torque = scaled_swing_reference
             latest_control = {}
             original_sample = controller._sample
 
             def observe_control_sample():
                 result = original_sample()
-                sample = result[0]
+                sample = trailing_crouch_reference(result[0],
+                    command_vx=float(controller._cmd.vx), crouch_m=args.trailing_crouch)
+                result = (sample, *result[1:])
                 latest_control.update(
                     com=sample.com_position.tolist(),
                     desired_com=sample.desired_com_position.tolist(),
@@ -181,6 +217,8 @@ def main() -> None:
                       fixed_target=bool(args.keep_target), controller=type(controller).__name__,
                       backend=locomotion.mpc_solver_backend, gpu_samples=locomotion.mpc_gpu_samples,
                       gpu_iterations=locomotion.mpc_gpu_iterations, cameras=args.cameras,
+                      diagnostic_trailing_crouch_m=args.trailing_crouch,
+                      diagnostic_swing_reference_scale=args.swing_reference_scale,
                       arm_motion=args.arm_motion,
                       camera_target_hz=[cfg.sim_camera_max_hz, cfg.sim_observer_camera_max_hz] if args.cameras else None))
             for trial in range(args.repeat):
@@ -312,6 +350,8 @@ def main() -> None:
                           max_abs_roll_pitch=np.max(np.abs([r["rpy"][:2] for r in samples]), axis=0).tolist() if samples else None,
                           last=samples[-1] if samples else None))
         finally:
+            if 'original_swing_reference' in locals():
+                controller_module.swing_damping_reference_torque = original_swing_reference
             app.sim_scene.close_frame_dispatchers()
             app.sim_scene.close_camera_publishers()
             gs.destroy()
