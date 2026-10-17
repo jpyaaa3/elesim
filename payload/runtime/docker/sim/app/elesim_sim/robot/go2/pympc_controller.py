@@ -7,6 +7,7 @@ separate from successful solver initialization.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import time
 from types import SimpleNamespace
@@ -39,6 +40,57 @@ _SWING_TOUCHDOWN_DEPTH_M = .008
 # local offset cannot support the body once its frame clears 30 mm.
 _MAX_GROUND_FOOT_HEIGHT_M = .03
 _MIN_SUPPORT_FORCE_N = 10.0
+# Retain leading hip height and lower the trailing body reference by 1 cm.
+# This is a body reference trim, not a change to the ground/contact geometry.
+_WALK_TRAILING_CROUCH_M = .01
+
+
+def commanded_progress_velocity(actual_velocity, commanded_velocity):
+    """Bound existing horizontal progress to the shaped operator intent.
+
+    Keep vertical/sideways motion, opposite motion and overspeed damped.
+    A released or purely rotational command supplies no translation reference.
+    """
+    actual = np.asarray(actual_velocity, dtype=float)
+    command = np.asarray(commanded_velocity, dtype=float)
+    if (actual.shape != (3,) or command.shape != (3,)
+            or not np.isfinite(actual).all() or not np.isfinite(command).all()):
+        raise ValueError('commanded progress needs finite three-dimensional velocities')
+    speed = float(np.linalg.norm(command[:2]))
+    result = np.zeros(3)
+    if speed > 1e-9:
+        direction = command[:2]/speed
+        result[:2] = direction*np.clip(np.dot(actual[:2], direction), 0., speed)
+    return result
+
+
+def trailing_crouch_reference(sample, *, command_vx, crouch_m):
+    """Keep leading hip reference height while slightly bending the rear."""
+    if not np.isfinite(command_vx) or not np.isfinite(crouch_m) or not 0. <= crouch_m <= .03:
+        raise ValueError('trailing crouch needs finite velocity and 0..0.03 m drop')
+    if crouch_m == 0. or command_vx == 0.:
+        return sample
+    signed_drop = crouch_m*np.clip(command_vx/.2, -1., 1.)
+    position = sample.desired_com_position.copy()
+    rpy = sample.desired_rpy.copy()
+    position[2] -= .5*abs(signed_drop)
+    rpy[1] -= np.arcsin(signed_drop/(2.*.1934))
+    return replace(sample, desired_com_position=position, desired_rpy=rpy)
+
+
+def landing_velocity_reference(sample, *, blocked, actual_velocity, command_world, horizon_s):
+    """Hold bounded existing progress while waiting for physical landing.
+
+    Contact confirmation still owns support and new liftoffs. Holding the
+    command must not repeatedly request a full stop at every load handover.
+    No acceleration toward an unachieved speed or sideways drift is added.
+    """
+    if not blocked:
+        return sample
+    velocity = commanded_progress_velocity(actual_velocity, command_world)
+    position = sample.desired_com_position.copy()
+    position[:2] = sample.com_position[:2]+horizon_s*velocity[:2]
+    return replace(sample, desired_com_position=position, desired_com_velocity=velocity)
 
 
 def swing_damping_reference_torque(jacobian, joint_velocity, measured_velocity,
@@ -446,6 +498,7 @@ class PyMpcGenesisController:
         self._tau_limited = np.zeros(12)
         self._tau_raw = np.zeros(12)
         self._joint_gravity = np.zeros(12)
+        self._base_velocity_world = np.zeros(3)
         self._swing_starts = np.zeros((4, 3))
         self._touchdowns = np.zeros((4, 3))
         self._touchdown_depths = np.zeros(4)
@@ -569,6 +622,7 @@ class PyMpcGenesisController:
         self._tau_limited.fill(0.0)
         self._tau_raw.fill(0.0)
         self._joint_gravity.fill(0.0)
+        self._base_velocity_world = np.zeros(3)
         self._swing_starts.fill(0.0)
         self._touchdowns.fill(0.0)
         self._last_contacts.fill(1.0)
@@ -750,6 +804,7 @@ class PyMpcGenesisController:
         )
         candidates[:, 2] = floor_z
         base_velocity_world = rot_m @ dq[:3]
+        self._base_velocity_world = base_velocity_world.copy()
         for i in range(4):
             if contacts[i, 0] == 0 and self._last_contacts[i] == 1:
                 projected, feasible = stance_end_foothold(
@@ -809,7 +864,18 @@ class PyMpcGenesisController:
             inertia_body=inertia_body,
             simulation_time_s=self._sim_time,
         )
-        return sample, feet, foot_vel, jacobians, dq[6:18]
+        return self._walking_reference(sample), feet, foot_vel, jacobians, dq[6:18]
+
+    def _walking_reference(self, sample: PyMpcInput) -> PyMpcInput:
+        if self._solver.backend != 'jax_mppi':
+            return sample
+        sample = trailing_crouch_reference(sample, command_vx=float(self._cmd.vx),
+                                           crouch_m=_WALK_TRAILING_CROUCH_M)
+        command_world = Rotation.from_euler('z', sample.rpy[2]).apply(
+            [self._cmd.vx, self._cmd.vy, 0.])
+        return landing_velocity_reference(sample, blocked=self._contact_gait.blocked,
+            actual_velocity=self._base_velocity_world, command_world=command_world,
+            horizon_s=.5*self._solver.horizon*self._solver.dt)
 
     def _reachable_target(self, leg: int, target: np.ndarray, *, max_shift=None) -> np.ndarray:
         q = self._bridge.last_q
@@ -962,6 +1028,7 @@ class PyMpcGenesisController:
         tau = np.clip(tau, -self._tau_lim, self._tau_lim)
         swing_dofs = np.repeat(contacts == 0, 3)
         auxiliary = self._aux_pd_torque(joint_vel)
+        auxiliary += self._stance_damping_reference(sample, jacobians)
         # Stance damping must not fight the commanded swing velocity. The
         # swing task already supplies its own velocity feedback.
         auxiliary[swing_dofs] = 0.0
@@ -978,6 +1045,34 @@ class PyMpcGenesisController:
         # Preserve the same local force/torque limits in both support modes.
         self._tau_filt[swing_dofs] = self._tau_limited[swing_dofs]
         return self._tau_filt.copy()
+
+    def _stance_damping_reference(self, sample: PyMpcInput, jacobians: np.ndarray) -> np.ndarray:
+        """Damp stance errors without braking existing commanded translation.
+
+        Keep the original damping gains and substep damping. Only the bounded
+        commanded component receives a matching reference torque; vertical,
+        rotational and cross-command motion retain their existing damping.
+        Contact confirmation, landing load, final torque limits and filtering
+        still own whether and how this reference reaches each motor.
+        """
+        reference = np.zeros(12)
+        if self._solver.backend != 'jax_mppi' or self._settling:
+            return reference
+        command_world = Rotation.from_euler('z', sample.rpy[2]).apply(
+            [self._cmd.vx, self._cmd.vy, 0.])
+        progress = commanded_progress_velocity(self._base_velocity_world, command_world)
+        if not np.any(progress):
+            return reference
+        damping = (.5+float(self._config.joint_damping)
+                   +float(self._config.leg_kv_damping)+float(self._config.aux_kv))
+        for i in range(4):
+            if sample.contacts[i, 0] != 1.:
+                continue
+            sl = slice(3*i, 3*i+3)
+            reference[sl] = self._contact_gait.load[i]*swing_damping_reference_torque(
+                jacobians[i], np.zeros(3), progress, np.zeros(3), damping=damping,
+                velocity_limits=self._swing_velocity_limits[sl])
+        return reference
 
     def _torque_scale(self) -> float:
         warmup_s = max(0.0, float(self._config.torque_warmup_s))

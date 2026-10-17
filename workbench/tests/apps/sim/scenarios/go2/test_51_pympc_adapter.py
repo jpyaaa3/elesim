@@ -198,6 +198,7 @@ def _torque_config(**overrides):
 
 def _init_contact_state(controller, elapsed_s=0.0):
     controller._joint_gravity = np.zeros(12)
+    controller._base_velocity_world = np.zeros(3)
     controller._contact_gait = ContactGatedGait()
     controller._contact_gait.prime([50.] * 4, dt=.04)
     controller._contact_gait.time = elapsed_s
@@ -512,14 +513,17 @@ def test_contact_wait_does_not_freeze_startup_torque_or_pose_assistance():
 
 
 @pytest.mark.parametrize('command,velocity,waiting,expected', [
-    (Go2Command(vx=.8), [.7, 0., .1], True, [0., 0., 0.]),
-    (Go2Command(vx=-.8), [-.7, 0., -.1], True, [0., 0., 0.]),
-    (Go2Command(vy=.35), [.1, .3, .1], True, [0., 0., 0.]),
+    (Go2Command(vx=.8), [.7, 0., .1], True, [.7, 0., 0.]),
+    (Go2Command(vx=-.8), [-.7, 0., -.1], True, [-.7, 0., 0.]),
+    (Go2Command(vy=.35), [.1, .3, .1], True, [0., .3, 0.]),
+    (Go2Command(vx=.2), [.7, .1, .1], True, [.2, 0., 0.]),
+    (Go2Command(vx=.8), [-.2, .1, .1], True, [0., 0., 0.]),
     (Go2Command(), [.7, 0., .1], True, [0., 0., 0.]),
     (Go2Command(vx=.8), [.7, 0., .1], False, [.8, 0., 0.]),
 ])
+@pytest.mark.parametrize('backend', ['jax_mppi', 'acados'])
 def test_landing_wait_keeps_search_reach_separate_from_ground_support(
-        command, velocity, waiting, expected):
+        command, velocity, waiting, expected, backend):
     from pathlib import Path
     import pinocchio as pin
     from elesim_sim.robot.go2.mpc.config import Go2MpcConfig
@@ -537,7 +541,7 @@ def test_landing_wait_keeps_search_reach_separate_from_ground_support(
     c._frames = [model.getFrameId(f'{leg.value}_foot') for leg in ALL_LEGS]
     c._bridge = SimpleNamespace(read_pin_q_dq=lambda **kw: (q, dq))
     c._config, c._payload = Go2MpcConfig(), None
-    c._solver = SimpleNamespace(backend='jax_mppi', horizon=12, dt=.02)
+    c._solver = SimpleNamespace(backend=backend, horizon=12, dt=.02)
     c._command_scale = lambda: 1.
     c._normal_contact_forces = lambda: np.full(4, 40.)
     search = np.array([0., 0., 1., 1.]) if waiting else np.zeros(4)
@@ -549,7 +553,11 @@ def test_landing_wait_keeps_search_reach_separate_from_ground_support(
     c._last_contacts, c._touchdowns = contacts[:, 0].copy(), np.zeros((4, 3))
     c._nominal_foot_offsets_body = np.array([NOMINAL_FOOT_OFFSET_BODY[leg] for leg in ALL_LEGS])
     state, *_ = c._sample()
+    # GPU handover retains bounded existing progress; the CPU policy is
+    # unchanged. Neither branch promises support from the searching feet.
+    expected = np.zeros(3) if waiting and backend == 'acados' else expected
     np.testing.assert_allclose(state.desired_com_velocity, expected, atol=1e-9)
+    np.testing.assert_allclose(c._base_velocity_world, velocity)
     np.testing.assert_array_equal(state.landing_search, search)
     np.testing.assert_array_equal(state.contacts[search.astype(bool)], 0.)
 

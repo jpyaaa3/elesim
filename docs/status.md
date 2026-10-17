@@ -6,6 +6,45 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 보행 전진성·지지 감쇠·착지 참조 TDD (2026-10-17, 기본값 실보행 재검증 중)
+
+- 사용자의 before/after 영상 피드백대로 스윙 오차 감소만으로 전체 보행을
+  개선으로 평가하지 않는다. Before는 실제 .260 m/s지만 뒤쪽 힙이 앞보다
+  평균 6.2 cm 높았고, after는 .125 m/s에 앞쪽이 2.6 cm 높았다.
+- 계측·분리 실험을 `edcb904`, `0b14f97`, `f6d09e6`, `bf973c2`로 순차 push하고
+  매번 양쪽 공식 update를 마쳤다. 원격 GPU2 격리 `tddwalk`의 설치 revision,
+  controller hash와 GPU UUID를 검사한 뒤 실제 Genesis 후보 **30개**를 비교했다.
+  dt=.01/substeps=2, MPPI 4096×2/seed42와 물리 모델은 유지했다.
+- 뒤쪽 목표만 2 cm 낮추면 기울기는 줄지만 속도가 더 줄었다. 감쇠 전체를
+  낮추는 후보는 .5 m/s 이상으로 빨라져도 발 추종과 일부 완주가 악화됐다.
+  수직 스윙 보정만 남기는 후보도 채택하지 않았다.
+- 지지 중 실제 진행속도의 명령 방향 성분만 0..현재 shaped 목표속도로
+  제한하고, 지면 고정발의 관절 기준속도로 변환해 기존 감쇠의 기준 토크를
+  더한다. 수직·측면·회전·역방향·과속·정지 오차와 null space는 계속 감쇠한다.
+  확인된 지지발에만 기존 착지 하중을 곱하고 최종 토크 제한·필터를 통과한다.
+- 착지 대기는 새 liftoff를 계속 막되, 이미 달성한 명령 방향 속도를 매번
+  0으로 제동하지 않는다. 횡방향 drift나 아직 달성하지 않은 가속은 요청하지
+  않는다. 앞쪽 목표 높이를 유지하는 뒤쪽 1 cm body-reference trim도 적용한다.
+  지면 높이·접촉 증거·load ramp·timeout·힘/토크 상한·CPU acados는 유지한다.
+- 선택한 prototype은 .8 m/s 명령에서 실제 **.655 m/s**, roll/pitch RMS
+  **1.17/1.67도**, 스윙 위치 오차 p95 **12.97 mm**로 완주·정지했다.
+  trim 없는 같은 보상도 20초를 완주했다. 이는 연구용 명시적 개입 결과이며
+  새 production 기본값의 다방향 수용시험 완료를 뜻하지 않는다.
+- 기존 전체 하강 정지 비율은 그대로 보존한다. 빠른 후보의 약 12% 표시는
+  모두 apex 직후 progress=.55의 단일 20 ms sample이고, before는 최대
+  3개 연속 및 progress=.825까지 남았다. progress>=.70의 `late_descent`
+  group을 별도로 추가했으며, 선택 후보의 하강 후반 공중 정지는 0이다.
+  기존 지표를 삭제하거나 0으로 보고하지 않는다.
+- Production 이식은 missing helper import red부터 진행했다. 첫 전체 회귀는
+  **751 passed / 3 failed**로, 세 실패는 이전의 '착지 대기이면 속도 0' 기대값이다.
+  bounded 진행·CPU 유지·역방향/과속·접촉 mask를 명시적으로 검증하도록 확장한
+  canonical Sim/관련 보행 회귀는 **763 passed / 4 skipped / 1 deselected**다.
+  제외 1건은 기존 RL 선형축 경유점 불일치이며 해당 경로는 변경하지 않았다.
+- [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
+  보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
+  GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.
+  DDS/WebRTC 네트워크·실물 Robot 수용시험과 R0–R5 완료를 뜻하지 않는다.
+
 ### 스윙 기준 속도 감쇠 TDD (2026-10-17, 추종 개선 확인·속도 미해결)
 
 - 원격 Robot 상태 동기화·선형축 보정·cuRobo 변경 `a7b3962` 위에 보관한

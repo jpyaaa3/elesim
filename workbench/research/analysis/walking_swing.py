@@ -4,6 +4,9 @@ Use simulation times >= 4 s and before command release, free swing progress
 0.05..0.95, and exact latched starts/depths. A descending airborne sample is
 stalled when desired Vz < -0.1 m/s, foot Z > 0.03 m and actual Vz >= -0.03 m/s.
 These sample statistics are separate from completed walking and stop gates.
+The original all-descent metric is retained. ``late_descent`` also reports
+progress >=0.70, separating a brief apex turnaround from a foot held in air
+late in the commanded descent.
 """
 from __future__ import annotations
 
@@ -46,6 +49,7 @@ def summarize_swing_tracking(rows):
         ('all', observations),
         ('accelerating_half', [r for r in observations if r[0] < .5]),
         ('decelerating_half', [r for r in observations if r[0] >= .5]),
+        ('late_descent', [r for r in observations if r[0] >= .7]),
     ):
         if not selected:
             result[name] = dict(n=0)

@@ -144,14 +144,14 @@ def main() -> None:
     parser.add_argument("--gpu-samples", type=int)
     parser.add_argument("--gpu-iterations", type=int)
     parser.add_argument("--trailing-crouch", type=float, default=0., metavar="METERS",
-                        help="diagnostic body reference: 0..0.03 m trailing hip drop")
+                        help="diagnostic additional body reference: 0..0.03 m trailing hip drop")
     parser.add_argument("--swing-reference-scale", type=float, default=1.,
                         help="diagnostic scale 0..1 of swing damping reference feedforward")
     parser.add_argument("--swing-reference-axes", choices=('all', 'vertical'), default='all')
     parser.add_argument("--aux-kv", type=float, help="diagnostic auxiliary damping override, 0..6")
     parser.add_argument("--leg-kv-damping", type=float, help="diagnostic leg damping override, 0..6")
-    parser.add_argument("--stance-progress-compensation", type=float, default=0.,
-                        help="diagnostic 0..1 damping reference along measured commanded progress")
+    parser.add_argument("--stance-progress-compensation", type=float,
+                        help="diagnostic 0..1 stance reference override; omitted keeps installed behavior")
     parser.add_argument("--coast-during-landing", action='store_true',
                         help="diagnostic: retain bounded current velocity during contact wait")
     parser.add_argument("--cameras", action="store_true", help="include both async render workers")
@@ -183,7 +183,9 @@ def main() -> None:
     for value in (args.aux_kv, args.leg_kv_damping):
         if value is not None and (not np.isfinite(value) or not 0. <= value <= 6.):
             parser.error("diagnostic damping must be finite and in 0..6")
-    if not np.isfinite(args.stance_progress_compensation) or not 0. <= args.stance_progress_compensation <= 1.:
+    if args.stance_progress_compensation is not None and (
+            not np.isfinite(args.stance_progress_compensation)
+            or not 0. <= args.stance_progress_compensation <= 1.):
         parser.error("stance progress compensation must be in 0..1")
     bundle = load_app_config(args.config, mode="remote")
     try:
@@ -245,10 +247,16 @@ def main() -> None:
             latest_actuation = {}
             original_sample = controller._sample
             original_auxiliary = controller._aux_pd_torque
+            native_stance_reference = getattr(controller, '_stance_damping_reference', None)
+            if native_stance_reference is not None and args.stance_progress_compensation is not None:
+                def scaled_native_stance_reference(sample, jacobians):
+                    return args.stance_progress_compensation*native_stance_reference(sample, jacobians)
+                controller._stance_damping_reference = scaled_native_stance_reference
 
             def auxiliary_with_progress_reference(joint_velocity):
                 torque = original_auxiliary(joint_velocity)
-                if (not args.stance_progress_compensation or controller._settling
+                if (native_stance_reference is not None
+                        or not args.stance_progress_compensation or controller._settling
                         or not latest_actuation):
                     return torque
                 sample = latest_actuation['sample']
@@ -314,6 +322,10 @@ def main() -> None:
                       diagnostic_swing_reference_axes=args.swing_reference_axes,
                       diagnostic_stance_progress_compensation=args.stance_progress_compensation,
                       diagnostic_coast_during_landing=args.coast_during_landing,
+                      runtime_stance_reference=(native_stance_reference is not None
+                          and controller._solver.backend == 'jax_mppi'),
+                      runtime_trailing_crouch_m=(getattr(controller_module, '_WALK_TRAILING_CROUCH_M', 0.)
+                          if controller._solver.backend == 'jax_mppi' else 0.),
                       locomotion_config=asdict(locomotion),
                       arm_motion=args.arm_motion,
                       camera_target_hz=[cfg.sim_camera_max_hz, cfg.sim_observer_camera_max_hz] if args.cameras else None))

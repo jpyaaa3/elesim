@@ -54,6 +54,23 @@ def test_missing_latched_start_is_rejected():
         summarize_swing_tracking(rows)
 
 
+def test_apex_turnaround_is_reported_separately_from_late_descent_stalls():
+    rows = trace()[:1]+trace()[2:]
+    rows[1]['contact_gate']['swing_progress'] = [.55]*4
+    rows[1]['centroidal_control']['foot_velocity_world'] = [[0., 0., 0.]]*4
+    result = summarize_swing_tracking(rows)
+    assert result['all']['descending_airborne_stalled_fraction'] == 1.
+    assert result['late_descent']['n'] == 0
+
+
+def test_sustained_late_descent_hover_is_not_hidden_by_the_phase_split():
+    rows = trace()
+    rows[2]['centroidal_control']['foot_velocity_world'] = [[0., 0., 0.]]*4
+    result = summarize_swing_tracking(rows)
+    assert result['late_descent']['n'] == 1
+    assert result['late_descent']['descending_airborne_stalled_fraction'] == 1.
+
+
 def test_cli_writes_the_same_reproducible_summary(tmp_path, capsys):
     rows = deepcopy(trace())
     (tmp_path/'forward08.jsonl').write_text('\n'.join(json.dumps(r) for r in rows)+'\n')

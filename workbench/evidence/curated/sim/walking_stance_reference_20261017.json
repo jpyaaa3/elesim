@@ -1,0 +1,1224 @@
+{
+  "date": "2026-10-17",
+  "state": "production_default_gpu_validation_pending",
+  "purpose": "Restore before briskness while preserving physical landing and lower trailing body slightly.",
+  "environment": {
+    "host": "hckang@100.74.222.24 via pinned Tailscale SSH",
+    "instance": "tddwalk",
+    "physical_gpu_index": 2,
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "dt_s": 0.01,
+    "substeps": 2,
+    "mppi_samples": 4096,
+    "mppi_iterations": 2,
+    "seed": 42,
+    "physics": "Production Genesis GO2+arm, no DDS participant, no cameras in prototype sweeps"
+  },
+  "canonical_regression": {
+    "passed": 763,
+    "skipped": 4,
+    "deselected": 1,
+    "deselected_test": "rl/test_start_path.py::test_the_shipped_path_ends_where_the_wrap_is (existing -0.166 vs -0.142 m mismatch)",
+    "skips": [
+      "qpOASES",
+      "two opt-in camera workers",
+      "unspecified fixed-foot trace"
+    ]
+  },
+  "selected_prototype": {
+    "revision": "bf973c2",
+    "trial": "coast_full_drop1",
+    "mean_body_speed_mps": 0.655,
+    "roll_rms_deg": 1.17,
+    "pitch_rms_deg": 1.67,
+    "swing_position_error_p95_mm": 12.97,
+    "all_descent_stalled_fraction": 0.11931818181818182,
+    "late_descent_stalled_fraction": 0.0,
+    "completed": true,
+    "explanation": "All observed stopped-descending samples are isolated single samples at progress .55 near apex. Original before had runs up to three samples and stalls through progress .825. Original all-descent metric is retained, not replaced by the phase split."
+  },
+  "production_controller_sha256": "236005c6e735faf6049a7995c06171f4f50be5d4ba8c040aa0aeaabdf24d7a22",
+  "production_default_runs": [],
+  "sweeps": [
+    {
+      "source_revision": "git-edcb90487a7962e42943524905ce312664edf3d9",
+      "release_key": "cd4a450469f9617463d7ed46e76d97ed799e4a6910c23ecb9ace4dcc92260af0",
+      "controller_sha256": "c0fe02aa4aa596951990d98cda0a71af9534b5a12162f1d644283714517f7d42",
+      "remote_execution_sha256": {
+        "profile_sim_walking.py": "459a499e6be1a41e3ff2d2de4c0f4dba3e25994b35be2bf59215b41b573a61b5",
+        "run.py": "e5ec688505e0f9b101d7fafaa0aa93d427e24b05f14a7439c495af43cc6b5201"
+      },
+      "raw_bundle": {
+        "path": "workbench/evidence/generated/contact-gait/posture-edcb904-bundle.json",
+        "bytes": 22544661,
+        "sha256": "e7556f8ca844a649282ce905c224298f83fc17c4f2efd6cc82f0ea42e8ae2484"
+      },
+      "trials": [
+        {
+          "name": "ref0_drop0",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 0.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            2.380506072193384,
+            0.12242277176119387,
+            0.027170956134796143
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 80.00000000000007,
+          "mean_along_body_speed_mps": 0.26532768596998363,
+          "roll_pitch_rms_deg": [
+            2.035629903194249,
+            10.525488708354326
+          ],
+          "height_min_mean_max_m": [
+            0.3098427653312683,
+            0.3259777076542377,
+            0.3370066285133362
+          ],
+          "swing_position_error_p95_mm": 48.7581542551683,
+          "all_descent_stalled_fraction": 0.5,
+          "late_descent_stalled_fraction": 0.13636363636363635,
+          "late_descent_airborne_samples": 88,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "ref0_drop2",
+          "settings": {
+            "crouch_m": 0.02,
+            "swing_reference_scale": 0.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            2.0751555301249027,
+            0.32368672103621066,
+            0.003637760877609253
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 80.00000000000007,
+          "mean_along_body_speed_mps": 0.22211552566712647,
+          "roll_pitch_rms_deg": [
+            2.2350867316688228,
+            4.816981308374546
+          ],
+          "height_min_mean_max_m": [
+            0.306484192609787,
+            0.31723050862550733,
+            0.32436972856521606
+          ],
+          "swing_position_error_p95_mm": 43.675640699282546,
+          "all_descent_stalled_fraction": 0.4473684210526316,
+          "late_descent_stalled_fraction": 0.047619047619047616,
+          "late_descent_airborne_samples": 84,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "ref1_drop0",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            1.325085911899805,
+            0.3409956416580826,
+            0.034613072872161865
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 39.99999999999959,
+          "mean_along_body_speed_mps": 0.1382066581532334,
+          "roll_pitch_rms_deg": [
+            2.9073772331583134,
+            3.834513977579134
+          ],
+          "height_min_mean_max_m": [
+            0.3305540382862091,
+            0.3400938803702593,
+            0.3510497510433197
+          ],
+          "swing_position_error_p95_mm": 6.11598598962097,
+          "all_descent_stalled_fraction": 0.0,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 82,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "ref1_drop2",
+          "settings": {
+            "crouch_m": 0.02,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            1.3824807740747929,
+            0.07058289111591876,
+            0.03390955924987793
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 39.99999999999915,
+          "mean_along_body_speed_mps": 0.14328952366260297,
+          "roll_pitch_rms_deg": [
+            2.263659075426266,
+            3.288840803439192
+          ],
+          "height_min_mean_max_m": [
+            0.31685084104537964,
+            0.32784028753638267,
+            0.34175819158554077
+          ],
+          "swing_position_error_p95_mm": 5.971650549082056,
+          "all_descent_stalled_fraction": 0.0,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 78,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "refhalf_drop0",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 0.5,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            1.8523160554468632,
+            -0.1696741410996765,
+            0.03284269571304321
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 59.99999999999961,
+          "mean_along_body_speed_mps": 0.1924269454850627,
+          "roll_pitch_rms_deg": [
+            2.3712315373378403,
+            5.160805699455182
+          ],
+          "height_min_mean_max_m": [
+            0.3219156861305237,
+            0.33476069279015064,
+            0.3449001610279083
+          ],
+          "swing_position_error_p95_mm": 20.044149102072442,
+          "all_descent_stalled_fraction": 0.14754098360655737,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 115,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "refhalf_drop2",
+          "settings": {
+            "crouch_m": 0.02,
+            "swing_reference_scale": 0.5,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            1.7479753829538822,
+            0.02564598643220961,
+            0.021968871355056763
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 59.99999999999872,
+          "mean_along_body_speed_mps": 0.17415790565525566,
+          "roll_pitch_rms_deg": [
+            2.311495011290136,
+            2.474932815485818
+          ],
+          "height_min_mean_max_m": [
+            0.3111424744129181,
+            0.3191589879989624,
+            0.326993465423584
+          ],
+          "swing_position_error_p95_mm": 18.74266211978538,
+          "all_descent_stalled_fraction": 0.17989417989417988,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 107,
+          "motion_screen_pass": false
+        }
+      ]
+    },
+    {
+      "source_revision": "git-0b14f97f649d637016e1cac954e23c793662a8b8",
+      "release_key": "3057b112232d3a3cc201449230cc6a3f1627bba32639fa1bac7cf92fb2213d14",
+      "controller_sha256": "c0fe02aa4aa596951990d98cda0a71af9534b5a12162f1d644283714517f7d42",
+      "remote_execution_sha256": {
+        "profile_sim_walking.py": "c226b5c9e2734f94c4809ff6e9f6dce13f8418ecd06bca5915fd21f07824a95a",
+        "run.py": "806c703b9e91eb2edca0653dbba655b987a537596a58739200bf2f4a83eabcfd"
+      },
+      "raw_bundle": {
+        "path": "workbench/evidence/generated/contact-gait/axes-0b14f97-bundle.json",
+        "bytes": 26461782,
+        "sha256": "d0706c82f6d85286bc14ff5607418db77c17290991b951c145bd2b6c8c20f972"
+      },
+      "trials": [
+        {
+          "name": "full_aux0",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 0.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            3.360377822071314,
+            -0.013552959775552154,
+            0.03451162576675415
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.3682807441415126,
+          "roll_pitch_rms_deg": [
+            1.6843141182789778,
+            8.15940172594201
+          ],
+          "height_min_mean_max_m": [
+            0.3220621347427368,
+            0.33991426415741444,
+            0.3555029630661011
+          ],
+          "swing_position_error_p95_mm": 8.637183124587253,
+          "all_descent_stalled_fraction": 0.012195121951219513,
+          "late_descent_stalled_fraction": 0.010638297872340425,
+          "late_descent_airborne_samples": 94,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "full_aux0_drop1",
+          "settings": {
+            "crouch_m": 0.01,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 0.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            3.183014664798975,
+            0.7868067643139511,
+            0.03927367925643921
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 39.99999999999915,
+          "mean_along_body_speed_mps": 0.35236356697638366,
+          "roll_pitch_rms_deg": [
+            1.749877751744259,
+            5.343600757955558
+          ],
+          "height_min_mean_max_m": [
+            0.31367358565330505,
+            0.3278560230880976,
+            0.3437006175518036
+          ],
+          "swing_position_error_p95_mm": 9.322434961279633,
+          "all_descent_stalled_fraction": 0.012195121951219513,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 88,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "full_aux0_leg0",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 0.0,
+            "leg_kv": 0.0
+          },
+          "completed": true,
+          "displacement_m": [
+            4.653602633625269,
+            -0.4352969208266586,
+            0.026281744241714478
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.5146163568068836,
+          "roll_pitch_rms_deg": [
+            1.6663953010756065,
+            5.254295289361574
+          ],
+          "height_min_mean_max_m": [
+            0.31291279196739197,
+            0.3308389197289944,
+            0.3460080623626709
+          ],
+          "swing_position_error_p95_mm": 20.14228033738178,
+          "all_descent_stalled_fraction": 0.13793103448275862,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 100,
+          "motion_screen_pass": true
+        },
+        {
+          "name": "full_aux1",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 1.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            1.9283687211573124,
+            -0.08011314808391035,
+            0.026038914918899536
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 39.99999999999915,
+          "mean_along_body_speed_mps": 0.19496223973992127,
+          "roll_pitch_rms_deg": [
+            1.8898405775477138,
+            4.234122569574676
+          ],
+          "height_min_mean_max_m": [
+            0.32067635655403137,
+            0.3348359229415655,
+            0.34540608525276184
+          ],
+          "swing_position_error_p95_mm": 6.232961171437764,
+          "all_descent_stalled_fraction": 0.0,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 81,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "vertical_aux0",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "vertical",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 0.0,
+            "leg_kv": 1.0
+          },
+          "completed": false,
+          "displacement_m": [
+            3.2462504245340824,
+            -0.05129185481928289,
+            -0.058602869510650635
+          ],
+          "last_stage": "fault",
+          "faults": [
+            "[go2_pympc] fault; latched safe stand until reset: GPU MPC produced no finite force trajectory"
+          ],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 60.00000000000028,
+          "mean_along_body_speed_mps": 0.43134791517310916,
+          "roll_pitch_rms_deg": [
+            4.484805260187141,
+            12.282165954083629
+          ],
+          "height_min_mean_max_m": [
+            0.2593033015727997,
+            0.31826258439423466,
+            0.3376132547855377
+          ],
+          "swing_position_error_p95_mm": 57.69578918497322,
+          "all_descent_stalled_fraction": 0.18803418803418803,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 73,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "vertical_aux1_drop1",
+          "settings": {
+            "crouch_m": 0.01,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "vertical",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 1.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            2.591377293691039,
+            0.1075493063981412,
+            0.01657828688621521
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 60.00000000000006,
+          "mean_along_body_speed_mps": 0.2842959250319208,
+          "roll_pitch_rms_deg": [
+            1.9670706047682578,
+            7.449942894286835
+          ],
+          "height_min_mean_max_m": [
+            0.31775718927383423,
+            0.32808709822595117,
+            0.3361123204231262
+          ],
+          "swing_position_error_p95_mm": 42.305810508647234,
+          "all_descent_stalled_fraction": 0.12790697674418605,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 106,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "vertical_aux2",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "vertical",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            1.7426551915705204,
+            -0.058650722494348884,
+            0.02943745255470276
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 59.99999999999872,
+          "mean_along_body_speed_mps": 0.18107371044615822,
+          "roll_pitch_rms_deg": [
+            3.5480402572356957,
+            6.271971822331918
+          ],
+          "height_min_mean_max_m": [
+            0.323927104473114,
+            0.3322766047716141,
+            0.3397327661514282
+          ],
+          "swing_position_error_p95_mm": 32.102286369332425,
+          "all_descent_stalled_fraction": 0.11931818181818182,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 106,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "zero_aux0_drop1",
+          "settings": {
+            "crouch_m": 0.01,
+            "swing_reference_scale": 0.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 0.0,
+            "leg_kv": 1.0
+          },
+          "completed": false,
+          "displacement_m": [
+            1.327731404453516,
+            0.1682184508536011,
+            -0.01689210534095764
+          ],
+          "last_stage": "fault",
+          "faults": [
+            "[go2_pympc] fault; latched safe stand until reset: touchdown timeout after 0.30s: RR"
+          ],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 80.00000000000007,
+          "mean_along_body_speed_mps": 0.571559330408518,
+          "roll_pitch_rms_deg": [
+            1.5404240963161795,
+            12.789320617729969
+          ],
+          "height_min_mean_max_m": [
+            0.28816455602645874,
+            0.3027887366436146,
+            0.31067603826522827
+          ],
+          "swing_position_error_p95_mm": 62.126538713010596,
+          "all_descent_stalled_fraction": 0.6,
+          "late_descent_stalled_fraction": 0.45454545454545453,
+          "late_descent_airborne_samples": 22,
+          "motion_screen_pass": false
+        }
+      ]
+    },
+    {
+      "source_revision": "git-f6d09e6604657a6583a04b7618d3c4034200abad",
+      "release_key": "b6095fb718fcb9659b6edba7a1ce55f090e4deec603df24cfc169e238d11a4dc",
+      "controller_sha256": "c0fe02aa4aa596951990d98cda0a71af9534b5a12162f1d644283714517f7d42",
+      "remote_execution_sha256": {
+        "profile_sim_walking.py": "557b7b52db4fe488b8e3376f6fcb90c279cbd0f158bf698ec4a040284a7b7600",
+        "run.py": "5a57b3e02477e624ef850786a6653f7a4f740e666ccc74793e7b686e59e27d11"
+      },
+      "raw_bundle": {
+        "path": "workbench/evidence/generated/contact-gait/progress-f6d09e6-bundle.json",
+        "bytes": 29045832,
+        "sha256": "f947538d95d067a83086f6397adc656f9399ed5fd0beadbc4d9865c595c9f4a5"
+      },
+      "trials": [
+        {
+          "name": "low_drop1",
+          "settings": {
+            "crouch_m": 0.01,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 0.0,
+            "leg_kv": 0.0
+          },
+          "completed": false,
+          "displacement_m": [
+            4.203057799488306,
+            -0.568446991732344,
+            -0.013141840696334839
+          ],
+          "last_stage": "fault",
+          "faults": [
+            "[go2_pympc] fault; latched safe stand until reset: GPU MPC produced no finite force trajectory"
+          ],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.5456626981308287,
+          "roll_pitch_rms_deg": [
+            2.0140145287729023,
+            4.113402661881365
+          ],
+          "height_min_mean_max_m": [
+            0.29516181349754333,
+            0.32032185765747606,
+            0.33916598558425903
+          ],
+          "swing_position_error_p95_mm": 21.10055048400742,
+          "all_descent_stalled_fraction": 0.08461538461538462,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 80,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "low_drop2",
+          "settings": {
+            "crouch_m": 0.02,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 0.0,
+            "leg_kv": 0.0
+          },
+          "completed": true,
+          "displacement_m": [
+            5.123408827930689,
+            -0.4080958941485733,
+            0.01685282588005066
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.564873696463962,
+          "roll_pitch_rms_deg": [
+            2.8167987491560265,
+            2.730539074934612
+          ],
+          "height_min_mean_max_m": [
+            0.2807460427284241,
+            0.3162707315385342,
+            0.33554330468177795
+          ],
+          "swing_position_error_p95_mm": 23.425593807642137,
+          "all_descent_stalled_fraction": 0.16666666666666666,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 100,
+          "motion_screen_pass": true
+        },
+        {
+          "name": "low_repeat",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": false,
+            "aux_kv": 0.0,
+            "leg_kv": 0.0
+          },
+          "completed": true,
+          "displacement_m": [
+            4.991962945088744,
+            0.38567335570405703,
+            0.04109179973602295
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.5562217980991951,
+          "roll_pitch_rms_deg": [
+            2.1469588424116033,
+            5.445245977667034
+          ],
+          "height_min_mean_max_m": [
+            0.32091155648231506,
+            0.3346429242938757,
+            0.34760868549346924
+          ],
+          "swing_position_error_p95_mm": 21.367433401768167,
+          "all_descent_stalled_fraction": 0.15294117647058825,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 96,
+          "motion_screen_pass": true
+        },
+        {
+          "name": "progress_full",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 1.0,
+            "coast_during_landing": false,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            4.471329722553492,
+            -0.0016004410572350025,
+            0.023736685514450073
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.489835614968803,
+          "roll_pitch_rms_deg": [
+            2.3474024765993593,
+            2.1562618039116037
+          ],
+          "height_min_mean_max_m": [
+            0.31174328923225403,
+            0.323294697701931,
+            0.3336681127548218
+          ],
+          "swing_position_error_p95_mm": 10.59211342366248,
+          "all_descent_stalled_fraction": 0.03508771929824561,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 97,
+          "motion_screen_pass": true
+        },
+        {
+          "name": "progress_full_drop1",
+          "settings": {
+            "crouch_m": 0.01,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 1.0,
+            "coast_during_landing": false,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            4.766456637531519,
+            0.23929517180658877,
+            0.01716458797454834
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.5239551806890246,
+          "roll_pitch_rms_deg": [
+            1.333027815109683,
+            3.6513207798559106
+          ],
+          "height_min_mean_max_m": [
+            0.3079927861690521,
+            0.3193150921911001,
+            0.32856011390686035
+          ],
+          "swing_position_error_p95_mm": 10.188331512262414,
+          "all_descent_stalled_fraction": 0.047337278106508875,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 97,
+          "motion_screen_pass": true
+        },
+        {
+          "name": "progress_half",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.5,
+            "coast_during_landing": false,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            2.7341206409037113,
+            0.11312901438213885,
+            0.03496956825256348
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 39.99999999999915,
+          "mean_along_body_speed_mps": 0.29942470963765194,
+          "roll_pitch_rms_deg": [
+            1.6516509946789744,
+            1.9400711092078546
+          ],
+          "height_min_mean_max_m": [
+            0.322020560503006,
+            0.3357430939376354,
+            0.34647995233535767
+          ],
+          "swing_position_error_p95_mm": 7.236622956008157,
+          "all_descent_stalled_fraction": 0.0,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 89,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "progress_threequarters",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.75,
+            "coast_during_landing": false,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            2.9854822494089603,
+            -0.2582623341586441,
+            0.02032601833343506
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 39.99999999999959,
+          "mean_along_body_speed_mps": 0.3261723832897695,
+          "roll_pitch_rms_deg": [
+            1.883232791842145,
+            1.2378894631006676
+          ],
+          "height_min_mean_max_m": [
+            0.31842851638793945,
+            0.32736470505595205,
+            0.3349344730377197
+          ],
+          "swing_position_error_p95_mm": 8.60973320750546,
+          "all_descent_stalled_fraction": 0.00625,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 88,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "progress_threequarters_drop1",
+          "settings": {
+            "crouch_m": 0.01,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.75,
+            "coast_during_landing": false,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            3.051580462604761,
+            0.08210350782610476,
+            0.015078157186508179
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.3327978627155328,
+          "roll_pitch_rms_deg": [
+            1.3469197013873433,
+            2.4440598836922884
+          ],
+          "height_min_mean_max_m": [
+            0.3162982165813446,
+            0.3227375362068415,
+            0.32846757769584656
+          ],
+          "swing_position_error_p95_mm": 7.348190300974981,
+          "all_descent_stalled_fraction": 0.0,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 90,
+          "motion_screen_pass": false
+        }
+      ]
+    },
+    {
+      "source_revision": "git-bf973c2cdd79ad5460adfc81faf67ec3cabe1b0a",
+      "release_key": "bc14260b09943d0e7d7ccb9ea92f413e701522094198a2d50af4fd0d3f41ef51",
+      "controller_sha256": "c0fe02aa4aa596951990d98cda0a71af9534b5a12162f1d644283714517f7d42",
+      "remote_execution_sha256": {
+        "profile_sim_walking.py": "a7b42f7a5321566ba9f534988041bf7ef7311c5d3019e9d338a77291a69f966a",
+        "run.py": "0abc00b69153fe40802fea8f4850f33aaa8d21e68d489f0c8af2cba2ebbe994b"
+      },
+      "raw_bundle": {
+        "path": "workbench/evidence/generated/contact-gait/coast-bf973c2-bundle.json",
+        "bytes": 33183021,
+        "sha256": "dfc3bd054440894bd0884158d5ad0904aa7c40525640fcfba95ec54c4d7b94bf"
+      },
+      "trials": [
+        {
+          "name": "coast_aux0",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": true,
+            "aux_kv": 0.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            3.2603216506540775,
+            0.20224002213217318,
+            0.032713383436203
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.35398665968883813,
+          "roll_pitch_rms_deg": [
+            1.8210964895368054,
+            6.906398950547726
+          ],
+          "height_min_mean_max_m": [
+            0.32432079315185547,
+            0.3392853792011738,
+            0.3573940694332123
+          ],
+          "swing_position_error_p95_mm": 9.579805904551977,
+          "all_descent_stalled_fraction": 0.034482758620689655,
+          "late_descent_stalled_fraction": 0.02040816326530612,
+          "late_descent_airborne_samples": 98,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "coast_base",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": true,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            2.202271018177271,
+            0.22668881923891604,
+            0.0461941659450531
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 29.999999999999805,
+          "mean_along_body_speed_mps": 0.2298001839433717,
+          "roll_pitch_rms_deg": [
+            1.9075522899491377,
+            8.674674034740267
+          ],
+          "height_min_mean_max_m": [
+            0.32226863503456116,
+            0.3466607230901718,
+            0.3597443401813507
+          ],
+          "swing_position_error_p95_mm": 6.404069292296982,
+          "all_descent_stalled_fraction": 0.0,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 87,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "coast_full",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 1.0,
+            "coast_during_landing": true,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            5.903608832508326,
+            0.4898008129093796,
+            0.014012426137924194
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.6503737954851467,
+          "roll_pitch_rms_deg": [
+            2.569922830962557,
+            2.9963311614576615
+          ],
+          "height_min_mean_max_m": [
+            0.29695165157318115,
+            0.3193152692168951,
+            0.3340149521827698
+          ],
+          "swing_position_error_p95_mm": 14.540189262373632,
+          "all_descent_stalled_fraction": 0.09696969696969697,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 95,
+          "motion_screen_pass": true
+        },
+        {
+          "name": "coast_full20",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 1.0,
+            "coast_during_landing": true,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            12.393795523792505,
+            2.315603973576799,
+            0.01752808690071106
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.6644642675495512,
+          "roll_pitch_rms_deg": [
+            2.149880887418706,
+            2.8299649902622366
+          ],
+          "height_min_mean_max_m": [
+            0.29695165157318115,
+            0.3210837142666181,
+            0.3340149521827698
+          ],
+          "swing_position_error_p95_mm": 14.069931216160722,
+          "all_descent_stalled_fraction": 0.11508951406649616,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 223,
+          "motion_screen_pass": true
+        },
+        {
+          "name": "coast_full_drop1",
+          "settings": {
+            "crouch_m": 0.01,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 1.0,
+            "coast_during_landing": true,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            6.009899649769068,
+            -0.3171071985270828,
+            0.01516813039779663
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.6554867848886351,
+          "roll_pitch_rms_deg": [
+            1.1727744505379945,
+            1.6657442135065916
+          ],
+          "height_min_mean_max_m": [
+            0.3072444796562195,
+            0.31881904885172846,
+            0.3278755843639374
+          ],
+          "swing_position_error_p95_mm": 12.969790650661173,
+          "all_descent_stalled_fraction": 0.11931818181818182,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 100,
+          "motion_screen_pass": true
+        },
+        {
+          "name": "coast_half",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.5,
+            "coast_during_landing": true,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            3.046014105901122,
+            -0.22386889492918272,
+            0.028867602348327637
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 39.99999999999915,
+          "mean_along_body_speed_mps": 0.3204652632124764,
+          "roll_pitch_rms_deg": [
+            2.2272347309447715,
+            5.006559873957716
+          ],
+          "height_min_mean_max_m": [
+            0.31704193353652954,
+            0.33779662296175955,
+            0.3507140278816223
+          ],
+          "swing_position_error_p95_mm": 9.173880210581386,
+          "all_descent_stalled_fraction": 0.012048192771084338,
+          "late_descent_stalled_fraction": 0.011627906976744186,
+          "late_descent_airborne_samples": 86,
+          "motion_screen_pass": false
+        },
+        {
+          "name": "coast_low",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.0,
+            "coast_during_landing": true,
+            "aux_kv": 0.0,
+            "leg_kv": 0.0
+          },
+          "completed": true,
+          "displacement_m": [
+            5.369995627552271,
+            0.08515909523703158,
+            0.021537721157073975
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.5960038230127744,
+          "roll_pitch_rms_deg": [
+            2.213134441731587,
+            4.740418118282323
+          ],
+          "height_min_mean_max_m": [
+            0.3131480813026428,
+            0.32554684810340406,
+            0.33742544054985046
+          ],
+          "swing_position_error_p95_mm": 23.29441708517985,
+          "all_descent_stalled_fraction": 0.14942528735632185,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 100,
+          "motion_screen_pass": true
+        },
+        {
+          "name": "coast_threequarters",
+          "settings": {
+            "crouch_m": 0.0,
+            "swing_reference_scale": 1.0,
+            "swing_axes": "all",
+            "stance_reference_scale": 0.75,
+            "coast_during_landing": true,
+            "aux_kv": 2.0,
+            "leg_kv": 1.0
+          },
+          "completed": true,
+          "displacement_m": [
+            4.734548602253199,
+            -0.22086086659692228,
+            0.024467647075653076
+          ],
+          "last_stage": "stand",
+          "faults": [],
+          "airborne_grf_samples": 0,
+          "touchdown_delay_median_ms": 40.000000000000036,
+          "mean_along_body_speed_mps": 0.5271368060750106,
+          "roll_pitch_rms_deg": [
+            1.5456795099971186,
+            5.285377116549842
+          ],
+          "height_min_mean_max_m": [
+            0.3136154115200043,
+            0.32851645842194555,
+            0.33798500895500183
+          ],
+          "swing_position_error_p95_mm": 10.654294793142544,
+          "all_descent_stalled_fraction": 0.07738095238095238,
+          "late_descent_stalled_fraction": 0.0,
+          "late_descent_airborne_samples": 96,
+          "motion_screen_pass": true
+        }
+      ]
+    }
+  ]
+}
