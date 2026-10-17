@@ -66,6 +66,20 @@ def commanded_progress_velocity(actual_velocity, commanded_velocity):
     return result
 
 
+def landing_velocity_reference(sample, *, blocked, actual_velocity, command_world, horizon_s):
+    """During landing wait, request current bounded progress instead of a stop.
+
+    This intervention never changes contact evidence, loads, liftoff scheduling
+    or angular commands. It cannot accelerate toward an unachieved speed.
+    """
+    if not blocked:
+        return sample
+    velocity = commanded_progress_velocity(actual_velocity, command_world)
+    position = sample.desired_com_position.copy()
+    position[:2] = sample.com_position[:2]+horizon_s*velocity[:2]
+    return replace(sample, desired_com_position=position, desired_com_velocity=velocity)
+
+
 def has_commanded_progress(command, displacement, *, duration):
     """Reject frozen/opposite straight walking; this is not a tracking gate."""
     speed = math.hypot(command[0], command[1])
@@ -138,6 +152,8 @@ def main() -> None:
     parser.add_argument("--leg-kv-damping", type=float, help="diagnostic leg damping override, 0..6")
     parser.add_argument("--stance-progress-compensation", type=float, default=0.,
                         help="diagnostic 0..1 damping reference along measured commanded progress")
+    parser.add_argument("--coast-during-landing", action='store_true',
+                        help="diagnostic: retain bounded current velocity during contact wait")
     parser.add_argument("--cameras", action="store_true", help="include both async render workers")
     parser.add_argument("--arm-motion", action="store_true", help="small bounded arm bend oscillations")
     parser.add_argument("--keep-target", action="store_true")
@@ -257,10 +273,17 @@ def main() -> None:
                 result = original_sample()
                 sample = trailing_crouch_reference(result[0],
                     command_vx=float(controller._cmd.vx), crouch_m=args.trailing_crouch)
+                base_velocity = Rotation.from_quat(controller._bridge.last_q[3:7]).apply(
+                    controller._bridge.last_dq[:3])
+                if args.coast_during_landing:
+                    command = Rotation.from_euler('z', sample.rpy[2]).apply(
+                        [controller._cmd.vx, controller._cmd.vy, 0.])
+                    sample = landing_velocity_reference(sample, blocked=controller._contact_gait.blocked,
+                        actual_velocity=base_velocity, command_world=command,
+                        horizon_s=.5*controller._solver.horizon*controller._solver.dt)
                 result = (sample, *result[1:])
                 latest_actuation.update(sample=sample, jacobians=result[3],
-                    base_velocity=Rotation.from_quat(controller._bridge.last_q[3:7]).apply(
-                        controller._bridge.last_dq[:3]))
+                    base_velocity=base_velocity)
                 latest_control.update(
                     com=sample.com_position.tolist(),
                     desired_com=sample.desired_com_position.tolist(),
@@ -290,6 +313,7 @@ def main() -> None:
                       diagnostic_swing_reference_scale=args.swing_reference_scale,
                       diagnostic_swing_reference_axes=args.swing_reference_axes,
                       diagnostic_stance_progress_compensation=args.stance_progress_compensation,
+                      diagnostic_coast_during_landing=args.coast_during_landing,
                       locomotion_config=asdict(locomotion),
                       arm_motion=args.arm_motion,
                       camera_target_hz=[cfg.sim_camera_max_hz, cfg.sim_observer_camera_max_hz] if args.cameras else None))

@@ -7,6 +7,7 @@ import pytest
 from workbench.research.debug.profile_sim_walking import trailing_crouch_reference
 from workbench.research.debug.profile_sim_walking import swing_reference_for_axes
 from workbench.research.debug.profile_sim_walking import commanded_progress_velocity
+from workbench.research.debug.profile_sim_walking import landing_velocity_reference
 
 
 @dataclass(frozen=True)
@@ -95,3 +96,28 @@ def test_stance_reference_retains_vertical_and_sideways_joint_error_damping():
     error = np.linalg.solve(jacobian, [0., -.2, .1])
     net = -3.6*(qref+error)+reference
     np.testing.assert_allclose(net, -3.6*error, atol=1e-12)
+
+
+@dataclass(frozen=True)
+class MotionReference:
+    com_position: np.ndarray
+    desired_com_position: np.ndarray
+    desired_com_velocity: np.ndarray
+    contacts: np.ndarray
+
+
+def test_landing_wait_retains_existing_progress_without_accelerating_or_changing_contacts():
+    sample = MotionReference(np.array([1., 2., .3]), np.array([1., 2., .28]),
+                             np.zeros(3), np.eye(4))
+    changed = landing_velocity_reference(sample, blocked=True,
+        actual_velocity=[.3, .1, .2], command_world=[.8, 0., 0.], horizon_s=.12)
+    np.testing.assert_allclose(changed.desired_com_velocity, [.3, 0., 0.])
+    np.testing.assert_allclose(changed.desired_com_position, [1.036, 2., .28])
+    assert changed.contacts is sample.contacts
+    np.testing.assert_array_equal(sample.desired_com_velocity, np.zeros(3))
+
+
+def test_landing_intervention_is_inactive_when_the_gait_is_not_blocked():
+    sample = MotionReference(np.zeros(3), np.zeros(3), np.ones(3), np.eye(4))
+    assert landing_velocity_reference(sample, blocked=False, actual_velocity=[.3, 0., 0.],
+        command_world=[.8, 0., 0.], horizon_s=.12) is sample
