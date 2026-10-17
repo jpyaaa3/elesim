@@ -544,13 +544,18 @@ def test_landing_wait_keeps_search_reach_separate_from_ground_support(
     c._solver = SimpleNamespace(backend=backend, horizon=12, dt=.02)
     c._command_scale = lambda: 1.
     c._normal_contact_forces = lambda: np.full(4, 40.)
-    search = np.array([0., 0., 1., 1.]) if waiting else np.zeros(4)
+    search = np.array([False, False, True, True]) if waiting else np.zeros(4, dtype=bool)
     contacts = np.tile((1.-search)[:, None], (1, 12))
+    updates = []
+    def update_contacts(*args, **kwargs):
+        updates.append(kwargs)
+        return contacts.copy()
     c._contact_gait = SimpleNamespace(
-        update=lambda *a, **kw: contacts.copy(), blocked=waiting,
+        update=update_contacts, blocked=waiting,
         load=1.-search, search=search, swing_remaining=np.zeros(4), time=0.)
     c._cmd, c._dt, c._sim_time = command, .02, 1.
     c._last_contacts, c._touchdowns = contacts[:, 0].copy(), np.zeros((4, 3))
+    c._was_searching = np.zeros(4, dtype=bool)
     c._nominal_foot_offsets_body = np.array([NOMINAL_FOOT_OFFSET_BODY[leg] for leg in ALL_LEGS])
     state, *_ = c._sample()
     # GPU handover retains bounded existing progress; the CPU policy is
@@ -560,6 +565,7 @@ def test_landing_wait_keeps_search_reach_separate_from_ground_support(
     np.testing.assert_allclose(c._base_velocity_world, velocity)
     np.testing.assert_array_equal(state.landing_search, search)
     np.testing.assert_array_equal(state.contacts[search.astype(bool)], 0.)
+    assert updates[-1]['support_handover'] is (backend == 'jax_mppi')
 
 
 def test_payload_com_height_keeps_body_height_error_when_arm_raises_com() -> None:

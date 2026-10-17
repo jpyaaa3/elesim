@@ -120,36 +120,6 @@ def swing_damping_reference_torque(jacobian, joint_velocity, measured_velocity,
     return float(damping) * reference
 
 
-def support_damping_floor_torque(jacobian, active_torque, joint_velocity, *,
-                                 passive_damping, minimum_force_n, correction_limit_n=60.):
-    """Keep motor drag from reversing an already confirmed support force.
-
-    The optimizer's floor describes ground reaction after actuation. Include
-    passive damping in the quasi-static actuator force, and restore only its
-    missing downward normal component. Tangential damping remains intact.
-    This is bounded motor-bias compensation, not a new GRF or contact claim.
-    Final actuator limits and filtering still own the applied joint torque.
-    """
-    jacobian = np.asarray(jacobian, dtype=float)
-    active_torque = np.asarray(active_torque, dtype=float)
-    joint_velocity = np.asarray(joint_velocity, dtype=float)
-    if (jacobian.shape != (3, 3) or active_torque.shape != (3,)
-            or joint_velocity.shape != (3,)
-            or not all(np.isfinite(value).all() for value in
-                       (jacobian, active_torque, joint_velocity))
-            or not np.isfinite([passive_damping, minimum_force_n, correction_limit_n]).all()
-            or min(passive_damping, minimum_force_n) < 0. or correction_limit_n <= 0.):
-        raise ValueError('support damping floor needs finite actuator data and nonnegative gains')
-    if minimum_force_n == 0.:
-        return np.zeros(3)
-    equivalent, _, rank, _ = np.linalg.lstsq(
-        jacobian.T, active_torque-passive_damping*joint_velocity, rcond=1e-3)
-    if rank < 3:
-        return np.zeros(3)
-    correction = float(np.clip(minimum_force_n+equivalent[2], 0., correction_limit_n))
-    return -jacobian[2]*correction
-
-
 def solver_update_stride(sim_dt: float, prediction_dt: float, *, backend: str) -> int:
     """Refresh GPU forces within one prediction stage; retain CPU cadence."""
     if not np.isfinite([sim_dt, prediction_dt]).all() or min(sim_dt, prediction_dt) <= 0.:
@@ -162,7 +132,7 @@ def solver_update_stride(sim_dt: float, prediction_dt: float, *, backend: str) -
 
 
 class ContactGatedGait:
-    """Pause the gait clock until scheduled support has actually landed."""
+    """Admit new liftoffs only after their remaining support actually lands."""
 
     def __init__(self):
         self.time = 0.0
@@ -196,7 +166,7 @@ class ContactGatedGait:
         self.blocked = not bool(np.all(self.confirmed))
 
     def update(self, normal_forces, *, dt, gait_hz, duty, horizon_dt, horizon, settling,
-               foot_heights):
+               foot_heights, support_handover=False):
         normal = np.asarray(normal_forces, dtype=float)
         if normal.shape != (4,) or not np.all(np.isfinite(normal)):
             raise RuntimeError("invalid foot contact force feedback")
@@ -210,7 +180,26 @@ class ContactGatedGait:
                                        dt=horizon_dt, horizon=horizon)[:, 0].astype(bool)
         airborne = heights > _MAX_GROUND_FOOT_HEIGHT_M
         loss_now = airborne | ((normal <= 2.0) & (self.loss_age + dt >= 0.08 - 1e-9))
-        self.phase_rate = float(not self.blocked and not settling and not np.any(old_planned & loss_now))
+        if support_handover and duty > .5:
+            loaded = self.confirmed & (self.load >= 1.-1e-9) & ~loss_now
+            proposed = contact_schedule(self.time+dt, gait_hz=gait_hz, duty=duty,
+                                        dt=horizon_dt, horizon=horizon)[:, 0].astype(bool)
+            if np.any(old_planned & ~proposed):
+                # Before crossing a liftoff, every foot that will remain in
+                # support needs full measured loading. Departing feet may
+                # already be unloaded; they do not own the next support set.
+                supported = bool(np.all(loaded[proposed]))
+            elif np.all(old_planned):
+                # Use the overlap while either verified diagonal supports
+                # the body. The boundary check above still waits for the new
+                # pair's complete contact evidence and 60 ms load ramp.
+                supported = bool(np.all(loaded[[0, 3]]) or np.all(loaded[[1, 2]]))
+            else:
+                supported = bool(np.all(loaded[old_planned]))
+            self.phase_rate = float(supported and not settling)
+        else:
+            self.phase_rate = float(not self.blocked and not settling
+                                    and not np.any(old_planned & loss_now))
         if self.phase_rate:
             self.time += dt
         schedule = contact_schedule(
@@ -811,6 +800,7 @@ class PyMpcGenesisController:
             horizon=self._solver.horizon,
             settling=getattr(self, "_settling", False),
             foot_heights=feet[:, 2],
+            support_handover=self._solver.backend == 'jax_mppi',
         )
         if self._contact_gait.blocked:
             cmd_world = np.zeros(3)
@@ -835,8 +825,9 @@ class PyMpcGenesisController:
         candidates[:, 2] = floor_z
         base_velocity_world = rot_m @ dq[:3]
         self._base_velocity_world = base_velocity_world.copy()
+        swing_previous = self._swing_previous_contacts(contacts[:, 0])
         for i in range(4):
-            if contacts[i, 0] == 0 and self._last_contacts[i] == 1:
+            if contacts[i, 0] == 0 and swing_previous[i] == 1:
                 projected, feasible = stance_end_foothold(
                     i, candidates[i], q[:3], rot_m, base_velocity_world, cmd_world,
                     self._contact_gait.swing_remaining[i], stance_duration_s,
@@ -845,7 +836,7 @@ class PyMpcGenesisController:
                 candidates[i] = (projected if feasible
                                  else self._reachable_target(i, candidates[i]))
         footholds = planned_footholds(
-            feet, candidates, contacts[:, 0], self._last_contacts, self._touchdowns,
+            feet, candidates, contacts[:, 0], swing_previous, self._touchdowns,
         )
         preview = footholds.copy()
         if self._solver.backend == "jax_mppi":
@@ -930,6 +921,7 @@ class PyMpcGenesisController:
     def _torques(self, sample: PyMpcInput, feet: np.ndarray, foot_vel: np.ndarray,
                  jacobians: np.ndarray, joint_vel: np.ndarray) -> np.ndarray:
         contacts = sample.contacts[:, 0]
+        swing_previous = self._swing_previous_contacts(contacts)
         support_changed = not np.array_equal(contacts, self._last_contacts)
         # A force solution is valid only for the support set it was solved for.
         # In particular a newly grounded foot must not reuse its swing zero.
@@ -1025,7 +1017,7 @@ class PyMpcGenesisController:
                         jacobians[i], joint_vel[sl], foot_vel[i],
                         self._swing_velocity_limits[sl])
             else:
-                if self._last_contacts[i] == 1:
+                if swing_previous[i] == 1:
                     self._swing_starts[i] = feet[i]
                     self._touchdowns[i] = sample.footholds_world[i]
                     # The forward/reverse trajectory needs earlier loading;
@@ -1066,27 +1058,7 @@ class PyMpcGenesisController:
         # Stance damping must not fight the commanded swing velocity. The
         # swing task already supplies its own velocity feedback.
         auxiliary[swing_dofs] = 0.0
-        torque_scale = self._torque_scale()
-        tau = tau * torque_scale + auxiliary
-        if self._solver.backend == 'jax_mppi' and sample.support_force_floor_n > 0.:
-            for i in range(4):
-                if contacts[i] != 1.:
-                    continue
-                sl = slice(3*i, 3*i+3)
-                # Preserve the solved/load-ramped support floor, including
-                # the motor's passive load at every physics substep. Do not
-                # turn the quiet stop's gravity compensation into a GRF.
-                support_torque = tau[sl]
-                if static_gravity:
-                    support_torque = support_torque-torque_scale*self._joint_gravity[sl]
-                floor = min(float(sample.support_force_floor_n),
-                            torque_scale*self._forces[i, 2]*self._contact_gait.load[i])
-                tau[sl] += support_damping_floor_torque(
-                    jacobians[i], support_torque, joint_vel[sl],
-                    passive_damping=(float(self._config.joint_damping)
-                                     +float(self._config.leg_kv_damping)),
-                    minimum_force_n=floor,
-                    correction_limit_n=min(60., float(self._config.fz_max_n)))
+        tau = tau * self._torque_scale() + auxiliary
         self._tau_limited = np.clip(tau, -self._tau_lim, self._tau_lim)
         alpha = float(np.clip(self._config.tau_filter_alpha, 0.05, 1.0))
         # All stance legs may redistribute load at a contact change. Do not
@@ -1099,6 +1071,14 @@ class PyMpcGenesisController:
         # Preserve the same local force/torque limits in both support modes.
         self._tau_filt[swing_dofs] = self._tau_limited[swing_dofs]
         return self._tau_filt.copy()
+
+    def _swing_previous_contacts(self, contacts: np.ndarray) -> np.ndarray:
+        """Replan a new liftoff even when that foot was searching beforehand."""
+        previous = self._last_contacts.copy()
+        if self._solver.backend == 'jax_mppi':
+            restarted = (np.asarray(contacts) == 0.) & ~self._contact_gait.search & self._was_searching
+            previous[restarted] = 1.
+        return previous
 
     def _stance_damping_reference(self, sample: PyMpcInput, jacobians: np.ndarray, *,
                                   reference_solver=swing_damping_reference_torque) -> np.ndarray:

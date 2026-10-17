@@ -80,7 +80,23 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   MPC force/load 요청과 contact gate, 최종 토크 상한·필터 및 CPU는 유지한다.
   특이 Jacobian에서는 보상을 만들지 않는다. 관련 focused 회귀는 **51 passed**다.
   동일 canonical 전체는 **790 passed / 4 skipped / 1 deselected**다.
-  새 수정의 설치본 실제 GPU2 재검증은 다음 push/양쪽 공식 update 후 진행한다.
+- `b2b21f5`를 push/양쪽 update/해시·GPU2 확인 후 시험했지만, 사후 normal
+  보정은 짧은 후진부터 t=3.78 s에 실패했다. 전진·좌·우는 완주했으나 long
+  gate는 열리지 않았다. 이 후보의 runtime과 구현 전용 `test_60`은 제거하고
+  실패 증거와 해당 commit의 회귀 이력을 보존했다.
+- 추가로 `734a36d` 후진의 clock=5.01, `b2b21f5`의 clock=.72에서 다음 지지
+  쌍은 이미 fully loaded인데 곧 뗄 이전 쌍의 무하중 때문에 clock 전체가
+  정지하는 교착을 확인했다. GPU는 네 발 overlap에서 실제 full-load 대각
+  한 쌍이 있으면 경계까지 진행하되, 새 liftoff 경계를 넘을 때는 남을 모든
+  발의 실제 확인·완전한 load ramp·새 airborne 증거를 검사한다. 접촉을
+  조작하거나 없는 발에 GRF를 주지 않는다. CPU strict gate와 settling은 유지한다.
+- `test_61`은 옵션 연결 후 **6 failed / 7 passed**로 교착을 재현했다.
+  Search→새 swing에서 예전 start/착지 목표를 재사용하는 추가 red도 재현해,
+  해당 전환만 현재 발에서 새 궤적을 latch하고 새 foothold를 계산하도록 했다.
+  실제 접촉 이력과 진행 중 swing의 고정 목표는 유지한다.
+- 이 handover/새 swing 수정의 canonical 전체는 **793 passed / 4 skipped /
+  1 deselected**다. 설치본 실제 GPU2의 다방향·긴 보행·반복 정지는 다음
+  push/양쪽 공식 update 뒤 다시 확인한다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.
