@@ -249,8 +249,8 @@ def main() -> None:
             original_auxiliary = controller._aux_pd_torque
             native_stance_reference = getattr(controller, '_stance_damping_reference', None)
             if native_stance_reference is not None and args.stance_progress_compensation is not None:
-                def scaled_native_stance_reference(sample, jacobians):
-                    return args.stance_progress_compensation*native_stance_reference(sample, jacobians)
+                def scaled_native_stance_reference(*values, **options):
+                    return args.stance_progress_compensation*native_stance_reference(*values, **options)
                 controller._stance_damping_reference = scaled_native_stance_reference
 
             def auxiliary_with_progress_reference(joint_velocity):

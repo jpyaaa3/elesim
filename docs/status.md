@@ -125,6 +125,25 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   기존 필터를 유지한다. Search의 startup passive 보정 추가 red도 통과했다.
   이 수정 후 canonical 전체는 **819 passed / 4 skipped / 1 deselected**다.
   새 설치본의 반복 출발·정지 우선 실제 GPU2 검증은 다음 push/양쪽 update 뒤 진행한다.
+- `d0eee6c`도 push/양쪽 공식 update와 설치 controller/solver 해시, GPU2를
+  확인한 뒤 실제 10개를 돌렸다. 전후진 각 3회 출발·정지, 전후좌우 6초와
+  전진/좌/우 20초는 모두 완주·정지했다. **9/10**이며 후진 20초만
+  t=15.62 s에 finite-force fault가 남았다. 전진 20초 실제 .810 m/s,
+  roll/pitch RMS 2.20/2.71도다. 실패한 후진을 제외하고 완료로 판정하지 않는다.
+- 후진 FL 착지 t=14.86 s에서 기존 감쇠의 upward 환산은 약 28.2 N,
+  요청된 적용 지지력은 10 N, 실제 접촉 normal은 0 N이었다. 적용 motor
+  torque와 passive를 합친 downward 환산은 -17.9 N이다. 이는 기록한
+  Jacobian·토크의 quasi-static 분해이며 추가 물리 측정값은 아니다.
+- Search는 지면 기준인데 stance로 바뀌면 명령 방향 평행이동만 보상해
+  몸통 상하·회전 운동의 감쇠가 새 발을 들어 올리는 차이를 확인했다.
+  GPU의 확인된 stance에도 측정한 world foot velocity와 joint velocity로
+  동일한 지면 고정발 기준을 적용한다. 실제 발 오차·null space 감쇠와
+  접촉 증거·load ramp·최종 토크 상한·필터는 유지하며, 몸통 제동은 MPC가
+  계속 요청한다. CPU 경로는 그대로다. 구현 전 물리 토크 red 7개를 재현했다.
+  stationary-body fixture 두 곳의 measured foot velocity를 J*qdot과 일치시켜
+  기존 기대 토크를 그대로 검증한다. Zero-velocity 요청의 실제 JAX optimizer
+  제동도 CPU에서 확인했다. Canonical 전체는 **828 passed / 4 skipped /
+  1 deselected**이며 새 설치본 GPU2 재검증은 다음 push/양쪽 update 뒤 진행한다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.

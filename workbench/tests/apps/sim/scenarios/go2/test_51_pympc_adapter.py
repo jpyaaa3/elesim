@@ -484,9 +484,12 @@ def test_torque_startup_ramp_fades_ready_pose_assist() -> None:
     state = PyMpcInput(**{**vars(sample()), "contacts": np.ones((4, 3))})
     jacobians = np.tile(np.eye(3), (4, 1, 1))
     joint_velocity = np.ones(12)
+    # With a stationary body and identity Jacobians this is actual foot
+    # motion, so the damping must remain present throughout the torque ramp.
+    foot_velocity = joint_velocity.reshape(4, 3)
 
     ramped = controller._torques(
-        state, state.feet_world, np.zeros((4, 3)), jacobians, joint_velocity
+        state, state.feet_world, foot_velocity, jacobians, joint_velocity
     )
 
     np.testing.assert_allclose(
@@ -496,7 +499,7 @@ def test_torque_startup_ramp_fades_ready_pose_assist() -> None:
     controller._contact_gait.time = 0.17
     controller._step_i = 1  # reuse the filtered GRF; do not solve again
     completed = controller._torques(
-        state, state.feet_world, np.zeros((4, 3)), jacobians, joint_velocity
+        state, state.feet_world, foot_velocity, jacobians, joint_velocity
     )
     np.testing.assert_allclose(completed.reshape(4, 3), [[-6.5, -6.5, -56.5]] * 4)
 

@@ -152,8 +152,9 @@ def test_stance_and_stationary_body_search_keep_their_existing_torque_and_dampin
         c._touchdowns[:] = state.feet_world
         c._contact_gait.swing_progress[:] = 1.
         # J=identity: world foot velocity equals joint velocity when the
-        # body is stationary. The search's new base-motion reference is zero.
-        measured_velocity = np.ones((4, 3)) if searching else np.zeros((4, 3))
+        # body is stationary. Both support modes have zero base-motion
+        # reference and retain damping of the measured foot motion.
+        measured_velocity = np.ones((4, 3))
         torque = c._torques(state, state.feet_world, measured_velocity,
                            np.tile(np.eye(3), (4, 1, 1)), np.ones(12))
         results.append(torque)

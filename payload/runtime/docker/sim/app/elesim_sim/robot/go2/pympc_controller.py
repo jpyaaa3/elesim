@@ -1062,7 +1062,8 @@ class PyMpcGenesisController:
         tau = np.clip(tau, -self._tau_lim, self._tau_lim)
         swing_dofs = np.repeat(contacts == 0, 3)
         auxiliary = self._aux_pd_torque(joint_vel)
-        auxiliary += self._stance_damping_reference(sample, jacobians)
+        auxiliary += self._stance_damping_reference(sample, jacobians,
+            joint_velocity=joint_vel, foot_velocity=foot_vel)
         # Stance damping must not fight the commanded swing velocity. The
         # swing task already supplies its own velocity feedback.
         auxiliary[swing_dofs] = 0.0
@@ -1089,23 +1090,18 @@ class PyMpcGenesisController:
         return previous
 
     def _stance_damping_reference(self, sample: PyMpcInput, jacobians: np.ndarray, *,
+                                  joint_velocity: np.ndarray, foot_velocity: np.ndarray,
                                   reference_solver=swing_damping_reference_torque) -> np.ndarray:
-        """Damp stance errors without braking existing commanded translation.
+        """Damp support-foot motion in the same ground frame used in search.
 
-        Keep the original damping gains and substep damping. Only the bounded
-        commanded component receives a matching reference torque; vertical,
-        rotational and cross-command motion retain their existing damping.
-        Contact confirmation gates the reference. Landing load scales the
-        support force, while damping and its reference remain unscaled.
-        Final torque limits and filtering still apply.
+        Body translation, rotation and heave all require nominal leg motion
+        while the foot stays planted. Preserve damping of measured foot error
+        and unresolved joint directions. MPC supplies body feedback, including
+        braking; motor drag must not add an unpredicted body wrench.
+        Only confirmed support receives this reference, before final limits.
         """
         reference = np.zeros(12)
-        if self._solver.backend != 'jax_mppi' or self._settling:
-            return reference
-        command_world = Rotation.from_euler('z', sample.rpy[2]).apply(
-            [self._cmd.vx, self._cmd.vy, 0.])
-        progress = commanded_progress_velocity(self._base_velocity_world, command_world)
-        if not np.any(progress):
+        if self._solver.backend != 'jax_mppi':
             return reference
         damping = (.5*self._torque_scale()+float(self._config.joint_damping)
                    +float(self._config.leg_kv_damping)+float(self._config.aux_kv))
@@ -1114,7 +1110,7 @@ class PyMpcGenesisController:
                 continue
             sl = slice(3*i, 3*i+3)
             reference[sl] = reference_solver(
-                jacobians[i], np.zeros(3), progress, np.zeros(3), damping=damping,
+                jacobians[i], joint_velocity[sl], foot_velocity[i], np.zeros(3), damping=damping,
                 velocity_limits=self._swing_velocity_limits[sl])
         return reference
 
