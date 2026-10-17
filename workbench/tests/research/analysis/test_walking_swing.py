@@ -71,6 +71,28 @@ def test_sustained_late_descent_hover_is_not_hidden_by_the_phase_split():
     assert result['late_descent']['descending_airborne_stalled_fraction'] == 1.
 
 
+def test_repeated_walking_analyzes_later_cycles_too():
+    rows = trace()
+    rows[0].update(duration=6., stop=2., cycles=2)
+    later = deepcopy(rows[2])
+    later['t'] = 12.5
+    later['centroidal_control']['foot_velocity_world'] = [[0., 0., 0.]]*4
+    rows.append(later)
+    report = summarize_swing_tracking(rows)
+    assert report['all']['n'] == 3
+    assert report['late_descent']['descending_airborne_stalled_fraction'] == .5
+
+
+def test_finishing_a_swing_during_stop_is_excluded_from_steady_walking():
+    rows = trace()
+    rows[0].update(duration=6., stop=2., cycles=2)
+    stopping = deepcopy(rows[2])
+    stopping['t'] = 8.5
+    stopping['centroidal_control']['foot_velocity_world'] = [[0., 0., 0.]]*4
+    rows.append(stopping)
+    assert summarize_swing_tracking(rows)['all']['n'] == 2
+
+
 def test_cli_writes_the_same_reproducible_summary(tmp_path, capsys):
     rows = deepcopy(trace())
     (tmp_path/'forward08.jsonl').write_text('\n'.join(json.dumps(r) for r in rows)+'\n')

@@ -1046,7 +1046,8 @@ class PyMpcGenesisController:
         self._tau_filt[swing_dofs] = self._tau_limited[swing_dofs]
         return self._tau_filt.copy()
 
-    def _stance_damping_reference(self, sample: PyMpcInput, jacobians: np.ndarray) -> np.ndarray:
+    def _stance_damping_reference(self, sample: PyMpcInput, jacobians: np.ndarray, *,
+                                  reference_solver=swing_damping_reference_torque) -> np.ndarray:
         """Damp stance errors without braking existing commanded translation.
 
         Keep the original damping gains and substep damping. Only the bounded
@@ -1069,7 +1070,7 @@ class PyMpcGenesisController:
             if sample.contacts[i, 0] != 1.:
                 continue
             sl = slice(3*i, 3*i+3)
-            reference[sl] = self._contact_gait.load[i]*swing_damping_reference_torque(
+            reference[sl] = self._contact_gait.load[i]*reference_solver(
                 jacobians[i], np.zeros(3), progress, np.zeros(3), damping=damping,
                 velocity_limits=self._swing_velocity_limits[sl])
         return reference

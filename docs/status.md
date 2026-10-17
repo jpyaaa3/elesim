@@ -24,7 +24,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   확인된 지지발에만 기존 착지 하중을 곱하고 최종 토크 제한·필터를 통과한다.
 - 착지 대기는 새 liftoff를 계속 막되, 이미 달성한 명령 방향 속도를 매번
   0으로 제동하지 않는다. 횡방향 drift나 아직 달성하지 않은 가속은 요청하지
-  않는다. 앞쪽 목표 높이를 유지하는 뒤쪽 1 cm body-reference trim도 적용한다.
+  않는다. 진행 방향쪽 목표 높이를 유지하는 뒤쪽 1 cm body-reference trim도 적용한다.
   지면 높이·접촉 증거·load ramp·timeout·힘/토크 상한·CPU acados는 유지한다.
 - 선택한 prototype은 .8 m/s 명령에서 실제 **.655 m/s**, roll/pitch RMS
   **1.17/1.67도**, 스윙 위치 오차 p95 **12.97 mm**로 완주·정지했다.
@@ -39,7 +39,10 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   **751 passed / 3 failed**로, 세 실패는 이전의 '착지 대기이면 속도 0' 기대값이다.
   bounded 진행·CPU 유지·역방향/과속·접촉 mask를 명시적으로 검증하도록 확장한
   canonical Sim/관련 보행 회귀는 **763 passed / 4 skipped / 1 deselected**다.
-  제외 1건은 기존 RL 선형축 경유점 불일치이며 해당 경로는 변경하지 않았다.
+  스윙 진단이 지지 참조까지 바꾸는 red도 분리한 같은 전체 회귀는 **764 passed**다.
+  반복 보행의 뒤쪽 cycle도 포함하고 정지 구간을 제외하는 분석 red를 수정한
+  분석/자세 focused 회귀는 **43 passed**다. 제외 1건은 기존 RL 선형축
+  경유점 불일치이며 해당 경로는 변경하지 않았다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.

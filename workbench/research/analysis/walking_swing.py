@@ -1,6 +1,6 @@
 """Measure swing tracking in production walking JSONL from the debug probe.
 
-Use simulation times >= 4 s and before command release, free swing progress
+Use steady samples two seconds after each command start, free swing progress
 0.05..0.95, and exact latched starts/depths. A descending airborne sample is
 stalled when desired Vz < -0.1 m/s, foot Z > 0.03 m and actual Vz >= -0.03 m/s.
 These sample statistics are separate from completed walking and stop gates.
@@ -23,11 +23,15 @@ def summarize_swing_tracking(rows):
     rows = list(rows)
     cfg = next(r for r in rows if r.get('kind') == 'configuration')
     duration = (1. - cfg['gait_duty']) / cfg['gait_hz']
+    cycle_time = cfg['duration']+cfg.get('stop', 0.)
     observations = []
     for row in rows:
         if (row.get('kind') != 'sample' or row.get('pose_stage') != 'walk'
-                or not 4. <= row['t'] < cfg['settle'] + cfg['duration']
                 or 'centroidal_control' not in row):
+            continue
+        elapsed = row['t']-cfg['settle']
+        if (not 0. <= elapsed < cfg.get('cycles', 1)*cycle_time
+                or not 2. <= elapsed % cycle_time < cfg['duration']):
             continue
         control, gate, legs = row['centroidal_control'], row['contact_gate'], row['leg_control']
         if 'swing_starts' not in legs:

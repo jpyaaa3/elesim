@@ -15,7 +15,7 @@
     "physics": "Production Genesis GO2+arm, no DDS participant, no cameras in prototype sweeps"
   },
   "canonical_regression": {
-    "passed": 763,
+    "passed": 764,
     "skipped": 4,
     "deselected": 1,
     "deselected_test": "rl/test_start_path.py::test_the_shipped_path_ends_where_the_wrap_is (existing -0.166 vs -0.142 m mismatch)",
@@ -23,7 +23,8 @@
       "qpOASES",
       "two opt-in camera workers",
       "unspecified fixed-foot trace"
-    ]
+    ],
+    "analysis_cycle_extension": "43 focused analysis/posture tests passed, including later cycles and stop exclusion"
   },
   "selected_prototype": {
     "revision": "bf973c2",
@@ -37,7 +38,7 @@
     "completed": true,
     "explanation": "All observed stopped-descending samples are isolated single samples at progress .55 near apex. Original before had runs up to three samples and stalls through progress .825. Original all-descent metric is retained, not replaced by the phase split."
   },
-  "production_controller_sha256": "236005c6e735faf6049a7995c06171f4f50be5d4ba8c040aa0aeaabdf24d7a22",
+  "production_controller_sha256": "5cd610095fb3003ae579aeaa5274e3ccc41d091e52f9662b52a08ed383f06605",
   "production_default_runs": [],
   "sweeps": [
     {

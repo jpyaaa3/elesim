@@ -100,6 +100,16 @@ def test_reference_still_passes_the_existing_final_actuator_limits():
     assert np.max(np.abs(torque)) <= .5
 
 
+def test_swing_diagnostic_does_not_change_the_native_stance_reference(monkeypatch):
+    import elesim_sim.robot.go2.pympc_controller as module
+    c, state = controller()
+    jacobians = np.tile(np.eye(3), (4, 1, 1))
+    expected = c._stance_damping_reference(state, jacobians)
+    assert np.any(expected)
+    monkeypatch.setattr(module, 'swing_damping_reference_torque', lambda *args, **kw: np.zeros(3))
+    np.testing.assert_array_equal(c._stance_damping_reference(state, jacobians), expected)
+
+
 @pytest.mark.parametrize('actual,command', [([float('nan'), 0., 0.], [.8, 0., 0.]),
                                          ([.3, 0., 0.], [float('inf'), 0., 0.])])
 def test_nonfinite_measured_or_commanded_progress_is_rejected(actual, command):
