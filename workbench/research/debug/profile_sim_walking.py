@@ -50,6 +50,22 @@ def swing_reference_for_axes(original, jacobian, joint_velocity, measured_veloci
     return scale*original(jacobian, joint_velocity, measured_velocity, desired, **options)
 
 
+def commanded_progress_velocity(actual_velocity, commanded_velocity):
+    """Retain damping of drift, vertical motion, overspeed and released intent."""
+    import numpy as np
+    actual = np.asarray(actual_velocity, dtype=float)
+    command = np.asarray(commanded_velocity, dtype=float)
+    if (actual.shape != (3,) or command.shape != (3,)
+            or not np.isfinite(actual).all() or not np.isfinite(command).all()):
+        raise ValueError('commanded progress needs finite three-dimensional velocities')
+    speed = float(np.linalg.norm(command[:2]))
+    result = np.zeros(3)
+    if speed > 1e-9:
+        direction = command[:2]/speed
+        result[:2] = direction*np.clip(np.dot(actual[:2], direction), 0., speed)
+    return result
+
+
 def has_commanded_progress(command, displacement, *, duration):
     """Reject frozen/opposite straight walking; this is not a tracking gate."""
     speed = math.hypot(command[0], command[1])
@@ -120,6 +136,8 @@ def main() -> None:
     parser.add_argument("--swing-reference-axes", choices=('all', 'vertical'), default='all')
     parser.add_argument("--aux-kv", type=float, help="diagnostic auxiliary damping override, 0..6")
     parser.add_argument("--leg-kv-damping", type=float, help="diagnostic leg damping override, 0..6")
+    parser.add_argument("--stance-progress-compensation", type=float, default=0.,
+                        help="diagnostic 0..1 damping reference along measured commanded progress")
     parser.add_argument("--cameras", action="store_true", help="include both async render workers")
     parser.add_argument("--arm-motion", action="store_true", help="small bounded arm bend oscillations")
     parser.add_argument("--keep-target", action="store_true")
@@ -149,6 +167,8 @@ def main() -> None:
     for value in (args.aux_kv, args.leg_kv_damping):
         if value is not None and (not np.isfinite(value) or not 0. <= value <= 6.):
             parser.error("diagnostic damping must be finite and in 0..6")
+    if not np.isfinite(args.stance_progress_compensation) or not 0. <= args.stance_progress_compensation <= 1.:
+        parser.error("stance progress compensation must be in 0..1")
     bundle = load_app_config(args.config, mode="remote")
     try:
         params = override_physics(bundle.sim_param, dt=args.dt, substeps=args.substeps)
@@ -206,13 +226,41 @@ def main() -> None:
                     axes=args.swing_reference_axes, scale=args.swing_reference_scale, **options)
             controller_module.swing_damping_reference_torque = scaled_swing_reference
             latest_control = {}
+            latest_actuation = {}
             original_sample = controller._sample
+            original_auxiliary = controller._aux_pd_torque
+
+            def auxiliary_with_progress_reference(joint_velocity):
+                torque = original_auxiliary(joint_velocity)
+                if (not args.stance_progress_compensation or controller._settling
+                        or not latest_actuation):
+                    return torque
+                sample = latest_actuation['sample']
+                command = Rotation.from_euler('z', sample.rpy[2]).apply(
+                    [controller._cmd.vx, controller._cmd.vy, 0.])
+                progress = commanded_progress_velocity(latest_actuation['base_velocity'], command)
+                damping = (.5+controller._config.joint_damping
+                           +controller._config.leg_kv_damping+controller._config.aux_kv)
+                for i in range(4):
+                    if sample.contacts[i, 0] != 1.:
+                        continue
+                    sl = slice(3*i, 3*i+3)
+                    torque[sl] += (args.stance_progress_compensation*controller._contact_gait.load[i]
+                        *original_swing_reference(latest_actuation['jacobians'][i], np.zeros(3),
+                            progress, np.zeros(3), damping=damping,
+                            velocity_limits=controller._swing_velocity_limits[sl]))
+                return torque
+
+            controller._aux_pd_torque = auxiliary_with_progress_reference
 
             def observe_control_sample():
                 result = original_sample()
                 sample = trailing_crouch_reference(result[0],
                     command_vx=float(controller._cmd.vx), crouch_m=args.trailing_crouch)
                 result = (sample, *result[1:])
+                latest_actuation.update(sample=sample, jacobians=result[3],
+                    base_velocity=Rotation.from_quat(controller._bridge.last_q[3:7]).apply(
+                        controller._bridge.last_dq[:3]))
                 latest_control.update(
                     com=sample.com_position.tolist(),
                     desired_com=sample.desired_com_position.tolist(),
@@ -241,6 +289,7 @@ def main() -> None:
                       diagnostic_trailing_crouch_m=args.trailing_crouch,
                       diagnostic_swing_reference_scale=args.swing_reference_scale,
                       diagnostic_swing_reference_axes=args.swing_reference_axes,
+                      diagnostic_stance_progress_compensation=args.stance_progress_compensation,
                       locomotion_config=asdict(locomotion),
                       arm_motion=args.arm_motion,
                       camera_target_hz=[cfg.sim_camera_max_hz, cfg.sim_observer_camera_max_hz] if args.cameras else None))

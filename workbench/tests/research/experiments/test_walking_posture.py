@@ -6,6 +6,7 @@ import pytest
 
 from workbench.research.debug.profile_sim_walking import trailing_crouch_reference
 from workbench.research.debug.profile_sim_walking import swing_reference_for_axes
+from workbench.research.debug.profile_sim_walking import commanded_progress_velocity
 
 
 @dataclass(frozen=True)
@@ -70,3 +71,27 @@ def test_all_axes_intervention_reproduces_the_installed_reference():
     actual = swing_reference_for_axes(swing_damping_reference_torque, *args,
                                      axes='all', scale=.5, **options)
     np.testing.assert_allclose(actual, .5*expected)
+
+
+@pytest.mark.parametrize('actual,command,expected', [
+    ([.3, .2, -.1], [.8, 0., 0.], [.3, 0., 0.]),
+    ([-.3, .2, .1], [-.8, 0., 0.], [-.3, 0., 0.]),
+    ([.3, -.2, .1], [0., -.35, 0.], [0., -.2, 0.]),
+    ([.6, .1, .1], [.2, 0., 0.], [.2, 0., 0.]),
+    ([-.3, .2, .1], [.8, 0., 0.], [0., 0., 0.]),
+    ([.3, .2, .1], [0., 0., 0.], [0., 0., 0.]),
+])
+def test_stance_reference_only_relaxes_drag_along_existing_commanded_progress(actual, command, expected):
+    np.testing.assert_allclose(commanded_progress_velocity(actual, command), expected)
+
+
+def test_stance_reference_retains_vertical_and_sideways_joint_error_damping():
+    from elesim_sim.robot.go2.pympc_controller import swing_damping_reference_torque
+    jacobian = np.array([[.2, .03, .0], [.01, .15, .04], [.0, .04, .12]])
+    progress = commanded_progress_velocity([.3, .2, -.1], [.8, 0., 0.])
+    reference = swing_damping_reference_torque(jacobian, np.zeros(3), progress, np.zeros(3),
+        damping=3.6, velocity_limits=np.full(3, 30.))
+    qref = np.linalg.solve(jacobian, [-.3, 0., 0.])
+    error = np.linalg.solve(jacobian, [0., -.2, .1])
+    net = -3.6*(qref+error)+reference
+    np.testing.assert_allclose(net, -3.6*error, atol=1e-12)
