@@ -56,6 +56,14 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   제한·정지 중 착지·오차 감쇠·CPU·진단 분리를 포함한 canonical 전체는
   **774 passed / 4 skipped / 1 deselected**다. 수정한 설치본의 후진/전체
   실제 보행은 다음 push/양쪽 공식 update 뒤 다시 검증한다.
+- `4deb398`도 양쪽 공식 update/정확한 해시/GPU2로 재검증했다. 전진·좌·우는
+  6초와 정지를 완주했지만 후진은 t=3.84 s에 다시 fault였다. 다음 지지 확인
+  구간에서 GRF만 load ramp를 받는데 일정한 motor damping의 기준 토크까지
+  load로 줄여 DC drag를 남기는 불일치를 추가 red 4개로 재현했다.
+  Reference에는 load를 곱하지 않고, 실제 확인된 접촉 mask로만 허용한다.
+  GRF의 기존 load ramp와 접촉·최종 토크 제한은 유지한다.
+- 이 수정 후 동일 canonical 전체는 **777 passed / 4 skipped / 1 deselected**다.
+  새 설치본 실제 보행의 재검증은 아직 완료하지 않았다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.

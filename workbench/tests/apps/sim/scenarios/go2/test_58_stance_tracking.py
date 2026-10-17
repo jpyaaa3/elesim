@@ -70,14 +70,27 @@ def test_stop_rotation_and_cpu_keep_the_existing_damping(inactive):
     np.testing.assert_array_equal(reference, np.zeros(12))
 
 
-def test_only_confirmed_stance_receives_the_ramped_reference():
+def test_only_confirmed_stance_receives_the_motion_reference():
     c, state = controller()
     state.contacts[1:3] = 0.
     c._contact_gait.search[1] = True
     c._contact_gait.load[:] = [1., 1., 1., .25]
     reference = c._stance_damping_reference(state, np.tile(np.eye(3), (4, 1, 1)))
     np.testing.assert_allclose(reference.reshape(4, 3),
-        [[-1.08, 0., 0.], [0., 0., 0.], [0., 0., 0.], [-.27, 0., 0.]])
+        [[-1.08, 0., 0.], [0., 0., 0.], [0., 0., 0.], [-1.08, 0., 0.]])
+
+
+@pytest.mark.parametrize('load', [1/6, .25, .5])
+def test_landing_load_scales_support_force_and_not_the_unscaled_damping_reference(load):
+    c, state = controller()
+    c._contact_gait.load[1] = load
+    velocity = np.tile([-.3, 0., 0.], 4)
+    torque = c._torques(state, state.feet_world, np.zeros((4, 3)),
+                       np.tile(np.eye(3), (4, 1, 1)), velocity)
+    net = torque.reshape(4, 3)-1.1*velocity.reshape(4, 3)
+    expected = np.zeros((4, 3))
+    expected[:, 2] = -50.*c._contact_gait.load
+    np.testing.assert_allclose(net, expected, atol=1e-12)
 
 
 def test_world_heading_rotation_preserves_joint_reference_torque():

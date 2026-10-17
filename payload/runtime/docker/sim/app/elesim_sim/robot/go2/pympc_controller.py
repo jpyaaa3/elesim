@@ -1057,8 +1057,9 @@ class PyMpcGenesisController:
         Keep the original damping gains and substep damping. Only the bounded
         commanded component receives a matching reference torque; vertical,
         rotational and cross-command motion retain their existing damping.
-        Contact confirmation, landing load, final torque limits and filtering
-        still own whether and how this reference reaches each motor.
+        Contact confirmation gates the reference. Landing load scales the
+        support force, while damping and its reference remain unscaled.
+        Final torque limits and filtering still apply.
         """
         reference = np.zeros(12)
         if self._solver.backend != 'jax_mppi' or self._settling:
@@ -1074,7 +1075,7 @@ class PyMpcGenesisController:
             if sample.contacts[i, 0] != 1.:
                 continue
             sl = slice(3*i, 3*i+3)
-            reference[sl] = self._contact_gait.load[i]*reference_solver(
+            reference[sl] = reference_solver(
                 jacobians[i], np.zeros(3), progress, np.zeros(3), damping=damping,
                 velocity_limits=self._swing_velocity_limits[sl])
         return reference
