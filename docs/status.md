@@ -43,6 +43,19 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   반복 보행의 뒤쪽 cycle도 포함하고 정지 구간을 제외하는 분석 red를 수정한
   분석/자세 focused 회귀는 **43 passed**다. 제외 1건은 기존 RL 선형축
   경유점 불일치이며 해당 경로는 변경하지 않았다.
+- `029ed33`를 양쪽 공식 update하고 실제 설치 controller 해시를 확인한 기본값
+  시험에서 전진/좌/우 6초는 완주했지만 후진은 t=3.52 s에 finite-force
+  fault로 정지했다. 따라서 긴 보행/반복 정지는 진행되지 않았고 완료로 보고하지 않는다.
+- 후진 FL 착지의 기록된 Jacobian·관절 토크를 분해하면 downward task -19 N이
+  몸통 이동에 따른 원시 관절 감쇠의 upward 약 +19 N과 상쇄됐다. 발은 바닥
+  높이에 있어도 하중 증거가 부족해 clock이 기다렸고, 기존 지지발이 과신전됐다.
+  search에 ground-relative zero-velocity 감쇠 기준을 추가해 base 기여만 뺀다.
+  실제 발 움직임·기존 passive 1.1/active .5 감쇠, 60 N task bound와 탐색 속도,
+  접촉 증거·timeout·CPU 경로는 유지한다. Gate를 완화해서 넘기지 않는다.
+- `test_59`의 **5 failed / 2 passed**로 이 상쇄를 재현했다. 수정 후 탐색 힘
+  제한·정지 중 착지·오차 감쇠·CPU·진단 분리를 포함한 canonical 전체는
+  **774 passed / 4 skipped / 1 deselected**다. 수정한 설치본의 후진/전체
+  실제 보행은 다음 push/양쪽 공식 update 뒤 다시 검증한다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.

@@ -990,6 +990,10 @@ class PyMpcGenesisController:
                 norm = np.linalg.norm(task_force)
                 task_force *= min(1.0, 60.0 / max(norm, 1e-12))
                 tau[sl] = jacobians[i].T @ task_force
+                if self._solver.backend == 'jax_mppi':
+                    tau[sl] += self._search_damping_reference(
+                        jacobians[i], joint_vel[sl], foot_vel[i],
+                        self._swing_velocity_limits[sl])
             else:
                 if self._last_contacts[i] == 1:
                     self._swing_starts[i] = feet[i]
@@ -1074,6 +1078,20 @@ class PyMpcGenesisController:
                 jacobians[i], np.zeros(3), progress, np.zeros(3), damping=damping,
                 velocity_limits=self._swing_velocity_limits[sl])
         return reference
+
+    def _search_damping_reference(self, jacobian, joint_velocity, measured_velocity,
+                                  velocity_limits, *,
+                                  reference_solver=swing_damping_reference_torque):
+        """Damp ground-relative foot motion while the body moves over landing.
+
+        Keep the existing passive damping and 60 N task-force bound. Remove
+        only the measured base contribution from joint drag; the foot's
+        ground-relative motion is still damped about zero, including descent.
+        The task controller alone requests the bounded search descent.
+        """
+        return reference_solver(jacobian, joint_velocity, measured_velocity, np.zeros(3),
+            damping=(.5+float(self._config.joint_damping)+float(self._config.leg_kv_damping)),
+            velocity_limits=velocity_limits)
 
     def _torque_scale(self) -> float:
         warmup_s = max(0.0, float(self._config.torque_warmup_s))
