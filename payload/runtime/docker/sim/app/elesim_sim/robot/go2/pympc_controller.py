@@ -396,8 +396,9 @@ def accelerating_touchdown_candidates(
     """Plan GPU liftoff/recontact using the held command's acceleration.
 
     Use one integrated trajectory for travel to landing and the lead over the
-    first half of support. The existing 60 ms load handover belongs to both
-    estimates. Reach checks also anticipate restoration of ready body height;
+    first nominal half of support, preserving the established cruise stride.
+    End-of-support reach also covers the existing 60 ms load handover and
+    restoration of ready body height;
     neither a moving swing endpoint nor vertical foot travel is introduced.
     """
     base = np.asarray(base_position, dtype=float)
@@ -406,7 +407,7 @@ def accelerating_touchdown_candidates(
     if not np.isfinite(times).all() or np.any(times < 0.):
         raise ValueError("remaining swing time must be finite and nonnegative")
     support_s = float(stance_duration_s) + .06
-    half_s = .5 * support_s
+    half_s = .5 * float(stance_duration_s)
     current = command_shaper.current
     command = np.array([current.vx, current.vy, 0.])
     yaw = np.asarray(yaw_rotation, dtype=float)

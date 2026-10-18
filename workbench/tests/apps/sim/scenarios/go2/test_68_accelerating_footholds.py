@@ -107,9 +107,12 @@ def test_prediction_rotates_with_heading_and_does_not_modify_nominal_width():
     np.testing.assert_allclose(plain[:, 1], FEET[:, 1])
 
 
-def test_steady_speed_lead_includes_the_existing_landing_load_interval():
+def test_acceleration_forecast_preserves_the_established_cruise_stride():
+    # GPU2 bf2b36a: expanding the steady lead by another 60 ms raised
+    # backward pitch to 14 deg and cycle3 fell. Preserve the previously
+    # stable cruise placement; extra load time belongs to the reach check.
     candidates, _, _ = prediction(current=.8, target=.8, speed=.8)
-    expected = FEET[:, 0] + .8*.18 + .8*.5*(.6/2.2+.06)*1.35
+    expected = FEET[:, 0] + .8*.18 + .8*.5*(.6/2.2)*1.35
     np.testing.assert_allclose(candidates[:, 0], expected)
 
 
@@ -129,7 +132,7 @@ def test_combined_velocity_and_acceleration_travel_remains_bounded():
                   placement_scale=1.35, body_height_m=.3)
     a, *_ = accelerating_touchdown_candidates([0.,0.,.3], FEET,
                          remaining_swing_s=np.ones(4), **kwargs)
-    half = .5*(.6/2.2+.06)
+    half = .5*(.6/2.2)
     lead = np.subtract(s.preview_planar_displacement(1.+half),
                        s.preview_planar_displacement(1.))*1.35
     correction = np.clip(.1*(np.array([3.,4.])-np.array([.3,.4])), -.04,.04)

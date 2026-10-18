@@ -216,6 +216,14 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   4 skipped / 1 deselected**이며, 실제 Pinocchio sample의 두 예측 경로와
   swing 착지점 고정까지 확장한 focused 회귀는 **20 passed**다. 실제 원격
   개선은 다음 설치 시험에서 확인한다.
+- `bf2b36a`를 push/양쪽 update/네 해시/GPU2 확인 후 실제 시험 중, 전진 반복
+  3회는 모두 완주·정지했다(실제 .712 m/s, roll/pitch RMS 2.33/5.12도).
+  그러나 후진 반복 3회차 t=22.10 s에 실패했다. 정상속도 보폭까지 60 ms분
+  늘린 후보는 후진에서 14도 이상 기울어지는 부작용이 있어 그대로 채택하지 않는다.
+  도달 검사에만 기존 하중 인계 시간을 남기고 등속 보폭은 원래 값으로 복원했다.
+  가속 적분·높이 예측·두 재착지 경로는 유지한다. 추가 red는 **2 failed /
+  18 passed**, 수정 뒤 같은 canonical 전체는 **882 passed / 4 skipped /
+  1 deselected**다. 이 보폭 복원 후보도 별도로 push/update 후 실제 검증한다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.

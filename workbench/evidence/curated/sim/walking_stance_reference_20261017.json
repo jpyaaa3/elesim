@@ -20,7 +20,7 @@
     }
   },
   "canonical_regression": {
-    "passed": 862,
+    "passed": 882,
     "skipped": 4,
     "deselected": 1,
     "deselected_test": "rl/test_start_path.py::test_the_shipped_path_ends_where_the_wrap_is (existing -0.166 vs -0.142 m mismatch)",
@@ -7284,7 +7284,7 @@
   },
   "production_command_sha256": "049f2a2528427b6e1ef9f5ac60d857a37ea98e95c517a261666b6c120c6ac1bc",
   "accelerating_footholds": {
-    "status": "candidate, not yet remote validated",
+    "status": "Revising cruise stride after actual backward-cycle regression",
     "red": "missing accelerating_touchdown_candidates import",
     "hypothesis": "third startup RL trails root by.48m while base rises .26->.30m and velocity accelerates; current-velocity/height forecast is stale",
     "implementation": "GPU integrates held command shaper acceleration for landing travel and first-half-support lead; includes existing60ms loadhandover; predicts max(actual,desired)height for landing/end reach. Both liftoff and future recontact; latched swing endpoints unchanged; CPU old path. Contact evidence/limits/timeouts unchanged.",
@@ -7295,6 +7295,35 @@
     "candidate_source_hashes": {
       "payload/runtime/docker/sim/app/elesim_sim/robot/go2/pympc_controller.py": "9b5ff7ec036399fe5926f2d17db24dc88e28673d9e47a94e9a1dfb6d45da148f",
       "payload/runtime/docker/sim/app/elesim_sim/robot/go2/locomotion/command.py": "8ef1989a9c13ae36a27a84d6d006fd3ae878dd4b06eca8c08ff9394adad15feb"
+    },
+    "initial_native": {
+      "revision": "bf2b36a91803095b309a34d1d8318bf8a647e0ba",
+      "remote_release": "3e1f4c90b2aeff814d6d1b6ca9ffa914bbba847c50b2710554e8b7a66ff0e365",
+      "local_release": "a2e09a7e944e7413d5664841cb71e3b4c7edbc171eca6c2827f97b8b1d2b284b",
+      "both_update_exit": 0,
+      "four_sources_verified": true,
+      "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+      "status": "all10 stillrunning, forwardcycles3 pass, backwardcycles3 fail22.10s",
+      "forward_cycles": {
+        "completed": true,
+        "mean_speed_mps": 0.7121386303911186,
+        "roll_pitch_rms_deg": [
+          2.331576820049173,
+          5.117368873787513
+        ],
+        "mean_pitch_deg": -4.740098476425243
+      },
+      "backward_cycles": {
+        "completed": false,
+        "fault_t": 22.1,
+        "observed": "body pitch+14deg before loss of support; all contacts lost near22s. Reject expanded cruise stride."
+      }
+    },
+    "cruise_stride_restore": {
+      "implementation": "half-support lead integrates nominal .5*T only; end reach keepsT+.06 as before. Steady candidate identical to old .5*T*scale*v; acceleration, maxheightreach, latchedgoals, two preview paths preserved.",
+      "red": "2failed18passed",
+      "canonical": "882passed4skipped1deselected43.49s",
+      "actual_validated": false
     }
   }
 }
