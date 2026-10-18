@@ -6,6 +6,62 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 제어 쓰기 비용 축소·DDS 모터 경로 회귀 (2026-10-19)
+
+- `4a3be80`은 연속된 다리 DOF에 공개 Genesis control API의 `range` 선택을
+  사용한다. 임의 순서·음수·중복 index는 기존 목록을 유지한다. 현재 CPU
+  float64 토크는 복사 없는 Tensor view로 넘겨 setter의 NumPy broadcast
+  변환을 피한다. 제어 모드·토크는 매 tick 계속 쓰며 위치 제어·fault hold·
+  감쇠·한계·정지·reset·metrics를 유지했다. MPPI·보행·하중·bridge 계산은
+  변경하지 않았고 기존 함수 AST 변경은 `_step`의 control 호출뿐이다.
+- GPU2의 고정 상태에서 기존 목록/NumPy 쓰기는 **.372 ms**, 범위/NumPy는
+  **.269 ms**, 범위/원본 float64 Tensor는 **.085 ms/call**이었다. 각 방식은
+  반대 순서 두 block에서 warmup 후 총 200회 측정했다. 별도 실제 보행의
+  상세 timer에서는 force 쓰기가 **.791→.277 ms/step**, 해당 thread CPU가
+  **.751→.262 ms/call**이었다. 고정 상태·상세 timer를 clean loop와 섞지 않는다.
+- 팔을 움직이는 1,200 tick에서 기존/새 공개 control 호출의 전체 GPU
+  mode·force·position·velocity 배열을 같은 순간 대조했다. 위치 쓰기 336회와
+  토크 쓰기 864회가 **byte 단위로 정확히 일치**했다. 매 tick 명령 전달과
+  관련 없는 관절의 보존도 함수 회귀에 포함했다. 뒤의 새 전진 실행은 기존
+  이미지 및 같은 이미지의 기존 경로 두 실행과 120개 cached 위치·자세·속도·
+  fault·stage·MPPI cost가 정확히 같았다. 첫 새 실행은 다른 유효 궤적이었으며
+  이전 코드의 카메라 끔 실행과는 정확히 같았다. 실행 간 차이의 원인은
+  확정하지 않았고 모든 실행의 궤적이 같다고 주장하지 않는다.
+- 두 1280×720 H264/NVENC loopback 영상 조건에서 직전 이미지 2회 평균은
+  **11.34 ms**, 새 이미지 2회는 **11.24 ms (-.84%)**였다. 같은 새 이미지에서
+  기존 쓰기를 복원한 대조군 2회는 **11.65 ms**, 최적화 2회는 **11.24 ms
+  (-3.48%, .406 ms 절감)**였다. 각 기존/새 방식을 번갈아 실행했으며 p95
+  범위는 **15.44–16.04 / 15.49–15.91 ms**로 겹친다. 전체 loop 개선은 작고
+  p95 개선은 뚜렷하지 않다. **카메라 사용 시 10 ms 예산은 아직 미달**이다.
+  카메라 끔은 각 1회 **9.27→8.36 ms**였다.
+- 조건은 dt=.01/substeps=2, MPPI 4096×2, 2초 준비·8초 보행·2초 정지다.
+  t=4..10초의 600 step을 보고한다. 첫 새 이미지의 219.6초 프로세스 시간에는
+  초기 물리/카메라 커널 준비가 포함되며 step timer에서는 제외했다. clean
+  loop는 controller·physics·camera submit이고 실제 UI/DDS/WAN, 매 tick
+  PNG/JSON/진단 snapshot 및 팔 명령 쓰기는 포함하지 않는다. 별도 상세·팔
+  동작/전수 대조 실행은 clean 지연 비교에서 제외한다.
+- 실제 두 프로세스 CycloneDDS로 lease를 얻어 서로 다른 팔 4축·Go2 속도·
+  그리퍼 명령과 torque-off를 보냈다. 실제 `SimEndpoint`와 `SimRuntime`의
+  명령 소비 loop를 거쳐 Genesis의 14개 팔/그리퍼 DOF 적용을 확인했다.
+  같은 순간 비교를 위해 physics 직전에만 검사 loop를 중단했다. 팔 값의
+  최대 오차는 **1.47e-8**, 다리 위치와 관련 없는 속도는 정확히 같았다.
+  첫 진단의 base Euler 좌표 bit-exact 단언은 FK 정규화의 **2.50e-7 rad**
+  차이로 실패했다. 재검사는 base RPY만 1e-6 rad를 허용하고 다리/속도 정확
+  비교를 유지해 통과했다. 이를 위해 runtime 코드를 바꾸지는 않았다.
+- 새 `dds-sim-motor`를 required 검사 목록에 추가했다. 기존 네 프로세스
+  DDS topology의 Robot→Sim 측정 자세 동기화·lease 복구와 protocol **145개**도
+  통과했다. 직접 관련 검사는 **456 passed / 1 skipped**, Sim 전체+quality는
+  **884 passed / 3 skipped / 1 failed**다. 실패는 기존 RL 시작 좌표
+  -.166 m가 하한 -.142 m를 벗어나는 `rl/test_start_path.py`이며 수정하지 않았다.
+  full required/extended/isolated-release gate와 SROS2/WAN/hardware는 미검증이다.
+- push 후 양쪽 공식 `elesim-update`를 완료했다. 기존 instance pin을 유지하고
+  원격 `tddwalk`만 release `43b94809…`, Sim image `sha256:22b2a47f…`
+  (`merry-zebra`)로 replace했다. 설치 모듈 SHA와 GPU2 UUID를 확인했다.
+  전진·후진 .8 m/s, 좌우 .35 m/s, 팔 동작·정지가 통과했고 영상 decode 오류는
+  없었다. 원격 진단 container 종료·GPU2 유휴·다른 instance pin 보존과 로컬
+  개발 service 종료를 확인했다. [설치·실측·전수 대조·DDS 검사 및 한계](../workbench/evidence/curated/sim/control_write_20261019.json)에
+  원시 archive SHA와 첫 진단 실패도 함께 보존했다.
+
 ### 몸·팔 상태 조회 통합 (2026-10-19)
 
 - `f050f2d`는 몸·팔·발 접촉의 개별 상태 읽기 11개를 공개 Genesis getter의
