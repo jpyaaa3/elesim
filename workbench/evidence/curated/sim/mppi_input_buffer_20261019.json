@@ -1,0 +1,2084 @@
+{
+  "date": "2026-10-19",
+  "software": {
+    "source_revision": "573f95da9108d8f57530429f8c99437eb9fa6759",
+    "packed_sha256": "ed193827382594ab7c7e29b0401be8adee0cb898d2bc3d55cdca2660f5338210",
+    "optimizer_ast_unchanged": true,
+    "optimizer_ast_sha256": "5de9c704230fe437ffdc2dae0e4314a44698cc23917fe5e57c491e70e3a3a984",
+    "red": {
+      "test": "one host buffer per solve",
+      "expected": 1,
+      "actual": 19,
+      "failures": 1
+    },
+    "green": {
+      "passed": 391,
+      "skipped": 1,
+      "seconds": 72.99
+    }
+  },
+  "setup": {
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "physics_dt_s": 0.01,
+    "substeps": 2,
+    "mppi_samples": 4096,
+    "mppi_iterations": 2,
+    "arm": "fixed; full17-link payload unchanged",
+    "sequence": "2s settle,8s command,2s stop; .8m/s forward/back, .35m/s lateral",
+    "reporting_window": "steady commanded walking simt4<=t<10,600steps/case",
+    "observer_and_hand_eye_px": [
+      1280,
+      720
+    ],
+    "media": "two loopback H264 NVENC senders with decoding in a separate process",
+    "excluded": "viewer, DDS/SROS2, actual UI and WAN; no PNG/JSON/per-tick diagnostic snapshots in timed loop",
+    "timing": "host wall time including GPU completion needed by control; nested timers are inclusive and not additive"
+  },
+  "updates": {
+    "local": {
+      "before_pins": {
+        "readiness": "d037de74f8c024876def6231630d761799e7f2cb26d5162df357e4a6c083e39e",
+        "test": "601e03e25e76bbe657edde3b4bc18e3ceb2aa9ec7de0b7aef8b757595a184c3c"
+      },
+      "began": 1792341931.9197264,
+      "returncode": 0,
+      "ended": 1792341967.100139,
+      "after_pins": {
+        "readiness": "d037de74f8c024876def6231630d761799e7f2cb26d5162df357e4a6c083e39e",
+        "test": "601e03e25e76bbe657edde3b4bc18e3ceb2aa9ec7de0b7aef8b757595a184c3c"
+      },
+      "source_revision": "git-573f95da9108d8f57530429f8c99437eb9fa6759",
+      "pins_preserved": true,
+      "published": [
+        {
+          "release_key": "c0075de1530a3a9bde376594cd2744eda595382c04478166e3b91b74b883aff0",
+          "manifest": {
+            "build_fingerprints": {
+              "ui": "760100d1de9c12bf0bb695b22a3ed41f2dda03012a9c3826ea85d526a0e04951"
+            },
+            "image_ids": {
+              "ui": "sha256:f105fe1a0ad3b4510af97d831ab3acccf061f3c42839e43d093fe88b0e6d2680"
+            },
+            "install_uuid": "cd824ccf-e543-4e4c-8cf4-8203623a9cef",
+            "platform": "linux/amd64",
+            "release_key": "c0075de1530a3a9bde376594cd2744eda595382c04478166e3b91b74b883aff0",
+            "role_images": {
+              "ui": "elesim/ui:warm3-cod"
+            },
+            "runtime_data_digest": "1ad3f073e23f6b1819f9d01b41692799f2a1bde9f32002f09168fcf9c994500d",
+            "schema_version": 1,
+            "source_revision": "git-573f95da9108d8f57530429f8c99437eb9fa6759"
+          }
+        }
+      ]
+    },
+    "remote": {
+      "before_pins": {
+        "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+        "tddwalk": "d3f50fc30587f3645839a3cb094a98d5f165327f695233fa06222df60cfdc2ce",
+        "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+      },
+      "began": 1792341970.304038,
+      "returncode": 0,
+      "ended": 1792342013.1618724,
+      "after_pins": {
+        "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+        "tddwalk": "d3f50fc30587f3645839a3cb094a98d5f165327f695233fa06222df60cfdc2ce",
+        "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+      },
+      "source_revision": "git-573f95da9108d8f57530429f8c99437eb9fa6759",
+      "pins_preserved": true,
+      "published": [
+        {
+          "release_key": "addaf4a88f3b2dab7e6603dec06275e8ec71eac0fcf939a9efd509193650fe26",
+          "manifest": {
+            "build_fingerprints": {
+              "pilot": "40cc91104211f58d8691d529bc267301a659b65f879e24bb809b5cd5f60a1c6b",
+              "sim": "dd61a89fad53890536b13f9556bb27e4cf548dc6b15e876207508ca335a95de4"
+            },
+            "image_ids": {
+              "pilot": "sha256:3d5627fa4558bcc13339ea00bf04b1d4c847848aa0fe04f9e4d236c2ffed65d5",
+              "sim": "sha256:4b72a172c764401b68d514c5a27ab794c0460b17bf1ecb9a7dd3b3e26879fac9"
+            },
+            "install_uuid": "3fc3487e-0788-4a76-a152-e485144b0d0b",
+            "platform": "linux/amd64",
+            "release_key": "addaf4a88f3b2dab7e6603dec06275e8ec71eac0fcf939a9efd509193650fe26",
+            "role_images": {
+              "pilot": "elesim/pilot:merry-lynx",
+              "sim": "elesim/sim:merry-monkey"
+            },
+            "runtime_data_digest": "b64ae217e045917e47eca3c9cab50e308c3b9bcb90617795c846755016995cf3",
+            "schema_version": 1,
+            "source_revision": "git-573f95da9108d8f57530429f8c99437eb9fa6759"
+          }
+        }
+      ]
+    },
+    "registration": {
+      "before": {
+        "compute": {
+          "gpu_device": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+          "gpu_mode": "specific"
+        },
+        "discovery_mode": "multicast",
+        "domain_id": 0,
+        "endpoints": [
+          {
+            "endpoint_id": "sim-tdd",
+            "role": "sim"
+          }
+        ],
+        "interface": "tailscale0",
+        "release_key": "d3f50fc30587f3645839a3cb094a98d5f165327f695233fa06222df60cfdc2ce",
+        "rmw_implementation": "rmw_cyclonedds_cpp",
+        "role_ids": {
+          "pilot": "pilot-main",
+          "sim": "sim-tdd",
+          "ui": "ui-main"
+        },
+        "schema_version": 3,
+        "security_generation": "",
+        "security_profile": "trusted-network",
+        "static_peers": [],
+        "system_id": "tddwalk",
+        "turn": {
+          "credential_file": "",
+          "listen_port": null,
+          "mode": "none",
+          "public_host": "",
+          "realm": "",
+          "relay_max_port": null,
+          "relay_min_port": null,
+          "secret_file": ""
+        },
+        "turn_urls": []
+      },
+      "after": {
+        "compute": {
+          "gpu_device": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+          "gpu_mode": "specific"
+        },
+        "discovery_mode": "multicast",
+        "domain_id": 0,
+        "endpoints": [
+          {
+            "endpoint_id": "sim-tdd",
+            "role": "sim"
+          }
+        ],
+        "interface": "tailscale0",
+        "release_key": "addaf4a88f3b2dab7e6603dec06275e8ec71eac0fcf939a9efd509193650fe26",
+        "rmw_implementation": "rmw_cyclonedds_cpp",
+        "role_ids": {
+          "pilot": "pilot-main",
+          "sim": "sim-tdd",
+          "ui": "ui-main"
+        },
+        "schema_version": 3,
+        "security_generation": "",
+        "security_profile": "trusted-network",
+        "static_peers": [],
+        "system_id": "tddwalk",
+        "turn": {
+          "credential_file": "",
+          "listen_port": null,
+          "mode": "none",
+          "public_host": "",
+          "realm": "",
+          "relay_max_port": null,
+          "relay_min_port": null,
+          "secret_file": ""
+        },
+        "turn_urls": []
+      },
+      "argv": [
+        "/home/hckang/ws/newsim/bin/elesim-register",
+        "replace",
+        "--system",
+        "tddwalk",
+        "--release",
+        "addaf4a88f3b2dab7e6603dec06275e8ec71eac0fcf939a9efd509193650fe26",
+        "--domain-id",
+        "0",
+        "--rmw",
+        "rmw_cyclonedds_cpp",
+        "--discovery-mode",
+        "multicast",
+        "--interface",
+        "tailscale0",
+        "--security-profile",
+        "trusted-network",
+        "--gpu-mode",
+        "specific",
+        "--gpu-device",
+        "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+        "--turn-mode",
+        "none",
+        "--endpoint",
+        "sim:sim-tdd",
+        "--graph-endpoint",
+        "pilot:pilot-main",
+        "--graph-endpoint",
+        "sim:sim-tdd",
+        "--graph-endpoint",
+        "ui:ui-main"
+      ]
+    }
+  },
+  "gpu_parity": {
+    "installed_file": "/usr/local/lib/python3.10/dist-packages/elesim_sim/robot/go2/pympc_jax.py",
+    "sha256": "ed193827382594ab7c7e29b0401be8adee0cb898d2bc3d55cdca2660f5338210",
+    "samples": 4096,
+    "iterations": 2,
+    "device": "cuda:0",
+    "comparisons": [
+      {
+        "step": 0,
+        "force_max_abs": 0.0,
+        "cost_abs": 0.0,
+        "key_equal": true
+      },
+      {
+        "step": 1,
+        "force_max_abs": 0.0,
+        "cost_abs": 0.0,
+        "key_equal": true
+      },
+      {
+        "step": 2,
+        "force_max_abs": 0.0,
+        "cost_abs": 0.0,
+        "key_equal": true
+      },
+      {
+        "step": 3,
+        "force_max_abs": 0.0,
+        "cost_abs": 0.0,
+        "key_equal": true
+      },
+      {
+        "step": 4,
+        "force_max_abs": 0.0,
+        "cost_abs": 0.0,
+        "key_equal": true
+      },
+      {
+        "step": 5,
+        "force_max_abs": 0.0,
+        "cost_abs": 0.0,
+        "key_equal": true
+      },
+      {
+        "step": 6,
+        "force_max_abs": 0.0,
+        "cost_abs": 0.0,
+        "key_equal": true
+      },
+      {
+        "step": 7,
+        "force_max_abs": 0.0,
+        "cost_abs": 0.0,
+        "key_equal": true
+      },
+      {
+        "step": 8,
+        "force_max_abs": 0.0,
+        "cost_abs": 0.0,
+        "key_equal": true
+      },
+      {
+        "step": 9,
+        "force_max_abs": 0.0,
+        "cost_abs": 0.0,
+        "key_equal": true
+      },
+      {
+        "step": 10,
+        "force_max_abs": 0.0,
+        "cost_abs": 0.0,
+        "key_equal": true
+      },
+      {
+        "step": 11,
+        "force_max_abs": 0.0,
+        "cost_abs": 0.0,
+        "key_equal": true
+      }
+    ],
+    "replay": {
+      "serial": {
+        "n": 160,
+        "mean_ms": 6.887878413544968,
+        "p50_ms": 6.849352037534118,
+        "p95_ms": 7.361736288294195
+      },
+      "packed": {
+        "n": 160,
+        "mean_ms": 4.825693988823332,
+        "p50_ms": 4.831732017919421,
+        "p95_ms": 5.055462429299951
+      }
+    },
+    "scope": "12 dynamic actual-input comparisons. Separate frozen-state solve microbenchmark: serial/packed/packed/serial, 80 retained calls after20 warmups each block, CPU packing and GPU output wait included; excludes controller state preparation and Genesis/media."
+  },
+  "gpu_sweep": {
+    "sha256": "ed193827382594ab7c7e29b0401be8adee0cb898d2bc3d55cdca2660f5338210",
+    "samples": 4096,
+    "iterations": 2,
+    "n": 200,
+    "force_max_abs": 0.0,
+    "cost_max_abs": 0.0,
+    "all_keys_equal": true,
+    "scope": "200 deterministic perturbations of real frozen walking inputs; varied base/reference velocity,orientation,mass,inertia,use_mean,elapsed,full32bitkey,geometry,floor and search mask; each comparison starts from the same mean/key, separate from physics"
+  },
+  "installed_baseline": {
+    "argv": [
+      "/home/hckang/ws/newsim/bin/elesim-compose",
+      "-f",
+      "/home/hckang/ws/newsim/containers/compose.instances.yaml",
+      "run",
+      "--rm",
+      "--no-deps",
+      "--name",
+      "elesim-merry-tddwalk-mppi-buffer-20261019-before",
+      "-v",
+      "/tmp/elesim-mppi-buffer-20261019-before:/diagnostics:rw",
+      "--entrypoint",
+      "/bin/bash",
+      "svc-tddwalk-sim-tdd-07b0b3c1232e8979b0b13af982d0a9a373bd4907cc5f95e060dcebe1d023fca3",
+      "-c",
+      "source /opt/ros/humble/setup.bash && source /opt/elesim/ros/install/setup.bash && exec python3 -u /diagnostics/run.py"
+    ],
+    "manifest": {
+      "build_fingerprints": {
+        "pilot": "40cc91104211f58d8691d529bc267301a659b65f879e24bb809b5cd5f60a1c6b",
+        "sim": "3f841f3dc9bad38cb3819e484282144adf0e5fd259c6141b51497267a2153620"
+      },
+      "image_ids": {
+        "pilot": "sha256:3d5627fa4558bcc13339ea00bf04b1d4c847848aa0fe04f9e4d236c2ffed65d5",
+        "sim": "sha256:898498b44e8083152faaf84319df094ad22c9223297f5a94607f864f1999f413"
+      },
+      "install_uuid": "3fc3487e-0788-4a76-a152-e485144b0d0b",
+      "platform": "linux/amd64",
+      "release_key": "d3f50fc30587f3645839a3cb094a98d5f165327f695233fa06222df60cfdc2ce",
+      "role_images": {
+        "pilot": "elesim/pilot:merry-fox",
+        "sim": "elesim/sim:merry-buffalo"
+      },
+      "runtime_data_digest": "b64ae217e045917e47eca3c9cab50e308c3b9bcb90617795c846755016995cf3",
+      "schema_version": 1,
+      "source_revision": "git-24007a488a69041baec4ce1340dd500315f1c548"
+    },
+    "release": "d3f50fc30587f3645839a3cb094a98d5f165327f695233fa06222df60cfdc2ce",
+    "devices": [
+      {
+        "capabilities": [
+          "gpu"
+        ],
+        "driver": "nvidia",
+        "device_ids": [
+          "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+        ]
+      }
+    ],
+    "before_pins": {
+      "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+      "tddwalk": "d3f50fc30587f3645839a3cb094a98d5f165327f695233fa06222df60cfdc2ce",
+      "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+    }
+  },
+  "installed_candidate": {
+    "argv": [
+      "/home/hckang/ws/newsim/bin/elesim-compose",
+      "-f",
+      "/home/hckang/ws/newsim/containers/compose.instances.yaml",
+      "run",
+      "--rm",
+      "--no-deps",
+      "--name",
+      "elesim-merry-tddwalk-mppi-buffer-20261019-after",
+      "-v",
+      "/tmp/elesim-mppi-buffer-20261019-after:/diagnostics:rw",
+      "--entrypoint",
+      "/bin/bash",
+      "svc-tddwalk-sim-tdd-07b0b3c1232e8979b0b13af982d0a9a373bd4907cc5f95e060dcebe1d023fca3",
+      "-c",
+      "source /opt/ros/humble/setup.bash && source /opt/elesim/ros/install/setup.bash && exec python3 -u /diagnostics/run.py"
+    ],
+    "manifest": {
+      "build_fingerprints": {
+        "pilot": "40cc91104211f58d8691d529bc267301a659b65f879e24bb809b5cd5f60a1c6b",
+        "sim": "dd61a89fad53890536b13f9556bb27e4cf548dc6b15e876207508ca335a95de4"
+      },
+      "image_ids": {
+        "pilot": "sha256:3d5627fa4558bcc13339ea00bf04b1d4c847848aa0fe04f9e4d236c2ffed65d5",
+        "sim": "sha256:4b72a172c764401b68d514c5a27ab794c0460b17bf1ecb9a7dd3b3e26879fac9"
+      },
+      "install_uuid": "3fc3487e-0788-4a76-a152-e485144b0d0b",
+      "platform": "linux/amd64",
+      "release_key": "addaf4a88f3b2dab7e6603dec06275e8ec71eac0fcf939a9efd509193650fe26",
+      "role_images": {
+        "pilot": "elesim/pilot:merry-lynx",
+        "sim": "elesim/sim:merry-monkey"
+      },
+      "runtime_data_digest": "b64ae217e045917e47eca3c9cab50e308c3b9bcb90617795c846755016995cf3",
+      "schema_version": 1,
+      "source_revision": "git-573f95da9108d8f57530429f8c99437eb9fa6759"
+    },
+    "release": "addaf4a88f3b2dab7e6603dec06275e8ec71eac0fcf939a9efd509193650fe26",
+    "devices": [
+      {
+        "capabilities": [
+          "gpu"
+        ],
+        "driver": "nvidia",
+        "device_ids": [
+          "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+        ]
+      }
+    ],
+    "before_pins": {
+      "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+      "tddwalk": "addaf4a88f3b2dab7e6603dec06275e8ec71eac0fcf939a9efd509193650fe26",
+      "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+    }
+  },
+  "clean_media_comparison": {
+    "before_mean_ms": 15.999413390333455,
+    "after_mean_ms": 14.522065109340474,
+    "delta_ms": -1.477348280992981,
+    "reduction_percent": 9.233765294704913,
+    "repeats_per_revision": 2,
+    "scope": "mean of two means; each600steady steps, same protocol with separate launches"
+  },
+  "runs": {
+    "after_backward": {
+      "name": "after_backward",
+      "detailed": false,
+      "media": {
+        "configured_encoder": "h264_nvenc",
+        "actual_codecs": [
+          "h264_nvenc"
+        ],
+        "encode_host": {
+          "n": 1621,
+          "total_ms": 14786.653081420809,
+          "mean_ms": 9.121932807785816,
+          "p50_ms": 8.73849494382739,
+          "p95_ms": 9.252703282982111,
+          "max_ms": 258.7017030455172
+        },
+        "encode_thread_cpu": {
+          "n": 1621,
+          "total_ms": 14337.51015999998,
+          "mean_ms": 8.844855126465138,
+          "p50_ms": 8.73683699999983,
+          "p95_ms": 9.183177999999792,
+          "max_ms": 253.74194100000014
+        },
+        "mailbox_copy_host": {
+          "n": 1623,
+          "total_ms": 878.0176704749465,
+          "mean_ms": 0.5409843933918339,
+          "p50_ms": 0.06010197103023529,
+          "p95_ms": 0.9324461221694945,
+          "max_ms": 107.54449898377061
+        }
+      },
+      "cameras": true,
+      "completed": true,
+      "steps": 1200,
+      "last_stage": "stand",
+      "wall_s": 13.046392270829529,
+      "fps": {
+        "observer": 22.994862776797767,
+        "hand_eye_preview": 22.381666436083158
+      },
+      "body": {
+        "forward_speed_mps": -0.7455408086379369,
+        "roll_pitch_rms_deg": [
+          1.8499831685421755,
+          4.842081871595084
+        ],
+        "height_min_max_m": [
+          0.29272669553756714,
+          0.3137556314468384
+        ],
+        "velocity_world_mean_mps": [
+          -0.7455408086379369,
+          -0.006242332770489156,
+          0.0014524383848765895
+        ]
+      },
+      "velocity": [
+        -0.8,
+        0.0
+      ],
+      "steady_walk": {
+        "loop": {
+          "n": 600,
+          "mean_ms": 13.265535094154378,
+          "p50_ms": 13.761397218331695,
+          "p95_ms": 17.995424265973266,
+          "max_ms": 29.097584076225758
+        },
+        "solve_ticks": {
+          "n": 321,
+          "mean_ms": 15.819456055470251,
+          "p50_ms": 15.526239294558764,
+          "p95_ms": 19.07623140141368,
+          "max_ms": 29.097584076225758
+        },
+        "reuse_ticks": {
+          "n": 279,
+          "mean_ms": 10.32715291285547,
+          "p50_ms": 10.147224646061659,
+          "p95_ms": 13.23687178082764,
+          "max_ms": 14.301045332103968
+        }
+      },
+      "sections": {
+        "go2.total": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 10.097875133333327,
+          "exclusive_per_tick_ms": 0.7945759750000008,
+          "inclusive_per_call_ms": 10.097875133333327,
+          "thread_cpu_per_call_ms": 7.646948208333336
+        },
+        "physics.host": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 2.943477154999999,
+          "exclusive_per_tick_ms": 2.943477154999999,
+          "inclusive_per_call_ms": 2.943477154999999,
+          "thread_cpu_per_call_ms": 2.8696706766666664
+        },
+        "control.sample": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 5.701643646666668,
+          "exclusive_per_tick_ms": 5.701643646666668,
+          "inclusive_per_call_ms": 5.701643646666668,
+          "thread_cpu_per_call_ms": 5.051445864999998
+        },
+        "control.torques": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.6016555116666655,
+          "exclusive_per_tick_ms": 0.902707718333334,
+          "inclusive_per_call_ms": 3.6016555116666655,
+          "thread_cpu_per_call_ms": 1.904249275
+        },
+        "mppi.solve": {
+          "calls": 321,
+          "inclusive_per_tick_ms": 2.6989477933333332,
+          "exclusive_per_tick_ms": 2.6989477933333332,
+          "inclusive_per_call_ms": 5.044762230529594,
+          "thread_cpu_per_call_ms": 1.911568841121495
+        }
+      },
+      "receiver": {
+        "decoded_frames": {
+          "observer": 806,
+          "hand_eye_preview": 805
+        },
+        "sizes": {
+          "observer": [
+            1280,
+            720
+          ],
+          "hand_eye_preview": [
+            1280,
+            720
+          ]
+        },
+        "errors": []
+      },
+      "gc_active_max_ms": 0.508096
+    },
+    "after_detailed": {
+      "name": "after_detailed",
+      "detailed": true,
+      "media": {
+        "configured_encoder": "h264_nvenc",
+        "actual_codecs": [
+          "h264_nvenc"
+        ],
+        "encode_host": {
+          "n": 1681,
+          "total_ms": 15595.11618129909,
+          "mean_ms": 9.277285057286788,
+          "p50_ms": 8.69913399219513,
+          "p95_ms": 10.724110063165426,
+          "max_ms": 468.7217720784247
+        },
+        "encode_thread_cpu": {
+          "n": 1681,
+          "total_ms": 14781.743450000025,
+          "mean_ms": 8.793422635336114,
+          "p50_ms": 8.6530309999997,
+          "p95_ms": 9.041729000000664,
+          "max_ms": 237.76901800000005
+        },
+        "mailbox_copy_host": {
+          "n": 1682,
+          "total_ms": 827.328534796834,
+          "mean_ms": 0.4918718994035874,
+          "p50_ms": 0.8467254228889942,
+          "p95_ms": 0.9030350483953952,
+          "max_ms": 6.967692170292139
+        }
+      },
+      "cameras": true,
+      "completed": true,
+      "steps": 1200,
+      "last_stage": "stand",
+      "wall_s": 14.161907046101987,
+      "fps": {
+        "observer": 20.901139870246,
+        "hand_eye_preview": 20.477468116119393
+      },
+      "body": {
+        "forward_speed_mps": 0.7878557940324149,
+        "roll_pitch_rms_deg": [
+          3.0118135344025325,
+          1.2896544931489669
+        ],
+        "height_min_max_m": [
+          0.27748650312423706,
+          0.3100730776786804
+        ],
+        "velocity_world_mean_mps": [
+          0.7878557940324149,
+          0.009513570864995321,
+          0.010337261754708987
+        ]
+      },
+      "velocity": [
+        0.8,
+        0.0
+      ],
+      "steady_walk": {
+        "loop": {
+          "n": 600,
+          "mean_ms": 14.966301502039036,
+          "p50_ms": 15.970287378877401,
+          "p95_ms": 19.60689933039248,
+          "max_ms": 30.615360010415316
+        },
+        "solve_ticks": {
+          "n": 322,
+          "mean_ms": 17.847402565042426,
+          "p50_ms": 17.662825528532267,
+          "p95_ms": 20.162848429754376,
+          "max_ms": 30.615360010415316
+        },
+        "reuse_ticks": {
+          "n": 278,
+          "mean_ms": 11.629198831941585,
+          "p50_ms": 11.598275741562247,
+          "p95_ms": 13.003718340769408,
+          "max_ms": 18.42172583565116
+        }
+      },
+      "sections": {
+        "go2.total": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 11.568712126666668,
+          "exclusive_per_tick_ms": 0.12584561000000002,
+          "inclusive_per_call_ms": 11.568712126666668,
+          "thread_cpu_per_call_ms": 9.297412045000005
+        },
+        "physics.host": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.1649236449999942,
+          "exclusive_per_tick_ms": 3.1649236449999942,
+          "inclusive_per_call_ms": 3.1649236449999942,
+          "thread_cpu_per_call_ms": 3.0938702699999983
+        },
+        "control.sample": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 6.697298753333336,
+          "exclusive_per_tick_ms": 0.5619420266666669,
+          "inclusive_per_call_ms": 6.697298753333336,
+          "thread_cpu_per_call_ms": 6.123067351666663
+        },
+        "control.torques": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.9789144033333317,
+          "exclusive_per_tick_ms": 0.3416139016666665,
+          "inclusive_per_call_ms": 3.9789144033333317,
+          "thread_cpu_per_call_ms": 2.3690945433333317
+        },
+        "mppi.solve": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 2.921608065,
+          "exclusive_per_tick_ms": 0.34442667833333324,
+          "inclusive_per_call_ms": 5.443990183229814,
+          "thread_cpu_per_call_ms": 2.4911151614906832
+        },
+        "state.bridge": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 2.565001748333332,
+          "exclusive_per_tick_ms": 0.46385256500000066,
+          "inclusive_per_call_ms": 2.565001748333332,
+          "thread_cpu_per_call_ms": 2.1663431783333347
+        },
+        "state.to_numpy": {
+          "calls": 3600,
+          "inclusive_per_tick_ms": 0.9330724399999999,
+          "exclusive_per_tick_ms": 0.9330724399999999,
+          "inclusive_per_call_ms": 0.1555120733333333,
+          "thread_cpu_per_call_ms": 0.13665341000000017
+        },
+        "payload.to_numpy": {
+          "calls": 2400,
+          "inclusive_per_tick_ms": 0.3921479133333335,
+          "exclusive_per_tick_ms": 0.3921479133333335,
+          "inclusive_per_call_ms": 0.09803697833333337,
+          "thread_cpu_per_call_ms": 0.09546287124999997
+        },
+        "contact.to_numpy": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.10059434833333328,
+          "exclusive_per_tick_ms": 0.10059434833333328,
+          "inclusive_per_call_ms": 0.10059434833333328,
+          "thread_cpu_per_call_ms": 0.083739025
+        },
+        "payload.measure": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 2.2015636733333346,
+          "exclusive_per_tick_ms": 0.36147812500000004,
+          "inclusive_per_call_ms": 2.2015636733333346,
+          "thread_cpu_per_call_ms": 2.1143567499999985
+        },
+        "payload.read_states": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 1.8400855483333316,
+          "exclusive_per_tick_ms": 0.22754079000000024,
+          "inclusive_per_call_ms": 1.8400855483333316,
+          "thread_cpu_per_call_ms": 1.7550211499999988
+        },
+        "pin.computeGeneralizedGravity": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.02141935499999999,
+          "exclusive_per_tick_ms": 0.02141935499999999,
+          "inclusive_per_call_ms": 0.02141935499999999,
+          "thread_cpu_per_call_ms": 0.021674508333333325
+        },
+        "pin.forwardKinematics": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.006919155000000002,
+          "exclusive_per_tick_ms": 0.006919155000000002,
+          "inclusive_per_call_ms": 0.006919155000000002,
+          "thread_cpu_per_call_ms": 0.007067840000000003
+        },
+        "pin.updateFramePlacements": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.005394799999999996,
+          "exclusive_per_tick_ms": 0.005394799999999996,
+          "inclusive_per_call_ms": 0.005394799999999996,
+          "thread_cpu_per_call_ms": 0.005526685000000005
+        },
+        "pin.computeJointJacobians": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.007242711666666664,
+          "exclusive_per_tick_ms": 0.007242711666666664,
+          "inclusive_per_call_ms": 0.007242711666666664,
+          "thread_cpu_per_call_ms": 0.007353928333333333
+        },
+        "pin.centerOfMass": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.00848499166666667,
+          "exclusive_per_tick_ms": 0.00848499166666667,
+          "inclusive_per_call_ms": 0.00848499166666667,
+          "thread_cpu_per_call_ms": 0.008608061666666661
+        },
+        "pin.ccrba": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.009426051666666662,
+          "exclusive_per_tick_ms": 0.009426051666666662,
+          "inclusive_per_call_ms": 0.009426051666666662,
+          "thread_cpu_per_call_ms": 0.00954246833333333
+        },
+        "pin.getFrameVelocity": {
+          "calls": 2400,
+          "inclusive_per_tick_ms": 0.013074978333333348,
+          "exclusive_per_tick_ms": 0.013074978333333348,
+          "inclusive_per_call_ms": 0.003268744583333337,
+          "thread_cpu_per_call_ms": 0.003358856250000001
+        },
+        "pin.getFrameJacobian": {
+          "calls": 2400,
+          "inclusive_per_tick_ms": 0.012745088333333333,
+          "exclusive_per_tick_ms": 0.012745088333333333,
+          "inclusive_per_call_ms": 0.0031862720833333333,
+          "thread_cpu_per_call_ms": 0.0033177824999999963
+        },
+        "control._normal_contact_forces": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.3259392199999999,
+          "exclusive_per_tick_ms": 0.08593071499999996,
+          "inclusive_per_call_ms": 0.3259392199999999,
+          "thread_cpu_per_call_ms": 0.2771916883333333
+        },
+        "control._predict_touchdowns": {
+          "calls": 669,
+          "inclusive_per_tick_ms": 0.4038403816666664,
+          "exclusive_per_tick_ms": 0.4038403816666664,
+          "inclusive_per_call_ms": 0.36218868310911784,
+          "thread_cpu_per_call_ms": 0.3626970478325858
+        },
+        "control._walking_reference": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.11335549666666658,
+          "exclusive_per_tick_ms": 0.11335549666666658,
+          "inclusive_per_call_ms": 0.11335549666666658,
+          "thread_cpu_per_call_ms": 0.11356839499999999
+        },
+        "control._actuation_scale_horizon": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.03173435000000001,
+          "exclusive_per_tick_ms": 0.03173435000000001,
+          "inclusive_per_call_ms": 0.03173435000000001,
+          "thread_cpu_per_call_ms": 0.031972296666666726
+        },
+        "control._stance_damping_reference": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.36311115999999966,
+          "exclusive_per_tick_ms": 0.36311115999999966,
+          "inclusive_per_call_ms": 0.36311115999999966,
+          "thread_cpu_per_call_ms": 0.35878507499999984
+        },
+        "control._aux_pd_torque": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.00806313833333333,
+          "exclusive_per_tick_ms": 0.00806313833333333,
+          "inclusive_per_call_ms": 0.00806313833333333,
+          "thread_cpu_per_call_ms": 0.008332096666666663
+        },
+        "control._set_swing_damping": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.05085222166666664,
+          "exclusive_per_tick_ms": 0.05085222166666664,
+          "inclusive_per_call_ms": 0.05085222166666664,
+          "thread_cpu_per_call_ms": 0.047151963333333304
+        },
+        "control._reachable_target": {
+          "calls": 154,
+          "inclusive_per_tick_ms": 0.03170988000000001,
+          "exclusive_per_tick_ms": 0.012947013333333333,
+          "inclusive_per_call_ms": 0.12354498701298704,
+          "thread_cpu_per_call_ms": 0.1204813116883117
+        },
+        "control._record_contact_metrics": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.002868418333333336,
+          "exclusive_per_tick_ms": 0.002868418333333336,
+          "inclusive_per_call_ms": 0.002868418333333336,
+          "thread_cpu_per_call_ms": 0.002965373333333332
+        },
+        "contact.gate_update": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.2729055050000001,
+          "exclusive_per_tick_ms": 0.2729055050000001,
+          "inclusive_per_call_ms": 0.2729055050000001,
+          "thread_cpu_per_call_ms": 0.26985022166666656
+        },
+        "control.function.stance_end_foothold": {
+          "calls": 176,
+          "inclusive_per_tick_ms": 0.05290933999999998,
+          "exclusive_per_tick_ms": 0.03570208333333334,
+          "inclusive_per_call_ms": 0.18037274999999992,
+          "thread_cpu_per_call_ms": 0.16755580113636367
+        },
+        "control.function.project_ground_target": {
+          "calls": 330,
+          "inclusive_per_tick_ms": 0.03597012333333334,
+          "exclusive_per_tick_ms": 0.03597012333333334,
+          "inclusive_per_call_ms": 0.06540022424242425,
+          "thread_cpu_per_call_ms": 0.06591132121212119
+        },
+        "control.function.future_touchdown_times": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.0341216283333333,
+          "exclusive_per_tick_ms": 0.0341216283333333,
+          "inclusive_per_call_ms": 0.0341216283333333,
+          "thread_cpu_per_call_ms": 0.03453766333333335
+        },
+        "control.function.planned_footholds": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.04927825166666668,
+          "exclusive_per_tick_ms": 0.04927825166666668,
+          "inclusive_per_call_ms": 0.04927825166666668,
+          "thread_cpu_per_call_ms": 0.028046979999999996
+        },
+        "control.function.support_actuator_constraints": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 0.06748568500000002,
+          "exclusive_per_tick_ms": 0.06748568500000002,
+          "inclusive_per_call_ms": 0.12574972360248451,
+          "thread_cpu_per_call_ms": 0.12202233540372674
+        },
+        "control.function.project_support_motor_limits": {
+          "calls": 274,
+          "inclusive_per_tick_ms": 0.04738045500000001,
+          "exclusive_per_tick_ms": 0.04738045500000001,
+          "inclusive_per_call_ms": 0.10375282116788323,
+          "thread_cpu_per_call_ms": 0.10435246350364966
+        },
+        "control.function.swing_damping_reference_torque": {
+          "calls": 690,
+          "inclusive_per_tick_ms": 0.11857974500000004,
+          "exclusive_per_tick_ms": 0.11857974500000004,
+          "inclusive_per_call_ms": 0.10311282173913047,
+          "thread_cpu_per_call_ms": 0.1038194637681159
+        },
+        "control.function.swing_foot_reference": {
+          "calls": 690,
+          "inclusive_per_tick_ms": 0.028510151666666646,
+          "exclusive_per_tick_ms": 0.028510151666666646,
+          "inclusive_per_call_ms": 0.02479143623188404,
+          "thread_cpu_per_call_ms": 0.02486584347826087
+        },
+        "genesis.get_links_pos": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.3423793483333333,
+          "exclusive_per_tick_ms": 0.3423793483333333,
+          "inclusive_per_call_ms": 0.3423793483333333,
+          "thread_cpu_per_call_ms": 0.30819884999999997
+        },
+        "genesis.get_links_quat": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.24272119166666656,
+          "exclusive_per_tick_ms": 0.24272119166666656,
+          "inclusive_per_call_ms": 0.24272119166666656,
+          "thread_cpu_per_call_ms": 0.24013191833333342
+        },
+        "genesis.get_links_vel": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.39606184666666644,
+          "exclusive_per_tick_ms": 0.39606184666666644,
+          "inclusive_per_call_ms": 0.39606184666666644,
+          "thread_cpu_per_call_ms": 0.37697188333333326
+        },
+        "genesis.get_links_ang": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.2392344583333336,
+          "exclusive_per_tick_ms": 0.2392344583333336,
+          "inclusive_per_call_ms": 0.2392344583333336,
+          "thread_cpu_per_call_ms": 0.23134028166666648
+        },
+        "genesis.get_dofs_position": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.21490865166666676,
+          "exclusive_per_tick_ms": 0.21490865166666676,
+          "inclusive_per_call_ms": 0.21490865166666676,
+          "thread_cpu_per_call_ms": 0.195613155
+        },
+        "genesis.get_dofs_velocity": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.2542502266666666,
+          "exclusive_per_tick_ms": 0.2542502266666666,
+          "inclusive_per_call_ms": 0.2542502266666666,
+          "thread_cpu_per_call_ms": 0.20987376333333338
+        },
+        "genesis.get_links_net_contact_force": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.13941415666666654,
+          "exclusive_per_tick_ms": 0.13941415666666654,
+          "inclusive_per_call_ms": 0.13941415666666654,
+          "thread_cpu_per_call_ms": 0.11010068333333348
+        },
+        "genesis.control_dofs_force": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.7637849416666669,
+          "exclusive_per_tick_ms": 0.7637849416666669,
+          "inclusive_per_call_ms": 0.7637849416666669,
+          "thread_cpu_per_call_ms": 0.6971035566666668
+        },
+        "genesis.set_dofs_kv": {
+          "calls": 0,
+          "inclusive_per_tick_ms": 0.0,
+          "exclusive_per_tick_ms": 0.0,
+          "inclusive_per_call_ms": null,
+          "thread_cpu_per_call_ms": null
+        },
+        "base.get_pos": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.302284585,
+          "exclusive_per_tick_ms": 0.302284585,
+          "inclusive_per_call_ms": 0.302284585,
+          "thread_cpu_per_call_ms": 0.15302850499999987
+        },
+        "base.get_quat": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.1138629499999999,
+          "exclusive_per_tick_ms": 0.1138629499999999,
+          "inclusive_per_call_ms": 0.1138629499999999,
+          "thread_cpu_per_call_ms": 0.09649798666666665
+        },
+        "base.get_vel": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.2086790533333332,
+          "exclusive_per_tick_ms": 0.2086790533333332,
+          "inclusive_per_call_ms": 0.2086790533333332,
+          "thread_cpu_per_call_ms": 0.18084855499999988
+        },
+        "base.get_ang": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.0740912766666667,
+          "exclusive_per_tick_ms": 0.0740912766666667,
+          "inclusive_per_call_ms": 0.0740912766666667,
+          "thread_cpu_per_call_ms": 0.07004658333333338
+        },
+        "jax.compute_control": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 2.577181386666665,
+          "exclusive_per_tick_ms": 0.35057380333333293,
+          "inclusive_per_call_ms": 4.802201341614904,
+          "thread_cpu_per_call_ms": 1.9463410000000014
+        },
+        "jax.dispatch": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 0.494919196666667,
+          "exclusive_per_tick_ms": 0.494919196666667,
+          "inclusive_per_call_ms": 0.9222096832298142,
+          "thread_cpu_per_call_ms": 0.8911545745341618
+        },
+        "jax.host_pack": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 0.048624608333333354,
+          "exclusive_per_tick_ms": 0.048624608333333354,
+          "inclusive_per_call_ms": 0.09060486024844724,
+          "thread_cpu_per_call_ms": 0.08392967080745341
+        },
+        "jax.device_put": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 0.19740948666666655,
+          "exclusive_per_tick_ms": 0.19740948666666655,
+          "inclusive_per_call_ms": 0.36784376397515506,
+          "thread_cpu_per_call_ms": 0.3396187018633542
+        },
+        "jax.result_wait_and_copy": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 1.4446247283333333,
+          "exclusive_per_tick_ms": 1.4446247283333333,
+          "inclusive_per_call_ms": 2.6918473198757766,
+          "thread_cpu_per_call_ms": 0.11566938509316764
+        },
+        "jax.host_inertia_inverse": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 0.04102956333333332,
+          "exclusive_per_tick_ms": 0.04102956333333332,
+          "inclusive_per_call_ms": 0.07645260248447203,
+          "thread_cpu_per_call_ms": 0.07544610869565216
+        }
+      },
+      "receiver": {
+        "decoded_frames": {
+          "observer": 835,
+          "hand_eye_preview": 834
+        },
+        "sizes": {
+          "hand_eye_preview": [
+            1280,
+            720
+          ],
+          "observer": [
+            1280,
+            720
+          ]
+        },
+        "errors": []
+      },
+      "gc_active_max_ms": 0.555465
+    },
+    "after_left": {
+      "name": "after_left",
+      "detailed": false,
+      "media": {
+        "configured_encoder": "h264_nvenc",
+        "actual_codecs": [
+          "h264_nvenc"
+        ],
+        "encode_host": {
+          "n": 1639,
+          "total_ms": 16231.572882737964,
+          "mean_ms": 9.903339159693694,
+          "p50_ms": 8.781239856034517,
+          "p95_ms": 12.757728109136222,
+          "max_ms": 609.5277122221887
+        },
+        "encode_thread_cpu": {
+          "n": 1639,
+          "total_ms": 14806.466622999998,
+          "mean_ms": 9.033841746796831,
+          "p50_ms": 8.700589000000036,
+          "p95_ms": 12.622354299999781,
+          "max_ms": 264.8889879999999
+        },
+        "mailbox_copy_host": {
+          "n": 1640,
+          "total_ms": 855.4955385625362,
+          "mean_ms": 0.5216436210747172,
+          "p50_ms": 0.6991634145379066,
+          "p95_ms": 0.9479398140683769,
+          "max_ms": 9.285081177949905
+        }
+      },
+      "cameras": true,
+      "completed": true,
+      "steps": 1200,
+      "last_stage": "stand",
+      "wall_s": 13.629379393998533,
+      "fps": {
+        "observer": 21.42430638687608,
+        "hand_eye_preview": 21.05745182545697
+      },
+      "body": {
+        "forward_speed_mps": -0.02858296263342102,
+        "roll_pitch_rms_deg": [
+          2.5924335900935547,
+          2.5423061233064623
+        ],
+        "height_min_max_m": [
+          0.2855633497238159,
+          0.3160196542739868
+        ],
+        "velocity_world_mean_mps": [
+          -0.02858296263342102,
+          0.3186875923226277,
+          0.0050016514452484746
+        ]
+      },
+      "velocity": [
+        0.0,
+        0.35
+      ],
+      "steady_walk": {
+        "loop": {
+          "n": 600,
+          "mean_ms": 14.475748435749361,
+          "p50_ms": 15.476703876629472,
+          "p95_ms": 19.510034541599452,
+          "max_ms": 27.81388396397233
+        },
+        "solve_ticks": {
+          "n": 324,
+          "mean_ms": 17.224555807820533,
+          "p50_ms": 16.89114305190742,
+          "p95_ms": 20.30498378444462,
+          "max_ms": 27.74648228660226
+        },
+        "reuse_ticks": {
+          "n": 276,
+          "mean_ms": 11.248887607665813,
+          "p50_ms": 10.79726591706276,
+          "p95_ms": 15.319051570259035,
+          "max_ms": 27.81388396397233
+        }
+      },
+      "sections": {
+        "go2.total": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 10.895873748333331,
+          "exclusive_per_tick_ms": 0.8754244716666661,
+          "inclusive_per_call_ms": 10.895873748333331,
+          "thread_cpu_per_call_ms": 8.59135751166666
+        },
+        "physics.host": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.3339849099999994,
+          "exclusive_per_tick_ms": 3.3339849099999994,
+          "inclusive_per_call_ms": 3.3339849099999994,
+          "thread_cpu_per_call_ms": 3.290019948333334
+        },
+        "control.sample": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 6.129164586666666,
+          "exclusive_per_tick_ms": 6.129164586666666,
+          "inclusive_per_call_ms": 6.129164586666666,
+          "thread_cpu_per_call_ms": 5.541143386666673
+        },
+        "control.torques": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.8912846899999978,
+          "exclusive_per_tick_ms": 1.0249348616666671,
+          "inclusive_per_call_ms": 3.8912846899999978,
+          "thread_cpu_per_call_ms": 2.251582008333333
+        },
+        "mppi.solve": {
+          "calls": 324,
+          "inclusive_per_tick_ms": 2.866349828333332,
+          "exclusive_per_tick_ms": 2.866349828333332,
+          "inclusive_per_call_ms": 5.308055237654319,
+          "thread_cpu_per_call_ms": 2.300799182098764
+        }
+      },
+      "receiver": {
+        "decoded_frames": {
+          "observer": 814,
+          "hand_eye_preview": 813
+        },
+        "sizes": {
+          "hand_eye_preview": [
+            1280,
+            720
+          ],
+          "observer": [
+            1280,
+            720
+          ]
+        },
+        "errors": []
+      },
+      "gc_active_max_ms": 0.54113
+    },
+    "after_media_0": {
+      "name": "after_media_0",
+      "detailed": false,
+      "media": {
+        "configured_encoder": "h264_nvenc",
+        "actual_codecs": [
+          "h264_nvenc"
+        ],
+        "encode_host": {
+          "n": 4432,
+          "total_ms": 35939.55680448562,
+          "mean_ms": 8.109105777185384,
+          "p50_ms": 8.647220907732844,
+          "p95_ms": 10.981801059097052,
+          "max_ms": 388.6587470769882
+        },
+        "encode_thread_cpu": {
+          "n": 4432,
+          "total_ms": 33599.64240199999,
+          "mean_ms": 7.581146751353771,
+          "p50_ms": 8.563799999999677,
+          "p95_ms": 9.318879350000351,
+          "max_ms": 231.89612599999987
+        },
+        "mailbox_copy_host": {
+          "n": 4433,
+          "total_ms": 1529.7093037515879,
+          "mean_ms": 0.34507315672266814,
+          "p50_ms": 0.02759089693427086,
+          "p95_ms": 2.722347062081097,
+          "max_ms": 10.110647417604923
+        }
+      },
+      "cameras": true,
+      "completed": true,
+      "steps": 1200,
+      "last_stage": "stand",
+      "wall_s": 14.254441454075277,
+      "fps": {
+        "observer": 21.046071918463802,
+        "hand_eye_preview": 20.134075468663703
+      },
+      "body": {
+        "forward_speed_mps": 0.7878557940324149,
+        "roll_pitch_rms_deg": [
+          3.0118135344025325,
+          1.2896544931489669
+        ],
+        "height_min_max_m": [
+          0.27748650312423706,
+          0.3100730776786804
+        ],
+        "velocity_world_mean_mps": [
+          0.7878557940324149,
+          0.009513570864995321,
+          0.010337261754708987
+        ]
+      },
+      "velocity": [
+        0.8,
+        0.0
+      ],
+      "steady_walk": {
+        "loop": {
+          "n": 600,
+          "mean_ms": 14.955844394086549,
+          "p50_ms": 16.02639351040125,
+          "p95_ms": 19.32293304707855,
+          "max_ms": 30.0711658783257
+        },
+        "solve_ticks": {
+          "n": 322,
+          "mean_ms": 17.706462908073426,
+          "p50_ms": 17.57809310220182,
+          "p95_ms": 19.784568226896226,
+          "max_ms": 30.0711658783257
+        },
+        "reuse_ticks": {
+          "n": 278,
+          "mean_ms": 11.76987618723844,
+          "p50_ms": 11.590767651796341,
+          "p95_ms": 13.465931522659956,
+          "max_ms": 22.32151199132204
+        }
+      },
+      "sections": {
+        "go2.total": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 11.187768843333334,
+          "exclusive_per_tick_ms": 1.0382022400000002,
+          "inclusive_per_call_ms": 11.187768843333334,
+          "thread_cpu_per_call_ms": 8.796899350000006
+        },
+        "physics.host": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.507361678333334,
+          "exclusive_per_tick_ms": 3.507361678333334,
+          "inclusive_per_call_ms": 3.507361678333334,
+          "thread_cpu_per_call_ms": 3.435807361666669
+        },
+        "control.sample": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 6.308734676666673,
+          "exclusive_per_tick_ms": 6.308734676666673,
+          "inclusive_per_call_ms": 6.308734676666673,
+          "thread_cpu_per_call_ms": 5.665150820000002
+        },
+        "control.torques": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.840831926666668,
+          "exclusive_per_tick_ms": 1.0304641633333342,
+          "inclusive_per_call_ms": 3.840831926666668,
+          "thread_cpu_per_call_ms": 2.245217546666666
+        },
+        "mppi.solve": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 2.8103677633333333,
+          "exclusive_per_tick_ms": 2.8103677633333333,
+          "inclusive_per_call_ms": 5.2367101180124225,
+          "thread_cpu_per_call_ms": 2.311254972049691
+        }
+      },
+      "receiver": {
+        "decoded_frames": {
+          "observer": 2211,
+          "hand_eye_preview": 2210
+        },
+        "sizes": {
+          "observer": [
+            1280,
+            720
+          ],
+          "hand_eye_preview": [
+            1280,
+            720
+          ]
+        },
+        "errors": []
+      },
+      "gc_active_max_ms": 0.543787
+    },
+    "after_media_1": {
+      "name": "after_media_1",
+      "detailed": false,
+      "media": {
+        "configured_encoder": "h264_nvenc",
+        "actual_codecs": [
+          "h264_nvenc"
+        ],
+        "encode_host": {
+          "n": 1637,
+          "total_ms": 14805.018146522343,
+          "mean_ms": 9.043993980771132,
+          "p50_ms": 8.757189847528934,
+          "p95_ms": 11.218794621527195,
+          "max_ms": 484.97813986614347
+        },
+        "encode_thread_cpu": {
+          "n": 1637,
+          "total_ms": 13365.771864999988,
+          "mean_ms": 8.164796496640193,
+          "p50_ms": 8.651438000000011,
+          "p95_ms": 9.369941399999957,
+          "max_ms": 239.81704299999996
+        },
+        "mailbox_copy_host": {
+          "n": 1637,
+          "total_ms": 1506.397295743227,
+          "mean_ms": 0.9202182625187704,
+          "p50_ms": 0.6562760099768639,
+          "p95_ms": 3.1734080985188484,
+          "max_ms": 9.233787190169096
+        }
+      },
+      "cameras": true,
+      "completed": true,
+      "steps": 1200,
+      "last_stage": "stand",
+      "wall_s": 13.39978007785976,
+      "fps": {
+        "observer": 22.089914780696738,
+        "hand_eye_preview": 21.642146237844777
+      },
+      "body": {
+        "forward_speed_mps": 0.7878557940324149,
+        "roll_pitch_rms_deg": [
+          3.0118135344025325,
+          1.2896544931489669
+        ],
+        "height_min_max_m": [
+          0.27748650312423706,
+          0.3100730776786804
+        ],
+        "velocity_world_mean_mps": [
+          0.7878557940324149,
+          0.009513570864995321,
+          0.010337261754708987
+        ]
+      },
+      "velocity": [
+        0.8,
+        0.0
+      ],
+      "steady_walk": {
+        "loop": {
+          "n": 600,
+          "mean_ms": 14.088285824594399,
+          "p50_ms": 15.135069610551,
+          "p95_ms": 18.434908357448876,
+          "max_ms": 27.46417513117194
+        },
+        "solve_ticks": {
+          "n": 322,
+          "mean_ms": 16.820753920210166,
+          "p50_ms": 16.685081413015723,
+          "p95_ms": 19.177197362296283,
+          "max_ms": 27.46417513117194
+        },
+        "reuse_ticks": {
+          "n": 278,
+          "mean_ms": 10.92334076420491,
+          "p50_ms": 10.771515779197216,
+          "p95_ms": 12.39753479603678,
+          "max_ms": 26.385233271867037
+        }
+      },
+      "sections": {
+        "go2.total": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 10.81182432833334,
+          "exclusive_per_tick_ms": 0.853738821666667,
+          "inclusive_per_call_ms": 10.81182432833334,
+          "thread_cpu_per_call_ms": 8.506139818333336
+        },
+        "physics.host": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.0335243816666666,
+          "exclusive_per_tick_ms": 3.0335243816666666,
+          "inclusive_per_call_ms": 3.0335243816666666,
+          "thread_cpu_per_call_ms": 3.0000682200000006
+        },
+        "control.sample": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 6.180753568333335,
+          "exclusive_per_tick_ms": 6.180753568333335,
+          "inclusive_per_call_ms": 6.180753568333335,
+          "thread_cpu_per_call_ms": 5.589355351666674
+        },
+        "control.torques": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.7773319383333357,
+          "exclusive_per_tick_ms": 0.9618825433333335,
+          "inclusive_per_call_ms": 3.7773319383333357,
+          "thread_cpu_per_call_ms": 2.1509307266666666
+        },
+        "mppi.solve": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 2.815449395000001,
+          "exclusive_per_tick_ms": 2.815449395000001,
+          "inclusive_per_call_ms": 5.246178996894412,
+          "thread_cpu_per_call_ms": 2.2450108167701854
+        }
+      },
+      "receiver": {
+        "decoded_frames": {
+          "observer": 813,
+          "hand_eye_preview": 812
+        },
+        "sizes": {
+          "hand_eye_preview": [
+            1280,
+            720
+          ],
+          "observer": [
+            1280,
+            720
+          ]
+        },
+        "errors": []
+      },
+      "gc_active_max_ms": 0.440365
+    },
+    "after_no_camera": {
+      "name": "after_no_camera",
+      "detailed": false,
+      "media": null,
+      "cameras": false,
+      "completed": true,
+      "steps": 1200,
+      "last_stage": "stand",
+      "wall_s": 10.675689038820565,
+      "fps": {
+        "observer": 0.0,
+        "hand_eye_preview": 0.0
+      },
+      "body": {
+        "forward_speed_mps": 0.7815496832132339,
+        "roll_pitch_rms_deg": [
+          1.960949367097359,
+          1.6718849587021407
+        ],
+        "height_min_max_m": [
+          0.289683997631073,
+          0.3151955306529999
+        ],
+        "velocity_world_mean_mps": [
+          0.7815496832132339,
+          0.013930873385591751,
+          0.005499986221063107
+        ]
+      },
+      "velocity": [
+        0.8,
+        0.0
+      ],
+      "steady_walk": {
+        "loop": {
+          "n": 600,
+          "mean_ms": 11.240125896098712,
+          "p50_ms": 12.43263017386198,
+          "p95_ms": 14.399827178567648,
+          "max_ms": 22.793312091380358
+        },
+        "solve_ticks": {
+          "n": 325,
+          "mean_ms": 13.515919350947325,
+          "p50_ms": 13.469265773892403,
+          "p95_ms": 14.632649347186089,
+          "max_ms": 22.793312091380358
+        },
+        "reuse_ticks": {
+          "n": 275,
+          "mean_ms": 8.550551813095808,
+          "p50_ms": 8.563491981476545,
+          "p95_ms": 9.463921189308167,
+          "max_ms": 18.18654779344797
+        }
+      },
+      "sections": {
+        "go2.total": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 8.38489320666666,
+          "exclusive_per_tick_ms": 0.5251888500000004,
+          "inclusive_per_call_ms": 8.38489320666666,
+          "thread_cpu_per_call_ms": 6.891223783333333
+        },
+        "physics.host": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 2.796117199999996,
+          "exclusive_per_tick_ms": 2.796117199999996,
+          "inclusive_per_call_ms": 2.796117199999996,
+          "thread_cpu_per_call_ms": 2.7971703883333294
+        },
+        "control.sample": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 4.601379500000002,
+          "exclusive_per_tick_ms": 4.601379500000002,
+          "inclusive_per_call_ms": 4.601379500000002,
+          "thread_cpu_per_call_ms": 4.602215263333337
+        },
+        "control.torques": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.2583248566666674,
+          "exclusive_per_tick_ms": 0.8344578683333334,
+          "inclusive_per_call_ms": 3.2583248566666674,
+          "thread_cpu_per_call_ms": 1.7652194516666664
+        },
+        "mppi.solve": {
+          "calls": 325,
+          "inclusive_per_tick_ms": 2.4238669883333332,
+          "exclusive_per_tick_ms": 2.4238669883333332,
+          "inclusive_per_call_ms": 4.474831363076923,
+          "thread_cpu_per_call_ms": 1.7166460153846153
+        }
+      },
+      "receiver": null,
+      "gc_active_max_ms": 0.12639
+    },
+    "after_right": {
+      "name": "after_right",
+      "detailed": false,
+      "media": {
+        "configured_encoder": "h264_nvenc",
+        "actual_codecs": [
+          "h264_nvenc"
+        ],
+        "encode_host": {
+          "n": 1638,
+          "total_ms": 14652.962842490524,
+          "mean_ms": 8.945642760983226,
+          "p50_ms": 8.716115029528737,
+          "p95_ms": 10.645022941753265,
+          "max_ms": 446.1199804209173
+        },
+        "encode_thread_cpu": {
+          "n": 1638,
+          "total_ms": 13912.065364000004,
+          "mean_ms": 8.493324398046404,
+          "p50_ms": 8.676396500000239,
+          "p95_ms": 9.43057555000002,
+          "max_ms": 229.79009299999998
+        },
+        "mailbox_copy_host": {
+          "n": 1639,
+          "total_ms": 780.9003992006183,
+          "mean_ms": 0.4764492978649288,
+          "p50_ms": 0.10798824951052666,
+          "p95_ms": 0.9414637926965952,
+          "max_ms": 9.647083934396505
+        }
+      },
+      "cameras": true,
+      "completed": true,
+      "steps": 1200,
+      "last_stage": "stand",
+      "wall_s": 13.251780378166586,
+      "fps": {
+        "observer": 22.86485222010001,
+        "hand_eye_preview": 22.487544427689116
+      },
+      "body": {
+        "forward_speed_mps": -0.017332120422118662,
+        "roll_pitch_rms_deg": [
+          2.063563283200468,
+          1.6952983623334679
+        ],
+        "height_min_max_m": [
+          0.29921284317970276,
+          0.31912359595298767
+        ],
+        "velocity_world_mean_mps": [
+          -0.017332120422118662,
+          -0.2653761715938648,
+          -0.00048060232268957184
+        ]
+      },
+      "velocity": [
+        0.0,
+        -0.35
+      ],
+      "steady_walk": {
+        "loop": {
+          "n": 600,
+          "mean_ms": 13.494450023087362,
+          "p50_ms": 14.183242805302143,
+          "p95_ms": 17.538616713136435,
+          "max_ms": 26.241375133395195
+        },
+        "solve_ticks": {
+          "n": 324,
+          "mean_ms": 16.041692559043934,
+          "p50_ms": 15.965046128258109,
+          "p95_ms": 17.906582378782332,
+          "max_ms": 26.241375133395195
+        },
+        "reuse_ticks": {
+          "n": 276,
+          "mean_ms": 10.5042087852253,
+          "p50_ms": 10.396890342235565,
+          "p95_ms": 11.983329895883799,
+          "max_ms": 20.299056079238653
+        }
+      },
+      "sections": {
+        "go2.total": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 10.236904273333334,
+          "exclusive_per_tick_ms": 0.7946201149999997,
+          "inclusive_per_call_ms": 10.236904273333334,
+          "thread_cpu_per_call_ms": 8.289273678333332
+        },
+        "physics.host": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.039904913333333,
+          "exclusive_per_tick_ms": 3.039904913333333,
+          "inclusive_per_call_ms": 3.039904913333333,
+          "thread_cpu_per_call_ms": 2.997935696666666
+        },
+        "control.sample": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 5.731809865000001,
+          "exclusive_per_tick_ms": 5.731809865000001,
+          "inclusive_per_call_ms": 5.731809865000001,
+          "thread_cpu_per_call_ms": 5.395345620000001
+        },
+        "control.torques": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.7104742933333354,
+          "exclusive_per_tick_ms": 0.964916288333333,
+          "inclusive_per_call_ms": 3.7104742933333354,
+          "thread_cpu_per_call_ms": 2.130842883333332
+        },
+        "mppi.solve": {
+          "calls": 324,
+          "inclusive_per_tick_ms": 2.745558004999999,
+          "exclusive_per_tick_ms": 2.745558004999999,
+          "inclusive_per_call_ms": 5.084366675925924,
+          "thread_cpu_per_call_ms": 2.1947158148148147
+        }
+      },
+      "receiver": {
+        "decoded_frames": {
+          "observer": 814,
+          "hand_eye_preview": 813
+        },
+        "sizes": {
+          "hand_eye_preview": [
+            1280,
+            720
+          ],
+          "observer": [
+            1280,
+            720
+          ]
+        },
+        "errors": []
+      },
+      "gc_active_max_ms": 0.409488
+    },
+    "before_media_0": {
+      "name": "before_media_0",
+      "detailed": false,
+      "media": {
+        "configured_encoder": "h264_nvenc",
+        "actual_codecs": [
+          "h264_nvenc"
+        ],
+        "encode_host": {
+          "n": 1726,
+          "total_ms": 16351.284471340477,
+          "mean_ms": 9.473513598690891,
+          "p50_ms": 8.969296235591173,
+          "p95_ms": 11.573661235161126,
+          "max_ms": 470.88064113631845
+        },
+        "encode_thread_cpu": {
+          "n": 1726,
+          "total_ms": 15135.383901000023,
+          "mean_ms": 8.76905208632678,
+          "p50_ms": 8.768345500000052,
+          "p95_ms": 9.802460500000443,
+          "max_ms": 236.35264
+        },
+        "mailbox_copy_host": {
+          "n": 1726,
+          "total_ms": 1520.4291297122836,
+          "mean_ms": 0.8808975259051469,
+          "p50_ms": 0.68890699185431,
+          "p95_ms": 3.02205141633749,
+          "max_ms": 8.059159852564335
+        }
+      },
+      "cameras": true,
+      "completed": true,
+      "steps": 1200,
+      "last_stage": "stand",
+      "wall_s": 14.79879224486649,
+      "fps": {
+        "observer": 19.86648607098223,
+        "hand_eye_preview": 19.461047579737695
+      },
+      "body": {
+        "forward_speed_mps": 0.8152802745501201,
+        "roll_pitch_rms_deg": [
+          2.2079980636854017,
+          3.7411788690786123
+        ],
+        "height_min_max_m": [
+          0.28862297534942627,
+          0.3143690228462219
+        ],
+        "velocity_world_mean_mps": [
+          0.8152802745501201,
+          -0.13918666020811846,
+          0.0042992707206091505
+        ]
+      },
+      "velocity": [
+        0.8,
+        0.0
+      ],
+      "steady_walk": {
+        "loop": {
+          "n": 600,
+          "mean_ms": 15.90189527332162,
+          "p50_ms": 17.242105212062597,
+          "p95_ms": 21.894503803923723,
+          "max_ms": 32.148283906280994
+        },
+        "solve_ticks": {
+          "n": 323,
+          "mean_ms": 19.506675166715134,
+          "p50_ms": 19.14996700361371,
+          "p95_ms": 22.53572316840291,
+          "max_ms": 32.148283906280994
+        },
+        "reuse_ticks": {
+          "n": 277,
+          "mean_ms": 11.69848767199994,
+          "p50_ms": 11.190562974661589,
+          "p95_ms": 14.525961317121983,
+          "max_ms": 28.314783237874508
+        }
+      },
+      "sections": {
+        "go2.total": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 11.901462290000005,
+          "exclusive_per_tick_ms": 0.8798655316666666,
+          "inclusive_per_call_ms": 11.901462290000005,
+          "thread_cpu_per_call_ms": 9.561496939999998
+        },
+        "physics.host": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.7689770316666666,
+          "exclusive_per_tick_ms": 3.7689770316666666,
+          "inclusive_per_call_ms": 3.7689770316666666,
+          "thread_cpu_per_call_ms": 3.704960851666668
+        },
+        "control.sample": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 6.06840381833332,
+          "exclusive_per_tick_ms": 6.06840381833332,
+          "inclusive_per_call_ms": 6.06840381833332,
+          "thread_cpu_per_call_ms": 5.467418863333329
+        },
+        "control.torques": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 4.953192939999994,
+          "exclusive_per_tick_ms": 0.9945647566666673,
+          "inclusive_per_call_ms": 4.953192939999994,
+          "thread_cpu_per_call_ms": 3.3094216416666686
+        },
+        "mppi.solve": {
+          "calls": 323,
+          "inclusive_per_tick_ms": 3.9586281833333334,
+          "exclusive_per_tick_ms": 3.9586281833333334,
+          "inclusive_per_call_ms": 7.353488885448916,
+          "thread_cpu_per_call_ms": 4.330875823529412
+        }
+      },
+      "receiver": {
+        "decoded_frames": {
+          "observer": 858,
+          "hand_eye_preview": 857
+        },
+        "sizes": {
+          "hand_eye_preview": [
+            1280,
+            720
+          ],
+          "observer": [
+            1280,
+            720
+          ]
+        },
+        "errors": []
+      },
+      "gc_active_max_ms": 0.528478
+    },
+    "before_media_1": {
+      "name": "before_media_1",
+      "detailed": false,
+      "media": {
+        "configured_encoder": "h264_nvenc",
+        "actual_codecs": [
+          "h264_nvenc"
+        ],
+        "encode_host": {
+          "n": 1723,
+          "total_ms": 13999.64729975909,
+          "mean_ms": 8.125158038165461,
+          "p50_ms": 8.614134974777699,
+          "p95_ms": 9.345975099131465,
+          "max_ms": 509.424801915884
+        },
+        "encode_thread_cpu": {
+          "n": 1723,
+          "total_ms": 13450.669261000001,
+          "mean_ms": 7.806540488102148,
+          "p50_ms": 8.596993000000275,
+          "p95_ms": 9.259579999999888,
+          "max_ms": 259.2628619999999
+        },
+        "mailbox_copy_host": {
+          "n": 1725,
+          "total_ms": 827.3450396955013,
+          "mean_ms": 0.4796203128669573,
+          "p50_ms": 0.6167823448777199,
+          "p95_ms": 0.8956902660429478,
+          "max_ms": 5.079613067209721
+        }
+      },
+      "cameras": true,
+      "completed": true,
+      "steps": 1200,
+      "last_stage": "stand",
+      "wall_s": 15.052952107042074,
+      "fps": {
+        "observer": 19.730349096178777,
+        "hand_eye_preview": 19.198891881466892
+      },
+      "body": {
+        "forward_speed_mps": 0.8152802745501201,
+        "roll_pitch_rms_deg": [
+          2.2079980636854017,
+          3.7411788690786123
+        ],
+        "height_min_max_m": [
+          0.28862297534942627,
+          0.3143690228462219
+        ],
+        "velocity_world_mean_mps": [
+          0.8152802745501201,
+          -0.13918666020811846,
+          0.0042992707206091505
+        ]
+      },
+      "velocity": [
+        0.8,
+        0.0
+      ],
+      "steady_walk": {
+        "loop": {
+          "n": 600,
+          "mean_ms": 16.09693150734529,
+          "p50_ms": 17.69800647161901,
+          "p95_ms": 21.852876944467422,
+          "max_ms": 35.70356126874685
+        },
+        "solve_ticks": {
+          "n": 323,
+          "mean_ms": 19.864119606628876,
+          "p50_ms": 19.57625662907958,
+          "p95_ms": 22.345118317753077,
+          "max_ms": 35.70356126874685
+        },
+        "reuse_ticks": {
+          "n": 277,
+          "mean_ms": 11.704145384353959,
+          "p50_ms": 11.329903732985258,
+          "p95_ms": 14.511582627892494,
+          "max_ms": 20.564161241054535
+        }
+      },
+      "sections": {
+        "go2.total": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 12.018653471666655,
+          "exclusive_per_tick_ms": 0.9138098066666669,
+          "inclusive_per_call_ms": 12.018653471666655,
+          "thread_cpu_per_call_ms": 9.581648608333339
+        },
+        "physics.host": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.843623265000004,
+          "exclusive_per_tick_ms": 3.843623265000004,
+          "inclusive_per_call_ms": 3.843623265000004,
+          "thread_cpu_per_call_ms": 3.788557324999998
+        },
+        "control.sample": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 6.065929109999998,
+          "exclusive_per_tick_ms": 6.065929109999998,
+          "inclusive_per_call_ms": 6.065929109999998,
+          "thread_cpu_per_call_ms": 5.443482400000006
+        },
+        "control.torques": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 5.038914554999996,
+          "exclusive_per_tick_ms": 1.0074397199999994,
+          "inclusive_per_call_ms": 5.038914554999996,
+          "thread_cpu_per_call_ms": 3.335007006666667
+        },
+        "mppi.solve": {
+          "calls": 323,
+          "inclusive_per_tick_ms": 4.031474835000001,
+          "exclusive_per_tick_ms": 4.031474835000001,
+          "inclusive_per_call_ms": 7.488807743034058,
+          "thread_cpu_per_call_ms": 4.355583551083594
+        }
+      },
+      "receiver": {
+        "decoded_frames": {
+          "observer": 857,
+          "hand_eye_preview": 856
+        },
+        "sizes": {
+          "hand_eye_preview": [
+            1280,
+            720
+          ],
+          "observer": [
+            1280,
+            720
+          ]
+        },
+        "errors": []
+      },
+      "gc_active_max_ms": 0.148093
+    }
+  },
+  "archive_digests": {
+    "after-results.tar.gz": {
+      "bytes": 1689806,
+      "sha256": "88ca8829624197002f20825a9fd414c88c16e7302b250c725560721b4b964f3b"
+    },
+    "after-source.tar.gz": {
+      "bytes": 13362,
+      "sha256": "cf47db32bfb61ee745e407ff41e1321edd91f598b494e58509160281234cc3f6"
+    },
+    "before-results.tar.gz": {
+      "bytes": 288540,
+      "sha256": "45d8771d955fa565df57437030d52897649eb22597dee06e06da402deda30069"
+    },
+    "before-source.tar.gz": {
+      "bytes": 9723,
+      "sha256": "a5cad485d89475659dc1946b5a62ec03c47a46f77b55d0cd4621f708b3e19cb1"
+    }
+  },
+  "cleanup": {
+    "utc": "2026-10-18T17:00:14.498122+00:00",
+    "pins": {
+      "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+      "tddwalk": "addaf4a88f3b2dab7e6603dec06275e8ec71eac0fcf939a9efd509193650fe26",
+      "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+    },
+    "running_containers": [],
+    "gpu2_compute_processes": [],
+    "batch_exit": 0,
+    "sweep_exit": 0,
+    "local": {
+      "pins": {
+        "readiness": "d037de74f8c024876def6231630d761799e7f2cb26d5162df357e4a6c083e39e",
+        "test": "601e03e25e76bbe657edde3b4bc18e3ceb2aa9ec7de0b7aef8b757595a184c3c"
+      },
+      "pins_preserved": true,
+      "dev_status": "exited"
+    }
+  },
+  "limits": [
+    "Short gait validation does not prove long-duration/hardware behavior.",
+    "Timing varies with CPU/GPU contention and the loopback receiver shares the compute host.",
+    "Detailed nested timers add overhead; use clean runs for total-loop comparison.",
+    "CUDA frozen-state replay excludes Genesis/controller preparation; do not equate it with total-step speed.",
+    "Frozen-input comparisons check mathematical equivalence; the full Genesis body trajectories differed between revisions. Each short run still passed the pose/fault/stop checks.",
+    "Average and p95 remain distinct;10ms is the physics budget for each step, not an average deadline guarantee.",
+    "Focused canonical Go2/startup/readback gates passed; full required/extended/release suites were not rerun."
+  ]
+}

@@ -6,7 +6,53 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 제어 루프 병목 상세 계측 (2026-10-19)
+### MPPI 입력 단일 버퍼 전달 (2026-10-19)
+
+- `573f95d`는 CPU 입력 17개를 6,972-byte float32 배열 하나로 묶어 전달하고
+  JIT 안에서 기존 shape·bool로 복원한다. 이전 해와 uint32 난수 상태는 GPU에
+  유지하고, reset의 초기 zero mean도 GPU에 준비한다. 매 solve가 소유하는 새
+  배열을 사용한다. 보행·비용 함수·샘플·반복 수는 유지했으며 기존 optimizer의
+  AST도 정확히 같다. World 원점 보정은 기존 float64 경로를 유지한다.
+- 기존 코드의 업로드 횟수 회귀는 **19회/기대 1회**로 실패했다. 패치 후 입력
+  복원·메모리 소유·warm shift/fresh/reset·계산 동등성을 포함한 canonical
+  Go2/시작/runtime readback 검사는 **391 passed / 1 skipped**다. 설치된 개발
+  attachment의 CPU JAX를 사용했고, 동일 persistent service의 기존 이미지를
+  재사용했다. 전체 required/extended/release software gate는 다시 실행하지 않았다.
+- push 후 양쪽 설치에서 공식 `elesim-update`를 완료하고 기존 instance pin
+  보존을 확인했다. 원격의 격리 `tddwalk`만 release `addaf4a8…`, Sim image
+  `sha256:4b72a172…` (`merry-monkey`)로 replace했다. 설정·선택 GPU UUID와
+  설치된 JAX 모듈 SHA를 확인하고 physical GPU2에서 4096×2를 실행했다.
+- 실제 보행 입력을 사용한 연속 12개와 자세·속도·질량·관성·초기화 플래그·
+  search mask 등을 바꾼 200개에서 새/기존 GPU kernel의 force trajectory,
+  cost, 난수 상태가 **정확히 일치**했다. 고정 입력 solve 재생은 CPU packing과
+  결과 대기를 포함해 평균 **6.89→4.83 ms/call**이었다. 이 재생은 Genesis와
+  controller 상태 준비를 포함하지 않는다.
+- 전체 loop는 직전 설치본으로 두 번, 새 설치본으로 두 번 같은 조건에서
+  측정했다. dt=.01/substeps=2, 고정 팔, 2초 준비·8초 .8 m/s 전진·2초 정지,
+  1280×720 두 영상의 실제 loopback H264/NVENC 송수신이며 t=4..10초의
+  600 step을 보고한다. PNG·JSON 저장과 매 tick 진단 snapshot은 timed loop에
+  없다. 평균은 **15.90–16.10→14.09–14.96 ms**, 두 평균의 평균은
+  **16.00→14.52 ms (-9.23%)**다. p95는 **21.85–21.89→18.43–19.32 ms**다.
+  실제 보행의 MPPI solve는 **7.35–7.49→5.24–5.25 ms/call**이었다.
+- 상세 계측은 322 solve에 upload 322회로 **1회/solve**를 확인했다. CPU
+  packet 생성 **.091 ms**와 `device_put` **.368 ms/call**이 들었다. 몸 상태
+  준비 **2.565 ms/step**, 팔 하중 준비 **2.202 ms/step**은 남아 있으며 팔의
+  네 상태 배열 읽기는 그 중 **1.840 ms**다. clean run의 전체 sample 준비는
+  **6.18–6.31 ms/step**, 물리 host 호출은 **3.03–3.51 ms/step**이다. 각 값은
+  inclusive이고 서로 겹치는 구간을 합산하지 않는다. 다음 대상은 Genesis
+  상태 snapshot 공유와 GPU index 준비 재사용이다. **10 ms 예산은 아직 넘는다.**
+- 새 설치본의 카메라 끔, 두 clean 영상 반복, 상세 전진, 후진, 좌·우 등
+  **7개 조건**이 모두 8초 보행과 정지를 완주했다. 영상 6개 조건과 baseline
+  2개 모두 NVENC를 사용했고 decode 오류는 없었다. 새 카메라 끔 평균/p95는
+  **11.24/14.40 ms**다. 첫 새 이미지 실행은 준비 포함 225초, 영상 재실행은
+  약 55초였으며 이 초기화 시간은 steady-step 통계에서 제외했다. Genesis의
+  전체 궤적은 전후 달랐고 단기 자세·fault·정지 gate를 통과했다. 장시간 보행이나
+  실제 UI/DDS/SROS2/WAN 검증은 아니며 loopback 수신도 같은 host CPU를 쓴다.
+- 진단 container 종료·GPU2 유휴·나머지 instance pin 보존과 로컬 개발 service
+  종료를 확인했다. [계측·회귀·설치 및 archive SHA 기록](../workbench/evidence/curated/sim/mppi_input_buffer_20261019.json)에
+  원시 증거와 실행 경계를 남겼다.
+
+### 버퍼 패치 전 제어 루프 병목 상세 계측 (2026-10-19)
 
 - 팔 최적화가 설치된 `24007a4`의 controller/JAX/payload 파일 SHA를 매 실행
   확인하고 원격 GPU2에서 관찰만 수행했다. 운영 제어 로직은 수정하지 않았다.
@@ -29,7 +75,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 - 실제 입력을 고정한 사후 전달 실험에서 평균은 개별 **2.171 ms**, PyTree
   **1.703 ms**, CPU에서 한 배열로 합친 전달 **.344 ms**였다. CPU 합치기와
   GPU 완료 대기를 포함했고, GPU에 있던 mean/key는 유지했다. 복원한 입력
-  값은 모두 일치했다. 새 packed optimizer나 전체 보행 가속은 아직 검증하지 않았다.
+  값은 모두 일치했다. 이 단계에서는 입력 전달 재생까지만 검증했다.
 - CUDA trace 20 step의 H2D/DtoH 복사 엔진 동작 합계는 약 **.92 ms**였다.
   작은 복사 자체보다 API 호출·index/tensor 준비·dispatch·동기화 비용이 컸다.
   Python profile에서는 Quadrants kernel 진입이 200 step에 **6,002회**였다.
