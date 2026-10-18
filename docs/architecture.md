@@ -289,6 +289,12 @@ GPU index 배열의 반복 생성을 피하고, GPU에서 묶어 한 번 CPU로 
 새 snapshot을 읽으며, reset·position-control 구간을 넘겨 live 상태를 재사용하지
 않는다. 별도 arm entity와 최소 getter만 제공하는 entity는 기존 조회를 유지한다.
 
+다리의 공개 Genesis control 호출은 고정 DOF 순서가 비음수 연속 범위일 때만
+`range`로 전달해 GPU index 배열의 반복 생성을 피한다. 그 밖의 순서는 기존
+목록을 유지한다. 토크 입력은 현재 CPU float64 배열의 Tensor view로 전달해
+setter의 추가 NumPy broadcast 변환을 피하며, 매 physics tick에 제어 모드와
+토크를 계속 쓴다. 위치 제어·fault hold·정지·reset과 DDS 모터 명령 경로를 유지한다.
+
 ### Mock object hug vertical slice
 
 Sim의 `data/models/objects/`는 시작 시 검증되는 bounded OBJ catalog다. Genesis

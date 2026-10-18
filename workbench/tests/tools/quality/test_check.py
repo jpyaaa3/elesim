@@ -20,6 +20,7 @@ class QualityMatrixTests(unittest.TestCase):
                 "model-builder",
                 "setup-tools",
                 "topology",
+                "dds-sim-motor",
                 "dds-rgbd",
                 "webrtc-media",
             },

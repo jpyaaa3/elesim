@@ -81,6 +81,13 @@ CHECKS: tuple[Check, ...] = (
         description="Router-free four-process DDS topology smoke test",
     ),
     Check(
+        "dds-sim-motor",
+        ("workbench/tests/system/smoke_sim_motor.py",),
+        (PROTOCOL_SRC, "payload/runtime/docker/sim/app"),
+        module="script",
+        description="Real DDS Sim arm, Go2 velocity, gripper and stop command delivery",
+    ),
+    Check(
         "dds-rgbd",
         ("workbench/tests/system/test_dds_rgbd.py",),
         (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "payload/runtime/docker/sim/app"),

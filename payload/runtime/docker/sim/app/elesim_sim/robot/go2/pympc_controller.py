@@ -8,6 +8,7 @@ separate from successful solver initialization.
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import cached_property
 from pathlib import Path
 import time
 from types import SimpleNamespace
@@ -642,6 +643,30 @@ class PyMpcGenesisController:
     @property
     def tau_hold(self) -> np.ndarray:
         return self._tau_hold.copy()
+
+    @cached_property
+    def _leg_control_dofs(self) -> range | list[int]:
+        """Keep static contiguous writes on Genesis' slice path.
+
+        A list stages a GPU index array on every control call. A range selects
+        the same DOFs without that allocation. Retain arbitrary joint order
+        and the original list used by CPU kinematics and state indexing.
+        """
+        indices = self._leg_dof_idxs
+        if indices and indices[0] >= 0 and all(
+            index == indices[0] + offset for offset, index in enumerate(indices)
+        ):
+            return range(indices[0], indices[0] + len(indices))
+        return indices
+
+    @cached_property
+    def _as_force_tensor(self):
+        # Genesis' zero-copy setter can copy a CPU Tensor directly. NumPy
+        # instead takes its extended-broadcast fallback and stages a device
+        # value. Keep the original CPU float64 values and write every tick.
+        from torch import from_numpy
+
+        return from_numpy
 
     def _read_torque_limits(self) -> np.ndarray:
         lower, upper = self._entity.get_dofs_force_range(dofs_idx_local=self._leg_dof_idxs)
@@ -1370,7 +1395,7 @@ class PyMpcGenesisController:
         if self._faulted:
             pose, _ = self._pose_transition.update(self._dt)
             self._entity.control_dofs_position(
-                pose, dofs_idx_local=self._leg_dof_idxs
+                pose, dofs_idx_local=self._leg_control_dofs
             )
             return
 
@@ -1403,13 +1428,13 @@ class PyMpcGenesisController:
 
         if self._pose_stage == "stand":
             self._entity.control_dofs_position(
-                self._kin.stand_q, dofs_idx_local=self._leg_dof_idxs
+                self._kin.stand_q, dofs_idx_local=self._leg_control_dofs
             )
             return
 
         if self._pose_stage in {"to_ready", "to_stand"}:
             pose, done = self._pose_transition.update(self._dt)
-            self._entity.control_dofs_position(pose, dofs_idx_local=self._leg_dof_idxs)
+            self._entity.control_dofs_position(pose, dofs_idx_local=self._leg_control_dofs)
             if done and self._pose_stage == "to_ready":
                 self._pose_stage = "ready_hold"
                 self._ready_until = self._sim_time + float(self._config.ready_pose_s)
@@ -1419,7 +1444,7 @@ class PyMpcGenesisController:
 
         if self._pose_stage == "ready_hold":
             self._entity.control_dofs_position(
-                self._kin.ready_q, dofs_idx_local=self._leg_dof_idxs
+                self._kin.ready_q, dofs_idx_local=self._leg_control_dofs
             )
             self._contact_gait.prime(self._normal_contact_forces(), dt=self._dt)
             if self._sim_time >= self._ready_until and not target_idle:
@@ -1461,9 +1486,11 @@ class PyMpcGenesisController:
             self._tau_raw.fill(0.0)
             self._set_stand_actuation()
             pose, _ = self._pose_transition.update(self._dt)
-            self._entity.control_dofs_position(pose, dofs_idx_local=self._leg_dof_idxs)
+            self._entity.control_dofs_position(pose, dofs_idx_local=self._leg_control_dofs)
             print(f"[go2_pympc] fault; latched safe stand until reset: {exc}")
             return
-        self._entity.control_dofs_force(self._tau_hold, dofs_idx_local=self._leg_dof_idxs)
+        self._entity.control_dofs_force(
+            self._as_force_tensor(self._tau_hold), dofs_idx_local=self._leg_control_dofs
+        )
         self._record_contact_metrics(sample)
         self._step_i += 1
