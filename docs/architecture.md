@@ -274,6 +274,13 @@ QP/MPC solve, torque assembly, metrics는 각각 별도 timing field로 본다.
 후보 rollout/최적화를 GPU에서 수행하지만 상태 준비와 torque 조립은 CPU에 남는다.
 GPU solve 개선을 전체 step 또는 영상 처리량 개선으로 간주하지 않는다.
 
+GO2의 팔 하중 보정은 각 팔 link의 현재 자세·속도에서 전체 질량, 무게중심,
+관성을 합산해 MPC에 전달한다. MPPI가 팔의 개별 관절을 추가 pendulum state로
+rollout하는 구조는 아니다. 고정된 link 선택·질량·local COM·local inertia는
+scene reset 사이에 재사용하며, 매 제어 tick의 world pose·velocity는 계속 읽는다.
+World COM·velocity와 관성 이동은 전체 link 배열로 계산한다. Reset은 이 상수
+cache와 COM 차분 속도의 이력을 함께 비운다.
+
 ### Mock object hug vertical slice
 
 Sim의 `data/models/objects/`는 시작 시 검증되는 bounded OBJ catalog다. Genesis

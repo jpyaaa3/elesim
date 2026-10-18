@@ -4,6 +4,7 @@ import unittest
 import sys
 import types
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
@@ -74,7 +75,8 @@ class _BulkEntity(_FakeEntity):
         super().__init__(links)
         self.calls = []
         self.states = {}
-        for index, link in zip([11, 3, 8, 19], links):
+        indices = [11, 3, 8, 19] + list(range(20, 20 + max(0, len(links) - 4)))
+        for index, link in zip(indices, links):
             link.idx_local = index
             self.states[index] = [np.asarray(getattr(link, f'get_{name}')()).copy()
                                   for name in ('pos', 'quat', 'vel', 'ang')]
@@ -97,6 +99,76 @@ class _BulkEntity(_FakeEntity):
 
 
 class PayloadModelTests(unittest.TestCase):
+    def test_payload_reuses_invariant_inertia_until_reset_but_refreshes_live_pose(self):
+        from elesim_sim.robot.go2.mpc import payload_model
+        link = _FakeLink('node2', .075, [.2, -.1, .4],
+                         inertial_pos=[.025, 0., 0.], inertia=np.diag([.001, .002, .003]))
+        entity = _BulkEntity([link])
+        payload = ArmPayloadCompensator(entity)
+        with patch.object(payload_model, 'inertia_in_link_frame',
+                          wraps=payload_model.inertia_in_link_frame) as prepare:
+            first = payload.measure()
+            self.assertEqual(prepare.call_count, 1)
+            entity.states[11][0] += np.array([.1, .2, -.05])
+            second = payload.measure()
+            self.assertEqual(prepare.call_count, 1)
+            np.testing.assert_allclose(second.com_world-first.com_world, [.1, .2, -.05], atol=1e-12)
+            link.desc.mass = .15
+            link.desc.inertia = np.diag([.003, .004, .005])
+            payload.reset()
+            reset = payload.measure()
+            self.assertEqual(prepare.call_count, 2)
+            self.assertEqual(reset.mass_kg, .15)
+            np.testing.assert_allclose(reset.inertia_world, link.desc.inertia, atol=1e-12)
+
+    def test_full_seventeen_link_aggregation_matches_independent_reference_during_motion(self):
+        rng = np.random.default_rng(2718)
+        links = []
+        for i in range(17):
+            link = _FakeLink('arm'+str(i), .01+.2*rng.random(), rng.normal(size=3),
+                            inertial_pos=.03*rng.normal(size=3),
+                            inertia=(None if i % 5 == 0 else np.diag(.001+.01*rng.random(3))))
+            link.desc.inertial_quat = Rotation.random(random_state=rng).as_quat()[[3,0,1,2]]
+            links.append(link)
+        entity = _BulkEntity(links)
+        payload = ArmPayloadCompensator(entity, mass_override_kg=.8)
+        for _ in range(10):
+            points, velocities, tensors, masses = [], [], [], []
+            for link in links:
+                state = entity.states[link.idx_local]
+                state[0] = rng.normal(size=3)
+                state[1] = Rotation.random(random_state=rng).as_quat()[[3,0,1,2]]
+                state[2] = rng.normal(size=3)
+                state[3] = rng.normal(size=3)
+                world = Rotation.from_quat(state[1][[1,2,3,0]]).as_matrix()
+                offset = world @ link.desc.inertial_pos
+                points.append(state[0]+offset)
+                velocities.append(state[2]+np.cross(state[3],offset))
+                principal = Rotation.from_quat(link.desc.inertial_quat[[1,2,3,0]]).as_matrix()
+                tensor = np.zeros((3,3)) if link.desc.inertia is None else link.desc.inertia
+                tensors.append(world@principal@tensor@principal.T@world.T)
+                masses.append(link.desc.mass)
+            masses = np.asarray(masses)
+            center = np.sum(masses[:,None]*points,axis=0)/masses.sum()
+            velocity = np.sum(masses[:,None]*velocities,axis=0)/masses.sum()
+            inertia = np.zeros((3,3))
+            for mass,point,tensor in zip(masses,points,tensors):
+                displacement = point-center
+                inertia += tensor+mass*(np.dot(displacement,displacement)*np.eye(3)-np.outer(displacement,displacement))
+            actual = payload.measure()
+            self.assertEqual(actual.mass_kg, .8)
+            np.testing.assert_allclose(actual.com_world,center,rtol=1e-12,atol=1e-12)
+            np.testing.assert_allclose(actual.vel_world,velocity,rtol=1e-12,atol=1e-12)
+            np.testing.assert_allclose(actual.inertia_world,inertia,rtol=1e-12,atol=1e-12)
+
+    def test_empty_or_massless_payload_has_no_snapshot_before_or_after_reset(self):
+        for links in ([], [_FakeLink('empty',0.,[0.,0.,0.])]):
+            payload = ArmPayloadCompensator(_FakeEntity(links))
+            self.assertIsNone(payload.measure())
+            self.assertIsNone(payload.measure())
+            payload.reset()
+            self.assertIsNone(payload.measure())
+
     def test_bulk_payload_reads_four_selected_arrays_with_identical_physics(self):
         links = [_FakeLink('base', 10., [0., 0., 0.]),
                  _FakeLink('plate', .15, [.2, .1, .4], inertial_pos=[.01, .02, -.03],

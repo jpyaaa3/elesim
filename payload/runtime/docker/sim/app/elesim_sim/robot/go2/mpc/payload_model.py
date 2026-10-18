@@ -40,6 +40,15 @@ class ArmPayloadSnapshot:
     inertia_world: np.ndarray
 
 
+@dataclass(frozen=True)
+class _ArmPayloadProperties:
+    links: tuple
+    masses: np.ndarray
+    measured_mass: float
+    offsets: np.ndarray
+    inertias: np.ndarray
+
+
 class ArmPayloadCompensator:
     """Estimate welded arm inertial properties from Genesis and patch PinGo2Model COM state."""
 
@@ -57,6 +66,8 @@ class ArmPayloadCompensator:
         self._link_ids: set[int] = set()
         self._previous_com_world: np.ndarray | None = None
         self._warned_stale_velocity = False
+        self._properties: _ArmPayloadProperties | None = None
+        self._properties_ready = False
         if self._link_names is not None:
             missing: list[str] = []
             for name in self._link_names:
@@ -80,6 +91,38 @@ class ArmPayloadCompensator:
     def reset(self) -> None:
         self._previous_com_world = None
         self._warned_stale_velocity = False
+        self._properties = None
+        self._properties_ready = False
+
+    def _prepare_properties(self) -> _ArmPayloadProperties | None:
+        if self._properties_ready:
+            return self._properties
+        links, masses, offsets, inertias = [], [], [], []
+        for link in self._arm.links:
+            if (
+                self._link_names is not None
+                and self._link_name(link) not in self._link_names
+                and id(link) not in self._link_ids
+            ):
+                continue
+            description = link.desc
+            if description.mass is None or float(description.mass) <= 1e-9:
+                continue
+            links.append(link)
+            masses.append(float(description.mass))
+            offsets.append(np.zeros(3) if description.inertial_pos is None else
+                           np.asarray(description.inertial_pos, dtype=float).reshape(3))
+            inertia = inertia_in_link_frame(description)
+            inertias.append(np.zeros((3, 3)) if inertia is None else inertia)
+        if links:
+            self._properties = _ArmPayloadProperties(
+                tuple(links), np.asarray(masses), float(sum(masses)),
+                np.stack(offsets), np.stack(inertias),
+            )
+        # Genesis link topology and authored inertial properties are fixed
+        # between scene resets. World pose and velocity remain live each tick.
+        self._properties_ready = True
+        return self._properties
 
     def _link_states(self, links):
         fields = (('pos', 3), ('quat', 4), ('vel', 3), ('ang', 3))
@@ -104,51 +147,18 @@ class ArmPayloadCompensator:
         elapsed = None if dt is None else float(dt)
         if elapsed is not None and (not np.isfinite(elapsed) or elapsed <= 0.0):
             raise ValueError(f"dt must be finite and positive, got {dt}")
-        link_samples: list[tuple[float, np.ndarray, np.ndarray, np.ndarray | None]] = []
-
-        links = []
-        for link in self._arm.links:
-            if (
-                self._link_names is not None
-                and self._link_name(link) not in self._link_names
-                and id(link) not in self._link_ids
-            ):
-                continue
-            inertial = link.desc
-            mass = inertial.mass
-            if mass is None or float(mass) <= 1e-9:
-                continue
-            links.append(link)
-        if not links:
+        properties = self._prepare_properties()
+        if properties is None:
             return None
 
-        for link, (pos, quaternion, vel, ang) in zip(links, self._link_states(links)):
-            inertial = link.desc
-            mass = float(inertial.mass)
-            quat_xyzw = _quat_wxyz_to_xyzw(quaternion)
-            rot = Rot.from_quat(quat_xyzw)
-            rot_m = rot.as_matrix()
-            inertial_pos = inertial.inertial_pos
-            if inertial_pos is None:
-                offset = np.zeros(3, dtype=float)
-            else:
-                offset = np.asarray(inertial_pos, dtype=float).reshape(3)
-            offset_world = rot_m @ offset
-            com_world = pos + offset_world
-
-            vel_com = vel + np.cross(ang, offset_world)
-
-            inertia_link = inertia_in_link_frame(inertial)
-            inertia_local = None if inertia_link is None else rot_m @ inertia_link @ rot_m.T
-
-            link_samples.append((mass, com_world, vel_com, inertia_local))
-
-        if not link_samples:
-            return None
-
-        measured_mass = float(sum(m for m, _, _, _ in link_samples))
-        com_world = sum(m * c for m, c, _, _ in link_samples) / measured_mass
-        vel_world = sum(m * v for m, _, v, _ in link_samples) / measured_mass
+        pos, quat, vel, ang = (np.stack(values) for values in
+                               zip(*self._link_states(properties.links)))
+        rotation = Rot.from_quat(quat[:, [1, 2, 3, 0]]).as_matrix()
+        offsets_world = np.einsum('nij,nj->ni', rotation, properties.offsets)
+        centers_world = pos + offsets_world
+        velocities_world = vel + np.cross(ang, offsets_world)
+        com_world = properties.masses @ centers_world / properties.measured_mass
+        vel_world = properties.masses @ velocities_world / properties.measured_mass
         if elapsed is not None:
             if self._previous_com_world is not None:
                 finite_difference = (com_world - self._previous_com_world) / elapsed
@@ -162,15 +172,12 @@ class ArmPayloadCompensator:
                         self._warned_stale_velocity = True
             self._previous_com_world = com_world.copy()
 
-        inertia_world = np.zeros((3, 3), dtype=float)
-        for mass, com_link, _, inertia_link in link_samples:
-            if inertia_link is not None:
-                inertia_world += _shift_inertia(inertia_link, mass, com_link, com_world)
-            else:
-                s = com_link - com_world
-                inertia_world += mass * (float(np.dot(s, s)) * np.eye(3) - np.outer(s, s))
+        inertia_world = np.einsum('nij,njk,nlk->nil', rotation, properties.inertias, rotation).sum(axis=0)
+        displacement = centers_world - com_world
+        inertia_world += np.eye(3) * np.sum(properties.masses * np.sum(displacement**2, axis=1))
+        inertia_world -= np.einsum('n,ni,nj->ij', properties.masses, displacement, displacement)
 
-        mass_kg = self._mass_override if self._mass_override > 0.0 else measured_mass
+        mass_kg = self._mass_override if self._mass_override > 0.0 else properties.measured_mass
         return ArmPayloadSnapshot(
             mass_kg=float(mass_kg),
             com_world=np.asarray(com_world, dtype=float),

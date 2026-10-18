@@ -6,6 +6,29 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 팔 하중 준비 비용 평가 (2026-10-18)
+
+- 원격 GPU2의 설치된 `10ca3a5` Sim에서 4096×2, dt=.01/substeps=2와 두
+  카메라를 유지해 팔 고정/동작을 측정했다. 팔 하중은 평균 **3.58/3.71 ms**,
+  이 중 네 배열의 상태 읽기가 **1.68/1.75 ms**였다. 남은 약 1.9 ms에는
+  link별 CPU 계산과 계측 overhead가 포함된다. PNG 기록은 제외했다.
+- 실제 17개 유질량 link의 자세를 CPU에서 재생하면 원형 scalar 합산은
+  **1.28–1.30 ms**, node2/node7에 다섯 node씩 묶은 9-link 근사는
+  **.73–.75 ms**였다. 초기 자세의 그룹 관성까지 보존한 근사도 이후 COM
+  최대 약 **2.08 mm**, 팔 관성 Frobenius 상대 오차 최대 **2.07%**가 남았다.
+  단순 질량 배수만 적용하면 COM 최대 약 **3.07 mm**였다.
+- 같은 17개 link를 배열로 합산하고 고정 관성 정보를 재사용한 CPU 후보는
+  **.11–.12 ms**이며, 원형과 COM 차이 <3e-12 mm, 관성 상대 차이 <6e-16이었다.
+  이는 GPU 읽기를 뺀 CPU 재생 결과다. 원형 모델을 유지하는 이 후보를
+  실제 loop 검증 대상으로 선택했고, 두 묶음은 별도 보행 후보로 비교한다.
+- 상수 재사용 red는 실제 설치 모듈의 함수 회귀 **1 failed / 10 passed**로
+  확인했다. 구현은 live pose·velocity, stale 속도의 COM 차분 fallback,
+  mass override, massless/선택 link와 reset 시 상수 갱신을 유지한다.
+  후보 소스 하나를 임시 주입한 동일 함수 회귀는 **11 passed**다.
+  Canonical 개발 환경 및 push/update 후 설치 통합 검증은 진행 중이다.
+- [비용 구간과 재생 후보 기록](../workbench/evidence/curated/sim/payload_cost_20261018.json)을
+  보존한다. 이 비용 평가는 DDS/WebRTC 실제 네트워크 수용시험을 대체하지 않는다.
+
 ### 같은 이미지의 미참조 태그 회수 (2026-10-18)
 
 - `up`/update 뒤 image ID가 보호되면 그 ID의 모든 동물 별칭까지 남던 경로를
