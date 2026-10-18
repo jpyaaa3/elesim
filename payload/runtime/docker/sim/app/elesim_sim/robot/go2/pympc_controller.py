@@ -361,13 +361,19 @@ def touchdown_offsets_body(
 
 def touchdown_candidates_world(base_position, placements, *, yaw_rotation,
                                velocity_world, desired_velocity_world,
-                               remaining_swing_s=0.0) -> np.ndarray:
+                               remaining_swing_s=0.0,
+                               travel_correction_world=None) -> np.ndarray:
     """Predict horizontal body travel before touchdown, then add stance lead."""
     candidates = np.asarray(base_position) + np.asarray(placements) @ yaw_rotation.T
     remaining = np.broadcast_to(np.asarray(remaining_swing_s, dtype=float), (len(candidates),))
     if not np.all(np.isfinite(remaining)) or np.any(remaining < 0.0):
         raise ValueError("remaining swing time must be finite and nonnegative")
     travel = remaining[:, None] * np.asarray(velocity_world, dtype=float)[None, :2]
+    if travel_correction_world is not None:
+        correction = np.asarray(travel_correction_world, dtype=float)
+        if correction.shape != travel.shape or not np.isfinite(correction).all():
+            raise ValueError("touchdown travel correction must be finite Nx2")
+        travel += correction
     # Bound the added prediction, including diagonal motion, so a velocity
     # spike cannot move the landing target arbitrarily far away. This is an
     # incremental bound, not a full kinematic reachability guarantee.
@@ -382,11 +388,63 @@ def touchdown_candidates_world(base_position, placements, *, yaw_rotation,
     return candidates
 
 
+def accelerating_touchdown_candidates(
+    base_position, nominal_offsets, *, yaw_rotation, velocity_world,
+    command_shaper: Go2CommandShaper, yaw_rate: float, remaining_swing_s,
+    stance_duration_s: float, placement_scale: float, body_height_m: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Plan GPU liftoff/recontact using the held command's acceleration.
+
+    Use one integrated trajectory for travel to landing and the lead over the
+    first half of support. The existing 60 ms load handover belongs to both
+    estimates. Reach checks also anticipate restoration of ready body height;
+    neither a moving swing endpoint nor vertical foot travel is introduced.
+    """
+    base = np.asarray(base_position, dtype=float)
+    feet = np.asarray(nominal_offsets, dtype=float)
+    times = np.broadcast_to(np.asarray(remaining_swing_s, dtype=float), (len(feet),))
+    if not np.isfinite(times).all() or np.any(times < 0.):
+        raise ValueError("remaining swing time must be finite and nonnegative")
+    support_s = float(stance_duration_s) + .06
+    half_s = .5 * support_s
+    current = command_shaper.current
+    command = np.array([current.vx, current.vy, 0.])
+    yaw = np.asarray(yaw_rotation, dtype=float)
+    desired = yaw @ command
+    velocity = np.asarray(velocity_world, dtype=float)
+    placements = touchdown_offsets_body(
+        feet, command_body=np.zeros(3), yaw_rate=yaw_rate,
+        half_stance_s=.5*float(stance_duration_s), placement_scale=placement_scale,
+    )
+    to_landing = np.array([command_shaper.preview_planar_displacement(t) for t in times])
+    to_middle = np.array([command_shaper.preview_planar_displacement(t+half_s) for t in times])
+    to_end = np.array([command_shaper.preview_planar_displacement(t+support_s) for t in times])
+    placements[:, :2] += float(placement_scale) * (to_middle-to_landing)
+    correction = np.c_[to_landing-times[:, None]*command[:2], np.zeros(len(feet))] @ yaw.T
+    candidates = touchdown_candidates_world(
+        base, placements, yaw_rotation=yaw, velocity_world=velocity,
+        desired_velocity_world=desired, remaining_swing_s=times,
+        travel_correction_world=correction[:, :2],
+    )
+    candidates[:, 2] = .025
+    # Keep excess measured travel in the forecast, but include the upcoming
+    # acceleration instead of extrapolating today's low shaped speed forever.
+    forecast = np.where(np.abs(desired) > np.abs(velocity), desired, velocity).copy()
+    forecast[2] = 0.
+    landing = base + times[:, None]*forecast + correction
+    end_correction = np.c_[to_end-(times+support_s)[:, None]*command[:2],
+                           np.zeros(len(feet))] @ yaw.T
+    end = base + (times+support_s)[:, None]*forecast + end_correction
+    landing[:, 2] = end[:, 2] = max(float(base[2]), float(body_height_m))
+    return candidates, landing, end
+
+
 def stance_end_foothold(
     leg: int, target: np.ndarray, base_position: np.ndarray,
     base_rotation: np.ndarray, body_velocity_world: np.ndarray,
     desired_velocity_world: np.ndarray, remaining_swing_s: float,
     stance_duration_s: float, lower: np.ndarray, upper: np.ndarray,
+    *, predicted_base_positions=None,
 ) -> tuple[np.ndarray, bool]:
     """Keep a new touchdown in reach through its predicted support interval.
 
@@ -397,6 +455,8 @@ def stance_end_foothold(
     gait clock. During initial forward/backward acceleration, blend the
     forecast toward commanded speed only after measured progress is present;
     otherwise distant goals can brake the body before it starts walking.
+    The GPU supplies acceleration/height-aware landing and end positions
+    explicitly, overriding this legacy constant-velocity estimate.
     Only plan this at liftoff; a planted foot stays fixed in world.
     """
     velocity = np.asarray(body_velocity_world, dtype=float)
@@ -415,6 +475,11 @@ def stance_end_foothold(
     base = np.asarray(base_position, dtype=float)
     landing_base = base + forecast * float(remaining_swing_s)
     end_base = base + forecast * (float(remaining_swing_s) + float(stance_duration_s) + .06)
+    if predicted_base_positions is not None:
+        predicted = np.asarray(predicted_base_positions, dtype=float)
+        if predicted.shape != (2, 3) or not np.isfinite(predicted).all():
+            raise ValueError("foothold prediction needs finite landing/end body positions")
+        landing_base, end_base = predicted
     projected, feasible = project_ground_target(
         leg, target, end_base, base_rotation, lower, upper)
     if feasible and reachable(leg, projected, landing_base, base_rotation, lower, upper):
@@ -773,6 +838,30 @@ class PyMpcGenesisController:
             self._payload.reset()
         self._solver.reset()
 
+    def _predict_touchdowns(self, base, yaw_rotation, velocity, desired_world,
+                           command_body, yaw_rate, remaining_swing_s, stance_duration_s):
+        if self._solver.backend == 'jax_mppi':
+            candidates, landing, end = accelerating_touchdown_candidates(
+                base, self._nominal_foot_offsets_body, yaw_rotation=yaw_rotation,
+                velocity_world=velocity, command_shaper=self._command_shaper,
+                yaw_rate=yaw_rate, remaining_swing_s=remaining_swing_s,
+                stance_duration_s=stance_duration_s,
+                placement_scale=float(self._config.foot_placement_scale),
+                body_height_m=float(self._config.z_pos_des_m),
+            )
+            return candidates, np.stack((landing, end), axis=1)
+        placements = touchdown_offsets_body(
+            self._nominal_foot_offsets_body, command_body=command_body,
+            yaw_rate=yaw_rate, half_stance_s=.5*stance_duration_s,
+            placement_scale=float(self._config.foot_placement_scale),
+        )
+        candidates = touchdown_candidates_world(
+            base, placements, yaw_rotation=yaw_rotation, velocity_world=velocity,
+            desired_velocity_world=desired_world, remaining_swing_s=remaining_swing_s,
+        )
+        candidates[:, 2] = .025
+        return candidates, None
+
     def _sample(self) -> tuple[PyMpcInput, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         pin = self._pin
         q, dq = self._bridge.read_pin_q_dq(dt=self._dt)
@@ -843,24 +932,15 @@ class PyMpcGenesisController:
             ref_com[:2] = com[:2]
             ref_rpy[2] = rpy[2]
             yaw_rate = 0.0
-        floor_z = 0.025
         stance_duration_s = float(self._config.gait_duty / self._config.gait_hz)
-        half_stance_s = 0.5 * stance_duration_s
-        placements = touchdown_offsets_body(
-            self._nominal_foot_offsets_body,
-            command_body=cmd_body,
-            yaw_rate=yaw_rate,
-            half_stance_s=half_stance_s,
-            placement_scale=float(self._config.foot_placement_scale),
-        )
-        candidates = touchdown_candidates_world(
-            q[:3], placements, yaw_rotation=yaw_rot,
-            velocity_world=vel, desired_velocity_world=cmd_world,
-            remaining_swing_s=self._contact_gait.swing_remaining,
-        )
-        candidates[:, 2] = floor_z
         base_velocity_world = rot_m @ dq[:3]
         self._base_velocity_world = base_velocity_world.copy()
+        candidates, predicted_bases = self._predict_touchdowns(
+            q[:3], yaw_rot,
+            base_velocity_world if self._solver.backend == 'jax_mppi' else vel,
+            cmd_world, cmd_body, yaw_rate, self._contact_gait.swing_remaining,
+            stance_duration_s,
+        )
         swing_previous = self._swing_previous_contacts(contacts[:, 0])
         for i in range(4):
             if contacts[i, 0] == 0 and swing_previous[i] == 1:
@@ -868,6 +948,7 @@ class PyMpcGenesisController:
                     i, candidates[i], q[:3], rot_m, base_velocity_world, cmd_world,
                     self._contact_gait.swing_remaining[i], stance_duration_s,
                     self._foot_lower[i], self._foot_upper[i],
+                    predicted_base_positions=(None if predicted_bases is None else predicted_bases[i]),
                 )
                 candidates[i] = (projected if feasible
                                  else self._reachable_target(i, candidates[i]))
@@ -880,18 +961,17 @@ class PyMpcGenesisController:
                 contacts, gait_time=self._gait_time(), gait_hz=float(self._config.gait_hz),
             )
             if np.any(future_s):
-                future = touchdown_candidates_world(
-                    q[:3], placements, yaw_rotation=yaw_rot,
-                    velocity_world=base_velocity_world, desired_velocity_world=cmd_world,
-                    remaining_swing_s=future_s,
+                future, future_bases = self._predict_touchdowns(
+                    q[:3], yaw_rot, base_velocity_world, cmd_world, cmd_body,
+                    yaw_rate, future_s, stance_duration_s,
                 )
-                future[:, 2] = floor_z
                 for i in np.flatnonzero(future_s):
-                    predicted_base = q[:3] + base_velocity_world * future_s[i]
+                    predicted_base = future_bases[i, 0]
                     projected, feasible = stance_end_foothold(
                         int(i), future[i], q[:3], rot_m, base_velocity_world,
                         cmd_world, future_s[i], stance_duration_s,
                         self._foot_lower[i], self._foot_upper[i],
+                        predicted_base_positions=future_bases[i],
                     )
                     if not feasible:
                         projected, feasible = project_ground_target(

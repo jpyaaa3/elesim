@@ -84,6 +84,11 @@ class Go2CommandShaper:
         self._zero_since_s = None
 
     def update(self, dt: float) -> Go2Command:
+        self.current = self.preview(dt)
+        return self.current
+
+    def preview(self, dt: float) -> Go2Command:
+        """Forecast the held target without advancing command or stop dwell."""
         step_s = float(dt)
         if not math.isfinite(step_s) or step_s < 0.0:
             raise ValueError("command-shaper dt must be finite and non-negative")
@@ -100,12 +105,23 @@ class Go2CommandShaper:
         dw = float(self.target.yaw_rate) - float(self.current.yaw_rate)
         max_yaw_delta = self.yaw_accel_radps2 * step_s
         dw = max(-max_yaw_delta, min(max_yaw_delta, dw))
-        self.current = Go2Command(
+        return Go2Command(
             vx=float(self.current.vx) + dx,
             vy=float(self.current.vy) + dy,
             yaw_rate=float(self.current.yaw_rate) + dw,
         )
-        return self.current
+
+    def preview_planar_displacement(self, dt: float) -> tuple[float, float]:
+        """Integrate the same acceleration limit, including target saturation."""
+        step_s = self._non_negative_finite(dt, "command preview dt")
+        dx = float(self.target.vx) - float(self.current.vx)
+        dy = float(self.target.vy) - float(self.current.vy)
+        distance = math.hypot(dx, dy)
+        ramp_s = min(step_s, distance / self.linear_accel_mps2)
+        travel = self.linear_accel_mps2 * ramp_s * (step_s - .5 * ramp_s)
+        scale = travel / distance if distance > 0.0 else 0.0
+        return (float(self.current.vx) * step_s + dx * scale,
+                float(self.current.vy) * step_s + dy * scale)
 
     def braking_ready(self, *, time_s: float, threshold: float) -> bool:
         """Finish command braking/dwell; actual contact owns the support gate."""

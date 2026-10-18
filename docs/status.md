@@ -200,8 +200,22 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   뒤 위치 제어로 복귀한다. CPU nominal-window 규칙은 유지한다.
 - 최소 `__new__` fixture 네 곳에 실제 controller의 backend 필드를 추가해
   기존 기대값을 그대로 검증한 canonical 전체는 **862 passed / 4 skipped /
-  1 deselected**다. 이 정지 수정본은 다음 push/양쪽 update와 네 소스 해시
-  확인 후 실제 전 방향·반복 정지 및 카메라/팔/장시간 시험을 진행한다.
+  1 deselected**다.
+- `2cda621`도 양쪽 공식 update와 네 소스 해시/GPU2를 확인하고 10개 실제
+  trial을 마쳤다. 전진 반복의 앞 두 정지는 1.42/1.40 s에 stand로 복귀했지만
+  세 번째 재출발 t=19.66 s에 finite-force fault였다. 나머지 9개는 완주·정지했다.
+  왼쪽 짧은 보행 roll RMS 4.115도도 남아 motion screen은 여전히 8/10이다.
+  모든 trial의 pre-step 공중 지지력 tick은 0이다. 해결 완료로 보고하지 않는다.
+- 실패 직전 뒤쪽 RL 발은 몸통 뒤 0.48 m에 남았다. 몸통이 .26→.30 m로
+  상승하고 명령이 1.2 m/s²로 가속되는데 착지 계획은 현재 낮은 속도·높이를
+  외삽했다. GPU liftoff와 미래 재착지에 같은 command-shaper 가속 적분과
+  높은 쪽 body-height 도달 검사를 적용하는 후보를 추가했다. Half-support
+  보폭에도 기존 60 ms 하중 인계를 포함한다. Swing 중 고정 착지점, 접촉 증거,
+  하중 인계, timeout, 토크 상한 및 CPU 경로는 유지한다. `test_68`은 missing
+  helper import red부터 시작했다. 기존 전체와 새 수학 회귀는 **881 passed /
+  4 skipped / 1 deselected**이며, 실제 Pinocchio sample의 두 예측 경로와
+  swing 착지점 고정까지 확장한 focused 회귀는 **20 passed**다. 실제 원격
+  개선은 다음 설치 시험에서 확인한다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
   보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
   GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.

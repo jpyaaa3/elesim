@@ -440,14 +440,18 @@ GO2 초기 자세는 `scene.build()` 후 `set_dofs_position`으로 적용한다.
 경고를 지우려고 기준점이나 물리 한계를 바꾸지 않는다. Runtime, camera mirror,
 RL scene은 같은 URDF 기준을 유지하고 실제 초기 자세는 build 후 별도로 설정한다.
 
-PyMPC 착지 계획은 현재 수평 COM 속도와 각 발의 남은 swing 시간으로 몸통
-이동을 예측하고, 기존 목표속도 기반 반 stance 보폭에 더한다. 예측 이동은
+PyMPC CPU 착지 계획은 현재 수평 COM 속도와 각 발의 남은 swing 시간으로 몸통
+이동을 예측하고, 기존 목표속도 기반 반 stance 보폭에 더한다. GPU는 현재
+base 속도에 command shaper의 가속/감속 적분을 더하고, 착지부터 반 지지 구간까지의
+적분으로 보폭을 정한다. 기존 60 ms 하중 인계 시간도 지지 구간에 포함한다. 예측 이동은
 수평 벡터 길이 0.15 m로 제한한다(완전한 관절 도달 가능성 검사는 아니다).
 liftoff 후보는 현재 몸통 자세와 URDF 관절 한계(0.04 rad 여유)로 도달 가능성을
 검사한다. 벗어난 목표는 동일한 지면 높이에서 nominal footprint 방향으로
 이동시킨다. 분석적 GO2 FK는 배포 URDF/Pinocchio와 교차 검사한다.
 착지점은 liftoff에서 고정하여 swing 제어와 MPC가 같은 목표를 사용한다.
-수직 이동 예측이나 pitch 보정, swing 도중 착지점 재계획은 적용하지 않는다.
+GPU의 착지/지지 끝 도달 검사는 현재 base 높이와 목표 높이 중 높은 쪽을
+사용하여 ready 자세에서 몸통이 상승할 여유를 남긴다. CPU의 기존 속도/높이
+예측은 유지한다. 발의 수직 이동 예측이나 swing 도중 착지점 재계획은 적용하지 않는다.
 JAX MPPI는 현재 지지발이 horizon 안에서 liftoff/재착지를 모두 거칠 때
 예상 착지 시점의 base 이동과 발 목표를 별도 preview로 사용한다. Liftoff
 전에는 실제 발 위치를, 그 뒤에는 예상 착지 목표를 사용한다. Swing 제어가
