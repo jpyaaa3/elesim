@@ -1,12 +1,12 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-18. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-19. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 팔 하중 준비 비용 평가 (2026-10-18)
+### 팔 하중 준비 비용 평가·전체 link 배열 합산 (2026-10-18–19)
 
 - 원격 GPU2의 설치된 `10ca3a5` Sim에서 4096×2, dt=.01/substeps=2와 두
   카메라를 유지해 팔 고정/동작을 측정했다. 팔 하중은 평균 **3.58/3.71 ms**,
@@ -19,13 +19,43 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   단순 질량 배수만 적용하면 COM 최대 약 **3.07 mm**였다.
 - 같은 17개 link를 배열로 합산하고 고정 관성 정보를 재사용한 CPU 후보는
   **.11–.12 ms**이며, 원형과 COM 차이 <3e-12 mm, 관성 상대 차이 <6e-16이었다.
-  이는 GPU 읽기를 뺀 CPU 재생 결과다. 원형 모델을 유지하는 이 후보를
-  실제 loop 검증 대상으로 선택했고, 두 묶음은 별도 보행 후보로 비교한다.
+  이는 GPU 읽기를 뺀 CPU 재생 결과다. MPPI 자체에는 이미 총질량·COM·관성만
+  전달되므로 열 node가 열 진자로 rollout되는 구조는 아니다. 불필요하게 매번
+  반복하던 link별 상수 준비와 scalar 계산을 줄이는 방식을 채택했다.
 - 상수 재사용 red는 실제 설치 모듈의 함수 회귀 **1 failed / 10 passed**로
   확인했다. 구현은 live pose·velocity, stale 속도의 COM 차분 fallback,
   mass override, massless/선택 link와 reset 시 상수 갱신을 유지한다.
-  후보 소스 하나를 임시 주입한 동일 함수 회귀는 **11 passed**다.
-  Canonical 개발 환경 및 push/update 후 설치 통합 검증은 진행 중이다.
+  후보 소스 하나를 임시 주입한 동일 함수 회귀와 공식 update 후 설치 이미지의
+  동일 회귀는 각각 **11 passed**다. 갱신된 canonical 개발 attachment의 Go2·
+  시작 검증·runtime readback 회귀는 **382 passed / 1 skipped**다. MPPI 산술
+  회귀는 CPU에서 수행하고 실제 GPU/Genesis 시험은 원격 GPU2로 분리했다.
+- `24007a4`를 push하고 원격 공식 `elesim-update`를 완료했다. 기존 instance
+  pin 세 개가 모두 유지됨을 확인하고 격리 `tddwalk`만 새 release로 replace했다.
+  설치 파일 SHA와 GPU2 UUID를 검사한 뒤 팔 고정/동작 전진, 후진, 좌·우
+  **5개 조건**과 node2/node7 근사 **2개 조건**이 각각 8초 보행·2초 정지를
+  완주했다. 진단 container는 종료됐고 GPU2 compute process는 남지 않았다.
+- 계측 wrapper 내부의 per-link timer를 뺀 동일 baseline/candidate 비교에서
+  팔 하중 평균은 고정 **3.28→1.94 ms (-40.9%)**, 동작 **3.32→2.07 ms
+  (-37.7%)**였다. 명령된 보행 구간 전체 loop 평균은 각각 **15.45→14.47 ms
+  (-6.3%)**, **14.68→14.53 ms (-1.0%)**, p95는 **21.49→20.01 ms**와
+  **20.87→20.14 ms**다. 각 조건 1회 비교이고, 동작 조건에서는 MPPI·토크
+  구간의 변동이 절감 일부를 상쇄했다. 평균/상위 지연 모두 10 ms 예산을 넘는다.
+- 같은 두 baseline/candidate의 각 600개 sample에서 몸 위치·자세, 발,
+  접촉 gate, base twist와 적용 토크가 정확히 같았다. 두 묶음 근사의 하중
+  평균은 고정 **1.93 ms**, 동작 **1.89 ms**로, 전체 정밀 배열 합산보다
+  각각 약 **.009/.180 ms**만 짧았다. 전체 loop는 일관되게 빨라지지 않아
+  production에는 근사를 넣지 않았다. 실제 Genesis 모델도 그대로다.
+- 기존 후보 screen은 7개 모두 통과했지만 오른쪽 실제 속도는 .35 m/s 명령에
+  .213 m/s였다. 이 screen이나 짧은 시험을 전체 보행 수용 완료로 해석하지 않는다.
+  7개 모두 `late_descent` 공중 정지 비율은 0이며 원형과 비교한 두 조건의
+  스윙 오차도 같다. Apex 직후를 포함하는 기존 전체 하강 지표는 8.4–20.9%로
+  별도 보존하며, 전체 헛발질 지표가 0이라고 보고하지 않는다.
+  실제 두 카메라 1280×720/최대 30 Hz, PNG와 DDS/WebRTC peer 없는 조건이다.
+  GC·나머지 상태 읽기·제어 비용 및 실제 peer 미디어 성능은 이번에 변경하지 않았다.
+- 로컬 공식 `elesim-update`도 `24007a4`까지 완료했고 기존 UI instance 두
+  개의 pin을 보존했다. 원격의 사용자 `test`/`readiness` pin도 유지했다.
+  양쪽의 정규 runtime을 이번 평가를 위해 새로 시작하지 않았다. 전체 required/
+  extended, isolated release 및 실제 DDS/WebRTC 네트워크 gate는 이 범위에서 미실행이다.
 - [비용 구간과 재생 후보 기록](../workbench/evidence/curated/sim/payload_cost_20261018.json)을
   보존한다. 이 비용 평가는 DDS/WebRTC 실제 네트워크 수용시험을 대체하지 않는다.
 
