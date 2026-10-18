@@ -6,6 +6,62 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 몸·팔 상태 조회 통합 (2026-10-19)
+
+- `f050f2d`는 몸·팔·발 접촉의 개별 상태 읽기 11개를 공개 Genesis getter의
+  연속 entity 배열 7개와 한 CPU packet 전송으로 묶었다. 전체 link/DOF 범위를
+  읽어 매 field의 GPU index 생성·선택을 피하고 필요한 행은 CPU에서 고른다.
+  실제 robot은 46 link/32 DOF이며 packet은 3,200 bytes다. 소유한 읽기 전용
+  snapshot을 매 제어 tick 새로 만들고 bridge·전체 17-link 하중·접촉 판단이
+  공유한다. authored frame·float64 CPU 변환·속도 차분 fallback·reset을 유지한다.
+  최소 getter entity와 별도 arm entity는 기존 읽기 경로를 사용한다.
+- 원격 GPU2의 고정 상태에서 기존 읽기는 **1.479 ms**, 선택 link를 합쳐 한
+  번 전송하는 방식은 **1.094 ms**, 연속 전체 entity 범위를 합쳐 읽는 방식은
+  **.547 ms (-63.0%)**였다. 5개 방법의 public getter 값은 모두 정확히 같다.
+  각 방법은 반대 순서 두 block, block당 20 warmup 후 80회다. 이 수치는
+  physics·solver가 없는 고정 상태 재생이며 전체 step 시간으로 해석하지 않는다.
+- source push와 양쪽 공식 `elesim-update`를 완료했다. 기존 pin 보존 후
+  원격 `tddwalk`만 release `ccb004d0…`, Sim image `sha256:000cb10a…`
+  (`merry-turkey`)로 replace했다. GPU2 UUID와 설치된 controller/bridge/
+  payload/snapshot/JAX 파일 SHA를 검사했다. MPPI 4096×2, dt=.01/substeps=2,
+  전체 관성·접촉·보행·토크·optimizer 계산은 유지했다.
+- 두 1280×720 H264/NVENC loopback 영상 송수신 조건의 clean 전진 평균은
+  직전 설치본 2회 **13.93–14.12 ms**, 패치 설치본 2회 **11.86–12.29 ms**다.
+  두 평균의 평균은 **14.02→12.08 ms (-13.87%)**, p95 범위는
+  **18.44–18.78→15.95–17.54 ms**였다. 준비·정지를 뺀 t=4..10초의 600 step이며
+  PNG·JSON 기록과 매 tick 진단 snapshot 직렬화는 timed loop에서 제외했다.
+- 동일 패치 이미지에서 snapshot만 끄고 기존 getter 경로를 사용한 대조군은
+  **14.53 ms**, 새 경로 반복 평균은 **12.08 ms (-16.86%)**다. 이 대조군과
+  첫 새 경로 실행의 120개 10 Hz 위치·자세·속도·fault·stage·MPPI cost는
+  **정확히 일치**했다. 다른 실행 전체의 궤적까지 같았다는 뜻은 아니다.
+- clean 제어 sample 준비는 평균 **6.115→3.436 ms/step (-43.8%)**였다.
+  별도 상세 timer에서 공통 상태 조회 **1.564 ms**, bridge 변환 **.286 ms**,
+  팔 하중 계산 **.502 ms/step**으로 나뉜다. 새 snapshot의 직접 Tensor.cpu
+  호출 1회는 함수 회귀에서 확인했다. 상세 global Tensor.cpu hook의 1,440회는
+  tensor subclass 중첩 dispatch·다른 main-thread 호출을 포함하므로 실제
+  GPU copy 수가 아니다. 중첩 구간의 시간도 겹쳐 합산하지 않는다.
+- 팔을 작은 두 bend sinusoid로 움직이는 동안 같은 물리 상태에서 raw state,
+  bridge q/dq, 전체 하중을 기존 public getter 경로와 각각 **864회 대조해
+  모든 값이 정확히 일치**했다. 이 실행은 고의로 읽기를 추가한 shadow 검사라
+  clean 지연 비교에서 제외했다. 새 9개 조건(두 clean 전진, 기존 경로 대조,
+  카메라 끔, 상세 전진, 팔 동작 대조, 후진, 좌·우)과 baseline 3개가 모두
+  8초 보행·2초 정지를 완주했다. 영상 10개 실행은 모두 NVENC·decode 오류 0이다.
+- 카메라 끔 평균/p95는 **10.36/13.20→8.54/11.52 ms**였으며 각 1회다.
+  카메라를 사용하는 **10 ms 예산은 아직 달성하지 못했다**. 새 clean 영상의
+  물리 host 호출 평균은 **3.67 ms/step**, MPPI는 **5.26 ms/solve**, cadence를
+  반영하면 **2.83 ms/step**이다. 공유 자원 경쟁과 실행 변동을 포함한 wall
+  time이며, 이 항목들을 독립 GPU 연산 시간이나 다음 최적화의 보장 이득으로
+  해석하지 않는다. 실제 UI/DDS/SROS2/WAN과 장시간·hardware 보행은 이번 검사가 아니다.
+- 새 함수 회귀 red 7개 후 직접 관련 canonical Go2/시작/readback은
+  **403 passed / 1 skipped**다. Sim 전체는 **850 passed / 3 skipped / 1 failed**다.
+  실패는 기존 RL start waypoint -.166 m가 선형 한계 -.142 m를 벗어나는
+  `rl/test_start_path.py::test_the_shipped_path_ends_where_the_wrap_is`다. 변경된
+  모듈을 import하지 않는 독립 실행에서도 재현됐고 이 RL 설정은 수정하지 않았다.
+  전체 required/extended/release gate는 다시 실행하지 않았다.
+- 진단 container 종료·GPU2 유휴·양쪽 나머지 instance pin 보존·로컬 개발
+  service 종료를 확인했다. [공개 getter 비교·설치·회귀·보행 및 archive SHA](../workbench/evidence/curated/sim/body_arm_state_20261019.json)에
+  원시 증거와 한계를 기록했다.
+
 ### MPPI 입력 단일 버퍼 전달 (2026-10-19)
 
 - `573f95d`는 CPU 입력 17개를 6,972-byte float32 배열 하나로 묶어 전달하고
