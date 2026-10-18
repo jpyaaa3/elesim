@@ -124,8 +124,15 @@ class ArmPayloadCompensator:
         self._properties_ready = True
         return self._properties
 
-    def _link_states(self, links):
+    def _link_states(self, links, *, snapshot=None):
         fields = (('pos', 3), ('quat', 4), ('vel', 3), ('ang', 3))
+        if snapshot is not None and snapshot.entity is self._arm:
+            indices = [link.idx_local for link in links]
+            values = [getattr(snapshot, name)[indices] for name, _ in fields]
+            for (name, _), value in zip(fields, values):
+                if not np.all(np.isfinite(value)):
+                    raise ValueError(f'payload {name} must contain finite vectors')
+            return zip(*values)
         methods = [getattr(self._arm, f'get_links_{name}', None) for name, _ in fields]
         if not all(callable(method) for method in methods) or not all(
                 hasattr(link, 'idx_local') for link in links):
@@ -143,7 +150,7 @@ class ArmPayloadCompensator:
             values.append(flat.reshape(len(links), width))
         return zip(*values)
 
-    def measure(self, *, dt: float | None = None) -> ArmPayloadSnapshot | None:
+    def measure(self, *, dt: float | None = None, snapshot=None) -> ArmPayloadSnapshot | None:
         elapsed = None if dt is None else float(dt)
         if elapsed is not None and (not np.isfinite(elapsed) or elapsed <= 0.0):
             raise ValueError(f"dt must be finite and positive, got {dt}")
@@ -152,7 +159,7 @@ class ArmPayloadCompensator:
             return None
 
         pos, quat, vel, ang = (np.stack(values) for values in
-                               zip(*self._link_states(properties.links)))
+                               zip(*self._link_states(properties.links, snapshot=snapshot)))
         rotation = Rot.from_quat(quat[:, [1, 2, 3, 0]]).as_matrix()
         offsets_world = np.einsum('nij,nj->ni', rotation, properties.offsets)
         centers_world = pos + offsets_world
@@ -185,8 +192,8 @@ class ArmPayloadCompensator:
             inertia_world=inertia_world,
         )
 
-    def apply(self, pin_model, *, dt: float | None = None) -> None:
-        payload = self.measure(dt=dt)
+    def apply(self, pin_model, *, dt: float | None = None, snapshot=None) -> None:
+        payload = self.measure(dt=dt, snapshot=snapshot)
         if payload is None or payload.mass_kg <= 1e-9:
             return
 

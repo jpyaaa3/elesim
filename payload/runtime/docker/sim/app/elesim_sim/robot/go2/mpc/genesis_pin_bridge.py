@@ -90,15 +90,25 @@ class GenesisPinBridge:
             return estimate, True
         return readback, False
 
-    def read_pin_q_dq(self, *, dt: float | None = None) -> tuple[np.ndarray, np.ndarray]:
+    def read_pin_q_dq(self, *, dt: float | None = None, snapshot=None) -> tuple[np.ndarray, np.ndarray]:
         base = self._entity.get_link("base")
-        pos = _to_numpy_1d(base.get_pos())[:3]
-        quat_xyzw = _quat_wxyz_to_xyzw(_to_numpy_1d(base.get_quat())[:4])
-        leg_q = _to_numpy_1d(self._entity.get_dofs_position(dofs_idx_local=self._leg_dof_idxs))
+        if snapshot is None:
+            pos = _to_numpy_1d(base.get_pos())[:3]
+            quat_xyzw = _quat_wxyz_to_xyzw(_to_numpy_1d(base.get_quat())[:4])
+            leg_q = _to_numpy_1d(self._entity.get_dofs_position(dofs_idx_local=self._leg_dof_idxs))
+            vel_world = _to_numpy_1d(base.get_vel())[:3]
+            ang_world = _to_numpy_1d(base.get_ang())[:3]
+            leg_dq = _to_numpy_1d(self._entity.get_dofs_velocity(dofs_idx_local=self._leg_dof_idxs))
+        else:
+            if snapshot.entity is not self._entity:
+                raise ValueError('GO2 control snapshot belongs to another entity')
+            pos = snapshot.pos[base.idx_local]
+            quat_xyzw = _quat_wxyz_to_xyzw(snapshot.quat[base.idx_local])
+            leg_q = snapshot.position[self._leg_dof_idxs]
+            vel_world, ang_world = snapshot.vel[base.idx_local], snapshot.ang[base.idx_local]
+            leg_dq = snapshot.velocity[self._leg_dof_idxs]
         q = np.concatenate([pos, quat_xyzw, leg_q])
 
-        vel_world = _to_numpy_1d(base.get_vel())[:3]
-        ang_world = _to_numpy_1d(base.get_ang())[:3]
         rot = Rot.from_quat(quat_xyzw)
         vel_body = rot.inv().apply(vel_world)
         ang_body = rot.inv().apply(ang_world)
@@ -126,7 +136,6 @@ class GenesisPinBridge:
                 "using pose-difference velocity feedback"
             )
             self._warned_stale_twist = True
-        leg_dq = _to_numpy_1d(self._entity.get_dofs_velocity(dofs_idx_local=self._leg_dof_idxs))
         dq = np.concatenate([vel_body, ang_body, leg_dq])
         return q, dq
 

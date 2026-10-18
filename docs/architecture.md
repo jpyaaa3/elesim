@@ -281,6 +281,14 @@ scene reset 사이에 재사용하며, 매 제어 tick의 world pose·velocity�
 World COM·velocity와 관성 이동은 전체 link 배열로 계산한다. Reset은 이 상수
 cache와 COM 차분 속도의 이력을 함께 비운다.
 
+PyMPC의 한 제어 tick은 merged robot의 공개 Genesis getter로 link 위치·자세·
+선형/각속도, DOF 위치/속도, 접촉력을 한 번씩 읽는다. 연속 entity 범위를 읽어
+GPU index 배열의 반복 생성을 피하고, GPU에서 묶어 한 번 CPU로 전송한다.
+몸 상태 bridge·전체 팔 하중·발 접촉 판단이 그 tick의 같은 소유 snapshot을
+사용한다. authored link frame 보정은 Genesis getter가 수행한다. 다음 tick에는
+새 snapshot을 읽으며, reset·position-control 구간을 넘겨 live 상태를 재사용하지
+않는다. 별도 arm entity와 최소 getter만 제공하는 entity는 기존 조회를 유지한다.
+
 ### Mock object hug vertical slice
 
 Sim의 `data/models/objects/`는 시작 시 검증되는 bounded OBJ catalog다. Genesis

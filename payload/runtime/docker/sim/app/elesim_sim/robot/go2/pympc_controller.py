@@ -31,6 +31,7 @@ from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
 from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput, project_support_motor_limits
 from elesim_sim.robot.go2.foot_workspace import project_ground_target, reachable
 from elesim_sim.simulation.genesis.utils import to_numpy_1d
+from elesim_sim.simulation.genesis.control_state import EntityControlStateReader
 
 
 _LEGS = (LegId.FL, LegId.FR, LegId.RL, LegId.RR)
@@ -554,6 +555,7 @@ class PyMpcGenesisController:
         self._kin = Go2KinematicsModel.from_entity(entity)
         self._leg_dof_idxs = list(self._kin.all_leg_dof_idx)
         self._bridge = GenesisPinBridge(entity, self._leg_dof_idxs)
+        self._state_reader = EntityControlStateReader.for_entity(entity)
         self._payload = (
             ArmPayloadCompensator(
                 arm_entity,
@@ -865,7 +867,9 @@ class PyMpcGenesisController:
 
     def _sample(self) -> tuple[PyMpcInput, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         pin = self._pin
-        q, dq = self._bridge.read_pin_q_dq(dt=self._dt)
+        reader = getattr(self, '_state_reader', None)
+        state_args = {} if reader is None else dict(snapshot=reader.read())
+        q, dq = self._bridge.read_pin_q_dq(dt=self._dt, **state_args)
         self._bridge.last_q = q.copy()
         self._bridge.last_dq = dq.copy()
         self._joint_gravity = np.asarray(
@@ -880,7 +884,7 @@ class PyMpcGenesisController:
         vel = np.asarray(self._data.vcom[0], dtype=float).copy()
         if self._payload is not None:
             state = SimpleNamespace(data=self._data, pos_com_world=com, vel_com_world=vel)
-            self._payload.apply(state, dt=self._dt)
+            self._payload.apply(state, dt=self._dt, **state_args)
             com = np.asarray(state.pos_com_world, dtype=float).copy()
             vel = np.asarray(state.vel_com_world, dtype=float).copy()
         rot = Rotation.from_quat(q[3:7])
@@ -919,7 +923,7 @@ class PyMpcGenesisController:
         ref_rpy[2] += horizon_t * yaw_rate
         # Actual support feedback is required even with CSV diagnostics off.
         contacts = self._contact_gait.update(
-            self._normal_contact_forces(), dt=self._dt,
+            self._normal_contact_forces(**state_args), dt=self._dt,
             gait_hz=float(self._config.gait_hz),
             duty=float(self._config.gait_duty),
             horizon_dt=self._solver.dt,
@@ -1029,12 +1033,18 @@ class PyMpcGenesisController:
             delta *= min(1., max_shift / max(np.linalg.norm(delta), 1e-12))
         return target + delta
 
-    def _normal_contact_forces(self) -> np.ndarray:
-        forces = to_numpy_1d(self._entity.get_links_net_contact_force()).reshape(-1, 3)
-        return np.array([
-            forces[self._entity.get_link(f"{leg.value}_foot").idx_local, 2]
-            for leg in _LEGS
-        ])
+    def _normal_contact_forces(self, *, snapshot=None) -> np.ndarray:
+        if snapshot is None:
+            forces = to_numpy_1d(self._entity.get_links_net_contact_force()).reshape(-1, 3)
+        else:
+            if snapshot.entity is not self._entity:
+                raise ValueError('GO2 contact snapshot belongs to another entity')
+            forces = snapshot.contact_force
+        indices = getattr(self, '_contact_link_idxs', None)
+        if indices is None:
+            indices = [self._entity.get_link(f"{leg.value}_foot").idx_local for leg in _LEGS]
+            self._contact_link_idxs = indices
+        return forces[indices, 2].copy()
 
     def _torques(self, sample: PyMpcInput, feet: np.ndarray, foot_vel: np.ndarray,
                  jacobians: np.ndarray, joint_vel: np.ndarray) -> np.ndarray:
