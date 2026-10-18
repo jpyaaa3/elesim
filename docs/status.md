@@ -6,6 +6,49 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 제어 루프 병목 상세 계측 (2026-10-19)
+
+- 팔 최적화가 설치된 `24007a4`의 controller/JAX/payload 파일 SHA를 매 실행
+  확인하고 원격 GPU2에서 관찰만 수행했다. 운영 제어 로직은 수정하지 않았다.
+  dt=.01/substeps=2, MPPI 4096×2, 팔 고정, target sphere 제외, 2초 준비·
+  8초 .8 m/s 전진·2초 정지를 사용했다. 평균/p95는 정상 보행 t=4..10초의
+  600 step이다. 실행 중 PNG·JSON 저장과 매 tick 진단 상태 복사를 제거했다.
+- 기준 실행 평균/p95는 카메라 끔 **11.46/15.47 ms**, 두 카메라만
+  **13.67/19.09 ms**, 두 영상 H264/NVENC 송수신 **15.59–15.70 /
+  21.31–21.63 ms**다. 송수신 기준은 2회 반복했다. 실제 1280×720 두 peer의
+  decode 오류는 없었다. 수신 process도 같은 호스트를 쓰는 loopback이며
+  DDS/SROS2·실제 UI·WAN은 포함하지 않는다.
+- 상세 계측에서 몸 상태 읽기·변환은 **2.52–2.73 ms/step**, 팔 하중 측정은
+  **2.18–2.23 ms/step**였다. 그 중 팔의 네 상태 배열 읽기만 약 **1.84 ms**다.
+  몸 6회·팔 4회·접촉 1회의 GPU→NumPy 상태 읽기가 매 step 반복된다.
+  Pinocchio의 기구학·COM·관성 계산 합계는 약 **.08 ms/step**로 작았다.
+- MPPI 1회 약 **7.95–8.25 ms** 안에는 **19회 `device_put`의 2.63–2.76 ms**와
+  결과 대기·읽기 **2.51–2.57 ms**가 포함된다. 19개 중 2개는 이미 GPU에 있다.
+  실제 host 입력은 **6,969 bytes**였다. 입력 전달과 GPU 연산 시간을 같은
+  것으로 해석하지 않는다. 세부 timer의 절대 loop 값은 기준보다 약 6–9% 크다.
+- 실제 입력을 고정한 사후 전달 실험에서 평균은 개별 **2.171 ms**, PyTree
+  **1.703 ms**, CPU에서 한 배열로 합친 전달 **.344 ms**였다. CPU 합치기와
+  GPU 완료 대기를 포함했고, GPU에 있던 mean/key는 유지했다. 복원한 입력
+  값은 모두 일치했다. 새 packed optimizer나 전체 보행 가속은 아직 검증하지 않았다.
+- CUDA trace 20 step의 H2D/DtoH 복사 엔진 동작 합계는 약 **.92 ms**였다.
+  작은 복사 자체보다 API 호출·index/tensor 준비·dispatch·동기화 비용이 컸다.
+  Python profile에서는 Quadrants kernel 진입이 200 step에 **6,002회**였다.
+  GPU trace의 kernel 수와는 다른 값이며, inclusive/비동기 시간은 합하지 않는다.
+  카메라·미디어 worker는 CUDA trace 대상 밖이고 추적 overhead도 커서 전체
+  GPU 사용률이나 이론적인 최대 가속으로 환산하지 않는다.
+- 기준 실행의 Genesis 물리 host 호출도 **3.16–3.64 ms/step**이다. 다음
+  구현 후보는 MPPI 입력 패킹과 Genesis 상태 snapshot/index buffer 공유다.
+  접촉·착지·토크 제한이나 모델 정밀도를 줄이는 방향은 이번 계측의 우선 대상이 아니다.
+- 정상·상세·CPU/CUDA profile **10개 실행**이 완주·정지했다. 첫 CUDA profiler
+  준비는 container UID의 passwd 이름 부재로 실패해, 진단에만 USER/private
+  cache 경로를 지정한 재실행에서 trace를 얻었다. 제어기 fault는 없었다.
+  기록을 줄인 실행들의 loop 안 GC는 최대 **.793 ms**, generation-2는 0회였다.
+  이전 진단의 .3초 GC를 일반 운영의 고정 주기 현상으로 일반화하지 않는다.
+- 모든 진단 container 종료·GPU2 유휴·기존 세 instance pin 보존을 확인했다.
+  [구간별 비용·전달 재생·CUDA 추적 요약](../workbench/evidence/curated/sim/control_cost_20261019.json)에
+  원시 archive SHA와 실제 설치 image/revision을 기록했다. 코드 변경이 없어
+  전체 software/release gate는 다시 실행하지 않았다.
+
 ### 팔 하중 준비 비용 평가·전체 link 배열 합산 (2026-10-18–19)
 
 - 원격 GPU2의 설치된 `10ca3a5` Sim에서 4096×2, dt=.01/substeps=2와 두

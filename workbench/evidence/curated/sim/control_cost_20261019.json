@@ -1,0 +1,1120 @@
+{
+  "date": "2026-10-19",
+  "source_head_at_start": "d16693e324b09eaf56c8c83731aae9f76ef6f681",
+  "installed_runtime_revision": "git-24007a488a69041baec4ce1340dd500315f1c548",
+  "release": "d3f50fc30587f3645839a3cb094a98d5f165327f695233fa06222df60cfdc2ce",
+  "sim_image": "sha256:898498b44e8083152faaf84319df094ad22c9223297f5a94607f864f1999f413",
+  "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+  "configuration": {
+    "dt_s": 0.01,
+    "substeps": 2,
+    "mppi_samples": 4096,
+    "mppi_iterations": 2,
+    "horizon": 12,
+    "prediction_dt_s": 0.02,
+    "camera_resolution": [
+      1280,
+      720
+    ],
+    "camera_target_hz": 30,
+    "fixed_arm": true,
+    "perception_target_sphere": false
+  },
+  "method": [
+    "Same installed controller/JAX/payload files in all cases; hashes asserted before each run. No production file replacement or algorithm changes.",
+    "Each case:2s settle,8s .8m/s forward command,2s stop; numeric timing buffers preallocated; no PNG, walking metrics, per-tick JSON writes or diagnostic controller snapshots.",
+    "Reported steady window is simulated4..10s,600ticks. Initial compilation, media negotiation, reset, settle and stop are outside this window.",
+    "Media means two installed MediaWorkerClient H264/NVENC peers and a separate local decoder process. No DDS/SROS2/UI/WAN. Receiver CPU load is on the same host.",
+    "Clean cases have five enclosing timers. Detailed cases add nested wall/thread-CPU timers and cost about6..9% extra in matched media runs. Do not treat their absolute loop times as clean runtime measurements.",
+    "cProfile and CUPTI windows are perturbed observations, used for call counts/attribution. Inclusive times and asynchronous worker times overlap and must not be added."
+  ],
+  "clean_cases": {
+    "no_camera_clean": {
+      "completed": true,
+      "steps": 1200,
+      "loop": {
+        "n": 600,
+        "mean_ms": 11.462231173645705,
+        "p50_ms": 13.265019049867988,
+        "p95_ms": 15.466037625446916,
+        "max_ms": 26.915710885077715
+      },
+      "solve_ticks": {
+        "n": 326,
+        "mean_ms": 14.378508215804407,
+        "p50_ms": 13.973204186186194,
+        "p95_ms": 18.727567745372653,
+        "max_ms": 26.915710885077715
+      },
+      "reuse_ticks": {
+        "n": 274,
+        "mean_ms": 7.992500094289001,
+        "p50_ms": 7.787883747369051,
+        "p95_ms": 10.695430799387394,
+        "max_ms": 13.724288903176785
+      },
+      "stages_mean_per_tick_ms": {
+        "go2.total": 9.037823283333339,
+        "physics.host": 2.3687039666666667,
+        "control.sample": 4.526113280000001,
+        "control.torques": 4.01743013333333,
+        "mppi.solve": 3.201399588333335
+      },
+      "whole12sim_seconds_wall_s": 11.007451707031578,
+      "source_fps": {
+        "observer": 0.0,
+        "hand_eye_preview": 0.0
+      },
+      "body": {
+        "forward_speed_mps": 0.7889075636863708,
+        "roll_pitch_rms_deg": [
+          2.694797117261998,
+          2.2374182444182535
+        ],
+        "height_min_max_m": [
+          0.2863170802593231,
+          0.31524795293807983
+        ]
+      }
+    },
+    "camera_only_clean": {
+      "completed": true,
+      "steps": 1200,
+      "loop": {
+        "n": 600,
+        "mean_ms": 13.667144113375494,
+        "p50_ms": 15.00059268437326,
+        "p95_ms": 19.09388042986393,
+        "max_ms": 34.12408707663417
+      },
+      "solve_ticks": {
+        "n": 322,
+        "mean_ms": 17.030011949285587,
+        "p50_ms": 16.754062613472342,
+        "p95_ms": 19.668162567541003,
+        "max_ms": 34.12408707663417
+      },
+      "reuse_ticks": {
+        "n": 278,
+        "mean_ms": 9.772023814227834,
+        "p50_ms": 9.68386884778738,
+        "p95_ms": 11.697332211770116,
+        "max_ms": 22.534568328410387
+      },
+      "stages_mean_per_tick_ms": {
+        "go2.total": 10.813666079999997,
+        "physics.host": 2.6598928516666653,
+        "control.sample": 5.616682733333338,
+        "control.torques": 4.473517105000003,
+        "mppi.solve": 3.588434598333334
+      },
+      "whole12sim_seconds_wall_s": 12.974669406190515,
+      "source_fps": {
+        "observer": 22.65953688652181,
+        "hand_eye_preview": 22.120024103509387
+      },
+      "body": {
+        "forward_speed_mps": 0.7703697929779688,
+        "roll_pitch_rms_deg": [
+          2.0320010405039874,
+          1.6010870590201833
+        ],
+        "height_min_max_m": [
+          0.28862297534942627,
+          0.31826433539390564
+        ]
+      }
+    },
+    "media_clean_0": {
+      "completed": true,
+      "steps": 1200,
+      "loop": {
+        "n": 600,
+        "mean_ms": 15.69760910778617,
+        "p50_ms": 17.097324365749955,
+        "p95_ms": 21.6269219527021,
+        "max_ms": 39.2827452160418
+      },
+      "solve_ticks": {
+        "n": 322,
+        "mean_ms": 19.61267407063788,
+        "p50_ms": 19.356492906808853,
+        "p95_ms": 22.516556689515706,
+        "max_ms": 39.2827452160418
+      },
+      "reuse_ticks": {
+        "n": 278,
+        "mean_ms": 11.162893575274472,
+        "p50_ms": 11.00879698060453,
+        "p95_ms": 12.83772785682231,
+        "max_ms": 22.48420286923647
+      },
+      "stages_mean_per_tick_ms": {
+        "go2.total": 12.307297426666667,
+        "physics.host": 3.1593611466666682,
+        "control.sample": 6.305769729999996,
+        "control.torques": 5.088725940000008,
+        "mppi.solve": 4.069805648333334
+      },
+      "whole12sim_seconds_wall_s": 14.84668947616592,
+      "source_fps": {
+        "observer": 19.937104529274524,
+        "hand_eye_preview": 19.5329740320595
+      },
+      "body": {
+        "forward_speed_mps": 0.7703697929779688,
+        "roll_pitch_rms_deg": [
+          2.0320010405039874,
+          1.6010870590201833
+        ],
+        "height_min_max_m": [
+          0.28862297534942627,
+          0.31826433539390564
+        ]
+      }
+    },
+    "media_clean_1": {
+      "completed": true,
+      "steps": 1200,
+      "loop": {
+        "n": 600,
+        "mean_ms": 15.58949220382298,
+        "p50_ms": 16.845650039613247,
+        "p95_ms": 21.313395421020687,
+        "max_ms": 37.547304295003414
+      },
+      "solve_ticks": {
+        "n": 323,
+        "mean_ms": 19.228920246829098,
+        "p50_ms": 18.958504777401686,
+        "p95_ms": 21.971670957282186,
+        "max_ms": 37.547304295003414
+      },
+      "reuse_ticks": {
+        "n": 277,
+        "mean_ms": 11.3456826085487,
+        "p50_ms": 11.129082646220922,
+        "p95_ms": 13.629596494138239,
+        "max_ms": 18.17119913175702
+      },
+      "stages_mean_per_tick_ms": {
+        "go2.total": 11.72898778666667,
+        "physics.host": 3.6356520133333388,
+        "control.sample": 5.918504158333337,
+        "control.torques": 4.906446454999998,
+        "mppi.solve": 3.921481148333331
+      },
+      "whole12sim_seconds_wall_s": 14.432539022993296,
+      "source_fps": {
+        "observer": 20.370636069759584,
+        "hand_eye_preview": 19.747045169664904
+      },
+      "body": {
+        "forward_speed_mps": 0.8152802745501201,
+        "roll_pitch_rms_deg": [
+          2.2079980636854017,
+          3.7411788690786123
+        ],
+        "height_min_max_m": [
+          0.28862297534942627,
+          0.3143690228462219
+        ]
+      }
+    }
+  },
+  "detailed_media_cases": {
+    "media_detailed_0": {
+      "loop": {
+        "n": 600,
+        "mean_ms": 16.611906522884965,
+        "p50_ms": 18.432245822623372,
+        "p95_ms": 22.841451736167063,
+        "max_ms": 45.98229797556996
+      },
+      "stages": {
+        "state.bridge": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 2.7319131949999966,
+          "exclusive_per_tick_ms": 0.4801036583333334,
+          "inclusive_per_call_ms": 2.7319131949999966,
+          "thread_cpu_per_call_ms": 2.289218618333336
+        },
+        "state.to_numpy": {
+          "calls": 3600,
+          "inclusive_per_tick_ms": 1.0138827633333332,
+          "exclusive_per_tick_ms": 1.0138827633333332,
+          "inclusive_per_call_ms": 0.16898046055555552,
+          "thread_cpu_per_call_ms": 0.1474060016666667
+        },
+        "payload.measure": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 2.2000274516666667,
+          "exclusive_per_tick_ms": 0.364122895,
+          "inclusive_per_call_ms": 2.2000274516666667,
+          "thread_cpu_per_call_ms": 2.1218989900000014
+        },
+        "payload.read_states": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 1.8359045566666692,
+          "exclusive_per_tick_ms": 0.23239196166666692,
+          "inclusive_per_call_ms": 1.8359045566666692,
+          "thread_cpu_per_call_ms": 1.758956718333334
+        },
+        "payload.to_numpy": {
+          "calls": 2400,
+          "inclusive_per_tick_ms": 0.3645207116666665,
+          "exclusive_per_tick_ms": 0.3645207116666665,
+          "inclusive_per_call_ms": 0.09113017791666662,
+          "thread_cpu_per_call_ms": 0.0888054095833332
+        },
+        "contact.to_numpy": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.09822814666666668,
+          "exclusive_per_tick_ms": 0.09822814666666668,
+          "inclusive_per_call_ms": 0.09822814666666668,
+          "thread_cpu_per_call_ms": 0.08396090666666671
+        },
+        "contact.gate_update": {
+          "calls": 0,
+          "inclusive_per_tick_ms": 0.0,
+          "exclusive_per_tick_ms": 0.0,
+          "inclusive_per_call_ms": null,
+          "thread_cpu_per_call_ms": null
+        },
+        "control._normal_contact_forces": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.31618688666666656,
+          "exclusive_per_tick_ms": 0.08331070666666668,
+          "inclusive_per_call_ms": 0.31618688666666656,
+          "thread_cpu_per_call_ms": 0.27617521000000006
+        },
+        "control._predict_touchdowns": {
+          "calls": 666,
+          "inclusive_per_tick_ms": 0.41213801833333386,
+          "exclusive_per_tick_ms": 0.41213801833333386,
+          "inclusive_per_call_ms": 0.3712955120120125,
+          "thread_cpu_per_call_ms": 0.3722440150150154
+        },
+        "jax.device_put": {
+          "calls": 6118,
+          "inclusive_per_tick_ms": 1.4821514249999992,
+          "exclusive_per_tick_ms": 1.4821514249999992,
+          "inclusive_per_call_ms": 0.1453564653481529,
+          "thread_cpu_per_call_ms": 0.13057814432821174
+        },
+        "jax.dispatch": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 0.5649804916666662,
+          "exclusive_per_tick_ms": 0.5649804916666662,
+          "inclusive_per_call_ms": 1.0527586801242228,
+          "thread_cpu_per_call_ms": 1.0504632111801246
+        },
+        "jax.result_wait_and_copy": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 1.3814357900000003,
+          "exclusive_per_tick_ms": 1.3814357900000003,
+          "inclusive_per_call_ms": 2.5741039565217396,
+          "thread_cpu_per_call_ms": 0.11051462111801244
+        },
+        "jax.host_inertia_inverse": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 0.01741229333333332,
+          "exclusive_per_tick_ms": 0.01741229333333332,
+          "inclusive_per_call_ms": 0.03244526708074532,
+          "thread_cpu_per_call_ms": 0.03175311180124224
+        },
+        "jax.compute_control": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 4.027570353333333,
+          "exclusive_per_tick_ms": 0.5815903533333332,
+          "inclusive_per_call_ms": 7.504789478260869,
+          "thread_cpu_per_call_ms": 4.473993757763975
+        },
+        "mppi.solve": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 4.4272921999999975,
+          "exclusive_per_tick_ms": 0.3997218466666668,
+          "inclusive_per_call_ms": 8.249612795031052,
+          "thread_cpu_per_call_ms": 5.063302208074534
+        },
+        "physics.host": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.0708357183333344,
+          "exclusive_per_tick_ms": 3.0708357183333344,
+          "inclusive_per_call_ms": 3.0708357183333344,
+          "thread_cpu_per_call_ms": 2.9976705850000003
+        }
+      },
+      "pinocchio_exclusive_ms_per_tick": 0.08164858333333334,
+      "jax_placement_calls_per_solve": 19.0,
+      "jax_placement_ms_per_solve": 2.7617728416149054,
+      "state_payload_and_contact_numpy_reads_per_tick": 11.0,
+      "gait_timer_note": "Object wrapper replaced by controller during ready; zero count is unmeasured, not zero cost. B/C use class wrapper."
+    },
+    "media_detailed_1": {
+      "loop": {
+        "n": 600,
+        "mean_ms": 16.64403648270915,
+        "p50_ms": 18.32428458146751,
+        "p95_ms": 22.598119848407805,
+        "max_ms": 39.362264797091484
+      },
+      "stages": {
+        "state.bridge": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 2.647017771666667,
+          "exclusive_per_tick_ms": 0.479434903333333,
+          "inclusive_per_call_ms": 2.647017771666667,
+          "thread_cpu_per_call_ms": 2.1952804233333336
+        },
+        "state.to_numpy": {
+          "calls": 3600,
+          "inclusive_per_tick_ms": 0.9245385249999981,
+          "exclusive_per_tick_ms": 0.9245385249999981,
+          "inclusive_per_call_ms": 0.15408975416666634,
+          "thread_cpu_per_call_ms": 0.13284542222222226
+        },
+        "payload.measure": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 2.179392978333334,
+          "exclusive_per_tick_ms": 0.37567240166666677,
+          "inclusive_per_call_ms": 2.179392978333334,
+          "thread_cpu_per_call_ms": 2.106445601666668
+        },
+        "payload.read_states": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 1.8037205766666677,
+          "exclusive_per_tick_ms": 0.23283874333333307,
+          "inclusive_per_call_ms": 1.8037205766666677,
+          "thread_cpu_per_call_ms": 1.7328935183333367
+        },
+        "payload.to_numpy": {
+          "calls": 2400,
+          "inclusive_per_tick_ms": 0.36914600999999986,
+          "exclusive_per_tick_ms": 0.36914600999999986,
+          "inclusive_per_call_ms": 0.09228650249999996,
+          "thread_cpu_per_call_ms": 0.08991001333333333
+        },
+        "contact.to_numpy": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.09882731333333337,
+          "exclusive_per_tick_ms": 0.09882731333333337,
+          "inclusive_per_call_ms": 0.09882731333333337,
+          "thread_cpu_per_call_ms": 0.08377038166666664
+        },
+        "contact.gate_update": {
+          "calls": 0,
+          "inclusive_per_tick_ms": 0.0,
+          "exclusive_per_tick_ms": 0.0,
+          "inclusive_per_call_ms": null,
+          "thread_cpu_per_call_ms": null
+        },
+        "control._normal_contact_forces": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.3218719166666664,
+          "exclusive_per_tick_ms": 0.08575800500000003,
+          "inclusive_per_call_ms": 0.3218719166666664,
+          "thread_cpu_per_call_ms": 0.2753355483333333
+        },
+        "control._predict_touchdowns": {
+          "calls": 666,
+          "inclusive_per_tick_ms": 0.4193295750000001,
+          "exclusive_per_tick_ms": 0.4193295750000001,
+          "inclusive_per_call_ms": 0.37777439189189205,
+          "thread_cpu_per_call_ms": 0.37795464864864853
+        },
+        "jax.device_put": {
+          "calls": 6118,
+          "inclusive_per_tick_ms": 1.4258837050000004,
+          "exclusive_per_tick_ms": 1.4258837050000004,
+          "inclusive_per_call_ms": 0.13983821886237335,
+          "thread_cpu_per_call_ms": 0.12769213419418107
+        },
+        "jax.dispatch": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 0.5825111783333332,
+          "exclusive_per_tick_ms": 0.5825111783333332,
+          "inclusive_per_call_ms": 1.085424555900621,
+          "thread_cpu_per_call_ms": 1.0853422515527948
+        },
+        "jax.result_wait_and_copy": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 1.3469178466666676,
+          "exclusive_per_tick_ms": 1.3469178466666676,
+          "inclusive_per_call_ms": 2.509784807453418,
+          "thread_cpu_per_call_ms": 0.10398390993788822
+        },
+        "jax.host_inertia_inverse": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 0.019177053333333336,
+          "exclusive_per_tick_ms": 0.019177053333333336,
+          "inclusive_per_call_ms": 0.0357336397515528,
+          "thread_cpu_per_call_ms": 0.03358161180124226
+        },
+        "jax.compute_control": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 3.934129901666662,
+          "exclusive_per_tick_ms": 0.559640118333334,
+          "inclusive_per_call_ms": 7.330676835403718,
+          "thread_cpu_per_call_ms": 4.398855360248447
+        },
+        "mppi.solve": {
+          "calls": 322,
+          "inclusive_per_tick_ms": 4.323517938333337,
+          "exclusive_per_tick_ms": 0.38938803666666655,
+          "inclusive_per_call_ms": 8.05624460559007,
+          "thread_cpu_per_call_ms": 4.996845322981368
+        },
+        "physics.host": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.266722971666663,
+          "exclusive_per_tick_ms": 3.266722971666663,
+          "inclusive_per_call_ms": 3.266722971666663,
+          "thread_cpu_per_call_ms": 3.1883058416666676
+        }
+      },
+      "pinocchio_exclusive_ms_per_tick": 0.08493121166666666,
+      "jax_placement_calls_per_solve": 19.0,
+      "jax_placement_ms_per_solve": 2.656926158385094,
+      "state_payload_and_contact_numpy_reads_per_tick": 11.0,
+      "gait_timer_note": "Object wrapper replaced by controller during ready; zero count is unmeasured, not zero cost. B/C use class wrapper."
+    },
+    "media_packed_replay": {
+      "loop": {
+        "n": 600,
+        "mean_ms": 17.013674799818546,
+        "p50_ms": 18.737777369096875,
+        "p95_ms": 23.116861842572686,
+        "max_ms": 35.69871000945568
+      },
+      "stages": {
+        "state.bridge": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 2.5179595083333317,
+          "exclusive_per_tick_ms": 0.48122009500000007,
+          "inclusive_per_call_ms": 2.5179595083333317,
+          "thread_cpu_per_call_ms": 2.0488884966666663
+        },
+        "state.to_numpy": {
+          "calls": 3600,
+          "inclusive_per_tick_ms": 0.7748157733333332,
+          "exclusive_per_tick_ms": 0.7748157733333332,
+          "inclusive_per_call_ms": 0.1291359622222222,
+          "thread_cpu_per_call_ms": 0.10812151222222217
+        },
+        "payload.measure": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 2.2257932266666685,
+          "exclusive_per_tick_ms": 0.381491276666666,
+          "inclusive_per_call_ms": 2.2257932266666685,
+          "thread_cpu_per_call_ms": 2.1309458583333343
+        },
+        "payload.read_states": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 1.8443019499999986,
+          "exclusive_per_tick_ms": 0.2327555866666665,
+          "inclusive_per_call_ms": 1.8443019499999986,
+          "thread_cpu_per_call_ms": 1.7527587516666676
+        },
+        "payload.to_numpy": {
+          "calls": 2400,
+          "inclusive_per_tick_ms": 0.37258803999999984,
+          "exclusive_per_tick_ms": 0.37258803999999984,
+          "inclusive_per_call_ms": 0.09314700999999996,
+          "thread_cpu_per_call_ms": 0.08948016291666666
+        },
+        "contact.to_numpy": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.09912996666666672,
+          "exclusive_per_tick_ms": 0.09912996666666672,
+          "inclusive_per_call_ms": 0.09912996666666672,
+          "thread_cpu_per_call_ms": 0.08422582666666671
+        },
+        "contact.gate_update": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.28133754166666647,
+          "exclusive_per_tick_ms": 0.28133754166666647,
+          "inclusive_per_call_ms": 0.28133754166666647,
+          "thread_cpu_per_call_ms": 0.277738138333333
+        },
+        "control._normal_contact_forces": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 0.31523974500000007,
+          "exclusive_per_tick_ms": 0.08309626333333327,
+          "inclusive_per_call_ms": 0.31523974500000007,
+          "thread_cpu_per_call_ms": 0.27354151999999965
+        },
+        "control._predict_touchdowns": {
+          "calls": 666,
+          "inclusive_per_tick_ms": 0.4112618616666664,
+          "exclusive_per_tick_ms": 0.4112618616666664,
+          "inclusive_per_call_ms": 0.3705061816816815,
+          "thread_cpu_per_call_ms": 0.3714849444444442
+        },
+        "jax.device_put": {
+          "calls": 6137,
+          "inclusive_per_tick_ms": 1.4144429783333332,
+          "exclusive_per_tick_ms": 1.4144429783333332,
+          "inclusive_per_call_ms": 0.13828675036662863,
+          "thread_cpu_per_call_ms": 0.12863968991363856
+        },
+        "jax.dispatch": {
+          "calls": 323,
+          "inclusive_per_tick_ms": 0.538037681666667,
+          "exclusive_per_tick_ms": 0.538037681666667,
+          "inclusive_per_call_ms": 0.9994508018575856,
+          "thread_cpu_per_call_ms": 1.000786105263157
+        },
+        "jax.result_wait_and_copy": {
+          "calls": 323,
+          "inclusive_per_tick_ms": 1.3746982950000006,
+          "exclusive_per_tick_ms": 1.3746982950000006,
+          "inclusive_per_call_ms": 2.5536191238390105,
+          "thread_cpu_per_call_ms": 0.10906384520123835
+        },
+        "jax.host_inertia_inverse": {
+          "calls": 323,
+          "inclusive_per_tick_ms": 0.017644653333333357,
+          "exclusive_per_tick_ms": 0.017644653333333357,
+          "inclusive_per_call_ms": 0.03277644582043348,
+          "thread_cpu_per_call_ms": 0.03309781733746128
+        },
+        "jax.compute_control": {
+          "calls": 323,
+          "inclusive_per_tick_ms": 3.887429958333336,
+          "exclusive_per_tick_ms": 0.5426063500000001,
+          "inclusive_per_call_ms": 7.221232120743039,
+          "thread_cpu_per_call_ms": 4.405412306501551
+        },
+        "mppi.solve": {
+          "calls": 323,
+          "inclusive_per_tick_ms": 4.2808881833333325,
+          "exclusive_per_tick_ms": 0.3934582249999997,
+          "inclusive_per_call_ms": 7.952114272445819,
+          "thread_cpu_per_call_ms": 4.992631972136224
+        },
+        "physics.host": {
+          "calls": 600,
+          "inclusive_per_tick_ms": 3.7577515700000013,
+          "exclusive_per_tick_ms": 3.7577515700000013,
+          "inclusive_per_call_ms": 3.7577515700000013,
+          "thread_cpu_per_call_ms": 3.6765455233333304
+        }
+      },
+      "pinocchio_exclusive_ms_per_tick": 0.08313486166666667,
+      "jax_placement_calls_per_solve": 19.0,
+      "jax_placement_ms_per_solve": 2.627448256965944,
+      "state_payload_and_contact_numpy_reads_per_tick": 11.0
+    }
+  },
+  "other_cases": {
+    "no_camera_detailed": {
+      "completed": true,
+      "loop": {
+        "n": 600,
+        "mean_ms": 13.086783139345547,
+        "p50_ms": 14.912188053131104,
+        "p95_ms": 17.519929306581616,
+        "max_ms": 33.0210430547595
+      },
+      "stages_mean_per_tick_ms": {
+        "go2.total": 10.573072786666668,
+        "physics.host": 2.471778860000001,
+        "control.sample": 5.457975045000004,
+        "control.torques": 4.576804679999996,
+        "mppi.solve": 3.6686285716666687,
+        "state.bridge": 2.246388948333334,
+        "state.to_numpy": 1.0876902433333329,
+        "payload.to_numpy": 0.22148272833333332,
+        "contact.to_numpy": 0.06262911666666662,
+        "payload.measure": 1.646958860000002,
+        "payload.read_states": 1.350145275,
+        "pin.computeGeneralizedGravity": 0.010101608333333345,
+        "pin.forwardKinematics": 0.004338909999999996,
+        "pin.updateFramePlacements": 0.00281332,
+        "pin.computeJointJacobians": 0.004557499999999999,
+        "pin.centerOfMass": 0.006015043333333339,
+        "pin.ccrba": 0.006021974999999996,
+        "pin.getFrameVelocity": 0.010875396666666658,
+        "pin.getFrameJacobian": 0.011613818333333333,
+        "control._normal_contact_forces": 0.22265248000000024,
+        "control._predict_touchdowns": 0.34589324999999993,
+        "control._walking_reference": 0.0966084449999999,
+        "control._actuation_scale_horizon": 0.029400686666666644,
+        "control._stance_damping_reference": 0.30924414833333314,
+        "control._aux_pd_torque": 0.0067863633333333385,
+        "control._set_swing_damping": 0.03374088833333333,
+        "control._reachable_target": 0.030212401666666673,
+        "control._record_contact_metrics": 0.0023243950000000034,
+        "contact.gate_update": 0.2327669916666665,
+        "control.function.stance_end_foothold": 0.04263062666666666,
+        "control.function.project_ground_target": 0.03252265666666665,
+        "control.function.future_touchdown_times": 0.029695765000000006,
+        "control.function.planned_footholds": 0.020601264999999994,
+        "control.function.support_actuator_constraints": 0.05587190833333331,
+        "control.function.project_support_motor_limits": 0.042581108333333346,
+        "control.function.swing_damping_reference_torque": 0.10538755833333333,
+        "control.function.swing_foot_reference": 0.025189743333333327,
+        "genesis.get_links_pos": 0.2577740533333334,
+        "genesis.get_links_quat": 0.18958506166666686,
+        "genesis.get_links_vel": 0.2983709983333331,
+        "genesis.get_links_ang": 0.17405908666666645,
+        "genesis.get_dofs_position": 0.14100966333333315,
+        "genesis.get_dofs_velocity": 0.1656957766666667,
+        "genesis.get_links_net_contact_force": 0.10044391499999994,
+        "genesis.control_dofs_force": 0.4447046666666664,
+        "genesis.set_dofs_kv": 0.0,
+        "base.get_pos": 0.11578292499999994,
+        "base.get_quat": 0.08847800166666665,
+        "base.get_vel": 0.16697760499999983,
+        "base.get_ang": 0.07006894,
+        "jax.compute_control": 3.411824523333333,
+        "jax.dispatch": 0.39472985166666685,
+        "jax.device_put": 1.0814961416666657,
+        "jax.result_wait_and_copy": 1.4387430266666665,
+        "jax.host_inertia_inverse": 0.012481126666666667
+      }
+    },
+    "media_cprofile": {
+      "completed": true,
+      "loop": {
+        "n": 600,
+        "mean_ms": 16.537391922126215,
+        "p50_ms": 17.39675598219037,
+        "p95_ms": 23.2496827840805,
+        "max_ms": 40.54027795791626
+      },
+      "stages_mean_per_tick_ms": {
+        "go2.total": 12.807965749999996,
+        "physics.host": 3.4825240666666675,
+        "control.sample": 6.402248128333334,
+        "control.torques": 5.472868943333335,
+        "mppi.solve": 4.321403975000002
+      }
+    },
+    "media_trace_fixed": {
+      "completed": true,
+      "loop": {
+        "n": 600,
+        "mean_ms": 16.35895686146493,
+        "p50_ms": 17.66008441336453,
+        "p95_ms": 22.759496397338804,
+        "max_ms": 34.22799566760659
+      },
+      "stages_mean_per_tick_ms": {
+        "go2.total": 12.637821514999999,
+        "physics.host": 3.4956923800000026,
+        "control.sample": 6.470546920000003,
+        "control.torques": 5.225449320000004,
+        "mppi.solve": 4.196561003333331
+      }
+    }
+  },
+  "input_placement_replay": {
+    "serial": {
+      "mean_ms": 2.1705891378223896,
+      "p50_ms": 2.0213464740663767,
+      "p95_ms": 3.0622961930930606
+    },
+    "tree": {
+      "mean_ms": 1.7028984939679503,
+      "p50_ms": 1.7266508657485247,
+      "p95_ms": 2.2388163954019547
+    },
+    "packed": {
+      "mean_ms": 0.3437689831480384,
+      "p50_ms": 0.3309801686555147,
+      "p95_ms": 0.5214891862124201
+    },
+    "all_inputs_equal": true,
+    "original_input_count": 19,
+    "original_host_input_bytes": 6969,
+    "packed_host_input_bytes": 6972,
+    "already_device_indices": [
+      8,
+      11
+    ],
+    "shapes": [
+      [
+        12
+      ],
+      [
+        12
+      ],
+      [
+        12,
+        4,
+        3
+      ],
+      [
+        12,
+        4
+      ],
+      [
+        12,
+        4
+      ],
+      [],
+      [
+        3,
+        3
+      ],
+      [
+        3,
+        3
+      ],
+      [
+        12,
+        4,
+        3
+      ],
+      [],
+      [],
+      [
+        2
+      ],
+      [
+        4,
+        3
+      ],
+      [],
+      [],
+      [
+        4
+      ],
+      [
+        12,
+        4,
+        6,
+        3
+      ],
+      [
+        12,
+        4,
+        6
+      ],
+      [
+        12,
+        4,
+        6
+      ]
+    ],
+    "dtypes": [
+      "float32",
+      "float32",
+      "float32",
+      "float32",
+      "float32",
+      "float32",
+      "float32",
+      "float32",
+      "float32",
+      "bool",
+      "float32",
+      "uint32",
+      "float32",
+      "float32",
+      "float32",
+      "float32",
+      "float32",
+      "float32",
+      "float32"
+    ],
+    "scope": "100 placements after20warmups on19 actual frozen inputs; packed includes CPU concatenation,1host array upload and2already-device placements. GPU completion included. Unpack values verified on CPU; no modified optimizer or production controller."
+  },
+  "archives": {
+    "a": {
+      "path": "workbench/evidence/generated/control-cost-20261019/a-results.tar.gz",
+      "bytes": 2205817,
+      "sha256": "0cede88b37ec4e76a669b6337f5e1124db9ae5d3a6230d2eb02e0c64b14d5541"
+    },
+    "b": {
+      "path": "workbench/evidence/generated/control-cost-20261019/b-results.tar.gz",
+      "bytes": 1164576,
+      "sha256": "22df83aefa891d4c7b7eed075efbb7adc950316549a22cdd10adedd8e07bb651"
+    },
+    "c": {
+      "path": "workbench/evidence/generated/control-cost-20261019/c-results.tar.gz",
+      "bytes": 1744807,
+      "sha256": "67bc3e96f6b3b77711b5b0dcd12704b58afc1c44db40118731bc068f7f8fbabf"
+    }
+  },
+  "post_audit": {
+    "checked_utc": "2026-10-18T16:24:50.804050+00:00",
+    "before_pins": {
+      "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+      "tddwalk": "d3f50fc30587f3645839a3cb094a98d5f165327f695233fa06222df60cfdc2ce",
+      "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+    },
+    "after_pins": {
+      "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+      "tddwalk": "d3f50fc30587f3645839a3cb094a98d5f165327f695233fa06222df60cfdc2ce",
+      "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+    },
+    "pins_preserved": true,
+    "running_owned_containers": [],
+    "gpu2_compute_processes": []
+  },
+  "source_sha256": {
+    "controller": "d975c33837c06147626c9f85a3eed9dfe97f3485d76245f132171ca8f123c60c",
+    "jax": "de2f33f2f94c3234c13265be18ac0502baa97c72de09781ea4e0214bd4d061c8",
+    "payload": "31531fd4ee53c2002b75bd939e68d7e86c2e56eb3f8138755f049adf2b62ae29"
+  },
+  "cuda_trace": {
+    "scope": "CUPTI/Torch trace on20physics ticks400..419; source/render/media workers untraced. Profiler overhead is material. Durations overlap; sums are activity totals, not critical-path time or GPU utilization.",
+    "categories": {
+      "cpu_op": {
+        "count": 7452,
+        "sum_duration_ms": 158.81815999999952
+      },
+      "overhead": {
+        "count": 18,
+        "sum_duration_ms": 123.44957600000001
+      },
+      "gpu_memcpy": {
+        "count": 1439,
+        "sum_duration_ms": 1.1967500000000006
+      },
+      "cuda_runtime": {
+        "count": 1910,
+        "sum_duration_ms": 30.52673199999997
+      },
+      "kernel": {
+        "count": 14859,
+        "sum_duration_ms": 84.85323199999972
+      },
+      "cuda_driver": {
+        "count": 2743,
+        "sum_duration_ms": 12.065238999999995
+      },
+      "Trace": {
+        "count": 1,
+        "sum_duration_ms": 351.881643
+      }
+    },
+    "kernel_duration_us": {
+      "p50": 1.824,
+      "mean": 5.710561410592907,
+      "under10us_fraction": 0.9528905040716065
+    },
+    "cuda_api": [
+      {
+        "name": "cuLaunchKernel",
+        "count": 2743,
+        "sum_duration_ms": 12.065238999999995,
+        "bytes": 0
+      },
+      {
+        "name": "cudaMemcpyAsync",
+        "count": 586,
+        "sum_duration_ms": 15.435937999999993,
+        "bytes": 0
+      },
+      {
+        "name": "cudaStreamIsCapturing",
+        "count": 406,
+        "sum_duration_ms": 0.4711930000000003,
+        "bytes": 0
+      },
+      {
+        "name": "cudaStreamSynchronize",
+        "count": 406,
+        "sum_duration_ms": 9.302047999999996,
+        "bytes": 0
+      },
+      {
+        "name": "cudaLaunchKernel",
+        "count": 467,
+        "sum_duration_ms": 5.118419000000003,
+        "bytes": 0
+      },
+      {
+        "name": "cudaGetFuncBySymbol",
+        "count": 44,
+        "sum_duration_ms": 0.022152,
+        "bytes": 0
+      },
+      {
+        "name": "cudaDeviceSynchronize",
+        "count": 1,
+        "sum_duration_ms": 0.176982,
+        "bytes": 0
+      }
+    ],
+    "copies": [
+      {
+        "name": "Memcpy DtoD (Device -> Device)",
+        "count": 224,
+        "sum_duration_ms": 0.27770299999999976,
+        "bytes": 132028
+      },
+      {
+        "name": "Memcpy DtoH (Device -> Pageable)",
+        "count": 224,
+        "sum_duration_ms": 0.26236499999999974,
+        "bytes": 31696
+      },
+      {
+        "name": "Memcpy HtoD (Pageable -> Device)",
+        "count": 782,
+        "sum_duration_ms": 0.5226379999999979,
+        "bytes": 451424
+      },
+      {
+        "name": "Memcpy HtoD (Pinned -> Device)",
+        "count": 187,
+        "sum_duration_ms": 0.10207599999999979,
+        "bytes": 76659
+      },
+      {
+        "name": "Memcpy DtoH (Device -> Pinned)",
+        "count": 22,
+        "sum_duration_ms": 0.03196800000000001,
+        "bytes": 6380
+      }
+    ]
+  },
+  "cprofile": {
+    "window_ticks": 200,
+    "quadrants_python_kernel_entries": 6002,
+    "quadrants_python_kernel_entries_per_tick": 30.01,
+    "top_self_time": [
+      {
+        "file": "/usr/local/lib/python3.10/dist-packages/quadrants/lang/kernel.py",
+        "line": 576,
+        "function": "launch_kernel",
+        "primitive_calls": 6002,
+        "total_calls": 6002,
+        "self_s": 0.40237383600000004,
+        "inclusive_s": 0.49046329800000005
+      },
+      {
+        "file": "/usr/local/lib/python3.10/dist-packages/jax/_src/array.py",
+        "line": 622,
+        "function": "_value",
+        "primitive_calls": 220,
+        "total_calls": 220,
+        "self_s": 0.311716113,
+        "inclusive_s": 0.312616498
+      },
+      {
+        "file": "/usr/local/lib/python3.10/dist-packages/torch/utils/_device.py",
+        "line": 118,
+        "function": "__torch_function__",
+        "primitive_calls": 20028,
+        "total_calls": 20028,
+        "self_s": 0.178955318,
+        "inclusive_s": 0.708914538
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<method 'cpu' of 'torch._C.TensorBase' objects>",
+        "primitive_calls": 2240,
+        "total_calls": 4480,
+        "self_s": 0.16668227300000002,
+        "inclusive_s": 0.16889246900000002
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method torch.tensor>",
+        "primitive_calls": 1412,
+        "total_calls": 2824,
+        "self_s": 0.147437393,
+        "inclusive_s": 0.15143147
+      },
+      {
+        "file": "/usr/local/lib/python3.10/dist-packages/elesim_sim/robot/go2/pympc_jax.py",
+        "line": 293,
+        "function": "compute_control",
+        "primitive_calls": 110,
+        "total_calls": 110,
+        "self_s": 0.13721939700000002,
+        "inclusive_s": 0.925433551
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<method 'clone' of 'torch._C.TensorBase' objects>",
+        "primitive_calls": 1800,
+        "total_calls": 3600,
+        "self_s": 0.124480902,
+        "inclusive_s": 0.12734909
+      },
+      {
+        "file": "/usr/local/lib/python3.10/dist-packages/jax/_src/interpreters/pxla.py",
+        "line": 230,
+        "function": "batched_device_put",
+        "primitive_calls": 2090,
+        "total_calls": 2090,
+        "self_s": 0.111958763,
+        "inclusive_s": 0.12196770900000001
+      },
+      {
+        "file": "/usr/local/lib/python3.10/dist-packages/quadrants/lang/kernel.py",
+        "line": 165,
+        "function": "populate_launch_ctx_from_cache",
+        "primitive_calls": 6002,
+        "total_calls": 6002,
+        "self_s": 0.07335520300000001,
+        "inclusive_s": 0.07335520300000001
+      },
+      {
+        "file": "/usr/local/lib/python3.10/dist-packages/quadrants/lang/kernel.py",
+        "line": 876,
+        "function": "__call__",
+        "primitive_calls": 6002,
+        "total_calls": 6002,
+        "self_s": 0.071291557,
+        "inclusive_s": 0.641375754
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<method 'reduce' of 'numpy.ufunc' objects>",
+        "primitive_calls": 20460,
+        "total_calls": 20460,
+        "self_s": 0.07123741800000001,
+        "inclusive_s": 0.07123741800000001
+      },
+      {
+        "file": "/usr/local/lib/python3.10/dist-packages/elesim_sim/robot/go2/pympc_controller.py",
+        "line": 866,
+        "function": "_sample",
+        "primitive_calls": 200,
+        "total_calls": 200,
+        "self_s": 0.055120371,
+        "inclusive_s": 1.3724850640000001
+      }
+    ],
+    "scope": "Main thread simulated4..6s; durations include Python profiling overhead and waits; Quadrants Python entries are not the same as native GPU kernel count."
+  },
+  "verification": {
+    "completed_runs": 10,
+    "runs": 10,
+    "all_media_h264_nvenc": true,
+    "all_media_decoder_errors_empty": true,
+    "max_active_loop_gc_ms": 0.792724,
+    "active_loop_generation2_gc_count": 0,
+    "profiler_setup_failure": {
+      "batch": "b",
+      "case": "media_torch",
+      "reason": "Torch profiler initialization requested getpass username for unmapped container UID1001; diagnostic exited, no controller failure.",
+      "resolution": "Set USER and a private TORCHINDUCTOR_CACHE_DIR only in the diagnostic trace case; rerun completed and exported CUPTI trace."
+    },
+    "production_logic_changes": false,
+    "full_software_gates": "Not run: observation-only cost diagnosis on installed runtime."
+  },
+  "findings": [
+    "Clean steady loop: cameras off11.46ms; two cameras without peers13.67ms; real two-stream loopback15.59..15.70ms, p9521.31..21.63ms. These are controlled trials, not full UI/DDS runtime acceptance.",
+    "Recurring measured state/CPU boundary:6 robot-state reads +4 payload-state reads +1 contact read per tick. Bridge plus payload takes4.74..4.93ms in detailed media trials; actual Pinocchio arithmetic is about.08ms per tick.",
+    "One MPPI solve costs about8ms inclusive, including19 device_put calls totaling2.63..2.76ms and result wait/readback2.51..2.57ms. device_put is not19 equal PCIe transfers: two arguments already reside on device.",
+    "Only6969host bytes enter these19 arguments. Frozen-input placement replay: serial2.171ms, tree1.703ms, packed0.344ms, including packed CPU concatenation and GPU completion. All values reconstruct exactly. This proves avoidable placement/API overhead; no live packed optimizer or end-to-end speedup has been validated.",
+    "Native trace confirms many tiny copies/kernels. H2D/DtoH copy-engine activity sums to about.92ms over20ticks; API calls, allocation/indexing, dispatch and synchronization cost much more than moving these bytes. Trace overhead and other processes prevent interpreting activity sums as whole-GPU utilization.",
+    "Clean physics host step is3.16..3.64ms with media; camera competition adds cost throughout the control and physics path, not only camera-submit time. A local receiver also contributes host load.",
+    "The earlier.3s GC spike did not recur in the reduced-recording probes; active-loop GC stayed below.8ms. This does not establish behavior of long production sessions.",
+    "Prioritize testing packed JAX inputs, then a shared/cached Genesis state snapshot and index buffers. Preserve contact, torque constraints and gait behavior; Pinocchio/model simplification is not the main measured target.",
+    "The startup solve_hz=25 text is hardcoded; actual solve cadence is prediction_dt=.02 plus support-change solves. Call counts, not that log text, are used here."
+  ]
+}
