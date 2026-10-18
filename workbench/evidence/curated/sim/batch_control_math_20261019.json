@@ -1,0 +1,195 @@
+{
+  "date": "2026-10-19",
+  "baseline_revision": "fbdb27d2e4f0f2f1baadadf0181170c1ea962fda",
+  "implementation": {
+    "scope": "Current-tick CPU preparation and coordinate transforms only",
+    "stance": "Validate selected stance matrices/limits once, share zero-velocity RHS and per-leg limiting; retain each np.linalg.lstsq(rcond=1e-3), custom reference_solver, contact gating and gains",
+    "bridge": "One current inverse and one apply for 2 or 4 vectors; reuse current read Rotation in controller matrix/Euler conversion; reset clears existing pose history",
+    "excluded": "Batched SVD: 3/355 prior cutoff edge cases differ significantly",
+    "preserved": "Swing/search solve, optimizer samples/iterations, payload, actuator clipping/filtering/write cadence, DDS command path, stop/reset and twist fallback",
+    "function_changes": {
+      "controller": {
+        "changed": [
+          "PyMpcGenesisController._sample",
+          "PyMpcGenesisController._stance_damping_reference"
+        ],
+        "added": []
+      },
+      "bridge": {
+        "changed": [
+          "GenesisPinBridge.read_pin_q_dq"
+        ],
+        "added": [
+          "GenesisPinBridge.base_rotation"
+        ]
+      }
+    },
+    "source_sha256": {
+      "controller": "4ab201e73177470cfe60a6fdfcf3d09f8a3709b841c0d1122b1d3829ad26a591",
+      "bridge": "3594b557fd0ba6032193a6902489ea8408732664d2ad13ea107977c99f015da7"
+    }
+  },
+  "production_patch_replay": {
+    "scope": "Local development-container replay of the production patch; no live GPU or full-loop timing",
+    "baseline_revision": "fbdb27d2e4f0f2f1baadadf0181170c1ea962fda",
+    "recorded_stance": {
+      "cases": 843,
+      "byte_exact": 843,
+      "input_sha256": "af12ff8d5712001d163e0deadc091cfb3c6dd94c31a4925790c7f781e39a7990"
+    },
+    "synthetic_stance": {
+      "cases": 355,
+      "byte_exact": 355
+    },
+    "synthetic_bridge": {
+      "cases": 256,
+      "byte_exact": 256
+    },
+    "source_sha256": {
+      "controller": "4ab201e73177470cfe60a6fdfcf3d09f8a3709b841c0d1122b1d3829ad26a591",
+      "bridge": "3594b557fd0ba6032193a6902489ea8408732664d2ad13ea107977c99f015da7"
+    }
+  },
+  "prior_measurement": {
+    "scope": "Pre-implementation CPU replay on hckang host of recorded GPU2 walking inputs; candidates did not control the robot",
+    "stance": {
+      "shipped": {
+        "blocks": 12,
+        "cases_per_block": 843,
+        "block_mean_ms": [
+          0.21503693357058126,
+          0.21550155397390272,
+          0.21516550889679714,
+          0.21421209727164886,
+          0.25148058362989323,
+          0.21429283274021352,
+          0.2148646571767497,
+          0.21370040450771055,
+          0.21535965836298931,
+          0.22890766192170817,
+          0.2392114934756821,
+          0.22465195017793596
+        ],
+        "mean_ms": 0.22186544464215105,
+        "median_block_mean_ms": 0.21526258362989323,
+        "min_block_mean_ms": 0.21370040450771055,
+        "max_block_mean_ms": 0.25148058362989323,
+        "saved_ms": 0.0,
+        "reduction_percent": 0.0
+      },
+      "prepared_same_lstsq": {
+        "blocks": 12,
+        "cases_per_block": 843,
+        "block_mean_ms": [
+          0.1838692147093713,
+          0.18646974495848162,
+          0.2195384697508897,
+          0.1832554294187426,
+          0.18440484223013048,
+          0.216468221826809,
+          0.18492668446026098,
+          0.18533804270462634,
+          0.2174914139976275,
+          0.1880629525504152,
+          0.18532319572953737,
+          0.21772450059311982
+        ],
+        "mean_ms": 0.196072726077501,
+        "median_block_mean_ms": 0.18590389383155398,
+        "min_block_mean_ms": 0.1832554294187426,
+        "max_block_mean_ms": 0.2195384697508897,
+        "saved_ms": 0.02579271856465004,
+        "reduction_percent": 11.625387904029566
+      }
+    },
+    "rotation": {
+      "shipped_pattern": {
+        "blocks": 10,
+        "cases_per_block": 843,
+        "block_mean_ms": [
+          0.1769342669039146,
+          0.1760176512455516,
+          0.1763008612099644,
+          0.17530921352313167,
+          0.17667159549228945,
+          0.17722682562277578,
+          0.17623707829181495,
+          0.17469113285883747,
+          0.1756996583629893,
+          0.17520762396204034
+        ],
+        "mean_ms": 0.17602959074733096,
+        "median_block_mean_ms": 0.1761273647686833,
+        "min_block_mean_ms": 0.17469113285883747,
+        "max_block_mean_ms": 0.17722682562277578,
+        "saved_ms": 0.0,
+        "reduction_percent": 0.0
+      },
+      "batched_apply": {
+        "blocks": 10,
+        "cases_per_block": 843,
+        "block_mean_ms": [
+          0.12955328706998814,
+          0.1292476097271649,
+          0.12991241043890867,
+          0.12905403795966786,
+          0.13005691696322658,
+          0.12865357295373664,
+          0.12777070699881377,
+          0.13311017793594304,
+          0.12873634163701067,
+          0.1300876453143535
+        ],
+        "mean_ms": 0.12961827069988135,
+        "median_block_mean_ms": 0.1294004483985765,
+        "min_block_mean_ms": 0.12777070699881377,
+        "max_block_mean_ms": 0.13311017793594304,
+        "saved_ms": 0.046411320047449606,
+        "reduction_percent": 26.365635374377142
+      }
+    },
+    "nominal_separate_kernel_savings_ms": 0.07220403861209965,
+    "full_step_savings_measured": false,
+    "interpretation": "About 0.072 ms from separate kernels; not proof of a full-loop or installed-runtime gain"
+  },
+  "software": {
+    "environment": "Existing generated persistent development attachment with source bind, JAX_PLATFORMS=cpu, ROS Humble/CycloneDDS",
+    "red": {
+      "failed": 2,
+      "description": "One active-matrix validation batch and one current inverse/vector apply batch assertions fail against baseline"
+    },
+    "focused": {
+      "passed": 260
+    },
+    "sim": {
+      "passed": 923,
+      "skipped": 3,
+      "failed": 1
+    },
+    "known_failure": "workbench/tests/apps/sim/rl/test_start_path.py::test_the_shipped_path_ends_where_the_wrap_is: -0.166 m below -0.142 m lower limit; unchanged pre-existing config/test",
+    "intermediate_failure": "Full-suite module reload left the new Rotation spy on an obsolete module instance. Test now constructs its bridge from the same spied module; production code unchanged by this correction.",
+    "real_dds": {
+      "sim_motor": "passed, two processes; SimEndpoint/SimulationStateSource mailbox, runtime_consumer=false (no live Genesis actuator check this task)",
+      "topology": "passed, four processes including Robot-to-Sim measured-pose mirror and lease recovery",
+      "protocol_passed": 145
+    },
+    "commands": [
+      "python3 -m pytest -q workbench/tests/apps/sim",
+      "python3 workbench/tools/quality/check.py --check dds-sim-motor --check topology --check protocol",
+      "python3 workbench/evidence/generated/batch-apply-20261019/verify.py"
+    ],
+    "not_run": [
+      "Full required/extended gates",
+      "Isolated-release build/verification",
+      "New installed remote runtime/GPU2 walk or full-loop timing",
+      "WAN/SROS2/UI/hardware end-to-end"
+    ]
+  },
+  "raw": {
+    "probe_archive": "workbench/evidence/generated/batch-probe-20261019/results.tar.gz",
+    "probe_archive_sha256": "bea6ccf5bb87a04e921501c9d7b6d6fc97eecf98e1d6fd1026559b9c34d2730e",
+    "replay_script": "workbench/evidence/generated/batch-apply-20261019/verify.py",
+    "replay_script_sha256": "bc3da3d9b0adf91a34df5d473b880136d223ab6efab1420826828fb4f30d2ad1",
+    "replay_accuracy_sha256": "c254bf14e18422771192602c8ae04150c9c989830e42186a5636cbe8fb6e4a9c"
+  }
+}

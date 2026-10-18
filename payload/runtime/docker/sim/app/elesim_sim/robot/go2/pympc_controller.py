@@ -895,6 +895,7 @@ class PyMpcGenesisController:
         reader = getattr(self, '_state_reader', None)
         state_args = {} if reader is None else dict(snapshot=reader.read())
         q, dq = self._bridge.read_pin_q_dq(dt=self._dt, **state_args)
+        rot = getattr(self._bridge, 'base_rotation', None)
         self._bridge.last_q = q.copy()
         self._bridge.last_dq = dq.copy()
         self._joint_gravity = np.asarray(
@@ -912,7 +913,8 @@ class PyMpcGenesisController:
             self._payload.apply(state, dt=self._dt, **state_args)
             com = np.asarray(state.pos_com_world, dtype=float).copy()
             vel = np.asarray(state.vel_com_world, dtype=float).copy()
-        rot = Rotation.from_quat(q[3:7])
+        if rot is None:
+            rot = Rotation.from_quat(q[3:7])
         rot_m = rot.as_matrix()
         rpy = rot.as_euler("xyz")
         feet = np.array([self._data.oMf[frame].translation for frame in self._frames])
@@ -1252,7 +1254,7 @@ class PyMpcGenesisController:
         return previous
 
     def _stance_damping_reference(self, sample: PyMpcInput, jacobians: np.ndarray, *,
-                                  reference_solver=swing_damping_reference_torque) -> np.ndarray:
+                                  reference_solver=None) -> np.ndarray:
         """Damp stance errors without braking existing commanded translation.
 
         Keep the original damping gains and substep damping. Only the bounded
@@ -1272,13 +1274,32 @@ class PyMpcGenesisController:
             return reference
         damping = (.5*self._torque_scale()+float(self._config.joint_damping)
                    +float(self._config.leg_kv_damping)+float(self._config.aux_kv))
-        for i in range(4):
-            if sample.contacts[i, 0] != 1.:
-                continue
-            sl = slice(3*i, 3*i+3)
-            reference[sl] = reference_solver(
-                jacobians[i], np.zeros(3), progress, np.zeros(3), damping=damping,
-                velocity_limits=self._swing_velocity_limits[sl])
+        active = np.flatnonzero(sample.contacts[:, 0] == 1.)
+        if not len(active):
+            return reference
+        if reference_solver is not None:
+            for i in active:
+                sl = slice(3*i, 3*i+3)
+                reference[sl] = reference_solver(
+                    jacobians[i], np.zeros(3), progress, np.zeros(3), damping=damping,
+                    velocity_limits=self._swing_velocity_limits[sl])
+            return reference
+        matrices = np.asarray(jacobians[active], dtype=float)
+        limits = np.asarray(self._swing_velocity_limits.reshape(4, 3)[active], dtype=float)
+        if (matrices.shape != (len(active), 3, 3) or limits.shape != (len(active), 3)
+                or not np.isfinite(matrices).all() or not np.isfinite(limits).all()
+                or not np.isfinite(progress).all() or np.any(limits <= 0.)
+                or not np.isfinite(damping) or damping < 0.):
+            raise ValueError('stance damping needs finite 3D inputs and positive velocity limits')
+        zero = np.zeros((len(active), 3))
+        rhs = zero - (progress - np.einsum('nij,nj->ni', matrices, zero))
+        # Share preparation, keeping the original per-leg LAPACK solve and
+        # singular-value cutoff. A batched SVD changes answers at that cutoff.
+        resolved = np.stack([np.linalg.lstsq(j, b, rcond=1e-3)[0]
+                             for j, b in zip(matrices, rhs)])
+        scale = np.maximum(1., np.max(np.abs(resolved) / limits, axis=1))
+        resolved /= scale[:, None]
+        reference.reshape(4, 3)[active] = float(damping) * resolved
         return reference
 
     def _search_damping_reference(self, jacobian, joint_velocity, measured_velocity,

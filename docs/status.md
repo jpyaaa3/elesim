@@ -6,6 +6,30 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 감쇠 입력·몸 좌표변환 묶기 (2026-10-19)
+
+- 지지 다리의 입력 검증·우변 준비·속도 제한을 묶고, 각 다리의
+  `np.linalg.lstsq(rcond=1e-3)`는 유지했다. 별도 batched SVD는 특이값 경계
+  355개 중 3개에서 답이 달라져 적용하지 않았다. 몸 bridge의 선형·각속도와
+  pose 차분 2/4개 벡터는 현재 역회전으로 한 번에 변환한다. controller의
+  matrix/Euler 변환도 방금 읽은 Rotation을 공유한다. 매 tick 새 상태를 읽고
+  reset·속도 차분 fallback·착지 확인·감쇠 gain·토크 제한·DDS 모터 쓰기를 유지한다.
+- 패치 전 원격 GPU2 보행에서 기록한 입력 **843개**, 별도 특이/경계 입력
+  **355개**에 실제 패치를 재생해 기존 토크와 byte 단위 일치를 확인했다.
+  bridge·matrix/Euler 변환의 별도 **256개** 입력도 정확히 일치했다.
+  개발 attachment에서 전체 Sim은 **923 passed / 3 skipped / 1 failed**다.
+  실패는 기존 RL 시작 좌표 -.166 m가 하한 -.142 m를 벗어나는 검사다.
+  새 회귀의 full-suite 모듈 재로딩 간섭은 검사 코드를 보정해 해소했다.
+- 두 프로세스 CycloneDDS 모터 명령 수신, 네 프로세스 topology와 protocol
+  **145개**가 통과했다. 이번 DDS 검사는 Sim 명령 mailbox까지이며, 실제
+  Genesis 모터 적용의 이전 GPU 검증과 구분한다. 전체 required/extended와
+  isolated-release gate, 새 설치본 GPU 보행·UI/WAN/SROS2/hardware는 미검증이다.
+- 앞선 원격 CPU replay의 감쇠 **.221865→.196073 ms**, 좌표변환
+  **.176030→.129618 ms**를 근거로 적용했다. 별도 계산 절감의 합은 약
+  **.0722 ms**이며 새 전체 step 감소량을 측정한 수치가 아니다. 이번 작업은
+  source 적용·push 범위이고 설치 release/pin은 교체하지 않는다.
+  [동일 출력·측정 조건·검사와 한계](../workbench/evidence/curated/sim/batch_control_math_20261019.json)를 보존했다.
+
 ### 제어 쓰기 비용 축소·DDS 모터 경로 회귀 (2026-10-19)
 
 - `4a3be80`은 연속된 다리 DOF에 공개 Genesis control API의 `range` 선택을

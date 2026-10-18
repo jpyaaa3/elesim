@@ -68,6 +68,11 @@ class GenesisPinBridge:
         if self._payload is not None:
             self._payload.reset()
 
+    @property
+    def base_rotation(self) -> Rot | None:
+        """Rotation from the latest state read, discarded together with pose history."""
+        return None if self._previous_base_pose is None else self._previous_base_pose[1]
+
     @staticmethod
     def _prefer_pose_difference(
         readback: np.ndarray,
@@ -110,18 +115,22 @@ class GenesisPinBridge:
         q = np.concatenate([pos, quat_xyzw, leg_q])
 
         rot = Rot.from_quat(quat_xyzw)
-        vel_body = rot.inv().apply(vel_world)
-        ang_body = rot.inv().apply(ang_world)
         elapsed = None if dt is None else float(dt)
         if elapsed is not None and (not np.isfinite(elapsed) or elapsed <= 0.0):
             raise ValueError(f"dt must be finite and positive, got {dt}")
+        vectors = [vel_world, ang_world]
         finite_difference_linear = None
         finite_difference_angular = None
         if self._previous_base_pose is not None and elapsed is not None and elapsed > 0.0:
             previous_pos, previous_rot = self._previous_base_pose
-            finite_difference_linear = rot.inv().apply((pos - previous_pos) / elapsed)
             world_rotation_delta = (rot * previous_rot.inv()).as_rotvec() / elapsed
-            finite_difference_angular = rot.inv().apply(world_rotation_delta)
+            vectors.extend(((pos - previous_pos) / elapsed, world_rotation_delta))
+        # All vectors use this tick's same world-to-body transform. Keep the
+        # pose-difference fallback and its thresholds after the shared apply.
+        transformed = rot.inv().apply(np.stack(vectors))
+        vel_body, ang_body = transformed[:2]
+        if len(vectors) == 4:
+            finite_difference_linear, finite_difference_angular = transformed[2:]
         self._previous_base_pose = (pos.copy(), rot)
 
         vel_body, linear_fallback = self._prefer_pose_difference(

@@ -525,8 +525,9 @@ def test_contact_wait_does_not_freeze_startup_torque_or_pose_assistance():
     (Go2Command(vx=.8), [.7, 0., .1], False, [.8, 0., 0.]),
 ])
 @pytest.mark.parametrize('backend', ['jax_mppi', 'acados'])
+@pytest.mark.parametrize('shared_rotation', [False, True])
 def test_landing_wait_keeps_search_reach_separate_from_ground_support(
-        command, velocity, waiting, expected, backend):
+        command, velocity, waiting, expected, backend, shared_rotation, monkeypatch):
     from pathlib import Path
     import pinocchio as pin
     from elesim_sim.robot.go2.mpc.config import Go2MpcConfig
@@ -543,6 +544,14 @@ def test_landing_wait_keeps_search_reach_separate_from_ground_support(
     c._model, c._data = model, model.createData()
     c._frames = [model.getFrameId(f'{leg.value}_foot') for leg in ALL_LEGS]
     c._bridge = SimpleNamespace(read_pin_q_dq=lambda **kw: (q, dq))
+    if shared_rotation:
+        from scipy.spatial.transform import Rotation
+        import elesim_sim.robot.go2.pympc_controller as module
+        c._bridge.base_rotation = Rotation.from_quat(q[3:7])
+        def repeated_rotation(*args, **kwargs):
+            raise AssertionError('sample reconstructed the already-read body rotation')
+        monkeypatch.setattr(module, 'Rotation', SimpleNamespace(
+            from_quat=repeated_rotation, from_euler=Rotation.from_euler))
     c._config, c._payload = Go2MpcConfig(), None
     c._solver = SimpleNamespace(backend=backend, horizon=12, dt=.02)
     c._command_scale = lambda: 1.

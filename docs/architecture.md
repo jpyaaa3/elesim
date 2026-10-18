@@ -289,6 +289,13 @@ GPU index 배열의 반복 생성을 피하고, GPU에서 묶어 한 번 CPU로 
 새 snapshot을 읽으며, reset·position-control 구간을 넘겨 live 상태를 재사용하지
 않는다. 별도 arm entity와 최소 getter만 제공하는 entity는 기존 조회를 유지한다.
 
+몸 상태 bridge는 같은 tick의 선형·각속도와 선택적 pose 차분 벡터를 하나의
+역회전으로 일괄 변환한다. controller의 matrix/Euler 변환도 방금 읽은 quaternion의
+같은 Rotation을 사용한다. 매 읽기마다 갱신하고 reset은 기존 pose 이력과 함께
+비운다. 지지 다리 감쇠는 접촉이 확인된 다리의 입력 검증·우변 준비·속도 제한
+계산만 묶는다. 각 다리의 `lstsq(rcond=1e-3)`와 최소 norm 해를 유지하며,
+singular-value 경계에서 해가 달라지는 batched SVD로 대체하지 않는다.
+
 다리의 공개 Genesis control 호출은 고정 DOF 순서가 비음수 연속 범위일 때만
 `range`로 전달해 GPU index 배열의 반복 생성을 피한다. 그 밖의 순서는 기존
 목록을 유지한다. 토크 입력은 현재 CPU float64 배열의 Tensor view로 전달해
