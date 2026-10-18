@@ -6,7 +6,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 보행 전진성·지지 감쇠·착지 참조 TDD (2026-10-17, 기본값 실보행 재검증 중)
+### 보행 전진성·지지 감쇠·착지 예측 TDD (2026-10-18, 설치 기본값 21개 통과)
 
 - 사용자의 before/after 영상 피드백대로 스윙 오차 감소만으로 전체 보행을
   개선으로 평가하지 않는다. Before는 실제 .260 m/s지만 뒤쪽 힙이 앞보다
@@ -189,7 +189,8 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   모든 trial의 late_descent 공중 정지는 0이고 기존 전체 하강 지표는 보존한다.
 - 모든 trial에서 실제 solver에 모터 제약이 켜졌고 계획 토크 비율은 1 이하다.
   50 Hz solve 사이 100 Hz 제어에서는 후진/전진 반복에 각각 7/3개의 확인된
-  stance raw 상한 초과 관측이 남아 최종 보호 clipping은 유지한다. 모든
+  stance raw 상한 초과 관측이 남아 최종 보호 clipping은 유지한다. 이는
+  aux/gain/filter 전 원시값이며 최종 clipping의 직접 판정은 아니다. 모든
   substep에서 완전히 같은 힘을 예측했다는 뜻은 아니다. 실제 설치 filter는
   force .7 / torque .5이며 dataclass 기본 .35/.25와 구분한다.
 - 전진 마지막 stop t=24.72 s에는 실제 vxy .042 m/s인데 새 swing이 시작됐다.
@@ -224,9 +225,32 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   가속 적분·높이 예측·두 재착지 경로는 유지한다. 추가 red는 **2 failed /
   18 passed**, 수정 뒤 같은 canonical 전체는 **882 passed / 4 skipped /
   1 deselected**다. 이 보폭 복원 후보도 별도로 push/update 후 실제 검증한다.
+- `10ca3a5`를 push/양쪽 공식 update한 뒤, GPU2와 네 소스 해시를 다시 검사했다.
+  전후좌우 짧은/20초 보행과 전후 각 3회 재출발 **10개 모두 완주·정지**했고
+  같은 motion screen도 **10/10**이다. 전진/후진 20초의 실제 평균은
+  **.808/.772 m/s**, roll/pitch RMS는 **3.25/3.04도와 2.86/4.33도**다.
+  앞 후보에서 남았던 왼쪽 짧은 보행의 roll도 2.42도로 screen을 통과했다.
+- 두 실제 카메라를 켠 .2/.4/.8 m/s 보행 **3/3**과 카메라 20초·팔 동작
+  20초·카메라+팔 3회 재출발 **3/3**도 완주·정지 및 motion screen을 통과했다.
+  영상용 .8 m/s 보행의 실제 평균은 **.814 m/s**, roll/pitch RMS 2.28/3.49도다.
+  이 16개 전체에서 pre-step 공중 지지력 tick과 `late_descent` 공중 정지는
+  모두 0이다. 기존 전체 하강 지표는 그대로 보존하며 apex 부근 저속 sample까지
+  0으로 보고하지 않는다.
+- 전진/후진 각 **10회** 추가 재출발도 모두 stand로 복귀했다. 정지 뒤 복귀
+  최댓값은 각각 1.66/1.48 s다. 60초 전진과 좌우 40초도 완주·정지와 motion
+  screen을 통과했다. 추가 장시간 시험은 **5/5**, 전체 실제 시험은 **21/21**이다.
+  60초 전진의 실제 평균은 .804 m/s, roll/pitch RMS는 2.14/2.22도다.
+  전체 21개에서 `late_descent` 공중 정지와 pre-step 공중 지지력 tick은 0이다.
+  기록된 모든 solver의 motor 제약은 활성이고 계획 토크 비율은 float 오차
+  5.5e-8 이내에서 1 이하, 실제 적용 명령도 기록된 URDF 상한 이내다.
+  20 ms 진단 sample이 모든 제어/물리 substep의 동일성을 증명하지는 않는다.
+  실제 observer 프레임 358개로 정속/슬로모션 영상을 만들고 SHA·ffprobe와
+  연속 발 동작 프레임을 확인했다. 재생은 simulation time의 1×/0.5×이며
+  프레임 보간이나 자세 합성을 하지 않는다. 두 영상 전체 디코딩도 성공했다.
 - [후보별 수치와 원시 bundle 해시](../workbench/evidence/curated/sim/walking_stance_reference_20261017.json)를
-  보존한다. 다음은 새 source push/양쪽 공식 update 후 설치된 기본값 그대로
-  GPU2의 전후좌우 긴 보행, 반복 정지, 두 카메라·팔 동작 및 비교 영상 확인이다.
+  보존한다. 검증한 runtime revision은 `10ca3a5`이며, 이후 기록/문서만 바꾼
+  commit은 동일한 네 runtime source hash로 구분한다. 검증 범위는 해당 설치
+  기본값의 평지 GO2+팔 시뮬레이션이다.
   DDS/WebRTC 네트워크·실물 Robot 수용시험과 R0–R5 완료를 뜻하지 않는다.
 
 ### 스윙 기준 속도 감쇠 TDD (2026-10-17, 추종 개선 확인·속도 미해결)
