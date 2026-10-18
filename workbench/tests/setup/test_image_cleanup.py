@@ -62,7 +62,12 @@ def scenario(tmp_path):
             assert args == ("ps", "-aq", "--no-trunc")
             return "\n".join(state["containers"])
         if args[:2] == ("container", "inspect"):
-            return json.dumps([{"Image": state["containers"][args[2]]}])
+            image = state["containers"][args[2]]
+            reference = state.get("container_references", {}).get(args[2], image)
+            record = {"Image": image}
+            if reference is not None:
+                record["Config"] = {"Image": reference}
+            return json.dumps([record])
         if args[:2] == ("image", "ls"):
             if args[2:] == ("--format", "{{.Repository}}:{{.Tag}}"):
                 return "\n".join(tag for record in images.values() for tag in record["RepoTags"])
@@ -93,6 +98,156 @@ def scenario(tmp_path):
 
 def collect(state):
     return image_cleanup.collect(state["prefix"], docker=state["docker"])
+
+
+def owned_named_alias(state, image_id, name):
+    alias = f"elesim/pilot:quiet_otter-{name}"
+    state["images"][image_id]["RepoTags"].append(alias)
+    path = state["prefix"] / "install-ownership.json"
+    manifest = OwnershipManifest.load(path)
+    project = project_name(INSTALL, install_name="quiet_otter")
+    for record in state["images"].values():
+        record["Config"]["Labels"]["com.docker.compose.project"] = project
+    updated = replace(manifest, docker=replace(
+        manifest.docker, project=project, install_name="quiet_otter",
+        local_images=(*manifest.docker.local_images, alias),
+    )).validate()
+    path.write_text(json.dumps(updated.to_dict(), indent=2) + "\n")
+    return alias
+
+
+def test_unused_alias_is_collected_even_when_current_image_is_retained(scenario):
+    old, current = scenario["releases"]
+    image_id = current.image_ids["pilot"]
+    alias = owned_named_alias(scenario, image_id, "amber_falcon")
+
+    assert collect(scenario) == (old.image_ids["pilot"],)
+    assert scenario["images"][image_id]["RepoTags"] == [current.role_images["pilot"]]
+    assert alias in scenario["removed"]
+    assert collect(scenario) == ()
+
+
+def test_shared_image_preserves_pinned_tag_and_retires_unused_release(scenario):
+    old, current = scenario["releases"]
+    image_id = current.image_ids["pilot"]
+    pinned_tag = owned_named_alias(scenario, image_id, "silver_fox")
+    unused_tag = owned_named_alias(scenario, image_id, "amber_falcon")
+    data = scenario["prefix"] / "shared-data"
+    data.mkdir()
+    pinned = replace(current, source_revision="git-" + "e" * 40,
+                     role_images={"pilot": pinned_tag})
+    unused = replace(current, source_revision="git-" + "f" * 40,
+                     role_images={"pilot": unused_tag})
+    for release in (pinned, unused):
+        publish_release(scenario["prefix"], release, data)
+    directory = scenario["prefix"] / "instances/experiment"
+    directory.mkdir()
+    (directory / "state.json").write_text(json.dumps({
+        "schema_version": 3, "system_id": "experiment", "release_key": release_key(pinned),
+    }))
+    registry = scenario["prefix"] / "containers/image-names.json"
+    unused_input = (unused.source_revision, "pilot", "b" * 64, unused.runtime_data_digest)
+    assert reserve_role_release_name(registry, *unused_input,
+                                     generate=lambda: "amber_falcon") == "amber_falcon"
+
+    assert collect(scenario) == (old.image_ids["pilot"],)
+    assert set(scenario["images"][image_id]["RepoTags"]) == {
+        current.role_images["pilot"], pinned_tag,
+    }
+    assert {release_key(item) for item in image_cleanup.recorded_available_releases(scenario["prefix"])} == {
+        release_key(current), release_key(pinned),
+    }
+    assert lookup_name(registry, "releases", role_release_reservation_identity(*unused_input) + ":0") == ""
+    assert reserve_role_release_name(registry, "git-" + "1" * 40, "pilot", "1" * 64,
+                                     unused.runtime_data_digest,
+                                     generate=lambda: "amber_falcon") == "amber_falcon"
+
+
+@pytest.mark.parametrize("reference", ["tag", "id", "missing"])
+def test_container_image_and_exact_tag_are_protected_separately(scenario, reference):
+    old = scenario["releases"][0]
+    image_id = old.image_ids["pilot"]
+    used = owned_named_alias(scenario, image_id, "silver_fox")
+    unused = owned_named_alias(scenario, image_id, "amber_falcon")
+    container = "f" * 64
+    scenario["containers"][container] = image_id
+    scenario["container_references"] = {
+        container: {"tag": used, "id": image_id, "missing": None}[reference],
+    }
+
+    assert collect(scenario) == ()
+    tags = scenario["images"][image_id]["RepoTags"]
+    if reference == "tag":
+        assert tags == [used]
+    elif reference == "id":
+        assert tags == [old.role_images["pilot"]]
+    else:
+        assert set(tags) == {old.role_images["pilot"], used, unused}
+
+
+def test_container_reference_change_aborts_before_any_tag_removal(scenario):
+    old, current = scenario["releases"]
+    alias = owned_named_alias(scenario, current.image_ids["pilot"], "silver_fox")
+    original = scenario["docker"]
+    polls = 0
+
+    def docker(context, *args):
+        nonlocal polls
+        if args == ("ps", "-aq", "--no-trunc"):
+            polls += 1
+            if polls == 2:
+                scenario["containers"]["f" * 64] = current.image_ids["pilot"]
+                scenario["container_references"] = {"f" * 64: alias}
+        return original(context, *args)
+
+    scenario["docker"] = docker
+    with pytest.raises(ValueError, match="container references changed"):
+        collect(scenario)
+    assert not scenario["removed"]
+    assert old.image_ids["pilot"] in scenario["images"]
+
+
+def test_each_container_keeps_its_original_tag_on_a_shared_image(scenario):
+    old = scenario["releases"][0]
+    image_id = old.image_ids["pilot"]
+    first = owned_named_alias(scenario, image_id, "silver_fox")
+    second = owned_named_alias(scenario, image_id, "amber_falcon")
+    unused = owned_named_alias(scenario, image_id, "quiet_lion")
+    scenario["containers"] = {"e" * 64: image_id, "f" * 64: image_id}
+    scenario["container_references"] = {"e" * 64: first, "f" * 64: second}
+
+    assert collect(scenario) == ()
+    assert set(scenario["images"][image_id]["RepoTags"]) == {first, second}
+    assert unused in scenario["removed"]
+
+
+@pytest.mark.parametrize("boundary", ["foreign_alias", "unowned_alias", "foreign_digest"])
+def test_retained_image_alias_cleanup_respects_external_references(scenario, boundary):
+    old, current = scenario["releases"]
+    image_id = current.image_ids["pilot"]
+    alias = owned_named_alias(scenario, image_id, "amber_falcon")
+    image = scenario["images"][image_id]
+    if boundary == "foreign_alias":
+        image["RepoTags"].append("research/backup:keep")
+    elif boundary == "unowned_alias":
+        image["RepoTags"].append("elesim/pilot:quiet_otter-silver_fox")
+    else:
+        image["RepoDigests"] = ["backup@sha256:" + "e" * 64]
+
+    assert collect(scenario) == (old.image_ids["pilot"],)
+    assert alias not in scenario["removed"]
+    assert alias in image["RepoTags"]
+
+
+def test_retained_image_with_bad_ownership_aborts_all_cleanup(scenario):
+    current = scenario["releases"][1]
+    image_id = current.image_ids["pilot"]
+    owned_named_alias(scenario, image_id, "amber_falcon")
+    scenario["images"][image_id]["Config"]["Labels"]["io.elesim.install_uuid"] = "foreign"
+
+    with pytest.raises(ValueError, match="ownership mismatch"):
+        collect(scenario)
+    assert not scenario["removed"]
 
 
 def test_collect_only_previous_unreferenced_image_and_repeat_is_safe(scenario):
@@ -312,6 +467,7 @@ def test_collected_named_release_alias_can_be_reused_without_touching_live_alias
     current_tag = "elesim/pilot:quiet_otter-silver_fox"
     scenario["images"][old.image_ids["pilot"]]["RepoTags"].append(old_tag)
     scenario["images"][current.image_ids["pilot"]]["RepoTags"].append(current_tag)
+    scenario["current"] += "\n" + current_tag
     for record in scenario["images"].values():
         record["Config"]["Labels"]["com.docker.compose.project"] = project
     manifest_path = scenario["prefix"] / "install-ownership.json"

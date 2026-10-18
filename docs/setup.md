@@ -425,10 +425,16 @@ release name을 붙인다. 기존 UUID project는 업데이트해도 유지하�
 name을 예약하며, 정확히 같은 입력을 재시도할 때는 기존 name을 재사용한다. 성공한
 scoped update/release 및 `elesim-instance <system> up` 뒤에는 미참조 구버전
 이미지를 자동 정리한다.
-현재 Compose의 최신 이미지, 등록된 instance가 고정한 릴리스 이미지,
-실행·정지 container가 참조하는 이미지와 외부 별칭/registry digest는 보존한다.
+현재 Compose의 최신 이미지, 등록된 instance가 고정한 릴리스 이미지와 정확한
+태그, 실행·정지 container가 참조하는 이미지와 생성 당시 태그는 보존한다.
+같은 image ID에 여러 구버전 이름이 붙어 있어도 참조 없는 소유 태그는 별도로
+회수한다. ID로 생성한 container는 해당 이미지의 태그 하나를 유지하며, 생성
+참조를 확인할 수 없으면 그 이미지의 모든 태그를 보존한다. 외부 별칭/registry
+digest와 개발 이미지·이름 예약은 자동 정리하지 않는다.
 설치 lock 아래 Engine ID·install UUID·project·fingerprint와 소유 목록을 확인하고
-exact image ID만 `docker image rm` (force 없이)으로 제거한다. 미완료 registry나
+검증된 exact 태그를 `docker image rm` (force 없이)으로 제거한다. 이미지가
+미참조일 때만 마지막 태그와 이미지 자체를 제거한다. 삭제 직전 image metadata와
+container 참조를 다시 확인한다. 미완료 registry나
 transaction lease, 소유권 불일치가 있으면 삭제하지 않고 실패를 보고한다.
 BuildKit cache·다른 설치·upstream image는 정리하지 않는다.
 이는 다른 설치를 만드는 것이 아니라, 기존 instance의 릴리스 pin을 유지하는

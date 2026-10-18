@@ -1,4 +1,4 @@
-"""Host-only collection of unreferenced, install-owned release images."""
+"""Host-only collection of unreferenced, install-owned release tags and images."""
 from __future__ import annotations
 
 import argparse
@@ -70,6 +70,25 @@ def _docker(context: str, *args: str) -> str:
     result = subprocess.run(("docker", "--context", context, *args),
                             capture_output=True, text=True, check=True)
     return result.stdout
+
+
+def _container_references(call) -> dict[str, tuple[str, str | None]]:
+    """Keep image identity separate from the name used to create a container."""
+    references = {}
+    for container in call("ps", "-aq", "--no-trunc").splitlines():
+        if not _KEY.fullmatch(container):
+            raise ValueError("invalid Docker container identity")
+        records = json.loads(call("container", "inspect", container))
+        record = records[0]
+        image = record["Image"]
+        if not isinstance(image, str) or not _ID.fullmatch(image):
+            raise ValueError("invalid container image identity")
+        config = record.get("Config") or {}
+        reference = config.get("Image")
+        if reference is not None and not isinstance(reference, str):
+            raise ValueError("invalid container image reference")
+        references[container] = (image, reference or None)
+    return references
 
 
 def available_releases(prefix: Path, *, docker=_docker) -> tuple[ReleaseManifest, ...]:
@@ -157,7 +176,8 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
     """Caller holds the installation lock. Never delete by prefix or prune.
 
     Release manifests remain historical provenance, not a promise that an
-    unregistered historical release's Docker image remains installed.
+    unregistered historical release's Docker image or tag remains installed.
+    Return fully removed image IDs; retained images may lose unused tags.
     """
     _reject_symlinked_ancestors(prefix)
     owner = OwnershipManifest.load(prefix / "install-ownership.json")
@@ -185,6 +205,7 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
     if not current_releases:
         raise ValueError("current build has no published release; refusing image cleanup")
     protected = {value for item in current_releases for value in item.image_ids.values()}
+    protected_tags = set(current_tags)
     pinned_release_keys = set()
     instances = prefix / "instances"
     _reject_symlinked_ancestors(instances)
@@ -213,14 +234,20 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
             raise ValueError("invalid instance release pin; refusing image cleanup")
         pinned_release_keys.add(key)
         protected.update(releases[key].image_ids.values())
+        protected_tags.update(releases[key].role_images.values())
 
     # Inspect all containers, including stopped/foreign ones; label filtering
     # here would miss a different project consuming one of our images.
-    for container in call("ps", "-aq", "--no-trunc").splitlines():
-        if not _KEY.fullmatch(container):
-            raise ValueError("invalid Docker container identity")
-        records = json.loads(call("container", "inspect", container))
-        protected.add(records[0]["Image"])
+    container_references = _container_references(call)
+    unknown_references = set()
+    for image, reference in container_references.values():
+        protected.add(image)
+        if reference is None:
+            unknown_references.add(image)
+        else:
+            protected_tags.add(reference)
+            if ":" not in reference.rsplit("/", 1)[-1] and "@" not in reference:
+                protected_tags.add(reference + ":latest")
 
     owned_tags = set(boundary.local_images)
     release_ids = {image for item in releases.values() for image in item.image_ids.values()}
@@ -241,8 +268,18 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
         tags = set(record.get("RepoTags") or ())
         if record.get("Id") != image:
             raise ValueError("Docker image identity changed")
-        if (image in protected or tags & current_tags
-                or any(tag.startswith("elesim/dev:") for tag in tags)):
+        if any(tag.startswith("elesim/dev:") for tag in tags):
+            continue
+        retained = image in protected or bool(tags & protected_tags)
+        kept_tags = tags & protected_tags
+        if image in unknown_references:
+            kept_tags = set(tags)  # Incomplete container metadata cannot prove a tag is unused.
+        elif retained and tags and not kept_tags:
+            # Containers created by ID need the image, not every historical
+            # name. Keep one stable anchor instead of removing its final tag.
+            kept_tags.add(min(tags))
+        references = tuple(sorted(tags - kept_tags)) if tags else (() if retained else (image,))
+        if not references:
             continue
         if not tags and image not in release_ids:
             continue  # An intermediate/cache image is not a published release.
@@ -276,22 +313,25 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
             )
         ):
             continue  # Preserve foreign or otherwise unowned aliases.
-        plans.append((image, record, tags))
+        plans.append((image, record, references, retained))
     # No mutation until every registry/provenance check has completed. Docker's
     # non-force removal is the final fence against a newly created container.
+    if plans and _container_references(call) != container_references:
+        raise ValueError("Docker container references changed before cleanup")
     removed = []
-    for image, expected, tags in plans:
+    for image, expected, references, retained in plans:
         if json.loads(call("image", "inspect", image))[0] != expected:
             raise ValueError("Docker image metadata changed before cleanup")
-        # Docker refuses ``image rm <id>`` when the same image has multiple
-        # repository tags.  Remove each already-validated owned tag instead;
-        # the final tag removal deletes the image without force, while any
-        # race or unexpected reference still fails closed.
-        references = tuple(sorted(tags)) or (image,)
+        # Remove exact validated tags without force. A retained image keeps
+        # its referenced names or one anchor; only an unprotected image is
+        # allowed to lose its final tag and image data.
         for reference in references:
             call("image", "rm", reference)
-        removed.append(image)
-        print(f"[cleanup] removed unreferenced image: {image}", flush=True)
+            if retained:
+                print(f"[cleanup] removed unreferenced tag: {reference}", flush=True)
+        if not retained:
+            removed.append(image)
+            print(f"[cleanup] removed unreferenced image: {image}", flush=True)
     if boundary.install_name:
         # Query the daemon after removals. A historical manifest is not an
         # ownership claim on a tag that no longer exists; the pinned instance

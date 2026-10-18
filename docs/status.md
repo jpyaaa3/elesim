@@ -6,6 +6,23 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 같은 이미지의 미참조 태그 회수 (2026-10-18)
+
+- `up`/update 뒤 image ID가 보호되면 그 ID의 모든 동물 별칭까지 남던 경로를
+  수정했다. 이미지 보존과 태그 보존을 분리하고 현재 Compose, 등록 instance의
+  exact release tag, 실행·정지 container의 생성 참조만 이름 보호에 사용한다.
+  ID로 생성한 container는 태그 하나를 남기며 참조 metadata가 없으면 전부 보존한다.
+- 설치 UUID·Engine·project·fingerprint·소유 목록, 외부 별칭/digest와 dev 제외를
+  유지한다. 계획 후 container 참조가 달라지거나 삭제 직전 image metadata가
+  바뀌면 중단한다. 같은 ID의 미사용 태그를 제거한 뒤 이름 예약도 반환하고,
+  exact tag가 사라진 과거 release는 실행 가능한 선택 목록에서 제외한다.
+- 누적 재현 **5 failed / 1 passed** → 전체 청소 회귀 통과. canonical dev의
+  청소·이름 예약·release·updater·instance runtime/CLI 집중 검사는 **127 passed**다.
+  두 실제 Docker 설치를 삭제/파일 쓰기 없이 대조한 예행에서는 로컬 20개,
+  원격 31개 태그가 회수 후보였다(원격의 미참조 tools 이미지 1개 포함).
+  실행·정지 container 자체의 삭제는 이 자동 이미지/태그 회수 경로에 넣지 않는다.
+  전체 required/extended 및 isolated release build/verify는 이 범위에서 미실행이다.
+
 ### 보행 전진성·지지 감쇠·착지 예측 TDD (2026-10-18, 설치 기본값 21개 통과)
 
 - 사용자의 before/after 영상 피드백대로 스윙 오차 감소만으로 전체 보행을
