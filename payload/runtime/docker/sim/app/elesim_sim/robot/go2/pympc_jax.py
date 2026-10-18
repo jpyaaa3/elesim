@@ -62,6 +62,34 @@ def _bounded_integer(name: str, value: int, lower: int, upper: int) -> int:
     return int(value)
 
 
+class _MppiInputLayout:
+    """One owned host packet; slicing/reshaping is compiled into the GPU solve."""
+
+    def __init__(self, horizon: int) -> None:
+        # x, reference, feet, contacts, loads, mass, inertia, inverse,
+        # use_mean, elapsed, hips, geometry, force_floor, landing_search,
+        # motor_maps, motor_offsets, motor_limits. Mean/key stay on device.
+        shapes = ((12,), (12,), (horizon, 4, 3), (horizon, 4), (horizon, 4), (),
+                  (3, 3), (3, 3), (), (), (4, 3), (), (), (4,),
+                  (horizon, 4, 6, 3), (horizon, 4, 6), (horizon, 4, 6))
+        offset, parts = 0, []
+        for shape in shapes:
+            end = offset + int(np.prod(shape))
+            parts.append((slice(offset, end), shape))
+            offset = end
+        self.parts = tuple(parts)
+
+    def pack(self, values) -> np.ndarray:
+        if len(values) != len(self.parts):
+            raise ValueError('MPPI input packet requires all 17 host fields')
+        # A fresh array avoids aliasing caller inputs or an in-flight upload.
+        return np.concatenate([np.asarray(value, dtype=np.float32).reshape(shape).reshape(-1)
+                               for value, (_, shape) in zip(values, self.parts)])
+
+    def unpack(self, packet):
+        return tuple(packet[span].reshape(shape) for span, shape in self.parts)
+
+
 class JaxMppiSolver:
     """Bounded parallel force rollouts; no training or runtime downloads."""
 
@@ -97,8 +125,9 @@ class JaxMppiSolver:
         if self.device.platform != "gpu":
             raise RuntimeError("jax_mppi did not select a GPU")
         self._jax, self._jnp = jax, jnp
+        self._input_layout = _MppiInputLayout(self.horizon)
         self._optimize = jax.jit(
-            self._make_optimizer(friction, max_normal_force_n), device=self.device,
+            self._make_packed_optimizer(friction, max_normal_force_n), device=self.device,
         )
         self.reset()
         began = time.perf_counter()
@@ -120,7 +149,23 @@ class JaxMppiSolver:
 
     def reset(self) -> None:
         self._mean = None
+        self._zero_mean = self._jax.device_put(
+            np.zeros((self.horizon, 4, 3), dtype=np.float32), self.device)
         self._key = self._jax.device_put(np.array([0, self.seed], dtype=np.uint32), self.device)
+
+    def _make_packed_optimizer(self, friction: float, force_cap: float):
+        optimize = self._make_optimizer(friction, force_cap)
+        layout, jp = self._input_layout, self._jnp
+
+        def packed_optimize(packet, mean, key):
+            (x, reference, feet, contacts, loads, mass, inertia, inverse,
+             use_mean, elapsed, hips, geometry, force_floor, landing_search,
+             motor_maps, motor_offsets, motor_limits) = layout.unpack(packet)
+            return optimize(x, reference, feet, contacts, loads, mass, inertia, inverse,
+                            mean, use_mean.astype(jp.bool_), elapsed, key, hips, geometry,
+                            force_floor, landing_search, motor_maps, motor_offsets, motor_limits)
+
+        return packed_optimize
 
     def _make_optimizer(self, friction: float, force_cap: float):
         jax, jp = self._jax, self._jnp
@@ -334,12 +379,12 @@ class JaxMppiSolver:
         mean = self._mean
         fresh = mean is None or elapsed_s >= self.horizon*self.dt
         if mean is None:
-            mean = np.zeros((self.horizon, 4, 3), dtype=np.float32)
+            mean = self._zero_mean
         values = (x, ref, feet_horizon, contact, loads, np.float32(mass), inertia,
-                  np.linalg.inv(inertia), mean, np.bool_(not fresh), np.float32(elapsed_s), self._key,
+                  np.linalg.inv(inertia), np.bool_(not fresh), np.float32(elapsed_s),
                   hips, geometry, force_floor, landing_search, motor_maps, motor_offsets, motor_limits)
-        args = [self._jax.device_put(value, self.device) for value in values]
-        solution, key, cost = self._optimize(*args)
+        packet = self._jax.device_put(self._input_layout.pack(values), self.device)
+        solution, key, cost = self._optimize(packet, mean, self._key)
         # D2H is intentional: Genesis torque conversion is on CPU. Waiting
         # here includes GPU execution/transfer in the caller's solve timing.
         forces = np.asarray(solution)

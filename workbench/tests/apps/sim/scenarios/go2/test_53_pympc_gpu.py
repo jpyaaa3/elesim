@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput, support_load_horizon
-from elesim_sim.robot.go2.pympc_jax import JaxMppiSolver
+from elesim_sim.robot.go2.pympc_jax import JaxMppiSolver, _MppiInputLayout
 
 
 def standing(mass=18., time=0.):
@@ -253,7 +253,8 @@ def cpu_math():
     kernel.samples, kernel.iterations, kernel.seed = 64, 1, 42
     kernel._jax, kernel._jnp = jax, jnp
     kernel.device = jax.devices('cpu')[0]
-    kernel._optimize = jax.jit(kernel._make_optimizer(.55, 180.), device=kernel.device)
+    kernel._input_layout = _MppiInputLayout(kernel.horizon)
+    kernel._optimize = jax.jit(kernel._make_packed_optimizer(.55, 180.), device=kernel.device)
     kernel.reset()
     return kernel
 
@@ -405,9 +406,12 @@ def test_future_stance_support_uses_preview_only_after_liftoff():
     adapter.device = object()
     adapter._key = np.array([0, 42], dtype=np.uint32)
     adapter._mean = None
+    adapter._zero_mean = np.zeros((12, 4, 3), dtype=np.float32)
+    adapter._input_layout = _MppiInputLayout(adapter.horizon)
     seen = {}
 
-    def optimize(x, ref, feet, contacts, *rest):
+    def optimize(packet, mean, key):
+        _, _, feet, contacts, *_ = adapter._input_layout.unpack(packet)
         seen['feet'] = np.asarray(feet)
         seen['contacts'] = np.asarray(contacts)
         return np.zeros((12, 4, 3)), adapter._key, 0.

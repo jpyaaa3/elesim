@@ -432,6 +432,10 @@ GPU solver를 같은 상태/접촉력 경계로 연결한다. gait, swing, paylo
 토크 제한과 stop/reset은 같은 controller가 소유한다. GPU solver의 SRBD
 rollout은 현재 질량·body inertia를 매 solve의 입력으로 받으며 JIT 상수로
 고정하지 않는다. backend는 시작 시 선택하고 GPU 실패를 CPU 성공으로 숨기지 않는다.
+MPPI의 CPU 입력 17개는 한 연속 float32 배열로 묶어 한 번 전달하고, JIT 안에서
+기존 shape로 복원한다. 이전 force trajectory와 uint32 난수 상태는 GPU에 유지한다.
+World 좌표는 기존처럼 float64에서 원점을 뺀 뒤 float32로 변환하며, 준비한
+배열은 매 solve가 소유하므로 다음 입력이나 비동기 전송과 저장소를 공유하지 않는다.
 GPU 경로는 시작 시 bounded sampling kernel을 JIT/동기화한 뒤 readiness를
 진행한다. JIT는 설치된 코드만 사용하며 runtime download나 model rebuild가 아니다.
 MPPI는 컨테이너에 보이는 첫 CUDA GPU를 사용한다. 여러 GPU가 노출된 inherit
