@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from elesim_setup import image_cleanup
-from elesim_setup.instance_identity import image_reference, project_name
+from elesim_setup.instance_identity import (
+    image_reference,
+    instance_container_name,
+    project_name,
+    service_key,
+)
 from elesim_setup.ownership import DockerOwnership, OwnershipManifest, write_ownership_manifest
 from elesim_setup.releases import ReleaseManifest, publish_release, release_key, runtime_data_digest
 from elesim_setup.readable_names import reserve_role_release_name, role_release_reservation_identity, lookup_name
@@ -24,6 +29,7 @@ def scenario(tmp_path):
     (prefix / "containers").mkdir()
     compose = prefix / "containers/compose.yaml"
     compose.write_text("services: {}\n")
+    (prefix / "containers/compose.instances.yaml").write_text("services: {}\n")
     data = tmp_path / "data"
     data.mkdir()
     releases, images = [], {}
@@ -49,13 +55,18 @@ def scenario(tmp_path):
                                "test-context", "engine-a"),
     )
     state = {"prefix": prefix, "releases": releases, "images": images, "containers": {},
-             "removed": [], "engine": "engine-a", "current": releases[1].role_images["pilot"]}
+             "container_metadata": {}, "services": {}, "commands": [],
+             "removed": [], "removed_containers": [], "engine": "engine-a",
+             "current": releases[1].role_images["pilot"]}
 
     def docker(context, *args):
         assert context == "test-context"
+        state["commands"].append(args)
         if args[0] == "info":
             return state["engine"]
         if args[0] == "compose":
+            if args[-3:] == ("config", "--format", "json"):
+                return json.dumps({"services": state["services"]})
             assert args[-2:] == ("config", "--images")
             return state["current"]
         if args[0] == "ps":
@@ -64,10 +75,23 @@ def scenario(tmp_path):
         if args[:2] == ("container", "inspect"):
             image = state["containers"][args[2]]
             reference = state.get("container_references", {}).get(args[2], image)
-            record = {"Image": image}
+            record = {"Id": args[2], "Image": image}
             if reference is not None:
                 record["Config"] = {"Image": reference}
+            metadata = state["container_metadata"].get(args[2], {})
+            for key, value in metadata.items():
+                if key == "Config" and isinstance(value, dict):
+                    record[key] = {**record.get(key, {}), **value}
+                else:
+                    record[key] = value
             return json.dumps([record])
+        if args[:2] == ("container", "rm"):
+            assert len(args) == 3  # Never force removal or remove attached volumes.
+            container = args[2]
+            assert container in state["containers"]
+            state["removed_containers"].append(container)
+            del state["containers"][container]
+            return ""
         if args[:2] == ("image", "ls"):
             if args[2:] == ("--format", "{{.Repository}}:{{.Tag}}"):
                 return "\n".join(tag for record in images.values() for tag in record["RepoTags"])
@@ -98,6 +122,50 @@ def scenario(tmp_path):
 
 def collect(state):
     return image_cleanup.collect(state["prefix"], docker=state["docker"])
+
+
+def register_system(state, release, *, system="experiment", endpoints=None):
+    directory = state["prefix"] / "instances" / system
+    directory.mkdir()
+    (directory / "state.json").write_text(json.dumps({
+        "schema_version": 3,
+        "system_id": system,
+        "release_key": release_key(release),
+        "endpoints": endpoints if endpoints is not None else [
+            {"role": "pilot", "endpoint_id": "pilot_one"},
+        ],
+    }))
+    return directory
+
+
+def owned_container(state, *, container="e" * 64, system="retired", endpoint="pilot_old",
+                    name=None, oneoff="True", historical=False, status="exited"):
+    owner = OwnershipManifest.load(state["prefix"] / "install-ownership.json")
+    old = state["releases"][0]
+    labels = {
+        "io.elesim.install_uuid": INSTALL,
+        "com.docker.compose.project": owner.docker.project,
+        "com.docker.compose.project.config_files": str(
+            state["prefix"] / "containers" / (
+                "compose.yaml" if historical else "compose.instances.yaml"
+            )
+        ),
+        "com.docker.compose.service": "pilot" if historical else service_key(system, endpoint),
+        "com.docker.compose.oneoff": oneoff,
+    }
+    if not historical:
+        labels.update({
+            "io.elesim.system_id": system,
+            "io.elesim.endpoint_id": endpoint,
+            "io.elesim.role": "pilot",
+        })
+    state["containers"][container] = old.image_ids["pilot"]
+    state["container_metadata"][container] = {
+        "Name": "/" + (name or "operator-chosen-old-run"),
+        "Config": {"Image": old.role_images["pilot"], "Labels": labels},
+        "State": {"Status": status, "Running": False, "Paused": False, "Restarting": False},
+    }
+    return container
 
 
 def owned_named_alias(state, image_id, name):
@@ -140,11 +208,7 @@ def test_shared_image_preserves_pinned_tag_and_retires_unused_release(scenario):
                      role_images={"pilot": unused_tag})
     for release in (pinned, unused):
         publish_release(scenario["prefix"], release, data)
-    directory = scenario["prefix"] / "instances/experiment"
-    directory.mkdir()
-    (directory / "state.json").write_text(json.dumps({
-        "schema_version": 3, "system_id": "experiment", "release_key": release_key(pinned),
-    }))
+    register_system(scenario, pinned)
     registry = scenario["prefix"] / "containers/image-names.json"
     unused_input = (unused.source_revision, "pilot", "b" * 64, unused.runtime_data_digest)
     assert reserve_role_release_name(registry, *unused_input,
@@ -311,11 +375,7 @@ def test_available_releases_rejects_reused_tag_with_different_image_id(scenario)
 
 def test_registered_stopped_system_keeps_its_old_release(scenario):
     old = scenario["releases"][0]
-    directory = scenario["prefix"] / "instances/experiment"
-    directory.mkdir()
-    (directory / "state.json").write_text(json.dumps({
-        "schema_version": 3, "system_id": "experiment", "release_key": release_key(old),
-    }))
+    register_system(scenario, old)
     assert collect(scenario) == ()
 
 
@@ -377,6 +437,7 @@ def test_owned_tag_with_foreign_labels_fails_before_removal(scenario):
 
 @pytest.mark.parametrize("bad", ["symlink", "malformed", "lease", "staging"])
 def test_incomplete_registry_defers_all_deletion(scenario, bad):
+    owned_container(scenario)
     root = scenario["prefix"] / "instances"
     if bad == "lease":
         (root / ".locks/system.lease").write_text("{}")
@@ -390,6 +451,7 @@ def test_incomplete_registry_defers_all_deletion(scenario, bad):
     with pytest.raises(ValueError):
         collect(scenario)
     assert not scenario["removed"]
+    assert not scenario["removed_containers"]
 
 
 def test_unpublished_current_build_cannot_collect_previous_release(scenario):
@@ -410,7 +472,8 @@ def test_replacing_last_instance_pin_allows_collection(scenario):
     old, current = scenario["releases"]
     directory = scenario["prefix"] / "instances/experiment"
     directory.mkdir()
-    state = {"schema_version": 3, "system_id": "experiment", "release_key": release_key(old)}
+    state = {"schema_version": 3, "system_id": "experiment", "release_key": release_key(old),
+             "endpoints": [{"role": "pilot", "endpoint_id": "pilot_one"}]}
     path = directory / "state.json"
     path.write_text(json.dumps(state))
     assert collect(scenario) == ()
@@ -522,4 +585,344 @@ def test_docker_removal_refusal_is_not_forced_or_ignored(scenario):
     scenario["docker"] = docker
     with pytest.raises(subprocess.CalledProcessError):
         collect(scenario)
+    assert not scenario["removed"]
+
+
+@pytest.mark.parametrize("status", ["exited", "dead"])
+def test_stopped_owned_orphan_is_removed_before_its_image(scenario, status):
+    container = owned_container(scenario, status=status)
+    old = scenario["releases"][0]
+
+    assert collect(scenario) == (old.image_ids["pilot"],)
+    assert scenario["removed_containers"] == [container]
+    removals = [args for args in scenario["commands"] if args[:2] in {
+        ("container", "rm"), ("image", "rm"),
+    }]
+    assert removals[0] == ("container", "rm", container)
+    assert collect(scenario) == ()
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("Status", "created"), ("Status", "running"), ("Status", "paused"),
+    ("Status", "restarting"), ("Status", "removing"), ("Status", None),
+    ("Running", True), ("Paused", True), ("Restarting", True),
+    ("Running", None), ("Paused", "false"), ("Restarting", 0),
+    ("Running", "missing"), ("Paused", "missing"), ("Restarting", "missing"),
+])
+def test_orphan_requires_explicitly_inactive_completed_state(scenario, field, value):
+    container = owned_container(scenario)
+    state = scenario["container_metadata"][container]["State"]
+    if value == "missing":
+        del state[field]
+    else:
+        state[field] = value
+
+    assert collect(scenario) == ()
+    assert not scenario["removed_containers"]
+    assert container in scenario["containers"]
+
+
+@pytest.mark.parametrize(("label", "value"), [
+    ("io.elesim.install_uuid", "foreign"),
+    ("com.docker.compose.project", "foreign-project"),
+    ("com.docker.compose.project.config_files", "/elsewhere/compose.yaml"),
+    ("com.docker.compose.project.config_files", ""),
+    ("com.docker.compose.service", "pilot"),
+    ("com.docker.compose.service", "missing"),
+    ("io.elesim.system_id", "../retired"),
+    ("io.elesim.endpoint_id", "unsafe/endpoint"),
+    ("io.elesim.role", "robot"), ("io.elesim.role", "dev"),
+    ("io.elesim.role", "tools"), ("io.elesim.role", "coturn"),
+    ("io.elesim.role", "sim"),
+    ("io.elesim.system_id", "missing"),
+    ("io.elesim.endpoint_id", "missing"),
+    ("io.elesim.role", "missing"),
+    ("io.elesim.service_kind", "coturn"),
+    ("io.elesim.service_kind", "tailscale"),
+    ("io.elesim.service_kind", ""),
+])
+def test_orphan_ownership_and_runtime_role_must_be_complete(scenario, label, value):
+    container = owned_container(scenario)
+    labels = scenario["container_metadata"][container]["Config"]["Labels"]
+    if value == "missing":
+        del labels[label]
+    else:
+        labels[label] = value
+
+    assert collect(scenario) == ()
+    assert not scenario["removed_containers"]
+
+
+@pytest.mark.parametrize("files", [
+    ("compose.yaml",), ("compose.instances.yaml",),
+    ("compose.yaml", "compose.instances.yaml"),
+])
+def test_scoped_orphan_requires_aggregate_within_owned_compose_file_boundaries(scenario, files):
+    container = owned_container(scenario)
+    labels = scenario["container_metadata"][container]["Config"]["Labels"]
+    labels["com.docker.compose.project.config_files"] = ",".join(
+        str(scenario["prefix"] / "containers" / name) for name in files
+    )
+
+    scoped = "compose.instances.yaml" in files
+    expected = (scenario["releases"][0].image_ids["pilot"],) if scoped else ()
+    assert collect(scenario) == expected
+    assert scenario["removed_containers"] == ([container] if scoped else [])
+
+
+@pytest.mark.parametrize("suffix", [",/foreign/compose.yaml", ".backup"])
+def test_orphan_rejects_extra_or_similarly_named_compose_file(scenario, suffix):
+    container = owned_container(scenario)
+    labels = scenario["container_metadata"][container]["Config"]["Labels"]
+    labels["com.docker.compose.project.config_files"] += suffix
+
+    assert collect(scenario) == ()
+    assert not scenario["removed_containers"]
+
+
+@pytest.mark.parametrize("oneoff", [False, True])
+def test_declared_exact_container_name_is_preserved_even_when_stopped(scenario, oneoff):
+    name = "currently-declared-pilot"
+    scenario["services"] = {"pilot": {"container_name": name}}
+    container = owned_container(scenario, name=name, oneoff=str(oneoff))
+
+    assert collect(scenario) == ()
+    assert container in scenario["containers"]
+    assert not scenario["removed_containers"]
+
+
+def test_currently_declared_base_service_normal_container_is_preserved(scenario):
+    scenario["services"] = {"pilot": {}}
+    owned_container(scenario, historical=True, oneoff="False")
+
+    assert collect(scenario) == ()
+    assert not scenario["removed_containers"]
+
+
+def test_completed_historical_base_oneoff_is_removed_while_service_is_declared(scenario):
+    scenario["services"] = {"pilot": {"container_name": "current-pilot"}}
+    container = owned_container(scenario, historical=True, name="human-chosen-debug-run")
+
+    assert collect(scenario) == (scenario["releases"][0].image_ids["pilot"],)
+    assert scenario["removed_containers"] == [container]
+
+
+@pytest.mark.parametrize("oneoff", ["False", "", None, "missing"])
+def test_historical_base_container_without_oneoff_proof_is_preserved(scenario, oneoff):
+    container = owned_container(scenario, historical=True, oneoff=oneoff)
+    labels = scenario["container_metadata"][container]["Config"]["Labels"]
+    if oneoff == "missing":
+        del labels["com.docker.compose.oneoff"]
+
+    assert collect(scenario) == ()
+    assert not scenario["removed_containers"]
+
+
+@pytest.mark.parametrize("service", ["dev", "tools", "coturn", "tailscale", "robot"])
+def test_historical_infrastructure_and_nonruntime_oneoffs_are_preserved(scenario, service):
+    container = owned_container(scenario, historical=True)
+    scenario["container_metadata"][container]["Config"]["Labels"][
+        "com.docker.compose.service"
+    ] = service
+
+    assert collect(scenario) == ()
+    assert not scenario["removed_containers"]
+
+
+@pytest.mark.parametrize("naming", ["hash-v1", "system-v1"])
+def test_registered_endpoint_exact_container_name_is_preserved(scenario, naming):
+    old, current = scenario["releases"]
+    if naming == "system-v1":
+        owned_named_alias(scenario, current.image_ids["pilot"], "amber_falcon")
+    path = scenario["prefix"] / "install-ownership.json"
+    owner = OwnershipManifest.load(path)
+    owner = replace(owner, docker=replace(owner.docker, container_naming=naming)).validate()
+    path.write_text(json.dumps(owner.to_dict()))
+    register_system(scenario, old)
+    name = instance_container_name(
+        INSTALL, "experiment", "pilot", "pilot_one",
+        install_name=owner.docker.install_name, naming=naming,
+    )
+    # A preserved endpoint name is protected even if an old oneoff's labels
+    # describe an endpoint which has since been replaced in the registry.
+    container = owned_container(scenario, name=name)
+
+    assert collect(scenario) == ()
+    assert container in scenario["containers"]
+    assert not scenario["removed_containers"]
+
+
+@pytest.mark.parametrize("schema", [2, 3])
+def test_registered_coturn_endpoint_identifier_preserves_exact_runtime_container(scenario, schema):
+    directory = register_system(scenario, scenario["releases"][0], endpoints=[
+        {"role": "pilot", "endpoint_id": "coturn"},
+    ])
+    path = directory / "state.json"
+    state = json.loads(path.read_text())
+    state["schema_version"] = schema
+    path.write_text(json.dumps(state))
+    name = instance_container_name(INSTALL, "experiment", "pilot", "coturn")
+    container = owned_container(scenario, name=name)
+
+    assert collect(scenario) == ()
+    assert container in scenario["containers"]
+    assert not scenario["removed_containers"]
+
+
+def test_registered_endpoint_custom_name_oneoff_is_still_collected(scenario):
+    register_system(scenario, scenario["releases"][0])
+    container = owned_container(
+        scenario, system="experiment", endpoint="pilot_one", name="debug-chosen-name",
+    )
+
+    assert collect(scenario) == ()  # The registered release remains pinned.
+    assert scenario["removed_containers"] == [container]
+
+
+@pytest.mark.parametrize("canonical", [False, True])
+def test_normal_scoped_orphan_requires_its_exact_derived_name(scenario, canonical):
+    name = instance_container_name(INSTALL, "retired", "pilot", "pilot_old")
+    container = owned_container(
+        scenario, name=name if canonical else "custom-normal-container", oneoff="False",
+    )
+
+    expected = (scenario["releases"][0].image_ids["pilot"],) if canonical else ()
+    assert collect(scenario) == expected
+    assert scenario["removed_containers"] == ([container] if canonical else [])
+
+
+def test_foreign_container_with_install_name_prefix_is_preserved(scenario):
+    container = "e" * 64
+    scenario["containers"][container] = scenario["releases"][0].image_ids["pilot"]
+    scenario["container_metadata"][container] = {
+        "Name": "/elesim-" + INSTALL.replace("-", "") + "-pilot-old",
+        "State": {"Status": "exited", "Running": False, "Paused": False, "Restarting": False},
+    }
+
+    assert collect(scenario) == ()
+    assert not scenario["removed_containers"]
+
+
+def test_surviving_container_protects_shared_image_and_exact_tag(scenario):
+    old = scenario["releases"][0]
+    orphan = owned_container(scenario)
+    survivor = "f" * 64
+    scenario["containers"][survivor] = old.image_ids["pilot"]
+    scenario["container_references"] = {survivor: old.role_images["pilot"]}
+
+    assert collect(scenario) == ()
+    assert scenario["removed_containers"] == [orphan]
+    assert scenario["images"][old.image_ids["pilot"]]["RepoTags"] == [old.role_images["pilot"]]
+    assert not scenario["removed"]
+
+
+@pytest.mark.parametrize("directories", [
+    ("logs",), ("security",), ("secrets",), ("logs", "security", "secrets"),
+])
+def test_removed_system_with_only_retained_directories_does_not_block_cleanup(scenario, directories):
+    root = scenario["prefix"] / "instances/removed_system"
+    for name in directories:
+        retained = root / name
+        retained.mkdir(parents=True)
+        (retained / "keep.txt").write_text("operator-retained data")
+    container = owned_container(scenario)
+
+    assert collect(scenario) == (scenario["releases"][0].image_ids["pilot"],)
+    assert scenario["removed_containers"] == [container]
+    assert all((root / name / "keep.txt").is_file() for name in directories)
+
+
+@pytest.mark.parametrize("endpoints", [
+    [], None, [{"role": "robot", "endpoint_id": "robot_one"}],
+    [{"role": "pilot", "endpoint_id": "unsafe/id"}],
+    [{"role": "pilot"}],
+    [{"role": "pilot", "endpoint_id": "pilot_one"},
+     {"role": "pilot", "endpoint_id": "pilot_two"}],
+])
+def test_invalid_registry_endpoints_abort_before_orphan_or_image_removal(scenario, endpoints):
+    directory = register_system(scenario, scenario["releases"][0])
+    path = directory / "state.json"
+    state = json.loads(path.read_text())
+    if endpoints is None:
+        del state["endpoints"]
+    else:
+        state["endpoints"] = endpoints
+    path.write_text(json.dumps(state))
+    owned_container(scenario)
+
+    with pytest.raises(ValueError):
+        collect(scenario)
+    assert not scenario["removed_containers"]
+    assert not scenario["removed"]
+
+
+def test_bad_image_provenance_aborts_before_orphan_removal(scenario):
+    container = owned_container(scenario)
+    image = scenario["images"][scenario["containers"][container]]
+    image["Config"]["Labels"]["io.elesim.install_uuid"] = "foreign"
+
+    with pytest.raises(ValueError, match="ownership mismatch"):
+        collect(scenario)
+    assert not scenario["removed_containers"]
+    assert not scenario["removed"]
+
+
+def test_container_metadata_race_aborts_before_orphan_or_image_removal(scenario):
+    container = owned_container(scenario)
+    original = scenario["docker"]
+    polls = 0
+
+    def docker(context, *args):
+        nonlocal polls
+        if args == ("ps", "-aq", "--no-trunc"):
+            polls += 1
+            if polls == 2:
+                scenario["container_metadata"][container]["State"]["Running"] = True
+        return original(context, *args)
+
+    scenario["docker"] = docker
+    with pytest.raises(ValueError, match="container.*changed"):
+        collect(scenario)
+    assert not scenario["removed_containers"]
+    assert not scenario["removed"]
+
+
+def test_image_metadata_race_aborts_before_orphan_removal(scenario):
+    owned_container(scenario)
+    old = scenario["releases"][0].image_ids["pilot"]
+    original = scenario["docker"]
+    polls = 0
+
+    def docker(context, *args):
+        nonlocal polls
+        if args == ("image", "inspect", old):
+            polls += 1
+            if polls == 2:
+                scenario["images"][old]["RepoTags"].append("research/backup:keep")
+        return original(context, *args)
+
+    scenario["docker"] = docker
+    with pytest.raises(ValueError, match="metadata changed"):
+        collect(scenario)
+    assert not scenario["removed_containers"]
+    assert not scenario["removed"]
+
+
+def test_orphan_removal_refusal_propagates_without_force_retry(scenario):
+    container = owned_container(scenario)
+    original = scenario["docker"]
+    attempts = []
+
+    def docker(context, *args):
+        if args[:2] == ("container", "rm"):
+            attempts.append(args)
+            raise subprocess.CalledProcessError(1, args, stderr="container is in use")
+        return original(context, *args)
+
+    scenario["docker"] = docker
+    with pytest.raises(subprocess.CalledProcessError):
+        collect(scenario)
+    assert attempts == [("container", "rm", container)]
+    assert container in scenario["containers"]
+    assert not scenario["removed_containers"]
     assert not scenario["removed"]

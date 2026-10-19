@@ -1,4 +1,4 @@
-"""Host-only collection of unreferenced, install-owned release tags and images."""
+"""Host-only collection of stopped owned orphans and unused release images."""
 from __future__ import annotations
 
 import argparse
@@ -15,11 +15,15 @@ from .ownership import OwnershipManifest
 from .releases import ReleaseManifest, list_releases, release_key, _reject_symlinked_ancestors
 from .operation_lock import _safe_lock
 from .readable_names import reclaim_unused_image_names
+from .instance_identity import instance_container_name, service_key
 
 
 _ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _KEY = re.compile(r"[0-9a-f]{64}\Z")
 _SYSTEM = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
+_ENDPOINT = re.compile(r"[a-z][a-z0-9_-]{0,62}\Z")
+_CONTAINER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
+_ROLES = frozenset(("pilot", "sim", "ui"))
 _NAMED_IMAGE = re.compile(
     r"^elesim/[a-z0-9][a-z0-9_.-]{0,127}:([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))-([a-z]{2,16}(?:_[a-z]{2,16}|[0-9]{0,6}))$"
 )
@@ -72,14 +76,21 @@ def _docker(context: str, *args: str) -> str:
     return result.stdout
 
 
-def _container_references(call) -> dict[str, tuple[str, str | None]]:
-    """Keep image identity separate from the name used to create a container."""
-    references = {}
+def _container_records(call) -> dict[str, dict]:
+    records = {}
     for container in call("ps", "-aq", "--no-trunc").splitlines():
         if not _KEY.fullmatch(container):
             raise ValueError("invalid Docker container identity")
-        records = json.loads(call("container", "inspect", container))
-        record = records[0]
+        inspected = json.loads(call("container", "inspect", container))
+        if not isinstance(inspected, list) or len(inspected) != 1 or not isinstance(inspected[0], dict):
+            raise ValueError("invalid Docker container metadata")
+        records[container] = inspected[0]
+    return records
+
+
+def _record_references(records: dict[str, dict]) -> dict[str, tuple[str, str | None]]:
+    references = {}
+    for container, record in records.items():
         image = record["Image"]
         if not isinstance(image, str) or not _ID.fullmatch(image):
             raise ValueError("invalid container image identity")
@@ -89,6 +100,87 @@ def _container_references(call) -> dict[str, tuple[str, str | None]]:
             raise ValueError("invalid container image reference")
         references[container] = (image, reference or None)
     return references
+
+
+def _container_references(call) -> dict[str, tuple[str, str | None]]:
+    """Every surviving container protects its image and original tag."""
+    return _record_references(_container_records(call))
+
+
+def _current_services(call, boundary) -> dict:
+    configured = json.loads(call("compose", "-p", boundary.project, "-f", boundary.compose_file,
+                                 "config", "--format", "json"))
+    if not isinstance(configured, dict) or not isinstance(configured.get("services"), dict):
+        raise ValueError("invalid current Compose service metadata")
+    services = configured["services"]
+    for service in services.values():
+        if not isinstance(service, dict):
+            raise ValueError("invalid current Compose service metadata")
+        name = service.get("container_name")
+        if name is not None and (not isinstance(name, str) or not _CONTAINER_NAME.fullmatch(name)):
+            raise ValueError("invalid current Compose container name")
+    return services
+
+
+def _is_stopped_orphan(container, record, *, owner, services, protected_names, role_images) -> bool:
+    """Require exact provenance; readable names alone never authorize removal."""
+    if record.get("Id") != container:
+        return False
+    name = record.get("Name")
+    if not isinstance(name, str) or not name.startswith("/") or not _CONTAINER_NAME.fullmatch(name[1:]):
+        return False
+    name = name[1:]
+    if name in protected_names:
+        return False
+    state = record.get("State")
+    if (not isinstance(state, dict) or state.get("Status") not in {"exited", "dead"}
+            or any(state.get(flag) is not False for flag in ("Running", "Paused", "Restarting"))):
+        return False
+    config = record.get("Config")
+    labels = config.get("Labels") if isinstance(config, dict) else None
+    boundary = owner.docker
+    if (not isinstance(labels, dict) or labels.get("io.elesim.install_uuid") != owner.install_uuid
+            or labels.get("com.docker.compose.project") != boundary.project
+            or labels.get("io.elesim.service_kind") is not None):
+        return False
+    files = labels.get("com.docker.compose.project.config_files")
+    if not isinstance(files, str):
+        return False
+    paths = set(files.split(","))
+    approved = {boundary.compose_file, str(owner.prefix_path / "containers/compose.instances.yaml")}
+    if not paths or not paths <= approved:
+        return False
+    service = labels.get("com.docker.compose.service")
+    oneoff = labels.get("com.docker.compose.oneoff")
+    if not isinstance(service, str) or not isinstance(oneoff, str) or oneoff.lower() not in {"true", "false"}:
+        return False
+    oneoff = oneoff.lower() == "true"
+    if boundary.compose_file in paths and service in services and not oneoff:
+        return False  # A declared base service may use Compose's automatic name.
+    system, endpoint, role = (labels.get(key) for key in (
+        "io.elesim.system_id", "io.elesim.endpoint_id", "io.elesim.role"))
+    if all(value is None for value in (system, endpoint, role)):
+        # Historical diagnostics used the base role service before scoped
+        # endpoint labels existed. Only completed Compose one-offs qualify.
+        if boundary.compose_file not in paths or service not in _ROLES or not oneoff:
+            return False
+        role = service
+    else:
+        if (not isinstance(system, str) or not _SYSTEM.fullmatch(system)
+                or not isinstance(endpoint, str) or not _ENDPOINT.fullmatch(endpoint)
+                or endpoint == "coturn" or not isinstance(role, str) or role not in _ROLES):
+            return False
+        expected = instance_container_name(owner.install_uuid, system, role, endpoint,
+                                          install_name=boundary.install_name, naming=boundary.container_naming)
+        if not oneoff and name != expected:
+            return False
+        scoped = str(owner.prefix_path / "containers/compose.instances.yaml")
+        if service == service_key(system, endpoint):
+            if scoped not in paths:
+                return False
+        elif service != role or boundary.compose_file not in paths or not oneoff:
+            return False
+    return record.get("Image") in role_images.get(role, set())
 
 
 def available_releases(prefix: Path, *, docker=_docker) -> tuple[ReleaseManifest, ...]:
@@ -175,6 +267,7 @@ def _record_available_releases(prefix: Path, releases: tuple[ReleaseManifest, ..
 def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
     """Caller holds the installation lock. Never delete by prefix or prune.
 
+    Remove proven stopped orphans before collecting the images they held.
     Release manifests remain historical provenance, not a promise that an
     unregistered historical release's Docker image or tag remains installed.
     Return fully removed image IDs; retained images may lose unused tags.
@@ -204,6 +297,8 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
                                for role, tag in item.role_images.items())]
     if not current_releases:
         raise ValueError("current build has no published release; refusing image cleanup")
+    services = _current_services(call, boundary)
+    protected_names = {service["container_name"] for service in services.values() if service.get("container_name")}
     protected = {value for item in current_releases for value in item.image_ids.values()}
     protected_tags = set(current_tags)
     pinned_release_keys = set()
@@ -223,6 +318,11 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
             raise ValueError("unknown instance registry entry; refusing image cleanup")
         state_path = child / "state.json"
         _reject_symlinked_ancestors(state_path)
+        if not state_path.exists():
+            retained = tuple(child.iterdir())
+            if retained and all(not path.is_symlink() and path.is_dir()
+                                and path.name in {"security", "logs", "secrets"} for path in retained):
+                continue
         if not state_path.is_file() or state_path.stat().st_size > 1024 * 1024:
             raise ValueError("invalid instance state; refusing image cleanup")
         state = json.loads(state_path.read_text())
@@ -235,10 +335,34 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
         pinned_release_keys.add(key)
         protected.update(releases[key].image_ids.values())
         protected_tags.update(releases[key].role_images.values())
+        endpoints = state.get("endpoints")
+        if not isinstance(endpoints, list) or not endpoints:
+            raise ValueError("invalid instance endpoint registry; refusing cleanup")
+        roles, identities = set(), set()
+        for endpoint in endpoints:
+            if not isinstance(endpoint, dict) or set(endpoint) != {"role", "endpoint_id"}:
+                raise ValueError("invalid instance endpoint registry; refusing cleanup")
+            role, identity = endpoint["role"], endpoint["endpoint_id"]
+            if (not isinstance(role, str) or role not in _ROLES or role not in releases[key].role_images
+                    or not isinstance(identity, str) or not _ENDPOINT.fullmatch(identity)
+                    or role in roles or identity in identities):
+                raise ValueError("invalid instance endpoint registry; refusing cleanup")
+            roles.add(role)
+            identities.add(identity)
+            protected_names.add(instance_container_name(owner.install_uuid, child.name, role, identity,
+                                                        install_name=boundary.install_name, naming=boundary.container_naming))
 
     # Inspect all containers, including stopped/foreign ones; label filtering
     # here would miss a different project consuming one of our images.
-    container_references = _container_references(call)
+    records = _container_records(call)
+    original_references = _record_references(records)
+    role_images = {role: {item.image_ids[role] for item in releases.values() if role in item.image_ids}
+                   for role in _ROLES}
+    orphan_plans = {container: record for container, record in records.items()
+                    if _is_stopped_orphan(container, record, owner=owner, services=services,
+                                          protected_names=protected_names, role_images=role_images)}
+    container_references = {container: reference for container, reference in original_references.items()
+                            if container not in orphan_plans}
     unknown_references = set()
     for image, reference in container_references.values():
         protected.add(image)
@@ -316,8 +440,21 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
         plans.append((image, record, references, retained))
     # No mutation until every registry/provenance check has completed. Docker's
     # non-force removal is the final fence against a newly created container.
-    if plans and _container_references(call) != container_references:
+    if (plans or orphan_plans) and _container_references(call) != original_references:
         raise ValueError("Docker container references changed before cleanup")
+    if orphan_plans:
+        for image, expected, _, _ in plans:
+            if json.loads(call("image", "inspect", image))[0] != expected:
+                raise ValueError("Docker image metadata changed before cleanup")
+    for container, expected in orphan_plans.items():
+        if json.loads(call("container", "inspect", container)) != [expected]:
+            raise ValueError("Docker container metadata changed before cleanup")
+        # No force, stop, or volume removal. A concurrent start makes Docker
+        # refuse this exact-ID removal rather than interrupting that process.
+        call("container", "rm", container)
+        print(f"[cleanup] removed stopped orphan container: {expected['Name'][1:]} ({container})", flush=True)
+    if orphan_plans and _container_references(call) != container_references:
+        raise ValueError("Docker container references changed after orphan cleanup")
     removed = []
     for image, expected, references, retained in plans:
         if json.loads(call("image", "inspect", image))[0] != expected:
@@ -380,7 +517,7 @@ def main() -> int:
         detail = str(exc)
         if isinstance(exc, subprocess.CalledProcessError) and exc.stderr:
             detail += ": " + exc.stderr.strip()[-600:]
-        print(f"Image cleanup failed; the completed update/start was not rolled back: {detail}", file=sys.stderr)
+        print(f"Runtime cleanup failed; the completed update/start was not rolled back: {detail}", file=sys.stderr)
         return 1
     finally:
         if fd is not None:

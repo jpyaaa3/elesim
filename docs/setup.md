@@ -80,6 +80,14 @@ exact image IDs are unavailable. Existing two-word names remain readable
 while their images or instance pins exist.
 Names are labels, not security identifiers; UUIDs and hashes remain internal.
 
+성공한 update/release와 `elesim up <system>`은 종료된 설치 소유 고아
+컨테이너, 미참조 이미지·태그, 미사용 별칭 순으로 자동 청소한다. 등록된
+인스턴스의 역할 컨테이너는 정지 상태여도 남기며, 실행 중인 컨테이너와
+dev/tools/Tailscale/Coturn은 자동 삭제하지 않는다. 소유권과 현재 등록을
+검증한 완료된 일회성 진단 컨테이너도 회수한다. 주기 실행 작업은 없으며
+`down`/`remove`에서는 이 자동 청소를 실행하지 않는다. 자세한 경계는
+[`deployment.md`](deployment.md)의 General Compose 절을 따른다.
+
 The SSH fingerprint button requires a username before showing confirmation.
 In OpenSSH mode an empty private-key path selects the forwarded SSH agent;
 implicit key-file discovery is disabled. Tailscale SSH is explicitly keyless

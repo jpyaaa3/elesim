@@ -56,9 +56,18 @@ fingerprint와 runtime-data digest라면 기존 readable alias와 immutable rele
 fingerprint가 일치하는 기존 이미지는 그대로 재사용해 Compose build에서도
 제외한다. 입력이 달라진 role만 재빌드되고, 변경 입력은 새 alias/release로
 발행된다.
-성공한 update/release 및 공개 instance `up` 경로는 설치 lock 아래 미참조
-구버전 이미지를 자동 정리한다. 최신 Compose 이미지, 등록된 모든 instance의
-pin, 실행/정지 container 참조 및 외부 image 별칭은 보존한다. Release
+성공한 update/release 및 공개 instance `up` 경로는 설치 lock 아래 종료된
+고아 역할 컨테이너를 먼저 정리하고 미참조 구버전 이미지를 회수한다. 고아는
+설치 UUID, pinned Docker Engine, Compose project/설정 경로와 발행된 역할별
+image ID로 소유권이 확인된 `exited`/`dead` 컨테이너에 한한다. 등록된 모든
+instance의 정확한 역할 컨테이너는 정지 상태여도 보존하며, 현재 기본 Compose
+서비스, 실행·일시정지·재시작 중인 컨테이너, dev/tools/Tailscale/Coturn 및
+출처가 불명확한 컨테이너도 보존한다. 완료된 Compose 일회성 진단은 별도
+이름을 썼더라도 위 소유권을 확인한 뒤 회수한다. 이름이나 Compose의 orphan
+경고만으로 삭제하지 않는다. 컨테이너는 정확한 ID로 강제 옵션 없이 제거하며
+volume은 삭제하지 않는다.
+최신 Compose 이미지, 등록된 모든 instance의 pin, 살아남은 실행/정지
+container 참조 및 외부 image 별칭은 보존한다. Release
 manifest/data는 이력이며, 미등록 구버전 이미지는 재빌드가 필요할 수 있다.
 Docker 이미지가 없어진 릴리즈는 선택지에서 제외하고 미사용 readable 별칭
 (구형 역할별 예약 포함)은 회수한다. 새 이미지 별칭은 빈 동물 이름을 먼저 고르고,

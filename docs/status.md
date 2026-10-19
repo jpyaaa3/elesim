@@ -6,6 +6,29 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 자동 청소에 종료된 고아 역할 컨테이너 회수 추가 (2026-10-19)
+
+- 성공한 update/release와 공개 instance `up`의 기존 collector에서 종료된
+  고아 역할 컨테이너를 먼저 제거한 뒤 이미지·태그·별칭을 회수한다. 설치
+  UUID, pinned Engine, Compose project/설정 경로, 역할별 release image ID를
+  대조한다. 저장된 실행 스크립트의 과거 `tddwalk` custom-name 일회성
+  Compose 실행은 이 조건에 해당한다. 이름 접두사나 orphan 경고만으로
+  삭제하지 않으며 정확한 container ID에 비강제 `rm`만 사용한다.
+- 현재 등록된 정확한 역할 컨테이너는 정지 상태여도 보존한다. 실행 중,
+  paused/restarting/created, dev/tools/Tailscale/Coturn, 다른 설치와 출처
+  불명 컨테이너도 보존한다. 남은 모든 컨테이너는 이미지와 생성 시 참조한
+  태그를 계속 보호한다. 보존된 logs/security/secrets만 남은 제거 인스턴스는
+  등록으로 취급하지 않고, 불완전 registry/transaction은 청소를 중단한다.
+- 삭제 전 image/container metadata와 참조를 재검사하고, 고아 제거 후 다시
+  모든 container 참조를 확인한다. registry/provenance 오류, 상태 경합,
+  Docker의 삭제 거부를 강제 옵션으로 우회하지 않는다. 기존 자동 실행
+  시점만 사용하며 background/down/remove hook은 추가하지 않았다.
+- host collector **113 passed**, 이미지 이름·instance remove·release·updater
+  관련 **73 passed**, container installer **84 passed / 5 failed**다. 실패한
+  5개는 기존 X11 fixture의 Unix socket bind가 sandbox에서 `EPERM`으로
+  거부됐다. 실제 Docker 삭제와 canonical dev container 검사는 실행하지
+  않았다. 설치본을 갱신하지 않았으며 사용자 지시에 따라 푸쉬하지 않았다.
+
 ### Bootstrap 조회 모듈 manifest 누락 수정 (2026-10-19)
 
 - `afb1e14`의 `instance_listing.py`가 Bootstrap과 release verifier의 명시적
