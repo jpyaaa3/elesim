@@ -1,0 +1,1290 @@
+{
+  "date": "2026-10-19",
+  "baseline_runtime_revision": "git-331e75479d7a4ce2137edc395fdb083b514a0246",
+  "baseline_release": "adb39bfa25485b76eb80076a0c28f65d68867293786bf233cfb097231cc1aa00",
+  "baseline_image": "sha256:73275402c1818eae09ebd2ac79df54ced329296f706f4045bdafd800e94ce78c",
+  "setup": {
+    "host": "hckang@100.74.222.24 via pinned Tailscale SSH",
+    "gpu": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "dt_s": 0.01,
+    "substeps": 2,
+    "feedback_hz": 100,
+    "nominal_mppi_hz": 50,
+    "samples": 4096,
+    "iterations": [
+      2,
+      1
+    ],
+    "seed": 42,
+    "order": [
+      "iter2_a",
+      "iter1_a",
+      "iter1_b",
+      "iter2_b"
+    ],
+    "protocol": "First pair: short8s and long20s in four directions, forward/backward3x8s walk+4s stop. Second pair: four short8s directions.2s initial settle. Moving arm, two720p H264/NVENC loopback streams."
+  },
+  "speed": {
+    "groups": {
+      "2": {
+        "passed": 11,
+        "total": 14,
+        "step_ms": {
+          "n": 11400,
+          "mean": 10.482347775618301,
+          "p50": 11.571077397093177,
+          "p95": 14.7876730421558,
+          "maximum": 34.53732514753938
+        },
+        "solve_ms": {
+          "n": 6160,
+          "mean": 5.613895824523763,
+          "p50": 5.560381105169654,
+          "p95": 6.424508150666951,
+          "maximum": 11.03003416210413
+        },
+        "over_10ms_fraction": 0.5546491228070175,
+        "compute_realtime_factor": 0.9539847574280801
+      },
+      "1": {
+        "passed": 14,
+        "total": 14,
+        "step_ms": {
+          "n": 15600,
+          "mean": 10.06617752279943,
+          "p50": 10.921192821115255,
+          "p95": 13.508205255493522,
+          "maximum": 30.901497695595026
+        },
+        "solve_ms": {
+          "n": 8424,
+          "mean": 4.195878471129336,
+          "p50": 4.157237010076642,
+          "p95": 4.818069562315939,
+          "maximum": 12.503399979323149
+        },
+        "over_10ms_fraction": 0.5557051282051282,
+        "compute_realtime_factor": 0.9934257544485441
+      }
+    },
+    "matched_complete_trials": [
+      {
+        "reference": "iter2_a",
+        "candidate": "iter1_a",
+        "case": "backward_short"
+      },
+      {
+        "reference": "iter2_a",
+        "candidate": "iter1_a",
+        "case": "forward_cycles"
+      },
+      {
+        "reference": "iter2_a",
+        "candidate": "iter1_a",
+        "case": "forward_long"
+      },
+      {
+        "reference": "iter2_a",
+        "candidate": "iter1_a",
+        "case": "forward_short"
+      },
+      {
+        "reference": "iter2_a",
+        "candidate": "iter1_a",
+        "case": "left_long"
+      },
+      {
+        "reference": "iter2_a",
+        "candidate": "iter1_a",
+        "case": "left_short"
+      },
+      {
+        "reference": "iter2_a",
+        "candidate": "iter1_a",
+        "case": "right_long"
+      },
+      {
+        "reference": "iter2_a",
+        "candidate": "iter1_a",
+        "case": "right_short"
+      },
+      {
+        "reference": "iter2_b",
+        "candidate": "iter1_b",
+        "case": "forward_short"
+      },
+      {
+        "reference": "iter2_b",
+        "candidate": "iter1_b",
+        "case": "left_short"
+      },
+      {
+        "reference": "iter2_b",
+        "candidate": "iter1_b",
+        "case": "right_short"
+      }
+    ],
+    "matched_successful": {
+      "2": {
+        "step_ms": {
+          "n": 11400,
+          "mean": 10.482347775618301,
+          "p50": 11.571077397093177,
+          "p95": 14.7876730421558,
+          "maximum": 34.53732514753938
+        },
+        "solve_ms": {
+          "n": 6160,
+          "mean": 5.613895824523763,
+          "p50": 5.560381105169654,
+          "p95": 6.424508150666951,
+          "maximum": 11.03003416210413
+        }
+      },
+      "1": {
+        "step_ms": {
+          "n": 11400,
+          "mean": 10.060268655509214,
+          "p50": 10.905184084549546,
+          "p95": 13.482089433819056,
+          "maximum": 30.901497695595026
+        },
+        "solve_ms": {
+          "n": 6168,
+          "mean": 4.193966870873215,
+          "p50": 4.15202253498137,
+          "p95": 4.799264692701399,
+          "maximum": 12.503399979323149
+        }
+      }
+    },
+    "step_reduction_percent": 4.026570470127256,
+    "step_saved_ms": 0.4220791201090872,
+    "solve_reduction_percent": 25.293111914327405
+  },
+  "runs": {
+    "iter1_a": {
+      "iterations": 1,
+      "passed": 10,
+      "total": 10,
+      "trials": [
+        {
+          "case": "forward_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            5.340196784585714
+          ],
+          "max_roll_pitch_deg": [
+            7.802409366650213,
+            6.021446559356785
+          ],
+          "rms_roll_pitch_deg": [
+            3.0985003455017774,
+            2.332717725161706
+          ],
+          "height_min_m": 0.2611037790775299,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.8800937239657041,
+          "step_ms": {
+            "n": 600,
+            "mean": 10.121842209870616,
+            "p50": 10.738389799371362,
+            "p95": 13.749571982771158,
+            "maximum": 23.936737794429064
+          },
+          "steady_solve_ms": {
+            "mean": 4.236613445710845,
+            "p50": 4.168436164036393,
+            "p95": 4.809130891226232,
+            "count": 328
+          }
+        },
+        {
+          "case": "backward_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            5.368451261892915
+          ],
+          "max_roll_pitch_deg": [
+            9.351494276957663,
+            10.584812768270856
+          ],
+          "rms_roll_pitch_deg": [
+            3.5845992592365294,
+            4.796497837523611
+          ],
+          "height_min_m": 0.2605056166648865,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.9475566900063344,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.904129553275803,
+            "p50": 10.957027785480022,
+            "p95": 12.818360840901732,
+            "maximum": 24.352623615413904
+          },
+          "steady_solve_ms": {
+            "mean": 4.221178936926317,
+            "p50": 4.1979055386036634,
+            "p95": 4.712405032478273,
+            "count": 326
+          }
+        },
+        {
+          "case": "left_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            2.215477886861663
+          ],
+          "max_roll_pitch_deg": [
+            7.542957487264088,
+            4.574153617980723
+          ],
+          "rms_roll_pitch_deg": [
+            3.3750086816019476,
+            1.6673917813495065
+          ],
+          "height_min_m": 0.26110216975212097,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.7875640906487655,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.684329771747192,
+            "p50": 10.66874130629003,
+            "p95": 12.838243530131876,
+            "maximum": 23.491897154599428
+          },
+          "steady_solve_ms": {
+            "mean": 4.182252155107833,
+            "p50": 4.1694026440382,
+            "p95": 4.70021883957088,
+            "count": 322
+          }
+        },
+        {
+          "case": "right_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            1.9569035355707456
+          ],
+          "max_roll_pitch_deg": [
+            6.130325599323611,
+            4.031317700708289
+          ],
+          "rms_roll_pitch_deg": [
+            1.7185981769236607,
+            1.2158617427215408
+          ],
+          "height_min_m": 0.260492205619812,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.7407578790728387,
+          "step_ms": {
+            "n": 600,
+            "mean": 10.020556591140727,
+            "p50": 10.946967639029026,
+            "p95": 13.338204799219966,
+            "maximum": 23.316789884120226
+          },
+          "steady_solve_ms": {
+            "mean": 4.237290664627417,
+            "p50": 4.230833845213056,
+            "p95": 4.864473827183247,
+            "count": 326
+          }
+        },
+        {
+          "case": "forward_long",
+          "passed": true,
+          "failures": [],
+          "t": 25.990000000000002,
+          "fault": null,
+          "progress_m": [
+            14.262291794642806
+          ],
+          "max_roll_pitch_deg": [
+            5.344766439632059,
+            8.026055370958762
+          ],
+          "rms_roll_pitch_deg": [
+            1.9655675571777522,
+            3.0976014763685225
+          ],
+          "height_min_m": 0.2611038088798523,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.8370182655860132,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.99111023498699,
+            "p50": 10.805155849084258,
+            "p95": 13.525021332316099,
+            "maximum": 25.773257948458195
+          },
+          "steady_solve_ms": {
+            "mean": 4.1135921491644325,
+            "p50": 4.053730051964521,
+            "p95": 4.79124141857028,
+            "count": 975
+          }
+        },
+        {
+          "case": "backward_long",
+          "passed": true,
+          "failures": [],
+          "t": 25.990000000000002,
+          "fault": null,
+          "progress_m": [
+            13.787723880261185
+          ],
+          "max_roll_pitch_deg": [
+            11.023427646189898,
+            13.839836253009668
+          ],
+          "rms_roll_pitch_deg": [
+            3.3752010921742968,
+            5.793682985842838
+          ],
+          "height_min_m": 0.25940263271331787,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 1.0,
+          "step_ms": {
+            "n": 1800,
+            "mean": 10.267148226913479,
+            "p50": 11.009828886017203,
+            "p95": 14.256078540347515,
+            "maximum": 25.599896907806396
+          },
+          "steady_solve_ms": {
+            "mean": 4.241027485855632,
+            "p50": 4.174709320068359,
+            "p95": 5.063336435705423,
+            "count": 957
+          }
+        },
+        {
+          "case": "left_long",
+          "passed": true,
+          "failures": [],
+          "t": 25.990000000000002,
+          "fault": null,
+          "progress_m": [
+            5.408576437898773
+          ],
+          "max_roll_pitch_deg": [
+            5.444248199679807,
+            4.7055924493609025
+          ],
+          "rms_roll_pitch_deg": [
+            1.9863514106244715,
+            1.5786955634911901
+          ],
+          "height_min_m": 0.2604922652244568,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.7760506906086476,
+          "step_ms": {
+            "n": 1800,
+            "mean": 10.21945959293387,
+            "p50": 11.034635594114661,
+            "p95": 13.689691829495132,
+            "maximum": 25.42594727128744
+          },
+          "steady_solve_ms": {
+            "mean": 4.235282235282226,
+            "p50": 4.181046038866043,
+            "p95": 4.896620474755763,
+            "count": 977
+          }
+        },
+        {
+          "case": "right_long",
+          "passed": true,
+          "failures": [],
+          "t": 25.990000000000002,
+          "fault": null,
+          "progress_m": [
+            5.2590871635547956
+          ],
+          "max_roll_pitch_deg": [
+            5.68099574206547,
+            6.5269230767372015
+          ],
+          "rms_roll_pitch_deg": [
+            1.985292286063609,
+            1.5394472453907833
+          ],
+          "height_min_m": 0.2604922354221344,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.8224091570789899,
+          "step_ms": {
+            "n": 1800,
+            "mean": 10.451678552457857,
+            "p50": 11.17031299509108,
+            "p95": 13.860857114195824,
+            "maximum": 28.71811529621482
+          },
+          "steady_solve_ms": {
+            "mean": 4.320769132978991,
+            "p50": 4.311122931540012,
+            "p95": 4.940244648605585,
+            "count": 969
+          }
+        },
+        {
+          "case": "forward_cycles",
+          "passed": true,
+          "failures": [],
+          "t": 37.99,
+          "fault": null,
+          "progress_m": [
+            5.436450616456568,
+            5.005292892456055,
+            5.065054893493652
+          ],
+          "max_roll_pitch_deg": [
+            11.031339385747595,
+            12.776196058120442
+          ],
+          "rms_roll_pitch_deg": [
+            2.597999268598821,
+            3.967568030140924
+          ],
+          "height_min_m": 0.2609695792198181,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.9623555394576168,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.960201067798254,
+            "p50": 10.979992570355535,
+            "p95": 13.057025917805731,
+            "maximum": 30.901497695595026
+          },
+          "steady_solve_ms": {
+            "mean": 4.160738127894815,
+            "p50": 4.1187601163983345,
+            "p95": 4.683615453541279,
+            "count": 965
+          }
+        },
+        {
+          "case": "backward_cycles",
+          "passed": true,
+          "failures": [],
+          "t": 37.99,
+          "fault": null,
+          "progress_m": [
+            5.009400765411556,
+            4.8334832191467285,
+            5.133421897888184
+          ],
+          "max_roll_pitch_deg": [
+            6.97918822600146,
+            13.974815799639654
+          ],
+          "rms_roll_pitch_deg": [
+            2.583485239919686,
+            5.106810879769073
+          ],
+          "height_min_m": 0.2605392336845398,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 1.0,
+          "step_ms": {
+            "n": 1800,
+            "mean": 10.059138814297816,
+            "p50": 10.975738521665335,
+            "p95": 13.354759523645043,
+            "maximum": 29.07085930928588
+          },
+          "steady_solve_ms": {
+            "mean": 4.183619844039016,
+            "p50": 4.174681846052408,
+            "p95": 4.751130472868681,
+            "count": 973
+          }
+        }
+      ],
+      "media": {
+        "errors": [],
+        "decoded": {
+          "observer": 8832,
+          "hand_eye_preview": 8831
+        },
+        "codecs": [
+          "h264_nvenc"
+        ]
+      }
+    },
+    "iter1_b": {
+      "iterations": 1,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "case": "forward_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            5.4099203906953335
+          ],
+          "max_roll_pitch_deg": [
+            7.802409366650213,
+            5.329326355390809
+          ],
+          "rms_roll_pitch_deg": [
+            3.245832752257896,
+            2.4050205756851613
+          ],
+          "height_min_m": 0.2611037790775299,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.8800937239657041,
+          "step_ms": {
+            "n": 600,
+            "mean": 10.224463113117963,
+            "p50": 11.10307197086513,
+            "p95": 13.557622605003417,
+            "maximum": 25.62215318903327
+          },
+          "steady_solve_ms": {
+            "mean": 4.232151669495535,
+            "p50": 4.1784546338021755,
+            "p95": 4.756858292967081,
+            "count": 328
+          }
+        },
+        {
+          "case": "backward_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            5.368451261892915
+          ],
+          "max_roll_pitch_deg": [
+            9.351494276957663,
+            10.584812768270856
+          ],
+          "rms_roll_pitch_deg": [
+            3.5845992592365294,
+            4.796497837523611
+          ],
+          "height_min_m": 0.2605056166648865,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.9475566900063344,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.59665001447623,
+            "p50": 10.781215969473124,
+            "p95": 12.638302193954587,
+            "maximum": 14.095466118305922
+          },
+          "steady_solve_ms": {
+            "mean": 4.136095610532933,
+            "p50": 4.153544781729579,
+            "p95": 4.571057856082916,
+            "count": 326
+          }
+        },
+        {
+          "case": "left_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            2.0493154179648627
+          ],
+          "max_roll_pitch_deg": [
+            9.014267749430664,
+            8.210196252608517
+          ],
+          "rms_roll_pitch_deg": [
+            2.50957594805617,
+            1.9583245675060934
+          ],
+          "height_min_m": 0.26110216975212097,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.808903647611794,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.72712607588619,
+            "p50": 10.768743697553873,
+            "p95": 12.801168533042071,
+            "maximum": 24.009462911635637
+          },
+          "steady_solve_ms": {
+            "mean": 4.14351145222646,
+            "p50": 4.149368964135647,
+            "p95": 4.665755899623036,
+            "count": 326
+          }
+        },
+        {
+          "case": "right_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            1.9570043866297056
+          ],
+          "max_roll_pitch_deg": [
+            6.512175249116885,
+            6.569891828874292
+          ],
+          "rms_roll_pitch_deg": [
+            1.7590201780070016,
+            1.1975523070968974
+          ],
+          "height_min_m": 0.260492205619812,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.7407578790728387,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.595308795105666,
+            "p50": 10.514949914067984,
+            "p95": 12.65848991461098,
+            "maximum": 20.793770905584097
+          },
+          "steady_solve_ms": {
+            "mean": 3.9421503426381417,
+            "p50": 3.8963123224675655,
+            "p95": 4.40608209464699,
+            "count": 326
+          }
+        }
+      ],
+      "media": {
+        "errors": [],
+        "decoded": {
+          "observer": 2194,
+          "hand_eye_preview": 2202
+        },
+        "codecs": [
+          "h264_nvenc"
+        ]
+      }
+    },
+    "iter2_a": {
+      "iterations": 2,
+      "passed": 8,
+      "total": 10,
+      "trials": [
+        {
+          "case": "forward_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            5.339799750596284
+          ],
+          "max_roll_pitch_deg": [
+            6.711776457092178,
+            4.926482482687117
+          ],
+          "rms_roll_pitch_deg": [
+            1.7089994668060775,
+            1.947667774132743
+          ],
+          "height_min_m": 0.26132506132125854,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.9255141773305177,
+          "step_ms": {
+            "n": 600,
+            "mean": 10.3310153594551,
+            "p50": 11.476792395114899,
+            "p95": 14.437404624186454,
+            "maximum": 23.699748795479536
+          },
+          "steady_solve_ms": {
+            "mean": 5.602641004171768,
+            "p50": 5.558885168284178,
+            "p95": 6.4631803426891565,
+            "count": 328
+          }
+        },
+        {
+          "case": "backward_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            5.094076300039887
+          ],
+          "max_roll_pitch_deg": [
+            5.119704706348894,
+            8.711437501507394
+          ],
+          "rms_roll_pitch_deg": [
+            2.46255617499709,
+            4.153195035595121
+          ],
+          "height_min_m": 0.260621041059494,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.9110878300112041,
+          "step_ms": {
+            "n": 600,
+            "mean": 10.157754802300284,
+            "p50": 11.476314859464765,
+            "p95": 14.2549509415403,
+            "maximum": 24.80591321364045
+          },
+          "steady_solve_ms": {
+            "mean": 5.574754803724911,
+            "p50": 5.55913639254868,
+            "p95": 6.335535366088152,
+            "count": 322
+          }
+        },
+        {
+          "case": "left_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            2.0917389046744574
+          ],
+          "max_roll_pitch_deg": [
+            7.715705304345105,
+            7.00507799547145
+          ],
+          "rms_roll_pitch_deg": [
+            3.8352897767004803,
+            2.005914671006938
+          ],
+          "height_min_m": 0.26120978593826294,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.8823218526293242,
+          "step_ms": {
+            "n": 600,
+            "mean": 10.01883623500665,
+            "p50": 11.304896790534258,
+            "p95": 13.923438359051943,
+            "maximum": 26.768176816403866
+          },
+          "steady_solve_ms": {
+            "mean": 5.490667234252758,
+            "p50": 5.452218931168318,
+            "p95": 6.144091067835688,
+            "count": 323
+          }
+        },
+        {
+          "case": "right_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            2.2659132067819883
+          ],
+          "max_roll_pitch_deg": [
+            8.882272393137404,
+            6.800396055035451
+          ],
+          "rms_roll_pitch_deg": [
+            4.017079547667651,
+            1.8828870812270542
+          ],
+          "height_min_m": 0.26063117384910583,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.940436455505257,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.947132698725909,
+            "p50": 11.150498408824205,
+            "p95": 14.018152328208089,
+            "maximum": 17.78733590617776
+          },
+          "steady_solve_ms": {
+            "mean": 5.493650018495749,
+            "p50": 5.474084056913853,
+            "p95": 6.203345023095608,
+            "count": 321
+          }
+        },
+        {
+          "case": "forward_long",
+          "passed": true,
+          "failures": [],
+          "t": 25.990000000000002,
+          "fault": null,
+          "progress_m": [
+            14.34816334862262
+          ],
+          "max_roll_pitch_deg": [
+            7.414353761677825,
+            6.9341035236962965
+          ],
+          "rms_roll_pitch_deg": [
+            1.9901080877104653,
+            2.6776637417417963
+          ],
+          "height_min_m": 0.26132509112358093,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.942926849375133,
+          "step_ms": {
+            "n": 1800,
+            "mean": 10.598223379347473,
+            "p50": 11.57079846598208,
+            "p95": 14.900930575095115,
+            "maximum": 27.73454925045371
+          },
+          "steady_solve_ms": {
+            "mean": 5.5020868240558,
+            "p50": 5.450392374768853,
+            "p95": 6.269972957670689,
+            "count": 970
+          }
+        },
+        {
+          "case": "backward_long",
+          "passed": false,
+          "failures": [
+            "controller_fault",
+            "stop_not_stand"
+          ],
+          "t": 11.72,
+          "fault": "GPU MPC produced no finite force trajectory",
+          "progress_m": [
+            6.429428703151643
+          ],
+          "max_roll_pitch_deg": [
+            8.082686334459522,
+            15.032025132977157
+          ],
+          "rms_roll_pitch_deg": [
+            3.1259946685717765,
+            5.647037208514328
+          ],
+          "height_min_m": 0.24133208394050598,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 1.0,
+          "step_ms": {
+            "n": 772,
+            "mean": 10.261481919765009,
+            "p50": 11.4411236718297,
+            "p95": 14.228383894078432,
+            "maximum": 23.374585900455713
+          },
+          "steady_solve_ms": {
+            "mean": 5.508119263910116,
+            "p50": 5.490893265232444,
+            "p95": 6.302726920694113,
+            "count": 416
+          }
+        },
+        {
+          "case": "left_long",
+          "passed": true,
+          "failures": [],
+          "t": 25.990000000000002,
+          "fault": null,
+          "progress_m": [
+            5.312301339559781
+          ],
+          "max_roll_pitch_deg": [
+            11.250613404803879,
+            7.131316009908041
+          ],
+          "rms_roll_pitch_deg": [
+            2.783471886375735,
+            1.9849923976101667
+          ],
+          "height_min_m": 0.26120978593826294,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.921276642830595,
+          "step_ms": {
+            "n": 1800,
+            "mean": 10.858432779399058,
+            "p50": 11.95703400298953,
+            "p95": 15.576837770640848,
+            "maximum": 30.457179062068462
+          },
+          "steady_solve_ms": {
+            "mean": 5.7767921581221415,
+            "p50": 5.678921937942505,
+            "p95": 6.686116103082895,
+            "count": 985
+          }
+        },
+        {
+          "case": "right_long",
+          "passed": true,
+          "failures": [],
+          "t": 25.990000000000002,
+          "fault": null,
+          "progress_m": [
+            5.413157981622135
+          ],
+          "max_roll_pitch_deg": [
+            5.573436680879236,
+            5.002833354918454
+          ],
+          "rms_roll_pitch_deg": [
+            1.7500344498620992,
+            2.1149143317353047
+          ],
+          "height_min_m": 0.2606312036514282,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.9386519900449448,
+          "step_ms": {
+            "n": 1800,
+            "mean": 10.461993450040204,
+            "p50": 11.48036727681756,
+            "p95": 14.747168635949492,
+            "maximum": 28.99992000311613
+          },
+          "steady_solve_ms": {
+            "mean": 5.615650603957975,
+            "p50": 5.565369967371225,
+            "p95": 6.370685715228319,
+            "count": 967
+          }
+        },
+        {
+          "case": "forward_cycles",
+          "passed": true,
+          "failures": [],
+          "t": 37.99,
+          "fault": null,
+          "progress_m": [
+            5.418159720487893,
+            5.208482265472412,
+            5.161052703857421
+          ],
+          "max_roll_pitch_deg": [
+            7.831950153703103,
+            6.391224153393231
+          ],
+          "rms_roll_pitch_deg": [
+            2.5762554223629794,
+            2.840734241141911
+          ],
+          "height_min_m": 0.2596639394760132,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.986962401412079,
+          "step_ms": {
+            "n": 1800,
+            "mean": 10.905541395768523,
+            "p50": 12.27709581144154,
+            "p95": 14.997490169480441,
+            "maximum": 25.395494420081377
+          },
+          "steady_solve_ms": {
+            "mean": 5.667543809392885,
+            "p50": 5.625891964882612,
+            "p95": 6.442421581596136,
+            "count": 971
+          }
+        },
+        {
+          "case": "backward_cycles",
+          "passed": false,
+          "failures": [
+            "controller_fault",
+            "stop_not_stand",
+            "insufficient_progress"
+          ],
+          "t": 19.02,
+          "fault": "GPU MPC produced no finite force trajectory",
+          "progress_m": [
+            5.479586744681001,
+            2.8948717117309566,
+            0.0
+          ],
+          "max_roll_pitch_deg": [
+            15.137340731663521,
+            11.670348249685414
+          ],
+          "rms_roll_pitch_deg": [
+            2.7737713383123577,
+            3.3556374387753953
+          ],
+          "height_min_m": 0.23884223401546478,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 1.0,
+          "step_ms": {
+            "n": 902,
+            "mean": 11.108540119851078,
+            "p50": 12.53306632861495,
+            "p95": 15.450216527096924,
+            "maximum": 26.734641287475824
+          },
+          "steady_solve_ms": {
+            "mean": 5.7040999016874,
+            "p50": 5.6677148677408695,
+            "p95": 6.432265625335276,
+            "count": 486
+          }
+        }
+      ],
+      "media": {
+        "errors": [],
+        "decoded": {
+          "observer": 7722,
+          "hand_eye_preview": 7743
+        },
+        "codecs": [
+          "h264_nvenc"
+        ]
+      }
+    },
+    "iter2_b": {
+      "iterations": 2,
+      "passed": 3,
+      "total": 4,
+      "trials": [
+        {
+          "case": "forward_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            5.339799750596284
+          ],
+          "max_roll_pitch_deg": [
+            6.711776457092178,
+            4.926482482687117
+          ],
+          "rms_roll_pitch_deg": [
+            1.7089994668060775,
+            1.947667774132743
+          ],
+          "height_min_m": 0.26132506132125854,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.9255141773305177,
+          "step_ms": {
+            "n": 600,
+            "mean": 10.696572589222342,
+            "p50": 11.862099869176745,
+            "p95": 14.895730791613458,
+            "maximum": 27.72668795660138
+          },
+          "steady_solve_ms": {
+            "mean": 5.742909070161149,
+            "p50": 5.697155836969614,
+            "p95": 6.555199949070811,
+            "count": 328
+          }
+        },
+        {
+          "case": "backward_short",
+          "passed": false,
+          "failures": [
+            "controller_fault",
+            "stop_not_stand"
+          ],
+          "t": 7.51,
+          "fault": "touchdown timeout after 0.30s: RL",
+          "progress_m": [
+            2.6546379569917913
+          ],
+          "max_roll_pitch_deg": [
+            20.999310465105935,
+            31.769341373366025
+          ],
+          "rms_roll_pitch_deg": [
+            6.1569469480000585,
+            10.65603754085735
+          ],
+          "height_min_m": 0.23397208750247955,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 1.0,
+          "step_ms": {
+            "n": 351,
+            "mean": 10.905660568150106,
+            "p50": 11.758513282984495,
+            "p95": 15.200065448880196,
+            "maximum": 27.49443706125021
+          },
+          "steady_solve_ms": {
+            "mean": 5.602784208721756,
+            "p50": 5.525634624063969,
+            "p95": 6.430744659155607,
+            "count": 193
+          }
+        },
+        {
+          "case": "left_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            2.1485270066550584
+          ],
+          "max_roll_pitch_deg": [
+            7.089572057361611,
+            6.008165808363077
+          ],
+          "rms_roll_pitch_deg": [
+            2.4992245315850545,
+            2.2995309632854473
+          ],
+          "height_min_m": 0.26120972633361816,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.9174675479776285,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.861784043411413,
+            "p50": 11.280759703367949,
+            "p95": 13.801819365471601,
+            "maximum": 34.53732514753938
+          },
+          "steady_solve_ms": {
+            "mean": 5.597481686297966,
+            "p50": 5.552822723984718,
+            "p95": 6.348284264095128,
+            "count": 322
+          }
+        },
+        {
+          "case": "right_short",
+          "passed": true,
+          "failures": [],
+          "t": 13.99,
+          "fault": null,
+          "progress_m": [
+            2.262537679928755
+          ],
+          "max_roll_pitch_deg": [
+            7.827239183119876,
+            6.336625010106608
+          ],
+          "rms_roll_pitch_deg": [
+            4.050877896309788,
+            2.498857177479967
+          ],
+          "height_min_m": 0.2606319189071655,
+          "air_support_ticks": 0,
+          "max_torque_ratio": 0.9125325085308423,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.67893899496024,
+            "p50": 11.35588251054287,
+            "p95": 13.409272814169524,
+            "maximum": 21.473638713359833
+          },
+          "steady_solve_ms": {
+            "mean": 5.464912892460546,
+            "p50": 5.413574166595936,
+            "p95": 6.07695123180747,
+            "count": 323
+          }
+        }
+      ],
+      "media": {
+        "errors": [],
+        "decoded": {
+          "observer": 2040,
+          "hand_eye_preview": 2045
+        },
+        "codecs": [
+          "h264_nvenc"
+        ]
+      }
+    }
+  },
+  "faults": {
+    "iter1_a": {},
+    "iter1_b": {},
+    "iter2_a": {
+      "GPU MPC produced no finite force trajectory": 2
+    },
+    "iter2_b": {
+      "touchdown timeout after 0.30s: RL": 1
+    }
+  },
+  "software": {
+    "environment": "Existing generated persistent dev attachment, source bind, JAX_PLATFORMS=cpu",
+    "red": {
+      "failed": 3
+    },
+    "before_default_change_config_tests_passed": 21,
+    "sim": {
+      "passed": 926,
+      "skipped": 3,
+      "failed": 1
+    },
+    "known_failure": "Existing rl/test_start_path.py: -0.166m below lower -0.142m; unchanged",
+    "dds_sim_motor": "passed, two real processes, mailbox only (runtime_consumer=false)",
+    "topology": "passed, four real processes including measured-pose mirror and lease recovery",
+    "protocol_passed": 145
+  },
+  "implementation": {
+    "defaults": "GPU4096 samples,1 iteration;100Hz feedback and50Hz nominal optimizer retained. Explicit2-iteration config still accepted.",
+    "python_function_bodies_unchanged": true,
+    "python_files": [
+      "payload/runtime/docker/sim/app/elesim_sim/robot/go2/locomotion/config.py",
+      "payload/runtime/docker/sim/app/elesim_sim/robot/go2/mpc/config.py",
+      "payload/runtime/docker/sim/app/elesim_sim/robot/go2/pympc_solver.py"
+    ]
+  },
+  "cleanup_before_default_update": {
+    "utc": "2026-10-19T02:43:16.815033+00:00",
+    "pins": {
+      "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+      "tddwalk": "adb39bfa25485b76eb80076a0c28f65d68867293786bf233cfb097231cc1aa00",
+      "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+    },
+    "containers": [],
+    "gpu2_processes": [],
+    "installed_physics": [
+      "dt: 0.01",
+      "substeps: 2"
+    ],
+    "cases": {
+      "iter2_a": {
+        "passed": 8,
+        "total": 10
+      },
+      "iter1_a": {
+        "passed": 10,
+        "total": 10
+      },
+      "iter1_b": {
+        "passed": 4,
+        "total": 4
+      },
+      "iter2_b": {
+        "passed": 3,
+        "total": 4
+      }
+    }
+  },
+  "caveats": [
+    "Flat floor GO2+arm only, two loopback NVENC streams; no real UI/DDS/WAN/hardware",
+    "Per-step timer excludes arm commands and low-rate public pose validation; their cost is present in trial sim/wall",
+    "Control100Hz,5ms integration, nominal50Hz optimizer and4096 samples retained",
+    "Only MPPI iterations changed; no gains, precision or controller logic changes",
+    "All failures retained; exclude failed/incomplete trials from claims about steady successful walking",
+    "Headline latency uses11 matched successful trials(11400 steps per variant); all3 baseline failures are retained in the report.",
+    "2 iterations had3 backward faults in this cohort although the preceding cadence study passed14/14. Cause of run variability is not established; do not claim that1 iteration universally improves stability.",
+    "10.06ms mean and13.48ms p95 do not establish a10ms real-time deadline. No live UI/DDS/WAN or physical Robot acceptance.",
+    "Only defaults changed; no controller/solver function bodies changed. Full required/extended and isolated-release gates not rerun."
+  ],
+  "raw": {
+    "archive": "workbench/evidence/generated/iterations1-20261019/results.tar.gz",
+    "sha256": "fd143cae263adbafaa3d4d93dfc3d3bfafe410f9e2c81f3a8d8de6af9cd1b9c1",
+    "bytes": 2678379,
+    "analysis": "workbench/evidence/generated/iterations1-20261019/analysis.json",
+    "source": "workbench/evidence/generated/iterations1-20261019/source"
+  }
+}

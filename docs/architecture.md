@@ -498,7 +498,8 @@ Acados 고정 모델은 발 속도 상태가 0이라 이 preview를 지원하지
 
 배포 Sim 기본 dt=0.01 s는 물리 substeps=2로 접촉을 0.005 s마다 푼다.
 관절 제어와 접촉 관측은 100 Hz다. GPU MPPI는 예측 stage 간격 0.02 s에 맞춰
-50 Hz로 force를 갱신하며 CPU acados는 기존 25 Hz 주기를 유지한다. JAX MPPI 비용은 높이
+50 Hz로 force를 갱신하며 기본 탐색 예산은 4096 samples / 1 iteration이다.
+명시적인 iteration 설정은 유지하며 CPU acados는 기존 25 Hz 주기를 유지한다. JAX MPPI 비용은 높이
 오차 0.02 m와 수평 속도 오차 0.2 m/s를 같은 비용으로 다뤄 수평 추종을
 위해 몸통을 띄우는 해를 억제한다. 이전 해, 현재 상태에서 만든 seed,
 가중 평균 해 중 비용이 가장 낮은 결정적 후보를 보존한다.

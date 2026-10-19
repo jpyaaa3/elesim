@@ -6,6 +6,35 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 100 Hz 유지·MPPI 4096×1 비교와 기본값 반영 (2026-10-19)
+
+- 같은 공식 Sim `331e754`에서 MPPI 반복 횟수만 2→1→1→2로 비교했다.
+  GPU2, dt=.01/substeps=2, 관측·토크 100 Hz, 기본 optimizer 50 Hz,
+  4096 samples·seed42·gain·필터를 유지했다. 작은 팔 bend 동작과 두
+  1280×720 H264/NVENC loopback 송수신을 함께 실행했다.
+- 첫 쌍은 8초/20초 전후좌우와 전진·후진 3회 출발/정지 10개씩, 반복 쌍은
+  8초 전후좌우 4개씩이다. **4096×1은 14/14 통과, 4096×2는 11/14 통과**다.
+  2회 설정의 장시간 후진·후진 반복·반복 쌍의 짧은 후진에서 fault가 발생했다.
+  앞선 cadence 비교의 2회 설정은 14/14 통과였으므로 이번 결과로 1회가
+  보편적으로 더 안정적이라고 주장하지 않는다. 실행 간 변동 원인은 미확정이다.
+- 두 설정이 모두 완주한 **11개 시험, 각 11,400 정상 보행 step**을 같은
+  구간으로 비교했다. 평균 loop는 **10.482→10.060 ms (-4.03%, .422 ms 절감)**,
+  p95는 **14.788→13.482 ms**였다. MPPI 호출 평균은 **5.614→4.194 ms
+  (-25.29%)**, p95는 **6.425→4.799 ms**였다. optimizer 개선을 전체 loop 개선과
+  구분한다. **평균과 p95 모두 10 ms 마감을 달성했다는 결과는 아니다.**
+- timer는 제어·물리·camera submit이다. 팔 명령 쓰기·10 Hz 실제 pose 검사는
+  timer 밖이고, 전체 trial sim/wall에는 그 비용이 포함된다. 초기 build/JIT,
+  per-tick JSON/PNG·실제 UI/DDS/WAN은 지연 비교에서 제외했다. 실패한 시험을
+  숨기지 않고 latency 비교에서는 양쪽 완주 시험만 같은 쌍으로 골랐다.
+- YAML·두 config dataclass·force adapter의 GPU 반복 기본값을 1로 맞췄다.
+  2회 명시 선택은 유지한다. Python 함수 body는 모두 그대로이며 feedback·
+  접촉·payload·제한·DDS 모터 쓰기·정지/reset을 바꾸지 않았다. 세 기본값
+  회귀가 red→green이고 전체 Sim은 **926 passed / 3 skipped / 1 failed**다.
+  실패는 기존 RL 시작 좌표 검사다. 실제 DDS 모터 mailbox·4-process topology,
+  protocol **145개**가 통과했다. full required/extended·isolated-release와
+  WAN/SROS2/hardware gate는 미검증이다.
+  [전체 비교·오류·raw SHA](../workbench/evidence/curated/sim/mppi_iterations_20261019.json)를 보존했다.
+
 ### 현재 제어기의 100/50 Hz 비교 (2026-10-19)
 
 - `331e754`를 양쪽 공식 `elesim-update`로 반영하고 기존 instance pin을
