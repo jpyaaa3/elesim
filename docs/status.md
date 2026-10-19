@@ -6,6 +6,38 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### MPPI 1024×1 보행·처리 시간 비교 (2026-10-19)
+
+- 양쪽에 공식 업데이트한 `0debb43`의 원격 Sim 설치본 `e95e78f0…`
+  (`merry-goose`)에서 후보 수만 4096→1024→1024→4096으로 비교했다.
+  GPU2, dt=.01/substeps=2, 관측·제어 100 Hz, 기본 optimizer 50 Hz,
+  iteration=1·seed42·기존 gain·제한·접촉/정지 로직을 유지했다.
+  작은 팔 bend 동작과 두 1280×720 H264/NVENC loopback 송수신을 함께 실행했다.
+- 첫 쌍은 네 방향 8초/20초와 전진·후진 3회 출발/정지 10개씩, 반복 쌍은
+  네 방향 8초 4개씩이다. **4096×1은 14/14, 1024×1은 11/14 통과**했다.
+  1024의 짧은 보행 8개는 모두 통과했지만 다음 세 시험은 실패했다.
+
+  - 긴 후진: 준비 2초를 포함한 t=14.45초에
+    `GPU MPC produced no finite force trajectory`로 safe fault에 들어갔다.
+  - 긴 좌측 이동: 20초 이동 뒤 zero command를 4초 줘도 stage가 `walk`였다.
+    controller fault는 없지만 stand 복귀 조건을 만족하지 못했다.
+  - 반복 후진: 두 번째 후진의 t=19.30초에 RL 착지 timeout 0.30초로 fault가 났다.
+- 양쪽이 완주한 **11개 시험, 각 10,200 정상 보행 step**에서 평균 loop는
+  **10.255→8.966 ms (-12.57%, 1.290 ms 절감)**, p95는 **13.840→12.249 ms**다.
+  MPPI 호출 평균은 **4.182→3.645 ms (-12.85%)**였다. 같은 완주 구간의 몸통
+  roll/pitch RMS도 **2.73/3.26→3.18/3.73도**로 증가했다. 실패 시험은 모두
+  보존하며 정상 완주 latency 비교에서만 제외했다.
+- timer는 제어·물리·camera submit이다. 팔 명령 쓰기와 10 Hz 실제 pose 검사는
+  timer 밖이고 trial sim/wall에는 포함된다. 초기 build/JIT·실제 UI/DDS/WAN은
+  지연 비교 범위 밖이다. **1024의 평균이 10 ms 미만이어도 p95는 예산을 넘는다.**
+  한 seed의 full/short 비교이며 장시간 실패 재현율이나 일반적인 안정성 확률을
+  입증한 결과는 아니다. 관측된 공중 지지력과 영상 decode 오류는 모두 0회다.
+- **배포 기본값은 4096×1로 유지**한다. 이번 변경은 결과·문서이며, 시험은
+  공식 동일 설치 이미지에서 config override로 실행했다. 네 실행 모두 controller/
+  JAX/payload/bridge/snapshot SHA와 실제 GPU 후보 수·iteration을 확인했다.
+  시험 container 종료·GPU2 유휴·기존 instance pin 보존을 확인했다.
+  [전체 시험·실패·측정 조건·raw SHA](../workbench/evidence/curated/sim/mppi_samples_1024_20261019.json)를 보존했다.
+
 ### 100 Hz 유지·MPPI 4096×1 비교와 기본값 반영 (2026-10-19)
 
 - 같은 공식 Sim `331e754`에서 MPPI 반복 횟수만 2→1→1→2로 비교했다.
