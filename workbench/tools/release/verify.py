@@ -102,6 +102,7 @@ SETUP_PYTHON_MODULES = frozenset(
         "image_cleanup",
         "instance_compose",
         "instance_identity",
+        "instance_listing",
         "instance_preparation",
         "instance_remove",
         "instance_runtime",

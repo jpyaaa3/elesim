@@ -122,6 +122,7 @@ _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
         "install_progress",
         "instance_compose",
         "instance_identity",
+        "instance_listing",
         "instance_preparation",
         "instance_remove",
         "instance_runtime",

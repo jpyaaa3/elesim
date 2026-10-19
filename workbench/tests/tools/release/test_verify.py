@@ -268,6 +268,7 @@ def test_infrastructure_layout_rejects_symlinked_required_path_ancestor(
         "elesim_setup/uninstall.py",
         "elesim_setup/host_proxy.py",
         "elesim_setup/ownership.py",
+        "elesim_setup/instance_listing.py",
         "elesim_setup/shell.py",
     ),
 )

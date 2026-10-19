@@ -6,6 +6,18 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Bootstrap 조회 모듈 manifest 누락 수정 (2026-10-19)
+
+- `afb1e14`의 `instance_listing.py`가 Bootstrap과 release verifier의 명시적
+  Python 모듈 목록에서 누락돼 source snapshot 검증이 실패했다. 기존 검사
+  3개에서 같은 누락을 재현한 뒤 두 목록에 모듈을 등록했다.
+- 소스/Bootstrap 목록 일치를 exact equality로 확인하고, 조회 모듈 누락 거부와
+  release package/wheel 포함 검사를 보강했다. host Bootstrap 관련 **28 passed**,
+  release verifier/실제 infrastructure 복사·wheel 생성 검사 **52 passed**다.
+  실제 checkout에서 허용된 파일 462개를 추린 source snapshot도 검증을 통과했다.
+- 실제 설치/update와 canonical dev container 검사는 실행하지 않았다.
+  사용자 지시에 따라 푸쉬하지 않았다.
+
 ### 인스턴스별 콜사인 조회 (2026-10-19)
 
 - `elesim list`로 해당 설치의 등록된 instance ID와 그 아래 역할별 콜사인을

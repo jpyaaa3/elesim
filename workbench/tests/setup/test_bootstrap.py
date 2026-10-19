@@ -320,7 +320,7 @@ def test_bootstrap_manifest_covers_all_setup_relative_imports() -> None:
             "payload/runtime/docker/setup/app/elesim_setup"
         ) / f"{source.stem}.py"
         for source in sources
-    } <= manifest
+    } == manifest
 
     for source in sources:
         tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
@@ -336,16 +336,18 @@ def test_bootstrap_manifest_covers_all_setup_relative_imports() -> None:
             assert (repository_root / expected).is_file()
 
 
-def test_source_snapshot_rejects_missing_instance_runtime_module(
+@pytest.mark.parametrize("module_name", ("instance_runtime.py", "instance_listing.py"))
+def test_source_snapshot_rejects_missing_instance_module(
     tmp_path: Path,
+    module_name: str,
 ) -> None:
     snapshot = tmp_path / "snapshot"
     _write_valid_snapshot(snapshot)
     root = snapshot / "elesim-main"
-    missing = root / "payload/runtime/docker/setup/app/elesim_setup/instance_runtime.py"
+    missing = root / "payload/runtime/docker/setup/app/elesim_setup" / module_name
     missing.unlink()
 
-    with pytest.raises(BootstrapError, match="instance_runtime.py"):
+    with pytest.raises(BootstrapError, match=module_name):
         bootstrap_module._validate_source_snapshot(root)
 
 

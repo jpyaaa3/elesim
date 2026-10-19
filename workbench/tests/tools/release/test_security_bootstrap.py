@@ -57,6 +57,7 @@ def test_release_setup_package_contains_instance_and_publication_modules(
     expected = {
         "instance_compose.py",
         "instance_identity.py",
+        "instance_listing.py",
         "instance_preparation.py",
         "instance_remove.py",
         "instance_runtime.py",
@@ -98,6 +99,7 @@ def test_setup_wheel_contains_browser_assets_and_cjk_font(tmp_path: Path) -> Non
     assert "elesim_connections/connection_manager_web/pencil.svg" in members
     assert "elesim_connections/connection_manager_web/private-key-warning.svg" in members
     assert "elesim_setup/ownership.py" in members
+    assert "elesim_setup/instance_listing.py" in members
     assert "elesim_setup/uninstall.py" in members
     assert "elesim_setup/shell.py" in members
     assert "elesim-setup = elesim_setup.cli:main" in entry_points
