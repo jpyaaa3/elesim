@@ -6,6 +6,24 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 인스턴스별 콜사인 조회 (2026-10-19)
+
+- `elesim list`로 해당 설치의 등록된 instance ID와 그 아래 역할별 콜사인을
+  표시한다. `--json`도 지원한다. stopped instance를 포함하며, 각 pin의
+  release manifest에서 배정된 역할만 읽는다. 새 release의 별칭이나 Docker
+  가용 이미지 목록으로 기존 instance의 표시를 바꾸지 않는다.
+- public wrapper는 기존 `elesim-instance --list`를 거쳐 stdlib-only host
+  maintenance bundle을 실행한다. Docker 실행·등록/lock 파일 생성이 없고,
+  schema-v2/v3·과거 별칭·제거 후 보존한 로그 디렉터리를 처리한다.
+- 실제 로컬 registry에서 `readiness → ui: donkey`, `test → ui: cow`를
+  read-only 조회했다. 설치본 wrapper 갱신과 실제 multi-host 조회는 미실행이다.
+- host focused **43 passed**이며, 설치·native wrapper·ownership·uninstall까지
+  포함한 관련 batch는 **225 passed / 5 failed**다. 5개는 기존 X11 fixture의
+  Unix socket `bind`가 sandbox에서 `EPERM`으로 막혔다. 새 listing·isolated
+  stdlib bundle·다른 checkout에서의 wrapper 실행 검사는 통과했다. 공식 dev
+  container 검사는 이번에 실행하지 않았으며 앞선 Docker 권한 검토가 모델
+  용량 오류로 막힌 상태다. 실제 Docker/원격/GPU 동작을 입증하는 결과는 아니다.
+
 ### MPPI 기본값 4096×2 복귀 (2026-10-19)
 
 - 사용자 요청으로 YAML, locomotion/MPC config dataclass와 force adapter의

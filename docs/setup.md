@@ -33,6 +33,18 @@ native 설치는 이 단계를 실행하지 않는다. 수동 재시도는 설�
 명령은 필요하지 않다. 부모 터미널의 디렉터리와 PATH는 변경할 수 없으므로 필요시
 `cd <prefix>/bin` 또는 `source ~/.bashrc`를 직접 실행한다.
 
+현재 컴퓨터의 해당 설치에 등록된 인스턴스 ID와 역할별 콜사인을 한 번에
+조회하려면 다음 명령을 사용한다. 정지한 인스턴스도 포함하며, 각 인스턴스가
+고정한 release의 배정된 역할만 표시한다. Docker가 꺼져 있어도 조회할 수 있다.
+
+```bash
+elesim list
+```
+
+예를 들어 `test` 아래에 `pilot: ferret`, `sim: goose`, `ui: otter`가 표시된다.
+`elesim list --json`은 같은 정보를 JSON으로 출력한다. readable 별칭이 없는
+구형 hash 태그는 `(no call sign)`으로 표시한다.
+
 Scoped 설치의 정확한 owner identity는 다음 read-only 명령으로 확인할 수 있다.
 
 ```bash

@@ -115,6 +115,9 @@ pull하고, sidecar와 namespace를 공유하며 당시 실행 중이던 role/Co
 
 사용자 진입점은 `elesim`이다. `elesim up/down/logs/info/remove <system>`은
 기존 `elesim-instance <system>` 명령으로 전달되며 `info`는 `status`에 대응한다.
+`elesim list`는 현재 컴퓨터의 해당 설치에 등록된 instance ID 아래에 배정된
+역할별 콜사인을 표시한다. 각 instance의 고정 release metadata를 읽으므로
+Docker를 시작하지 않으며, `--json`으로 같은 정보를 JSON으로 받을 수 있다.
 `elesim connections`와 `elesim uninstall`도 기존 전용 wrapper를 호출한다.
 `elesim update`는 설치된 Tailscale sidecar를 먼저 갱신한 뒤 release update를
 실행한다. sidecar 갱신 실패 시 release update는 실행하지 않는다. 아래 개별

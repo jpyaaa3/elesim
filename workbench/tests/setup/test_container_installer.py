@@ -386,6 +386,49 @@ def test_scoped_instance_dispatcher_requires_registered_system_and_execs_exact_w
     assert "symlink" in linked.stderr
 
 
+def test_installed_list_reads_pinned_callsigns_without_docker(local_state, tmp_path):
+    from elesim_setup.instances import InstanceEndpoint, InstanceState
+
+    state = replace(local_state(roles=("sim", "ui")), prefix=str(tmp_path / "install with spaces"))
+    ContainerInstaller(state).run()
+    owner = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
+    data = tmp_path / "release-data"
+    data.mkdir()
+    aliases = {"sim": "goose", "ui": "ferret"}
+    release = ReleaseManifest(
+        owner.install_uuid, "git-" + "a" * 40, "linux/amd64",
+        {role: f"elesim/{role}:{owner.docker.install_name}-{alias}" for role, alias in aliases.items()},
+        {role: "sha256:" + "a" * 64 for role in aliases},
+        {role: "b" * 64 for role in aliases}, runtime_data_digest(data),
+    )
+    published = publish_release(state.prefix_path, release, data)
+    instance = InstanceState("lab", published.name, (InstanceEndpoint("sim", "sim-test"),), 7)
+    root = state.prefix_path / "instances/lab"
+    root.mkdir()
+    (root / "state.json").write_text(json.dumps(instance.to_dict()))
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    marker = fake_bin / "docker.called"
+    docker = fake_bin / "docker"
+    docker.write_text(f'#!/bin/bash\ntouch "{marker}"\nexit 97\n')
+    docker.chmod(0o755)
+    environment = dict(os.environ, PATH=f"{fake_bin}:{os.environ['PATH']}", PYTHONPATH="/unrelated")
+    shadow = tmp_path / "unrelated checkout"
+    (shadow / "elesim_setup").mkdir(parents=True)
+    (shadow / "elesim_setup/__init__.py").write_text("raise RuntimeError('wrong package')\n")
+
+    listed = subprocess.run([state.bin_path / "elesim", "list"], env=environment, cwd=shadow, capture_output=True, text=True)
+    assert listed.returncode == 0, listed.stderr
+    assert listed.stdout == "lab\n  sim: goose\n"
+    structured = subprocess.run([state.bin_path / "elesim", "list", "--json"], env=environment, cwd=shadow, capture_output=True, text=True)
+    assert structured.returncode == 0, structured.stderr
+    assert json.loads(structured.stdout) == {"instances": [{"system_id": "lab", "roles": {"sim": "goose"}}]}
+    assert not marker.exists()
+    assert (state.prefix_path / "maintenance/elesim_setup/instance_listing.py").is_file()
+    invalid = subprocess.run([state.bin_path / "elesim", "list", "--prefix", "/other"], env=environment, capture_output=True, text=True)
+    assert invalid.returncode == 64
+
+
 def test_legacy_manifest_refresh_keeps_the_fixed_namespace(
     local_state, monkeypatch: pytest.MonkeyPatch
 ) -> None:

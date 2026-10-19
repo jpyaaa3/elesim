@@ -1458,6 +1458,7 @@ def install_host_uninstaller_bundle(
         "host_helper.py",
         "operation_lock.py",
         "instance_identity.py",
+        "instance_listing.py",
         "readable_names.py",
         "instance_remove.py",
         "manager_ownership.py",

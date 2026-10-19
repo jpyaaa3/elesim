@@ -203,6 +203,7 @@ def render_operator_wrapper(bin_dir: Path, *, scoped: bool, tailscale: bool = Fa
         "  printf '%s\\n' 'Usage:'\n"
         + ("  printf '%s\\n' '  elesim {up|down|logs|info|remove} <system> [options]'\n" if scoped else
            "  printf '%s\\n' '  elesim {up|down|logs|info} [options]'\n")
+        + ("  printf '%s\\n' '  elesim list [--json]'\n" if scoped else "")
         + "  printf '%s\\n' '  elesim connections [options]' '  elesim uninstall [options]' '  elesim update' '  elesim tailscale {login|status} [options]'\n"
         '}\n'
         'usage_error() { usage >&2; exit 64; }\n'
@@ -216,7 +217,11 @@ def render_operator_wrapper(bin_dir: Path, *, scoped: bool, tailscale: bool = Fa
         '(( $# == 0 )) || shift\n'
         'case $action in\n'
         '  help|-h|--help) usage ;;\n'
-        '  up|down|logs|info|remove)\n'
+        '  list)\n'
+        + ('    require_backend elesim-instance\n'
+           '    exec "$bin_dir/elesim-instance" --list "$@" ;;\n' if scoped else
+           "    printf '%s\\n' 'This installation has no scoped instances.' >&2; exit 64 ;;\n")
+        + '  up|down|logs|info|remove)\n'
         '    [[ $action != info ]] || action=status\n'
         + lifecycle
         + '    ;;\n'

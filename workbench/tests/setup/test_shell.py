@@ -53,6 +53,26 @@ def test_operator_native_info_and_remove(tmp_path):
     assert "elesim uninstall" in result.stderr
 
 
+@pytest.mark.parametrize("arguments", [(), ("--json",)])
+def test_operator_lists_instances_without_a_system_argument(tmp_path, arguments):
+    write_executable(tmp_path / "elesim", render_operator_wrapper(tmp_path, scoped=True))
+    write_executable(tmp_path / "elesim-instance", '#!/bin/bash\nprintf "%s\\n" "$@"\n')
+    result = subprocess.run([tmp_path / "elesim", "list", *arguments], capture_output=True, text=True)
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == ["--list", *arguments]
+
+
+def test_operator_list_rejects_missing_backend_and_native_installation(tmp_path):
+    write_executable(tmp_path / "elesim", render_operator_wrapper(tmp_path, scoped=True))
+    result = subprocess.run([tmp_path / "elesim", "list"], capture_output=True, text=True)
+    assert result.returncode == 78
+    assert "Command unavailable" in result.stderr
+    write_executable(tmp_path / "elesim", render_operator_wrapper(tmp_path, scoped=False))
+    result = subprocess.run([tmp_path / "elesim", "list"], capture_output=True, text=True)
+    assert result.returncode == 64
+    assert "no scoped instances" in result.stderr
+
+
 def test_managed_path_block_quotes_literal_install_path() -> None:
     block = managed_path_block(Path("/home/user/Elesim Folder/bin"))
 
