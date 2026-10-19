@@ -107,6 +107,27 @@ def _container_references(call) -> dict[str, tuple[str, str | None]]:
     return _record_references(_container_records(call))
 
 
+def _container_metadata_changes(before: dict, after: dict) -> tuple[str, ...]:
+    """Ignore Mounts ordering while retaining every metadata/content check.
+
+    Repeated inspect calls on stopped containers can return the same mounts
+    in a different order. Keep duplicates and all mount fields in the
+    comparison so an actual mount change still prevents removal.
+    """
+    changed = []
+    for key in sorted(before.keys() | after.keys()):
+        if key not in before or key not in after:
+            changed.append(key)
+            continue
+        old, new = before[key], after[key]
+        if key == "Mounts" and isinstance(old, list) and isinstance(new, list):
+            old = sorted(json.dumps(mount, sort_keys=True) for mount in old)
+            new = sorted(json.dumps(mount, sort_keys=True) for mount in new)
+        if old != new:
+            changed.append(key)
+    return tuple(changed)
+
+
 def _current_services(call, boundary) -> dict:
     configured = json.loads(call("compose", "-p", boundary.project, "-f", boundary.compose_file,
                                  "config", "--format", "json"))
@@ -447,8 +468,14 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
             if json.loads(call("image", "inspect", image))[0] != expected:
                 raise ValueError("Docker image metadata changed before cleanup")
     for container, expected in orphan_plans.items():
-        if json.loads(call("container", "inspect", container)) != [expected]:
-            raise ValueError("Docker container metadata changed before cleanup")
+        inspected = json.loads(call("container", "inspect", container))
+        identity = f"{expected['Name'][1:]} ({container})"
+        if not isinstance(inspected, list) or len(inspected) != 1 or not isinstance(inspected[0], dict):
+            raise ValueError(f"invalid Docker container metadata before cleanup: {identity}")
+        changed = _container_metadata_changes(expected, inspected[0])
+        if changed:
+            raise ValueError(f"Docker container metadata changed before cleanup: {identity}; "
+                             f"changed fields: {', '.join(changed)}")
         # No force, stop, or volume removal. A concurrent start makes Docker
         # refuse this exact-ID removal rather than interrupting that process.
         call("container", "rm", container)
