@@ -49,6 +49,12 @@ Sim의 선택적 `runtime.mirror_robot_id`는 지정 Robot의 측정 telemetry�
 Robot 명령을 보내지 않는다. Sim 자신의 motion lease가 있으면 그 제어가
 우선하며, Robot 연결이 끊기면 마지막 수신 자세를 유지한다.
 
+IK 목표 XYZ/방향의 표시 intent는 UI simulation-session의 `set_ik_target`
+명령으로 Sim에 직접 전달한다. Pilot의 motion target이 Robot이어도 초록
+목표 구/화살표는 Sim에 표시되며 q나 collision scene을 바꾸지 않는다.
+Async observer snapshot에 표시 상태를 포함하고 Observer camera만 debug
+marker를 렌더한다. Hand-eye RGB-D는 제외한다.
+
 Robot의 Python DDS/runtime은 lease, 명령 검증과 deadman을 맡는다. 승인된 이론 q는
 Jetson 프로세스 안의 C++ arm controller로 전달한다. C++ controller는 로컬
 주기(명목상 5 ms)마다 이론 q와 최신 IMU sample을 `correction_model.cpp`의
@@ -66,12 +72,19 @@ Pilot은 선택 ID가 포함된 Robot telemetry를 확인하기 전까지 적용
 전류·위치 감시는 별도 설정 주기로 실행하며, Jetson의 스케줄링과 버스 지연 때문에
 5 ms는 보장된 마감 시간이 아니다.
 
+그리퍼는 Position mode를 유지한다. 닫힘 중 설정된 전류 이상이 흐르고
+측정 위치가 정체되면 Robot이 Goal Position을 현재 tick으로 옮겨 접촉점에서
+멈춘다. 반복되는 닫힘 intent는 명시적 열림 명령이 올 때까지 이 목표를 덮지
+않는다. 이 접촉 처리는 ID 1–4의 전류 한계와 arm-wide safety fault 동작을
+완화하지 않는다. 모터 자체의 Hardware Error/Shutdown은 별도의 장치 fault다.
+
 팔 목표는 Robot C++ 루프에서 보정·범위 검사 후 motor-space slew limit를
-거친다. 기본 canonical q 변화율은 직선 0.02 m/s, Roll 0.35 rad/s, 각 굽힘
-0.10 rad/s이며, 드라이버 profile velocity도 해당 모터 환산값 이하로 제한한다.
+거친다. canonical q 변화율 상한은 설치된 Robot 설정에서 오며 현재 기본값은
+직선 0.20 m/s, Roll 3.5 rad/s, 각 굽힘 1.0 rad/s다. 드라이버 profile velocity도
+해당 모터 환산값 이하로 제한한다.
 수신 스레드는 최종 위치를 직접 쓰지 않는다. 긴 scheduling 지연을 큰 목표
 점프로 보상하지 않으며, torque-on 전에 fresh 측정 위치를 모든 모터의 hold
-goal로 쓴다. hold/torque-off는 남은 목표를 버린다. Native ABI 2는 구형
+goal로 쓴다. hold/torque-off는 남은 목표를 버린다. Native ABI 3은 구형
 shared library와 새 Python 설정 구조가 섞이면 시작을 거부한다.
 
 실제 Robot 측정 자세를 표시하는 Sim 경로는 명령용 rate limiter를 다시
@@ -339,6 +352,16 @@ mimic 관계로 결합한다. 전체 경로 실행, GO2/주변 물체의 live sc
 접촉 허용 정책은 이 IK backend 선택으로 활성화되지 않는다. 모델 생성,
 Jetson 설치 및 검증 경계는 `curobo.md`를 따른다.
 
+별도 `Plan XYZ` operator 경로는 Pilot worker에서 position IK와 cuRobo joint
+trajectory를 계산하고, `Execute path`에서만 기존 canonical q command로
+실제 Robot에 전송한다. Robot boot/lease, advancing measured sample, 시작 자세,
+identity/v1 보정, 열린 claw, 고정된 arm base와 정적 world/model digest를 검사한다.
+계획·실행 중 다른 operator 변경과 background motion을 막는다. 실행 중 feedback
+350 ms 초과, 추종 오차 4 mm / 0.06 rad 초과, scheduling overrun 100 ms 초과는
+남은 경로를 취소하고 해당 lease를 해제해 Robot의 local safe hold를 요청한다.
+Torque OFF/Estop은 기존 lease로 전달하며 executor가 Torque ON을 보내지 않는다.
+이 경로는 Home/slider/workflow 자동 전환이나 live obstacle 동기화를 뜻하지 않는다.
+
 FK context의 fixed/prismatic neutral origin은 connector anchor 대신 child
 CAD pose를 사용하고 parent rotation의 역변환을 적용한다. 이 구분이 빠지면
 gripper/camera의 고정 오프셋이 사라진다. 생성 모델은 active chain뿐 아니라
@@ -350,12 +373,14 @@ confirmed design ratio is 1.5 motor degrees per millimetre: zero is fully
 forward, and 15 degrees retracts 10 mm. The previous -0.230 m endpoint overstated
 retraction by 63.333333 mm. This replaces the provisional 84 mm outer-diameter
 estimate; travel = angle / 1.5 / 1000 metres. The 295.31 mm rack length does not
-establish usable stroke. The conversion scale retains 0–250 degrees; the operating cap is now
-213 degrees (142 mm travel), leaving a model surface gap of 40 mm. Protocol,
+establish usable stroke. The operating endpoint was 213 degrees (142 mm travel)
+until the operator confirmed a farther physical endpoint on 2026-10-19. The current
+endpoint is 259 degrees (172.666667 mm), preserving the 1.5 degree/mm ratio. Protocol,
 Pilot, Sim and Robot defaults, generated URDF/IK models and RL action bounds
-share this cap. RL uses the effective configured bounds, including custom caps.
-The measured zero gap was 183 mm versus 182 mm in the mesh; the 40 mm endpoint
-is a geometry prediction, not a measured endpoint or dynamics validation. This is a default calibration correction,
+share this endpoint. Home/startup remains 213 degrees. RL uses the effective configured bounds, including custom caps.
+The measured zero gap was 183 mm versus 182 mm in the mesh; the new endpoint
+leaves approximately 9.333 mm in the model. This is a geometry prediction, not a
+measured gap or dynamics validation. This is a default calibration correction,
 not a wire format change. Existing installed configuration, release pins and
 exported RL policy interfaces retain their old calibration and require explicit
 review/rebuild; trained policy compatibility is not established by this change.
@@ -587,3 +612,13 @@ encoded WebRTC track과 contract/lease/safety test를 검증한다. `elesim-dev`
 authorization, NAT/TURN relay, GPU/X11/WSLg, Genesis viewer·observer 화면,
 Jetson/Unitree physical safety와 Look–Aim–Grasp convergence다. 이들은
 [`status.md`](status.md)의 수동 acceptance gate다.
+
+
+Planned-arm Ghost presentation follows Pilot operator view → UI simulation
+session → Sim, independently of physical motion authority. Pilot exposes at most
+96 timed visual samples and the planned arm-base pose for a ready plan; full
+execution samples stay in Pilot. Sim evaluates its own arm URDF FK and draws
+cached meshes as green alpha-blended debug objects, never as a physics entity.
+Wall-clock playback continues while paused (15 Hz visual updates); each camera
+process owns its Ghost objects. Observer/native viewer show them, hand-eye RGB-D
+does not. No application imports a sibling implementation.

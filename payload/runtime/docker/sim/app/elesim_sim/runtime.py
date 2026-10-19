@@ -52,6 +52,8 @@ from elesim_sim.core.runtime_urdf import select_runtime_urdf
 from elesim_protocol.tracing import configure_tracing, shutdown_tracing, span
 from elesim_sim.media import FrameDispatchWorker
 from elesim_sim.simulation.operator_control import SimulationOperatorController
+from elesim_sim.simulation.ik_marker import IkTargetMarker
+from elesim_sim.simulation.arm_ghost import ArmGhost, sample_preview
 from elesim_sim.simulation.mock_objects import MockObjectCatalog, resolve_mock_object_catalog_root
 from elesim_sim.simulation.mock_object_state import MockObjectState
 from elesim_sim.simulation.genesis.utils import to_numpy_1d_copy as _to_numpy_1d
@@ -1378,6 +1380,11 @@ class SimScene(_SimSceneKinematicsMixin):
     _next_observer_camera_publish_sim_t: float = 0.0
     _latest_camera_axes: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]] = None
     _render_mock_snapshot: dict[str, Any] = field(default_factory=dict)
+    ik_target_position: Optional[tuple[float, float, float]] = None
+    ik_target_direction: Optional[tuple[float, float, float]] = None
+    ik_debug_visible: bool = True
+    arm_ghost_q: object = None
+    arm_ghost_base: object = None
     _async_frame_seen: set[str] = field(default_factory=set)
     _camera_failures: set[str] = field(default_factory=set)
     _force_instant_arm_frames: int = 0
@@ -1667,6 +1674,10 @@ class SimScene(_SimSceneKinematicsMixin):
             ),
             observer_pos=observer_pos,
             observer_lookat=observer_lookat,
+            ik_target_position=self.ik_target_position,
+            ik_target_direction=self.ik_target_direction,
+            debug_visible=self.ik_debug_visible,
+            arm_ghost_q=self.arm_ghost_q, arm_ghost_base=self.arm_ghost_base,
         )
 
     @staticmethod
@@ -3336,6 +3347,9 @@ class SimRuntime:
             mock_hug_cancel=self._cancel_mock_hug,
         )
         self.operator.debug_visible = bool(app.spawn.draw_debug_markers)
+        self._ik_marker = IkTargetMarker()
+        self._arm_ghost = ArmGhost(os.path.join(app.cfg.build_dir, app.cfg.arm_urdf_name))
+        self._ghost_frame = None
 
     def _feedback_due(self, sim_time_s: float) -> bool:
         period = 1.0 / max(1.0, float(self.app.cfg.telemetry_max_hz))
@@ -3452,6 +3466,31 @@ class SimRuntime:
                 ok, reason = False, str(exc) or type(exc).__name__
             mailbox.complete(command, ok=ok, reason=reason)
             self._status_dirty = True
+
+    def _update_ik_target_marker(self) -> None:
+        a = self.app
+        visible = bool(a.spawn.draw_debug_markers and self.operator.debug_visible)
+        pos, direction = self.operator.ik_target_position, self.operator.ik_target_direction
+        if pos is None and a.state_source is not None:
+            pos = a.state_source.ik_target_xyz()
+            direction = a.state_source.ik_target_dir()
+        a.sim_scene.ik_target_position = None if pos is None else tuple(map(float, pos))
+        a.sim_scene.ik_target_direction = None if direction is None else tuple(map(float, direction))
+        a.sim_scene.ik_debug_visible = visible
+        self._ik_marker.update(a.sim_scene.scene, pos, direction, visible=visible)
+        preview = self.operator.arm_ghost
+        elapsed = time.monotonic()-self.operator.arm_ghost_started_at
+        if elapsed > 120:
+            preview = None
+        frame = None if preview is None else (preview["plan_id"], int(elapsed*15), visible)
+        if frame != self._ghost_frame:
+            self._ghost_frame = frame
+            q = sample_preview(preview, elapsed)
+            base = None if preview is None else preview["base"]
+            a.sim_scene.arm_ghost_q, a.sim_scene.arm_ghost_base = q, base
+            self._arm_ghost.update(a.sim_scene.scene, q, base, visible=visible)
+            self.operator._observer_dirty = True
+
 
     def _publish_simulation_status(self, *, force: bool = False) -> None:
         publisher = self.app.simulation_status_publisher
@@ -3607,6 +3646,9 @@ class SimRuntime:
                 # resetting the Genesis scene and MPC state.
                 self._poll_host_and_update_model()
                 self._apply_operator_commands()
+                # Update display snapshots before the pre-step camera publish,
+                # including the forced render of a paused scene.
+                self._update_ik_target_marker()
                 sim_target_xyz = a.state_source.sim_target_xyz() if a.state_source is not None else None
                 if sim_target_xyz is not None:
                     a.sim_scene.set_sim_target_position(sim_target_xyz)

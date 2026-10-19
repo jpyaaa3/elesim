@@ -31,6 +31,8 @@ SIMULATION_COMMANDS = frozenset(
         "reset",
         "set_speed",
         "set_debug_visible",
+        "set_ik_target",
+        "set_arm_ghost",
         "spawn_mock_object",
         "remove_mock_object",
         "detach_mock_object",
@@ -665,6 +667,50 @@ class SimulationCommandRequest:
         if command == "set_debug_visible":
             _unknown(raw, {"visible"}, context="set_debug_visible arguments")
             return {"visible": _boolean(raw.get("visible"), name="debug visible")}
+        if command == "set_arm_ghost":
+            _unknown(raw, {"preview"}, context="set_arm_ghost arguments")
+            preview = raw.get("preview")
+            if preview is None:
+                return {"preview": None}
+            if not isinstance(preview, Mapping):
+                raise ProtocolError("ghost preview must be a mapping")
+            _unknown(preview, {"plan_id", "times_s", "positions", "base"}, context="ghost preview")
+            plan_id = preview.get("plan_id")
+            if not isinstance(plan_id, str) or not 1 <= len(plan_id) <= 64:
+                raise ProtocolError("ghost plan_id must be 1..64 characters")
+            positions, times = preview.get("positions"), preview.get("times_s")
+            if not isinstance(positions, (list, tuple)) or not 2 <= len(positions) <= 96:
+                raise ProtocolError("ghost requires 2..96 visual samples")
+            if not isinstance(times, (list, tuple)) or len(times) != len(positions):
+                raise ProtocolError("ghost times must match sample count")
+            times = [_finite(v, name="ghost time") for v in times]
+            if times[0] != 0 or times[-1] > 120 or any(b <= a for a,b in zip(times,times[1:])):
+                raise ProtocolError("ghost times must increase from zero up to 120 seconds")
+            positions = [list(_bounded_vector(q, 4, name="ghost q", absolute_maximum=10)) for q in positions]
+            base = preview.get("base")
+            if not isinstance(base, (list, tuple)) or len(base) != 4:
+                raise ProtocolError("ghost base must be a 4x4 rigid transform")
+            base = [list(_bounded_vector(row, 4, name="ghost base row", absolute_maximum=10)) for row in base]
+            # Validate a proper rigid transform without importing scientific packages.
+            if base[3] != [0,0,0,1]:
+                raise ProtocolError("invalid ghost base bottom row")
+            rot = [row[:3] for row in base[:3]]
+            for i in range(3):
+                for j in range(3):
+                    if abs(sum(rot[k][i]*rot[k][j] for k in range(3)) - (i == j)) > 1e-5:
+                        raise ProtocolError("ghost base rotation must be orthonormal")
+            det = sum(rot[0][i]*(rot[1][(i+1)%3]*rot[2][(i+2)%3]-rot[1][(i+2)%3]*rot[2][(i+1)%3]) for i in range(3))
+            if abs(det-1) > 1e-5:
+                raise ProtocolError("ghost base rotation must be proper")
+            return {"preview": {"plan_id":plan_id,"times_s":times,"positions":positions,"base":base}}
+        if command == "set_ik_target":
+            _unknown(raw, {"position", "direction"}, context="set_ik_target arguments")
+            return {
+                "position": list(_bounded_vector(raw.get("position"), 3,
+                    name="IK target position", absolute_maximum=10.0)),
+                "direction": list(_bounded_vector(raw.get("direction"), 3,
+                    name="IK target direction", absolute_maximum=1.0)),
+            }
         if command == "spawn_mock_object":
             _unknown(raw, {"asset_id", "position", "euler_deg"}, context="spawn_mock_object arguments")
             return {

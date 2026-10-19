@@ -1,0 +1,19 @@
+{
+  "observer_green_pixels": 1971,
+  "moved_green_pixels": 3124,
+  "hand_eye_green_pixels": 0,
+  "hidden_green_pixels": 0,
+  "alpha_mode": "BLEND",
+  "opacity": 0.3333333333333333,
+  "scope": "real Genesis; no DDS or hardware",
+  "host_focused_tests": 132,
+  "trajectory_dds_fixture": "passed",
+  "live_deployment": "Mac Sim/UI and Jetson Pilot applied; live plan-ready visual acceptance pending",
+  "render_scope": "Ghost-only rendering, no hardware",
+  "topology_dds": "four-process real-DDS Ghost command passed",
+  "linear_max_deg": 259.0,
+  "linear_min_m": -0.17266666666666666,
+  "linear_endpoint_tests": 93,
+  "final_ghost_regression_tests": 72,
+  "physical_motion_sent": false
+}

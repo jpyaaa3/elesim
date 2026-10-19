@@ -14,7 +14,7 @@ from elesim_protocol.messages import (
 ROOT = Path(__file__).resolve().parents[3]
 
 
-@pytest.mark.parametrize("degrees, millimetres", [(0.0, 0.0), (15.0, 10.0), (150.0, 100.0), (213.0, 142.0)])
+@pytest.mark.parametrize("degrees, millimetres", [(0.0, 0.0), (15.0, 10.0), (150.0, 100.0), (213.0, 142.0), (250.0, 250/1.5), (259.0, 259/1.5)])
 def test_design_rack_travel(degrees, millimetres):
     config = SimMappingConfig()
     q = control_u_to_sim_q(ControlU(degrees, 180.0, 180.0, 180.0), config)
@@ -24,7 +24,7 @@ def test_design_rack_travel(degrees, millimetres):
 
 def test_motor_cap_does_not_expand_to_full_rack_length():
     q = control_u_to_sim_q(ControlU(360.0, 180.0, 180.0, 180.0), SimMappingConfig())
-    assert q.linear_m == pytest.approx(-0.142)
+    assert q.linear_m == pytest.approx(-259/1.5/1000)
     assert abs(q.linear_m) < 0.29531
 
 
@@ -40,9 +40,9 @@ def test_shipped_models_and_robot_agree_on_linear_limits():
     model = json.loads((ROOT / "payload/data/models/arm/default.json").read_text())
     assert model["context"]["linear_min_m"] == pytest.approx(expected)
     robot = yaml.safe_load((ROOT / "payload/config/robot/default.yaml").read_text())
-    assert robot["mapping"]["linear_q_min_m"] == pytest.approx(-1 / 6)
-    assert robot["mapping"]["linear_u_max"] == 250.0
-    assert robot["mapping"]["linear_u_limit"] == 213.0
+    assert robot["mapping"]["linear_q_min_m"] == pytest.approx(-259/1.5/1000)
+    assert robot["mapping"]["linear_u_max"] == 259.0
+    assert robot["mapping"]["linear_u_limit"] == 259.0
 
 
 def test_role_defaults_and_rl_share_operating_range():
@@ -58,11 +58,11 @@ def test_role_defaults_and_rl_share_operating_range():
         robot_config(ROOT / "payload/config/robot/default.yaml").mapping,
     ]
     for mapping in mappings:
-        assert mapping.linear_u_max == 250.0  # Keep the 1.5 degree/mm scale.
-        assert mapping.linear_u_limit == 213.0
-        assert linear_effective_q_bounds(mapping) == pytest.approx((-0.142, 0.0))
-        assert control_u_to_sim_q(ControlU(250, 180, 180, 180), mapping).linear_m == pytest.approx(-0.142)
-    assert load_mechanism().linear_m == pytest.approx((-0.142, 0.0))
+        assert mapping.linear_u_max == 259.0  # Extend the endpoint while retaining 1.5 degree/mm.
+        assert mapping.linear_u_limit == 259.0
+        assert linear_effective_q_bounds(mapping) == pytest.approx((-259/1.5/1000, 0.0))
+        assert control_u_to_sim_q(ControlU(259, 180, 180, 180), mapping).linear_m == pytest.approx(-259/1.5/1000)
+    assert load_mechanism().linear_m == pytest.approx((-259/1.5/1000, 0.0))
 
 
 def test_rl_respects_a_custom_operating_cap(tmp_path):

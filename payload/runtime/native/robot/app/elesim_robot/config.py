@@ -21,9 +21,12 @@ class HardwareConfig:
     command_direction: tuple[int, int, int, int] = (1, 1, 1, -1)
     motor_direction: tuple[int, int, int, int] = (1, -1, 1, -1)
     baudrate: int = 1_000_000
-    linear_u_max_deg: float = 250.0
-    linear_u_limit_deg: float = 213.0
+    linear_u_max_deg: float = 259.0
+    linear_u_limit_deg: float = 259.0
     current_limit_ma: int = 2500
+    claw_contact_current_ma: int = 800
+    claw_contact_stall_s: float = 0.12
+    claw_stall_position_ticks: int = 3
     profile_vel_linear: int = 240
     profile_acc_linear: int = 10
     profile_vel_roll: int = 240
@@ -34,9 +37,9 @@ class HardwareConfig:
     profile_acc_seg2: int = 6
     profile_vel_claw: int = 20
     profile_acc_claw: int = 5
-    max_linear_m_s: float = 0.02
-    max_roll_rad_s: float = 0.35
-    max_bend_rad_s: float = 0.10
+    max_linear_m_s: float = 0.20
+    max_roll_rad_s: float = 3.5
+    max_bend_rad_s: float = 1.0
     claw_open_deg: float = 340.0
     claw_closed_deg: float = 230.0
 
@@ -153,6 +156,11 @@ def _validate_arm(config: HardwareConfig) -> None:
     if float(config.linear_u_limit_deg) > float(config.linear_u_max_deg):
         raise ValueError("arm.linear_u_limit_deg must not exceed linear_u_max_deg")
     _positive(config.current_limit_ma, name="arm.current_limit_ma")
+    _positive(config.claw_contact_current_ma, name="arm.claw_contact_current_ma")
+    if config.claw_contact_current_ma >= config.current_limit_ma:
+        raise ValueError("arm.claw_contact_current_ma must be below arm.current_limit_ma")
+    _positive(config.claw_contact_stall_s, name="arm.claw_contact_stall_s")
+    _positive(config.claw_stall_position_ticks, name="arm.claw_stall_position_ticks")
     for name in ("max_linear_m_s", "max_roll_rad_s", "max_bend_rad_s"):
         _positive(getattr(config, name), name=f"arm.{name}")
     for name in ("claw_open_deg", "claw_closed_deg"):

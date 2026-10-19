@@ -33,8 +33,8 @@ class PacketHandler {
   int write4ByteTxRx(PortHandler*, uint8_t id, uint16_t address, uint32_t value, uint8_t* error) {
     *error = 0; registers[id][address] = value; return 0;
   }
-  int read2ByteTxRx(PortHandler*, uint8_t, uint16_t, uint16_t* value, uint8_t* error) {
-    *error = 0; *value = 0; return 0;
+  int read2ByteTxRx(PortHandler*, uint8_t id, uint16_t address, uint16_t* value, uint8_t* error) {
+    *error = 0; *value = static_cast<uint16_t>(registers[id][address]); return 0;
   }
 };
 class GroupSyncRead {

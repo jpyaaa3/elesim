@@ -35,6 +35,9 @@ class OperatorDispatcher:
         if operation not in OPERATOR_OPERATIONS:
             return {"request_id": request_id, "ok": False, "error": "unsupported_operation"}
         try:
+            guard = getattr(self.service, "guard_operator_intent", None)
+            if callable(guard):
+                guard(operation, name)
             args = [decode_value(value) for value in payload.get("args", [])]
             kwargs = {
                 str(key): decode_value(value)
@@ -75,6 +78,7 @@ class OperatorDispatcher:
     def _view_snapshot(self) -> dict[str, Any]:
         host_state = self.service.refresh_host_state()
         service = {
+            "arm_trajectory": getattr(self.service, "arm_trajectory", {}),
             "current_host_state": host_state,
             "has_client": self.service.has_client(),
             "current_control_u": self.service.current_control_u(),

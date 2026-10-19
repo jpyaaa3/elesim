@@ -13,8 +13,11 @@ struct ElesimArmConfig {
   int32_t profile_velocity[5];
   int32_t profile_acceleration[5];
   int32_t current_limit_ma;
+  int32_t claw_contact_current_ma;
+  int32_t claw_stall_position_ticks;
   int32_t read_failure_limit;
   double monitor_period_s;
+  double claw_contact_stall_s;
   double linear_motor_limit_deg;
   double q_min[4];
   double q_max[4];

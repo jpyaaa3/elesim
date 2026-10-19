@@ -85,7 +85,8 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
     "operator_intent": _contract(
         "operator_intent", ("ui",), ("pilot",),
         authority="pilot workflow",
-        notes="view_snapshot reads; allowlisted service_call/state_call/state_set writes",
+        notes=("view_snapshot reads; allowlisted service_call/state_call/state_set writes; "
+               "additive v6 arm trajectory prepare/execute/cancel; no Robot trajectory wire type"),
     ),
     "operator_result": _contract(
         "operator_result", ("pilot",), ("ui",),
@@ -171,7 +172,8 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
     "simulation_command": _contract(
         "simulation_command", ("ui",), ("sim",),
         authority="sim UI-session lease",
-        notes="validated SimulationCommandRequest; mock object commands carry asset id/pose, never OBJ bytes",
+        notes=("validated SimulationCommandRequest; additive v6 set_ik_target and set_arm_ghost are display-only; ghost has <=96 timed q4 samples and a rigid base; "
+               "mock object commands carry asset id/pose, never OBJ bytes"),
     ),
     "simulation_result": _contract(
         "simulation_result", ("sim",), ("ui",),

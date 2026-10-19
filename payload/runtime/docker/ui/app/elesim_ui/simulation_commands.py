@@ -12,7 +12,7 @@ from dataclasses import replace
 from elesim_protocol import SimulationCommandRequest
 
 
-COALESCED_COMMANDS = frozenset({"orbit", "pan", "zoom", "set_speed", "set_debug_visible"})
+COALESCED_COMMANDS = frozenset({"orbit", "pan", "zoom", "set_speed", "set_debug_visible", "set_ik_target", "set_arm_ghost"})
 
 
 def _coalesce(previous: SimulationCommandRequest, current: SimulationCommandRequest) -> SimulationCommandRequest:

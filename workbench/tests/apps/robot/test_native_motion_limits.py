@@ -1,4 +1,5 @@
 import ctypes
+import math
 import shutil
 import subprocess
 import time
@@ -26,6 +27,9 @@ def controller_library(tmp_path_factory):
 #include "motion_limits.h"
 extern "C" unsigned fake_read(int id, int address) { return dynamixel::registers[id][address]; }
 extern "C" int fake_bad_enable() { return dynamixel::enabled_before_hold; }
+extern "C" void fake_set_current_raw(int id, unsigned value) {
+  dynamixel::registers[id][126] = value;
+}
 extern "C" void fake_reset() {
   dynamixel::enabled_before_hold = 0;
   for (int id=1; id<=5; ++id) {
@@ -85,7 +89,9 @@ def test_target_cannot_bypass_slew_limit_and_torque_off_discards_it(controller_l
         arm.torque_on_all()
         time.sleep(0.03)
         assert lib.fake_read(2, 116) == 2048
-        assert lib.fake_read(3, 112) <= 21  # firmware cap also follows the physical rate.
+        config = _native_config(HardwareConfig(), SimMappingConfig(), SafetyConfig())
+        profile_cap = math.floor(config.max_motor_velocity_deg_s[2] / (0.229 * 6.0))
+        assert lib.fake_read(3, 112) == min(HardwareConfig().profile_vel_seg1, profile_cap)
     finally:
         arm.close()
 
@@ -96,3 +102,26 @@ def test_scheduler_stall_never_becomes_a_large_goal_jump(controller_library):
     lib.probe_stalled_step.restype = ctypes.c_double
     assert lib.probe_stalled_step(10.0) == pytest.approx(0.2)
     assert lib.probe_stalled_step(0.005) == pytest.approx(0.05)
+
+
+def test_gripper_contact_rebases_goal_without_dropping_arm_torque(controller_library):
+    arm, lib = make_arm(controller_library)
+    try:
+        arm.torque_on_all()
+        lib.fake_set_current_raw(5, 400)  # 1076 mA with the configured 2.69 mA/unit.
+        arm.command_claw_deg(230.0)
+        time.sleep(0.30)
+
+        measured_tick = lib.fake_read(5, 132)
+        assert lib.fake_read(5, 116) == measured_tick
+        assert all(lib.fake_read(motor, 64) == 1 for motor in range(1, 5))
+
+        # Repeated close intent must not reapply the fully-closed goal after contact.
+        arm.command_claw_deg(230.0)
+        assert lib.fake_read(5, 116) == measured_tick
+
+        # An explicit open command releases the contact hold.
+        arm.command_claw_deg(340.0)
+        assert lib.fake_read(5, 116) > measured_tick
+    finally:
+        arm.close()

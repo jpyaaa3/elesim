@@ -19,6 +19,7 @@ SERVICE_CALLS = frozenset(
         "compute_mock_hug", "execute_mock_hug",
         "select_endpoint",
         "select_imu_model",
+        "plan_arm_to_target", "execute_arm_trajectory", "cancel_arm_trajectory",
     }
 )
 

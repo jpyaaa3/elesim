@@ -96,6 +96,11 @@ class CameraStateSnapshot:
     target_position: Optional[tuple[float, float, float]] = None
     observer_pos: Optional[tuple[float, float, float]] = None
     observer_lookat: Optional[tuple[float, float, float]] = None
+    ik_target_position: Optional[tuple[float, float, float]] = None
+    ik_target_direction: Optional[tuple[float, float, float]] = None
+    debug_visible: bool = True
+    arm_ghost_q: Optional[tuple[float, float, float, float]] = None
+    arm_ghost_base: object = None
 
 
 class SharedRgbdMailbox:
@@ -478,6 +483,10 @@ def _camera_render_process_main(
         ready.set()
         startup_complete = True
 
+        from elesim_sim.simulation.ik_marker import IkTargetMarker
+        ik_marker = IkTargetMarker()
+        from elesim_sim.simulation.arm_ghost import ArmGhost
+        arm_ghost = ArmGhost(spec.hand_eye_urdf_path or spec.urdf_path)
         capture_logged: set[str] = set()
 
         while not stop.is_set():
@@ -540,6 +549,11 @@ def _camera_render_process_main(
                 applied_snapshot,
                 joint_positions=joint_positions,
             )
+            if observer is not None:
+                ik_marker.update(scene, snapshot.ik_target_position, snapshot.ik_target_direction,
+                                 visible=snapshot.debug_visible)
+                arm_ghost.update(scene, snapshot.arm_ghost_q, snapshot.arm_ghost_base,
+                                 visible=snapshot.debug_visible)
             for stream in tuple(dict.fromkeys(requested_names)):
                 try:
                     if stream not in capture_logged:

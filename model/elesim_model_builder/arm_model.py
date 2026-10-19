@@ -42,7 +42,9 @@ def build_arm_model(*, config: Path, assets: Path, output: Path) -> Path:
         with tempfile.TemporaryDirectory(prefix="elesim-arm-model-") as workspace:
             _bundle, context = build_solver_context(
                 str(Path(config)),
-                build_dir=workspace,
+                # macOS /var aliases /private/var; asset relpaths and reads
+                # must use the same canonical temporary root.
+                build_dir=str(Path(workspace).resolve()),
             )
     finally:
         json_builder.DEFAULT_ASSET_ROOT_DIR = previous_asset_root

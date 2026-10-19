@@ -791,6 +791,241 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   카메라 worker를 사용하되 DDS 참여나 실제 Robot 명령을 만들지 않는다.
   PNG 저장 부하가 있어 이 timing을 실시간 성능 gate로 사용하지 않는다.
 
+### 그리퍼 물체 접촉 시 과도한 닫힘 방지 (2026-10-19)
+
+- 이전 동작은 grasp 완료 후 ID 5에 고정 230° Goal Position을 쓰고,
+  모터 전류는 표시 및 2.5 A arm-wide fault 감시에만 사용했다. 물체에 닿아도
+  위치 목표를 측정 위치로 옮기는 접촉 처리가 없어, 계속 닫힘을 밀다가 모터
+  Hardware Error를 유발할 수 있었다.
+- Robot native controller에 gripper 전용 stall/contact hold를 추가했다. 닫힘 중
+  전류가 800 mA 이상이고 위치가 3 encoder tick 이내로 120 ms 정체되면 Goal
+  Position을 그 순간의 측정 tick으로 옮긴다. hard current threshold에 이르면
+  즉시 같은 처리를 한다. 반복되는 동일 닫힘 명령은 열림 명령 전까지 hold점을
+  덮지 않는다. Position mode는 유지하며 arm ID 1–4의 current guard는 유지한다.
+  설정은 `arm.claw_contact_current_ma`, `claw_contact_stall_s`,
+  `claw_stall_position_ticks`이고 기본값은 800 mA / 0.12 s / 3 ticks다.
+- Robot native/Python ABI를 2→3으로 함께 올려 구형 shared library와의 혼용을
+  시작 단계에서 거부한다. Register-backed SDK double로 접촉 시 목표 rebase,
+  반복 close 무시, 명시적 open 해제 및 ID 1–4 Torque 유지를 검증했다.
+  Robot runtime/config/native motion focused **54 passed**. 실제 Robot native
+  controller도 Jetson 임시 경로에서 빌드해 ABI 3을 확인했다.
+- Jetson의 현재 실행은 ID 5 Hardware Error를 이미 보고한 latch 상태다. 수정본은
+  저장소와 `/tmp/elesim-claw-contact-20261019`의 검증용 build에만 적용했다.
+  활성 Robot/library 교체, 재시작, fault clear, Torque ON 또는 실물 명령은
+  보내지 않았다. 실제 물체/전류 threshold 보정과 활성 Robot 적용은 남아 있다.
+
+### 실행 추종 지연 처리 (2026-10-19)
+
+- 사용자 목표 약 (0.1284,-0.0123,0.5009)에서 Plan 성공 후 Execute가
+  `measured tracking error exceeds 4 mm / 0.06 rad`로 중단됐다. 당시 로그에는
+  축별 measured/commanded 값이 없어 실패 축/모터 원인을 단정할 수 없다.
+  기존 실행기는 측정 추종 여부와 무관하게 nominal 시간마다 목표를 전진시켰다.
+- 다음 목표와 실측 간격이 hard bound의 75%를 넘으면 waypoint 진행을 보류하고
+  마지막 목표를 정상 주기로 재전송한다. 실물에서 4 mm/0.06 rad hard bound 안으로
+  추종했으나 전체 경로 timeout이 먼저 발동했다. nominal 3.75초 계획에서 76개 중
+  71개 waypoint까지 약 14.5초가 걸렸으므로 timeout을
+  `max(20초, 4×duration+8초)`로 늘렸다. 이전 전체 제한은 14.25초였다.
+- 실제 Jetson 설정 속도 상한은 Linear 0.20 m/s, Roll 3.5 rad/s, 굽힘 1.0 rad/s인데
+  cuRobo 모델은 각각 0.02/0.35/0.10으로 계획해 10배 낮았다. 공통 Robot 기본값을
+  실제 설정과 맞추고 계획 모델도 Robot 상한의 100%를 사용한다. 25 ms 이하 간격으로
+  경로를 보간하고 삽입된 모든 점에서 관절 한계와 충돌을 다시 검사한다. 실행 추종
+  제한은 8 mm/0.12 rad, waypoint 진행 대기 기준은 hard limit의 90%, 대기 timeout은 3초다.
+  관절 범위, 충돌 검사, Robot의 로컬 slew/deadman과 최종 정착 1 mm/0.015 rad는
+  그대로 유지한다.
+- 첫 실제 Torque ON 실행은 계획 성공 후 waypoint 71/76에서 전체 timeout으로
+  실패했다. 측정 q는 목표와 Linear 약 1.2 mm, Roll 약 0.001 rad, Bend1 약
+  0.003 rad, Bend2 약 0.004 rad 차이였다. 실패 원인은 추종 hard limit가 아니라
+  14.25초 전체 timeout이었다.
+- 이후 100% 속도 모델과 25 ms 재샘플링, 확장 timeout을 Pilot에 적용하고 같은 XYZ를
+  다시 계획·실행했다. 61개 waypoint / nominal 1.5초 경로가 Torque ON 실물에서
+  `Measured goal reached`로 완료됐다. 최종 commanded-vs-measured q 오차는
+  Linear 0.50 mm, Roll 0.00038 rad, Bend1 0.00436 rad, Bend2 0.00471 rad였다.
+  실행 중 최대 관측 오차는 Linear 약 1.21 mm, Roll 약 0.0011 rad, Bend1 약
+  0.0071 rad, Bend2 약 0.0057 rad로 새 8 mm/0.12 rad hard limit 안이었다.
+  Torque ON 경로 기록은
+  `~/.cache/elesim/mac-arm/feedback-paced-test-full-speed-retry.log`에 있다.
+- Host trajectory/UI 36 passed와 별도 3-process real-DDS fixture 통과는 수정 전
+  검증이다(모의 Robot/Planner). canonical required/extended/release gates는 현재
+  generated development wrapper가 없어 실행하지 않았다. 실물 속도는 Robot 설정
+  상한 100%로 계획·송신했지만, 독립적인 축별 실제 속도 계측은 아직 하지 않았다.
+
+### Roll 원래 Position 모드로 복구 (2026-10-19, 최신)
+
+- 사용자가 원래 Position(3) 서보잉을 사용했다고 확인했다. 앞선 누적 raw만으로
+  Extended(4)가 필요하다고 판단한 변경을 철회했다. 기존 원점 불일치의 원인은
+  아직 확정되지 않았으며 아래 다회전 보정 기록은 변경 이력일 뿐 현재 설정이 아니다.
+- Native controller/Python binding/runtime의 다회전 전용 변경을 함께 제거하고
+  ABI 2로 복구했다. `roll_zero_raw` 설정과 validator/전용 테스트도 제거했다.
+  Linear 259° 및 관련 모델/Ghost/속도·그리퍼/계획 수정은 그대로 유지했다.
+- 사용자 Torque OFF 확인 후 ID2 mode 4→3을 썼다. 실제 raw 6139→2043,
+  Homing Offset 0→0, Torque 0→0을 읽어 확인했다. offset/goal/torque-on은
+  쓰지 않았다. 설치 Robot 설정에서 `roll_zero_raw:6140`을 제거했다.
+- Host runtime/config/native-double 50 passed; Jetson Linux native safety/motion
+  9 passed 및 ABI 2 shared library build 통과. Robot Python wheel/library를 함께
+  적용했다. Backup과 mode readback은 `~/.cache/elesim/position-restore-20261019`.
+  Robot PID 2364536 (`robot-position-restored.log`), fresh connected/Torque OFF/
+  safety fault 없음 확인. 실제 torque-on/motion 또는 물리 원점 정합 수용 시험은 하지 않았다.
+
+### Ghost 경로 미리보기 및 Linear 상한 확대 (2026-10-19)
+
+- Plan ready snapshot에 최대 96개의 timed q4 visual samples와 계획 당시 base
+  transform을 제공한다. UI는 Sim session의 additive v6/schema1 `set_arm_ghost`
+  command로 전달하며 phase 변경/실행/취소/연결 해제 시 지운다. 모델 메시를
+  alpha 1/3 초록 debug geometry로 렌더링하므로 physics/collision/Robot 명령이 없다.
+  Observer/native viewer에만 표시하고 hand-eye RGB-D에서 제외한다. wall time
+  15 Hz로 paused 상태에서도 반복 재생하며 최대 120초 뒤 숨긴다.
+- Ghost focused/protocol/operator **132 passed**, 별도 3-process trajectory DDS
+  fixture 및 Ghost command를 포함한 4-process real-DDS topology smoke 통과.
+  Real Genesis render: visible 1971 / moved 3124 green pixels, hand-eye 0 / hidden 0;
+  실제 alpha BLEND 확인. 모든 arm link FK를 Pilot과 비교했다.
+- 작업 중 사용자 현재 위치를 새 Linear 상한으로 지정했다. 실측 raw 2946 /
+  258.989°에서 259°로 설정했다. 공통 scale은 1.5°/mm를 유지하며 calibration 및
+  operating endpoint를 259° / q=-0.172666667 m로 함께 확장했다. Home/start는
+  213°를 유지한다. 모든 역할 기본값, ZED/D435 URDF/bundle, IK/cuRobo metadata,
+  RL effective bounds를 재생성했다. 모델/보정 focused **93 passed**;
+  최종 Ghost/trajectory/UI regression **72 passed**.
+- macOS /var→/private/var alias 때문에 임시 IK 모델 빌드의 asset 상대경로가
+  어긋나는 문제도 canonical temporary root로 수정하고 재생성/테스트했다.
+- 사용자 Torque OFF 확인 후 Jetson protocol/Robot wheels와 설정/IK/cuRobo 모델,
+  Pilot preview module을 적용했다. Robot PID 2358844 (`robot-linear259.log`),
+  Pilot PID 2358883 (`pilot-ghost-linear259.log`). Mac Sim PID 82490 / UI PID 82491
+  (`sim-ghost-linear259.log`, `ui-ghost-linear259.log`). 목표 XYZ/방향 보존.
+  Fresh readback: Linear 258.989°, q=-0.172659341 m, active max/limit 259°,
+  Torque OFF, safety fault 없음, can_plan=true. 양쪽 WebRTC stream 1280x720 decode.
+  새 set_arm_ghost clear/display command 수신 확인. 실제 Plan-ready Ghost 자동
+  재생의 live operator 수용 확인은 남아 있으며 실제 이동/Torque ON은 보내지 않았다.
+- Backup/staging: Jetson `~/.cache/elesim/linear259-20261019/before-apply`,
+  `~/.cache/elesim/curobo-integration/arm_trajectory.before-ghost.py`.
+  Canonical required/extended/release gates는 generated dev wrapper 부재로 미실행.
+  변경된 endpoint의 새 CUDA full-plan/hardware trajectory 수용 시험은 미실행이다.
+
+### Roll 실측 원점 보정 (2026-10-19)
+
+- 사용자가 물리 원점 raw 6144를 확인했다. 기존 0..4095 clamp와 single-turn
+  목표 생성이 이 기준을 보존하지 못했다. Robot의 optional `arm.roll_zero_raw`로
+  읽기와 목표 생성을 함께 보정하며 signed multi-turn/4096 counts를 보존한다.
+  기존 설치 기본값은 None; wire/model/기구 감속비는 바꾸지 않는다. Native ABI 3.
+- Calibrated Roll은 ID 2의 mode 4를 요구하고 Torque ON 때 mode를 덮어쓰지 않는다.
+  mode 3 또는 보정 범위 밖의 reset 위치에서는 Torque ON을 차단한다. 모터
+  전원/재부팅 뒤에는 물리 원점을 다시 확인해야 하며 자동 회전수 복구는 없다.
+- 사용자 지지·Torque OFF·물리 원점 확인 후 Jetson의 기존 stage를 백업했다.
+  ID 2 mode 3→4 전환 전후 raw는 모두 6126, Homing Offset은 모두 0이었다.
+  해당 확인 자세의 6126을 설치 설정에 저장하고 ABI 3 library/Robot wheel을
+  적용했다. Robot PID 2282915; `robot-roll-calibration.log`. Live raw 6125에서
+  canonical Roll 0.00076699 rad (약 0.044°), Torque OFF, safety fault 없음.
+  Torque ON/Home/실제 이동은 보내지 않았다. Mac UI/Sim에는 기존 측정 q 경로로 전달된다.
+- 이후 사용자가 다시 지정한 정확한 원점 자세에서 raw 6140이 연속 안정적으로
+  관측되어 설치 보정을 6126→6140으로 갱신했다. 현재 Robot PID 2284470,
+  `robot-roll-zero-6140.log`; 앞선 6126은 초기 측정 이력이다. Torque OFF로
+  재시작했으며 이동/Torque ON 명령은 보내지 않았다.
+- Host focused 60 passed (native SDK double/config/runtime). Jetson real-SDK
+  build 및 native safety/motion suite 12 passed. Mac real Linux SDK build suite는
+  플랫폼 불일치로 5 setup errors였고 Jetson에서 해당 suite가 통과했다.
+  Canonical Docker required/extended/release gates는 generated dev wrapper 부재로
+  실행하지 않았다. 실제 Torque ON/trajectory/재전원 후 보정은 미검증이다.
+
+### Plan 시작 자세 경계 오차 (2026-10-19)
+
+- Linear UI 213에서 실측 213.10~213.19°가 수신되어 q=-0.142066~-0.142125 m로
+  모델 하한 -0.142 m를 약 0.066~0.125 mm 벗어났다. `solve_position`의 seed
+  검사에서 일반적인 q operating-limit 오류로 실패했으며, 목표 XYZ의 도달성
+  판정 결과가 아니었다.
+- 실제 telemetry/실행 시작 검사를 보존하고 planning seed에만 작은 경계 투영을
+  적용한다: Linear 0.20 mm, rotary 0.001 rad 이내. 목표/경로/충돌/모델 한계는
+  그대로 엄격히 검사하며, 허용오차보다 큰 시작 오차는 축·값·한계·초과량으로
+  preflight에서 거부한다. Host trajectory suite 26 passed.
+- 사용자 Torque OFF 확인 후 수정본을 Jetson Pilot에 적용했다(PID 2295007,
+  `pilot-boundary-fix.log`). 입력 XYZ/방향을 보존·복원했다. Pilot 재시작 중
+  Robot이 old/new Pilot boot 중복 보호로 종료돼 Robot도 OFF로 재시작했다
+  (PID 2295737, `robot-after-pilot-boundary.log`). 중복 보호는 변경하지 않았다.
+  실측 경계 샘플의 seed 투영과 1 mm 초과 거부를 설치 모듈로 확인했다.
+  별도 3-process real-DDS fixture도 통과했다(모의 Robot/Planner, 실제 이동 없음).
+  Ghost 미리보기 작업은 이 문제 해결을 위해 보류됐으며 구현 변경은 아직 없다.
+- 이후 사용자 Plan/Execute 로그에서 계획 생성과 실행 시작 후 새 lease 발급을
+  확인했다. 이전 `motion command rejected: no_active_lease`가 reply 상태에 남아
+  다음 Plan을 막았다. `send_current_target_meta`만 전송해 실제 Robot의 정상 ACK를
+  확인한 뒤 can_plan=true, blocked_reason 비어 있음으로 복구했다(이동/torque 명령 없음).
+  당시 사용자 Torque ON이므로 추가 재시작은 하지 않았다.
+- Source `RemoteState.target_changed`는 새 target grant 때 같은 endpoint라도
+  이전 no-active-target/lease 오류만 해제하도록 보완했다. 다른 오류와 telemetry의
+  비해제 정책은 유지한다. RemoteState+trajectory 32 passed. 이 예방 수정은
+  사용자 재시작 요청 후 실측 Torque OFF를 확인해 Pilot에 적용했다.
+  이전 heartbeat 만료를 5초 기다린 뒤 시작했다(PID 2305093,
+  `pilot-lease-recovery.log`). 목표 XYZ/방향을 보존·복원했으며 실제 이동은 보내지 않았다.
+
+
+### Plan 상태 표시 보완 (2026-10-19)
+
+- Robot 미연결로 Plan preflight가 거부돼도 idle로 남고 UI callback 오류가
+  사라지던 표시를 보완했다. 실패 phase/reason을 snapshot에 보존하고
+  can_plan/blocked_reason, CUDA/model 로딩·IK·경로 계획·검증 stage와
+  planning elapsed time을 표시한다. 요청 전송/ack 대기/timeout·오류는
+  UI 패널에 유지하며 실행/cancel에도 같은 callback 표시를 사용한다.
+- Host focused **35 passed**. 기존 목표 XYZ를 보존한 채 Jetson Pilot과
+  Mac UI를 재시작해 적용했다. Robot을 시작하거나 실제 이동을 보내지 않는다.
+  별도 3-process real-DDS fixture에서도 단계 표시·계획·실행·completion을
+  통과했다. Live snapshot에서 Robot 미연결 blocked_reason/can_plan=false와
+  보존된 목표 (0.3, 0, 0.3) m를 확인했다.
+  이후 사용자 요청으로 기존 Jetson arm-only Robot stage를 시작하고 연결과
+  실측 telemetry, Torque OFF를 확인했다. Torque ON/이동은 보내지 않았다.
+  시작 시 Linear motor 약 257°가 operating cap 213°를 초과했고,
+  Roll raw position 6091도 관측됐다. 실제 위치/멀티턴 해석 확인 전에는
+  현재 측정값에서의 경로 실행을 검증한 것으로 간주하지 않는다.
+
+### IK 목표 표시 복구 (2026-10-19)
+
+- UI Target XYZ/방향을 `set_ik_target` display-only simulation command로
+  전달한다. 실제 motion target이 Robot이어도 Sim session으로 표시하며,
+  재연결 시 최신 목표를 다시 전송한다. Additive v6 command / simulation
+  schema v1 유지. q, collision 물체, 실제 Robot 제어는 변경하지 않는다.
+- 기존 IK 마커 그리기 호출의 소실과 async camera snapshot 누락을 복구했다.
+  초록 구/방향 화살표를 native viewer와 Observer 영상에 표시하며,
+  hand-eye RGB-D에는 debug geometry를 포함하지 않는다. 표시 snapshot은
+  pre-step camera publish 전에 갱신해 paused 상태의 목표 변경도 반영한다.
+- Host focused partial **167 passed, 2 skipped**. 실제 네 프로세스 CycloneDDS
+  smoke에서 새 command 전달과 기존 lease/미디어 signaling/mirror를 통과했다.
+  실제 Genesis render probe에서 Observer green pixels 33, hand-eye 0,
+  hidden 0을 확인했다. 재현은 `workbench/tests/system/smoke_ik_marker.py`.
+  증거는 `workbench/evidence/curated/planning/ik_target_visualization_20261019.json`.
+- Mac Sim/UI에 적용 후 새 command 수신과 두 1280×720 WebRTC stream decode를
+  확인했다. 재개 시 Jetson Pilot/Robot은 꺼져 있어 Pilot만 복구했다.
+  Robot은 시작하지 않았고 실제 이동 명령도 보내지 않았다.
+- 전체 UI/Sim/protocol partial: 875 passed, 18 skipped, 1 failure는 기존
+  RL start waypoint -0.166 m가 operating lower bound -0.142 m 밖인 회귀다
+  (`rl/test_start_path.py`); 해당 RL 소스는 이 표시 수정에서 변경하지 않았다.
+  Canonical required/extended/release Docker gate는 generated dev wrapper
+  부재로 미실행이다.
+
+### cuRobo XYZ operator 경로 실행 (2026-10-16)
+
+- UI Target XYZ에서 명시적인 `Plan XYZ` / `Execute path` / `Cancel path`를
+  추가했다. Pilot worker가 CUDA position IK와 joint planning을 소유하며,
+  기존 lease-bound canonical target.q만 전송한다. Additive protocol-v6
+  operator allowlist이며 Robot wire type / protocol major 변경은 없다.
+- Robot-only, identity/v1 correction, open-claw, stationary-base 경로다.
+  Exact boot/lease, advancing measured stamp, fresh start, Target XYZ,
+  model/world digest, 120 s plan lifetime, single consumption을 검사한다.
+  Feedback 350 ms / tracking 4 mm·0.06 rad / lateness 100 ms 초과 시
+  취소하고 exact lease release로 Robot local safe hold를 요청한다.
+  Torque-on/claw/GO2 명령은 생성하지 않는다. 실제 물리 clearance와
+  stop timing은 아직 검증하지 않았다.
+- Host partial: Pilot(Replay 제외)/UI/protocol **682 passed + 8 subtests**,
+  추가 UI 버튼 분리/disable 검사 **5 passed**. 별도 3-process 실제 CycloneDDS
+  fixture probe에서 5 mm / 11 point 전달·실측 completion, 동시 Home 거부,
+  plan replay 거부가 통과했다. 실제 Orin CUDA worker에서도 5 mm XYZ 경로
+  31 points / 1.5 s를 145.0 s에 계산하고 FK 오차 1.03e-6 m를 확인했다.
+  이 probe는 fixture feedback이며 DDS / physical motion을 생성하지 않았다.
+  증거는 `workbench/evidence/curated/planning/curobo_xyz_worker_20261016.json`.
+- Jetson cache venv에 새 Pilot/protocol wheel과 arm-only source/config를
+  준비했다. Mac Sim과 같은 원점이 되도록 세션 Pilot의 use_go2=false를
+  명시한다. 사용자 Torque OFF 확인과 fresh telemetry 재확인 후 Mac Pilot을
+  중지하고 Jetson cache Pilot을 시작했다. Robot은 재시작하지 않았다.
+  Mac UI 재시작 후 DDS/operator status, fresh measured FK, Torque OFF와
+  두 WebRTC stream decode를 확인했다. 실제 이동·Torque ON·Home은 보내지
+  않았으며 physical path execution / clearance / stop deadline는 미검증이다.
+- Canonical required/extended/release Docker gates는 generated dev wrapper가
+  없어 실행하지 않았다. 동적 Genesis scene 전달은 별도 미구현이다.
+
 ### 선택적 Jetson cuRobo 연동 (2026-10-16)
 
 - Pilot에 선택 가능한 position IK backend와 timed joint trajectory API /

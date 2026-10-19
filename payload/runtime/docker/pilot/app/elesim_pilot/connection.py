@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import math
 import threading
 import time
 import uuid
@@ -106,6 +107,12 @@ class PilotConnection:
         self.simulation_status_handler: Optional[
             Callable[[SimulationStatusPayload], None]
         ] = None
+        self.control_tick: Optional[Callable[[], None]] = None
+        self.on_closing: Optional[Callable[[], None]] = None
+        self.motion_guard: Optional[Callable[[dict[str, Any]], bool]] = None
+        self.telemetry_received_at: Optional[float] = None
+        self.trajectory_telemetry: dict[str, Any] = {}
+        self._measurement_stamp: Optional[float] = None
 
         self._outbox: queue.Queue[_Submission] = queue.Queue()
         self._outbox_lock = threading.Lock()
@@ -193,6 +200,36 @@ class PilotConnection:
         with self._outbox_lock:
             self._outbox.put(_Submission("select", {"target_id": self.desired_target}, True))
 
+    def motion_route(self) -> tuple[str, str, str]:
+        descriptor = next((d for d in self.endpoints if d.get("endpoint_id") == self.active_target), {})
+        return self.active_target, str(descriptor.get("instance_id", "")), self.lease_id
+
+    def clear_pending_motion(self) -> None:
+        with self._outbox_lock:
+            retained = []
+            while True:
+                try:
+                    item = self._outbox.get_nowait()
+                except queue.Empty:
+                    break
+                if item.kind != "motion" or item.payload.get("t") in {"torque_off", "estop"}:
+                    retained.append(item)
+            for item in retained:
+                self._outbox.put(item)
+            self._pending_target = None
+
+    def send_trajectory_q(self, q: list[float], route: tuple[str, str, str]) -> None:
+        if threading.get_ident() != self._connection_thread_ident or self._active_endpoint is None:
+            raise RuntimeError("trajectory samples must be sent on the DDS thread")
+        if self.motion_route() != route or not all(route):
+            raise RuntimeError("trajectory route fence changed")
+        self._active_endpoint.send("motion_command", target_id=route[0], lease_id=route[2],
+                                   payload={"command": "target", "source": "curobo", "q": q})
+
+    def release_trajectory_route(self, route: tuple[str, str, str]) -> None:
+        if self._active_endpoint is not None and self.motion_route() == route:
+            self._active_endpoint.send("release_target", payload={})
+
     def select_imu_model(self, model: Mapping[str, Any]) -> dict[str, Any]:
         target = self.active_target
         descriptor = next(
@@ -276,6 +313,8 @@ class PilotConnection:
                     self.drain_outbox(endpoint, now=now)
                     self.flush_target(endpoint, now=now)
                     self.flush_imu_model(endpoint, now=now)
+                    if self.control_tick is not None:
+                        self.control_tick()
                     if endpoint.registered and (
                         self._last_discover_at is None
                         or now - self._last_discover_at >= self.discover_period_s
@@ -295,9 +334,13 @@ class PilotConnection:
                 except (ProtocolError, ValueError) as exc:
                     self.state_sink.accept_error(f"protocol receive failed: {exc}")
         finally:
-            self._active_endpoint = None
-            self._connection_thread_ident = None
-            endpoint.close()
+            try:
+                if self.on_closing is not None:
+                    self.on_closing()
+            finally:
+                self._active_endpoint = None
+                self._connection_thread_ident = None
+                endpoint.close()
 
     def handle_envelope(self, endpoint: Any, message: Envelope) -> None:
         trace_message: dict[str, Any] = {
@@ -333,6 +376,9 @@ class PilotConnection:
             self._request_desired_target(endpoint)
             return
         if message_type == "target_selected":
+            self.telemetry_received_at = None
+            self._measurement_stamp = None
+            self.trajectory_telemetry = {}
             self.active_target = str(payload.get("target_id", ""))
             self.lease_id = str(payload.get("lease_id", ""))
             with self._imu_model_lock:
@@ -380,6 +426,9 @@ class PilotConnection:
                 target=self.active_target or "none",
             )
             self.active_target = ""
+            self.telemetry_received_at = None
+            self._measurement_stamp = None
+            self.trajectory_telemetry = {}
             self.lease_id = ""
             with self._imu_model_lock:
                 self._imu_model_request = None
@@ -395,6 +444,19 @@ class PilotConnection:
         if message_type == "telemetry":
             if not self.active_target or message.source_id == self.active_target:
                 self.state_sink.accept_telemetry(payload)
+                if message.source_id == self.active_target:
+                    self.trajectory_telemetry = payload
+                    q = payload.get("q")
+                    stamp = payload.get("measurement_monotonic_s")
+                    valid = (payload.get("q_source") == "measured" and
+                             isinstance(q, (list, tuple)) and len(q) == 4 and
+                             all(isinstance(v, (int, float)) and math.isfinite(v) for v in q) and
+                             isinstance(stamp, (int, float)) and math.isfinite(stamp))
+                    if valid and (self._measurement_stamp is None or stamp > self._measurement_stamp):
+                        self._measurement_stamp = stamp
+                        self.telemetry_received_at = time.monotonic()
+                    elif not valid:
+                        self.telemetry_received_at = None
                 with self._imu_model_lock:
                     if (
                         self._imu_model_request is not None
@@ -613,6 +675,10 @@ class PilotConnection:
         *,
         allow_without_lease: bool = False,
     ) -> None:
+        if self.motion_guard is not None and not self.motion_guard(payload):
+            self._diagnostic("motion", dedupe="trajectory-owns-motion", state="blocked",
+                             reason="cuRobo workflow owns motion")
+            return
         if not self.active_target:
             self.state_sink.accept_error("no_active_target")
             self._diagnostic(

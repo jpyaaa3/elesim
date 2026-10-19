@@ -1,0 +1,31 @@
+{
+  "available": true,
+  "phase": "ready",
+  "reason": "",
+  "plan_id": "351fbc3d92f24a0bacb62c42c3deb8a9",
+  "waypoint": 0,
+  "waypoints": 31,
+  "duration_s": 1.5,
+  "target_xyz": [
+    0.506,
+    -0.012,
+    0.17592
+  ],
+  "current_xyz": null,
+  "goal_q": [
+    -0.09500102698802948,
+    0.0,
+    3.296186934509393e-11,
+    3.296186934509393e-11
+  ],
+  "world": "empty (self collision only)",
+  "elapsed_s": 145.04543867199936,
+  "goal_error_m": 1.02698114031746e-06,
+  "scope": "real CUDA planning worker; fixture feedback; no DDS or motion",
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/arm_trajectory.py": "a56f056708272f3f78130c8925848e00951182ff2e5a37395e10c70bfc3af2e0",
+    "workbench/tests/system/smoke_arm_trajectory.py": "87d1757207e3ce404becd52b61a1a7d97e2c9905e7ca534e8cb7ee4821500505"
+  },
+  "date": "2026-10-16",
+  "note": "Fixture joint feedback, real CUDA worker, no DDS participant or physical movement; live session was separately switched with measured Torque OFF."
+}

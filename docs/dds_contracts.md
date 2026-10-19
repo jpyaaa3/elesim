@@ -35,6 +35,28 @@ selection to acquire a new lease. Unrelated errors and delayed errors or release
 notifications for an older lease cannot revoke the current lease.
 
 2026-09-07 operator surface 정리: wire major 6과 view schema 1을 유지한다.
+IK visualization adds `simulation_command.set_ik_target` under the existing UI
+simulation-session lease (protocol v6 / simulation schema v1, additive command).
+Arguments are finite world-frame `position` (three metres values, bounded ±10 m)
+and normalized `direction` (three values bounded ±1). This changes display
+markers only, never Robot motion, Sim joint targets or collision geometry.
+Older Sims explicitly reject the unknown command. UI resends the latest target
+after a new session. Observer rendering receives the marker in its bounded
+camera snapshot; hand-eye RGB-D excludes these debug markers.
+
+Arm trajectory execution is an additive protocol-v6 operator extension:
+`plan_arm_to_target()` computes a bounded cuRobo path to the current UI XYZ without
+moving; `execute_arm_trajectory(plan_id)` consumes the prepared plan once;
+`cancel_arm_trajectory()` cancels it. `view_snapshot.service.arm_trajectory`
+reports progress. Older Pilots reject these allowlisted calls. No new Robot
+wire payload or protocol-major change is introduced: Pilot streams existing
+lease-bound canonical `target.q` messages. Preparation pins exact target boot
+and lease, model/artifact digest, fresh measured start and open-claw state;
+execution rechecks these and rejects concurrent operator motion. Route loss,
+stale feedback, tracking error or timing overrun cancels remaining samples.
+Planning uses the Pilot's explicit static world file; it does not synchronize
+Genesis obstacles or certify physical clearance.
+
 현재 UI가 사용하는 `view_snapshot`, `service_call`, `state_call`, `state_set`만
 지원한다. UI가 snapshot cache에서 읽는 조회 메서드, `snapshot`과
 `service_get` 우회 조회는 제거한다. Envelope/응답 구조와 현재 UI 동작은
@@ -83,7 +105,7 @@ instead of sending logical 0/180 into a physical 230..340 clamp. The additive
 telemetry `claw_closed` reports the nearest calibrated endpoint from measured
 motor 5 position. Pilot/UI keep this feedback separate from requested state;
 Sim mirrors it. Protocol major 6 and existing command/envelope fields remain
-unchanged. Physical speed limits and native controller ABI 2 are host-local
+unchanged. Physical speed limits and native controller ABI 3 are host-local
 implementation/configuration changes, not new DDS authority.
 
 IMU 해석 모델 선택은 기존 v6 `motion_command`의 새 명령 값
@@ -236,3 +258,17 @@ test server는 DDS endpoint가 아니다. 일반 IPv4 NAT/CGNAT/symmetric NAT은
 elesim-dev python3 workbench/tools/quality/check.py --group required
 elesim-dev python3 workbench/tests/system/smoke_topology.py
 ```
+
+
+Ghost preview adds `simulation_command.set_arm_ghost` to protocol v6 / simulation
+schema v1 (additive, existing UI simulation-session authority). `preview:null`
+clears it; otherwise the strict payload contains a plan ID (1..64 chars), 2..96
+finite q4 samples, matching increasing `times_s` from zero through at most 120 s,
+and a finite proper rigid 4x4 world/base transform. No torque, gripper or motion
+command fields are accepted. Pilot's operator view provides this bounded preview
+only for a ready, unconsumed, unexpired plan. UI forwards it to Sim independently
+of the selected Robot motion target and clears it on other phases/disconnection.
+Sim interpolates visual samples in wall time, caps playback at 120 seconds,
+and draws translucent URDF debug meshes. These meshes are excluded from hand-eye
+RGB-D and have no physics or collision entity. Older Sims reject the unknown
+command; all participating software must be updated together.

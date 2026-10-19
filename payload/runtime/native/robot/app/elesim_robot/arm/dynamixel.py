@@ -35,8 +35,11 @@ class _ArmConfig(ctypes.Structure):
         ("profile_velocity", ctypes.c_int32 * 5),
         ("profile_acceleration", ctypes.c_int32 * 5),
         ("current_limit_ma", ctypes.c_int32),
+        ("claw_contact_current_ma", ctypes.c_int32),
+        ("claw_stall_position_ticks", ctypes.c_int32),
         ("read_failure_limit", ctypes.c_int32),
         ("monitor_period_s", ctypes.c_double),
+        ("claw_contact_stall_s", ctypes.c_double),
         ("linear_motor_limit_deg", ctypes.c_double),
         ("q_min", ctypes.c_double * 4),
         ("q_max", ctypes.c_double * 4),
@@ -129,8 +132,11 @@ def _native_config(
             hardware.profile_acc_claw,
         ),
         int(hardware.current_limit_ma),
+        int(hardware.claw_contact_current_ma),
+        int(hardware.claw_stall_position_ticks),
         int(safety.read_failure_limit),
         float(safety.monitor_period_s),
+        float(hardware.claw_contact_stall_s),
         float(hardware.linear_u_limit_deg),
         (ctypes.c_double * 4)(
             mapping.linear_q_min_m,
@@ -179,7 +185,7 @@ def _load_library(path: Path | None = None) -> ctypes.CDLL:
         raise RuntimeError("Robot C++ arm ABI mismatch; rebuild the native controller")
     abi.argtypes = []
     abi.restype = ctypes.c_int
-    if abi() != 2:
+    if abi() != 3:
         raise RuntimeError("Robot C++ arm ABI mismatch; rebuild the native controller")
     pointer = ctypes.c_void_p
     error = ctypes.c_void_p

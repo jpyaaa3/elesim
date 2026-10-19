@@ -67,3 +67,20 @@ def test_snapshot_before_first_telemetry_uses_a_finite_unknown_age() -> None:
     assert snapshot.host_state_age_s == -1.0
     assert math.isfinite(snapshot.rx_age_s)
     assert math.isfinite(snapshot.host_state_age_s)
+
+
+def test_new_grant_same_endpoint_clears_only_obsolete_missing_lease_error():
+    state = RemoteState(SimMappingConfig(), clock=lambda:10.)
+    state.peer_connected(True)
+    state.target_changed("robot-a")
+    state.accept_telemetry({"q":[-.1,0,0,0],"q_source":"measured"})
+    state.accept_error("motion command rejected: no_active_lease")
+    state.accept_telemetry({"q":[-.1,0,0,0],"q_source":"measured"})
+    assert not state.snapshot(tx_seq=0).reply_ok
+    state.target_changed("robot-a")  # new lease, same Robot endpoint
+    assert state.snapshot(tx_seq=0).reply_ok
+    assert state.snapshot(tx_seq=0).reply_reason == ""
+    state.accept_error("motor overcurrent")
+    state.target_changed("robot-a")
+    assert not state.snapshot(tx_seq=0).reply_ok
+    assert state.snapshot(tx_seq=0).reply_reason == "motor overcurrent"

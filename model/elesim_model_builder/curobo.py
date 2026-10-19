@@ -67,6 +67,7 @@ def build_curobo_model(*, assembly: Path, arm_model: Path, output: Path,
         raise ValueError("voxel_m must be between 0.005 and 0.03")
     context = json.loads(arm_model.read_text())["context"]
     hardware = yaml.safe_load(robot_config.read_text())["arm"]
+    # Use the complete Robot-configured physical speed caps for planning.
     velocities = [hardware["max_linear_m_s"], hardware["max_roll_rad_s"],
                   hardware["max_bend_rad_s"], hardware["max_bend_rad_s"]]
     root = ET.parse(assembly / "arm.urdf").getroot()
@@ -199,7 +200,7 @@ def build_curobo_model(*, assembly: Path, arm_model: Path, output: Path,
     (output / "robot.yml").write_text(yaml.safe_dump({"robot_cfg": {"kinematics": kinematics}}, sort_keys=False))
     metadata = dict(schema_version=1, curobo_version="0.7.8+elesim.1", joint_names=active,
                     q_bounds=bounds, sources=sources, voxel_m=voxel_m,
-                    max_velocity=velocities,
+                    max_velocity=velocities, robot_velocity_scale=1.0,
                     separated_pairs=separated,
                     sphere_count=sum(map(len, spheres.values())),
                     grasp_offset_local=grasp_offset)

@@ -48,6 +48,7 @@ EXPECTED = {
     "robot:recovered-motion",
     "robot:imu_model",
     "sim:command",
+    "sim:ik-target", "sim:arm-ghost",
     "sim:robot-mirror",
     "sim:session",
     "sim:webrtc",
@@ -299,6 +300,12 @@ def _sim_process(barrier: Any, stop: Any, results: Any) -> None:
                         command = SimulationCommandRequest.from_payload(
                             message.payload or {}
                         )
+                        if command.command == "set_arm_ghost":
+                            assert len(command.arguments["preview"]["positions"]) == 2
+                            _report(results, "sim:arm-ghost")
+                        if command.command == "set_ik_target":
+                            assert command.arguments == {"position": [0.1, -0.2, 0.3], "direction": [0.0, 0.0, 1.0]}
+                            _report(results, "sim:ik-target")
                         peer.send(
                             "simulation_result",
                             target_id=message.source_id,
@@ -430,6 +437,24 @@ def _ui_process(barrier: Any, stop: Any, results: Any) -> None:
                             session_id=session_id,
                             command="pause",
                             arguments={},
+                        ).to_payload(),
+                    )
+                    peer.send(
+                        "simulation_command", target_id="sim-smoke", lease_id=session_id,
+                        payload=SimulationCommandRequest(
+                            request_id="ghost-display-smoke", session_id=session_id,
+                            command="set_arm_ghost", arguments={"preview":{
+                                "plan_id":"preview-smoke", "times_s":[0.,1.],
+                                "positions":[[-.1,0,0,0],[-.11,.1,0,0]],
+                                "base":[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]}},
+                        ).to_payload(),
+                    )
+                    peer.send(
+                        "simulation_command", target_id="sim-smoke", lease_id=session_id,
+                        payload=SimulationCommandRequest(
+                            request_id="ik-display-smoke", session_id=session_id,
+                            command="set_ik_target", arguments={
+                                "position": [0.1, -0.2, 0.3], "direction": [0.0, 0.0, 1.0]},
                         ).to_payload(),
                     )
                     peer.send(

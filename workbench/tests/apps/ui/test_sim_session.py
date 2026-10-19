@@ -18,6 +18,24 @@ from elesim_protocol import (
 from elesim_ui.sim_session import UiSimSession
 
 
+def test_ik_target_sync_is_display_only_latest_and_resends_on_new_session():
+    session = UiSimSession(ui_id="ui-display", sim_id="sim-display", autostart=False)
+    session.sync_ik_target([.1, .2, .3], [0, 0, 2])
+    assert not session._commands  # no session yet
+    session._session_id = "lease-a"
+    session.sync_ik_target([.1, .2, .3], [0, 0, 2])
+    r = session._commands.take()
+    assert r.command == "set_ik_target"
+    assert r.arguments == {"position": [.1, .2, .3], "direction": [0., 0., 1.]}
+    session._commands.complete(r.request_id)
+    session.sync_ik_target([.1, .2, .3], [0, 0, 1])
+    assert not session._commands
+    session._session_id = "lease-b"
+    session.sync_ik_target([.1, .2, .3], [0, 0, 1])
+    assert session._commands.take().session_id == "lease-b"
+    session.close()
+
+
 class Clock:
     def __init__(self) -> None:
         self.now = 0.0
@@ -901,3 +919,24 @@ def test_invalid_decoder_clock_is_not_live_and_retries_only_affected_stream(age)
     assert "observer" in session._stream_retry_at
     assert "hand_eye_preview" not in session._stream_retry_at
     assert "invalid decoder clock" in session.last_error
+
+
+def test_ghost_tracks_ready_cancel_execute_and_new_sim_session():
+    session = UiSimSession(ui_id="ghost-ui",sim_id="ghost-sim",autostart=False)
+    preview = {"plan_id":"p", "positions":[[-.1,0,0,0],[-.11,.1,0,0]],
+               "times_s":[0.,1.],"base":[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]}
+    ready = {"phase":"ready","preview":preview}
+    session.sync_arm_ghost(ready);assert not session._commands
+    session._session_id='s'
+    session.sync_arm_ghost(ready)
+    r=session._commands.take();assert r.command=='set_arm_ghost'
+    assert r.arguments['preview']==preview
+    session._commands.complete(r.request_id)
+    session.sync_arm_ghost(ready);assert not session._commands
+    session.sync_arm_ghost({"phase":"executing","preview":preview})
+    r=session._commands.take();assert r.arguments['preview'] is None
+    session._commands.complete(r.request_id)
+    session.sync_arm_ghost(ready);r=session._commands.take();session._commands.complete(r.request_id)
+    session._session_id='new'
+    session.sync_arm_ghost(ready);assert session._commands.take().session_id=='new'
+    session.close()

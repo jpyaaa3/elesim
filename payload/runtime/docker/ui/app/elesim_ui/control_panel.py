@@ -775,6 +775,13 @@ class ControlPanel:
             imgui.pop_item_width()
 
     def _draw_controls_window(self) -> None:
+        if self._sim_view is not None:
+            self._sim_view.session.sync_arm_ghost(
+                (self.service.session.service_value("arm_trajectory", {}) or {})
+                if self.service.session.status.pilot_online else {})
+            self._sim_view.session.sync_ik_target(
+                (self.state.target_x, self.state.target_y, self.state.target_z),
+                (self.state.target_vx, self.state.target_vy, self.state.target_vz))
         cond = getattr(imgui, "ALWAYS", 0)
         io = imgui.get_io()
         imgui.set_next_window_position(0.0, 0.0, cond)

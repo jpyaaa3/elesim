@@ -90,8 +90,8 @@ class HardwareConfig:
     u_offset_s1: float = 0.0
     u_offset_s2: float = 0.0
     baudrate: int = 57600
-    linear_u_max_deg: float = 250.0
-    linear_u_limit_deg: float = 213.0
+    linear_u_max_deg: float = 259.0
+    linear_u_limit_deg: float = 259.0
     current_yellow_ma: int = 1800
     current_limit_ma: int = 2500
     host_hw_read_hz: float = 20.0

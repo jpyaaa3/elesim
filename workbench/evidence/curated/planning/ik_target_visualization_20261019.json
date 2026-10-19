@@ -1,0 +1,15 @@
+{
+  "observer_green_pixels": 33,
+  "hand_eye_green_pixels": 0,
+  "hidden_green_pixels": 0,
+  "scope": "real Genesis; no DDS or hardware",
+  "date": "2026-10-19",
+  "render_backend": "Genesis CPU simulation / native rasterizer on macOS",
+  "dds_probe": "four-process smoke_topology.py: passed, including set_ik_target",
+  "focused_tests": "167 passed, 2 skipped",
+  "physical_motion_sent": false,
+  "source_sha256": {
+    "payload/runtime/docker/sim/app/elesim_sim/simulation/ik_marker.py": "1dc4f349d0b61f38dd70d21894d8aaf72df0e11e3d94e33170f161a7380da64a",
+    "workbench/tests/system/smoke_ik_marker.py": "2685c17ed3058484e0c285f7902e872e8c4bb60b158d664df1ea9983d732f7b2"
+  }
+}

@@ -90,6 +90,14 @@ class RemoteState:
     def target_changed(self, target_id: str) -> None:
         target = str(target_id)
         with self._lock:
+            # A newly granted route supersedes a rejection from a missing old
+            # lease, even when the endpoint ID is unchanged. Other command and
+            # safety errors must survive; telemetry alone never clears them.
+            if target and self._reply_reason in {
+                "no_active_target", "no_active_lease",
+                "motion command rejected: no_active_lease",
+            }:
+                self._reply_ok, self._reply_reason = True, ""
             if target == self._target_id:
                 return
             self._target_id = target

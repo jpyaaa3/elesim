@@ -450,14 +450,14 @@ class ObserverCamera(ObserverViewState):
                 up=view.up,
                 fov=float(fov_deg),
                 GUI=False,
-                debug=False,
+                debug=True,
             )
         except TypeError:
             camera = scene.add_camera(
                 res=(int(res[0]), int(res[1])),
                 fov=float(fov_deg),
                 GUI=False,
-                debug=False,
+                debug=True,
             )
         return cls(
             intrinsics=view.intrinsics,

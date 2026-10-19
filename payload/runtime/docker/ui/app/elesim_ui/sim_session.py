@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+import math
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
@@ -111,6 +112,8 @@ class UiSimSession:
         self._connected_streams: set[str] = set()
         self._status: Optional[SimulationStatusPayload] = None
         self._commands = SimulationCommandQueue(self.max_pending_commands)
+        self._last_ik_target = None
+        self._last_arm_ghost = None
         self._sent_messages: dict[str, tuple[str, str]] = {}
         self._last_result: Optional[SimulationResultPayload] = None
         self._last_error = ""
@@ -248,6 +251,33 @@ class UiSimSession:
             self._opening_request_id = ""
             self._opening_deadline = 0.0
             self._commands.clear()
+
+    def sync_arm_ghost(self, status) -> None:
+        preview = status.get("preview") if status.get("phase") == "ready" else None
+        with self._lock:
+            signature = self._session_id, None if preview is None else preview.get("plan_id")
+            if not self._session_id or signature == self._last_arm_ghost:
+                return
+        if self.send_command("set_arm_ghost", {"preview": preview}):
+            with self._lock:
+                self._last_arm_ghost = signature
+
+    def sync_ik_target(self, position, direction) -> None:
+        """Latest display intent, independent of the Pilot's selected motion target."""
+        pos, vec = tuple(map(float, position)), tuple(map(float, direction))
+        if len(pos) != 3 or len(vec) != 3 or not all(math.isfinite(v) for v in pos+vec):
+            return
+        if any(abs(v) > 10 for v in pos):
+            return
+        norm = math.sqrt(sum(v*v for v in vec))
+        vec = tuple(v/norm for v in vec) if norm > 1e-9 else (0., 0., 0.)
+        with self._lock:
+            signature = self._session_id, pos, vec
+            if not self._session_id or signature == self._last_ik_target:
+                return
+        if self.send_command("set_ik_target", {"position": list(pos), "direction": list(vec)}):
+            with self._lock:
+                self._last_ik_target = signature
 
     def send_command(self, command: str, arguments: Mapping[str, Any] | None = None) -> str:
         command_name = str(command).strip()

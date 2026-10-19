@@ -86,7 +86,7 @@ class SimBundleTests(unittest.TestCase):
                 use_go2=True,
             )
 
-            self.assertEqual(rebuilt, bundle)
+            self.assertEqual(rebuilt.resolve(), bundle.resolve())
             validate_bundle(rebuilt)
 
     def test_tampered_asset_is_rejected(self) -> None:

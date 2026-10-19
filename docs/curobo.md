@@ -41,7 +41,7 @@ is still required for a live Pilot; the offline planner does not initialize DDS.
 - A mesh-independent URDF with exactly four independent axes. The remaining
   eight bend joints mimic their section's master with multiplier 1. Per-node
   angle is preserved, rather than dividing it by five again.
-- The same Linear operating bounds `[-0.142, 0]` m, roll and bend limits as the
+- The same Linear operating bounds `[-0.172666667, 0]` m, roll and bend limits as the
   generated Pilot IK model. Velocity caps come from Robot's shipped YAML.
 - Collision spheres generated from the collision meshes and origins in the
   existing Genesis arm URDF. Filled 30 mm voxels are enclosed by spheres, so
@@ -113,6 +113,77 @@ transferred to cuRobo. Moving objects, GO2 body geometry and contact-permission
 changes must be supplied explicitly; an empty world must not be described as
 environment-aware planning. Absolute world mesh paths are recommended.
 
+## UI XYZ planning and execution
+
+Run Pilot on the CUDA-equipped Jetson; UI and Sim can remain on the Mac.
+The existing `robot.arm.ik.curobo_model` and `curobo_world` paths configure the
+planner even when the ordinary Solve backend remains `native`. An explicit
+world YAML is required. Restart Pilot after changing the runtime configuration.
+For an arm-only Sim, set Pilot `simulation.runtime.use_go2: false` as well;
+otherwise its world coordinates include the GO2 mount transform.
+
+In **Inverse Kinematics**:
+
+Target XYZ is visualized as a green sphere and direction arrow in the Observer
+view, including when the selected motion target is Robot. This display-only
+UI→Sim command does not move either arm or the red simulation target object.
+The arrow shows Target dir; cuRobo position planning does not constrain it.
+The normal debug-marker visibility switch also controls this marker.
+Hand-eye RGB-D excludes the debug geometry.
+
+1. `Use current XYZ` copies measured grasp FK into Target xyz. Coordinates use
+   metres in the same world frame as the Sim, not camera coordinates.
+2. Edit Target xyz, then press `Plan XYZ`. Position IK and collision-checked
+   joint planning run in a worker; this button never commands movement.
+   Target dir is not constrained by this four-axis position planning operation.
+3. Wait for `ready`, inspect planned XYZ and duration, then press `Execute path`.
+   Torque must already be ON and measured claws open. The executor never sends
+   Torque ON, gripper or GO2 commands.
+4. `Cancel path` discards remaining samples and releases the exact Robot lease
+   to request its local safe hold. Torque OFF remains available through the
+   normal hardware panel.
+
+The panel shows request acknowledgement/errors, a persistent failure reason,
+the current planning stage and elapsed wall time. Stages distinguish CUDA/model
+loading, position IK, collision-checked joint planning and validation. No
+invented percentage is shown. Without an exact Robot connection and fresh
+measured joints, Plan is unavailable and the reason is displayed before a click.
+
+Execution is currently Robot-only, with identity/v1 IMU correction and a
+stationary base. It pins the exact Robot boot and lease, model/world digests,
+and prepared start. Plans expire after 120 s and are consumed once. Moving
+the start beyond 1 mm / 0.015 rad or changing Target XYZ requires replanning.
+At most 4000 samples / 120 s are accepted. The existing adapter validates joint
+limits, sampled collisions and velocity caps. Robot's local slew/limits/deadman
+continue to apply. Planning velocity uses 100% of Robot's configured arm speed
+cap, and the execution path is re-sampled at intervals no longer than 25 ms
+with collision and joint-limit validation repeated on every inserted sample.
+During execution the waypoint clock waits when measured error reaches 90% of
+8 mm / 0.12 rad; exceeding those limits, non-advancing hardware
+feedback for 350 ms, a waypoint wait over 3 s, or scheduling lateness above
+100 ms cancels motion. The whole-path timeout is
+`max(20 s, 4 × nominal duration + 8 s)`.
+The final goal is reported complete only within 1 mm / 0.015 rad measured
+tolerance. This is position tracking, not guaranteed continuous swept clearance.
+There is no catch-up jump or unchecked interpolation fallback.
+
+Other operator changes and background motion are blocked during planning and
+execution. Model/world edits require a fresh plan. An empty world is labelled
+`empty (self collision only)` in the UI; surrounding objects, GO2 and cables are
+not automatically covered. Home, sliders and existing workflows retain their
+ordinary behavior outside this explicit operation.
+
+The CPU/real-DDS integration probe uses separate fixture Robot/Pilot/UI
+processes and no hardware:
+
+```bash
+python workbench/tests/system/smoke_arm_trajectory.py
+```
+
+On Jetson, `--cuda-plan-only` instead exercises the real GPU planning worker
+with fixture feedback. It creates no DDS participant and never executes motion.
+These probes do not certify physical clearance or stop timing.
+
 ## Selecting Pilot IK
 
 The existing `robot.arm.ik` section accepts:
@@ -154,3 +225,67 @@ joint planning took 30.8/10.6 s and first/repeat IK took 56.2/2.10 s. These are
 an offline empty-external-world probe, not a real-time performance result.
 Keep the native default for existing interactive control. Further sphere-fit,
 collision-cost and solver tuning is needed before a live workflow rollout.
+
+
+### Roll Position-mode restoration (2026-10-19)
+
+Roll uses the original Position mode (3), with the original single-turn mapping
+and native ABI 2. The temporary Extended-mode requirement, `arm.roll_zero_raw`
+configuration, custom readback/goal conversion and ABI 3 were removed together.
+Do not reuse the temporary 6144/6126/6140 multi-turn reference as a persistent
+zero calibration. Torque-OFF raw readings can accumulate turns even in Position
+mode; their presence alone does not justify changing control modes.
+
+After operator Torque-OFF confirmation, mode 4→3 changed raw 6139→2043 while
+Homing Offset remained 0 and Torque remained OFF. No encoder zero/EEPROM offset
+or motion command was written. The original posture discrepancy remains
+unproven; mode restoration is not acceptance of physical pose/FK calibration.
+Linear 259°, its model artifacts, Ghost, gripper and speed changes are retained.
+
+
+Planning from measured endpoints allows only a small seed projection at the
+model boundary (Linear 0.20 mm, other axes 0.001 rad). This handles encoder/servo
+endpoint error, e.g. display Linear 213 producing measured -0.142125 m against
+-0.142 m. Larger violations fail before CUDA work with the axis and excess.
+Actual telemetry and the execution start check remain measured; the model,
+IK goals, collision checks and all planned waypoints keep their strict limits.
+A saved `Use current XYZ` goal can be reachable even when the new starting
+joint sample fails validation; these are separate checks.
+
+
+### Ghost path preview
+
+After **Plan XYZ** succeeds, the Observer/native Sim view automatically shows a
+translucent green arm replaying the planned path (original timing, short endpoint
+pause). It also plays when Sim is paused. The physical arm stays still until you
+choose Execute. The Ghost is hidden for a new plan, cancel, execution, expiry,
+Pilot disconnection or Sim reset. Reopening the Sim session resends the preview.
+The visual path uses up to 96 timed samples with interpolation; execution keeps
+all original waypoints. Previewing does not change collision geometry, measured
+Robot/Sim posture, hand-eye images, or verify a live obstacle map.
+
+
+Linear endpoint update (2026-10-19): the operator identified the current physical
+position (raw 2946, 258.989°) as the upper endpoint. Robot/Pilot/Sim/UI defaults,
+ZED Mini and D435 bundles, IK/cuRobo artifacts and RL now use 259° / 172.666667 mm.
+The 1.5°/mm scale and 213° Home/start pose remain unchanged. Existing deployments
+need both matching configuration and regenerated model artifacts; current Jetson
+and Mac staging installations were updated together, with Torque OFF.
+
+
+### Measured feedback during execution
+
+The cuRobo path timing is nominal. Robot execution may pause waypoint progress
+when the next sample would place a joint more than 90% of the current hard
+tracking limit ahead of measured feedback. Pilot resends the last goal at the
+normal cadence to maintain the Robot deadman; it never skips ahead to catch up.
+The current hard limits are 8 mm Linear and 0.12 rad per rotary axis. A follow
+wait is bounded to three seconds, with an overall execution bound of
+`max(20 s, 4 × nominal path duration + 8 s)`. Freshness, route/lease,
+scheduling-overrun and final-settle checks remain enforced. Failure records
+include measured/commanded q and the violating axis. UI shows axis tracking
+errors. Ghost playback shows nominal planning timing and may finish ahead of
+feedback-paced physical execution. On 2026-10-19, a 61-waypoint, nominal 1.5 s
+path completed on the physical arm at 100% of its configured speed caps; this
+confirms that run reached its measured joint goal, but is not a general speed
+calibration or clearance guarantee.

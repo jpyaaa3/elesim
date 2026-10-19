@@ -18,6 +18,7 @@ from elesim_protocol import (
 )
 
 from elesim_pilot.connection import PilotConnection
+from elesim_pilot.arm_trajectory import ArmTrajectory
 from elesim_pilot.imu_models import ImuModelCatalog
 from elesim_pilot.operator import OperatorDispatcher
 from elesim_pilot.runtime import build_control_runtime
@@ -57,6 +58,24 @@ class _ControlFacade:
         self._rgbd_broker_topic = str(rgbd_broker_topic).strip()
         self._rgbd_relay: DdsRgbdRelay | None = None
         self._mock_hug: MockHugCoordinator | None = None
+        self._arm_trajectory: ArmTrajectory | None = None
+
+    @property
+    def arm_trajectory(self):
+        return {} if self._arm_trajectory is None else self._arm_trajectory.status()
+
+    def guard_operator_intent(self, operation, name):
+        if self._arm_trajectory is not None:
+            self._arm_trajectory.guard_operator(operation, name)
+
+    def plan_arm_to_target(self):
+        return self._arm_trajectory.plan_arm_to_target()
+
+    def execute_arm_trajectory(self, plan_id):
+        return self._arm_trajectory.execute_arm_trajectory(plan_id)
+
+    def cancel_arm_trajectory(self):
+        return self._arm_trajectory.cancel_arm_trajectory()
 
     def attach_mock_hug(self, coordinator: MockHugCoordinator) -> None:
         self._mock_hug = coordinator
@@ -222,6 +241,14 @@ def _run() -> None:
         ),
     )
     simulation_sync = SimulationWorkflowSync(runtime.service)
+    directory = Path(args.config).resolve().parent
+    trajectory = ArmTrajectory(connection, runtime.service, runtime.state,
+        model_dir=directory / bundle.ik_config.curobo_model,
+        world_path=(directory / bundle.ik_config.curobo_world) if bundle.ik_config.curobo_world else None)
+    facade._arm_trajectory = trajectory
+    connection.control_tick = trajectory.tick
+    connection.motion_guard = trajectory.allow_motion
+    connection.on_closing = trajectory.cancel_arm_trajectory
     mock_hug = MockHugCoordinator(
         link,
         lambda: simulation_sync.latest,
@@ -257,6 +284,7 @@ def _run() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        trajectory.request_cancel()
         mock_hug.close()
         simulation_sync.close()
         runtime.service.close()

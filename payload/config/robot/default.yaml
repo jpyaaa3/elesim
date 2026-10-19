@@ -26,27 +26,30 @@ dds:
   keystore: ""
   enclave: ""
 arm:
-  linear_u_max_deg: 250.0
-  linear_u_limit_deg: 213.0
+  linear_u_max_deg: 259.0
+  linear_u_limit_deg: 259.0
   command_direction: [1, 1, 1, -1]
   motor_direction: [1, -1, 1, -1]
   baudrate: 1000000
   current_limit_ma: 2500
+  claw_contact_current_ma: 800
+  claw_contact_stall_s: 0.12
+  claw_stall_position_ticks: 3
   profile_vel_seg1: 60
   profile_acc_seg1: 6
   profile_vel_seg2: 60
   profile_acc_seg2: 6
   profile_vel_claw: 20
-  max_linear_m_s: 0.02
-  max_roll_rad_s: 0.35
-  max_bend_rad_s: 0.10
+  max_linear_m_s: 0.20
+  max_roll_rad_s: 3.5
+  max_bend_rad_s: 1.0
   claw_open_deg: 340.0
   claw_closed_deg: 230.0
 mapping:
-  linear_u_max: 250.0
-  linear_u_limit: 213.0
-  # Design ratio: 1.5 motor degrees per mm; 250 degrees retracts 166.67 mm.
-  linear_q_min_m: -0.16666666666666666
+  linear_u_max: 259.0
+  linear_u_limit: 259.0
+  # Design ratio: 1.5 motor degrees per mm; 259 degrees retracts 172.667 mm.
+  linear_q_min_m: -0.17266666666666666
   linear_q_max_m: 0.0
   roll_q_min_rad: -1.5707963267948966
   roll_q_max_rad: 1.5707963267948966

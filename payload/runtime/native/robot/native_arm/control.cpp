@@ -55,9 +55,13 @@ double clamp(double value, double low, double high) {
 
 void validate_config(const ElesimArmConfig& cfg) {
   if (cfg.baudrate <= 0 || cfg.current_limit_ma <= 0 ||
+      cfg.claw_contact_current_ma <= 0 ||
+      cfg.claw_contact_current_ma >= cfg.current_limit_ma ||
+      cfg.claw_stall_position_ticks <= 0 ||
       cfg.read_failure_limit <= 0 || !std::isfinite(cfg.monitor_period_s) ||
       cfg.monitor_period_s < 0.0 || !std::isfinite(cfg.linear_motor_limit_deg) ||
-      cfg.linear_motor_limit_deg <= 0.0) {
+      cfg.linear_motor_limit_deg <= 0.0 ||
+      !std::isfinite(cfg.claw_contact_stall_s) || cfg.claw_contact_stall_s <= 0.0) {
     throw std::invalid_argument("invalid arm configuration");
   }
   for (int i = 0; i < 4; ++i) {
@@ -233,6 +237,24 @@ class ArmController {
     require_open();
     require_healthy();
     const auto tick = tick_for_degrees(degrees, 1, 230.0, 340.0);
+    int32_t measured_tick = snapshot_.valid ? snapshot_.ticks[4] : -1;
+    if (measured_tick < 0) {
+      std::array<int32_t, 5> ticks{};
+      read_positions(ticks);
+      measured_tick = ticks[4];
+    }
+    if (claw_contact_hold_) {
+      // Pilot may repeat the same close intent in later arm targets. Keep the
+      // measured contact point until an explicit opening goal arrives.
+      if (tick < claw_contact_hold_tick_ - config_.claw_stall_position_ticks) return;
+      if (tick <= claw_contact_hold_tick_ + config_.claw_stall_position_ticks) return;
+      claw_contact_hold_ = false;
+    }
+    if (claw_goal_tick_ && *claw_goal_tick_ == tick) return;
+    claw_goal_tick_ = tick;
+    claw_closing_ = tick + config_.claw_stall_position_ticks < measured_tick;
+    claw_stall_since_.reset();
+    claw_last_sample_tick_ = measured_tick;
     write4(kIds[4], kGoalPosition, static_cast<uint32_t>(tick));
   }
 
@@ -437,13 +459,51 @@ class ArmController {
     std::copy(currents.begin(), currents.end(), snapshot_.currents_ma);
     snapshot_.valid = 1;
     read_failures_ = 0;
+    update_claw_contact_locked(ticks[4], currents[4]);
     for (size_t index = 0; index < kIds.size(); ++index) {
+      // A detected object contact is handled by rebasing the claw goal to its
+      // measured position. Do not turn that expected contact load into a
+      // whole-arm torque-off; other motor current limits remain unchanged.
+      if (index == 4 && claw_contact_hold_) continue;
       if (std::abs(currents[index]) > config_.current_limit_ma) {
         trip_fault_locked("motor current limit exceeded: ID " +
                           std::to_string(kIds[index]));
         break;
       }
     }
+  }
+
+  void update_claw_contact_locked(int32_t position_tick, int32_t current_ma) {
+    if (!claw_closing_ || claw_contact_hold_ || !claw_goal_tick_) {
+      claw_last_sample_tick_ = position_tick;
+      return;
+    }
+    const int32_t remaining = std::abs(*claw_goal_tick_ - position_tick);
+    const int32_t movement = claw_last_sample_tick_ < 0
+                                 ? config_.claw_stall_position_ticks + 1
+                                 : std::abs(position_tick - claw_last_sample_tick_);
+    const bool loaded = std::abs(current_ma) >= config_.claw_contact_current_ma;
+    const bool stalled = movement <= config_.claw_stall_position_ticks;
+    const double now = monotonic_seconds();
+    const bool hard_current = std::abs(current_ma) >= config_.current_limit_ma;
+    if (remaining > config_.claw_stall_position_ticks && loaded && (stalled || hard_current)) {
+      if (!claw_stall_since_) claw_stall_since_ = now;
+      if (hard_current || now - *claw_stall_since_ >= config_.claw_contact_stall_s) {
+        // Keep the object at the point of first sustained contact instead of
+        // continuing to chase the fully-closed position.
+        write4(kIds[4], kGoalPosition, static_cast<uint32_t>(position_tick));
+        claw_goal_tick_ = position_tick;
+        claw_contact_hold_tick_ = position_tick;
+        claw_contact_hold_ = true;
+        claw_closing_ = false;
+        claw_stall_since_.reset();
+        std::cerr << "[robot-arm] claw contact held at tick " << position_tick
+                  << " (current " << current_ma << " mA)" << std::endl;
+      }
+    } else {
+      claw_stall_since_.reset();
+    }
+    claw_last_sample_tick_ = position_tick;
   }
 
   void trip_fault_locked(const std::string& reason) {
@@ -517,6 +577,12 @@ class ArmController {
   std::string fault_;
   int read_failures_ = 0;
   ElesimArmSnapshot snapshot_{};
+  std::optional<int32_t> claw_goal_tick_;
+  std::optional<double> claw_stall_since_;
+  int32_t claw_last_sample_tick_ = -1;
+  int32_t claw_contact_hold_tick_ = 0;
+  bool claw_closing_ = false;
+  bool claw_contact_hold_ = false;
   std::optional<std::array<double, 4>> theoretical_q_;
   std::optional<std::array<double, 4>> last_corrected_q_;
   std::optional<std::array<double, 4>> commanded_degrees_;
@@ -551,7 +617,7 @@ ArmController& arm(void* handle) {
 
 extern "C" {
 
-int elesim_arm_abi_version() { return 2; }
+int elesim_arm_abi_version() { return 3; }
 
 void* elesim_arm_create(const char* device, const ElesimArmConfig* config,
                         char* error, size_t error_size) {

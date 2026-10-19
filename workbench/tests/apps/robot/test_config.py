@@ -32,6 +32,8 @@ def test_checked_in_default_config_is_valid() -> None:
     ("max_linear_m_s", 0), ("max_roll_rad_s", -1),
     ("max_bend_rad_s", float("inf")), ("claw_open_deg", 0),
     ("claw_closed_deg", 360), ("claw_open_deg", 230),
+    ("claw_contact_current_ma", 2500), ("claw_contact_stall_s", 0),
+    ("claw_stall_position_ticks", 0),
 ])
 def test_bad_motion_limits_or_claw_calibration_fail_before_motor_io(name, value):
     raw = yaml.safe_load((ROOT / "payload/config/robot/default.yaml").read_text())

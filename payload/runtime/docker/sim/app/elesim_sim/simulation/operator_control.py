@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import threading
 from collections import deque
 from dataclasses import dataclass, replace
@@ -186,6 +188,10 @@ class SimulationOperatorController:
         self.paused = False
         self.speed = 1.0
         self.debug_visible = True
+        self.arm_ghost = None
+        self.arm_ghost_started_at = 0.0
+        self.ik_target_position = None
+        self.ik_target_direction = None
         self.epoch = 0
         self._steps_remaining = 0
         self._observer_dirty = False
@@ -219,6 +225,16 @@ class SimulationOperatorController:
         if name == "set_debug_visible":
             self.debug_visible = bool(command.arguments["visible"])
             return True, "debug visibility updated"
+        if name == "set_arm_ghost":
+            self.arm_ghost = command.arguments["preview"]
+            self.arm_ghost_started_at = time.monotonic()
+            self._observer_dirty = True
+            return True, "Ghost preview updated (display only)"
+        if name == "set_ik_target":
+            self.ik_target_position = tuple(command.arguments["position"])
+            self.ik_target_direction = tuple(command.arguments["direction"])
+            self._observer_dirty = True
+            return True, "IK target display updated"
         if name in {"spawn_mock_object", "remove_mock_object", "detach_mock_object"}:
             if self.mock_object_command is None:
                 return False, "mock object support is unavailable"
@@ -229,6 +245,7 @@ class SimulationOperatorController:
     def reset(self) -> None:
         """Reset the environment while preserving running/paused state."""
 
+        self.arm_ghost = None
         self.reset_environment()
         self.epoch += 1
         self._steps_remaining = 0

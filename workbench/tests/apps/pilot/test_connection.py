@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import pytest
 from dataclasses import replace
 
 from elesim_pilot.connection import PilotConnection
@@ -86,6 +87,60 @@ def connection() -> tuple[PilotConnection, StateSink, Endpoint]:
         state_sink=sink,
     )
     return value, sink, endpoint
+
+
+def test_trajectory_send_is_fenced_at_send_and_never_queued():
+    value, sink, endpoint = connection()
+    value.active_target, value.lease_id = "robot-a", "lease-a"
+    value.endpoints = [{"endpoint_id": "robot-a", "instance_id": "boot-a"}]
+    value._active_endpoint = endpoint
+    value._connection_thread_ident = threading.get_ident()
+    route = ("robot-a", "boot-a", "lease-a")
+    value.send_trajectory_q([-.1, 0., 0., 0.], route)
+    assert endpoint.sent[-1][1]["lease_id"] == "lease-a"
+    assert endpoint.sent[-1][1]["payload"] == {
+        "command": "target", "source": "curobo", "q": [-.1, 0., 0., 0.]}
+    value.lease_id = "new"
+    with pytest.raises(RuntimeError, match="route fence"):
+        value.send_trajectory_q([-.1, 0., 0., 0.], route)
+    value.release_trajectory_route(route)
+    assert len(endpoint.sent) == 1
+
+
+def test_measurement_freshness_requires_advancing_measured_sample_not_ack(monkeypatch):
+    value, sink, endpoint = connection()
+    value.active_target = "robot-a"
+    stamp = [1.]
+    monkeypatch.setattr("elesim_pilot.connection.time.monotonic", lambda: stamp[0])
+    payload = {"q": [-.1, 0., 0., 0.], "q_source": "measured", "measurement_monotonic_s": 20.}
+    def deliver(body):
+        value.handle_envelope(endpoint, envelope("telemetry", body, source_id="robot-a"))
+    deliver(payload)
+    assert value.telemetry_received_at == 1.
+    stamp[0] = 2.
+    deliver(payload)  # Repeated cached hardware snapshot is not a fresh measurement.
+    value.handle_envelope(endpoint, envelope("ack", {"ok": True}))
+    assert value.telemetry_received_at == 1.
+    deliver({**payload, "measurement_monotonic_s": 20.1})
+    assert value.telemetry_received_at == 2.
+    deliver({**payload, "q_source": "commanded"})
+    assert value.telemetry_received_at is None
+
+
+def test_motion_interlock_drops_pending_target_but_preserves_torque_off():
+    value, sink, endpoint = connection()
+    value.active_target, value.lease_id = "robot-a", "lease-a"
+    value.submit({"t": "target", "q": [-.1, 0., 0., 0.]})
+    value.submit({"t": "torque_off"}, force=True)
+    value.clear_pending_motion()
+    value.drain_outbox(endpoint, now=1.)
+    assert len(endpoint.sent) == 1
+    assert endpoint.sent[0][1]["payload"]["command"] == "torque_off"
+    value.motion_guard = lambda payload: payload["command"] == "torque_off"
+    value.submit({"t": "target", "q": [-.1, 0., 0., 0.]}, force=True)
+    value.drain_outbox(endpoint, now=2.)
+    assert len(endpoint.sent) == 1
+    assert not sink.errors
 
 
 def test_pilot_discovers_and_reselects_after_target_loss() -> None:
