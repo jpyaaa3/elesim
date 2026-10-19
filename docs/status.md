@@ -6,6 +6,45 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### MPPI 기본값 4096×2 복귀 (2026-10-19)
+
+- 사용자 요청으로 YAML, locomotion/MPC config dataclass와 force adapter의
+  GPU 반복 기본값을 **2회**로 되돌렸다. 현재 배포 기본값은 **4096×2**이며
+  아래 4096×1 유지/반영 기록은 각 비교 당시의 결정이다.
+- dt=.01/substeps=2, 관절 제어·접촉 관측 100 Hz와 MPPI 갱신 50 Hz를 유지한다.
+  설정 기본값 회귀 기대값과 architecture 문서를 2회에 맞췄다.
+- 호스트의 실제 config loader와 두 config dataclass·force adapter 기본값에서
+  4096×2 및 dt=.01/substeps=2를 확인했다. 공식 개발 wrapper의 설정 pytest는
+  자동 권한 검토의 `Selected model is at capacity` 오류로 실행되지 않았다.
+- 별도 4096×1 영상 촬영은 t=18.24초에 controller fault로 중단됐다. 구체적
+  원인은 아직 확인하지 않았으며, 이번 기본값 복귀로 해결됐다고 판단하지 않는다.
+  이 복귀 후 실제 Genesis 보행·영상 재촬영은 아직 실행하지 않았다.
+
+### MPPI 2048×1 비교·4096×1 유지 (2026-10-19)
+
+- 공식 Sim `0debb43` 설치 이미지에서 후보 수만 2048→4096→4096→2048로
+  비교했다. GPU2, dt=.01/substeps=2, 관측·제어 100 Hz, 기본 optimizer 50 Hz,
+  iteration=1·seed42, 작은 팔 동작과 두 1280×720 H264/NVENC loopback을 유지했다.
+  네 방향 8초/20초·전진/후진 반복 출발/정지와 네 방향 짧은 재시험에서
+  **2048×1과 4096×1 모두 14/14 통과**했다. 1024 비교에서 실패했던 긴 후진·
+  반복 후진·긴 좌측 이동 후 stand 복귀도 2048에서는 통과했다.
+- 같은 **14개 시험, 각 15,600 정상 보행 step**에서 평균 loop는
+  **4096: 9.4958 ms / 2048: 9.4974 ms**로 전체 처리 시간 개선은 보이지 않았다.
+  p95도 **12.756 / 12.745 ms**였다. MPPI 호출 평균만 **4.089→3.840 ms
+  (-6.08%)**로 감소했다. 몸통 roll/pitch RMS는 **2.59/3.61→2.64/4.02도**다.
+  평균 loop가 10 ms 미만이어도 매 step의 마감을 입증한 결과는 아니다.
+- 이번에 다시 측정한 4096 대조군은 앞선 1024 비교의 10.255 ms와 다르다.
+  실행 간 처리 시간 변동의 원인은 분리하지 않았다. 서로 다른 비교의 후보
+  시간만 이어 붙여 샘플 수에 따른 처리 시간 곡선으로 해석하지 않는다.
+- timer는 제어·물리·camera submit이며 팔 명령 쓰기와 10 Hz 실제 pose 검사는
+  timer 밖이다. 초기 build/JIT와 실제 UI/DDS/WAN은 지연 비교 범위 밖이다.
+  한 seed의 full/short 평지 비교이며 일반적인 안정성 확률을 입증하지 않는다.
+  공중 지지력과 영상 decode 오류는 모두 0회다.
+- 사용자 요청대로 **배포 기본값은 4096×1로 유지**한다. 두 후보 비교는 공식
+  설치 이미지의 config override였으며 runtime source/default는 그대로다.
+  시험 container 종료·GPU2 유휴·기존 instance pin 보존을 확인했다.
+  [전체 비교·측정 조건·raw SHA](../workbench/evidence/curated/sim/mppi_samples_2048_20261019.json)를 보존했다.
+
 ### MPPI 1024×1 보행·처리 시간 비교 (2026-10-19)
 
 - 양쪽에 공식 업데이트한 `0debb43`의 원격 Sim 설치본 `e95e78f0…`

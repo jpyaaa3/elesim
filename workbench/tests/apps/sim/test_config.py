@@ -38,7 +38,7 @@ def test_sim_configs_load_with_role_owned_schema(name: str) -> None:
     assert bundle.go2_locomotion_config.mode == "pympc"
     assert bundle.go2_locomotion_config.mpc_solver_backend == "jax_mppi"
     assert bundle.go2_locomotion_config.mpc_gpu_samples == 4096
-    assert bundle.go2_locomotion_config.mpc_gpu_iterations == 1
+    assert bundle.go2_locomotion_config.mpc_gpu_iterations == 2
     assert not hasattr(bundle, "pick_config")
     assert not hasattr(bundle, "perception_config")
     assert not hasattr(bundle, "gaze_stabilizer_config")
@@ -88,9 +88,9 @@ def test_gpu_iteration_defaults_agree_across_config_and_force_adapter():
     from elesim_sim.robot.go2.locomotion.config import Go2LocomotionConfig
     from elesim_sim.robot.go2.mpc.config import Go2MpcConfig
     from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver
-    assert Go2LocomotionConfig().mpc_gpu_iterations == 1
-    assert Go2MpcConfig().gpu_iterations == 1
-    assert signature(PyMpcForceSolver).parameters['gpu_iterations'].default == 1
+    assert Go2LocomotionConfig().mpc_gpu_iterations == 2
+    assert Go2MpcConfig().gpu_iterations == 2
+    assert signature(PyMpcForceSolver).parameters['gpu_iterations'].default == 2
 
 
 def test_gpu_mpc_selection_is_explicit(tmp_path):
@@ -100,7 +100,7 @@ def test_gpu_mpc_selection_is_explicit(tmp_path):
     bundle = load_app_config(str(config))
     assert bundle.go2_locomotion_config.mpc_solver_backend == "jax_mppi"
     assert bundle.go2_locomotion_config.mpc_gpu_samples == 2048
-    assert bundle.go2_locomotion_config.mpc_gpu_iterations == 1
+    assert bundle.go2_locomotion_config.mpc_gpu_iterations == 2
 
 
 @pytest.mark.parametrize("key,value", [("solver_backend", "auto"), ("gpu_samples", 0),

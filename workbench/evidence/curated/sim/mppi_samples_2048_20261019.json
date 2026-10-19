@@ -1,0 +1,1797 @@
+{
+  "date": "2026-10-19",
+  "kind": "sample-count-only benchmark; no runtime/default changes",
+  "runtime_revision": "git-0debb436eda9802a445a84e0f6fa78ac7c4942e2",
+  "runtime_release": "e95e78f035199fdbc5f7848d14f340bf058957a13eea4c4b0df9d312396dc395",
+  "sim_image": "sha256:bc8b343afd51c98aa1d92a9d6f9d81bf9a3b2264cab4aa83bed04f9596406f14",
+  "setup": {
+    "host": "hckang@100.74.222.24 via installed manager pinned Tailscale SSH",
+    "gpu": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "dt_s": 0.01,
+    "substeps": 2,
+    "physics_integration_dt_s": 0.005,
+    "feedback_hz": 100,
+    "nominal_mppi_hz": 50,
+    "prediction_dt_s": 0.02,
+    "horizon": 12,
+    "samples": [
+      2048,
+      4096
+    ],
+    "iterations": 1,
+    "seed": 42,
+    "order": [
+      "samples2048_a",
+      "samples4096_a",
+      "samples4096_b",
+      "samples2048_b"
+    ],
+    "protocol": "First pair: four directions 8s and20s; forward/backward3x8s walk+4s stop. Repeat pair: four8s directions.2s settle per case. Forward/backward0.8m/s; lateral0.35m/s; moving arm; two1280x720 H264/NVENC loopback streams."
+  },
+  "speed": {
+    "groups": {
+      "4096": {
+        "passed": 14,
+        "total": 14,
+        "step_ms": {
+          "n": 15600,
+          "mean": 9.495790501853499,
+          "p50": 10.334281018003821,
+          "p95": 12.756313872523606,
+          "maximum": 28.240959160029888
+        },
+        "solve_ms": {
+          "n": 8424,
+          "mean": 4.088740774458195,
+          "p50": 4.051500465720892,
+          "p95": 4.687367659062147,
+          "maximum": 11.16970181465149
+        },
+        "over_10ms_fraction": 0.5338461538461539,
+        "compute_realtime_factor": 1.0530982121023083,
+        "gait": {
+          "steady_ticks": 15600,
+          "roll_pitch_rms_deg": [
+            2.593185605030159,
+            3.605843558059257
+          ],
+          "height_min_m": 0.25940263271331787,
+          "maximum_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "direction_speed": {
+            "(-0.8, 0.0)": {
+              "target_mps": 0.8,
+              "actual_along_mps": 0.7490031123983985,
+              "steady_ticks": 4800
+            },
+            "(0.0, -0.35)": {
+              "target_mps": 0.35,
+              "actual_along_mps": 0.27149018361916144,
+              "steady_ticks": 3000
+            },
+            "(0.0, 0.35)": {
+              "target_mps": 0.35,
+              "actual_along_mps": 0.28907754854647405,
+              "steady_ticks": 3000
+            },
+            "(0.8, 0.0)": {
+              "target_mps": 0.8,
+              "actual_along_mps": 0.7603261356552442,
+              "steady_ticks": 4800
+            }
+          }
+        }
+      },
+      "2048": {
+        "passed": 14,
+        "total": 14,
+        "step_ms": {
+          "n": 15600,
+          "mean": 9.49737749250534,
+          "p50": 10.13871724717319,
+          "p95": 12.744600977748632,
+          "maximum": 29.25095707178116
+        },
+        "solve_ms": {
+          "n": 8411,
+          "mean": 3.8401221004100465,
+          "p50": 3.778525162488222,
+          "p95": 4.410251975059509,
+          "maximum": 8.76254541799426
+        },
+        "over_10ms_fraction": 0.5159615384615385,
+        "compute_realtime_factor": 1.0529222417337096,
+        "gait": {
+          "steady_ticks": 15600,
+          "roll_pitch_rms_deg": [
+            2.635104344949753,
+            4.023206337875561
+          ],
+          "height_min_m": 0.2600809335708618,
+          "maximum_torque_ratio": 0.9999877863416604,
+          "air_support_ticks": 0,
+          "direction_speed": {
+            "(-0.8, 0.0)": {
+              "target_mps": 0.8,
+              "actual_along_mps": 0.7264976511554172,
+              "steady_ticks": 4800
+            },
+            "(0.0, -0.35)": {
+              "target_mps": 0.35,
+              "actual_along_mps": 0.2650869097049581,
+              "steady_ticks": 3000
+            },
+            "(0.0, 0.35)": {
+              "target_mps": 0.35,
+              "actual_along_mps": 0.261859979658863,
+              "steady_ticks": 3000
+            },
+            "(0.8, 0.0)": {
+              "target_mps": 0.8,
+              "actual_along_mps": 0.7648197750250498,
+              "steady_ticks": 4800
+            }
+          }
+        }
+      }
+    },
+    "matched_complete_trials": [
+      {
+        "reference": "samples4096_a",
+        "candidate": "samples2048_a",
+        "case": "backward_cycles"
+      },
+      {
+        "reference": "samples4096_a",
+        "candidate": "samples2048_a",
+        "case": "backward_long"
+      },
+      {
+        "reference": "samples4096_a",
+        "candidate": "samples2048_a",
+        "case": "backward_short"
+      },
+      {
+        "reference": "samples4096_a",
+        "candidate": "samples2048_a",
+        "case": "forward_cycles"
+      },
+      {
+        "reference": "samples4096_a",
+        "candidate": "samples2048_a",
+        "case": "forward_long"
+      },
+      {
+        "reference": "samples4096_a",
+        "candidate": "samples2048_a",
+        "case": "forward_short"
+      },
+      {
+        "reference": "samples4096_a",
+        "candidate": "samples2048_a",
+        "case": "left_long"
+      },
+      {
+        "reference": "samples4096_a",
+        "candidate": "samples2048_a",
+        "case": "left_short"
+      },
+      {
+        "reference": "samples4096_a",
+        "candidate": "samples2048_a",
+        "case": "right_long"
+      },
+      {
+        "reference": "samples4096_a",
+        "candidate": "samples2048_a",
+        "case": "right_short"
+      },
+      {
+        "reference": "samples4096_b",
+        "candidate": "samples2048_b",
+        "case": "backward_short"
+      },
+      {
+        "reference": "samples4096_b",
+        "candidate": "samples2048_b",
+        "case": "forward_short"
+      },
+      {
+        "reference": "samples4096_b",
+        "candidate": "samples2048_b",
+        "case": "left_short"
+      },
+      {
+        "reference": "samples4096_b",
+        "candidate": "samples2048_b",
+        "case": "right_short"
+      }
+    ],
+    "matched_successful": {
+      "4096": {
+        "step_ms": {
+          "n": 15600,
+          "mean": 9.495790501853499,
+          "p50": 10.334281018003821,
+          "p95": 12.756313872523606,
+          "maximum": 28.240959160029888
+        },
+        "solve_ms": {
+          "n": 8424,
+          "mean": 4.088740774458195,
+          "p50": 4.051500465720892,
+          "p95": 4.687367659062147,
+          "maximum": 11.16970181465149
+        },
+        "gait": {
+          "steady_ticks": 15600,
+          "roll_pitch_rms_deg": [
+            2.5931856050301594,
+            3.6058435580592576
+          ],
+          "height_min_m": 0.25940263271331787,
+          "maximum_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "direction_speed": {
+            "(-0.8, 0.0)": {
+              "target_mps": 0.8,
+              "actual_along_mps": 0.7490031123983985,
+              "steady_ticks": 4800
+            },
+            "(0.0, -0.35)": {
+              "target_mps": 0.35,
+              "actual_along_mps": 0.27149018361916144,
+              "steady_ticks": 3000
+            },
+            "(0.0, 0.35)": {
+              "target_mps": 0.35,
+              "actual_along_mps": 0.28907754854647405,
+              "steady_ticks": 3000
+            },
+            "(0.8, 0.0)": {
+              "target_mps": 0.8,
+              "actual_along_mps": 0.7603261356552442,
+              "steady_ticks": 4800
+            }
+          }
+        }
+      },
+      "2048": {
+        "step_ms": {
+          "n": 15600,
+          "mean": 9.49737749250534,
+          "p50": 10.13871724717319,
+          "p95": 12.744600977748632,
+          "maximum": 29.25095707178116
+        },
+        "solve_ms": {
+          "n": 8411,
+          "mean": 3.8401221004100465,
+          "p50": 3.778525162488222,
+          "p95": 4.410251975059509,
+          "maximum": 8.76254541799426
+        },
+        "gait": {
+          "steady_ticks": 15600,
+          "roll_pitch_rms_deg": [
+            2.635104344949753,
+            4.023206337875561
+          ],
+          "height_min_m": 0.2600809335708618,
+          "maximum_torque_ratio": 0.9999877863416604,
+          "air_support_ticks": 0,
+          "direction_speed": {
+            "(-0.8, 0.0)": {
+              "target_mps": 0.8,
+              "actual_along_mps": 0.7264976511554172,
+              "steady_ticks": 4800
+            },
+            "(0.0, -0.35)": {
+              "target_mps": 0.35,
+              "actual_along_mps": 0.2650869097049581,
+              "steady_ticks": 3000
+            },
+            "(0.0, 0.35)": {
+              "target_mps": 0.35,
+              "actual_along_mps": 0.261859979658863,
+              "steady_ticks": 3000
+            },
+            "(0.8, 0.0)": {
+              "target_mps": 0.8,
+              "actual_along_mps": 0.7648197750250498,
+              "steady_ticks": 4800
+            }
+          }
+        }
+      }
+    },
+    "step_reduction_percent": -0.016712570180765773,
+    "step_saved_ms": -0.0015869906518410914,
+    "solve_reduction_percent": 6.080568266915709
+  },
+  "runs": {
+    "samples2048_a": {
+      "samples": 2048,
+      "iterations": 1,
+      "suite": "full",
+      "passed": 10,
+      "total": 10,
+      "decoded_frames": {
+        "observer": 8343,
+        "hand_eye_preview": 8343
+      },
+      "media_errors": [],
+      "media_codecs": [
+        "h264_nvenc"
+      ],
+      "trials": [
+        {
+          "case": "forward_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.2443110309541225
+          ],
+          "max_roll_pitch_deg": [
+            3.589452274840344,
+            7.2830801655835655
+          ],
+          "rms_roll_pitch_deg": [
+            1.7911786457181311,
+            4.007922818760137
+          ],
+          "height_min_m": 0.2612203061580658,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.05,
+          "max_torque_ratio": 0.7738463414612982,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.625799165417751,
+            "p50": 10.215644491836429,
+            "p95": 12.95658852905035,
+            "maximum": 23.767021019011736
+          },
+          "solve_ms": {
+            "mean": 3.9016153603403665,
+            "p50": 3.8467030972242355,
+            "p95": 4.550462472252548,
+            "count": 326
+          },
+          "sim_wall": 0.9149043921176956
+        },
+        {
+          "case": "backward_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            4.794650698080659
+          ],
+          "max_roll_pitch_deg": [
+            10.375291090182833,
+            12.27913584050356
+          ],
+          "rms_roll_pitch_deg": [
+            3.8105319889156113,
+            7.367012585032639
+          ],
+          "height_min_m": 0.26086366176605225,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.07,
+          "max_torque_ratio": 0.9372103862780272,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.337805366764465,
+            "p50": 10.087161557748914,
+            "p95": 12.353097787126899,
+            "maximum": 26.84911387041211
+          },
+          "solve_ms": {
+            "mean": 3.840845307411165,
+            "p50": 3.8019632920622826,
+            "p95": 4.332028748467564,
+            "count": 319
+          },
+          "sim_wall": 0.942319302399409
+        },
+        {
+          "case": "left_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            1.6654505164087823
+          ],
+          "max_roll_pitch_deg": [
+            5.463840513593176,
+            3.8016276518748224
+          ],
+          "rms_roll_pitch_deg": [
+            1.6862924202514427,
+            1.5087856188017885
+          ],
+          "height_min_m": 0.26008346676826477,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.7849741198640571,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.19801673386246,
+            "p50": 9.866680251434445,
+            "p95": 12.223004410043359,
+            "maximum": 14.768701046705246
+          },
+          "solve_ms": {
+            "mean": 3.785936215053094,
+            "p50": 3.7664661649614573,
+            "p95": 4.3110167142003775,
+            "count": 324
+          },
+          "sim_wall": 0.9780190675791665
+        },
+        {
+          "case": "right_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            2.134412485804205
+          ],
+          "max_roll_pitch_deg": [
+            6.298659290299362,
+            8.774973995022203
+          ],
+          "rms_roll_pitch_deg": [
+            2.569040730092885,
+            3.1437257153906866
+          ],
+          "height_min_m": 0.26078853011131287,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.850814120409974,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.49262191541493,
+            "p50": 10.06532902829349,
+            "p95": 12.625469057820737,
+            "maximum": 18.519097939133644
+          },
+          "solve_ms": {
+            "mean": 3.7932727907411183,
+            "p50": 3.776297904551029,
+            "p95": 4.259499069303274,
+            "count": 327
+          },
+          "sim_wall": 0.9339150262256913
+        },
+        {
+          "case": "forward_long",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 25.990000000000002,
+          "steps": 2600,
+          "total_steps": 2600,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            14.20811626687646
+          ],
+          "max_roll_pitch_deg": [
+            6.12524875561212,
+            7.720621984441802
+          ],
+          "rms_roll_pitch_deg": [
+            2.1145837350840617,
+            3.796475311872155
+          ],
+          "height_min_m": 0.2612203061580658,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.08,
+          "max_torque_ratio": 0.9609683105294069,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.342793722430038,
+            "p50": 10.060829343274236,
+            "p95": 12.410644465126095,
+            "maximum": 26.222779881209135
+          },
+          "solve_ms": {
+            "mean": 3.7835455709546344,
+            "p50": 3.732623066753149,
+            "p95": 4.29941201582551,
+            "count": 967
+          },
+          "sim_wall": 0.8537255043007732
+        },
+        {
+          "case": "backward_long",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 25.990000000000002,
+          "steps": 2600,
+          "total_steps": 2600,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            13.182694774121046
+          ],
+          "max_roll_pitch_deg": [
+            10.501395872514552,
+            11.974227530922223
+          ],
+          "rms_roll_pitch_deg": [
+            3.115501439268406,
+            5.470535086226372
+          ],
+          "height_min_m": 0.26086366176605225,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.08,
+          "max_torque_ratio": 0.9999877863416604,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.373295782133937,
+            "p50": 10.016073239967227,
+            "p95": 12.543181469663978,
+            "maximum": 26.125603821128607
+          },
+          "solve_ms": {
+            "mean": 3.8540121380661385,
+            "p50": 3.800643142312765,
+            "p95": 4.376777820289135,
+            "count": 963
+          },
+          "sim_wall": 0.8556289268978975
+        },
+        {
+          "case": "left_long",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 25.990000000000002,
+          "steps": 2600,
+          "total_steps": 2600,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.4821805448018495
+          ],
+          "max_roll_pitch_deg": [
+            8.72515398476158,
+            5.986208762747929
+          ],
+          "rms_roll_pitch_deg": [
+            2.1878420441135593,
+            2.1065547499186748
+          ],
+          "height_min_m": 0.2600809335708618,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.8111102873671999,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.49639772789346,
+            "p50": 10.070611955597997,
+            "p95": 12.800845154561102,
+            "maximum": 20.36910830065608
+          },
+          "solve_ms": {
+            "mean": 3.8527135420398615,
+            "p50": 3.801798215135932,
+            "p95": 4.443749436177313,
+            "count": 970
+          },
+          "sim_wall": 0.859895178780694
+        },
+        {
+          "case": "right_long",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 25.990000000000002,
+          "steps": 2600,
+          "total_steps": 2600,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            4.927418361989112
+          ],
+          "max_roll_pitch_deg": [
+            7.049506883210895,
+            6.128453833773584
+          ],
+          "rms_roll_pitch_deg": [
+            2.2838178587276015,
+            2.4874924489613073
+          ],
+          "height_min_m": 0.2607885003089905,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.8066230881620602,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.60349693066544,
+            "p50": 10.187774896621704,
+            "p95": 12.964822282083333,
+            "maximum": 25.578144937753677
+          },
+          "solve_ms": {
+            "mean": 3.9191884597510374,
+            "p50": 3.880176693201065,
+            "p95": 4.513391852378845,
+            "count": 979
+          },
+          "sim_wall": 0.8425936939144958
+        },
+        {
+          "case": "forward_cycles",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 37.99,
+          "steps": 3800,
+          "total_steps": 3800,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            },
+            {
+              "cycle": 1,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            },
+            {
+              "cycle": 2,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.399098054505885,
+            5.38286542892456,
+            5.17075252532959
+          ],
+          "max_roll_pitch_deg": [
+            9.782347326638579,
+            8.674517564957824
+          ],
+          "rms_roll_pitch_deg": [
+            3.2090464138886885,
+            2.7195649325240536
+          ],
+          "height_min_m": 0.2612203359603882,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.07,
+          "max_torque_ratio": 0.9369931072808764,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.667315151956346,
+            "p50": 10.203669080510736,
+            "p95": 13.20526273921132,
+            "maximum": 27.523671742528677
+          },
+          "solve_ms": {
+            "mean": 3.827920685723132,
+            "p50": 3.768207971006632,
+            "p95": 4.333022981882095,
+            "count": 969
+          },
+          "sim_wall": 0.9097850790429453
+        },
+        {
+          "case": "backward_cycles",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 37.99,
+          "steps": 3800,
+          "total_steps": 3800,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            },
+            {
+              "cycle": 1,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            },
+            {
+              "cycle": 2,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.1689414186403155,
+            5.057389259338379,
+            4.6633501052856445
+          ],
+          "max_roll_pitch_deg": [
+            9.073746640284506,
+            13.669169874824668
+          ],
+          "rms_roll_pitch_deg": [
+            2.4549701605647356,
+            4.803265911913812
+          ],
+          "height_min_m": 0.26086369156837463,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.07,
+          "max_torque_ratio": 0.9999630410143461,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.442249892745167,
+            "p50": 10.193200083449483,
+            "p95": 12.414380931295455,
+            "maximum": 23.286987096071243
+          },
+          "solve_ms": {
+            "mean": 3.735649278839152,
+            "p50": 3.6923037841916084,
+            "p95": 4.157189931720495,
+            "count": 969
+          },
+          "sim_wall": 0.9115187959716577
+        }
+      ]
+    },
+    "samples2048_b": {
+      "samples": 2048,
+      "iterations": 1,
+      "suite": "short",
+      "passed": 4,
+      "total": 4,
+      "decoded_frames": {
+        "observer": 2207,
+        "hand_eye_preview": 2210
+      },
+      "media_errors": [],
+      "media_codecs": [
+        "h264_nvenc"
+      ],
+      "trials": [
+        {
+          "case": "forward_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.2443110309541225
+          ],
+          "max_roll_pitch_deg": [
+            3.589452274840344,
+            7.2830801655835655
+          ],
+          "rms_roll_pitch_deg": [
+            1.7911786457181311,
+            4.007922818760137
+          ],
+          "height_min_m": 0.2612203061580658,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.05,
+          "max_torque_ratio": 0.7738463414612982,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.492840627208352,
+            "p50": 10.071295080706477,
+            "p95": 12.617706647142764,
+            "maximum": 24.53229669481516
+          },
+          "solve_ms": {
+            "mean": 3.7928772333186647,
+            "p50": 3.6904725711792707,
+            "p95": 4.657554789446294,
+            "count": 326
+          },
+          "sim_wall": 0.929219453939953
+        },
+        {
+          "case": "backward_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            4.794650698080659
+          ],
+          "max_roll_pitch_deg": [
+            10.375291090182833,
+            12.27913584050356
+          ],
+          "rms_roll_pitch_deg": [
+            3.8105319889156113,
+            7.367012585032639
+          ],
+          "height_min_m": 0.26086366176605225,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.07,
+          "max_torque_ratio": 0.9372103862780272,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.718221926596016,
+            "p50": 10.241155046969652,
+            "p95": 13.396967016160483,
+            "maximum": 29.25095707178116
+          },
+          "solve_ms": {
+            "mean": 4.054193335313782,
+            "p50": 3.977529238909483,
+            "p95": 4.737825086340306,
+            "count": 319
+          },
+          "sim_wall": 0.9296310924977564
+        },
+        {
+          "case": "left_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            1.5085138928488957
+          ],
+          "max_roll_pitch_deg": [
+            5.230060865781424,
+            5.487274659615426
+          ],
+          "rms_roll_pitch_deg": [
+            2.7393122945121724,
+            1.3384697461132138
+          ],
+          "height_min_m": 0.2600809931755066,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.08,
+          "max_torque_ratio": 0.7857093398552916,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.511957794893533,
+            "p50": 10.21481747739017,
+            "p95": 12.830369733273981,
+            "maximum": 22.38260582089424
+          },
+          "solve_ms": {
+            "mean": 3.835867687773246,
+            "p50": 3.815403673797846,
+            "p95": 4.3599361553788185,
+            "count": 325
+          },
+          "sim_wall": 0.922484508075858
+        },
+        {
+          "case": "right_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            2.134346682276373
+          ],
+          "max_roll_pitch_deg": [
+            6.298659290299362,
+            5.92276212943404
+          ],
+          "rms_roll_pitch_deg": [
+            2.5726192990500047,
+            3.149544712520323
+          ],
+          "height_min_m": 0.26078853011131287,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.850814120409974,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.777903651508192,
+            "p50": 10.372602147981524,
+            "p95": 13.05741772521287,
+            "maximum": 24.833231698721647
+          },
+          "solve_ms": {
+            "mean": 3.9189797244034708,
+            "p50": 3.8356876466423273,
+            "p95": 4.7841319814324335,
+            "count": 328
+          },
+          "sim_wall": 0.9499434491072698
+        }
+      ]
+    },
+    "samples4096_a": {
+      "samples": 4096,
+      "iterations": 1,
+      "suite": "full",
+      "passed": 10,
+      "total": 10,
+      "decoded_frames": {
+        "observer": 8274,
+        "hand_eye_preview": 8271
+      },
+      "media_errors": [],
+      "media_codecs": [
+        "h264_nvenc"
+      ],
+      "trials": [
+        {
+          "case": "forward_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.340196784585714
+          ],
+          "max_roll_pitch_deg": [
+            7.802409366650213,
+            6.021446559356785
+          ],
+          "rms_roll_pitch_deg": [
+            3.0985003455017774,
+            2.332717725161706
+          ],
+          "height_min_m": 0.2611037790775299,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.060000000000000005,
+          "max_torque_ratio": 0.8800937239657041,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.911746497576436,
+            "p50": 10.502546560019255,
+            "p95": 13.425279478542507,
+            "maximum": 25.881517678499222
+          },
+          "solve_ms": {
+            "mean": 4.046926832837394,
+            "p50": 4.050771705806255,
+            "p95": 4.5617202995345,
+            "count": 328
+          },
+          "sim_wall": 0.9220692747225036
+        },
+        {
+          "case": "backward_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.368451261892915
+          ],
+          "max_roll_pitch_deg": [
+            9.351494276957663,
+            10.584812768270856
+          ],
+          "rms_roll_pitch_deg": [
+            3.5845992592365294,
+            4.796497837523611
+          ],
+          "height_min_m": 0.2605056166648865,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.07,
+          "max_torque_ratio": 0.9475566900063344,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.531866034958512,
+            "p50": 10.687088826671243,
+            "p95": 12.496760836802423,
+            "maximum": 28.240959160029888
+          },
+          "solve_ms": {
+            "mean": 4.144104229046341,
+            "p50": 4.145222250372171,
+            "p95": 4.668040317483246,
+            "count": 326
+          },
+          "sim_wall": 0.9462368096020773
+        },
+        {
+          "case": "left_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            2.0493154179648627
+          ],
+          "max_roll_pitch_deg": [
+            9.014267749430664,
+            8.210196252608517
+          ],
+          "rms_roll_pitch_deg": [
+            2.50957594805617,
+            1.9583245675060934
+          ],
+          "height_min_m": 0.26110216975212097,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.808903647611794,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.229793164413422,
+            "p50": 10.276340181007981,
+            "p95": 12.26757497061044,
+            "maximum": 22.97313930466771
+          },
+          "solve_ms": {
+            "mean": 4.049334113708943,
+            "p50": 4.014033358544111,
+            "p95": 4.595717182382941,
+            "count": 326
+          },
+          "sim_wall": 0.9660601306490922
+        },
+        {
+          "case": "right_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            1.9570043866297056
+          ],
+          "max_roll_pitch_deg": [
+            6.512175249116885,
+            6.569891828874292
+          ],
+          "rms_roll_pitch_deg": [
+            1.7590201780070016,
+            1.1975523070968974
+          ],
+          "height_min_m": 0.260492205619812,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.7407578790728387,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.427293830861649,
+            "p50": 10.266716359183192,
+            "p95": 12.422830797731875,
+            "maximum": 19.546561874449253
+          },
+          "solve_ms": {
+            "mean": 3.9860183527361763,
+            "p50": 3.9881705306470394,
+            "p95": 4.544617608189583,
+            "count": 326
+          },
+          "sim_wall": 0.9587493983565734
+        },
+        {
+          "case": "forward_long",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 25.990000000000002,
+          "steps": 2600,
+          "total_steps": 2600,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            14.330329781398179
+          ],
+          "max_roll_pitch_deg": [
+            7.512816981427575,
+            7.650995306380032
+          ],
+          "rms_roll_pitch_deg": [
+            2.3494867739007765,
+            3.841919643518998
+          ],
+          "height_min_m": 0.2611037790775299,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.060000000000000005,
+          "max_torque_ratio": 0.9467798013239118,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.489429623095525,
+            "p50": 10.397289646789432,
+            "p95": 12.627116171643138,
+            "maximum": 23.706729989498854
+          },
+          "solve_ms": {
+            "mean": 4.031255571133394,
+            "p50": 4.010878736153245,
+            "p95": 4.608894512057304,
+            "count": 974
+          },
+          "sim_wall": 0.8565718749509441
+        },
+        {
+          "case": "backward_long",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 25.990000000000002,
+          "steps": 2600,
+          "total_steps": 2600,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            13.787723880261185
+          ],
+          "max_roll_pitch_deg": [
+            11.023427646189898,
+            13.839836253009668
+          ],
+          "rms_roll_pitch_deg": [
+            3.3752010921742968,
+            5.793682985842838
+          ],
+          "height_min_m": 0.25940263271331787,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.10999999999999999,
+          "max_torque_ratio": 1.0,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.393564604688436,
+            "p50": 10.373803786933422,
+            "p95": 12.446056469343603,
+            "maximum": 25.201565120369196
+          },
+          "solve_ms": {
+            "mean": 4.104546960754672,
+            "p50": 4.0920511819422245,
+            "p95": 4.630701709538698,
+            "count": 957
+          },
+          "sim_wall": 0.8590724912787637
+        },
+        {
+          "case": "left_long",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 25.990000000000002,
+          "steps": 2600,
+          "total_steps": 2600,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.408576437898773
+          ],
+          "max_roll_pitch_deg": [
+            5.444248199679807,
+            4.7055924493609025
+          ],
+          "rms_roll_pitch_deg": [
+            1.9863514106244715,
+            1.5786955634911901
+          ],
+          "height_min_m": 0.2604922652244568,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.09999999999999999,
+          "max_torque_ratio": 0.7760506906086476,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.340075799005312,
+            "p50": 10.390715906396508,
+            "p95": 12.442301772534847,
+            "maximum": 27.10179705172777
+          },
+          "solve_ms": {
+            "mean": 4.161629827260331,
+            "p50": 4.100099205970764,
+            "p95": 4.7824508510529995,
+            "count": 977
+          },
+          "sim_wall": 0.8824428868008432
+        },
+        {
+          "case": "right_long",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 25.990000000000002,
+          "steps": 2600,
+          "total_steps": 2600,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.2590871635547956
+          ],
+          "max_roll_pitch_deg": [
+            5.68099574206547,
+            6.5269230767372015
+          ],
+          "rms_roll_pitch_deg": [
+            1.985292286063609,
+            1.5394472453907833
+          ],
+          "height_min_m": 0.2604922354221344,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.09999999999999999,
+          "max_torque_ratio": 0.8224091570789899,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.387640719198519,
+            "p50": 10.345404036343098,
+            "p95": 12.419800367206335,
+            "maximum": 27.750999201089144
+          },
+          "solve_ms": {
+            "mean": 4.1282118795010945,
+            "p50": 4.106040112674236,
+            "p95": 4.700835980474949,
+            "count": 969
+          },
+          "sim_wall": 0.8650954775752879
+        },
+        {
+          "case": "forward_cycles",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 37.99,
+          "steps": 3800,
+          "total_steps": 3800,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            },
+            {
+              "cycle": 1,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            },
+            {
+              "cycle": 2,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.436450616456568,
+            5.005292892456055,
+            5.313408851623535
+          ],
+          "max_roll_pitch_deg": [
+            11.031339385747595,
+            12.776196058120442
+          ],
+          "rms_roll_pitch_deg": [
+            2.4035752690163354,
+            3.369135352973054
+          ],
+          "height_min_m": 0.2609691321849823,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.060000000000000005,
+          "max_torque_ratio": 0.9623555394576168,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.387288625972966,
+            "p50": 10.302797192707658,
+            "p95": 12.595756514929235,
+            "maximum": 25.03821300342679
+          },
+          "solve_ms": {
+            "mean": 4.034073026899074,
+            "p50": 3.9940341375768185,
+            "p95": 4.599673114717007,
+            "count": 965
+          },
+          "sim_wall": 0.9124814519880359
+        },
+        {
+          "case": "backward_cycles",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 37.99,
+          "steps": 3800,
+          "total_steps": 3800,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            },
+            {
+              "cycle": 1,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            },
+            {
+              "cycle": 2,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.009400765411556,
+            4.8334832191467285,
+            5.133421897888184
+          ],
+          "max_roll_pitch_deg": [
+            6.97918822600146,
+            13.974815799639654
+          ],
+          "rms_roll_pitch_deg": [
+            2.583485239919686,
+            5.106810879769073
+          ],
+          "height_min_m": 0.2605392336845398,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.10999999999999999,
+          "max_torque_ratio": 1.0,
+          "step_ms": {
+            "n": 1800,
+            "mean": 9.72385411357714,
+            "p50": 10.31946879811585,
+            "p95": 13.282706355676055,
+            "maximum": 24.580615106970072
+          },
+          "solve_ms": {
+            "mean": 4.17119208177722,
+            "p50": 4.103913903236389,
+            "p95": 4.86213443800807,
+            "count": 973
+          },
+          "sim_wall": 0.9051874418723442
+        }
+      ]
+    },
+    "samples4096_b": {
+      "samples": 4096,
+      "iterations": 1,
+      "suite": "short",
+      "passed": 4,
+      "total": 4,
+      "decoded_frames": {
+        "observer": 2223,
+        "hand_eye_preview": 2228
+      },
+      "media_errors": [],
+      "media_codecs": [
+        "h264_nvenc"
+      ],
+      "trials": [
+        {
+          "case": "forward_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.2350157387554646
+          ],
+          "max_roll_pitch_deg": [
+            5.987800228988226,
+            6.8698943691093435
+          ],
+          "rms_roll_pitch_deg": [
+            2.1850912094345243,
+            2.944593767761812
+          ],
+          "height_min_m": 0.2611037790775299,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.07,
+          "max_torque_ratio": 0.7953322438238065,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.67042168835178,
+            "p50": 10.236169677227736,
+            "p95": 13.145612156949937,
+            "maximum": 24.450529366731644
+          },
+          "solve_ms": {
+            "mean": 4.093849577296239,
+            "p50": 3.9688562974333763,
+            "p95": 4.855546727776527,
+            "count": 325
+          },
+          "sim_wall": 0.9108802809376454
+        },
+        {
+          "case": "backward_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            5.3568912986665955
+          ],
+          "max_roll_pitch_deg": [
+            8.784819753621196,
+            9.382624396084445
+          ],
+          "rms_roll_pitch_deg": [
+            3.4823814699592224,
+            4.421413036422961
+          ],
+          "height_min_m": 0.2605056166648865,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.07,
+          "max_torque_ratio": 0.9996341688745435,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.965761794398228,
+            "p50": 10.518582537770271,
+            "p95": 13.648691656999288,
+            "maximum": 22.92494522407651
+          },
+          "solve_ms": {
+            "mean": 3.9866749775793515,
+            "p50": 3.9035137742757797,
+            "p95": 4.793815431185068,
+            "count": 330
+          },
+          "sim_wall": 0.9123688233203922
+        },
+        {
+          "case": "left_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            2.215477886861663
+          ],
+          "max_roll_pitch_deg": [
+            7.542957487264088,
+            4.574153617980723
+          ],
+          "rms_roll_pitch_deg": [
+            3.3750086816019476,
+            1.6673917813495065
+          ],
+          "height_min_m": 0.26110216975212097,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.7875640906487655,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.317823331803083,
+            "p50": 10.042934445664287,
+            "p95": 12.495666067115963,
+            "maximum": 20.928043872117996
+          },
+          "solve_ms": {
+            "mean": 4.008228127029001,
+            "p50": 3.975971834734082,
+            "p95": 4.65067052282393,
+            "count": 322
+          },
+          "sim_wall": 0.9307244890129681
+        },
+        {
+          "case": "right_short",
+          "passed": true,
+          "failures": [],
+          "fault": null,
+          "final_t_s": 13.99,
+          "steps": 1400,
+          "total_steps": 1400,
+          "stops": [
+            {
+              "cycle": 0,
+              "stage": "stand",
+              "faulted": false,
+              "completed": true
+            }
+          ],
+          "progress_m": [
+            1.9569035355707456
+          ],
+          "max_roll_pitch_deg": [
+            6.130325599323611,
+            4.031317700708289
+          ],
+          "rms_roll_pitch_deg": [
+            1.7185981769236607,
+            1.2158617427215408
+          ],
+          "height_min_m": 0.260492205619812,
+          "air_support_ticks": 0,
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.7407578790728387,
+          "step_ms": {
+            "n": 600,
+            "mean": 9.670286249214163,
+            "p50": 10.01828396692872,
+            "p95": 13.105106400325894,
+            "maximum": 23.89357192441821
+          },
+          "solve_ms": {
+            "mean": 4.100643255479314,
+            "p50": 4.064087988808751,
+            "p95": 4.808030789718032,
+            "count": 326
+          },
+          "sim_wall": 0.9164416551726857
+        }
+      ]
+    }
+  },
+  "decision": {
+    "default_changed": false,
+    "defaults": {
+      "samples": 4096,
+      "iterations": 1,
+      "feedback_hz": 100
+    },
+    "benchmark_only": true,
+    "candidate_passed_all": true,
+    "reason": "2048 passed14/14 but showed no whole-loop mean latency reduction against4096 in this cohort. Deployment defaults remain4096x1.",
+    "failure_details": []
+  },
+  "source_verification": {
+    "published_source_sha256": {
+      "controller": "4ab201e73177470cfe60a6fdfcf3d09f8a3709b841c0d1122b1d3829ad26a591",
+      "bridge": "3594b557fd0ba6032193a6902489ea8408732664d2ad13ea107977c99f015da7",
+      "payload": "9372d91ef97f7bc018b2374308bad7ca591468ddefd3d0b1c5249e72c9328c88",
+      "jax": "ed193827382594ab7c7e29b0401be8adee0cb898d2bc3d55cdca2660f5338210",
+      "snapshot": "e0ef577057e2f4fb312a40e3afee8bf81d9fa6c55f98f6cdd7c4b5104f12a1d2"
+    },
+    "all4runs_checked_module_hashes": true,
+    "actual_gpu_samples_and_iterations_asserted": true,
+    "config_defaults_4096x1_asserted_before_override": true,
+    "immutable_image_from_registered_instance": true,
+    "no_controller_physics_or_solver_source_override": true,
+    "diagnostic_wrappers": "Installed media initialization/encode/mailbox timers and loopback receiver; SimCameraPublisher suppressed for this no-DDS harness. Controller and physical scene.step use installed source."
+  },
+  "cleanup": {
+    "instance_pins": {
+      "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+      "tddwalk": "e95e78f035199fdbc5f7848d14f340bf058957a13eea4c4b0df9d312396dc395",
+      "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+    },
+    "unchanged_pins": true,
+    "diagnostic_containers": [],
+    "gpu2_processes": [],
+    "source_revision": "git-0debb436eda9802a445a84e0f6fa78ac7c4942e2",
+    "sim_image": "sha256:bc8b343afd51c98aa1d92a9d6f9d81bf9a3b2264cab4aa83bed04f9596406f14",
+    "source_config_defaults_unchanged": true
+  },
+  "raw": {
+    "path": "workbench/evidence/generated/samples2048-20261019/results.tar.gz",
+    "sha256": "ffca30e8de12054e3ebc953756ee945b1ced7755a53220d2c40349f6532542a1",
+    "bytes": 2866934,
+    "source_archive_sha256": "27870d3f84ddc112ac3bdeab94c9a429bb8b94b1c1cc41b84b783fdbff6764e1",
+    "reproduction_archive": {
+      "path": "workbench/evidence/generated/samples2048-20261019/reproduction.tar.gz",
+      "sha256": "01c8f15612dd801d20d2b6d94724f7d8a8379240b3bd497d9392ae30ca059302"
+    },
+    "diagnostic_sources": {
+      "case.py": "196602a2175490f2949f4159923366617c3bedabe69e72202efe534a5957385e",
+      "latency_media.py": "ee535078cb557fa0788efcebde7882261707337ceb03c387ef733bcbe90a5b45",
+      "latency_sections.py": "7f6307055f64b8fa966394947ee671b2aefb03a66395b3cfe7def9bc55055929",
+      "run.py": "b17f4c9945f42dc2c264d9d657d8834ed491889758fe23c728450bb1a60ac828",
+      "source-sha.json": "a1951e2bd81d9658186d8465affbe981b18e9149c5c8c355b818b11ad0cd648b"
+    },
+    "analysis_script_sha256": "8659faa1296a543be6a60da41e128d5af0b23f35d16519f0d2dc8802b24343dc"
+  },
+  "limitations": [
+    "Flat floor GO2+arm only, two loopback NVENC streams; no real UI/DDS/WAN/hardware",
+    "Per-step timer excludes arm commands and low-rate public pose validation; their cost is present in trial sim/wall",
+    "Control100Hz,5ms integration, nominal50Hz optimizer andone iteration retained",
+    "Only MPPI sample count changed; no gains, precision or controller logic changes",
+    "All failures retained; exclude failed/incomplete trials from claims about steady successful walking",
+    "Latency uses only 14 trial pairs completed by both settings, 15600 steady walking steps each. All failed/incomplete trials remain in the record.",
+    "One fixed-seed full cohort and one short repeat per setting. No universal success/failure probability or long-failure reproduction is established.",
+    "The timer is controller/physics/camera submit. Arm command writes and10Hz public-pose validation are outside this timer and included in trial sim/wall.",
+    "This is a flat-floor loopback benchmark. Full UI/DDS/WAN timing, terrain, SROS2 and hardware are outside scope.",
+    "Runtime source/defaults were not edited; no fresh required/extended or isolated-release software gates were run for this benchmark.",
+    "The freshly measured4096 mean differs from the earlier1024 comparison. Use the4096 control from this cohort for2048 latency claims; causes of between-cohort timing variation were not isolated."
+  ]
+}
