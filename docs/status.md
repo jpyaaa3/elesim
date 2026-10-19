@@ -33,6 +33,13 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   실패는 기존 RL 시작 좌표 검사다. 실제 DDS 모터 mailbox·4-process topology,
   protocol **145개**가 통과했다. full required/extended·isolated-release와
   WAN/SROS2/hardware gate는 미검증이다.
+- `0debb43` push 후 양쪽 공식 `elesim-update`를 완료했다. 운영 pin은
+  유지하고 원격 `tddwalk`만 release `e95e78f0…`, Sim `merry-goose`로 교체했다.
+  새 이미지의 8개 module SHA, 기본 dt=.01/substeps=2·4096×1, GPU2 JIT 초기화를
+  확인했다. 이 설치 확인은 설정/SHA/JIT 범위이며 설치 후 Genesis 보행을
+  다시 실행한 검사는 아니다. 위 보행 비교와 controller/JAX/payload/bridge/
+  snapshot 코드 SHA가 같고, adapter/config 변경은 기본값뿐이다.
+  시험 container 종료·GPU2 유휴·기존 pin 보존·로컬 dev 종료를 확인했다.
   [전체 비교·오류·raw SHA](../workbench/evidence/curated/sim/mppi_iterations_20261019.json)를 보존했다.
 
 ### 현재 제어기의 100/50 Hz 비교 (2026-10-19)

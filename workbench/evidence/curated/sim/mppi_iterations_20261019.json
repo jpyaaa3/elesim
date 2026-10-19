@@ -1285,6 +1285,108 @@
     "sha256": "fd143cae263adbafaa3d4d93dfc3d3bfafe410f9e2c81f3a8d8de6af9cd1b9c1",
     "bytes": 2678379,
     "analysis": "workbench/evidence/generated/iterations1-20261019/analysis.json",
-    "source": "workbench/evidence/generated/iterations1-20261019/source"
+    "source": "workbench/evidence/generated/iterations1-20261019/source",
+    "install_archive": "workbench/evidence/generated/iterations1-20261019/install-results.tar.gz",
+    "install_archive_sha256": "2e4edb4a043c01bf6473b584fdef2440356d14a070954141c0b4c047975f3148"
+  },
+  "installation": {
+    "runtime_commit": "0debb436eda9802a445a84e0f6fa78ac7c4942e2",
+    "check": {
+      "passed": true,
+      "dt": 0.01,
+      "substeps": 2,
+      "feedback_hz": 100,
+      "nominal_mppi_hz": 50,
+      "samples": 4096,
+      "iterations": 1,
+      "gpu": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+      "device": "NVIDIA RTX A6000",
+      "warmup_s": 7.322767736855894,
+      "source_sha256": {
+        "controller": "4ab201e73177470cfe60a6fdfcf3d09f8a3709b841c0d1122b1d3829ad26a591",
+        "jax": "ed193827382594ab7c7e29b0401be8adee0cb898d2bc3d55cdca2660f5338210",
+        "adapter": "63f21df324e7258825d4180453f5b1cc5b9f26654a837d1d211940925a0fb969",
+        "bridge": "3594b557fd0ba6032193a6902489ea8408732664d2ad13ea107977c99f015da7",
+        "payload": "9372d91ef97f7bc018b2374308bad7ca591468ddefd3d0b1c5249e72c9328c88",
+        "snapshot": "e0ef577057e2f4fb312a40e3afee8bf81d9fa6c55f98f6cdd7c4b5104f12a1d2",
+        "mpc_config": "e716d26f0a606f8ee24c7637fbd0ef4a006ed934e496b75a049b5e772dbacb01",
+        "locomotion_config": "a8180bab35c751c17f5e82eedda6e72c6d353b075823d1d248ce6f641651be8d"
+      },
+      "scope": "Published image defaults and actual GPU JIT initialization only; walking comparison used the prior identical algorithm image with an explicit iterations override. No post-update Genesis walking rerun."
+    },
+    "launch": {
+      "build_fingerprints": {
+        "pilot": "40cc91104211f58d8691d529bc267301a659b65f879e24bb809b5cd5f60a1c6b",
+        "sim": "da5b565ecdd8ba7262ea9e257be838c7dbc07383004d3d3b99bf3b575ecba5d3"
+      },
+      "image_ids": {
+        "pilot": "sha256:3d5627fa4558bcc13339ea00bf04b1d4c847848aa0fe04f9e4d236c2ffed65d5",
+        "sim": "sha256:bc8b343afd51c98aa1d92a9d6f9d81bf9a3b2264cab4aa83bed04f9596406f14"
+      },
+      "install_uuid": "3fc3487e-0788-4a76-a152-e485144b0d0b",
+      "platform": "linux/amd64",
+      "release_key": "e95e78f035199fdbc5f7848d14f340bf058957a13eea4c4b0df9d312396dc395",
+      "role_images": {
+        "pilot": "elesim/pilot:merry-wasp",
+        "sim": "elesim/sim:merry-goose"
+      },
+      "runtime_data_digest": "3a25123bff9d6ef72136170e33b6f4264dc295f0c8b4d31091065c5f310ae77c",
+      "schema_version": 1,
+      "source_revision": "git-0debb436eda9802a445a84e0f6fa78ac7c4942e2"
+    },
+    "audit": {
+      "utc": "2026-10-19T02:51:42.347627+00:00",
+      "pins": {
+        "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+        "tddwalk": "e95e78f035199fdbc5f7848d14f340bf058957a13eea4c4b0df9d312396dc395",
+        "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+      },
+      "containers": [],
+      "gpu2_processes": [],
+      "source_revision": "git-0debb436eda9802a445a84e0f6fa78ac7c4942e2"
+    },
+    "algorithm_hashes_match_comparison": true
+  },
+  "official_updates": {
+    "local": {
+      "source_revision": "git-0debb436eda9802a445a84e0f6fa78ac7c4942e2",
+      "returncode": 0,
+      "pins_preserved": true,
+      "before_pins": {
+        "readiness": "d037de74f8c024876def6231630d761799e7f2cb26d5162df357e4a6c083e39e",
+        "test": "601e03e25e76bbe657edde3b4bc18e3ceb2aa9ec7de0b7aef8b757595a184c3c"
+      },
+      "after_pins": {
+        "readiness": "d037de74f8c024876def6231630d761799e7f2cb26d5162df357e4a6c083e39e",
+        "test": "601e03e25e76bbe657edde3b4bc18e3ceb2aa9ec7de0b7aef8b757595a184c3c"
+      }
+    },
+    "remote": {
+      "source_revision": "git-0debb436eda9802a445a84e0f6fa78ac7c4942e2",
+      "returncode": 0,
+      "pins_preserved": true,
+      "before_pins": {
+        "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+        "tddwalk": "adb39bfa25485b76eb80076a0c28f65d68867293786bf233cfb097231cc1aa00",
+        "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+      },
+      "after_pins": {
+        "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+        "tddwalk": "adb39bfa25485b76eb80076a0c28f65d68867293786bf233cfb097231cc1aa00",
+        "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+      }
+    }
+  },
+  "cleanup_final": {
+    "utc": "2026-10-19T02:51:42.347627+00:00",
+    "pins": {
+      "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+      "tddwalk": "e95e78f035199fdbc5f7848d14f340bf058957a13eea4c4b0df9d312396dc395",
+      "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+    },
+    "containers": [],
+    "gpu2_processes": [],
+    "source_revision": "git-0debb436eda9802a445a84e0f6fa78ac7c4942e2",
+    "local_dev_service_stopped": true
   }
 }
