@@ -6,6 +6,32 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 현재 제어기의 100/50 Hz 비교 (2026-10-19)
+
+- `331e754`를 양쪽 공식 `elesim-update`로 반영하고 기존 instance pin을
+  보존했다. 원격 `tddwalk`만 최신 release `adb39bfa…`, Sim `merry-cricket`으로
+  replace한 뒤 설치 모듈 SHA와 GPU2 UUID를 확인했다. 운영 인스턴스는 유지했다.
+- GPU2에서 100→50→50→100 Hz 순서로 비교했다. dt/substeps는 .01/2와 .02/4,
+  물리 적분 간격 5 ms·기본 MPPI 50 Hz·4096×2·gain·필터는 같게 뒀다.
+  두 1280×720 H264/NVENC loopback 영상과 작은 팔 bend 동작도 함께 실행했다.
+  첫 쌍은 8초/20초 전후좌우와 전진·후진 3회 출발/정지 10개씩, 반복 쌍은
+  8초 전후좌우 4개씩이다. 매 stop 뒤 stand 복귀를 요구했다.
+- **100 Hz는 14/14 통과, 50 Hz는 0/14 통과**다. 50 Hz는 2초 준비를 포함한
+  t=3.86–8.18초, 이동 명령 뒤 1.86–6.18초에 fault로 종료했다. 착지 timeout은
+  4회, `GPU MPC produced no finite force trajectory`는 10회였다. 50 Hz 짧은 네 방향의
+  실패 시점과 물리 자세가 재실행에서도 같았고, 마지막 100 Hz 대조는 다시
+  4/4 통과했다. 관측된 공중 지지력은 모든 실행에서 0회이고 영상 decode
+  오류도 없었다. 현재 제어기를 무조정으로 50 Hz로 낮추는 변경은 채택하지 않는다.
+- 100 Hz의 정상 보행 구간 가중 평균은 **10.38 ms/step**이었다. timer는 제어·
+  물리·camera submit이고 팔 명령 쓰기와 10 Hz 실제 pose 검사는 timer 밖이다.
+  실패가 일찍 발생한 50 Hz에는 안정 보행 처리율 개선을 주장하지 않는다.
+  이전 실험과 다른 측정이므로 11.24→10.38 ms를 특정 패치의 효과로 보지 않는다.
+- 접촉 피드백 지연과 tick당 필터 응답 변화의 영향은 아직 분리하지 않았다.
+  별도로 재조정한 50 Hz 제어기의 가능성을 배제하는 결과는 아니다. 평지·
+  loopback 조건이며 실제 UI/DDS/WAN·SROS2·hardware gate는 포함하지 않는다.
+  시험 container 종료·GPU2 유휴·기존 pin 보존 및 설치 기본 .01/2 유지를 확인했다.
+  [전체 결과·오류·raw archive SHA](../workbench/evidence/curated/sim/cadence_50hz_20261019.json)를 보존했다.
+
 ### 감쇠 입력·몸 좌표변환 묶기 (2026-10-19)
 
 - 지지 다리의 입력 검증·우변 준비·속도 제한을 묶고, 각 다리의

@@ -1,0 +1,1004 @@
+{
+  "date": "2026-10-19",
+  "runtime_revision": "git-331e75479d7a4ce2137edc395fdb083b514a0246",
+  "conclusion": "Reducing the current controller from 100 Hz to 50 Hz without retuning failed. Keep 100 Hz. A retuned 50 Hz controller was not evaluated.",
+  "setup": {
+    "host": "hckang@100.74.222.24 via pinned Tailscale SSH",
+    "gpu": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "release_key": "adb39bfa25485b76eb80076a0c28f65d68867293786bf233cfb097231cc1aa00",
+    "sim_image_id": "sha256:73275402c1818eae09ebd2ac79df54ced329296f706f4045bdafd800e94ce78c",
+    "sim_alias": "elesim/sim:merry-cricket",
+    "order": [
+      "hz100_a",
+      "hz50_a",
+      "hz50_b",
+      "hz100_b"
+    ],
+    "integrator_dt_s": 0.005,
+    "prediction_dt_s": 0.02,
+    "mppi_samples": 4096,
+    "mppi_iterations": 2,
+    "forward_backward_mps": 0.8,
+    "lateral_mps": 0.35,
+    "media": "Two 1280x720 H264/NVENC loopback streams",
+    "arm_motion": "Same small bounded bend oscillations",
+    "trial_plan": "First pair: four directions for 8 s, four directions for 20 s, forward/backward for three cycles of 8 s walk + 4 s stop. Repeat pair: four directions for 8 s. Each trial has 2 s initial settle.",
+    "pass_criteria": "Full duration, finite actual body pose, height>=.16m, |roll/pitch|<.85rad, no fault, directed progress, stand after every stop, media present, no loaded airborne support at control observations"
+  },
+  "summary": {
+    "hz100": {
+      "passed": 14,
+      "total": 14
+    },
+    "hz50": {
+      "passed": 0,
+      "total": 14,
+      "fault_t_from_trial_start_s": [
+        3.86,
+        8.18
+      ],
+      "fault_t_after_command_s": [
+        1.86,
+        6.18
+      ],
+      "faults": {
+        "GPU MPC produced no finite force trajectory": 10,
+        "touchdown timeout after 0.30s: RL": 2,
+        "touchdown timeout after 0.30s: RL,RR": 2
+      }
+    },
+    "hz100_steady_mean_ms": 10.38173322706149,
+    "air_support_ticks": 0,
+    "causality_limit": "Contact feedback latency and per-tick filter effects were not separated. Nominal MPPI 50 Hz and 5 ms physics integration retained."
+  },
+  "runs": {
+    "hz100_a": {
+      "hz": 100,
+      "dt_s": 0.01,
+      "substeps": 2,
+      "passed": 10,
+      "total": 10,
+      "trials": [
+        {
+          "case": "forward_short",
+          "passed": true,
+          "final_t_s": 13.99,
+          "reason": null,
+          "progress_m": [
+            5.4439409859478465
+          ],
+          "max_roll_pitch_deg": [
+            6.733844095330877,
+            4.547093156267309
+          ],
+          "max_missing_age_s": 0.060000000000000005,
+          "max_torque_ratio": 0.897203319334795,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 600,
+            "mean": 10.472683745902032,
+            "p50": 11.92089426331222,
+            "p95": 14.24938179552555,
+            "maximum": 28.607049025595188
+          },
+          "steady_roll_pitch_rms_deg": [
+            1.9188080130191536,
+            1.5607184298390424
+          ]
+        },
+        {
+          "case": "backward_short",
+          "passed": true,
+          "final_t_s": 13.99,
+          "reason": null,
+          "progress_m": [
+            5.094076300039887
+          ],
+          "max_roll_pitch_deg": [
+            5.119704706348894,
+            8.711437501507394
+          ],
+          "max_missing_age_s": 0.060000000000000005,
+          "max_torque_ratio": 0.9110878300112041,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 600,
+            "mean": 10.515822705347091,
+            "p50": 11.874593561515212,
+            "p95": 14.492128300480541,
+            "maximum": 25.04507126286626
+          },
+          "steady_roll_pitch_rms_deg": [
+            2.46255617499709,
+            4.153195035595121
+          ]
+        },
+        {
+          "case": "left_short",
+          "passed": true,
+          "final_t_s": 13.99,
+          "reason": null,
+          "progress_m": [
+            2.0917389046744574
+          ],
+          "max_roll_pitch_deg": [
+            7.715705304345105,
+            7.00507799547145
+          ],
+          "max_missing_age_s": 0.09999999999999999,
+          "max_torque_ratio": 0.8823218526293242,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 600,
+            "mean": 10.216681946379444,
+            "p50": 11.525051202625036,
+            "p95": 14.009896875359118,
+            "maximum": 24.702778086066246
+          },
+          "steady_roll_pitch_rms_deg": [
+            3.8352897767004803,
+            2.005914671006938
+          ]
+        },
+        {
+          "case": "right_short",
+          "passed": true,
+          "final_t_s": 13.99,
+          "reason": null,
+          "progress_m": [
+            2.2659132067819883
+          ],
+          "max_roll_pitch_deg": [
+            8.882272393137404,
+            6.800396055035451
+          ],
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.940436455505257,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 600,
+            "mean": 10.604881611652672,
+            "p50": 11.84384198859334,
+            "p95": 14.638708578422664,
+            "maximum": 23.903089109808207
+          },
+          "steady_roll_pitch_rms_deg": [
+            4.017079547667651,
+            1.8828870812270542
+          ]
+        },
+        {
+          "case": "forward_long",
+          "passed": true,
+          "final_t_s": 25.990000000000002,
+          "reason": null,
+          "progress_m": [
+            14.426208382472396
+          ],
+          "max_roll_pitch_deg": [
+            4.837741214903172,
+            4.762436243480263
+          ],
+          "max_missing_age_s": 0.060000000000000005,
+          "max_torque_ratio": 0.8229920197103209,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 1800,
+            "mean": 10.113742646709499,
+            "p50": 11.683329241350293,
+            "p95": 13.778897933661938,
+            "maximum": 28.801332227885723
+          },
+          "steady_roll_pitch_rms_deg": [
+            1.756671750375333,
+            2.34558613084023
+          ]
+        },
+        {
+          "case": "backward_long",
+          "passed": true,
+          "final_t_s": 25.990000000000002,
+          "reason": null,
+          "progress_m": [
+            13.389839511364698
+          ],
+          "max_roll_pitch_deg": [
+            8.93753008650496,
+            13.360859799646414
+          ],
+          "max_missing_age_s": 0.07,
+          "max_torque_ratio": 0.9999537962422326,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 1800,
+            "mean": 10.483945929962728,
+            "p50": 11.74544938839972,
+            "p95": 14.463206194341183,
+            "maximum": 29.24412116408348
+          },
+          "steady_roll_pitch_rms_deg": [
+            2.8757714796679585,
+            5.046837994943705
+          ]
+        },
+        {
+          "case": "left_long",
+          "passed": true,
+          "final_t_s": 25.990000000000002,
+          "reason": null,
+          "progress_m": [
+            5.572012373872894
+          ],
+          "max_roll_pitch_deg": [
+            6.846055310942136,
+            5.015339494138785
+          ],
+          "max_missing_age_s": 0.09999999999999999,
+          "max_torque_ratio": 0.7797768027017444,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 1800,
+            "mean": 10.765562494958026,
+            "p50": 11.807759059593081,
+            "p95": 16.07472796458751,
+            "maximum": 25.930442847311497
+          },
+          "steady_roll_pitch_rms_deg": [
+            2.5735674331746696,
+            1.8394679860367786
+          ]
+        },
+        {
+          "case": "right_long",
+          "passed": true,
+          "final_t_s": 25.990000000000002,
+          "reason": null,
+          "progress_m": [
+            5.657601486531348
+          ],
+          "max_roll_pitch_deg": [
+            8.308974728873263,
+            5.737975900207971
+          ],
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.9067942366945068,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 1800,
+            "mean": 10.443193638542047,
+            "p50": 11.723035480827093,
+            "p95": 14.566912641748784,
+            "maximum": 27.671570889651775
+          },
+          "steady_roll_pitch_rms_deg": [
+            2.6099217572675006,
+            1.8538940240469375
+          ]
+        },
+        {
+          "case": "forward_cycles",
+          "passed": true,
+          "final_t_s": 37.99,
+          "reason": null,
+          "progress_m": [
+            5.3145888559520245,
+            5.254316806793213,
+            5.150311470031738
+          ],
+          "max_roll_pitch_deg": [
+            6.512536881967432,
+            6.157580020189255
+          ],
+          "max_missing_age_s": 0.07,
+          "max_torque_ratio": 0.9651156220622225,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 1800,
+            "mean": 10.181643155713877,
+            "p50": 11.7610904853791,
+            "p95": 14.045457867905498,
+            "maximum": 23.82752113044262
+          },
+          "steady_roll_pitch_rms_deg": [
+            2.2891542569197387,
+            2.3992156255055668
+          ]
+        },
+        {
+          "case": "backward_cycles",
+          "passed": true,
+          "final_t_s": 37.99,
+          "reason": null,
+          "progress_m": [
+            5.405647675506771,
+            4.954072952270508,
+            4.833863258361816
+          ],
+          "max_roll_pitch_deg": [
+            9.998131170109856,
+            9.404917618467435
+          ],
+          "max_missing_age_s": 0.11999999999999998,
+          "max_torque_ratio": 0.9997152284158244,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 1800,
+            "mean": 9.792319632704473,
+            "p50": 11.217265855520964,
+            "p95": 13.696080911904573,
+            "maximum": 24.363434873521328
+          },
+          "steady_roll_pitch_rms_deg": [
+            2.670308583909067,
+            2.644672224483229
+          ]
+        }
+      ],
+      "media": {
+        "errors": [],
+        "decoded_frames": {
+          "observer": 10077,
+          "hand_eye_preview": 10064
+        },
+        "codecs": [
+          "h264_nvenc"
+        ]
+      }
+    },
+    "hz100_b": {
+      "hz": 100,
+      "dt_s": 0.01,
+      "substeps": 2,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "case": "forward_short",
+          "passed": true,
+          "final_t_s": 13.99,
+          "reason": null,
+          "progress_m": [
+            5.339799750596284
+          ],
+          "max_roll_pitch_deg": [
+            6.711776457092178,
+            4.926482482687117
+          ],
+          "max_missing_age_s": 0.07,
+          "max_torque_ratio": 0.9255141773305177,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 600,
+            "mean": 10.848738308995962,
+            "p50": 12.020592577755451,
+            "p95": 14.976709987968205,
+            "maximum": 26.136646047234535
+          },
+          "steady_roll_pitch_rms_deg": [
+            1.7089994668060775,
+            1.947667774132743
+          ]
+        },
+        {
+          "case": "backward_short",
+          "passed": true,
+          "final_t_s": 13.99,
+          "reason": null,
+          "progress_m": [
+            4.988151831552386
+          ],
+          "max_roll_pitch_deg": [
+            6.1693249147244265,
+            9.093454626357435
+          ],
+          "max_missing_age_s": 0.07,
+          "max_torque_ratio": 0.8673194339516154,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 600,
+            "mean": 10.782475068699569,
+            "p50": 11.785413371399045,
+            "p95": 14.798018569126725,
+            "maximum": 28.919258154928684
+          },
+          "steady_roll_pitch_rms_deg": [
+            2.1975967728626085,
+            5.030875112882595
+          ]
+        },
+        {
+          "case": "left_short",
+          "passed": true,
+          "final_t_s": 13.99,
+          "reason": null,
+          "progress_m": [
+            2.0394694239557793
+          ],
+          "max_roll_pitch_deg": [
+            5.889084393768702,
+            10.33641353862819
+          ],
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.9564211838107622,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 600,
+            "mean": 10.354197477766624,
+            "p50": 11.733147548511624,
+            "p95": 14.197682845406234,
+            "maximum": 18.1893277913332
+          },
+          "steady_roll_pitch_rms_deg": [
+            2.1022930182417423,
+            1.657506003449502
+          ]
+        },
+        {
+          "case": "right_short",
+          "passed": true,
+          "final_t_s": 13.99,
+          "reason": null,
+          "progress_m": [
+            2.2659132067819883
+          ],
+          "max_roll_pitch_deg": [
+            8.882272393137404,
+            6.800396055035451
+          ],
+          "max_missing_age_s": 0.09,
+          "max_torque_ratio": 0.940436455505257,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 600,
+            "mean": 10.7883605430834,
+            "p50": 11.854704236611724,
+            "p95": 15.162602392956614,
+            "maximum": 25.79367533326149
+          },
+          "steady_roll_pitch_rms_deg": [
+            4.017079547667651,
+            1.8828870812270542
+          ]
+        }
+      ],
+      "media": {
+        "errors": [],
+        "decoded_frames": {
+          "observer": 2334,
+          "hand_eye_preview": 2336
+        },
+        "codecs": [
+          "h264_nvenc"
+        ]
+      }
+    },
+    "hz50_a": {
+      "hz": 50,
+      "dt_s": 0.02,
+      "substeps": 4,
+      "passed": 0,
+      "total": 10,
+      "trials": [
+        {
+          "case": "forward_short",
+          "passed": false,
+          "final_t_s": 3.86,
+          "reason": "GPU MPC produced no finite force trajectory",
+          "progress_m": [
+            0.5713615473359823
+          ],
+          "max_roll_pitch_deg": [
+            7.832166461306231,
+            18.637229463455068
+          ],
+          "max_missing_age_s": 0.16,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 0
+          },
+          "steady_roll_pitch_rms_deg": null
+        },
+        {
+          "case": "backward_short",
+          "passed": false,
+          "final_t_s": 5.6000000000000005,
+          "reason": "touchdown timeout after 0.30s: RL",
+          "progress_m": [
+            1.8201833441853523
+          ],
+          "max_roll_pitch_deg": [
+            12.503280186864535,
+            18.872804628269268
+          ],
+          "max_missing_age_s": 0.32,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 80,
+            "mean": 15.869185322662815,
+            "p50": 15.890690963715315,
+            "p95": 17.35238276887685,
+            "maximum": 18.268208019435406
+          },
+          "steady_roll_pitch_rms_deg": [
+            4.8724226811842275,
+            9.052319709107046
+          ]
+        },
+        {
+          "case": "left_short",
+          "passed": false,
+          "final_t_s": 8.18,
+          "reason": "GPU MPC produced no finite force trajectory",
+          "progress_m": [
+            1.341507707144956
+          ],
+          "max_roll_pitch_deg": [
+            11.367299566127137,
+            13.032316287685422
+          ],
+          "max_missing_age_s": 0.16,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 209,
+            "mean": 16.17894682846072,
+            "p50": 15.797461848706007,
+            "p95": 18.769668973982334,
+            "maximum": 30.762360896915197
+          },
+          "steady_roll_pitch_rms_deg": [
+            3.874923310294133,
+            5.120627629514279
+          ]
+        },
+        {
+          "case": "right_short",
+          "passed": false,
+          "final_t_s": 5.5200000000000005,
+          "reason": "GPU MPC produced no finite force trajectory",
+          "progress_m": [
+            0.3674809033054771
+          ],
+          "max_roll_pitch_deg": [
+            26.706857775283865,
+            15.172350111497718
+          ],
+          "max_missing_age_s": 0.18,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 76,
+            "mean": 15.563262546876151,
+            "p50": 15.372171299532056,
+            "p95": 17.25356257520616,
+            "maximum": 19.25806514918804
+          },
+          "steady_roll_pitch_rms_deg": [
+            9.768966159694408,
+            8.902302715018488
+          ]
+        },
+        {
+          "case": "forward_long",
+          "passed": false,
+          "final_t_s": 4.2,
+          "reason": "touchdown timeout after 0.30s: RL,RR",
+          "progress_m": [
+            0.9139167377725244
+          ],
+          "max_roll_pitch_deg": [
+            10.548762958962174,
+            36.507135487798635
+          ],
+          "max_missing_age_s": 0.32,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 10,
+            "mean": 18.241720600053668,
+            "p50": 17.875872552394867,
+            "p95": 21.704387268982824,
+            "maximum": 23.385274223983288
+          },
+          "steady_roll_pitch_rms_deg": [
+            6.629933822710628,
+            33.69191107852808
+          ]
+        },
+        {
+          "case": "backward_long",
+          "passed": false,
+          "final_t_s": 3.86,
+          "reason": "GPU MPC produced no finite force trajectory",
+          "progress_m": [
+            0.7698268992826343
+          ],
+          "max_roll_pitch_deg": [
+            8.275517734072851,
+            17.646893371247778
+          ],
+          "max_missing_age_s": 0.12000000000000001,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 0
+          },
+          "steady_roll_pitch_rms_deg": null
+        },
+        {
+          "case": "left_long",
+          "passed": false,
+          "final_t_s": 5.48,
+          "reason": "GPU MPC produced no finite force trajectory",
+          "progress_m": [
+            0.5022724585605829
+          ],
+          "max_roll_pitch_deg": [
+            30.462747166442075,
+            27.283888169434675
+          ],
+          "max_missing_age_s": 0.18,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 74,
+            "mean": 16.2384190307175,
+            "p50": 15.596958575770259,
+            "p95": 19.780228706076738,
+            "maximum": 23.872433695942163
+          },
+          "steady_roll_pitch_rms_deg": [
+            17.580404624356614,
+            18.176626625287646
+          ]
+        },
+        {
+          "case": "right_long",
+          "passed": false,
+          "final_t_s": 7.26,
+          "reason": "GPU MPC produced no finite force trajectory",
+          "progress_m": [
+            1.410185867637665
+          ],
+          "max_roll_pitch_deg": [
+            15.396629529991742,
+            12.603652434749618
+          ],
+          "max_missing_age_s": 0.16,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 163,
+            "mean": 16.180732121771097,
+            "p50": 15.656428877264261,
+            "p95": 21.534359036013484,
+            "maximum": 24.942181073129177
+          },
+          "steady_roll_pitch_rms_deg": [
+            6.883648122150162,
+            5.41611697797999
+          ]
+        },
+        {
+          "case": "forward_cycles",
+          "passed": false,
+          "final_t_s": 4.34,
+          "reason": "touchdown timeout after 0.30s: RL,RR",
+          "progress_m": [
+            0.9081779923290014,
+            0.0,
+            0.0
+          ],
+          "max_roll_pitch_deg": [
+            5.508783957852803,
+            36.89870482359528
+          ],
+          "max_missing_age_s": 0.32,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 17,
+            "mean": 16.95322456276592,
+            "p50": 17.008570954203606,
+            "p95": 18.04185565561056,
+            "maximum": 18.622024916112423
+          },
+          "steady_roll_pitch_rms_deg": [
+            3.049974750342503,
+            32.092308870229374
+          ]
+        },
+        {
+          "case": "backward_cycles",
+          "passed": false,
+          "final_t_s": 4.1,
+          "reason": "GPU MPC produced no finite force trajectory",
+          "progress_m": [
+            0.6710924450308084,
+            0.0,
+            0.0
+          ],
+          "max_roll_pitch_deg": [
+            17.69632613749228,
+            18.333021868115953
+          ],
+          "max_missing_age_s": 0.12000000000000001,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 5,
+            "mean": 18.45254246145487,
+            "p50": 17.73478416725993,
+            "p95": 20.11655969545245,
+            "maximum": 20.325024146586657
+          },
+          "steady_roll_pitch_rms_deg": [
+            18.611533761945996,
+            7.21570324785793
+          ]
+        }
+      ],
+      "media": {
+        "errors": [],
+        "decoded_frames": {
+          "observer": 1635,
+          "hand_eye_preview": 1638
+        },
+        "codecs": [
+          "h264_nvenc"
+        ]
+      }
+    },
+    "hz50_b": {
+      "hz": 50,
+      "dt_s": 0.02,
+      "substeps": 4,
+      "passed": 0,
+      "total": 4,
+      "trials": [
+        {
+          "case": "forward_short",
+          "passed": false,
+          "final_t_s": 3.86,
+          "reason": "GPU MPC produced no finite force trajectory",
+          "progress_m": [
+            0.5713615473359823
+          ],
+          "max_roll_pitch_deg": [
+            7.832166461306231,
+            18.637229463455068
+          ],
+          "max_missing_age_s": 0.16,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 0
+          },
+          "steady_roll_pitch_rms_deg": null
+        },
+        {
+          "case": "backward_short",
+          "passed": false,
+          "final_t_s": 5.6000000000000005,
+          "reason": "touchdown timeout after 0.30s: RL",
+          "progress_m": [
+            1.8201833441853523
+          ],
+          "max_roll_pitch_deg": [
+            12.503280186864535,
+            18.872804628269268
+          ],
+          "max_missing_age_s": 0.32,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 80,
+            "mean": 16.54350925819017,
+            "p50": 16.277875052765012,
+            "p95": 18.948330357670784,
+            "maximum": 25.429276283830404
+          },
+          "steady_roll_pitch_rms_deg": [
+            4.8724226811842275,
+            9.052319709107046
+          ]
+        },
+        {
+          "case": "left_short",
+          "passed": false,
+          "final_t_s": 8.18,
+          "reason": "GPU MPC produced no finite force trajectory",
+          "progress_m": [
+            1.341507707144956
+          ],
+          "max_roll_pitch_deg": [
+            11.367299566127137,
+            13.032316287685422
+          ],
+          "max_missing_age_s": 0.16,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 209,
+            "mean": 15.838328555101555,
+            "p50": 15.762767288833857,
+            "p95": 17.365079559385777,
+            "maximum": 18.845412880182266
+          },
+          "steady_roll_pitch_rms_deg": [
+            3.874923310294133,
+            5.120627629514279
+          ]
+        },
+        {
+          "case": "right_short",
+          "passed": false,
+          "final_t_s": 5.5200000000000005,
+          "reason": "GPU MPC produced no finite force trajectory",
+          "progress_m": [
+            0.3674809033054771
+          ],
+          "max_roll_pitch_deg": [
+            26.706857775283865,
+            15.172350111497718
+          ],
+          "max_missing_age_s": 0.18,
+          "max_torque_ratio": 1.0,
+          "air_support_ticks": 0,
+          "steady_loop_ms": {
+            "n": 76,
+            "mean": 16.570972211315837,
+            "p50": 16.352155013009906,
+            "p95": 17.98967458307743,
+            "maximum": 31.09697811305523
+          },
+          "steady_roll_pitch_rms_deg": [
+            9.768966159694408,
+            8.902302715018488
+          ]
+        }
+      ],
+      "media": {
+        "errors": [],
+        "decoded_frames": {
+          "observer": 984,
+          "hand_eye_preview": 983
+        },
+        "codecs": [
+          "h264_nvenc"
+        ]
+      }
+    }
+  },
+  "cleanup": {
+    "utc": "2026-10-19T02:06:22.867012+00:00",
+    "pins": {
+      "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+      "tddwalk": "adb39bfa25485b76eb80076a0c28f65d68867293786bf233cfb097231cc1aa00",
+      "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+    },
+    "containers": [],
+    "gpu2_processes": [],
+    "installed_physics": [
+      "dt: 0.01",
+      "substeps: 2"
+    ],
+    "cases": {
+      "hz100_a": {
+        "passed": 10,
+        "total": 10
+      },
+      "hz50_a": {
+        "passed": 0,
+        "total": 10
+      },
+      "hz50_b": {
+        "passed": 0,
+        "total": 4
+      },
+      "hz100_b": {
+        "passed": 4,
+        "total": 4
+      }
+    }
+  },
+  "updates": {
+    "local": {
+      "source_revision": "git-331e75479d7a4ce2137edc395fdb083b514a0246",
+      "returncode": 0,
+      "pins_preserved": true,
+      "before_pins": {
+        "readiness": "d037de74f8c024876def6231630d761799e7f2cb26d5162df357e4a6c083e39e",
+        "test": "601e03e25e76bbe657edde3b4bc18e3ceb2aa9ec7de0b7aef8b757595a184c3c"
+      },
+      "after_pins": {
+        "readiness": "d037de74f8c024876def6231630d761799e7f2cb26d5162df357e4a6c083e39e",
+        "test": "601e03e25e76bbe657edde3b4bc18e3ceb2aa9ec7de0b7aef8b757595a184c3c"
+      }
+    },
+    "remote": {
+      "source_revision": "git-331e75479d7a4ce2137edc395fdb083b514a0246",
+      "returncode": 0,
+      "pins_preserved": true,
+      "before_pins": {
+        "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+        "tddwalk": "43b948097f534f49042fe7e998462f9962a681c3c3e2ccc4543916ad44efd075",
+        "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+      },
+      "after_pins": {
+        "readiness": "7ff371b6ba3bed26ff9eca42f19713c8397ec8a63692e2e2af9bf20979d0a804",
+        "tddwalk": "43b948097f534f49042fe7e998462f9962a681c3c3e2ccc4543916ad44efd075",
+        "test": "be86394956b0b272402892e2572de69b4aaef6ae42f78fe615a1fc315d0d2233"
+      }
+    }
+  },
+  "source_sha256": {
+    "controller": "4ab201e73177470cfe60a6fdfcf3d09f8a3709b841c0d1122b1d3829ad26a591",
+    "jax": "ed193827382594ab7c7e29b0401be8adee0cb898d2bc3d55cdca2660f5338210",
+    "payload": "9372d91ef97f7bc018b2374308bad7ca591468ddefd3d0b1c5249e72c9328c88",
+    "bridge": "3594b557fd0ba6032193a6902489ea8408732664d2ad13ea107977c99f015da7",
+    "snapshot": "e0ef577057e2f4fb312a40e3afee8bf81d9fa6c55f98f6cdd7c4b5104f12a1d2"
+  },
+  "caveats": [
+    "Flat floor GO2+arm only, two loopback NVENC streams; no real UI/DDS/WAN/hardware",
+    "Per-step timer excludes arm commands and low-rate public pose validation; their cost is present in trial sim/wall",
+    "Substeps preserve 5ms integration; 50Hz also changes discrete filter updates per simulated second",
+    "No retuning, precision/budget reduction, or controller logic change",
+    "All failures retained; exclude failed/incomplete trials from claims about steady successful walking",
+    "50Hz runs fail early; no stable50Hz performance claim.100Hz timing is from this study, not isolated evidence of improvement over earlier tasks.",
+    "No production controller/default cadence patch. Full software/release,WAN/SROS2/hardware gates not rerun.",
+    "100 Hz repeated short trials all pass, but three direction pose arrays differ between repetitions; whole-trajectory determinism is not claimed. All four 50 Hz repeated pose arrays match byte for byte."
+  ],
+  "raw": {
+    "archive": "workbench/evidence/generated/cadence50-20261019/results.tar.gz",
+    "sha256": "1822e33a166aa81932e76099fc3c85f64bb83d81277a3f5546f615151f10e88e",
+    "bytes": 1572625,
+    "analysis": "workbench/evidence/generated/cadence50-20261019/analysis.json",
+    "diagnostic_source": "workbench/evidence/generated/cadence50-20261019/source",
+    "launcher": "workbench/evidence/generated/cadence50-20261019/launch.py"
+  },
+  "repeated_public_pose_comparison": {
+    "hz100_a:hz100_b:forward": {
+      "byte_exact": false,
+      "max_abs_observation_difference": 0.281271755695343,
+      "max_abs_difference_after_settle": 0.281271755695343
+    },
+    "hz100_a:hz100_b:backward": {
+      "byte_exact": false,
+      "max_abs_observation_difference": 0.3028871640563011,
+      "max_abs_difference_after_settle": 0.3028871640563011
+    },
+    "hz100_a:hz100_b:left": {
+      "byte_exact": false,
+      "max_abs_observation_difference": 0.3087592124938965,
+      "max_abs_difference_after_settle": 0.3087592124938965
+    },
+    "hz100_a:hz100_b:right": {
+      "byte_exact": true,
+      "max_abs_observation_difference": 0.0,
+      "max_abs_difference_after_settle": 0.0
+    },
+    "hz50_a:hz50_b:forward": {
+      "byte_exact": true,
+      "max_abs_observation_difference": 0.0,
+      "max_abs_difference_after_settle": 0.0
+    },
+    "hz50_a:hz50_b:backward": {
+      "byte_exact": true,
+      "max_abs_observation_difference": 0.0,
+      "max_abs_difference_after_settle": 0.0
+    },
+    "hz50_a:hz50_b:left": {
+      "byte_exact": true,
+      "max_abs_observation_difference": 0.0,
+      "max_abs_difference_after_settle": 0.0
+    },
+    "hz50_a:hz50_b:right": {
+      "byte_exact": true,
+      "max_abs_observation_difference": 0.0,
+      "max_abs_difference_after_settle": 0.0
+    }
+  }
+}
