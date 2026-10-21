@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -27,6 +28,17 @@ def _default_config() -> Path:
 
 PROJECT_CONFIG = _default_config()
 _WORKSPACE_READY = "ELESIM_UNITREE_WORKSPACE_READY"
+
+
+def _notify_systemd_ready() -> None:
+    address = os.environ.get("NOTIFY_SOCKET", "")
+    if not address:
+        return
+    if address.startswith("@"):
+        address = "\0" + address[1:]
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as notifier:
+        notifier.connect(address)
+        notifier.sendall(b"READY=1")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -74,7 +86,9 @@ def _source_workspace_environment(workspace: str) -> Path | None:
         [
             "/bin/bash",
             "-c",
-            'set -euo pipefail; source "$1"; env -0',
+            # Colcon/ament setup scripts read optional unset variables.
+            # Keep source failures fatal without enabling nounset here.
+            'set -eo pipefail; set +u; source "$1"; env -0',
             "unitree-workspace",
             str(setup),
         ],
@@ -127,6 +141,7 @@ def _run() -> None:
     signal.signal(signal.SIGTERM, stop)
 
     if not config.go2.is_active(use_go2=config.use_go2):
+        _notify_systemd_ready()
         while not stop_event.wait(1.0):
             pass
         return
@@ -138,7 +153,9 @@ def _run() -> None:
         domain_id=int(config.go2.ros_domain_id),
     )
     backend = UnitreeRos2Bridge(config.go2)
-    UnitreeBridgeServer(config.go2, config.safety, backend).serve_forever(stop_event)
+    UnitreeBridgeServer(
+        config.go2, config.safety, backend, on_ready=_notify_systemd_ready,
+    ).serve_forever(stop_event)
 
 
 def main() -> None:

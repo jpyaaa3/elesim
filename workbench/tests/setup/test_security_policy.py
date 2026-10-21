@@ -31,6 +31,9 @@ def test_robot_can_publish_mirror_telemetry_but_sim_cannot_command_robot():
     sim = render_role_policy(system_id="elesim", role="sim",
                              endpoint_id=ENDPOINTS["sim"], endpoints=ENDPOINTS)
     assert f"/elesim/v6/peers/{peer_node_key(ENDPOINTS['sim'])}/*/control" in _permissions(robot, "publish")
+    assert "/elesim/robot_go2/rgbd/right" in _permissions(robot, "publish")
+    assert "/elesim/pilot_main/rgbd/right" in _permissions(robot, "subscribe")
+    assert "/elesim/pilot_main/rgbd/left_preview" in _permissions(robot, "subscribe")
     assert f"/elesim/v6/peers/{peer_node_key(ENDPOINTS['robot'])}/*/motion" not in _permissions(sim, "publish")
     assert f"/elesim/v6/peers/{peer_node_key(ENDPOINTS['robot'])}/*/control" not in _permissions(sim, "publish")
 
@@ -84,6 +87,11 @@ def test_pilot_policy_limits_motion_and_rgbd_direction() -> None:
     )
     assert "/elesim/sim_default/rgbd/frame" in subscribed
     assert "/elesim/robot_go2/rgbd/frame" in subscribed
+    assert "/elesim/robot_go2/rgbd/right" in subscribed
+    assert "/elesim/pilot_main/rgbd/right" in published
+    assert "/elesim/pilot_main/rgbd/right" in subscribed
+    assert "/elesim/pilot_main/rgbd/left_preview" in published
+    assert "/elesim/pilot_main/rgbd/left_preview" in subscribed
     assert "*" not in published
     assert "/elesim/v6/*/get_parameters" in _service_permissions(
         rendered, "reply"
@@ -133,6 +141,8 @@ def test_policy_carrier_patterns_match_real_dds_peer_prefixes() -> None:
     # topic, including the Pilot-owned broker topic.
     assert "/elesim/pilot_main/rgbd/frame" in subscribed
     assert "/elesim/robot_go2/rgbd/frame" in subscribed
+    assert "/elesim/pilot_main/rgbd/right" in subscribed
+    assert "/elesim/robot_go2/rgbd/right" in subscribed
 
 
 @pytest.mark.parametrize("role", ("ui", "sim", "robot"))

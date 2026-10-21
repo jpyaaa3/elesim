@@ -12,7 +12,7 @@ import pytest
 from elesim_pilot.robot.arm.iklib import solver
 from elesim_pilot.robot.arm.iklib.kinematics import _forward_grasp_world
 from elesim_pilot.robot.arm import ik
-from elesim_pilot.robot.arm.curobo import CuRoboError, CuRoboPlanner
+from elesim_pilot.robot.arm.curobo import CuRoboError, CuRoboPlanner, _world_with_target_sphere
 
 ROOT = Path(__file__).resolve().parents[6]
 
@@ -140,3 +140,125 @@ def test_static_path_checks_do_not_integrate_poses_as_control_actions(monkeypatc
     path[300, 0] = -.14
     with pytest.raises(CuRoboError, match="collision"):
         planner.validate_path(path)
+
+
+def test_target_sphere_world_is_per_request_and_keeps_static_world_unchanged():
+    world = {"cuboid": {"table": {"dims": [1., 1., .1],
+                                   "pose": [0., 0., -.05, 1., 0., 0., 0.]}}}
+
+    target_world = _world_with_target_sphere(world, [.12, -.03, .4])
+
+    assert "sphere" not in world
+    assert target_world["cuboid"] == world["cuboid"]
+    assert target_world["sphere"]["elesim_target_object"] == {
+        "pose": [.12, -.03, .4, 1., 0., 0., 0.], "radius": .01,
+    }
+    with pytest.raises(CuRoboError, match="finite"):
+        _world_with_target_sphere(world, [0., float("nan"), 0.])
+
+
+def test_target_sphere_clearance_accounts_for_robot_sphere_radius():
+    torch = pytest.importorskip("torch")
+    planner = CuRoboPlanner.__new__(CuRoboPlanner)
+    planner.tensor_args = SimpleNamespace(
+        to_device=lambda value: torch.as_tensor(value, dtype=torch.float32))
+    robot_spheres = torch.tensor([[[[.025, 0., 0., .01]]]])
+
+    assert planner._validate_target_sphere(robot_spheres, [0., 0., 0.]) == pytest.approx(.005)
+    robot_spheres[..., 0] = .02
+    with pytest.raises(CuRoboError, match="robot body/gripper enters"):
+        planner._validate_target_sphere(robot_spheres, [0., 0., 0.])
+
+
+def test_object_target_finishes_between_claws_and_keeps_target_collision_enabled():
+    planner = CuRoboPlanner.__new__(CuRoboPlanner)
+    planner.bounds = np.array([[-1., 1.]] * 4)
+    planner.forward = lambda q: {"position": [q[0], 0., 0.]}
+    captured = {}
+
+    def solve(target, *, target_sphere_center, **_kwargs):
+        captured["ik_target"] = target
+        captured["ik_obstacle"] = target_sphere_center
+        return np.array([target[0], 0., 0., 0.])
+
+    planner.solve_position = solve
+    checked = []
+
+    def validate(q, *, target_sphere_center=None):
+        assert target_sphere_center == pytest.approx([.2, 0., 0.])
+        checked.append(q[0])
+
+    def plan(start, goal, *, target_sphere_center=None):
+        captured["start"] = start
+        captured["goal"] = goal
+        captured["center"] = target_sphere_center
+        return SimpleNamespace(positions=[start, goal])
+
+    planner.validate_configuration = validate
+    planner.plan_joint = plan
+
+    goal, trajectory, goal_xyz = planner.plan_to_target([0., 0., 0., 0.], [.2, 0., 0.])
+
+    assert checked == pytest.approx([0., .2])
+    assert goal_xyz == pytest.approx([.2, 0., 0.])
+    assert goal == pytest.approx([.2, 0., 0., 0.])
+    assert trajectory.positions[-1] == pytest.approx(goal)
+    assert captured["ik_target"] == pytest.approx([.2, 0., 0.])
+    assert captured["ik_obstacle"] == pytest.approx([.2, 0., 0.])
+    assert captured["center"] == pytest.approx([.2, 0., 0.])
+
+
+@pytest.mark.parametrize("bad_ik", [True, False])
+def test_object_goal_rejects_standoff_in_ik_or_trajectory_endpoint(bad_ik):
+    planner = CuRoboPlanner.__new__(CuRoboPlanner)
+    planner.bounds = np.array([[-1., 1.]] * 4)
+    planner.forward = lambda q: {"position": [q[0], 0., 0.]}
+    planner.validate_configuration = lambda *args, **kwargs: None
+    planner.solve_position = lambda *_args, **_kwargs: [.17 if bad_ik else .2, 0., 0., 0.]
+    planner.plan_joint = lambda *_args, **_kwargs: SimpleNamespace(positions=[[.17, 0., 0., 0.]])
+    with pytest.raises(CuRoboError, match="(does not reach|between the claws)"):
+        planner.plan_to_target([0., 0., 0., 0.], [.2, 0., 0.])
+
+
+@pytest.mark.parametrize("solver_fails", [False, True])
+def test_position_ik_includes_target_obstacle_and_restores_world(monkeypatch, solver_fails):
+    torch = pytest.importorskip("torch")
+    for name, attributes in {
+        "curobo.rollout.cost.pose_cost": {"PoseCostMetric": object},
+        "curobo.types.math": {"Pose": lambda **kwargs: SimpleNamespace(**kwargs)},
+        "curobo.geom.types": {"WorldConfig": SimpleNamespace(from_dict=lambda world: world)},
+        "curobo.wrap.reacher.ik_solver": {"IKSolver": object, "IKSolverConfig": object},
+    }.items():
+        module = ModuleType(name)
+        module.__dict__.update(attributes)
+        monkeypatch.setitem(sys.modules, name, module)
+
+    worlds = []
+    def solve(pose, **kwargs):
+        assert pose.position.numpy().reshape(3) == pytest.approx([.2, 0., 0.])
+        assert worlds[-1]["sphere"]["elesim_target_object"]["radius"] == .01
+        if solver_fails:
+            raise CuRoboError("solver failure")
+        return SimpleNamespace(success=torch.tensor([True]),
+                               solution=torch.tensor([[.2, 0., 0., 0.]]))
+
+    planner = CuRoboPlanner.__new__(CuRoboPlanner)
+    planner.bounds = np.array([[-1., 1.]] * 4)
+    planner.joint_names = ["linear", "roll", "b1", "b2"]
+    planner._ik = SimpleNamespace(joint_names=planner.joint_names,
+                                  update_world=worlds.append, solve_single=solve)
+    planner._ik_tolerance = .001
+    planner._lock = threading.Lock()
+    planner.world = {"cuboid": {"table": {"dims": [1, 1, .1]}}}
+    planner._world_config = object()
+    planner.tensor_args = SimpleNamespace(to_device=lambda value: torch.as_tensor(value, dtype=torch.float32))
+    planner.forward = lambda q: {"position": q[:3]}
+    kwargs = dict(seed=[0.]*4, target_sphere_center=[.2, 0., 0.])
+    if solver_fails:
+        with pytest.raises(CuRoboError, match="solver failure"):
+            planner.solve_position([.2, 0., 0.], **kwargs)
+    else:
+        assert planner.solve_position([.2, 0., 0.], **kwargs) == pytest.approx([.2, 0., 0., 0.])
+    assert len(worlds) == 2 and worlds[-1] is planner._world_config
+    assert worlds[0]["cuboid"] == planner.world["cuboid"]
+    assert "sphere" not in planner.world

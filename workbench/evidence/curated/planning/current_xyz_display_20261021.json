@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-21",
+  "issue": "Use current XYZ marker appeared above the native viewer claw centre because mirrored arm joints drifted during physics",
+  "validation": {
+    "scope": "Real Genesis CPU physics; measured Robot pose fixture; no DDS or physical I/O",
+    "q": [
+      -0.054974358974358976,
+      -0.00038358884659239756,
+      -0.5390190472313037,
+      0.5647962177222967
+    ],
+    "expected_xyz": [
+      0.3909914155132933,
+      -0.02262239403318078,
+      0.6722074631410704
+    ],
+    "before_step_error_mm": [
+      -2.0040010650923534e-05,
+      1.3591096165166405e-06,
+      0.00010367994041082795
+    ],
+    "old_display_error_mm": [
+      5.743053525902209,
+      -3.3136016820026515,
+      -18.18347360634165
+    ],
+    "restored_display_error_mm": [
+      -2.0040010650923534e-05,
+      1.3591096165166405e-06,
+      0.00010367994041082795
+    ],
+    "old_genesis_dof_q": [
+      -0.054919593036174774,
+      0.010166582651436329,
+      -0.48547273874282837,
+      -0.5455235838890076,
+      -0.5764511227607727,
+      -0.5762898921966553,
+      -0.5534765124320984,
+      0.5832145810127258,
+      0.5974404215812683,
+      0.5951303243637085,
+      0.5834004878997803,
+      0.5700368881225586
+    ]
+  },
+  "reference": "Independent midpoint of left/right CAD claw to-connectors transformed by Genesis link poses",
+  "host_tests": {
+    "passed": 76,
+    "skipped": 2,
+    "scope": "Sim readbacks, robot mirror, camera, IK target and Ghost"
+  },
+  "activation": "Mac Sim source restart only; no Pilot/Robot restart or motion commands",
+  "runtime_sha256": "9926eaafb43b9c2deb912fb597aca148ac03073ee9dab0052f68f1a5bc684dd9"
+}

@@ -12,7 +12,10 @@ def _config(*, camera_enabled: bool) -> SimpleNamespace:
         endpoint_id="robot-a",
         camera=SimpleNamespace(
             enabled=camera_enabled,
+            backend="zed",
             topic="/elesim/robot/rgbd",
+            right_topic="/elesim/robot/rgbd/right",
+            rotate_180=True,
             width=640,
             height=480,
             fps=30,
@@ -55,6 +58,7 @@ class FakeClient:
 
     def __init__(self, *_args, **_kwargs) -> None:
         type(self).latest = self
+        self.descriptor = _args[0]
         self.node = SimpleNamespace(identity=SimpleNamespace(boot_id="boot-a"))
         self.close_count = 0
 
@@ -114,6 +118,7 @@ def test_camera_start_failure_stops_camera_and_closes_runtime_and_peer(
 
         def __init__(self, *_args, **_kwargs) -> None:
             type(self).latest = self
+            self.kwargs = _kwargs
             self.start_count = 0
             self.stop_count = 0
 
@@ -126,7 +131,7 @@ def test_camera_start_failure_stops_camera_and_closes_runtime_and_peer(
 
     monkeypatch.setattr(robot_main, "PeerClient", FakeClient)
     monkeypatch.setattr(robot_main, "RobotRuntime", OpenRuntime)
-    monkeypatch.setattr(robot_main, "CameraPublisherThread", FailingCamera)
+    monkeypatch.setattr(robot_main, "CameraPublisherProcess", FailingCamera)
 
     with pytest.raises(RuntimeError, match="camera start failed"):
         robot_main._run()
@@ -134,6 +139,9 @@ def test_camera_start_failure_stops_camera_and_closes_runtime_and_peer(
     assert FailingCamera.latest is not None
     assert FailingCamera.latest.start_count == 1
     assert FailingCamera.latest.stop_count == 1
+    assert FailingCamera.latest.kwargs["right_topic"] == "/elesim/robot/rgbd/right"
+    assert FailingCamera.latest.kwargs["rotate_180"] is True
+    assert FakeClient.latest.descriptor.streams["rgbd_right"].endpoint == "/elesim/robot/rgbd/right"
     assert OpenRuntime.latest is not None
     assert OpenRuntime.latest.open_count == 1
     assert OpenRuntime.latest.close_count == 1

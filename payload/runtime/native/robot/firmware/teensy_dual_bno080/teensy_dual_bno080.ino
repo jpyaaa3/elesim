@@ -9,8 +9,8 @@
  * Firmware always uses Game Rotation Vector.
  *
  * Serial protocol, 115200 baud:
- *   IMU1,time_ms,qw,qx,qy,qz,roll_deg,pitch_deg,yaw_deg,0
- *   IMU2,time_ms,qw,qx,qy,qz,roll_deg,pitch_deg,yaw_deg,0
+ *   IMU1,sample_ms,qw,qx,qy,qz,roll_deg,pitch_deg,yaw_deg,0,sequence
+ *   IMU2,sample_ms,qw,qx,qy,qz,roll_deg,pitch_deg,yaw_deg,0,sequence
  */
 #include <Arduino.h>
 #include <Wire.h>
@@ -41,6 +41,8 @@ struct ImuState {
   float qz = 0.0f;
   bool initialized = false;
   bool has_sample = false;
+  uint32_t sample_ms = 0;
+  uint32_t sequence = 0;
 };
 
 ImuState state1;
@@ -173,6 +175,8 @@ static void updateSensor(BNO080 &imu, ImuState &state) {
   state.qx = imu.getQuatI();
   state.qy = imu.getQuatJ();
   state.qz = imu.getQuatK();
+  state.sample_ms = millis();
+  ++state.sequence;
   state.has_sample = true;
 }
 
@@ -184,7 +188,7 @@ static void printSensorLine(const char *label, const ImuState &state) {
 
   Serial.print(label);
   Serial.print(",");
-  Serial.print(millis());
+  Serial.print(state.sample_ms);
   Serial.print(",");
   Serial.print(state.qw, 6);
   Serial.print(",");
@@ -199,7 +203,8 @@ static void printSensorLine(const char *label, const ImuState &state) {
   Serial.print(pitch, 3);
   Serial.print(",");
   Serial.print(yaw, 3);
-  Serial.println(",0");
+  Serial.print(",0,");
+  Serial.println(state.sequence);
 }
 
 void setup() {
@@ -239,8 +244,8 @@ void setup() {
   setMagnetometerOff();
   printStatus();
   Serial.println(
-      "DATA_FORMAT,IMU#,time_ms,qw,qx,qy,qz,"
-      "roll_deg,pitch_deg,yaw_deg,mag_enabled"
+      "DATA_FORMAT,IMU#,sample_ms,qw,qx,qy,qz,"
+      "roll_deg,pitch_deg,yaw_deg,mag_enabled,sequence"
   );
 }
 

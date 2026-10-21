@@ -11,7 +11,7 @@ from __future__ import annotations
 import enum
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Optional, Protocol, Union
 
 import numpy as np
@@ -191,6 +191,22 @@ def encoded_frame_from_message(message: Any) -> EncodedRgbdFrame:
         has_depth=has_depth,
     )
     return validate_encoded_frame(frame, decode_payloads=False)
+
+
+def _without_depth_for_preview(frame: EncodedRgbdFrame) -> EncodedRgbdFrame:
+    """Keep the color and frame metadata while removing depth for UI preview."""
+
+    return validate_encoded_frame(
+        replace(
+            frame,
+            depth_codec="",
+            depth_encoding="",
+            depth_payload=b"",
+            depth_scale=0.0,
+            has_depth=False,
+        ),
+        decode_payloads=False,
+    )
 
 
 class RgbdEdgeStats:
@@ -425,6 +441,7 @@ class DdsRgbdRelay:
         expected_source_id: str = "",
         expected_boot_id: str = "",
         policy: RgbdEncodingPolicy | None = None,
+        strip_depth: bool = False,
     ) -> None:
         from elesim_protocol import DdsEncodedRgbdSubscriber, DdsRgbdSubscriber
 
@@ -433,6 +450,9 @@ class DdsRgbdRelay:
         self.source_format = str(source_format).strip().lower() or "raw-rgbd-v1"
         if self.source_format not in {"raw-rgbd-v1", "encoded-rgbd-v1"}:
             raise RgbdEdgeError(f"unsupported RGB-D source format: {source_format!r}")
+        self.strip_depth = bool(strip_depth)
+        if self.strip_depth and self.source_format != "encoded-rgbd-v1":
+            raise RgbdEdgeError("depth stripping requires an encoded RGB-D source")
         subscriber_type = (
             DdsEncodedRgbdSubscriber
             if self.source_format == "encoded-rgbd-v1"
@@ -474,6 +494,12 @@ class DdsRgbdRelay:
             try:
                 sample = self._subscriber.recv_latest(timeout_ms=100)
                 if sample is not None:
+                    if self.strip_depth:
+                        if not isinstance(sample, EncodedRgbdFrame):
+                            raise RgbdEdgeError(
+                                "depth stripping received a non-encoded RGB-D sample"
+                            )
+                        sample = _without_depth_for_preview(sample)
                     self._publisher.submit(sample)
             except Exception as exc:
                 self._stop.wait(0.1)

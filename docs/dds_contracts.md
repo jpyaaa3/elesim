@@ -56,6 +56,12 @@ execution rechecks these and rejects concurrent operator motion. Route loss,
 stale feedback, tracking error or timing overrun cancels remaining samples.
 Planning uses the Pilot's explicit static world file; it does not synchronize
 Genesis obstacles or certify physical clearance.
+For XYZ target planning, `target_xyz` denotes the 20 mm object's center and
+`planned_xyz` the intended final open-claw grasp center at that same coordinate.
+The prepared path's final FK must be within 1 mm of the requested object center;
+an outside standoff is not accepted as a completed plan. These existing snapshot
+fields and operator/wire shapes are unchanged (protocol v6). Target collision
+checking remains active for both claws and every other modeled arm link.
 
 현재 UI가 사용하는 `view_snapshot`, `service_call`, `state_call`, `state_set`만
 지원한다. UI가 snapshot cache에서 읽는 조회 메서드, `snapshot`과
@@ -86,8 +92,9 @@ Genesis obstacles or certify physical clearance.
 deadman은 이 carrier나 DDS discovery callback에 의존하지 않는다.
 
 Robot presentation mirror restores the former hardware-state display path.
-Protocol major 6 and telemetry payload fields remain unchanged: this is an
-additive receiver/capability extension, not a new message type or field set.
+Protocol major 6 is unchanged; the mirror capability adds no message type or
+payload field. The open telemetry state map also carries the additive
+`claw_load_permille` hardware reading described below.
 A Sim configured with `runtime.mirror_robot_id` advertises
 `presentation.robot-state.v1`. Robot sends its existing measured telemetry to
 these live Sim peers even without a Pilot lease. Each send is independent of
@@ -105,7 +112,7 @@ instead of sending logical 0/180 into a physical 230..340 clamp. The additive
 telemetry `claw_closed` reports the nearest calibrated endpoint from measured
 motor 5 position. Pilot/UI keep this feedback separate from requested state;
 Sim mirrors it. Protocol major 6 and existing command/envelope fields remain
-unchanged. Physical speed limits and native controller ABI 3 are host-local
+unchanged. Physical speed limits and native controller ABI 5 are host-local
 implementation/configuration changes, not new DDS authority.
 
 IMU 해석 모델 선택은 기존 v6 `motion_command`의 새 명령 값
@@ -126,6 +133,38 @@ Robot telemetry의 `imu_model`, `imu_model_selection_id`,
 돌려받아야 활성으로 표시한다. Best-effort 선택 명령이 유실되면 재전송한다.
 UI의 기존 sag JSON 경로 선택과 Pilot/Sim의 q 기반 sag 계산은 제거한다.
 Pilot의 IMU 모델 catalog가 보정 계산식을 소유하고 Robot의 C++ 루프가 실행한다.
+
+Teensy reader diagnostics are additive under protocol 6 telemetry `imu_reader`
+and operator-view schema 1 `imu_model_status.reader`. Reader schema 1 contains
+`connected`, `error`, `invalid_lines`, and at most two `sensors` (`IMU1`, `IMU2`).
+Each sensor has `quaternion_wxyz`, `rpy_rad`, `device_time_ms`, `sequence`
+(null for legacy firmware), `received_age_s`, and `fresh`. Freshness requires
+a new v2 sequence within 0.2 s; legacy ten-field lines never prove freshness.
+These are uncalibrated diagnostics, not the native correction input;
+`imu_feedback_connected` retains its existing meaning. Pilot suppresses reader
+values after one second without selected-target telemetry. No motion authority,
+model-input expansion or protocol-major change is introduced.
+
+The user-supplied Full IMU CSV is also supported: 52 columns (tx_ms, seq,
+two 25-column sensor blocks). Reader schema 1 adds `source_format`,
+`freshness_verified`, `reports_recent`, and optional `full_imu` metadata
+(tx_time_ms, bno_time_us, accuracy, gravity, gyro, linear_accel, accel, mag).
+Full IMU `newAny` only proves some report changed; it cannot verify quaternion
+freshness. `fresh` remains false for this format. Quaternion/RPY may be null
+before the first valid rotation report. Blocks with newAny=0 do not refresh
+sensor age, and the global transmit sequence does not refresh the other sensor.
+
+`reboot_faulted_motor`는 기존 v6 `motion_command`의 command 문자열만 추가하므로
+message shape와 protocol major 6은 유지한다. Robot은 활성 lease, torque OFF,
+특정 DYNAMIXEL Hardware Error를 확인하고 fault ID 하나만 재부팅한다. UI Hardware
+패널은 팔 지지 확인을 받은 뒤 이 요청을 보낸다. Robot은 재부팅 후 모든 모터의
+torque OFF와 정상 telemetry를 검증해야 latch를 해제하며, torque-on이나 이동 명령은
+발행하지 않는다.
+
+`clear_fault`도 기존 v6 `motion_command` 문자열을 사용한다. UI의
+`clear_safety_fault`는 Robot에 torque OFF, fresh telemetry, fault 재발 여부를
+검증하게 한다. 검증 실패 시 latch를 유지하고 사유를 반환한다. 성공해도 torque는
+OFF로 남으며, 이후 torque-on은 별도 operator 동작이다.
 
 Mock hug의 마지막 `motion_command`는 `mock_hug` 메타데이터
 (`solution_id`, object lifecycle `revision`, OBJ `sha256`, `final_q`)를 함께
@@ -186,6 +225,20 @@ endpoint: /elesim/pilot_main/rgbd/frame
 message_type: elesim_interfaces/msg/EncodedRgbdFrame
 qos_profile: sensor_data_latest_only
 ```
+
+Robot may additionally advertise `rgbd_right` for the ZED Mini right-eye color
+image. Pilot relays it to the configured `rgbd.wire.right_topic` broker topic;
+it uses the same encoded frame type with `has_depth=false`. The left-eye
+`rgbd` stream remains the perception input and carries registered depth. This
+named optional stream and separate topic do not change the ROS message or
+protocol major version.
+
+Pilot also publishes the left-eye color-only preview to the configured
+`rgbd.wire.left_preview_topic` (normally
+`/elesim/pilot_main/rgbd/left_preview`). UI subscribes to this topic for the
+left ZED preview so remote preview traffic does not carry the larger depth
+payload. The full-depth `/rgbd/frame` broker remains available to Pilot
+perception and other consumers that need depth.
 
 codec, dimensions, intrinsics/calibration ID, depth scale, sequence, source boot
 identity와 payload bound는 frame metadata에 있다. 새 descriptor field나

@@ -34,6 +34,19 @@ class RaibertTrotController:
         self._dt = float(dt)
         self._config = config
         self._kin = Go2KinematicsModel.from_entity(entity)
+        # IK returns qpos, while motor control is addressed by DOF indices.
+        # A free root uses seven qpos entries but only six DOFs, so the two
+        # index spaces differ even for the first hip joint.
+        self._leg_qpos_idx: Dict[LegId, list[int]] = {}
+        for leg in ALL_LEGS:
+            indices = [
+                int(index)
+                for part in ("hip", "thigh", "calf")
+                for index in entity.get_joint(f"{leg.value}_{part}_joint").qs_idx_local
+            ]
+            if len(indices) != 3 or len(set(indices)) != 3:
+                raise ValueError(f"GO2 leg {leg.value} must expose three distinct qpos indices")
+            self._leg_qpos_idx[leg] = indices
         self._gait = GaitScheduler(config)
         self._raibert = RaibertFootPlacement(config)
         self._cmd = Go2Command()
@@ -69,19 +82,21 @@ class RaibertTrotController:
             self._leg_q_des[leg] = self._solve_leg_ik(leg, foot_world, fallback=self._stand_q_for_leg(leg))
 
     def _hold_idle_stance(self, leg_dofs: list[int]) -> None:
+        # Keep a fixed joint reference under gravity. Re-solving the planted
+        # feet against the already sagging base follows the leg deflection
+        # and removes the PD position error needed to support the body.
+        q_des = np.asarray(self._kin.stand_q, dtype=float).copy()
+        self._prev_leg_q_cmd = q_des.copy()
+        self._entity.control_dofs_position(q_des, dofs_idx_local=leg_dofs)
         base_pos, base_rot = self._read_base_pose()
         for leg in ALL_LEGS:
-            if leg not in self._stance_foot_world:
-                foot_world = self._snap_foot_to_ground(self._kin.read_foot_pos_world(self._entity, leg))
-                self._stance_foot_world[leg] = foot_world.copy()
-                self._stance_foot_body[leg] = _world_to_body(foot_world, base_pos, base_rot)
-        q_des_parts: list[float] = []
-        for leg in ALL_LEGS:
-            foot_world = self._stance_world_target(leg)
-            q_leg = self._solve_leg_ik(leg, foot_world, fallback=self._stand_q_for_leg(leg))
-            q_des_parts.extend(q_leg.tolist())
-        self._prev_leg_q_cmd = np.asarray(q_des_parts, dtype=float).reshape(-1).copy()
-        self._entity.control_dofs_position(np.asarray(q_des_parts, dtype=float), dofs_idx_local=leg_dofs)
+            # Start the next walk from the settled feet, rather than stale
+            # anchors captured before contact or a posture command.
+            foot_world = self._snap_foot_to_ground(self._kin.read_foot_pos_world(self._entity, leg))
+            self._stance_foot_world[leg] = foot_world.copy()
+            self._stance_foot_body[leg] = _world_to_body(foot_world, base_pos, base_rot)
+            self._leg_q_des[leg] = self._stand_q_for_leg(leg)
+            self._prev_contact[leg] = LegPhase.STANCE
 
     def set_command(self, cmd: Go2Command) -> None:
         self._cmd = cmd
@@ -292,10 +307,10 @@ class RaibertTrotController:
             if isinstance(ik_result, tuple):
                 ik_result = ik_result[0]
             q_arr = _to_numpy_1d(ik_result)
-            if q_arr.size > max(dof_idxs):
-                return np.asarray([float(q_arr[idx]) for idx in dof_idxs], dtype=float)
-            if q_arr.size == len(dof_idxs):
-                return q_arr
+            if q_arr.size == self._entity.n_qs:
+                targets = np.asarray(q_arr[self._leg_qpos_idx[leg]], dtype=float)
+                if np.isfinite(targets).all():
+                    return targets
         except Exception:
             pass
         return np.asarray(fallback, dtype=float).reshape(-1)

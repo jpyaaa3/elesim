@@ -651,6 +651,7 @@ def pack_state(
     actual_tip_dir: Optional[tuple[float, float, float]] = None,
     claw_closed: Optional[bool] = None,
     claw_current: Optional[int] = None,
+    claw_load_permille: Optional[int] = None,
     motor_currents_ma: Optional[dict[str, int]] = None,
     motor_positions_raw: Optional[dict[str, int]] = None,
     motor_positions_deg: Optional[dict[str, float]] = None,
@@ -740,6 +741,8 @@ def pack_state(
         out["claw_closed"] = bool(claw_closed)
     if claw_current is not None:
         out["claw_current"] = int(claw_current)
+    if claw_load_permille is not None:
+        out["claw_load_permille"] = int(claw_load_permille)
     if motor_currents_ma is not None:
         out["motor_currents_ma"] = {str(k): int(v) for k, v in motor_currents_ma.items()}
     if motor_positions_raw is not None:

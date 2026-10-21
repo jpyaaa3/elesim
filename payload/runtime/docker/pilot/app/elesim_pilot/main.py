@@ -50,13 +50,19 @@ class _ControlFacade:
         dds_settings: DdsRuntimeSettings,
         imu_model_directory: Path | None = None,
         rgbd_broker_topic: str = "",
+        rgbd_right_broker_topic: str = "",
+        rgbd_left_preview_topic: str = "",
     ) -> None:
         self._service = service
         self._connection = connection
         self._dds_settings = dds_settings
         self._imu_models = ImuModelCatalog(imu_model_directory or (_CONFIG_ROOT / "imu_models"))
         self._rgbd_broker_topic = str(rgbd_broker_topic).strip()
+        self._rgbd_right_broker_topic = str(rgbd_right_broker_topic).strip()
+        self._rgbd_left_preview_topic = str(rgbd_left_preview_topic).strip()
         self._rgbd_relay: DdsRgbdRelay | None = None
+        self._rgbd_right_relay: DdsRgbdRelay | None = None
+        self._rgbd_left_preview_relay: DdsRgbdRelay | None = None
         self._mock_hug: MockHugCoordinator | None = None
         self._arm_trajectory: ArmTrajectory | None = None
 
@@ -137,6 +143,7 @@ class _ControlFacade:
         return self._connection.select_imu_model(model.command_payload())
 
     def configure_target_stream(self, descriptor: dict) -> None:
+        self._close_rgbd_relays()
         streams = descriptor.get("streams", {})
         raw_stream = streams.get("rgbd") if isinstance(streams, dict) else None
         if not isinstance(raw_stream, dict):
@@ -147,9 +154,6 @@ class _ControlFacade:
         source_topic = str(stream.endpoint)
         broker_topic = self._rgbd_broker_topic or source_topic
         source_format = str(stream.format or "raw-rgbd-v1")
-        if self._rgbd_relay is not None:
-            self._rgbd_relay.close()
-            self._rgbd_relay = None
         consumer_format = source_format
         if source_topic != broker_topic:
             self._rgbd_relay = DdsRgbdRelay(
@@ -167,6 +171,48 @@ class _ControlFacade:
                 f"[pilot_agent] RGBD relay source={source_topic} broker={broker_topic} "
                 f"format={source_format}"
             )
+        if self._rgbd_left_preview_topic and source_topic != self._rgbd_left_preview_topic:
+            self._rgbd_left_preview_relay = DdsRgbdRelay(
+                source_topic,
+                self._rgbd_left_preview_topic,
+                source_format=source_format,
+                endpoint_id=f"{self._connection.pilot_id}-rgbd-left-preview",
+                settings=self._dds_settings,
+                expected_source_id=str(descriptor.get("endpoint_id", "")),
+                expected_boot_id=str(descriptor.get("instance_id", "")),
+                strip_depth=True,
+            )
+            self._rgbd_left_preview_relay.start()
+            print(
+                f"[pilot_agent] RGB-D left preview source={source_topic} "
+                f"broker={self._rgbd_left_preview_topic} depth=omitted"
+            )
+        raw_right_stream = streams.get("rgbd_right")
+        if isinstance(raw_right_stream, dict):
+            right_stream = MediaStreamDescriptor.from_dict(raw_right_stream)
+            if (
+                right_stream.transport != MEDIA_TRANSPORT_DDS
+                or right_stream.media_kind != MEDIA_KIND_RGBD
+            ):
+                raise ValueError("target rgbd_right stream must be a DDS RGB-D topic")
+            right_source_topic = str(right_stream.endpoint)
+            right_broker_topic = self._rgbd_right_broker_topic or right_source_topic
+            right_format = str(right_stream.format or "raw-rgbd-v1")
+            if right_source_topic != right_broker_topic:
+                self._rgbd_right_relay = DdsRgbdRelay(
+                    right_source_topic,
+                    right_broker_topic,
+                    source_format=right_format,
+                    endpoint_id=f"{self._connection.pilot_id}-rgbd-right",
+                    settings=self._dds_settings,
+                    expected_source_id=str(descriptor.get("endpoint_id", "")),
+                    expected_boot_id=str(descriptor.get("instance_id", "")),
+                )
+                self._rgbd_right_relay.start()
+                print(
+                    f"[pilot_agent] RGB-D right relay source={right_source_topic} "
+                    f"broker={right_broker_topic} format={right_format}"
+                )
         current = self._service._perception_cfg
         updated = replace(
             current,
@@ -186,14 +232,21 @@ class _ControlFacade:
         )
 
     def close(self) -> None:
-        if self._rgbd_relay is not None:
-            self._rgbd_relay.close()
-            self._rgbd_relay = None
+        self._close_rgbd_relays()
 
     def target_lost(self) -> None:
+        self._close_rgbd_relays()
+
+    def _close_rgbd_relays(self) -> None:
         if self._rgbd_relay is not None:
             self._rgbd_relay.close()
             self._rgbd_relay = None
+        if self._rgbd_right_relay is not None:
+            self._rgbd_right_relay.close()
+            self._rgbd_right_relay = None
+        if self._rgbd_left_preview_relay is not None:
+            self._rgbd_left_preview_relay.close()
+            self._rgbd_left_preview_relay = None
 
     @property
     def available_endpoints(self):
@@ -228,6 +281,9 @@ def _run() -> None:
         rgbd_topic=str(
             ((role.rgbd or {}).get("wire") or {}).get("topic", "")
         ),
+        rgbd_right_topic=str(
+            ((role.rgbd or {}).get("wire") or {}).get("right_topic", "")
+        ),
     )
     link.attach_sender(connection.submit)
     runtime = build_control_runtime(args.config, link, mode=args.mode)
@@ -238,6 +294,12 @@ def _run() -> None:
         imu_model_directory=Path(args.config).resolve().parent / "imu_models",
         rgbd_broker_topic=str(
             ((role.rgbd or {}).get("wire") or {}).get("topic", "")
+        ),
+        rgbd_right_broker_topic=str(
+            ((role.rgbd or {}).get("wire") or {}).get("right_topic", "")
+        ),
+        rgbd_left_preview_topic=str(
+            ((role.rgbd or {}).get("wire") or {}).get("left_preview_topic", "")
         ),
     )
     simulation_sync = SimulationWorkflowSync(runtime.service)

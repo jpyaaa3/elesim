@@ -681,10 +681,26 @@ class _PilotContextActions(_ControlServiceCore):
             return None
         go2_pos, go2_rpy = mount.default_go2_pose()
         if host_state is not None:
-            if host_state.go2_base_pos is not None:
-                go2_pos = host_state.go2_base_pos
-            if host_state.go2_base_rpy is not None:
-                go2_rpy = host_state.go2_base_rpy
+            measured_pos = getattr(host_state, "go2_base_pos", None)
+            measured_rpy = getattr(host_state, "go2_base_rpy", None)
+            robot_device = bool(str(getattr(host_state, "device", "")).strip())
+            if robot_device and not bool(getattr(host_state, "connected", False)):
+                raise RuntimeError("fresh Robot telemetry is required for GO2-mounted arm IK")
+            if (measured_pos is None) != (measured_rpy is None):
+                raise RuntimeError(
+                    "incomplete GO2 body pose telemetry; arm IK needs both position and orientation"
+                )
+            if measured_pos is not None and measured_rpy is not None:
+                go2_pos, go2_rpy = measured_pos, measured_rpy
+            elif robot_device:
+                raise RuntimeError(
+                    "Robot telemetry has no measured GO2 body pose; "
+                    "arm IK cannot use the spawn pose"
+                )
+            elif getattr(host_state, "go2_leg_q", None) is not None:
+                raise RuntimeError(
+                    "GO2 leg telemetry arrived without body pose; arm IK cannot use the spawn pose"
+                )
         return mount.arm_base_world_transform(go2_pos, go2_rpy)
 
     def _with_current_arm_base(
@@ -2328,6 +2344,16 @@ class ControlService(_MotionFeedbackActions):
     def torque_off(self) -> None:
         if self.client is not None:
             self.client.torque_off()
+
+    def clear_safety_fault(self) -> None:
+        if self.client is not None:
+            self.client.clear_safety_fault()
+
+    def reboot_faulted_motor(self, *, arm_supported: bool = False) -> None:
+        if arm_supported is not True:
+            raise RuntimeError("physically support the arm before rebooting a motor")
+        if self.client is not None:
+            self.client.reboot_faulted_motor()
 
     def perception_snapshot(self) -> Optional[PerceptionSnapshot]:
         cap = self._perception_capture

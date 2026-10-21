@@ -24,6 +24,13 @@ _CONTROL_LABEL_W = 96.0
 _PORT_LABEL_W = 66.0
 _WARN_W = 28.0
 _SEARCH_W = 72.0
+_MOTOR_ID_BY_NAME = {
+    "linear": "1",
+    "roll": "2",
+    "seg1": "3",
+    "seg2": "4",
+    "claw": "5",
+}
 
 
 def _control_label(panel, text: str) -> None:
@@ -56,14 +63,63 @@ def _draw_motor_position_rows(panel, state) -> None:
     _control_label(panel, "Motor Pos")
     imgui.text("raw / deg")
     for name in ("linear", "roll", "seg1", "seg2", "claw"):
-        if name not in raw and name not in deg:
+        # Robot telemetry is keyed by Dynamixel ID ("1".."5"); the UI uses
+        # canonical joint names. Accept either form so valid feedback is not
+        # silently hidden from the Hardware panel.
+        motor_id = _MOTOR_ID_BY_NAME[name]
+        raw_value = raw.get(name, raw.get(motor_id, raw.get(int(motor_id))))
+        deg_value = deg.get(name, deg.get(motor_id, deg.get(int(motor_id))))
+        if raw_value is None and deg_value is None:
             continue
-        raw_text = str(raw.get(name, "-"))
+        raw_text = "-" if raw_value is None else str(raw_value)
         try:
-            deg_text = f"{float(deg.get(name, 0.0)):.1f}"
+            deg_text = "-" if deg_value is None else f"{float(deg_value):.1f}"
         except (TypeError, ValueError):
             deg_text = "-"
         imgui.text(f"{name:<6} {raw_text:>6} / {deg_text:>7}")
+
+
+def _draw_motor_fault_recovery(panel, state) -> None:
+    fault = str(getattr(state, "safety_fault", "") or "")
+    if not fault:
+        panel._motor_reboot_confirmed = False
+        return
+
+    imgui.separator()
+    if "hardware error occurred" not in fault.lower():
+        panel._motor_reboot_confirmed = False
+        imgui.text("Safety fault")
+        imgui.text_wrapped(fault)
+        imgui.text_wrapped(
+            "This fault can be cleared only after Robot verifies Torque is OFF, "
+            "telemetry is healthy, and the current is back within its limit. "
+            "Clearing the fault does not turn Torque back on."
+        )
+        if bool(state.torque_enabled):
+            imgui.text("Turn Torque OFF before clearing the safety fault.")
+        elif imgui.button("Recheck hardware and clear safety fault##clear_safety_fault"):
+            panel.service.clear_safety_fault()
+        return
+
+    imgui.text("DYNAMIXEL hardware shutdown")
+    imgui.text_wrapped(fault)
+    imgui.text_wrapped(
+        "A DYNAMIXEL reboot may briefly restore torque. Physically support the arm, "
+        "keep clear, and leave Torque OFF after recovery."
+    )
+    changed, confirmed = imgui.checkbox(
+        "Arm is physically supported and the area is clear##motor_reboot_ack",
+        bool(getattr(panel, "_motor_reboot_confirmed", False)),
+    )
+    if changed:
+        panel._motor_reboot_confirmed = bool(confirmed)
+    if bool(state.torque_enabled):
+        imgui.text("Turn Torque OFF before motor recovery.")
+    elif panel._motor_reboot_confirmed and imgui.button(
+        "Reboot faulted motor and clear safety latch##motor_reboot"
+    ):
+        panel.service.reboot_faulted_motor(arm_supported=True)
+        panel._motor_reboot_confirmed = False
 
 
 def draw_hardware_panel(panel) -> None:
@@ -132,3 +188,4 @@ def draw_hardware_panel(panel) -> None:
             panel.service.torque_off()
 
         _draw_motor_position_rows(panel, state)
+        _draw_motor_fault_recovery(panel, state)

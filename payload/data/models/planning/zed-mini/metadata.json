@@ -27,7 +27,7 @@
   ],
   "sources": {
     "arm.urdf": "d21ae4ff4917306d55450de1c30f3d8eb4c841588684733cce62ba729ce4a8f6",
-    "robot_config.yaml": "9a9ae62583f8f035ddeec602367534e4602a68b3b398f14c232938392421db80",
+    "robot_config.yaml": "a0ed8376a90c89f3a70dc11c4d79844176bcb35e8eeab766277f18c6a9e5dd91",
     "arm_model.json": "ad00122b9ba19c77cd4d817634fba310e5e3e758e21688c52db400f2f570cbe7",
     "assets/plate/plate_mesh.obj": "77cdc669b8c35c235db6edb951a12a01ce706f379ed5a73ad97ae687a4acea67",
     "assets/housing/housing_mesh.obj": "7bd8aec718f9b3541f403bd457448a29d60de193f5e29e14c56e05ac70df8e21",
@@ -39,6 +39,24 @@
     "assets/gripper_claw_right/gripper_claw_right_mesh.obj": "11401fbae8eaf572da9f33ca1626debb5c498d79119fdad7ae5196e4eced940c"
   },
   "voxel_m": 0.03,
+  "link_voxel_m": {
+    "plate": 0.03,
+    "housing": 0.03,
+    "wedge": 0.03,
+    "node0": 0.03,
+    "node1": 0.03,
+    "node2": 0.03,
+    "node3": 0.03,
+    "node4": 0.03,
+    "node5": 0.03,
+    "node6": 0.03,
+    "node7": 0.03,
+    "node8": 0.03,
+    "node9": 0.03,
+    "gripper_base": 0.03,
+    "gripper_claw_left": 0.015,
+    "gripper_claw_right": 0.015
+  },
   "max_velocity": [
     0.2,
     3.5,
@@ -158,7 +176,7 @@
       "min_gap_m": 0.022139192073856492
     }
   ],
-  "sphere_count": 911,
+  "sphere_count": 1005,
   "grasp_offset_local": [
     0.12300000000000007,
     -0.012,
@@ -166,6 +184,6 @@
   ],
   "artifacts": {
     "arm.urdf": "5eef2df8c97a3cd45e790e59378882c651ebc9985a6de0a3746e8cb8e6846ea0",
-    "robot.yml": "28ea45f399a45d9a4d36c2d3ef33c936377644e7fb9f2aae7c222d050b6d3c33"
+    "robot.yml": "922089a24713c3e53d829a0bcd4b1b7b0706cebf57fd1b237a4a23d4ece24948"
   }
 }

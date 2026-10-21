@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 import numpy as np
+import pytest
 
 from elesim_sim.config import JointLimit, SimParam
 from elesim_sim.config import SimConfig
@@ -102,10 +103,12 @@ def test_respawn_refreshes_camera_pose_without_another_mpc_step():
 
 def test_respawn_invalidates_all_scene_camera_pose_caches():
     scene = SimScene()
+    scene._arm_mirror_active = True
     scene._camera_joint_position_cache = {"old_joint": 1.0}
     scene._camera_root_pos_cache = (4.0, 5.0, 0.1)
     scene._camera_root_quat_cache = (0.7, 0.0, 0.7, 0.0)
     scene.reset_environment()
+    assert not scene._arm_mirror_active
     assert scene._camera_joint_position_cache == {}
     assert scene._camera_root_pos_cache is None
     assert scene._camera_root_quat_cache is None
@@ -204,6 +207,58 @@ def test_sim_mover_batches_arm_and_claw_position_write() -> None:
     np.testing.assert_array_equal(dq, np.arange(6.0, 24.0))
     mover.set_4dof_instant(-0.1, 0.0, 0.0, 0.0)
     np.testing.assert_array_equal(entity.velocities[5:], np.arange(6.0, 24.0))
+
+
+def test_mirror_pose_restore_does_not_advance_claws_or_clear_go2_velocity():
+    entity = _Entity()
+    mover = SimMover(entity, SimParam(dt=.02), JointLimit(-90., 90., 90.), 1,
+                     linear_joint_name="linear", roll_joint_name="roll", bend_joint_names=["bend"])
+    mover.set_claw_closed(True)
+    mover.set_4dof_instant(-.1, .2, .3, .3)
+    expected, indices = entity.position_writes[-1]
+    for _ in range(3):
+        mover.reapply_last_kinematic_pose()
+        np.testing.assert_array_equal(entity.position_writes[-1][0], expected)
+        assert entity.position_writes[-1][1] == indices
+    np.testing.assert_array_equal(entity.velocities[5:], np.arange(6., 24.))
+
+
+@pytest.mark.parametrize("refresh_on_step", [False, True])
+@pytest.mark.parametrize("mirror_go2", [False, True])
+def test_arm_mirror_restores_measured_q_before_rendering(
+    refresh_on_step, mirror_go2, monkeypatch,
+):
+    from elesim_protocol import SimQ
+    measured = np.array([-.055, 0., -.539, .565])
+    actual = measured.copy()
+    drawn = []
+    def set_pose(*values):
+        actual[:] = values
+    def draw(**_kwargs):
+        drawn.append(actual.copy())
+    def physics(**kwargs):
+        actual[2:] += [.01, -.02]
+        if kwargs["update_visualizer"]:
+            draw()
+    mover = SimpleNamespace(
+        set_4dof_instant=set_pose, control_4dof=set_pose,
+        target_from_4dof=lambda *q: np.asarray(q),
+        reapply_last_kinematic_pose=lambda: set_pose(*measured),
+    )
+    go2 = SimpleNamespace(step=lambda: None, mirror_mode=True,
+                          reapply_last_mirror_pose=lambda: None) if mirror_go2 else None
+    monkeypatch.setattr("elesim_sim.runtime.time.monotonic", lambda: 100.)
+    scene = SimScene(scene=SimpleNamespace(step=physics, visualizer=SimpleNamespace(update=draw)),
+                     mover=mover, go2=go2, update_visualizer_on_step=refresh_on_step,
+                     visualizer_max_hz=30.)
+    scene.apply_sim_q(SimQ(*measured), measured=True)
+    scene.step()
+    np.testing.assert_array_equal(drawn[-1], measured)
+    # Ordinary simulated commands must continue to evolve under physics.
+    scene.apply_sim_q(SimQ(*measured), measured=False)
+    scene._last_visualizer_update_t = 0.
+    scene.step()
+    np.testing.assert_allclose(drawn[-1][2:], measured[2:]+[.01, -.02])
 
 
 def test_tip_position_and_direction_share_one_link_pose_readback() -> None:
@@ -364,6 +419,44 @@ def test_viewer_scene_step_keeps_visualizer_sync() -> None:
         "update_visualizer": True,
         "refresh_visualizer": True,
     }
+
+
+@pytest.mark.parametrize("refresh_on_step", [False, True])
+def test_mirror_viewer_draws_restored_base_instead_of_physics_displacement(
+    refresh_on_step, monkeypatch,
+):
+    """Readback and the displayed base must agree after a mirror physics step."""
+    body = {"z": 0.32}
+    rendered_z = []
+    clock = [100.0]
+    monkeypatch.setattr("elesim_sim.runtime.time.monotonic", lambda: clock[0])
+
+    def draw(**_kwargs):
+        rendered_z.append(body["z"])
+
+    def physics(**kwargs):
+        # A ground contact lifts the free body. The old ordering rendered this
+        # state, then restored the body, so readback appeared correct while the
+        # viewer was 20 mm above the Ghost at the measured mount position.
+        body["z"] += 0.02
+        if kwargs["update_visualizer"]:
+            draw()
+
+    scene = SimScene(
+        scene=SimpleNamespace(step=physics, visualizer=SimpleNamespace(update=draw)),
+        go2=SimpleNamespace(
+            step=lambda: None,
+            mirror_mode=True,
+            reapply_last_mirror_pose=lambda: body.update(z=0.32),
+        ),
+        update_visualizer_on_step=refresh_on_step,
+        visualizer_max_hz=30.0 if not refresh_on_step else 0.0,
+    )
+    for _ in range(3):
+        scene.step()
+        clock[0] += 0.05
+        assert body["z"] == 0.32
+    assert rendered_z == [0.32, 0.32, 0.32]
 
 
 def test_idle_camera_uses_feedback_instead_of_stale_mpc_pose():

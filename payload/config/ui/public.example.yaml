@@ -12,6 +12,8 @@ rgbd:
     format: encoded-rgbd-v1
     capability: stream.rgbd.broker.v1
     topic: /elesim/pilot_main/rgbd/frame
+    right_topic: /elesim/pilot_main/rgbd/right
+    left_preview_topic: /elesim/pilot_main/rgbd/left_preview
     latest_only: true
 dds:
   system_id: elesim
@@ -28,3 +30,5 @@ dds:
 presentation:
   use_hardware: false
   use_go2: true
+  zed_swap_left_right: false
+  show_zed_preview: false

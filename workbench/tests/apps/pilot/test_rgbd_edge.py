@@ -10,6 +10,7 @@ from elesim_pilot.vision.rgbd import (
     RgbdEncodingPolicy,
     encode_rgbd_frame,
 )
+from elesim_pilot.vision.rgbd.edge import _without_depth_for_preview
 from elesim_pilot.vision.rgbd.types import RgbdFrame, RgbdIntrinsics
 from elesim_protocol.encoded_rgbd import RgbdEncodedMetadata, encode_payload
 
@@ -116,3 +117,21 @@ def test_default_policy_encodes_color_and_depth_once() -> None:
     assert encoded.color_payload == _frame(5).color_bgr.tobytes()
     assert encoded.depth_payload != _frame(5).depth_raw.tobytes()
     assert encoded.seq == 5
+
+
+def test_left_preview_strips_depth_without_changing_color_or_identity() -> None:
+    source = _encoded(9)
+
+    preview = _without_depth_for_preview(source)
+
+    assert preview.color_payload == source.color_payload
+    assert preview.color_codec == source.color_codec
+    assert preview.seq == source.seq
+    assert preview.source_id == source.source_id
+    assert preview.source_boot_id == source.source_boot_id
+    assert preview.metadata == source.metadata
+    assert preview.has_depth is False
+    assert preview.depth_codec == ""
+    assert preview.depth_encoding == ""
+    assert preview.depth_payload == b""
+    assert preview.depth_scale == 0.0

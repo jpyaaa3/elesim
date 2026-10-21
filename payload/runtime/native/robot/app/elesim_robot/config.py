@@ -13,7 +13,7 @@ from elesim_protocol import DdsRuntimeSettings, SimMappingConfig
 from elesim_robot.go2.config import Go2HardwareConfig
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -24,8 +24,8 @@ class HardwareConfig:
     linear_u_max_deg: float = 259.0
     linear_u_limit_deg: float = 259.0
     current_limit_ma: int = 2500
-    claw_contact_current_ma: int = 800
-    claw_contact_stall_s: float = 0.12
+    claw_contact_load_permille: int = 250
+    claw_contact_stall_s: float = 0.05
     claw_stall_position_ticks: int = 3
     profile_vel_linear: int = 240
     profile_acc_linear: int = 10
@@ -47,7 +47,10 @@ class HardwareConfig:
 @dataclass(frozen=True)
 class CameraConfig:
     enabled: bool = True
+    backend: str = "realsense"
     topic: str = "/elesim/robot_go2/rgbd/frame"
+    right_topic: str = ""
+    rotate_180: bool = False
     width: int = 640
     height: int = 480
     fps: int = 30
@@ -87,6 +90,7 @@ class RobotConfig:
     camera: CameraConfig
     rgbd: RgbdWireConfig
     safety: SafetyConfig
+    imu_device: str = ""
 
 
 def _mapping(raw: object, *, context: str) -> dict[str, Any]:
@@ -156,9 +160,11 @@ def _validate_arm(config: HardwareConfig) -> None:
     if float(config.linear_u_limit_deg) > float(config.linear_u_max_deg):
         raise ValueError("arm.linear_u_limit_deg must not exceed linear_u_max_deg")
     _positive(config.current_limit_ma, name="arm.current_limit_ma")
-    _positive(config.claw_contact_current_ma, name="arm.claw_contact_current_ma")
-    if config.claw_contact_current_ma >= config.current_limit_ma:
-        raise ValueError("arm.claw_contact_current_ma must be below arm.current_limit_ma")
+    if (
+        type(config.claw_contact_load_permille) is not int
+        or not 1 <= config.claw_contact_load_permille <= 1000
+    ):
+        raise ValueError("arm.claw_contact_load_permille must be between 1 and 1000")
     _positive(config.claw_contact_stall_s, name="arm.claw_contact_stall_s")
     _positive(config.claw_stall_position_ticks, name="arm.claw_stall_position_ticks")
     for name in ("max_linear_m_s", "max_roll_rad_s", "max_bend_rad_s"):
@@ -279,11 +285,25 @@ def _validate_go2(
 
 
 def _validate_camera(config: CameraConfig) -> None:
+    if config.backend not in {"zed", "realsense"}:
+        raise ValueError("camera.backend must be zed or realsense")
     for name in ("width", "height", "fps"):
         _positive(getattr(config, name), name=f"camera.{name}")
     topic = str(config.topic).strip()
     if config.enabled and (not topic or not topic.startswith("/")):
         raise ValueError("camera.topic must be an absolute ROS topic when camera is enabled")
+    right_topic = str(config.right_topic).strip()
+    if right_topic and (config.backend != "zed" or not right_topic.startswith("/")):
+        raise ValueError("camera.right_topic must be an absolute topic for the zed backend")
+    if not isinstance(config.rotate_180, bool):
+        raise ValueError("camera.rotate_180 must be a boolean")
+
+
+def _default_right_topic(topic: str) -> str:
+    base = str(topic).strip().rstrip("/")
+    if base.endswith("/frame"):
+        return f"{base[:-len('/frame')]}/right"
+    return f"{base}/right"
 
 
 def _validate_safety(config: SafetyConfig) -> None:
@@ -316,23 +336,49 @@ def load_config(path: str | Path) -> RobotConfig:
     if unknown_top:
         raise ValueError(f"unknown robot config keys: {', '.join(unknown_top)}")
     schema_version = root.get("schema_version")
-    if isinstance(schema_version, bool) or type(schema_version) is not int or schema_version != SCHEMA_VERSION:
-        raise ValueError(f"schema_version must be exactly {SCHEMA_VERSION}")
+    if (
+        isinstance(schema_version, bool)
+        or type(schema_version) is not int
+        or schema_version not in {4, SCHEMA_VERSION}
+    ):
+        raise ValueError(f"schema_version must be 4 or {SCHEMA_VERSION}")
 
     runtime = _mapping(root.get("runtime"), context="runtime")
-    runtime_allowed = {"endpoint_id", "device", "use_go2"}
+    runtime_allowed = {"endpoint_id", "device", "use_go2", "imu_device"}
     runtime_unknown = sorted(set(runtime) - runtime_allowed)
     if runtime_unknown:
         raise ValueError(f"unknown runtime config keys: {', '.join(runtime_unknown)}")
+    imu_device = runtime.get("imu_device", "")
+    if not isinstance(imu_device, str) or (imu_device and not imu_device.startswith("/dev/")):
+        raise ValueError("runtime.imu_device must be empty or an absolute /dev/ path")
+    if imu_device and imu_device == runtime.get("device"):
+        raise ValueError("runtime.imu_device must differ from the motor device")
 
-    arm = HardwareConfig(**_values(HardwareConfig, root.get("arm"), context="arm"))
+    arm_values = _mapping(root.get("arm"), context="arm")
+    if schema_version == 4:
+        # v4 called address 126 a current value. On the installed XL430 claw
+        # it is estimated load, so discard that legacy threshold and use the
+        # explicit load-based default instead.
+        arm_values.pop("claw_contact_current_ma", None)
+    arm = HardwareConfig(**_values(HardwareConfig, arm_values, context="arm"))
     mapping_values = _values(SimMappingConfig, root.get("mapping"), context="mapping")
     mapping_values.setdefault("linear_u_max", arm.linear_u_max_deg)
     mapping_values.setdefault("linear_u_limit", arm.linear_u_limit_deg)
     mapping_values.setdefault("command_direction", arm.command_direction)
     mapping = SimMappingConfig(**mapping_values)
     go2 = Go2HardwareConfig(**_values(Go2HardwareConfig, root.get("go2"), context="go2"))
-    camera = CameraConfig(**_values(CameraConfig, root.get("camera"), context="camera"))
+    camera_values = _values(CameraConfig, root.get("camera"), context="camera")
+    if str(camera_values.get("backend", CameraConfig.backend)).strip().lower() == "zed":
+        camera_values.setdefault(
+            "right_topic",
+            _default_right_topic(
+                str(camera_values.get("topic", CameraConfig.topic))
+            ),
+        )
+        # The ZED Mini on the GO2 mount is installed upside down. Keep legacy
+        # installed configs working while allowing an explicit override.
+        camera_values.setdefault("rotate_180", True)
+    camera = CameraConfig(**camera_values)
     rgbd_root = _mapping(root.get("rgbd"), context="rgbd")
     wire_root = _mapping(rgbd_root.get("wire"), context="rgbd.wire")
     rgbd = RgbdWireConfig(
@@ -400,6 +446,7 @@ def load_config(path: str | Path) -> RobotConfig:
         camera=camera,
         rgbd=rgbd,
         safety=safety,
+        imu_device=imu_device,
     )
 
 

@@ -88,12 +88,20 @@ class ControlPanel:
         pick_cfg: PickConfig | None = None,
         gaze_cfg: GazeStabilizerConfig | None = None,
         sim_session: Optional[object] = None,
+        zed_preview: Optional[object] = None,
+        zed_right_preview: Optional[object] = None,
         endpoint_select: Optional[Callable[[str, str], None]] = None,
     ):
         self.state = state
         self.service = service
         self._sim_view = (
-            None if sim_session is None else SimView(sim_session)
+            None
+            if sim_session is None and zed_preview is None and zed_right_preview is None
+            else SimView(
+                sim_session,
+                zed_preview=zed_preview,
+                zed_right_preview=zed_right_preview,
+            )
         )
         self._endpoint_select = endpoint_select
         self._endpoint_cache: list[object] = []
@@ -140,6 +148,7 @@ class ControlPanel:
         self.state.visual_ready_distance_m = float(pk.ready_pose_standoff_m)
         self.state.visual_look_distance_m = float(pk.look_pose_standoff_m)
         self._port_input = ""
+        self._motor_reboot_confirmed = False
         self._host_state: Optional[HostState] = None
         self._imu_model_error = ""
         self._imu_model_index = 0
@@ -268,18 +277,33 @@ class ControlPanel:
             if index + 1 < len(endpoints):
                 imgui.same_line()
 
-    def _draw_sim_video(self) -> None:
+    def _draw_camera_panel(self) -> None:
         self._draw_endpoint_selector()
         if self._sim_view is None:
             return
-        snapshot = self._sim_view.session.snapshot
-        connected = len(snapshot.connected_streams)
-        imgui.text(f"SIM CAMERA  {connected}/2 streams")
+        if self._sim_view.session is not None:
+            snapshot = self._sim_view.session.snapshot
+            connected = len(snapshot.connected_streams)
+            imgui.text(f"SIM CAMERAS  {connected}/2 streams")
+        if self._sim_view.zed_preview is not None:
+            preview = self._sim_view.zed_preview
+            source_id = str(getattr(preview, "source_id", "")).strip()
+            label = (
+                "ZED MINI"
+                if not source_id or source_id == "robot-go2"
+                else f"RGB-D {source_id}"
+            )
+            imgui.text(f"{label}  {preview.status}")
         if self._camera_visible:
-            imgui.text_disabled("The Sim Camera is open in a separate window.")
+            imgui.text_disabled("Camera Views is open in a separate window.")
             return
-        if imgui.button("Open Sim Camera##open-sim-camera"):
+        if imgui.button("Open Camera Views##open-camera-views"):
             self._show_camera_window()
+
+    def _draw_sim_video(self) -> None:
+        # Keep the existing panel hook while its camera window now includes
+        # both the physical ZED feed and the Sim-generated streams.
+        self._draw_camera_panel()
 
     def _draw_camera_contents(self) -> None:
         if self._sim_view is None:
@@ -289,6 +313,8 @@ class ControlPanel:
         imgui.begin_child("camera-video", 0.0, -footer_height, False)
         self._sim_view.draw()
         imgui.end_child()
+        if self._sim_view.session is None:
+            return
         spacing = float(imgui.get_style().item_spacing.x)
         button_size = float(imgui.get_frame_height())
         button_width = button_size * 2.0
@@ -390,7 +416,7 @@ class ControlPanel:
             | getattr(imgui, "WINDOW_NO_SCROLLBAR", 0)
             | getattr(imgui, "WINDOW_NO_SCROLL_WITH_MOUSE", 0)
         )
-        opened = imgui.begin("Sim Camera###sim_camera_window", True, flags=flags)
+        opened = imgui.begin("Camera Views###sim_camera_window", True, flags=flags)
         visible = opened[0] if isinstance(opened, tuple) else bool(opened)
         if visible:
             self._draw_camera_contents()
@@ -775,7 +801,7 @@ class ControlPanel:
             imgui.pop_item_width()
 
     def _draw_controls_window(self) -> None:
-        if self._sim_view is not None:
+        if self._sim_view is not None and self._sim_view.session is not None:
             self._sim_view.session.sync_arm_ghost(
                 (self.service.session.service_value("arm_trajectory", {}) or {})
                 if self.service.session.status.pilot_online else {})
@@ -936,7 +962,7 @@ class ControlPanel:
         main_impl = GlfwRenderer(window)
         self._main_imgui_impl = main_impl
 
-        # Keep both RGB streams in one independently resizable native window.
+        # Keep camera streams in one independently resizable native window.
         # The contexts are separate, while the OpenGL share context keeps the
         # lifecycle explicit and avoids embedding video in the control layout.
         camera_impl = None
@@ -945,7 +971,7 @@ class ControlPanel:
             camera_window = glfw.create_window(
                 800,
                 660,
-                "Sim Camera",
+                "Camera Views",
                 None,
                 window,
             )

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Optional Pilot planning environment; never starts EleSim or opens a device.
 set -euo pipefail
-planning_root="${1:-$HOME/.cache/elesim/curobo-integration}"
+# Keep the optional planner environment beside the installed Pilot role. The
+# source checkout may itself live under ~/.cache; that must not determine the
+# runtime environment path. An explicit argument still supports custom installs.
+planning_root="${1:-$HOME/elesim/roles/pilot}"
 if [[ "$(uname -m)" != aarch64 || ! -f /etc/nv_tegra_release ]]; then
     echo "Run this on the Jetson with an existing CUDA-enabled PyTorch installation." >&2
     exit 1

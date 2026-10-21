@@ -173,17 +173,11 @@ class WrapGraspConfig:
     #: Which motors that reading is taken from: the two bend segments, which are
     #: the coil closing.  Linear (1) and roll (2) load for other reasons.
     grasp_current_motor_ids: tuple[str, ...] = ("3", "4")
-    #: Roll turns the other way on this arm than in the training sim.
-    #:
-    #: The exported manifest already warns that the waypoints are in the
-    #: convention `control_u_to_sim_q` produces; measured on the robot, roll is
-    #: the one axis whose sense is reversed against it.  Converting here, at the
-    #: adapter boundary, keeps the policy and its lift script in the convention
-    #: they were trained in and leaves every other workflow -- sliders, presets,
-    #: IK -- on the mapping they already use.
-    #:
-    #: Set to +1.0 to drive an arm whose roll matches the sim.
-    roll_sign: float = -1.0
+    #: The current policy and calibrated Robot share the canonical Roll sense.
+    #: Preserve it for observations, waypoints and the scripted lift. A legacy
+    #: arm with the opposite polarity can explicitly override this to -1.0 in
+    #: wrap_grasp.yaml; other workflows keep their existing mapping.
+    roll_sign: float = 1.0
     #: Substep period for the scripted roll-back, matching the manifest.
     lift_substep_s: float = 0.01
     #: How long to hold after the roll is home.

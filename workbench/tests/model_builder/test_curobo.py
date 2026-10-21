@@ -153,3 +153,30 @@ def test_nominal_pose_has_no_false_sphere_collision():
         world_b = b[:, :3] @ transforms[right][1].T + transforms[right][0]
         gap = float((cdist(world_a, world_b) - a[:, 3, None] - b[None, :, 3]).min())
         assert gap >= 0, (left, right, gap)
+
+
+def test_open_claws_fit_20mm_target_without_removing_claw_collision_geometry():
+    trimesh = pytest.importorskip("trimesh")
+    config = yaml.safe_load((MODEL / "robot.yml").read_text())["robot_cfg"]["kinematics"]
+    spheres = config["collision_spheres"]
+    metadata = json.loads((MODEL / "metadata.json").read_text())
+    assert sum(map(len, spheres.values())) == metadata["sphere_count"] < 1024
+    for name in ("gripper_claw_left", "gripper_claw_right"):
+        assert metadata["link_voxel_m"][name] <= .015
+        values = np.asarray([s["center"] + [s["radius"]] for s in spheres[name]])
+        mesh = trimesh.load_mesh(ROOT / f"payload/data/models/assemblies/zed-mini/assets/{name}/{name}_mesh.obj",
+                                 process=False)
+        # The finer fit must still enclose the authored claw surface.
+        points = np.concatenate((mesh.vertices, mesh.triangles_center))
+        assert np.max(np.min(cdist(points, values[:, :3])-values[:, 3], axis=1)) <= 1e-6
+    # The grasp-frame centre is empty space, not a body collision primitive.
+    # Check all links, not merely the two claws, at several rigid gripper poses.
+    for q in ([0., 0., 0., 0.], [-.08, .5, .1, -.2], [-.1, -.5, -.1, .2]):
+        transforms = urdf_transforms(q)
+        centre = transforms["elesim_grasp"][:3, 3]
+        for name, link_spheres in spheres.items():
+            values = np.asarray([s["center"] + [s["radius"]] for s in link_spheres])
+            tf = transforms[name]
+            world = values[:, :3] @ tf[:3, :3].T + tf[:3, 3]
+            gap = np.min(np.linalg.norm(world-centre, axis=1)-values[:, 3]-.01)
+            assert gap > .002, (name, q, gap)

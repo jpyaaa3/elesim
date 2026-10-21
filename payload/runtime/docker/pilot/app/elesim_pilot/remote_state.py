@@ -133,8 +133,40 @@ class RemoteState:
 
     def accept_telemetry(self, payload: Mapping[str, Any]) -> None:
         body = dict(payload)
+        # RobotRuntime publishes GO2 measurements as one nested object. Keep
+        # accepting the flat v6 aliases too, but normalize the native Robot
+        # shape before the typed HostState snapshot reads it.
+        go2 = body.get("go2")
+        if isinstance(go2, Mapping):
+            for flat, nested in (
+                ("go2_base_pos", "position"),
+                ("go2_base_rpy", "rpy"),
+                ("go2_base_lin_vel_body", "linear_velocity_body"),
+                ("go2_base_ang_vel", "angular_velocity"),
+                ("go2_base_timestamp_s", "timestamp"),
+                ("go2_leg_q", "leg_q"),
+                ("go2_leg_dq", "leg_dq"),
+                ("go2_leg_torque_nm", "leg_torque_nm"),
+            ):
+                if flat not in body and nested in go2:
+                    body[flat] = go2[nested]
         with self._lock:
             self._last_rx_at = self.clock()
+            # RobotRuntime sends a complete state snapshot each time and
+            # always includes `device`. Do not keep an old GO2 pose alive if
+            # the next physical snapshot says GO2 telemetry is unavailable.
+            if "device" in body:
+                for key in (
+                    "go2_base_pos",
+                    "go2_base_rpy",
+                    "go2_base_lin_vel_body",
+                    "go2_base_ang_vel",
+                    "go2_base_timestamp_s",
+                    "go2_leg_q",
+                    "go2_leg_dq",
+                    "go2_leg_torque_nm",
+                ):
+                    self._data.pop(key, None)
             self._data.update(body)
             if "q" in body:
                 try:
@@ -206,6 +238,7 @@ class RemoteState:
                 torque_enabled=bool(data.get("torque_enabled", False)),
                 claw_current=_integer(data.get("claw_current")),
                 claw_closed=data.get("claw_closed") if type(data.get("claw_closed")) is bool else None,
+                claw_load_permille=_integer(data.get("claw_load_permille")),
                 motor_currents_ma=_number_dict(data.get("motor_currents_ma"), int),
                 motor_positions_raw=_number_dict(data.get("motor_positions_raw"), int),
                 motor_positions_deg=_number_dict(data.get("motor_positions_deg"), float),

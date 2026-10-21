@@ -20,9 +20,10 @@ from elesim_protocol import (
     MEDIA_SECURITY_NONE,
     MEDIA_TRANSPORT_DDS,
     MediaStreamDescriptor,
+    PeerAmbiguityError,
     PeerClient,
 )
-from elesim_robot.camera.worker import CameraPublisherThread
+from elesim_robot.camera.process import CameraPublisherProcess
 from elesim_robot.config import load_config
 from elesim_robot.go2 import create_go2_client_if_enabled
 from elesim_robot.runtime import RobotRuntime
@@ -43,13 +44,25 @@ def _default_config() -> Path:
 
 
 PROJECT_CONFIG = _default_config()
+_last_mirror_warning_at = 0.0
+_last_mirror_warning = ""
 
 
 def publish_mirror_telemetry(client: PeerClient, state: dict[str, object]) -> None:
     """A disappearing read-only viewer must not affect physical authority."""
+    global _last_mirror_warning_at, _last_mirror_warning
     for peer in client.node.discover(role="sim", capability=CAPABILITY_ROBOT_STATE_MIRROR):
         try:
             client.send("telemetry", target_id=peer.identity.endpoint_id, payload=state)
+        except PeerAmbiguityError as exc:
+            # Duplicate Sim boots invalidate only this read-only mirror target.
+            # Keep the Robot endpoint (and independent RGB-D publisher) alive.
+            detail = str(exc)
+            now = time.monotonic()
+            if detail != _last_mirror_warning or now - _last_mirror_warning_at >= 5.0:
+                print(f"[robot-mirror] telemetry skipped: {detail}", flush=True)
+                _last_mirror_warning = detail
+                _last_mirror_warning_at = now
         except DdsTransportError:
             continue
 
@@ -59,7 +72,7 @@ def _format_failures(failures: list[tuple[str, Exception]]) -> str:
 
 
 def _close_resources(
-    camera: CameraPublisherThread | None,
+    camera: CameraPublisherProcess | None,
     runtime: RobotRuntime | None,
     client: PeerClient | None,
 ) -> list[tuple[str, Exception]]:
@@ -100,6 +113,11 @@ def _run() -> None:
     # already-encoded sample to the broker topic from the generated rgbd
     # section, so no raw source is exposed as the public stream.
     rgbd_topic = str(args.rgbd_topic).strip() or config.camera.topic
+    right_rgbd_topic = (
+        config.camera.right_topic
+        if config.camera.backend == "zed"
+        else ""
+    )
 
     streams = {}
     if camera_enabled:
@@ -114,6 +132,18 @@ def _run() -> None:
             ),
             format=config.rgbd.format,
         )
+        if right_rgbd_topic:
+            streams["rgbd_right"] = MediaStreamDescriptor(
+                transport=MEDIA_TRANSPORT_DDS,
+                media_kind=MEDIA_KIND_RGBD,
+                endpoint=right_rgbd_topic,
+                security=(
+                    MEDIA_SECURITY_DDS
+                    if config.dds.security_profile == "sros2"
+                    else MEDIA_SECURITY_NONE
+                ),
+                format=config.rgbd.format,
+            )
 
     capabilities = [CAPABILITY_MOTION_ARM]
     if camera_enabled:
@@ -122,7 +152,7 @@ def _run() -> None:
         capabilities.append(CAPABILITY_MOTION_GO2)
     client: PeerClient | None = None
     runtime: RobotRuntime | None = None
-    camera: CameraPublisherThread | None = None
+    camera: CameraPublisherProcess | None = None
     primary_error: BaseException | None = None
     try:
         client = PeerClient(
@@ -140,6 +170,7 @@ def _run() -> None:
             hardware_config=config.arm,
             safety_config=config.safety,
             device=str(args.device).strip() or config.device,
+            imu_device=getattr(config, "imu_device", ""),
             go2_bridge=create_go2_client_if_enabled(
                 config.go2,
                 config.safety,
@@ -147,14 +178,17 @@ def _run() -> None:
             ),
         )
         camera = (
-            CameraPublisherThread(
+            CameraPublisherProcess(
                 rgbd_topic,
+                backend=config.camera.backend,
                 endpoint_id=endpoint_id,
                 boot_id=client.node.identity.boot_id,
                 dds_settings=config.dds,
                 width=config.camera.width,
                 height=config.camera.height,
                 fps=config.camera.fps,
+                right_topic=right_rgbd_topic,
+                rotate_180=config.camera.rotate_180,
                 wire_format=config.rgbd.format,
             )
             if camera_enabled

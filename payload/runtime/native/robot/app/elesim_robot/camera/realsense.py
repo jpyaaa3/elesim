@@ -42,7 +42,12 @@ class RealSenseCamera:
     ) -> None:
         if rs is None:
             raise RealSenseUnavailableError("pyrealsense2 is not installed")
-        self._pipeline = rs.pipeline()
+        self._context = rs.context()
+        if len(self._context.query_devices()) == 0:
+            # pipeline.start waits for an absent device while holding the
+            # Python GIL, starving the independent GO2 IPC control loop.
+            raise RealSenseUnavailableError("No RealSense device connected")
+        self._pipeline = rs.pipeline(self._context)
         self._config = rs.config()
         self._config.enable_stream(rs.stream.color, int(color_width), int(color_height), rs.format.bgr8, int(fps))
         self._config.enable_stream(rs.stream.depth, int(color_width), int(color_height), rs.format.z16, int(fps))

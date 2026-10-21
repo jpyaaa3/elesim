@@ -99,6 +99,12 @@ class ControlClient:
     def torque_off(self) -> None:
         self._send({"t": "torque_off"}, force=True)
 
+    def clear_safety_fault(self) -> None:
+        self._send({"t": "clear_fault"}, force=True)
+
+    def reboot_faulted_motor(self) -> None:
+        self._send({"t": "reboot_faulted_motor"}, force=True)
+
     def request_ports(self) -> None:
         self._send({"t": "ports"}, force=True)
 

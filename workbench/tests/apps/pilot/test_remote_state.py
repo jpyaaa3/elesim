@@ -23,6 +23,63 @@ def test_measured_q_is_the_canonical_control_state() -> None:
     assert snapshot.torque_enabled is True
 
 
+def test_nested_robot_go2_telemetry_reaches_ik_and_sim_mirror_fields():
+    state = RemoteState(SimMappingConfig(), clock=lambda: 10.0)
+    state.peer_connected(True)
+    state.target_changed("robot-go2")
+    state.accept_telemetry({
+        "q": [-0.1, 0.0, 0.0, 0.0],
+        "go2": {
+            "position": [1.0, 2.0, 0.41],
+            "rpy": [0.1, -0.2, 0.3],
+            "linear_velocity_body": [0.01, 0.02, 0.0],
+            "angular_velocity": [0.0, 0.0, 0.04],
+            "timestamp": 9.9,
+            "leg_q": [float(i) / 10 for i in range(12)],
+            "leg_dq": [float(i) / 20 for i in range(12)],
+            "leg_torque_nm": [float(i) for i in range(12)],
+        },
+    })
+
+    snapshot = state.snapshot(tx_seq=0)
+    assert snapshot.go2_base_pos == (1.0, 2.0, 0.41)
+    assert snapshot.go2_base_rpy == (0.1, -0.2, 0.3)
+    assert snapshot.go2_base_lin_vel_body == (0.01, 0.02, 0.0)
+    assert snapshot.go2_base_ang_vel == (0.0, 0.0, 0.04)
+    assert snapshot.go2_base_timestamp_s == 9.9
+    assert snapshot.go2_leg_q == tuple(float(i) / 10 for i in range(12))
+    assert snapshot.go2_leg_dq == tuple(float(i) / 20 for i in range(12))
+    assert snapshot.go2_leg_torque_nm == tuple(float(i) for i in range(12))
+
+
+def test_flat_go2_telemetry_takes_precedence_over_nested_legacy_shape():
+    state = RemoteState(SimMappingConfig(), clock=lambda: 10.0)
+    state.peer_connected(True)
+    state.target_changed("robot-go2")
+    state.accept_telemetry({
+        "go2_base_pos": [4.0, 5.0, 0.6],
+        "go2": {"position": [1.0, 2.0, 0.4], "rpy": [0.0, 0.0, 0.0]},
+    })
+
+    assert state.snapshot(tx_seq=0).go2_base_pos == (4.0, 5.0, 0.6)
+
+
+def test_missing_go2_fields_in_new_robot_snapshot_do_not_reuse_old_pose():
+    state = RemoteState(SimMappingConfig(), clock=lambda: 10.0)
+    state.peer_connected(True)
+    state.target_changed("robot-go2")
+    state.accept_telemetry({"device": "/dev/ttyUSB0", "go2": {
+        "position": [1.0, 2.0, 0.4], "rpy": [0.0, 0.0, 0.0], "leg_q": [0.0] * 12,
+    }})
+    assert state.snapshot(tx_seq=0).go2_base_pos == (1.0, 2.0, 0.4)
+
+    state.accept_telemetry({"device": "/dev/ttyUSB0", "q": [-0.1, 0.0, 0.0, 0.0]})
+    snapshot = state.snapshot(tx_seq=0)
+    assert snapshot.go2_base_pos is None
+    assert snapshot.go2_base_rpy is None
+    assert snapshot.go2_leg_q is None
+
+
 def test_gripper_feedback_survives_operator_snapshot_and_target_switch():
     state = RemoteState(SimMappingConfig(), clock=lambda: 10.0)
     state.peer_connected(True)
@@ -33,6 +90,17 @@ def test_gripper_feedback_survives_operator_snapshot_and_target_switch():
     assert state.snapshot(tx_seq=0).claw_closed is False
     state.target_changed("sim-a")
     assert state.snapshot(tx_seq=0).claw_closed is None
+
+
+def test_estimated_gripper_load_is_separate_from_motor_current():
+    state = RemoteState(SimMappingConfig(), clock=lambda: 10.0)
+    state.peer_connected(True)
+    state.target_changed("robot-a")
+    state.accept_telemetry({"claw_load_permille": 375, "motor_currents_ma": {"1": 120}})
+
+    snapshot = state.snapshot(tx_seq=0)
+    assert snapshot.claw_load_permille == 375
+    assert snapshot.motor_currents_ma == {"1": 120}
 
 
 def test_target_switch_clears_previous_robot_measurements() -> None:

@@ -23,16 +23,50 @@ def test_checked_in_default_config_is_valid() -> None:
     config = load_config(ROOT / "payload/config/robot/default.yaml")
     assert config.dds.security_profile == "trusted-network"
     assert config.camera.topic.startswith("/")
+    assert config.camera.backend == "zed"
+    assert config.camera.right_topic == "/elesim/robot_go2/rgbd/right"
+    assert config.camera.rotate_180 is True
     assert config.safety.command_deadman_s > 0.0
     assert config.go2.network_interface != config.dds.network_interface
     assert config.go2.ros_domain_id != config.dds.domain_id
+
+
+def test_optional_imu_serial_device():
+    raw = yaml.safe_load((ROOT / "payload/config/robot/default.yaml").read_text())
+    raw["runtime"]["imu_device"] = "/dev/serial/by-id/teensy"
+    assert _load_document(raw).imu_device == "/dev/serial/by-id/teensy"
+    raw["runtime"].pop("imu_device")
+    assert _load_document(raw).imu_device == ""
+    for invalid in (True, "ttyACM0", raw["runtime"]["device"]):
+        raw["runtime"]["imu_device"] = invalid
+        with pytest.raises(ValueError, match="imu_device"):
+            _load_document(raw)
+
+
+def test_legacy_camera_config_keeps_realsense_backend():
+    raw = yaml.safe_load((ROOT / "payload/config/robot/default.yaml").read_text())
+    raw["schema_version"] = 4
+    raw["camera"].pop("backend")
+    raw["camera"].pop("right_topic")
+    raw["camera"].pop("rotate_180")
+    camera = _load_document(raw).camera
+    assert camera.backend == "realsense"
+    assert camera.right_topic == ""
+    assert camera.rotate_180 is False
+
+
+def test_unknown_camera_backend_is_rejected_before_hardware_io():
+    raw = yaml.safe_load((ROOT / "payload/config/robot/default.yaml").read_text())
+    raw["camera"]["backend"] = "unknown"
+    with pytest.raises(ValueError, match="camera.backend"):
+        _load_document(raw)
 
 
 @pytest.mark.parametrize("name,value", [
     ("max_linear_m_s", 0), ("max_roll_rad_s", -1),
     ("max_bend_rad_s", float("inf")), ("claw_open_deg", 0),
     ("claw_closed_deg", 360), ("claw_open_deg", 230),
-    ("claw_contact_current_ma", 2500), ("claw_contact_stall_s", 0),
+    ("claw_contact_load_permille", 1001), ("claw_contact_stall_s", 0),
     ("claw_stall_position_ticks", 0),
 ])
 def test_bad_motion_limits_or_claw_calibration_fail_before_motor_io(name, value):
@@ -55,6 +89,8 @@ def test_systemd_accounts_match_the_default_ipc_peer_identities() -> None:
     assert f"SupplementaryGroups={config.go2.ipc_bridge_user}\n" in robot_unit
     assert f"User={config.go2.ipc_bridge_user}\n" in bridge_unit
     assert f"Group={config.go2.ipc_bridge_user}\n" in bridge_unit
+    assert "Type=notify\n" in bridge_unit
+    assert "NotifyAccess=main\n" in bridge_unit
 
 
 def test_public_config_uses_sros2_and_static_vpn_discovery() -> None:
@@ -74,11 +110,11 @@ def test_unknown_top_level_section_is_rejected() -> None:
 
 def test_unknown_nested_key_is_rejected() -> None:
     with pytest.raises(ValueError, match="unknown arm config keys"):
-        _load_document({"schema_version": 4, "arm": {"typo_current_limit": 10}})
+        _load_document({"schema_version": 5, "arm": {"typo_current_limit": 10}})
 
 
-@pytest.mark.parametrize("schema", (None, 0, 1, 2, 3, 5, "4"))
-def test_schema_version_must_be_exactly_four(schema: object) -> None:
+@pytest.mark.parametrize("schema", (None, 0, 1, 2, 3, 6, "5"))
+def test_schema_version_must_be_supported(schema: object) -> None:
     with pytest.raises(ValueError, match="schema_version"):
         _load_document({"schema_version": schema})
 
@@ -87,7 +123,7 @@ def test_invalid_safety_bounds_are_rejected() -> None:
     with pytest.raises(ValueError, match="command_deadman_s"):
         _load_document(
             {
-                "schema_version": 4,
+                "schema_version": 5,
                 "safety": {"command_deadman_s": 0.0},
             }
         )
@@ -168,7 +204,7 @@ def test_active_go2_requires_a_separate_dds_graph(
     with pytest.raises(ValueError, match=error):
         _load_document(
             {
-                "schema_version": 4,
+                "schema_version": 5,
                 "runtime": {"use_go2": True},
                 "dds": dds,
                 "go2": go2,
@@ -179,9 +215,20 @@ def test_active_go2_requires_a_separate_dds_graph(
 def test_disabled_go2_does_not_require_network_separation() -> None:
     config = _load_document(
         {
-            "schema_version": 4,
+            "schema_version": 5,
             "runtime": {"use_go2": False},
             "go2": {"enabled": True},
         }
     )
     assert config.use_go2 is False
+
+
+def test_v4_config_ignores_legacy_claw_current_threshold() -> None:
+    config = _load_document(
+        {
+            "schema_version": 4,
+            "arm": {"claw_contact_current_ma": 800},
+            "runtime": {"use_go2": False},
+        }
+    )
+    assert config.arm.claw_contact_load_permille == 250

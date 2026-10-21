@@ -35,7 +35,7 @@ class _ArmConfig(ctypes.Structure):
         ("profile_velocity", ctypes.c_int32 * 5),
         ("profile_acceleration", ctypes.c_int32 * 5),
         ("current_limit_ma", ctypes.c_int32),
-        ("claw_contact_current_ma", ctypes.c_int32),
+        ("claw_contact_load_permille", ctypes.c_int32),
         ("claw_stall_position_ticks", ctypes.c_int32),
         ("read_failure_limit", ctypes.c_int32),
         ("monitor_period_s", ctypes.c_double),
@@ -54,6 +54,7 @@ class _ArmSnapshot(ctypes.Structure):
         ("sampled_monotonic_s", ctypes.c_double),
         ("ticks", ctypes.c_int32 * 5),
         ("currents_ma", ctypes.c_int32 * 5),
+        ("claw_load_permille", ctypes.c_int32),
         ("torque_enabled", ctypes.c_int32),
         ("read_failures", ctypes.c_int32),
         ("valid", ctypes.c_int32),
@@ -100,6 +101,7 @@ class NativeArmState:
     sampled_at: float
     ticks: dict[int, int]
     currents_ma: dict[int, int]
+    claw_load_permille: int
     torque_enabled: bool
     read_failures: int
     fault: str
@@ -132,7 +134,7 @@ def _native_config(
             hardware.profile_acc_claw,
         ),
         int(hardware.current_limit_ma),
-        int(hardware.claw_contact_current_ma),
+        int(hardware.claw_contact_load_permille),
         int(hardware.claw_stall_position_ticks),
         int(safety.read_failure_limit),
         float(safety.monitor_period_s),
@@ -185,7 +187,7 @@ def _load_library(path: Path | None = None) -> ctypes.CDLL:
         raise RuntimeError("Robot C++ arm ABI mismatch; rebuild the native controller")
     abi.argtypes = []
     abi.restype = ctypes.c_int
-    if abi() != 3:
+    if abi() != 5:
         raise RuntimeError("Robot C++ arm ABI mismatch; rebuild the native controller")
     pointer = ctypes.c_void_p
     error = ctypes.c_void_p
@@ -215,6 +217,10 @@ def _load_library(path: Path | None = None) -> ctypes.CDLL:
     library.elesim_arm_command_claw.restype = ctypes.c_int
     library.elesim_arm_snapshot.argtypes = [pointer, ctypes.POINTER(_ArmSnapshot), error, size]
     library.elesim_arm_snapshot.restype = ctypes.c_int
+    library.elesim_arm_reboot_faulted_motor.argtypes = [
+        pointer, ctypes.POINTER(ctypes.c_int32), error, size,
+    ]
+    library.elesim_arm_reboot_faulted_motor.restype = ctypes.c_int
     library.elesim_arm_destroy.argtypes = [pointer]
     library.elesim_arm_destroy.restype = None
     library.elesim_arm_map_q.argtypes = [
@@ -312,6 +318,11 @@ class NativeArm:
     def clear_fault(self) -> None:
         self._call("elesim_arm_clear_fault")
 
+    def reboot_faulted_motor(self) -> int:
+        motor_id = ctypes.c_int32()
+        self._call("elesim_arm_reboot_faulted_motor", ctypes.byref(motor_id))
+        return int(motor_id.value)
+
     def snapshot(self) -> NativeArmState:
         if not self._handle:
             raise RuntimeError("Robot C++ arm controller is closed")
@@ -322,7 +333,8 @@ class NativeArm:
         return NativeArmState(
             sampled_at=float(result.sampled_monotonic_s),
             ticks={key: int(result.ticks[index]) for index, key in enumerate(MOTOR_IDS)},
-            currents_ma={key: int(result.currents_ma[index]) for index, key in enumerate(MOTOR_IDS)},
+            currents_ma={key: int(result.currents_ma[index]) for index, key in enumerate(MOTOR_IDS[:4])},
+            claw_load_permille=int(result.claw_load_permille),
             torque_enabled=bool(result.torque_enabled),
             read_failures=int(result.read_failures),
             fault=fault.value.decode("utf-8", errors="replace"),

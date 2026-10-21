@@ -102,6 +102,10 @@ class FakeNativeArm(FakeArm):
     def __init__(self) -> None:
         super().__init__()
         self.selected_models: list[tuple[str, int]] = []
+        self.native_fault = ""
+        self.rebooted_motor_ids: list[int] = []
+        self.reboot_error: Exception | None = None
+        self.clear_fault_error: Exception | None = None
 
     def select_imu_model(self, model) -> None:
         self.selected_models.append((model.model_id, model.version))
@@ -110,9 +114,22 @@ class FakeNativeArm(FakeArm):
         return SimpleNamespace(
             sampled_at=100.0, ticks=dict(self.positions),
             currents_ma={key: 0 for key in self.ids},
-            torque_enabled=False, read_failures=0, fault="", valid=False,
+            claw_load_permille=0,
+            torque_enabled=False, read_failures=0, fault=self.native_fault, valid=False,
             model_id="identity", model_version=1, imu_valid=False,
         )
+
+    def reboot_faulted_motor(self) -> int:
+        if self.reboot_error is not None:
+            raise self.reboot_error
+        self.rebooted_motor_ids.append(5)
+        self.native_fault = ""
+        return 5
+
+    def clear_fault(self) -> None:
+        if self.clear_fault_error is not None:
+            raise self.clear_fault_error
+        self.native_fault = ""
 
 
 class FakeGo2:
@@ -350,6 +367,77 @@ def test_safety_fault_is_latched_and_blocks_torque_on() -> None:
 
     assert value.apply(command({"command": "torque_on"})) == (False, "safety_fault_latched")
     assert arm.torque_on_count == 0
+
+
+def test_motor_reboot_requires_latched_fault_and_torque_off_then_keeps_torque_off():
+    value, _arm = runtime()
+    arm = FakeNativeArm()
+    value.hw = arm
+    value.grant_lease("pilot-a", "lease-a")
+    value.safety_fault = (
+        "hardware telemetry unavailable: Dynamixel ID 5: "
+        "[RxPacketError] Hardware error occurred."
+    )
+    arm.native_fault = value.safety_fault
+
+    assert value.apply(command({"command": "reboot_faulted_motor"})) == (
+        True, "motor_id_5_rebooted; torque_off_verified"
+    )
+    assert arm.rebooted_motor_ids == [5]
+    assert value.safety_fault == ""
+    assert value.torque_enabled is False
+
+
+def test_motor_reboot_is_rejected_while_torque_is_enabled_or_without_fault():
+    value, _arm = runtime()
+    arm = FakeNativeArm()
+    value.hw = arm
+    value.grant_lease("pilot-a", "lease-a")
+    value.safety_fault = "hardware error"
+    value.torque_enabled = True
+    assert value.apply(command({"command": "reboot_faulted_motor"})) == (
+        False, "torque_must_be_off"
+    )
+    assert arm.rebooted_motor_ids == []
+
+
+def test_clear_safety_fault_requires_torque_off_and_leaves_torque_off():
+    value, _ = runtime()
+    arm = FakeNativeArm()
+    value.hw = arm
+    value.grant_lease("pilot-a", "lease-a")
+    value.safety_fault = "motor current limit exceeded: ID 1"
+    arm.native_fault = value.safety_fault
+
+    assert value.apply(command({"command": "clear_fault"})) == (True, "fault_cleared")
+    assert value.safety_fault == ""
+    assert value.torque_enabled is False
+    assert arm.torque_on_count == 0
+
+
+def test_clear_safety_fault_reports_failed_current_health_check_and_keeps_latch():
+    value, _ = runtime()
+    arm = FakeNativeArm()
+    arm.clear_fault_error = RuntimeError("motor current limit exceeded: ID 1")
+    value.hw = arm
+    value.grant_lease("pilot-a", "lease-a")
+    value.safety_fault = "motor current limit exceeded: ID 1"
+    arm.native_fault = value.safety_fault
+
+    ok, reason = value.apply(command({"command": "clear_fault"}))
+
+    assert not ok
+    assert "safety fault clear failed" in reason
+    assert value.safety_fault == "motor current limit exceeded: ID 1"
+    assert value.torque_enabled is False
+    assert arm.torque_on_count == 0
+
+    value.torque_enabled = False
+    value.safety_fault = ""
+    assert value.apply(command({"command": "reboot_faulted_motor",}, seq=3)) == (
+        False, "no_safety_fault_latched"
+    )
+    assert arm.rebooted_motor_ids == []
 
 
 def test_go2_velocity_deadman_is_not_extended_by_unrelated_arm_commands() -> None:

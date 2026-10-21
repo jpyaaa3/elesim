@@ -4,6 +4,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import replace
@@ -17,6 +18,7 @@ from elesim_robot.go2.odom_parser import OdomSample
 from elesim_robot.go2.unitree_bridge_daemon import (
     _apply_unitree_environment,
     _ensure_workspace_environment,
+    _notify_systemd_ready,
     _source_workspace_environment,
 )
 from elesim_robot.go2.unitree_ipc import (
@@ -237,6 +239,122 @@ def test_unitree_workspace_environment_is_reexeced_for_native_loader_paths(
     assert environment["LD_LIBRARY_PATH"] == "/unitree/lib"
     assert environment["ELESIM_UNITREE_WORKSPACE_READY"] == str(setup)
     assert captured["argv"][-2:] == ["--config", str(config)]
+
+
+def test_unitree_workspace_sources_colcon_scripts_with_unset_optional_variables(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = tmp_path / "install/setup.bash"
+    setup.parent.mkdir()
+    setup.write_text(
+        'export UNITREE_TEST_PREFIX="${UNITREE_TEST_OPTIONAL_PREFIX}/overlay"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("UNITREE_TEST_OPTIONAL_PREFIX", raising=False)
+    monkeypatch.delenv("UNITREE_TEST_PREFIX", raising=False)
+
+    _source_workspace_environment(str(tmp_path))
+
+    assert os.environ["UNITREE_TEST_PREFIX"] == "/overlay"
+
+
+def test_unitree_workspace_source_failure_is_not_hidden_by_environment_dump(
+    tmp_path: Path,
+) -> None:
+    setup = tmp_path / "install/setup.bash"
+    setup.parent.mkdir()
+    setup.write_text("return 42\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="failed to source Unitree workspace"):
+        _source_workspace_environment(str(tmp_path))
+
+
+def test_systemd_ready_notification_uses_the_notify_socket(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory(prefix="elesim-notify-", dir="/tmp") as directory:
+        address = str(Path(directory) / "notify.sock")
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as receiver:
+            receiver.bind(address)
+            receiver.settimeout(1.0)
+            monkeypatch.setenv("NOTIFY_SOCKET", address)
+            _notify_systemd_ready()
+            assert receiver.recv(128) == b"READY=1"
+
+
+def test_ready_notification_is_optional_outside_systemd(monkeypatch) -> None:
+    monkeypatch.delenv("NOTIFY_SOCKET", raising=False)
+    _notify_systemd_ready()
+
+
+def test_arm_only_daemon_reports_ready_without_starting_unitree(monkeypatch) -> None:
+    from types import SimpleNamespace
+    from elesim_robot.go2 import unitree_bridge_daemon as daemon
+
+    events = []
+    class Stopping:
+        def wait(self, _timeout):
+            events.append("wait")
+            return True
+
+    monkeypatch.setattr(sys, "argv", ["bridge", "--config", "/unused.yaml"])
+    monkeypatch.setattr(daemon.signal, "signal", lambda *_args: None)
+    monkeypatch.setattr(daemon.threading, "Event", Stopping)
+    monkeypatch.setattr(daemon, "load_config", lambda _path: SimpleNamespace(
+        use_go2=False, go2=SimpleNamespace(is_active=lambda **_kwargs: False),
+    ))
+    monkeypatch.setattr(daemon, "_notify_systemd_ready", lambda: events.append("ready"))
+    daemon._run()
+    assert events == ["ready", "wait"]
+
+
+def test_bridge_reports_ready_only_after_backend_start_and_listen(tmp_path) -> None:
+    config, safety = _settings(tmp_path / "bridge.sock")
+    release = threading.Event()
+    ready = threading.Event()
+    stop = threading.Event()
+
+    class DelayedBackend(FakeBackend):
+        def start(self):
+            super().start()
+            assert release.wait(5.0)
+
+    backend = DelayedBackend()
+    def on_ready():
+        with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as probe:
+            probe.connect(config.ipc_socket_path)
+        ready.set()
+
+    server = UnitreeBridgeServer(
+        config, safety, backend, expected_client_uid=os.getuid(), on_ready=on_ready,
+    )
+    thread = threading.Thread(target=server.serve_forever, args=(stop,), daemon=True)
+    thread.start()
+    try:
+        assert backend.started.wait(1.0)
+        assert not ready.is_set()
+        assert not Path(config.ipc_socket_path).exists()
+        release.set()
+        assert ready.wait(2.0)
+    finally:
+        release.set()
+        _stop_server(stop, thread)
+
+
+def test_backend_start_failure_does_not_report_ready(tmp_path) -> None:
+    config, safety = _settings(tmp_path / "bridge.sock")
+    ready = threading.Event()
+    class FailedBackend(FakeBackend):
+        def start(self):
+            raise RuntimeError("backend start failed")
+
+    server = UnitreeBridgeServer(
+        config, safety, FailedBackend(), expected_client_uid=os.getuid(),
+        on_ready=ready.set,
+    )
+    with pytest.raises(RuntimeError, match="backend start failed"):
+        server.serve_forever()
+    assert not ready.is_set()
+    assert not Path(config.ipc_socket_path).exists()
 
 
 def test_client_server_commands_and_latest_only_telemetry(tmp_path: Path) -> None:

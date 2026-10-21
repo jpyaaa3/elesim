@@ -89,6 +89,21 @@ def connection() -> tuple[PilotConnection, StateSink, Endpoint]:
     return value, sink, endpoint
 
 
+def test_reader_diagnostics_require_selected_target_and_recent_telemetry(monkeypatch):
+    import elesim_pilot.connection as module
+    now = [10.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: now[0])
+    value, sink, endpoint = connection()
+    value.active_target = "robot-a"
+    reader = {"schema_version": 1, "connected": True, "sensors": {}}
+    value.handle_envelope(endpoint, envelope("telemetry", {"imu_reader": reader}, source_id="robot-b"))
+    assert value.imu_model_status()["reader"] == {}
+    value.handle_envelope(endpoint, envelope("telemetry", {"imu_reader": reader}, source_id="robot-a"))
+    assert value.imu_model_status()["reader"] == reader
+    now[0] += 1.1
+    assert value.imu_model_status()["reader"] == {}
+
+
 def test_trajectory_send_is_fenced_at_send_and_never_queued():
     value, sink, endpoint = connection()
     value.active_target, value.lease_id = "robot-a", "lease-a"
@@ -466,3 +481,41 @@ def test_invalid_operator_result_does_not_escape_the_connection_thread() -> None
     assert kwargs["payload"]["ok"] is False
     assert "non-finite" in kwargs["payload"]["error"]
     assert sink.errors
+
+
+def test_pilot_advertises_both_stereo_rgbd_broker_streams() -> None:
+    captured = {}
+    value = PilotConnection(
+        pilot_id="pilot-a",
+        initial_target="robot-a",
+        mapping=SimMappingConfig(),
+        state_sink=StateSink(),
+        rgbd_topic="/elesim/pilot-a/rgbd/frame",
+        rgbd_right_topic="/elesim/pilot-a/rgbd/right",
+    )
+
+    class StopAfterStartupEndpoint:
+        registered = False
+
+        def __init__(self, descriptor, **_kwargs):
+            captured["descriptor"] = descriptor
+            self.identity = type("Identity", (), {"boot_id": "pilot-boot"})()
+
+        def heartbeat(self):
+            pass
+
+        def receive(self, *, timeout_ms):
+            del timeout_ms
+            value.stop_event.set()
+            return ()
+
+        def close(self):
+            pass
+
+    value.endpoint_factory = StopAfterStartupEndpoint
+    value._run()
+
+    streams = captured["descriptor"].streams
+    assert streams["rgbd"].endpoint == "/elesim/pilot-a/rgbd/frame"
+    assert streams["rgbd_right"].endpoint == "/elesim/pilot-a/rgbd/right"
+    assert streams["rgbd_right"].format == "encoded-rgbd-v1"

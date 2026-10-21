@@ -5,6 +5,13 @@ Jetson Robot의 세 경계를 갖는다. 설치·로컬 lifecycle은
 [`setup.md`](setup.md), 프로세스 계약은 [`architecture.md`](architecture.md)를
 참조한다.
 
+Native Robot에서 ZED Mini를 사용할 때는 `camera.backend: zed`와 해당
+JetPack용 ZED SDK 및 SDK 버전에 맞는 `pyzed.sl`이 필요하다. SDK는 Robot의
+카메라 자식 프로세스에서만 로드하며 일반 Python wheel에 포함하지 않는다.
+USB 3 영상 장치가 실제로 AVAILABLE인지 확인해야 한다. HID 장치만 보이는
+상태는 영상 연결 성공이 아니다. 기존 RealSense 설치는
+`camera.backend: realsense`를 사용한다.
+
 ## 1. 릴리스 산출물
 
 저장소 루트에서 release context를 만든다.
@@ -399,6 +406,24 @@ Bridge는 `elesim-unitree` account로 private NIC/domain(기본 `eth0`, domain
 `1`)에 bind한다. Robot은 inter-host DDS/VPN interface에 bind한다. 두 경계는
 `/run/elesim-unitree/bridge.sock`의 bounded `SOCK_SEQPACKET`이며, Unitree
 topics를 Tailscale/LAN으로 노출하지 않는다.
+
+Bridge unit의 `Type=notify`는 ROS 초기화와 IPC socket listen이 완료된 뒤의
+`READY=1`을 기다린다. Robot은 그 뒤 시작하므로 `Type=simple`에서 발생했던
+socket 생성 전 연결 실패와 두 unit의 반복 재시작을 피한다. GO2 비활성화
+설정에서도 준비 완료를 알리므로 팔 전용 Robot이 대기 상태에 갇히지 않는다.
+
+기본 NIC/domain이 실제 기기의 값이라는 뜻은 아니다. 설치 시
+`ELESIM_UNITREE_INTERFACE`, `ELESIM_UNITREE_DOMAIN_ID`,
+`ELESIM_UNITREE_ROS2_WS`로 지정하며 기존 설치의 실행 값은 Robot 설정의
+`go2.network_interface`, `go2.ros_domain_id`, `go2.ros_workspace`다.
+2026-10-20에 확인한 idim Jetson–GO2 연결은 `eno1 / domain 0`에서만
+`/sportmodestate`와 `/lowstate`가 수신됐다. 이 호스트의 EleSim은 별도의
+`tailscale0 / domain 68`을 사용한다. ping 성공과 bridge unit의 active
+상태만으로 기기 telemetry 수신을 판정하지 않는다.
+
+Unitree daemon은 colcon/ament overlay를 nounset 없이 읽되 source 실패는
+거부한다. 갱신된 loader 경로는 기존 재실행 경로로 적용하므로 wrapper에서
+`COLCON_TRACE` 등 내부 변수를 임의로 정의할 필요가 없다.
 
 `dist/releases/robot`은 standalone/manual artifact다. Managed connection
 topology에는 native setup으로 생성한 prefix와 두 unit을 사용하고, standalone

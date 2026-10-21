@@ -47,6 +47,11 @@ class ProtocolMappingTests(unittest.TestCase):
         self.assertEqual(msg["q"]["roll_rad"], 0.4)
         self.assertEqual(msg["sim_q"]["roll_rad"], 0.1)
 
+    def test_pack_state_keeps_gripper_load_separate_from_current(self) -> None:
+        msg = pack_state(claw_load_permille=375, motor_currents_ma={"1": 120})
+        self.assertEqual(msg["claw_load_permille"], 375)
+        self.assertEqual(msg["motor_currents_ma"], {"1": 120})
+
 
 if __name__ == "__main__":
     unittest.main()

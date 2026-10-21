@@ -45,15 +45,16 @@ class FixturePlanner:
         self.model = _ReachModel(context=c, limit=c["limit"])
         self.bounds = np.asarray(json.loads((Path(model_dir)/"metadata.json").read_text())["q_bounds"])
 
-    def solve_position(self, target, **kwargs):
-        assert np.linalg.norm(self.model.grasp_position(GOAL)-target) < 1e-6
-        return GOAL
-
     def forward(self, q):
         return {"position": self.model.grasp_position(q).tolist()}
 
-    def plan_joint(self, start, goal):
-        return NS(positions=np.linspace(start, goal, 11), dt_s=.05)
+    def plan_to_target(self, start, object_center, **kwargs):
+        approach = self.model.grasp_position(GOAL)
+        assert np.linalg.norm(approach-object_center) < 1e-6
+        return GOAL, NS(positions=np.linspace(start, GOAL, 11), dt_s=.05), approach
+
+    def validate_path(self, positions, **kwargs):
+        assert len(positions) >= 2
 
 
 class FixtureService:

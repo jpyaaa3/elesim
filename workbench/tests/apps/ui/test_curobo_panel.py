@@ -44,3 +44,118 @@ def test_request_error_is_kept_after_callback_and_other_snapshots():
     callbacks["on_error"]("Robot not connected")
     assert not panel._curobo_action["pending"]
     assert panel._curobo_action["error"] == "Robot not connected"
+
+
+@pytest.mark.parametrize("current_xyz", [
+    None,
+    [],
+    [0.1, 0.2],
+    [0.1, 0.2, float("nan")],
+    "0.1,0.2,0.3",
+])
+def test_use_current_xyz_ignores_missing_or_invalid_pose(monkeypatch, current_xyz):
+    disabled_messages = []
+    targets = []
+    no_op = lambda *args, **kwargs: None
+    monkeypatch.setattr(ik, "begin_disabled_ui", lambda _disabled: None)
+    monkeypatch.setattr(ik, "end_disabled_ui", no_op)
+    monkeypatch.setattr(ik, "imgui", NS(
+        separator=no_op,
+        text=no_op,
+        text_disabled=lambda value: disabled_messages.append(str(value)),
+        text_wrapped=no_op,
+        same_line=no_op,
+        # Simulate a backend that reports the click even though the control is
+        # drawn in a disabled block; the handler must still reject bad data.
+        button=lambda label: label == "Use current XYZ",
+    ))
+    status = {"available": True, "phase": "idle", "current_xyz": current_xyz}
+    panel = NS(
+        service=NS(session=NS(service_value=lambda *_args: status)),
+        state=NS(set_target=lambda *xyz: targets.append(xyz)),
+    )
+
+    ik._draw_curobo(panel)
+
+    assert targets == []
+    assert any("measured pose unavailable" in message for message in disabled_messages)
+
+
+def test_use_current_xyz_copies_a_valid_measured_pose(monkeypatch):
+    targets = []
+    no_op = lambda *args, **kwargs: None
+    monkeypatch.setattr(ik, "begin_disabled_ui", lambda _disabled: None)
+    monkeypatch.setattr(ik, "end_disabled_ui", no_op)
+    monkeypatch.setattr(ik, "imgui", NS(
+        separator=no_op,
+        text=no_op,
+        text_disabled=no_op,
+        text_wrapped=no_op,
+        same_line=no_op,
+        button=lambda label: label == "Use current XYZ",
+    ))
+    status = {"available": True, "phase": "idle", "current_xyz": [0.1, -0.2, 0.3]}
+    panel = NS(
+        service=NS(session=NS(service_value=lambda *_args: status)),
+        state=NS(set_target=lambda *xyz: targets.append(xyz)),
+    )
+
+    ik._draw_curobo(panel)
+
+    assert targets == [(0.1, -0.2, 0.3)]
+
+
+def test_settling_status_displays_axis_residual_from_final_goal(monkeypatch):
+    messages = []
+    no_op = lambda *args, **kwargs: None
+    monkeypatch.setattr(ik, "begin_disabled_ui", lambda _disabled: None)
+    monkeypatch.setattr(ik, "end_disabled_ui", no_op)
+    monkeypatch.setattr(ik, "imgui", NS(
+        separator=no_op,
+        text=lambda value: messages.append(str(value)),
+        text_disabled=lambda value: messages.append(str(value)),
+        text_wrapped=lambda value: messages.append(str(value)),
+        same_line=no_op,
+        button=lambda _label: False,
+    ))
+    status = {
+        "available": True,
+        "phase": "settling",
+        "tracking": {"error": [0.001, 0.01, 0., 0.],
+                     "goal_error": [0.004, 0.08, 0.01, 0.]},
+    }
+    panel = NS(service=NS(session=NS(service_value=lambda *_args: status)))
+
+    ik._draw_curobo(panel)
+
+    assert any("Goal residual: Linear 4.00 mm" in value for value in messages)
+    assert any("limit 8 mm / 0.12 rad" in value for value in messages)
+
+
+def test_target_status_shows_object_and_planned_claw_centers(monkeypatch):
+    messages = []
+    no_op = lambda *args, **kwargs: None
+    monkeypatch.setattr(ik, "begin_disabled_ui", lambda _disabled: None)
+    monkeypatch.setattr(ik, "end_disabled_ui", no_op)
+    monkeypatch.setattr(ik, "imgui", NS(
+        separator=no_op,
+        text=lambda value: messages.append(str(value)),
+        text_disabled=lambda value: messages.append(str(value)),
+        text_wrapped=lambda value: messages.append(str(value)),
+        same_line=no_op,
+        button=lambda _label: False,
+    ))
+    status = {
+        "available": True,
+        "phase": "ready",
+        "target_xyz": [.12, -.01, .5],
+        "planned_xyz": [.12, -.01, .5],
+    }
+    panel = NS(service=NS(session=NS(service_value=lambda *_args: status)))
+
+    ik._draw_curobo(panel)
+
+    assert any("between the open claws" in value for value in messages)
+    assert any("Object center XYZ: 0.1200, -0.0100, 0.5000 m" in value for value in messages)
+    assert any("Planned claw-center XYZ: 0.1200, -0.0100, 0.5000 m" in value
+               for value in messages)

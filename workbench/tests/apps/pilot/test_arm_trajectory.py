@@ -58,13 +58,82 @@ def test_plan_is_not_motion_and_execute_consumes_once(rig):
         rig.c.telemetry_received_at = rig.time[0]
         r.tick()
     assert r.status()["phase"] == "settling"
-    rig.time[0] = r._next_at
     rig.h.q = SimQ(-.0996, 0., 0., 0.)
-    r.tick()
+    for _ in range(3):
+        rig.time[0] = r._next_at
+        rig.c.telemetry_received_at = rig.time[0]
+        r.tick()
     assert r.status()["phase"] == "completed"
-    assert len(rig.sent) == 3
+    assert len(rig.sent) == 5
     with pytest.raises(RuntimeError, match="unconsumed"):
         r.execute_arm_trajectory("plan")
+
+
+def test_final_goal_accepts_stable_feedback_inside_path_tracking_limit(rig):
+    r = rig.r
+    r.execute_arm_trajectory("plan")
+    for _ in range(3):
+        rig.time[0] = r._next_at
+        rig.c.telemetry_received_at = rig.time[0]
+        r.tick()
+    assert r._phase == "settling"
+
+    # This residual is larger than the old 1 mm / 0.015 rad completion gate,
+    # but remains within the 8 mm / 0.12 rad tracking bound used along the path.
+    rig.h.q = SimQ(-.0936, .10, 0., 0.)
+    for _ in range(3):
+        rig.time[0] = r._next_at
+        rig.c.telemetry_received_at = rig.time[0]
+        r.tick()
+    assert r._phase == "completed"
+    np.testing.assert_allclose(r._tracking["goal_error"], [.006, .10, 0., 0.])
+
+
+def test_execute_tolerates_measured_go2_pose_jitter(rig):
+    # Jetson stationary samples show sub-mm / 0.1 degree base pose variation.
+    current = np.eye(4)
+    angle = np.deg2rad(0.1)
+    current[:3, :3] = [[np.cos(angle), -np.sin(angle), 0.],
+                       [np.sin(angle), np.cos(angle), 0.],
+                       [0., 0., 1.]]
+    current[:3, 3] = [0.001, 0., 0.]
+    rig.r._context = lambda _host: {"base_world_T": current}
+
+    assert rig.r.execute_arm_trajectory("plan")["phase"] == "executing"
+    assert not rig.sent  # Execute acceptance itself does not send a waypoint.
+
+
+@pytest.mark.parametrize("translation_m,angle_deg", [
+    (0.003, 0.0),
+    (0.0, 0.5),
+])
+def test_execute_still_rejects_meaningful_arm_base_motion(rig, translation_m, angle_deg):
+    current = np.eye(4)
+    angle = np.deg2rad(angle_deg)
+    current[:3, :3] = [[np.cos(angle), -np.sin(angle), 0.],
+                       [np.sin(angle), np.cos(angle), 0.],
+                       [0., 0., 1.]]
+    current[0, 3] = translation_m
+    rig.r._context = lambda _host: {"base_world_T": current}
+
+    with pytest.raises(RuntimeError, match=r"arm base moved; replan.*translation .*rotation"):
+        rig.r.execute_arm_trajectory("plan")
+    assert not rig.sent
+
+
+def test_execution_cancels_if_arm_base_moves_beyond_jitter_window(rig):
+    rig.r.execute_arm_trajectory("plan")
+    current = np.eye(4)
+    current[0, 3] = 0.003
+    rig.r._context = lambda _host: {"base_world_T": current}
+
+    rig.r.tick()
+
+    assert rig.r.status()["phase"] == "failed"
+    assert "arm base moved; replan" in rig.r.status()["reason"]
+    assert "3.00 mm / 2.00 mm" in rig.r.status()["reason"]
+    assert not rig.sent
+    assert rig.released == [("robot", "boot", "lease")]
 
 
 @pytest.mark.parametrize("change,reason", [
@@ -85,8 +154,67 @@ def test_execution_rechecks_prepared_state_without_sending(rig, change, reason):
     assert not rig.sent
 
 
+def test_go2_arm_planning_requires_measured_go2_pose_and_leg_state(rig):
+    rig.r.service._go2_arm_mount = object()
+    with pytest.raises(RuntimeError, match="body position and orientation"):
+        rig.r._feedback()
+
+    rig.h.go2_base_pos = (0.0, 0.0, 0.4)
+    rig.h.go2_base_rpy = (0.0, 0.0, 0.0)
+    with pytest.raises(RuntimeError, match="12-joint GO2 state"):
+        rig.r._feedback()
+
+    rig.h.go2_leg_q = (0.0,) * 12
+    assert rig.r._feedback() is rig.h
+
+
+def test_go2_stationary_gate_tolerates_imu_bias_but_rejects_motion(rig):
+    rig.r.service._go2_arm_mount = object()
+    rig.h.go2_base_pos = (0.0, 0.0, 0.4)
+    rig.h.go2_base_rpy = (0.0, 0.0, 0.0)
+    rig.h.go2_leg_q = (0.0,) * 12
+    rig.h.go2_base_lin_vel_body = (1e-7, -2e-7, 1e-7)
+    # This is the gyro noise measured while the real GO2 is standing still.
+    rig.h.go2_base_ang_vel = (-0.018, 0.021, -0.014)
+    assert rig.r._feedback() is rig.h
+
+    rig.h.go2_base_ang_vel = (0.0, 0.0, 0.051)
+    with pytest.raises(RuntimeError, match=r"angular speed 0\.0510 rad/s.*limit 0\.0500"):
+        rig.r._feedback()
+
+    rig.h.go2_base_ang_vel = (0.0, 0.0, 0.0)
+    rig.h.go2_base_lin_vel_body = (0.011, 0.0, 0.0)
+    with pytest.raises(RuntimeError, match=r"linear speed 0\.0110 m/s.*limit 0\.0100"):
+        rig.r._feedback()
+
+
+def test_status_reports_current_xyz_while_go2_is_moving(monkeypatch, rig):
+    class ReachModel:
+        def __init__(self, *, context, limit):
+            assert context["base_world_T"] is not None
+
+        def grasp_position(self, q):
+            return np.array([0.12, -0.01, 0.50])
+
+    monkeypatch.setattr("elesim_pilot.arm_trajectory._ReachModel", ReachModel)
+    rig.r._context = lambda _host: {"base_world_T": np.eye(4), "limit": object()}
+    rig.r.service._go2_arm_mount = object()
+    rig.h.go2_base_pos = (0.0, 0.0, 0.4)
+    rig.h.go2_base_rpy = (0.0, 0.0, 0.0)
+    rig.h.go2_leg_q = (0.0,) * 12
+    rig.h.go2_base_lin_vel_body = (0.02, 0.0, 0.0)
+    rig.h.go2_base_ang_vel = (0.0, 0.0, 0.0)
+
+    status = rig.r.status()
+
+    assert "linear speed 0.0200 m/s" in status["blocked_reason"]
+    assert status["can_plan"] is False
+    assert status["current_xyz"] == [0.12, -0.01, 0.50]
+
+
 @pytest.mark.parametrize("change,reason", [
-    (lambda x: x.time.__setitem__(0, 10.2), "scheduling overrun"),
+    (lambda x: (x.time.__setitem__(0, 10.4), setattr(x.c, "telemetry_received_at", 10.4)),
+     "control loop stalled"),
     (lambda x: setattr(x.h, "q", SimQ(-.11, 0., 0., 0.)), "tracking error"),
     (lambda x: setattr(x.c, "telemetry_received_at", 9.), "fresh measured"),
     (lambda x: setattr(x.h, "torque_enabled", False), "Torque"),
@@ -100,6 +228,20 @@ def test_execution_cancels_on_feedback_route_and_deadline_failure(rig, change, r
     assert reason in rig.r.status()["reason"]
     assert not rig.sent
     assert rig.released == [("robot", "boot", "lease")]
+
+
+def test_short_scheduler_delay_rebases_clock_without_skipping_waypoints(rig):
+    rig.r.execute_arm_trajectory("plan")
+    rig.time[0] += 0.15
+    rig.c.telemetry_received_at = rig.time[0]
+
+    rig.r.tick()
+
+    assert rig.r.status()["phase"] == "executing"
+    assert rig.r._index == 1
+    assert rig.r._next_at == pytest.approx(rig.time[0] + 0.05)
+    assert len(rig.sent) == 1
+    assert not rig.released
 
 
 def test_operator_interlock_preserves_stop_without_torque_on(rig):
@@ -116,6 +258,15 @@ def test_operator_interlock_preserves_stop_without_torque_on(rig):
     assert rig.r.status()["phase"] == "cancelled"
 
 
+def test_motor_recovery_cancels_trajectory_without_releasing_robot_lease(rig):
+    rig.r.execute_arm_trajectory("plan")
+
+    rig.r.guard_operator("service_call", "reboot_faulted_motor")
+
+    assert rig.r.status()["phase"] == "cancelled"
+    assert rig.released == []
+
+
 def test_cancel_discards_late_cuda_result(rig):
     rig.r._phase = "planning"
     generation = rig.r._generation
@@ -124,6 +275,209 @@ def test_cancel_discards_late_cuda_result(rig):
     rig.r.tick()
     assert rig.r.status()["phase"] == "cancelled"
     assert not rig.sent
+
+
+def test_cancel_terminates_cuda_process_and_unblocks_next_plan(rig):
+    class Process:
+        exitcode = -15
+
+        def __init__(self):
+            self.alive = True
+            self.terminated = False
+
+        def is_alive(self):
+            return self.alive
+
+        def terminate(self):
+            self.terminated = True
+            self.alive = False
+
+        def join(self, timeout=None):
+            pass
+
+        def close(self):
+            pass
+
+    class Channel:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    process, channel = Process(), Channel()
+    rig.r._phase = "planning"
+    rig.r._cuda_process, rig.r._cuda_connection = process, channel
+
+    status = rig.r.cancel_arm_trajectory()
+
+    assert process.terminated
+    assert channel.closed
+    assert status["phase"] == "cancelled"
+    assert status["can_plan"] is True
+
+
+def test_cancel_keeps_planning_blocked_if_cuda_process_will_not_exit(rig):
+    class StuckProcess:
+        exitcode = None
+
+        def is_alive(self):
+            return True
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+
+    class Channel:
+        def close(self):
+            pass
+
+    rig.r._phase = "planning"
+    rig.r._cuda_process = StuckProcess()
+    rig.r._cuda_connection = Channel()
+
+    status = rig.r.cancel_arm_trajectory()
+
+    assert status["can_plan"] is False
+    assert "restart Pilot" in status["blocked_reason"]
+
+
+def test_next_plan_replaces_cuda_process_after_late_termination(monkeypatch, rig):
+    class Process:
+        exitcode = None
+
+        def __init__(self, alive):
+            self.alive = alive
+
+        def is_alive(self):
+            return self.alive
+
+        def start(self):
+            self.alive = True
+
+        def close(self):
+            self.alive = False
+
+    class Channel:
+        def close(self):
+            pass
+
+    class Context:
+        def __init__(self):
+            self.created = Process(False)
+
+        def Pipe(self, duplex):
+            assert duplex
+            return Channel(), Channel()
+
+        def Process(self, **kwargs):
+            assert kwargs["target"].__name__ == "_curobo_worker_process"
+            return self.created
+
+    old = Process(False)
+    rig.r._cuda_process, rig.r._cuda_connection = old, Channel()
+    rig.r._cuda_terminating = True
+    context = Context()
+    monkeypatch.setattr("elesim_pilot.arm_trajectory.multiprocessing.get_context",
+                        lambda _name: context)
+
+    process, channel = rig.r._ensure_curobo_process()
+
+    assert process is context.created
+    assert process.is_alive()
+    assert channel is rig.r._cuda_connection
+    assert not rig.r._cuda_terminating
+
+
+def test_spawned_curobo_worker_reports_errors_and_accepts_shutdown(tmp_path):
+    import multiprocessing
+    from elesim_pilot.arm_trajectory import _curobo_worker_process
+
+    world = tmp_path / "world.yml"
+    world.write_text("{}")
+    context = multiprocessing.get_context("spawn")
+    parent, child = context.Pipe(duplex=True)
+    process = context.Process(
+        target=_curobo_worker_process,
+        args=(child, str(tmp_path / "missing-model"), str(world)),
+        daemon=True,
+    )
+    process.start()
+    child.close()
+    try:
+        parent.send({
+            "type": "plan", "digest": ["fixture"],
+            "expected_bounds": [[-0.2, 0.0], [-1.5, 1.5], [-0.6, 0.6], [-0.6, 0.6]],
+            "start": [-0.1, 0.0, 0.0, 0.0],
+            "target": [0.0, 0.0, 0.0], "base": np.eye(4).tolist(),
+        })
+        assert parent.poll(10.)
+        assert parent.recv() == {"type": "stage", "stage": "Loading CUDA and collision model"}
+        assert parent.poll(10.)
+        result = parent.recv()
+        assert result["type"] == "result" and not result["ok"]
+        parent.send({"type": "stop"})
+        process.join(5.)
+        assert not process.is_alive()
+        assert process.exitcode == 0
+    finally:
+        parent.close()
+        if process.is_alive():
+            process.terminate()
+            process.join(2.)
+        process.close()
+
+
+@pytest.mark.parametrize("failure", [None, "standoff", "endpoint"])
+def test_cuda_worker_returns_object_center_goal_and_rejects_partial_approach(
+    monkeypatch, tmp_path, failure,
+):
+    from elesim_pilot.arm_trajectory import _curobo_worker_process
+    bounds = [[-1., 1.]] * 4
+    base = np.eye(4)
+    base[:3, :3] = [[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]]
+    base[:3, 3] = [.1, .2, .3]
+    target = base[:3, :3] @ [.2, 0., 0.] + base[:3, 3]
+    checked = []
+
+    class Planner:
+        def __init__(self, *_args, **_kwargs):
+            self.bounds = np.asarray(bounds)
+
+        def plan_to_target(self, start, local, **_kwargs):
+            np.testing.assert_allclose(local, [.2, 0., 0.], atol=1e-8)
+            goal = [.2, 0., 0., 0.]
+            endpoint = [.17, 0., 0., 0.] if failure == "endpoint" else goal
+            reported = [.17, 0., 0.] if failure == "standoff" else local
+            return goal, NS(positions=[start, endpoint], dt_s=.05), reported
+
+        def validate_path(self, points, *, target_sphere_center):
+            checked.append(len(points))
+            np.testing.assert_allclose(target_sphere_center, [.2, 0., 0.], atol=1e-8)
+
+        def forward(self, q):
+            return {"position": [q[0], 0., 0.]}
+
+    monkeypatch.setattr("elesim_pilot.robot.arm.curobo.CuRoboPlanner", Planner)
+    requests = iter([dict(type="plan", digest=["test"], expected_bounds=bounds,
+                          start=[0.]*4, target=target.tolist(), base=base.tolist()),
+                     dict(type="stop")])
+    sent = []
+    world = tmp_path / "world.yml"
+    world.write_text("{}")
+    _curobo_worker_process(NS(recv=lambda: next(requests), send=sent.append), str(tmp_path), str(world))
+    result = sent[-1]
+    if failure is None:
+        assert result["ok"]
+        np.testing.assert_allclose(result["goal_xyz"], [.2, 0., 0.], atol=1e-8)
+        assert checked == [3]  # the inserted execution sample is checked too
+    else:
+        assert not result["ok"]
+        assert ("object centre" if failure == "standoff" else "between the claws") in result["error"]
 
 
 def test_cancel_releases_original_route(rig):

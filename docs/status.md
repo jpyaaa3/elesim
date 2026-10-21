@@ -1,10 +1,382 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-19. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-21. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### main 통합 전 macOS 호스트 검증 (2026-10-21)
+
+- 원격 `origin/main`을 fetch하고 `pull --ff-only`로 확인했다. 변경 전 HEAD와
+  원격은 모두 `1203cb4`여서 가져올 추가 커밋은 없었다. `local/`은 ignore를
+  유지하며, 별도 중첩 Git 저장소 `src/convex-mpc-unitree-go2/`는 게시하지 않는다.
+- 기존 Conda `elesim-ros`에서 protocol **149 + subtest 5**, Robot **147**,
+  UI **113**, 변경 Pilot **148**, 변경 Sim **35**, 변경 setup **37**, 모델
+  **6**이 통과했다(서로 다른 테스트 총 **635 passed**, subtest 별도).
+  Sit 버튼 테스트의 ImGui 대역에 `text_disabled`를 보완했고 UI 전체가 통과했다.
+  Python 변경 파일 79개 AST/JSON 3개 구문 검사와 diff 공백 검사가 통과했다.
+- Linux 대상 검사 16개는 macOS에서 통과하지 못했다: Unitree `SO_PEERCRED`/
+  Unix `SOCK_SEQPACKET` 9개 실패, 실제 native SDK의 macOS 링크 오류에 따른
+  fixture 오류 5개, GNU `realpath -e`를 쓰는 journald archive 2개 실패다.
+  SDK 대역 native 검사는 통과했다. 호스트 패키지를 추가하지 않았고 Linux 전용
+  요구를 macOS에 맞춰 변경하지 않았다. Canonical Docker required/extended,
+  DDS 다중 프로세스와 실제 hardware gates는 generated dev wrapper 부재로 미실행이다.
+  원시 로그는 `workbench/evidence/generated/20261021-main-publish/`에 보관한다.
+
+### Jetson Roll 모터 방향 변경 시도 및 되돌림 (2026-10-21)
+
+- **최신 상태:** 사용자가 -1 적용 후 실물과 회색 Sim 팔의 Roll 방향이
+  오히려 반대임을 확인하여 Jetson `motor_direction`을 원래 `[1, 1, 1, -1]`로
+  되돌렸다. Wrap roll_sign은 +1로 유지했다. 아래 기본값 차이와 소프트웨어
+  검증만으로 이 팔의 물리 부호가 잘못됐다고 단정할 수 없다. 롤백 설정의
+  loader 검증·Robot PID 유지 확인을 완료했다. 백업과 기록은
+  `~/elesim/updates/20261021-roll-motor-revert-192321/`에 있다. 서비스 재시작·
+  물리 명령은 보내지 않았으며, 사용자가 Robot을 재시작해야 롤백이 반영된다.
+
+- Wrap +1 적용 후 회색 Sim 팔과 실물 Roll 방향이 반대라는 사용자 관찰을
+  조사했다. Robot telemetry의 q는 Sim 관절로 부호 변경 없이 전달된다.
+  레포 `HardwareConfig`·Robot 기본 YAML과 Jetson 설치 wheel의 기본값은 모두
+  `motor_direction: [1, -1, 1, -1]`인데, Jetson `installed.yaml`만
+  `[1, 1, 1, -1]`로 덮어쓰고 있었다. 앞선 manifest +1만으로 실물 모터
+  방향까지 일치한다고 판단한 설명은 근거가 부족했다.
+- Jetson 설치 설정의 Roll motor_direction만 -1로 복구했다. Wrap roll_sign은
+  +1로 유지한다. 이 설정은 native 모터 목표와 Python 측정값 변환 양쪽에
+  적용되므로 Sim 표시만 반전하는 보정은 추가하지 않았다. 백업·배포 기록은
+  `~/elesim/updates/20261021-roll-motor-polarity/`에 있다. Robot 프로세스를
+  재시작하거나 물리 명령을 전송하지 않았으며, 사용자 재시작 전에는 기존
+  설정이 계속 실행된다. 이전 계획은 폐기하고 새 측정값으로 다시 계획한다.
+- SDK 대역의 양·음 Roll 명령이 raw tick을 반대 방향으로 바꾸고, 실제 Robot
+  telemetry 변환이 canonical Roll을 복원하는 회귀를 추가했다. Native/config/
+  wrap host 검사 **81 passed**. 실제 실물·Sim 방향 확인은 사용자 재시작 후
+  남아 있으며, canonical Docker gates는 generated dev wrapper 부재로 미실행이다.
+
+### Wrap grasp Roll 방향 일치 및 Jetson 배포 (2026-10-21)
+
+- 현재 정책 manifest의 `roll_axis_sign: 1.0`과 학습/Sim 좌표계에 맞춰 Pilot
+  `WrapGraspConfig.roll_sign` 기본값을 +1로 변경했다. 이전 -1 보정은 wrap의
+  관측·waypoint·lift만 반전시켰다. 일반 IK/슬라이더와 Robot motor mapping은
+  변경하지 않았다. 양·음 Roll에서 세 adapter callback을 실제 호출하는 회귀
+  검증을 포함한 host wrap suite **50 passed**.
+- 설치본과 비교해 `pick/wrap.py`만 변경된 Pilot wheel을 Jetson에 배포하고,
+  설치 `wrap_grasp.yaml`에도 `roll_sign: 1.0`을 명시했다. 별도 Python 프로세스로
+  기본값·유효 설정과 wheel 전체 파일 일치를 확인했다. 백업과 배포 기록은
+  `~/elesim/updates/20261021-wrap-roll/`에 있다. 실행 중 Pilot은 유지했으며,
+  적용하려면 사용자 Pilot 재시작이 필요하다. Robot 재시작·물리 명령은 없었다.
+- Canonical Docker gates는 generated dev wrapper 부재로 실행하지 않았다.
+  실제 wrap 동작의 방향 확인은 사용자 실행 후 남아 있다.
+
+### Use current XYZ와 Sim claw 중심의 표시 오차 (2026-10-21)
+
+- Target 구가 claw 중심보다 약 2 cm 높아 보인다는 사용자 관찰을, 읽기 전용으로
+  받은 현재 Robot 자세를 이용한 실제 Genesis CPU 물리 장면에서 재현했다.
+  기존 경로는 GO2 몸통만 step 후 복원하고 팔은 물리 계산으로 변위된 채 표시했다.
+  두 CAD claw tip connector의 Genesis 월드 좌표 중점을 독립적으로 비교한 결과,
+  표시 claw 중심이 Pilot FK보다 **18.183 mm 아래**였다. 직전 배포 전후의
+  `Use current XYZ`·grasp FK/오프셋 코드는 동일하며, 임의 Z 보정은 추가하지 않았다.
+- Robot mirror 팔도 물리 step 뒤 측정 q로 복원한 다음 렌더링하도록 수정했다.
+  Claw 보간은 추가 진행하지 않고 GO2/다리 속도도 arm 쓰기로 덮지 않는다.
+  일반 Sim 제어 전환과 reset은 복원 상태를 해제한다. Arm-only/GO2와 매-step/
+  주기 제한 viewer 경로를 검증했다. 재현 장면의 수정 후 중점 오차는 0.001 mm 미만이다.
+- Host focused **76 passed, 2 skipped**; 실제 Genesis fixture의 before/after PNG와
+  raw 결과는 `workbench/evidence/generated/current_xyz_alignment/`, 요약은
+  `workbench/evidence/curated/planning/current_xyz_display_20261021.json`이다.
+  Mac Sim 소스 변경이며 사용자가 해당 Sim만 재시작하면 적용한다. Pilot/Robot
+  배포·재시작과 물리 명령 전송은 하지 않았다. Canonical Docker gates는 기존과
+  같이 generated dev wrapper 부재로 실행하지 않았다.
+
+### Target 물체 중심까지의 claw 진입 경로 (2026-10-21)
+
+- Target XYZ를 지름 20 mm 물체의 중심으로 두고, 최종 열린 claw 사이 grasp
+  중심이 그 좌표에 1 mm 이내로 도달하도록 수정했다. 물체 앞 접근점에서 끝나는
+  경로는 성공으로 받지 않는다. Target 구를 IK·경로 계획과 실행용 resampling
+  검사에 모두 포함하며, claw를 포함한 어느 링크도 target 충돌 검사에서 제외하지 않는다.
+  자동 claw 닫힘은 추가하지 않았다.
+- Claw의 30 mm voxel circumsphere가 실제 빈 공간까지 막던 근사를 15 mm로
+  세분화했다. 몸체 형상은 유지하며 휴대 가능한 계획 artifact를 **1005 spheres**로
+  재생성했다. CAD claw 표면을 계속 감싸고 지름 20 mm 구가 열린 사이 공간에
+  들어가는지 검사한다. UI는 최종 claw 중심을 표시하며 offline CLI 결과는
+  `goal_xyz`를 쓰는 schema v2다. DDS protocol-v6 payload 구조는 바뀌지 않는다.
+- Host focused **81 passed**; 마지막 Pilot/UI subset **61 passed**. 실제 Jetson
+  CUDA 5 mm 이동 계획은 31점, 실행용 61점 모두 충돌 검사를 통과했다. 최종 위치
+  오차 **9.54e-7 m**, 최소 target 구 간격 **3.95 mm**였고, 구 중심을 claw 내부에
+  둔 충돌도 거부했다. CUDA 초기화·IK·계획 전체 178.2초의 offline probe이며
+  물리 이동 검증은 아니다. 증거: `workbench/evidence/curated/planning/curobo_target_grasp_20261021.json`.
+- Jetson 역할 venv에 Pilot wheel과 설치된 planning model을 갱신했다. Wheel
+  SHA256은 `f6cdb7a85b51b060ee9c353fbaca17a2593096cc1c3a6ea933358f0affb6a1b7`;
+  기존 package/model backup과 배포 기록은
+  `/home/idim/elesim/updates/20261021-target-claw-center/`다. Staged/installed CLI import,
+  module/model hash를 확인했다. 실행 중 Pilot은 재시작하지 않았으며 새 동작은
+  사용자가 Pilot·Mac UI를 재시작한 뒤 새 계획부터 적용한다. Robot은 변경하지 않았다.
+- Mac 3-process DDS smoke는 현재 test shell의 `elesim_interfaces` overlay가 없어
+  시작하지 못했다. Generated dev wrapper도 없어 canonical Docker gates는 실행하지 않았다.
+
+### GO2 mirror와 Ghost 베이스 표시 순서 수정 (2026-10-21)
+
+- 기존 native viewer는 물리 step 직후 본체를 그리고, 그 뒤 GO2를 실측 자세로
+  복원했다. 따라서 다음 loop의 plate/mesh 좌표 로그는 정상이면서 화면에만
+  접촉으로 일시 변위된 본체가 남을 수 있었다. `SimScene.step`에서 GO2 복원을
+  viewer 갱신 앞으로 옮겼다. 매 step 갱신과 주기 제한 갱신에 모두 적용한다.
+- Mac `elesim-ros` host focused **57 passed, 2 skipped**. 물리 계산으로 본체가
+  20 mm 올라가는 대역에서 두 viewer 갱신 경로 모두 실측 높이를 그리는지 검증했다.
+  실제 Genesis headless rasterizer에서도 제어된 20 mm 변위를 사용해, 복원된
+  readback과 렌더러 사이 20 mm 차이가 갱신 후 0이 됨을 재현했다. 동일 q/base의
+  Ghost와 본체는 plate/housing을 포함한 모든 팔 링크의 렌더 메시 경계가
+  0.001 mm 이내로 일치했다. 증거는 `workbench/evidence/generated/ghost_alignment/`.
+- 물리 I/O·Jetson 배포·실행 중 프로세스 재시작은 하지 않았다. 사용자가 Sim
+  재시작 후 실제 mirror session에서 Ghost 베이스 표시 문제 해결을 확인했다.
+  Generated dev wrapper가 없는
+  현재 환경에서 canonical Docker gates는 실행하지 않았다.
+
+### Teensy dual-IMU reader (2026-10-20)
+
+- 실제 사용 중인 Full IMU sketch의 **52열 CSV**도 추가 지원했다. 센서별
+  `newAny=0`은 수신 나이를 갱신하지 않으며, 전역 tx sequence를 quaternion의
+  측정 순번으로 취급하지 않는다. quaternion에서 RPY를 계산하고 gravity/gyro/
+  linear_accel/accel/mag, accuracy, BNO timestamp를 보존한다. all-zero 초기
+  quaternion은 null 자세다. Full IMU는 기존 펌웨어 그대로 raw 진단이 가능하다.
+  line bound는 전체 데이터를 담도록 2048 bytes다. Full IMU의 최근 report 수신과
+  quaternion freshness 미검증 상태를 UI에서 분리한다.
+- 최신 host focused **130 passed + 10 subtests**, UI 대역 **2 passed**다.
+  52열 필드 대응, quaternion→RPY, 초기 미측정, 두 센서의 독립적인 newAny,
+  잘린/비정상 frame, 실제 PTY full-CSV 수신과 telemetry 직렬화를 검증했다.
+  아래의 실제 GUI/DDS/Jetson 및 canonical 미검증 범위는 유지된다.
+- Robot-local POSIX reader를 추가했다. 선택한 USB serial 하나만 열고 IMU1/IMU2의
+  최신 quaternion/RPY(rad)를 별도 보관하며, bounded parser, 재연결과 종료를
+  지원한다. `runtime.imu_device`는 기본 비활성화다. 독립 진단 명령은
+  `elesim-imu-read --device <실제 Teensy 포트>`다.
+- telemetry `imu_reader`를 Pilot을 거쳐 UI IMU panel에 전달한다. 모델 활성화와
+  실제 raw sample 수신 상태를 분리했다. native 보정 입력에는 아직 연결하지 않는다.
+- 펌웨어에 실제 sensor report 수신 시각과 순번을 추가했다. 반복 출력은 sample
+  age를 갱신하지 않는다. 기존 10-field 펌웨어는 읽되 freshness unverified다.
+- host Conda Python focused Robot/Pilot/protocol **126 passed + 5 subtests**,
+  UI 표시 **1 passed** (imgui import stub 및 렌더 함수 대역)다. 실제 PTY 수신,
+  disconnect/stop, 잘못된 프레임, 순번 wrap/replay, wire roundtrip을 포함한다.
+  실제 GUI rendering/DDS process smoke와 Jetson USB/권한/재연결/Teensy flashing은
+  미검증이다. 알려진 설치본의 generated dev wrapper가 없어 canonical gates는
+  실행하지 않았다. Arduino CLI의 Teensy core는 있으나 SparkFun BNO080 library가
+  없어 펌웨어 compile도 실행하지 않았다. 현재 설치본 wheel은 갱신하지 않았다.
+
+### cuRobo 취소와 실행 tick 지연 처리 (2026-10-20)
+
+- CUDA 호출을 Pilot DDS thread의 취소 불가능한 Python worker에서 분리해,
+  성공한 planning worker는 context를 유지하고 Cancel/timeout은 그 프로세스를
+  종료하도록 했다. model/solver initialization은 각각 900초, IK solve/path
+  planning/validation은 각각 180초로 제한하며 UI stage를 분리해 표시한다.
+- 기존 `trajectory scheduling overrun`은 Pilot의 제어 tick이 다음 25ms
+  waypoint 시각보다 100ms 이상 늦으면 경로 전체를 취소했다. 새 동작은 100ms
+  초과 지연에서 경로 시계만 재설정하고 waypoint를 건너뛰지 않는다. 250ms를
+  넘는 정지는 실제 지연 시간과 함께 경로를 취소한다.
+- Pilot wheel만 Jetson 역할 venv에 설치했다. wheel SHA256은
+  `d9e962380f5d6d8a9da23f96c0115ca6df76d1f1e1256baf852c3d2fa587d010`, 설치 전
+  package backup은 `/home/idim/elesim/updates/20261020-curobo-worker/before-install.tar.gz`다.
+  설치 모듈 import/signature를 확인했다. 기존 Pilot PID 2499909는 계속 실행 중이므로
+  새 코드는 아직 해당 process에 적용되지 않았다. Pilot과 Robot은 재시작하지 않았고
+  물리 명령도 보내지 않았다.
+- Host focused Pilot/CuRobo tests **66 passed, 1 skipped**; Python compile와 diff
+  검사를 통과했다. Jetson 실 GPU planning과 실물 경로 실행은 하지 않았다.
+
+### 전류 한계 safety latch UI 복구 경로 배포 (2026-10-20)
+
+- Hardware 패널의 software fault 복구 버튼을 UI→Pilot→Robot에 연결했다.
+  Robot은 torque OFF, fresh telemetry와 local fault 재발 여부를 검사한 뒤에만
+  latch를 지운다. 검사가 실패하면 latch를 유지하고 이유를 반환한다. 성공해도
+  torque는 OFF이며, torque-on은 별도 조작이다. 모터 Hardware Error는 기존처럼
+  별도의 확인된 motor reboot 경로를 쓴다.
+- Jetson Pilot/protocol wheel을 갱신했다. 원본은
+  `/home/idim/elesim/updates/20261020-safety-clear/pilot-before-safety-clear.tar.gz`,
+  wheel은 같은 디렉터리의 `wheels/`에 보관했다. 설치 전후 Robot과 Unitree
+  bridge는 active였으며 PID 2496380/2499294를 유지했다. 두 서비스를 재시작하거나
+  모터 명령을 보내지 않았다. Robot runtime의 `clear_fault` 경로는 이미 설치되어
+  있어 이번 복구 연결에 Robot 패키지 변경은 필요하지 않다.
+- Mac UI는 checkout source를 사용하므로 UI를 다시 시작해야 새 버튼이 표시된다.
+  Jetson Pilot도 새 service allowlist와 handler를 로드하려면 사용자가 재시작해야
+  한다. 현재 실행 중인 두 프로세스는 설치된 새 파일을 아직 메모리에 읽지 않았다.
+- UI/Pilot/Robot/protocol 집중 검사 **83 passed, 1 skipped**다. Skip은 Robot
+  runtime test 안의 기존 선택 조건이며, 실제 recovery/Torque ON은 실행하지 않았다.
+
+### Jetson 모터 Hardware Error 재부팅 복구 배포 (2026-10-20)
+
+- Hardware 패널에 fault 복구 버튼을 추가했다. 팔 지지 확인과 Torque OFF를
+  요구하고, 활성 cuRobo 경로는 취소하되 Robot lease를 유지한다. Robot은
+  단일 DYNAMIXEL Hardware Error만 허용하며 재부팅 전후 실제 Torque Enable
+  레지스터를 검사한다. 현재 위치를 목표로 기록·확인하고, 재부팅 후 모든 축의
+  Torque OFF와 정상 telemetry를 검증해야 latch를 해제한다. DDS major 6은 유지한다.
+- Robot/Pilot/protocol wheel과 Jetson ARM64 ABI 5 native library를 설치했다.
+  Robot/Pilot import, recovery command allowlist 및 ABI 5를 읽기 전용으로
+  확인했다. Mac `elesim-ros` UI/protocol은 이 checkout의 source를 사용한다.
+- 설치 전 Robot/Pilot/protocol package, console scripts와 native library를
+  `/home/idim/elesim/updates/20261020-motor-reboot/before-install.tar.gz`에
+  백업했다. Robot은 배포 전후 PID 2496380으로 active였고 두 서비스 모두 배포 후
+  active다. restart나 모터 명령은 보내지 않았다. 현재 Robot 프로세스 메모리에는
+  이전 ABI 4가 남아 있어 새 복구 기능은 사용자가 Robot을 재시작한 뒤 적용된다.
+  Pilot은 배포 확인 시 실행 중이지 않았다.
+- Mac Robot/Pilot/protocol 집중 검사 **120 passed, 1 skipped**, UI 복구 검사
+  **4 passed**다. Jetson에서는 native controller를 ARM64로 다시 빌드하고 ABI 5,
+  wheel import와 protocol allowlist를 확인했다. 실제 모터 복구 동작은 실행하지 않았다.
+
+### Jetson ZED Mini 드라이버와 카메라 SDK 격리 (2026-10-20)
+
+- UI→Pilot 읽기 전용 snapshot에서 DDS/Pilot online과 응답을 확인했다.
+  Robot의 연결 종료는 잘못 선택된 RealSense SDK의 장치 초기화가 GIL을
+  15초 동안 점유해 Unitree keepalive를 막는 것으로 재현했다.
+- `camera.backend: zed`와 ZED Mini의 왼쪽 영상/정렬된 mm depth/SDK intrinsics
+  경로를 추가했다. 신규 source 기본값은 ZED, 필드가 없는 기존 설정은
+  RealSense다. 카메라 SDK와 RGBD publisher를 spawn 자식 프로세스로 격리하고
+  상태는 bounded latest-only로 전달한다. 종료 요청도 child lock을 기다리지
+  않는 shared flag를 사용한다. 기존 deadman 기준과 DDS 계약은 유지한다.
+- Mac 카메라/설정/lifecycle 검사 **42 passed**, Jetson 카메라/lifecycle/IPC
+  검사 **32 passed**다. SDK가 GIL을 잡는 15초 대기 double에서도 부모 상태
+  조회와 제한 시간 내 종료를 검증했다. 실제 ZED SDK 5.4.1 probe의 부모
+  최대 tick 간격은 약 21 ms였으며 네트워크 publish와 물리 이동은 없었다.
+- Robot wheel과 설치된 `camera.backend: zed` 설정을 갱신했다. 실제 장치는
+  아직 `ZED-M / serial 0 / NOT AVAILABLE`이므로 영상/depth 수신은 미검증이다.
+  사용자가 USB 3 케이블을 다시 연결하기로 했다. Robot/bridge는 현재 active다.
+  백업은 Jetson
+  `updates/20261020-go2/zed/before-zed.tar.gz`에 보관했다.
+
+### Jetson GO2 관절 상태 미러 누락 수정 (2026-10-20)
+
+- Bridge의 LowState parser는 12개 관절각을 읽고 IPC `OdomSample.leg_q`까지
+  전달했지만, `RobotRuntime.state()`가 DDS telemetry의 `go2` object에 관절각을
+  복사하지 않았다. Sim의 기존 수신/Genesis mirror 경로는 `go2.leg_q`를
+  기대하므로 base pose와 arm은 동기화돼도 GO2 다리는 갱신되지 않았다.
+- Robot telemetry에 측정된 `sample.leg_q`를 `go2.leg_q`로 포함하도록 수정하고
+  Jetson Robot wheel을 갱신했다. 설정의 GO2 활성화와 ZED backend를 유지했다.
+  적용은 Robot 프로세스 재시작 후부터 유효하다.
+- 읽기 전용 systemd/journal 확인에서 Robot은 DDS discovery 후 GO2 IPC peer
+  disconnect로 재시작된 기록도 보였다. 이 연결 끊김은 관절값 필드 누락과
+  별개의 문제이며, 재시작 뒤에도 반복되면 같은 journal의 직전 traceback과
+  bridge 로그를 따라 추가 조사해야 한다.
+
+### Jetson Torque ON 중 GO2 IPC heartbeat 유지 (2026-10-20)
+
+- Robot main loop가 DDS motion command를 동기 처리하면서 같은 loop에서만
+  Unitree IPC heartbeat를 보냈다. Dynamixel Torque ON의 mode/profile/goal
+  preload가 deadman 0.5초를 넘기면 bridge가 IPC를 끊고, Robot cleanup이 arm
+  device를 닫아 UI Apply Port가 잠깐 OFF로 보일 수 있다. native torque-on은
+  현재 goal을 preload하기 위해 시작할 때 잠시 motor torque register를
+  비활성화하므로, 이는 UI apply-port 설정과는 별개다.
+- `UnitreeIpcClient`에 순서 번호와 socket write lock을 공유하는 독립 heartbeat
+  thread를 넣었다. hardware 명령이 main loop를 점유해도 GO2 deadman heartbeat는
+  계속 나간다. bridge의 0.5초 deadman과 실제 Torque 동작은 변경하지 않았다.
+- Robot wheel을 Jetson에 설치했다. 현재 실행 중 프로세스에는 아직 반영되지
+  않으므로 사용자가 Robot 서비스를 재시작해야 한다. 이 변경으로 실제 Torque
+  ON은 시도하지 않았다. Python 문법 검사와 wheel 빌드는 완료했고, 테스트는
+  실행하지 않았다.
+
+### Jetson Unitree bridge의 시작 준비 상태 보장 (2026-10-20)
+
+- 실제 활성화에서 Robot이 Unitree socket 생성 전에 시작하고
+  `FileNotFoundError`로 실패했다. Robot의 재시작은 `PartOf` bridge까지
+  재시작해 같은 경합을 반복했다. 실패 루프를 중지했으며 두 실제 unit은
+  수정 적용 후에도 inactive 상태다.
+- Standalone unit과 installer 생성 unit을 `Type=notify`,
+  `NotifyAccess=main`, `TimeoutStartSec=30`으로 맞췄다. Unitree backend 초기화와
+  IPC listen 이후에만 daemon이 `READY=1`을 보낸다. GO2 비활성 모드는
+  Unitree context 없이 준비 완료를 알린다. 기존 Robot의 `After`/`BindsTo`,
+  peer credential 검증과 deadman은 유지한다.
+- Jetson IPC 회귀 **22 passed**, Mac 설정/생성 unit 회귀 **31 passed**와
+  notify/팔 전용/overlay focused 검사를 통과했다. Jetson 실제 user-systemd에서
+  2초 지연 fake backend와 `After`/`Requires` consumer를 실행해 socket 준비 후
+  종속 서비스가 성공함을 확인했다. 이 검증은 ROS/물리 장치를 사용하지 않는다.
+- Robot wheel과 설치된 bridge unit을 갱신하고 `daemon-reload`했다.
+  `systemctl show`로 Type=notify, NotifyAccess=main, 시작 timeout 30초와
+  inactive를 확인했다. 실제 Robot/bridge 재시작은 사용자 실행으로 남겼다.
+  백업과 검사 자료는 Jetson `updates/20261020-go2/readiness/`에 보관했다.
+
+### Jetson GO2 재배포 준비와 실제 DDS domain 확인 (2026-10-20)
+
+- `idim@147.46.175.23:2227`의 Robot은 정지 상태이고 기존 Unitree bridge만
+  실행 중이었다. 과거 journal에서 잘못된 `eth0`와 bridge socket 부재에 따른
+  시작 실패를 확인했다. 현재 물리 링크는 `eno1`, 1 Gbps이며
+  `192.168.123.99/24`에서 GO2 `192.168.123.161` ping이 성공했다.
+- GO2의 실제 DDS graph는 **domain 0**이었다. 기존 domain 1은 10초간
+  Sport/LowState 모두 0개, domain 0은 8초간 Sport 2400개와 LowState 약
+  4000개를 수신했다. 실제 publisher의 QoS는 reliable/volatile이며 reliable와
+  best-effort 구독 모두 수신됐다. 읽기 전용 구독 probe이고 이동 명령은 없다.
+  설치 Robot의 Unitree 설정을 `eno1 / 0`으로 갱신했으며 inter-host
+  EleSim `tailscale0 / 68`과 분리했다.
+- 새 wrapper가 Unitree workspace를 읽을 때 `COLCON_TRACE: unbound variable`로
+  실패하는 것도 실제 Jetson에서 재현했다. daemon의 overlay source에서
+  nounset을 끄고 errexit/pipefail은 유지했다. unset optional variable과 source
+  실패 전파 회귀를 추가했으며 Mac focused 4 passed, Jetson 전체 IPC 17 passed다.
+  실제 ROS workspace source와 native loader 경로 재실행은 유지한다.
+- 기존 설치의 Python package·설정·실행 파일·native library를 백업하고 현재
+  Robot/Pilot/protocol wheel 및 Jetson에서 빌드한 native ABI 4를 설치했다.
+  Robot의 schema 5 그리퍼 load threshold 250 permille와 GO2 활성화를 적용했다.
+  Robot/Pilot 설정, native ABI, 현재 생성 arm model 로딩을 확인했다. 모델
+  bounds는 Linear [-0.172666667, 0] m로 유지하며 Pilot도 use_go2=true다.
+  Jetson C++ SDK 대역 기반 native motion/contact 회귀도 **5 passed**다.
+- Mac 실물 연결용 별도 설정/전체 실행 명령은 ignored
+  `local/jetson-go2/README.md`에 있다. UI는 hardware/GO2를 활성화하고 Sim은
+  Robot GO2/팔 측정 상태를 mirror한다. 기존 `local/mac-sim`과 Jetson의
+  미커밋 Git checkout은 보존했다. 자동 stand/gait는 none이다.
+- 실제 모터 포트를 열거나 서비스를 재시작하지 않았다. 현재 실행 중인 이전
+  bridge는 재시작 전까지 domain 1을 유지하며 새 Robot/Pilot의 실제 연결·
+  command/telemetry round trip은 재시작 후 확인해야 한다. 학습 서버 GPU 2의
+  학습은 계속 진행 중이다. 서버 백업/검사 결과는
+  `/home/idim/elesim/updates/20261020-go2/`, 로컬 수신 증거는
+  `workbench/evidence/generated/20261020-jetson-go2/`다.
+
+### 현재 팔 모델의 Linux CUDA 재학습 준비 (2026-10-20)
+
+- 사용자 지정 학습 서버 `hckang@147.47.191.80:2222`에 키 인증으로 접속했다.
+  사용자 지시에 따라 학습·검증은 물리 GPU 2(RTX A6000, 48 GiB)만 사용한다.
+  `CUDA_VISIBLE_DEVICES=2`를 적용하고 실제 compute PID의 GPU UUID를 대조했다.
+- 빈 `~/elesim`에 현재 HEAD `1203cb4`를 checkout하고 Mac의 미커밋 patch를
+  적용했다. 학습 관련 소스·설정·모델 170개 파일의 SHA-256이 일치한다.
+  서버의 기존 `elesim-rl` 환경을 Genesis 1.4.1 / Quadrants 1.3.0 /
+  Torch 2.12.1 / NumPy 1.26.4 / rsl-rl-lib 5.4.0 / tensordict 0.14.2로
+  맞췄으며 `pip check`를 통과했다. 변경 전후 package 목록을 보관했다.
+- Linear [-0.172666667, 0] m, Roll ±90°, Bend ±36°/node와
+  command direction `[1, 1, 1, -1]`을 canonical Sim 설정에서 읽는다.
+  학습 시 GO2 base와 다리는 고정하며 Raibert/JAX 보행을 사용하지 않는다.
+  새 run은 기존 checkpoint를 resume하지 않는다.
+- CUDA 4-env PPO 2-iteration smoke가 정상 종료됐다. 총 9개 종료 episode의
+  lift 성공 4개, collision 3개, retention 2개이며 timeout은 별도 중복 집계다.
+  이는 CUDA 실행·체크포인트 저장과 초기 task의 작동 확인이며 학습 수렴이나
+  최종 Home 시작 성공률의 검증은 아니다.
+- GPU 2 EGL 렌더에서 near-wrap 정적 자세의 coverage 272°, 물체 접촉 8개와
+  arm/floor·arm/GO2·arm/self 접촉 없음이 확인됐다. 팔을 먼저 배치하고
+  물체를 옮기는 렌더이므로 실제 접근 경로 전체를 검증한 것은 아니다.
+- Stage 1 본 학습을 GPU 2, **256 env / 1500 iterations**, 새 가중치로
+  시작했다(PID `1422752`). 초기 PPO 반복이 정상 진행 중이며 단일 반복은
+  약 17초다. 초기 checkpoint의 부동소수 tensor 74개가 모두 유한하며
+  학습 중에도 170개 source/model hash가 일치한다. 저장 경로는
+  `var/rl/sim/wrap_grasp_current_arm/stage1_gpu2-20261020/`,
+  로그는 같은 상위 디렉터리의 `gpu2-20261020.log`다. 학습 완료와 최종
+  Home 시작 평가·Stage 2/3 일반화·실물 이식은 아직 검증하지 않았다.
+- ignored overlay/서버 실행 안내: `local/rl-retrain/`. 서버 evidence:
+  `workbench/evidence/generated/20261020-rl-gpu2/`, smoke run:
+  `var/rl/sim/wrap_grasp_current_arm/stage1_gpu2-smoke-20261020/`.
+  실제 Robot과 사용자 Sim/UI/Pilot은 재시작하지 않았다.
+
+### macOS Raibert 시작 직후 전도 수정 (2026-10-20)
+
+- 하드웨어 없는 Mac 설정의 `raibert_trot`에서 명령 없이도 전도했다.
+  Genesis 1.4.1 실제 GO2 모델의 같은 자세 IK에서 앞다리 목표
+  `[0.1, 0.8, -1.5]`가 `[0.0, 0.1, 0.8]`로 추출되는 것을 재현했다.
+  Free root는 qpos 7개/DOF 6개인데 IK 결과를 DOF 인덱스로 읽고 있었다.
+  각 관절의 `qs_idx_local`로 추출하며 잘못된 크기/비유한 결과는 기존
+  fallback 자세를 유지한다.
+- 인덱스만 수정한 GO2+팔 CPU 실험도 0.61초에 몸통 높이가 0.147 m로
+  내려앉았다. 정지 중 매 tick 현재 접지 위치를 IK로 다시 푸는 제어가
+  관절 처짐을 목표값에 반영해 지지력을 잃었다. 초기 Raibert의 고정 stand
+  관절 목표를 복원하고 다음 보행의 발 기준점은 실제 발 위치로 갱신한다.
+- JAX/MPPI 도입 직전 `67d8b1e^`와 현재 HEAD의 Raibert 제어 파일은
+  동일했다. qpos 인덱스 코드는 `f2c463a`, 정지 IK 경로는 `8e0b43c`부터
+  존재한다. 사용자가 정상 동작을 확인했던 정확한 커밋/환경은 아직 특정하지
+  않았으며 JAX 도입이나 macOS 자체가 직접 원인이라고 단정하지 않는다.
+- Conda `elesim-ros` focused 회귀 **38 passed**. 실제 Mac CPU와 Metal의
+  같은 GO2+팔/평면/기본 arm pose에서 각각 500 step(5초)을 명령 없이
+  수행했다. 두 실행 모두 마지막 측정 높이 약 0.3025 m, 측정 최대
+  roll/pitch 약 0.009°/0.577°로 전도하지 않았다. 카메라/DDS 없는 독립
+  물리 실험이며 보행·자세 전환·다른 payload/지형의 안정성 검증은 아니다.
+  실행 중인 사용자 Sim/UI/Pilot과 실제 Robot은 재시작하지 않았다.
+- evidence: `workbench/evidence/generated/20261020-raibert-qpos/`.
+  기존 개발 attachment가 이 Mac에 제공되지 않아 canonical
+  required/extended/release gate는 실행하지 않았다.
 
 ### 원격 고아 청소의 Mounts 순서 오판 수정 (2026-10-19)
 
@@ -813,6 +1185,24 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   저장소와 `/tmp/elesim-claw-contact-20261019`의 검증용 build에만 적용했다.
   활성 Robot/library 교체, 재시작, fault clear, Torque ON 또는 실물 명령은
   보내지 않았다. 실제 물체/전류 threshold 보정과 활성 Robot 적용은 남아 있다.
+
+### XL430 그리퍼 부하 감지 단위 수정 (2026-10-19)
+
+- Hardware Error/Shutdown은 모터 내부에 래치되며 사용자가 설명한 대로 장치
+  재부팅으로 해제된다. 앞선 read-only 확인 시 ID 5 Hardware Error Status는 0,
+  Torque는 OFF였다. Robot 재시작·Torque ON·실물 이동은 수행하지 않았다.
+- ID 5는 XL430-W250 (model 1060)이며 주소 126은 Present Current가 아니라
+  추정 Present Load다. 기존 native 코드가 이 값을 mA로 환산해 접촉 threshold와
+  전류 제한에 사용하던 오류를 바로잡는다. 부하는 0.1% 단위의 추정치이므로
+  `claw_contact_load_permille` 기본값 250은 초기 소프트웨어 기준이지 힘 단위의
+  교정값은 아니다. 닫힘 중 25%를 50 ms 유지하면 측정 tick에 목표를 고정하고,
+  90% 이상은 즉시 고정한다. ID 5는 mA telemetry/전류 제한에서 빠지고 별도
+  `claw_load_permille`로 표시된다. ID 1–4 전류 제한은 유지한다.
+- Robot config schema 5는 기존 schema 4를 읽고 과거
+  `claw_contact_current_ma` 값을 버린 뒤 새 부하 기준 기본값을 적용한다. Native
+  ABI는 4로 올려 새 Python 구조와 구형 library의 혼용을 막는다. 접촉 경계·
+  telemetry 표시 regression 및 Jetson ARM64 빌드는 아직 검증해야 하며, 현재는
+  소스 변경만 준비 중이다.
 
 ### 실행 추종 지연 처리 (2026-10-19)
 

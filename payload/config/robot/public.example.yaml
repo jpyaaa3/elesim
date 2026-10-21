@@ -1,7 +1,8 @@
-schema_version: 4
+schema_version: 5
 runtime:
   endpoint_id: robot-go2
   device: /dev/ttyUSB0
+  imu_device: ""  # Teensy USB serial path; empty disables acquisition
   use_go2: true
 rgbd:
   schema_version: 1
@@ -37,8 +38,11 @@ go2:
   ipc_bridge_user: elesim-unitree
   ipc_heartbeat_interval_s: 0.1
 camera:
+  backend: zed
   enabled: true
   topic: /elesim/robot_go2/rgbd/frame
+  right_topic: /elesim/robot_go2/rgbd/right
+  rotate_180: true
   width: 640
   height: 480
   fps: 30

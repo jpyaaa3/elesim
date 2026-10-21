@@ -51,6 +51,7 @@ def test_scene_markers_update_and_clear_without_growing_each_frame():
     marker = IkTargetMarker()
     marker.update(scene, [.1, .2, .3], [0, 0, 1])
     assert len(drawn) == 2
+    assert drawn[0]["radius"] == pytest.approx(.01)
     for _ in range(5): marker.update(scene, [.1, .2, .3], [0, 0, 2])
     assert len(drawn) == 2  # same normalized direction
     marker.update(scene, [.1, .2, .4], [0, 0, 1])

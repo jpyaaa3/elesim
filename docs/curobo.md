@@ -15,7 +15,7 @@ requires v0.7.8 (commit `d64c4b005459db10c5dd867d8b30a87d5bda9bdb`).
 
 The setup script applies a source-hash-checked compatibility patch and builds
 the `0.7.8+elesim.1` version. The stock Python generator's pair-index capacity
-forced this 911-sphere model into a serial kernel that retains stale collision
+forced the original 911-sphere model into a serial kernel that retains stale collision
 outputs/gradients. The patch expands the index buffer, widens the parallel
 kernel's loop counters, bounds unrolling and rounds blocks to whole warps.
 It preserves all collision pairs; it does not disable collision checks. The
@@ -25,14 +25,29 @@ solver shapes; variable-size path validation uses separate buffers.
 From the source checkout on Jetson:
 
 ```bash
-bash workbench/tools/setup_curobo_jetson.sh
+bash workbench/tools/setup_curobo_jetson.sh "$HOME/elesim/roles/pilot"
 ```
 
-This creates `$HOME/.cache/elesim/curobo-integration/venv` with system site packages
-so it can use JetPack's existing torch. It does not replace torch, alter drivers,
-start services, or initialize hardware. Install the Pilot release and its
-protocol wheel into that venv before starting a runtime. Existing ROS/DDS setup
-is still required for a live Pilot; the offline planner does not initialize DDS.
+This creates `$HOME/elesim/roles/pilot/venv` and keeps the cuRobo checkout at
+`$HOME/elesim/roles/pilot/curobo`. System site packages let it use JetPack's
+existing torch. It does not replace torch, alter drivers, start services, or
+initialize hardware. Install the Pilot release and its protocol wheel into that
+venv before starting a runtime. Existing ROS/DDS setup is still required for a
+live Pilot; the offline planner does not initialize DDS. The optional positional
+argument selects another Pilot role root for nonstandard installations.
+
+For the Jetson installation rooted at `/home/idim/elesim`, launch Pilot with its
+role-local interpreter and configs after sourcing the installed ROS interfaces:
+
+```bash
+source /home/idim/elesim/ros/install/setup.bash
+/home/idim/elesim/roles/pilot/venv/bin/python -u -m elesim_pilot.main \
+  --config /home/idim/elesim/roles/pilot/config/installed.yaml \
+  --runtime-config /home/idim/elesim/roles/pilot/config/runtime.installed.yaml
+```
+
+Stop an older Pilot process before launching this one so the duplicate endpoint
+does not create DDS identity ambiguity.
 
 ## Shared model
 
@@ -44,8 +59,10 @@ is still required for a live Pilot; the offline planner does not initialize DDS.
 - The same Linear operating bounds `[-0.172666667, 0]` m, roll and bend limits as the
   generated Pilot IK model. Velocity caps come from Robot's shipped YAML.
 - Collision spheres generated from the collision meshes and origins in the
-  existing Genesis arm URDF. Filled 30 mm voxels are enclosed by spheres, so
-  this is a conservative approximation and can reject narrow clearances.
+  existing Genesis arm URDF. Body meshes use filled 30 mm voxels enclosed by
+  spheres; the two claws use 15 mm voxels to preserve their open gap. The model
+  has 1005 spheres. This is a conservative approximation and can reject narrow
+  clearances.
   Self collision ignores directly connected links, their rigid subassemblies,
   and pairs whose original mesh geometry is analytically separated over the
   entire joint-limit interval. These additional model-level separation bounds
@@ -105,6 +122,9 @@ All q values use metres/radians in `(linear, roll, theta1, theta2)` order.
 `--goal`. Output positions have a fixed `dt_s`; preserve timing when consuming
 them. Planning failure, nonfinite/out-of-range values, wrong joint names or
 excessive velocity fail explicitly. No unchecked interpolation fallback exists.
+The offline result uses schema v2: target plans report `object_center_xyz` and
+`goal_xyz`, with the latter at the object center. Schema v1's `approach_xyz`
+standoff endpoint is no longer produced.
 
 `world.yaml` uses cuRobo's world schema, with obstacle poses in the arm **plate
 frame** and quaternions in wxyz order. `{}` explicitly requests an empty external
@@ -132,10 +152,22 @@ The normal debug-marker visibility switch also controls this marker.
 Hand-eye RGB-D excludes the debug geometry.
 
 1. `Use current XYZ` copies measured grasp FK into Target xyz. Coordinates use
-   metres in the same world frame as the Sim, not camera coordinates.
+   metres in the same world frame as the Sim, not camera coordinates. For
+   collision planning, Target XYZ is the center of a 20 mm target object.
 2. Edit Target xyz, then press `Plan XYZ`. Position IK and collision-checked
-   joint planning run in a worker; this button never commands movement.
-   Target dir is not constrained by this four-axis position planning operation.
+   joint planning run in a separate, restartable CUDA worker process; this
+   button never commands movement. A successful worker keeps its loaded CUDA
+   context for the next plan. Cancel terminates a blocked CUDA call, then a
+   later plan starts a clean worker and reloads the model.
+   The final grasp point, in the empty space between the open claws, reaches
+   the object center within 1 mm. The target sphere is included in both IK and
+   joint planning, then checked against all robot spheres at every resampled
+   waypoint. Both claws remain collision checked; no link is exempted to admit
+   the object. The panel shows the object center and planned claw-center XYZ.
+   An intersecting start pose, unreachable grasp center or colliding path fails
+   explicitly. There is no fallback that stops outside the object. The executor
+   leaves the claws open; it does not automatically close them or attach the
+   object. Target dir is not constrained by this four-axis position operation.
 3. Wait for `ready`, inspect planned XYZ and duration, then press `Execute path`.
    Torque must already be ON and measured claws open. The executor never sends
    Torque ON, gripper or GO2 commands.
@@ -145,9 +177,13 @@ Hand-eye RGB-D excludes the debug geometry.
 
 The panel shows request acknowledgement/errors, a persistent failure reason,
 the current planning stage and elapsed wall time. Stages distinguish CUDA/model
-loading, position IK, collision-checked joint planning and validation. No
-invented percentage is shown. Without an exact Robot connection and fresh
-measured joints, Plan is unavailable and the reason is displayed before a click.
+loading, position IK solver initialization, position IK solve,
+collision-checked joint planning and validation. CUDA/model and first IK-solver
+initialization each have a 15-minute bound; solve, path planning and validation
+each have a 3-minute bound. A timed-out stage terminates its worker and reports
+which stage timed out. No invented percentage is shown. Without an exact Robot
+connection and fresh measured joints, Plan is unavailable and the reason is
+displayed before a click.
 
 Execution is currently Robot-only, with identity/v1 IMU correction and a
 stationary base. It pins the exact Robot boot and lease, model/world digests,
@@ -160,16 +196,22 @@ cap, and the execution path is re-sampled at intervals no longer than 25 ms
 with collision and joint-limit validation repeated on every inserted sample.
 During execution the waypoint clock waits when measured error reaches 90% of
 8 mm / 0.12 rad; exceeding those limits, non-advancing hardware
-feedback for 350 ms, a waypoint wait over 3 s, or scheduling lateness above
-100 ms cancels motion. The whole-path timeout is
+feedback for 350 ms, a waypoint wait over 3 s, or a Pilot control-loop stall
+above 250 ms cancels motion. A delay above 100 ms pauses and rebases the path
+clock without dropping a waypoint. The controller never sends a catch-up burst.
+The whole-path timeout is
 `max(20 s, 4 × nominal duration + 8 s)`.
-The final goal is reported complete only within 1 mm / 0.015 rad measured
-tolerance. This is position tracking, not guaranteed continuous swept clearance.
+The final goal is reported complete after three consecutive measured samples
+fall within the same 8 mm / 0.12 rad tracking tolerance used during path
+execution. The UI shows the live per-axis residual from the final goal. A
+tracking error outside that bound still stops the path with the measured and
+commanded joint values. This is position tracking, not guaranteed continuous
+swept clearance.
 There is no catch-up jump or unchecked interpolation fallback.
 
 Other operator changes and background motion are blocked during planning and
 execution. Model/world edits require a fresh plan. An empty world is labelled
-`empty (self collision only)` in the UI; surrounding objects, GO2 and cables are
+`20 mm target + self collision; no other world obstacles` in the UI; surrounding objects, GO2 and cables are
 not automatically covered. Home, sliders and existing workflows retain their
 ordinary behavior outside this explicit operation.
 
@@ -220,7 +262,7 @@ It checks 33 configurations, all collision-sphere transforms, grasp position /
 rotation, self-collision recovery, a 10 mm trajectory, position IK and obstacle
 rejection using the installed Pilot wheel and real CUDA kernels.
 
-For this 911-sphere model the observed initialization was 57.5 s. First/repeat
+For the original 911-sphere model the observed initialization was 57.5 s. First/repeat
 joint planning took 30.8/10.6 s and first/repeat IK took 56.2/2.10 s. These are
 an offline empty-external-world probe, not a real-time performance result.
 Keep the native default for existing interactive control. Further sphere-fit,

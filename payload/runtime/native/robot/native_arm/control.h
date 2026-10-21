@@ -13,7 +13,7 @@ struct ElesimArmConfig {
   int32_t profile_velocity[5];
   int32_t profile_acceleration[5];
   int32_t current_limit_ma;
-  int32_t claw_contact_current_ma;
+  int32_t claw_contact_load_permille;
   int32_t claw_stall_position_ticks;
   int32_t read_failure_limit;
   double monitor_period_s;
@@ -30,6 +30,7 @@ struct ElesimArmSnapshot {
   double sampled_monotonic_s;
   int32_t ticks[5];
   int32_t currents_ma[5];
+  int32_t claw_load_permille;
   int32_t torque_enabled;
   int32_t read_failures;
   int32_t valid;
@@ -73,6 +74,8 @@ int elesim_arm_torque_on(void* handle, char* error, size_t error_size);
 int elesim_arm_torque_off(void* handle, char* error, size_t error_size);
 int elesim_arm_safe_hold(void* handle, char* error, size_t error_size);
 int elesim_arm_clear_fault(void* handle, char* error, size_t error_size);
+int elesim_arm_reboot_faulted_motor(void* handle, int32_t* motor_id,
+                                    char* error, size_t error_size);
 int elesim_arm_snapshot(void* handle, ElesimArmSnapshot* snapshot,
                         char* fault, size_t fault_size);
 int elesim_arm_close(void* handle, char* error, size_t error_size);

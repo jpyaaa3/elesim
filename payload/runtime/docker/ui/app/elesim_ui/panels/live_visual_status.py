@@ -482,6 +482,15 @@ def _fmt_ma(value: object) -> str:
         return "-"
 
 
+def _fmt_load(value: object) -> str:
+    if value is None:
+        return "-"
+    try:
+        return f"{int(value) / 10.0:.0f}%"
+    except (TypeError, ValueError):
+        return "-"
+
+
 def _current_color(panel, value: object) -> tuple[float, float, float] | None:
     if value is None:
         return None
@@ -582,18 +591,12 @@ def _draw_hardware_brief(panel) -> None:
         go2_torque_values,
     )
 
-    gripper_current = _motor_current(host, "gripper", "claw")
-    if gripper_current is None and host is not None:
-        try:
-            gripper_current = int(getattr(host, "claw_current", 0))
-        except (TypeError, ValueError):
-            gripper_current = None
     current_values = (
         _motor_current(host, "linear"),
         _motor_current(host, "roll"),
         _motor_current(host, "seg1", "s1"),
         _motor_current(host, "seg2", "s2"),
-        gripper_current,
+        None,
     )
     _draw_columns_table(
         panel,
@@ -603,6 +606,9 @@ def _draw_hardware_brief(panel) -> None:
         colors=tuple(_current_color(panel, value) for value in current_values),
         center=True,
     )
+    claw_load = getattr(host, "claw_load_permille", None)
+    if claw_load is not None:
+        _line("Gripper estimated load", _fmt_load(claw_load))
 
     reply_reason = str(getattr(host, "reply_reason", "") or "").strip()
     reply_ok = bool(getattr(host, "reply_ok", True)) if host is not None else True

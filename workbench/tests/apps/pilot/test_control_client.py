@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from elesim_pilot.pick import ControlClient, ControlService, PanelState
 from elesim_protocol import SimMappingConfig, SimQ
 
@@ -79,3 +81,29 @@ def test_final_mock_hug_target_carries_stale_plan_fence() -> None:
     assert message["mock_hug"]["object_revision"] == 2
     assert message["mock_hug"]["target_boot_id"] == "boot-a"
     assert force is True
+
+
+def test_motor_reboot_service_requires_physical_support_confirmation():
+    sender = Sender()
+    client = ControlClient(cfg=SimMappingConfig())
+    client.attach_sender(sender)
+    service = ControlService(PanelState(), client=client)
+
+    with pytest.raises(RuntimeError, match="physically support the arm"):
+        service.reboot_faulted_motor()
+    assert sender.messages == []
+
+    service.reboot_faulted_motor(arm_supported=True)
+
+    assert sender.messages == [({"t": "reboot_faulted_motor"}, True)]
+
+
+def test_clear_safety_fault_sends_recovery_without_enabling_torque():
+    sender = Sender()
+    client = ControlClient(cfg=SimMappingConfig())
+    client.attach_sender(sender)
+    service = ControlService(PanelState(), client=client)
+
+    service.clear_safety_fault()
+
+    assert sender.messages == [({"t": "clear_fault"}, True)]

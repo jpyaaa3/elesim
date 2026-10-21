@@ -190,6 +190,9 @@ def test_robot_wrapper_and_unit_use_only_generated_install_paths(
     assert "RuntimeDirectory=elesim-unitree" in bridge_rendered
     assert "RuntimeDirectoryMode=0750" in bridge_rendered
     assert "PartOf=elesim-robot.service" in bridge_rendered
+    assert "Type=notify\n" in bridge_rendered
+    assert "NotifyAccess=main\n" in bridge_rendered
+    assert "TimeoutStartSec=30\n" in bridge_rendered
     assert f'ExecStart="{state.bin_path / "elesim-unitree-bridge"}"' in bridge_rendered
 
 

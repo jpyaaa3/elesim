@@ -22,6 +22,7 @@ test = ["pytest>=8,<9"]
 
 [project.scripts]
 elesim-robot = "elesim_robot.main:main"
+elesim-imu-read = "elesim_robot.imu.teensy:main"
 elesim-unitree-bridge = "elesim_robot.go2.unitree_bridge_daemon:main"
 
 [tool.setuptools.packages.find]

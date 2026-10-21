@@ -131,14 +131,19 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
         notes=(
             "validated MotionCommandRequest; estop remains local-safe; "
             "optional mock_hug final-target identity is stale-fenced by Sim; "
-            "set_imu_model uses schema-v1 model descriptor and Robot telemetry confirmation"
+            "set_imu_model uses schema-v1 model descriptor and Robot telemetry confirmation; "
+            "clear_fault is an explicit lease-bound request that verifies Robot torque-off, "
+            "fresh telemetry and cleared local fault before allowing a separate torque-on; "
+            "reboot_faulted_motor is an explicit lease-bound recovery command requiring "
+            "Robot torque-off and a latched DYNAMIXEL Hardware Error"
         ),
     ),
     "telemetry": _contract(
         "telemetry", ("robot", "sim"), ("pilot", "ui", "sim"),
         qos="reliable-control", notes=(
             "bounded state map; fields are additive by design; Robot measured state "
-            "may feed opt-in Sim presentation.robot-state.v1 without motion authority"
+            "may feed opt-in Sim presentation.robot-state.v1 without motion authority; "
+            "imu_reader schema 1 carries two uncalibrated sensor diagnostics, not correction authority"
         ),
     ),
     "ack": _contract(

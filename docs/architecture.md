@@ -48,6 +48,17 @@ Sim의 선택적 `runtime.mirror_robot_id`는 지정 Robot의 측정 telemetry�
 직접 받아 팔 자세를 표시한다. 이 표시 경로는 motion lease를 만들거나
 Robot 명령을 보내지 않는다. Sim 자신의 motion lease가 있으면 그 제어가
 우선하며, Robot 연결이 끊기면 마지막 수신 자세를 유지한다.
+Robot mirror는 물리 step 뒤 실측 팔 자세와 GO2 몸통·다리 자세를 복원한 다음
+native viewer를 갱신한다. 팔 복원은 claw 보간을 한 번 더 진행하지 않는다.
+일반 Sim 제어로 전환하거나 reset하면 팔 mirror 복원을 해제한다.
+매 step 갱신과 주기 제한 갱신 모두 이 순서를 지켜, 물리 접촉·중력으로
+일시 변위된 본체나 팔이 렌더러에 남아 Ghost·현재 FK 목표와 어긋나 보이지 않도록 한다.
+
+Robot은 GO2 측정값을 `go2.position`, `go2.rpy`, `go2.leg_q`가 든 중첩
+telemetry object로 보낸다. Pilot은 이를 `HostState`의 GO2 필드로 정규화해
+사용한다. GO2 장착 팔의 IK와 계획 경로는 측정된 몸통 위치·방향으로 arm-base
+변환을 갱신하며, 다리 관절값은 Sim 자세 미러링과 계획 시 상태 확인에 사용한다.
+다리 각도만으로 arm-base의 월드 위치를 추정하지 않는다.
 
 IK 목표 XYZ/방향의 표시 intent는 UI simulation-session의 `set_ik_target`
 명령으로 Sim에 직접 전달한다. Pilot의 motion target이 Robot이어도 초록
@@ -65,18 +76,44 @@ Jetson 프로세스 안의 C++ arm controller로 전달한다. C++ controller는
 실어 Robot에 한 번 전달한다. Robot은 그래프를 검증해 native 실행 계획으로
 설치하고 매 tick에서 JSON이나 Python을 실행하지 않는다. 현재 제공하는
 `identity/v1` JSON은 IMU를 참조하지 않고 q를 그대로 반환한다. native controller의
-IMU 입력 경계는 있지만 Teensy frame reader와 실제 보정 모델은 아직 없다.
+IMU 입력 경계와 별도로 Robot-local Teensy reader가 두 센서의 raw quaternion과
+RPY(rad)를 읽는다. `runtime.imu_device`가 빈 문자열이면 비활성화하며, 설정된
+포트만 열고 연결 실패 시 1초마다 재시도한다. reader는 모터 통신/제어와 분리된
+thread에서 최대 2048-byte line과 센서별 최신 한 sample만 보관한다. telemetry
+`imu_reader`와 UI IMU panel은 수신 상태를 보여준다. 새 펌웨어의 측정 순번이
+바뀔 때만 수신 나이를 갱신하고 0.2초 이후 stale로 표시한다. 구형 10-field
+펌웨어는 읽되 freshness unverified로 표시한다. raw 센서 좌표를 native 3축
+보정 입력으로 자동 전달하지 않으며, 장착/단위/상대자세 보정과 실제 잔차
+모델은 후속 작업이다. `imu_feedback_connected`는 native 보정 입력 상태다.
+두 센서가 한 줄에 담긴 52열 Full IMU CSV도 지원한다. 이 형식의 `newAny`는
+모든 종류의 report를 합친 표시라 quaternion freshness는 검증할 수 없다.
+`reports_recent`와 `freshness_verified`를 분리하며, 자이로/중력/가속도/자기장과
+accuracy·BNO timestamp도 raw 진단 값으로 전달한다. 초기 all-zero quaternion은
+유효 자세로 사용하지 않는다. Full IMU sketch의 Rotation Vector 및 magnetometer
+설정을 reader가 변경하지 않는다.
 옛 sag JSON과 Pilot/Sim의 q 기반 sag 계산은 제거되었다.
 Pilot은 선택 ID가 포함된 Robot telemetry를 확인하기 전까지 적용 완료로 표시하지
 않으며, 선택 명령은 미확인 상태에서 재전송한다. 토크 해제와 safe hold는 보관한 목표를 지운다.
 전류·위치 감시는 별도 설정 주기로 실행하며, Jetson의 스케줄링과 버스 지연 때문에
 5 ms는 보장된 마감 시간이 아니다.
 
-그리퍼는 Position mode를 유지한다. 닫힘 중 설정된 전류 이상이 흐르고
-측정 위치가 정체되면 Robot이 Goal Position을 현재 tick으로 옮겨 접촉점에서
-멈춘다. 반복되는 닫힘 intent는 명시적 열림 명령이 올 때까지 이 목표를 덮지
-않는다. 이 접촉 처리는 ID 1–4의 전류 한계와 arm-wide safety fault 동작을
-완화하지 않는다. 모터 자체의 Hardware Error/Shutdown은 별도의 장치 fault다.
+그리퍼는 Position mode를 유지한다. XL430 ID 5의 주소 126은 전류가 아니라
+0.1% 단위의 추정 부하값이다. 닫힘 중 기본 250 permille(25%) 이상의 부하가
+50 ms 지속되거나 90%에 도달하면 Robot이 Goal Position을 현재 tick으로 옮겨
+접촉점에서 멈춘다. 반복되는 닫힘 intent는 명시적 열림 명령이 올 때까지 이
+목표를 덮지 않는다. ID 5의 추정 부하값은 mA 전류 감시에서 제외되며 ID 1–4의
+전류 한계와 arm-wide safety fault 동작은 그대로 유지한다. 모터 자체의
+Hardware Error/Shutdown은 별도의 장치 fault다. `reboot_faulted_motor`는 활성
+lease를 통해 UI에서 명시적으로 요청할 때만 해당 servo ID를 재부팅한다. Robot은
+재부팅 직전 모든 모터 Torque Enable이 실제로 OFF인지 읽어 확인하고, fault 모터의
+현재 위치를 Goal Position에 쓴다. 재부팅 후 모든 모터 Torque Enable을 OFF로 쓰고
+읽어 확인한 뒤 정상 telemetry가 돌아온 경우에만 safety latch를 해제한다.
+XL430 shutdown recovery는 servo torque를 다시 켤 수 있으므로 UI에서 팔 지지를
+확인하며, Robot은 torque-on이나 이동 명령을 보내지 않는다. Torque ON은 별도의
+operator 동작으로 남는다. 전류 한계 등 모터 Hardware Error가 아닌 local safety
+fault는 UI의 `clear_safety_fault` 요청으로 torque-off와 fresh telemetry를 다시
+검사해 latch를 해제할 수 있다. 확인이 실패하면 latch를 유지하고 실패 사유를
+반환하며, 성공해도 torque는 계속 OFF다. 그 뒤 Torque ON은 별도 operator 동작이다.
 
 팔 목표는 Robot C++ 루프에서 보정·범위 검사 후 motor-space slew limit를
 거친다. canonical q 변화율 상한은 설치된 Robot 설정에서 오며 현재 기본값은
@@ -84,7 +121,7 @@ Pilot은 선택 ID가 포함된 Robot telemetry를 확인하기 전까지 적용
 해당 모터 환산값 이하로 제한한다.
 수신 스레드는 최종 위치를 직접 쓰지 않는다. 긴 scheduling 지연을 큰 목표
 점프로 보상하지 않으며, torque-on 전에 fresh 측정 위치를 모든 모터의 hold
-goal로 쓴다. hold/torque-off는 남은 목표를 버린다. Native ABI 3은 구형
+goal로 쓴다. hold/torque-off는 남은 목표를 버린다. Native ABI 5는 구형
 shared library와 새 Python 설정 구조가 섞이면 시작을 거부한다.
 
 실제 Robot 측정 자세를 표시하는 Sim 경로는 명령용 rate limiter를 다시
@@ -98,6 +135,10 @@ Inter-host EleSim graph에는 Robot만 참여한다. Robot과 bridge는
 `AF_UNIX SOCK_SEQPACKET` bounded JSON packet을 주고받고, `SO_PEERCRED`, boot
 ID, monotonic sequence, command/parameter allowlist, keepalive deadman을
 검증한다.
+
+Bridge unit은 `Type=notify`이며 Unitree backend 초기화와 IPC listen 완료 후
+`READY=1`을 보낸다. Robot의 `After`/`BindsTo`는 이 준비 완료를 기다린다.
+GO2 비활성 설정도 Unitree context 없이 준비 완료를 알린다.
 
 bridge는 다섯 번째 애플리케이션도 Router도 아니다. disconnect, malformed
 packet, replay, keepalive expiry는 GO2 stop을 유발하지만, Robot은 arm
@@ -181,6 +222,15 @@ edge가 raw frame을 encoded latest-only sample로 바꾸고 Pilot이 이를 검
 `/rgbd/frame`으로 publish하고 UI와 필요 시 Sim은 broker stream을 decode한다.
 source가 둘인 구성에서 source topic을 inter-host consumer가 직접 구독하는 것은
 금지한다.
+
+ZED Mini는 왼쪽 RGB-D(`/rgbd/frame`)와 오른쪽 컬러(`/rgbd/right`)를 따로
+발행한다. Pilot은 왼쪽 원본을 depth가 포함된 상태로 broker에 relay해 perception에
+사용하고, UI 미리보기용 `/rgbd/left_preview`에는 같은 프레임의 color만 별도로
+relay한다. 이 분리는 큰 depth payload가 원격 UI의 stereo 미리보기까지 전달되는
+것을 막으며 Pilot의 perception 입력에는 영향을 주지 않는다. 오른쪽 스트림은
+깊이 없이 같은 encoded RGB-D 메시지 형식을 사용한다. 카메라가 180도 roll로
+장착된 경우 UI의 `presentation.zed_swap_left_right` 설정으로 미리보기 pane만
+좌·우 source를 바꾼다. Robot의 원본 depth와 Pilot perception 좌표는 바꾸지 않는다.
 
 기존 `RgbdFrame` typed DDS sample은 migration/diagnostic 호환 경계로 남을 수
 있지만, 새 배포의 외부 stream descriptor는 `encoded_rgbd_v1`과
@@ -352,10 +402,16 @@ mimic 관계로 결합한다. 전체 경로 실행, GO2/주변 물체의 live sc
 접촉 허용 정책은 이 IK backend 선택으로 활성화되지 않는다. 모델 생성,
 Jetson 설치 및 검증 경계는 `curobo.md`를 따른다.
 
-별도 `Plan XYZ` operator 경로는 Pilot worker에서 position IK와 cuRobo joint
-trajectory를 계산하고, `Execute path`에서만 기존 canonical q command로
+별도 `Plan XYZ` operator 경로는 Pilot의 격리된 CUDA worker process에서
+position IK와 cuRobo joint trajectory를 계산한다. CUDA 호출은 Python thread
+취소를 따르지 않을 수 있으므로 취소/timeout은 해당 process를 종료한다.
+성공한 worker는 CUDA context를 유지하고, `Execute path`에서만 기존 canonical q command로
 실제 Robot에 전송한다. Robot boot/lease, advancing measured sample, 시작 자세,
 identity/v1 보정, 열린 claw, 고정된 arm base와 정적 world/model digest를 검사한다.
+Target XYZ는 지름 20 mm 물체의 중심이며, 최종 열린 claw 사이의 grasp 중심을
+그 좌표에 맞춘다. Target 구는 IK·계획·resampling 전체에서 모든 팔/claw collision
+sphere와 검사한다. Claw는 15 mm voxel로 생성해 열린 사이 공간을 보존하며,
+물체 앞 standoff에서 끝나는 경로를 성공으로 대체하지 않는다. 자동 claw 닫힘은 없다.
 계획·실행 중 다른 operator 변경과 background motion을 막는다. 실행 중 feedback
 350 ms 초과, 추종 오차 4 mm / 0.06 rad 초과, scheduling overrun 100 ms 초과는
 남은 경로를 취소하고 해당 lease를 해제해 Robot의 local safe hold를 요청한다.
@@ -416,6 +472,15 @@ bundle을 함께 선택하며, SDK/device가 없는 경우 다른 프로파일�
 않고 시작을 거부한다. Sim은 선택된 bundle을 읽고,
 `ELESIM_SIM_DEV_REBUILD=1`일 때만 개발 중 rebuild한다. Pilot은
 `data/models/arm/default.json`을 읽으며 runtime에 assembly를 만들지 않는다.
+
+Robot의 물리 카메라는 `camera.backend`로 선택한다. 신규 기본값은 `zed`이며,
+기존 설정에서 필드를 생략하면 `realsense`를 유지한다. ZED Mini는 ZED SDK의
+왼쪽 영상과 정렬된 mm depth, 출력 해상도에 맞춘 calibration을 읽는다.
+사용 가능한 ZED-M 영상 장치가 없으면 카메라 오류를 보고하며 자동으로
+RealSense로 전환하지 않는다. SDK와 RGBD publisher는 Robot 소유의 spawn
+자식 프로세스에서 실행한다. vendor SDK가 GIL을 잡고 대기하더라도 Robot의
+Unitree keepalive와 제어 루프를 멈추지 않으며, 상태 전달은 latest-only로
+제한한다. 이는 별도 배포 역할이나 새로운 DDS 계약을 추가하지 않는다.
 
 ```bash
 elesim-build-sim-bundle --assets payload/data/models/assemblies/zed-mini/assets --output payload/data/models/assemblies/zed-mini
@@ -496,6 +561,13 @@ GO2 초기 자세는 `scene.build()` 후 `set_dofs_position`으로 적용한다.
 검사에는 -3.3 rad가 되어 잘못된 제한 반력이 생긴다. 기본 zero-neutral calf
 경고를 지우려고 기준점이나 물리 한계를 바꾸지 않는다. Runtime, camera mirror,
 RL scene은 같은 URDF 기준을 유지하고 실제 초기 자세는 build 후 별도로 설정한다.
+
+Raibert IK 결과는 전체 `qpos`이므로 각 다리의 `qs_idx_local`로 읽고,
+모터 명령은 `dofs_idx_local`로 보낸다. Free root의 quaternion 때문에 두
+인덱스는 일치하지 않는다. 정지 시에는 고정된 stand 관절 목표를 유지한다.
+매 tick 접지된 발의 현재 위치로 IK를 다시 풀면 중력에 의한 관절 처짐을
+목표도 따라가서 몸통을 지지할 위치 오차를 잃는다. 다음 보행의 발 기준점은
+정지 중 실제 발 위치로 갱신한다.
 
 PyMPC CPU 착지 계획은 현재 수평 COM 속도와 각 발의 남은 swing 시간으로 몸통
 이동을 예측하고, 기존 목표속도 기반 반 stance 보폭에 더한다. GPU는 현재

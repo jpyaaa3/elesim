@@ -5,7 +5,9 @@ Wants=network-online.target
 PartOf=elesim-robot.service
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=30
 User=elesim-unitree
 Group=elesim-unitree
 UMask=0007

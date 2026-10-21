@@ -17,6 +17,7 @@ SERVICE_CALLS = frozenset(
         "update_gaze_stabilizer_config", "update_perception_config",
         "start_wrap_grasp",
         "compute_mock_hug", "execute_mock_hug",
+        "clear_safety_fault", "reboot_faulted_motor",
         "select_endpoint",
         "select_imu_model",
         "plan_arm_to_target", "execute_arm_trajectory", "cancel_arm_trajectory",

@@ -1,7 +1,9 @@
-schema_version: 4
+schema_version: 5
 runtime:
   endpoint_id: robot-go2
   device: /dev/ttyUSB0
+  # Empty disables Teensy acquisition. Prefer a stable /dev/serial/by-id/... path.
+  imu_device: ""
   use_go2: true
 rgbd:
   schema_version: 1
@@ -32,8 +34,8 @@ arm:
   motor_direction: [1, -1, 1, -1]
   baudrate: 1000000
   current_limit_ma: 2500
-  claw_contact_current_ma: 800
-  claw_contact_stall_s: 0.12
+  claw_contact_load_permille: 250
+  claw_contact_stall_s: 0.05
   claw_stall_position_ticks: 3
   profile_vel_seg1: 60
   profile_acc_seg1: 6
@@ -69,8 +71,11 @@ go2:
   ipc_bridge_user: elesim-unitree
   ipc_heartbeat_interval_s: 0.1
 camera:
+  backend: zed
   enabled: true
   topic: /elesim/robot_go2/rgbd/frame
+  right_topic: /elesim/robot_go2/rgbd/right
+  rotate_180: true
   width: 640
   height: 480
   fps: 30

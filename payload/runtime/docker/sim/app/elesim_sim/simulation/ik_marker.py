@@ -25,7 +25,8 @@ class IkTargetMarker:
         if not valid:
             return
         color = (0.1, 1.0, 0.2, 0.95)
-        self.handles.append(scene.draw_debug_sphere(pos=pos, radius=0.012, color=color))
+        # Match the 20 mm diameter keep-out sphere used by cuRobo planning.
+        self.handles.append(scene.draw_debug_sphere(pos=pos, radius=0.01, color=color))
         if norm > 1e-9:
             self.handles.append(scene.draw_debug_arrow(pos=pos, vec=vec*.09, radius=.003, color=color))
         self.signature = signature

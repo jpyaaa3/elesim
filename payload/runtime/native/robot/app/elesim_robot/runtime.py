@@ -22,6 +22,7 @@ from elesim_robot.arm.dynamixel import (
     tick_to_deg_0_360,
 )
 from elesim_robot.config import SafetyConfig
+from elesim_robot.imu.teensy import TeensyReader
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ class ArmSnapshot:
     degrees: dict[int, float]
     currents_ma: dict[int, int]
     q: SimQ
+    claw_load_permille: int | None = None
 
 
 class RobotRuntime:
@@ -43,6 +45,7 @@ class RobotRuntime:
         hardware_config: Any,
         safety_config: SafetyConfig | None = None,
         device: str = "",
+        imu_device: str = "",
         go2_bridge: Any = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -53,6 +56,7 @@ class RobotRuntime:
         self.clock = clock
         self.hw: Any = None
         self.go2 = go2_bridge
+        self.imu_reader = TeensyReader(imu_device) if imu_device else None
 
         self.torque_enabled = False
         self.active_lease = ""
@@ -79,6 +83,8 @@ class RobotRuntime:
             self.hw.open()
         if self.go2 is not None:
             self.go2.start()
+        if self.imu_reader is not None:
+            self.imu_reader.start()
 
     def close(self) -> None:
         failures: list[tuple[str, Exception]] = []
@@ -86,6 +92,11 @@ class RobotRuntime:
             self.stop_motion()
         except Exception as exc:
             failures.append(("stop motion", exc))
+        if self.imu_reader is not None:
+            try:
+                self.imu_reader.stop()
+            except Exception as exc:
+                failures.append(("IMU reader close", exc))
         if self.go2 is not None:
             try:
                 self.go2.stop()
@@ -284,6 +295,7 @@ class RobotRuntime:
             degrees=degrees,
             currents_ma=dict(sample.currents_ma),
             q=motor_deg_to_sim_q(motor, self.mapping),
+            claw_load_permille=int(sample.claw_load_permille),
         )
 
     def _read_arm_snapshot(self, now: float) -> ArmSnapshot:
@@ -303,6 +315,7 @@ class RobotRuntime:
                 round(self.hw.get_present_current(int(motor_id)) * DXL_CURRENT_UNIT_MA)
             )
             for motor_id in self.hw.ids
+            if int(motor_id) != 5
         }
         config = self.hw.cfg
         arm_ids = (
@@ -321,6 +334,7 @@ class RobotRuntime:
             degrees=degrees,
             currents_ma=currents_ma,
             q=motor_deg_to_sim_q(motor, self.mapping),
+            claw_load_permille=None,
         )
 
     def apply(self, envelope: Envelope) -> tuple[bool, str]:
@@ -336,12 +350,19 @@ class RobotRuntime:
         self.last_seq = envelope.seq
         if "mock_hug" in payload:
             return False, "mock_hug_is_simulation_only"
-        if self.safety_fault and command not in {"torque_off", "clear_fault"}:
+        if self.safety_fault and command not in {
+            "torque_off", "clear_fault", "reboot_faulted_motor",
+        }:
             return False, "safety_fault_latched"
 
         try:
             return self._dispatch(command, payload)
         except Exception as exc:
+            if command in {"clear_fault", "reboot_faulted_motor"}:
+                recovery = "safety fault clear" if command == "clear_fault" else "motor reboot"
+                reason = f"{self.safety_fault}; {recovery} failed: {exc!r}"
+                print(f"[robot] {reason}", flush=True)
+                return False, reason
             self._trip_safety_fault(f"hardware command failed: {exc!r}")
             return False, self.safety_fault
 
@@ -392,6 +413,21 @@ class RobotRuntime:
                 if self.safety_fault
                 else (True, "fault_cleared")
             )
+        if command == "reboot_faulted_motor":
+            if not self.safety_fault:
+                return False, "no_safety_fault_latched"
+            if self.torque_enabled:
+                return False, "torque_must_be_off"
+            if self.hw is None or getattr(self.hw, "native_safety", False) is not True:
+                return False, "native_arm_unavailable"
+            motor_id = self.hw.reboot_faulted_motor()
+            self.safety_fault = ""
+            self._read_failures = 0
+            self._read_error = ""
+            self._monitor_hardware(self.clock(), force=True)
+            if self.safety_fault:
+                return False, "unsafe_to_clear: " + self.safety_fault
+            return True, f"motor_id_{motor_id}_rebooted; torque_off_verified"
         if command == "claw":
             degrees = self._finite_number(payload.get("degrees"), name="claw degrees")
             if not 0.0 <= degrees <= 360.0:
@@ -531,6 +567,8 @@ class RobotRuntime:
             result["imu_feedback_connected"] = native_state.imu_valid
         if self._read_error:
             result["read_error"] = self._read_error
+        if self.imu_reader is not None:
+            result["imu_reader"] = self.imu_reader.snapshot()
         snapshot = self._arm_snapshot
         if snapshot is not None:
             claw_deg = snapshot.degrees.get(5)
@@ -560,6 +598,8 @@ class RobotRuntime:
                     "measurement_monotonic_s": snapshot.sampled_at,
                 }
             )
+            if snapshot.claw_load_permille is not None:
+                result["claw_load_permille"] = int(snapshot.claw_load_permille)
         if self.go2 is not None:
             sample = self.go2.latest_state()
             if sample is not None:
@@ -570,6 +610,8 @@ class RobotRuntime:
                     "angular_velocity": list(sample.ang_vel_body),
                     "timestamp": sample.timestamp_s,
                 }
+                if sample.leg_q is not None:
+                    result["go2"]["leg_q"] = list(sample.leg_q)
         return result
 
 

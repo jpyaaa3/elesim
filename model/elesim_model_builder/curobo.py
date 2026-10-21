@@ -109,8 +109,15 @@ def build_curobo_model(*, assembly: Path, arm_model: Path, output: Path,
                "arm_model.json": hashlib.sha256(arm_model.read_bytes()).hexdigest()}
     cache = {}
     geometry_vertices = {}
+    link_voxel_m = {}
     for link in root.findall("link"):
         values = []
+        # The 30 mm body voxels expand into 26 mm spheres and fill the empty
+        # gap between the open claws. Preserve that gap for object-centred
+        # goals without excluding either claw from target collision checking.
+        link_voxel = min(voxel_m, 0.015) if link.get("name") in {
+            "gripper_claw_left", "gripper_claw_right"
+        } else voxel_m
         for collision in link.findall("collision"):
             mesh = collision.find("geometry/mesh")
             if mesh is None:
@@ -118,12 +125,12 @@ def build_curobo_model(*, assembly: Path, arm_model: Path, output: Path,
             path = (assembly / mesh.get("filename")).resolve()
             sources[mesh.get("filename")] = hashlib.sha256(path.read_bytes()).hexdigest()
             scale = np.fromstring(mesh.get("scale", "1 1 1"), sep=" ")
-            key = (str(path), tuple(scale))
+            key = (str(path), tuple(scale), link_voxel)
             if key not in cache:
                 shape = trimesh.load_mesh(path, process=False)
                 shape.apply_scale(scale)
                 # Each occupied, filled voxel is enclosed by its circumsphere.
-                cache[key] = (shape.voxelized(voxel_m).fill().points, np.asarray(shape.vertices))
+                cache[key] = (shape.voxelized(link_voxel).fill().points, np.asarray(shape.vertices))
             origin = collision.find("origin")
             xyz = np.fromstring(origin.get("xyz", "0 0 0") if origin is not None else "0 0 0", sep=" ")
             rpy = np.fromstring(origin.get("rpy", "0 0 0") if origin is not None else "0 0 0", sep=" ")
@@ -131,9 +138,10 @@ def build_curobo_model(*, assembly: Path, arm_model: Path, output: Path,
             centers = rotation.apply(cache[key][0]) + xyz
             geometry_vertices.setdefault(link.get("name"), []).append(rotation.apply(cache[key][1]) + xyz)
             values.extend({"center": [round(float(v), 9) for v in point],
-                           "radius": float(np.sqrt(3) * voxel_m / 2 + 1e-6)} for point in centers)
+                           "radius": float(np.sqrt(3) * link_voxel / 2 + 1e-6)} for point in centers)
         if values:
             spheres[link.get("name")] = values
+            link_voxel_m[link.get("name")] = link_voxel
         # GPU runtime uses the generated spheres, with no source mesh dependency.
         for element in list(link.findall("visual")) + list(link.findall("collision")):
             link.remove(element)
@@ -200,6 +208,7 @@ def build_curobo_model(*, assembly: Path, arm_model: Path, output: Path,
     (output / "robot.yml").write_text(yaml.safe_dump({"robot_cfg": {"kinematics": kinematics}}, sort_keys=False))
     metadata = dict(schema_version=1, curobo_version="0.7.8+elesim.1", joint_names=active,
                     q_bounds=bounds, sources=sources, voxel_m=voxel_m,
+                    link_voxel_m=link_voxel_m,
                     max_velocity=velocities, robot_velocity_scale=1.0,
                     separated_pairs=separated,
                     sphere_count=sum(map(len, spheres.values())),

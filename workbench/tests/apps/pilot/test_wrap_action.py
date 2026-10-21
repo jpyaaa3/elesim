@@ -379,26 +379,45 @@ def test_the_gate_admits_the_curl_a_wrap_actually_reaches():
     assert runner._wrap_gate((-0.17, 0.0, -0.59, 0.59)) is False
 
 
-def test_roll_is_converted_in_both_directions_at_the_adapter():
-    """Roll turns the other way on the arm than in the training sim.
+@pytest.mark.parametrize("roll", [-0.6, 0.6])
+def test_default_roll_preserves_policy_observation_waypoint_and_lift(monkeypatch, roll):
+    """Exercise the adapter callbacks: wrap must share IK/Robot's Roll sense."""
+    from types import SimpleNamespace
+    from elesim_pilot.pick import wrap
 
-    The conversion has to be symmetric: what the policy is told it is at, and
-    what gets commanded, must agree on which way roll turns, or the policy
-    plans a wrap and drives its mirror image.
-    """
+    sent = []
+    cfg = WrapGraspConfig(approach_substeps=1)
+    assert cfg.roll_sign == 1.0
+    measured_q = (-0.1, roll, -0.2, 0.2)
+    state = SimpleNamespace(set_q=lambda *q: sent.append(q))
+    service = SimpleNamespace(
+        state=state,
+        wrap_grasp_config=lambda: cfg,
+        current_host_state=lambda: SimpleNamespace(q=SimpleNamespace(
+            linear_m=measured_q[0], roll_rad=roll,
+            theta1_rad=measured_q[2], theta2_rad=measured_q[3],
+        )),
+        _clamp_q=lambda q: q,
+        send_current_target=lambda **kw: None,
+        _wait_until_q_settled=lambda *a, **kw: (None, True),
+    )
 
-    from elesim_pilot.pick.wrap import WrapGraspConfig
+    class ProbeRunner:
+        def __init__(self, config, **callbacks):
+            self.callbacks = callbacks
 
-    cfg = WrapGraspConfig()
-    assert cfg.roll_sign == -1.0
+        def run(self):
+            callbacks = self.callbacks
+            assert tuple(callbacks["read_joints"]()) == measured_q
+            target = (-0.1, roll / 2, -0.2, 0.2)
+            assert callbacks["command_waypoint"](target, 1.0)
+            assert sent[-1] == target
+            callbacks["command_roll"](roll / 4)
+            assert sent[-1] == (target[0], roll / 4, target[2], target[3])
+            return WrapGraspOutcome()
 
-    sign = float(cfg.roll_sign)
-    arm_roll = -1.2                          # what the arm reports
-    seen_by_policy = arm_roll * sign         # what read_joints hands over
-    commanded = seen_by_policy * sign        # what command sends back
-
-    assert seen_by_policy == 1.2
-    assert commanded == arm_roll             # a round trip is the identity
+    monkeypatch.setattr(wrap, "WrapGraspRunner", ProbeRunner)
+    WrapActions._wrap_grasp_attempt(service)
 
 
 def test_the_adapter_applies_the_sign_to_read_command_and_lift():

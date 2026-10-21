@@ -28,6 +28,7 @@ constexpr uint16_t kProfileAcceleration = 108;
 constexpr uint16_t kProfileVelocity = 112;
 constexpr uint16_t kGoalPosition = 116;
 constexpr uint16_t kPresentCurrent = 126;
+constexpr uint16_t kPresentLoad = 126;
 constexpr uint16_t kPresentPosition = 132;
 constexpr int kTickMax = 4095;
 constexpr double kCurrentUnitMa = 2.69;
@@ -55,8 +56,8 @@ double clamp(double value, double low, double high) {
 
 void validate_config(const ElesimArmConfig& cfg) {
   if (cfg.baudrate <= 0 || cfg.current_limit_ma <= 0 ||
-      cfg.claw_contact_current_ma <= 0 ||
-      cfg.claw_contact_current_ma >= cfg.current_limit_ma ||
+      cfg.claw_contact_load_permille <= 0 ||
+      cfg.claw_contact_load_permille > 1000 ||
       cfg.claw_stall_position_ticks <= 0 ||
       cfg.read_failure_limit <= 0 || !std::isfinite(cfg.monitor_period_s) ||
       cfg.monitor_period_s < 0.0 || !std::isfinite(cfg.linear_motor_limit_deg) ||
@@ -254,7 +255,6 @@ class ArmController {
     claw_goal_tick_ = tick;
     claw_closing_ = tick + config_.claw_stall_position_ticks < measured_tick;
     claw_stall_since_.reset();
-    claw_last_sample_tick_ = measured_tick;
     write4(kIds[4], kGoalPosition, static_cast<uint32_t>(tick));
   }
 
@@ -343,6 +343,117 @@ class ArmController {
     }
   }
 
+  int reboot_faulted_motor() {
+    std::lock_guard<std::mutex> guard(mutex_);
+    require_open();
+    if (torque_enabled_) throw std::runtime_error("torque_must_be_off");
+    constexpr char kHardwareError[] = "[RxPacketError] Hardware error occurred.";
+    if (fault_.find(kHardwareError) == std::string::npos) {
+      throw std::runtime_error("no_rebootable_dynamixel_hardware_error");
+    }
+
+    int motor_id = 0;
+    for (uint8_t id : kIds) {
+      const std::string marker = "Dynamixel ID " + std::to_string(id) + ":";
+      if (fault_.find(marker) == std::string::npos) continue;
+      if (motor_id != 0 && motor_id != id) {
+        throw std::runtime_error("multiple_hardware_error_motors; reboot individually");
+      }
+      motor_id = id;
+    }
+    if (motor_id == 0) {
+      throw std::runtime_error("hardware_error_motor_id_unavailable");
+    }
+
+    // The software flag is not proof that every actuator actually accepted
+    // the earlier torque-off writes. Read the hardware registers before the
+    // reboot, and fail closed if any motor is still energized or unreadable.
+    for (uint8_t id : kIds) {
+      uint8_t torque = 1;
+      uint8_t error = 0;
+      const int result = packet_->read1ByteTxRx(port_.get(), id, kTorqueEnable,
+                                                &torque, &error);
+      check_result_allow_hardware_alert(result, error, id);
+      if (torque != 0) {
+        throw std::runtime_error("torque_not_off_before_reboot_for_id_" +
+                                 std::to_string(id));
+      }
+    }
+
+    // A shutdown reboot may restore Torque Enable. Before reboot, replace the
+    // possibly stale goal with the latest measured position. This is only
+    // attempted while torque is off and the hardware error is latched.
+    std::array<int32_t, 5> ticks{};
+    read_positions(ticks);
+    const int32_t present_tick = ticks[static_cast<size_t>(motor_id - 1)];
+    if (present_tick < 0 || present_tick > kTickMax) {
+      throw std::runtime_error("faulted_motor_position_unavailable");
+    }
+    write4_allow_hardware_alert(motor_id, kGoalPosition,
+                                static_cast<uint32_t>(present_tick));
+    uint32_t preloaded_goal = 0;
+    uint8_t goal_error = 0;
+    const int goal_result = packet_->read4ByteTxRx(
+        port_.get(), motor_id, kGoalPosition, &preloaded_goal, &goal_error);
+    check_result_allow_hardware_alert(goal_result, goal_error, motor_id);
+    if (preloaded_goal != static_cast<uint32_t>(present_tick)) {
+      throw std::runtime_error("faulted_motor_goal_preload_verification_failed");
+    }
+
+    uint8_t reboot_error = 0;
+    const int reboot_result = packet_->reboot(port_.get(), motor_id, &reboot_error);
+    check_result_allow_hardware_alert(reboot_result, reboot_error, motor_id);
+
+    // The response can arrive just before the servo restarts. Wait for the
+    // exact motor to answer again, then disable torque before clearing the
+    // software latch. The operator UI also requires a physical-support ack.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    bool online = false;
+    while (std::chrono::steady_clock::now() < deadline) {
+      uint16_t model_number = 0;
+      uint8_t ping_error = 0;
+      const int result = packet_->ping(port_.get(), motor_id, &model_number, &ping_error);
+      if (result == COMM_SUCCESS && (ping_error & 0x7f) == 0) {
+        online = true;
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    if (!online) throw std::runtime_error("faulted_motor_did_not_return_after_reboot");
+
+    // Shutdown recovery can re-enable the actuator. Force all five actuators
+    // off, then read the register back before reporting recovery complete.
+    for (uint8_t id : kIds) write1_allow_hardware_alert(id, kTorqueEnable, 0);
+    for (uint8_t id : kIds) {
+      uint8_t torque = 1;
+      uint8_t error = 0;
+      const int result = packet_->read1ByteTxRx(port_.get(), id, kTorqueEnable,
+                                                &torque, &error);
+      check_result_allow_hardware_alert(result, error, id);
+      if (torque != 0) {
+        throw std::runtime_error("torque_off_verification_failed_for_id_" +
+                                 std::to_string(id));
+      }
+    }
+
+    torque_enabled_ = false;
+    theoretical_q_.reset();
+    last_corrected_q_.reset();
+    commanded_degrees_.reset();
+    fault_.clear();
+    read_failures_ = 0;
+    try {
+      sample_locked();
+    } catch (const std::exception& error) {
+      fault_ = error.what();
+      throw;
+    }
+    if (!fault_.empty()) throw std::runtime_error(fault_);
+    std::cerr << "[robot-arm] rebooted Dynamixel ID " << motor_id
+              << "; torque verified OFF on all motors" << std::endl;
+    return motor_id;
+  }
+
   ElesimArmSnapshot snapshot(std::string& fault) {
     std::lock_guard<std::mutex> guard(mutex_);
     auto result = snapshot_;
@@ -380,6 +491,32 @@ class ArmController {
       throw std::runtime_error("Dynamixel ID " + std::to_string(id) + ": " +
                                packet_->getRxPacketError(error));
     }
+  }
+
+  void check_result_allow_hardware_alert(int result, uint8_t error,
+                                         uint8_t id) const {
+    if (result != COMM_SUCCESS) {
+      throw std::runtime_error("Dynamixel ID " + std::to_string(id) + ": " +
+                               packet_->getTxRxResult(result));
+    }
+    // Protocol 2.0 reserves bit 7 for the hardware-alert flag. During recovery
+    // it may still be present in the reply to the command that clears it.
+    if ((error & 0x7f) != 0) {
+      throw std::runtime_error("Dynamixel ID " + std::to_string(id) + ": " +
+                               packet_->getRxPacketError(error));
+    }
+  }
+
+  void write1_allow_hardware_alert(uint8_t id, uint16_t address, uint8_t value) {
+    uint8_t error = 0;
+    const int result = packet_->write1ByteTxRx(port_.get(), id, address, value, &error);
+    check_result_allow_hardware_alert(result, error, id);
+  }
+
+  void write4_allow_hardware_alert(uint8_t id, uint16_t address, uint32_t value) {
+    uint8_t error = 0;
+    const int result = packet_->write4ByteTxRx(port_.get(), id, address, value, &error);
+    check_result_allow_hardware_alert(result, error, id);
   }
 
   void write1(uint8_t id, uint16_t address, uint8_t value) {
@@ -445,7 +582,7 @@ class ArmController {
     std::array<int32_t, 5> ticks{};
     read_positions(ticks);
     std::array<int32_t, 5> currents{};
-    for (size_t index = 0; index < kIds.size(); ++index) {
+    for (size_t index = 0; index < kIds.size() - 1; ++index) {
       uint16_t raw = 0;
       uint8_t error = 0;
       const int result = packet_->read2ByteTxRx(
@@ -454,17 +591,23 @@ class ArmController {
       currents[index] = static_cast<int32_t>(
           std::lround(static_cast<int16_t>(raw) * kCurrentUnitMa));
     }
+    uint16_t raw_load = 0;
+    uint8_t load_error = 0;
+    const int load_result = packet_->read2ByteTxRx(
+        port_.get(), kIds[4], kPresentLoad, &raw_load, &load_error);
+    check_result(load_result, load_error, kIds[4]);
+    const int32_t signed_load = static_cast<int16_t>(raw_load);
+    const int32_t claw_load_permille = std::min(1000, std::abs(signed_load));
     snapshot_.sampled_monotonic_s = monotonic_seconds();
     std::copy(ticks.begin(), ticks.end(), snapshot_.ticks);
     std::copy(currents.begin(), currents.end(), snapshot_.currents_ma);
+    snapshot_.claw_load_permille = claw_load_permille;
     snapshot_.valid = 1;
     read_failures_ = 0;
-    update_claw_contact_locked(ticks[4], currents[4]);
-    for (size_t index = 0; index < kIds.size(); ++index) {
-      // A detected object contact is handled by rebasing the claw goal to its
-      // measured position. Do not turn that expected contact load into a
-      // whole-arm torque-off; other motor current limits remain unchanged.
-      if (index == 4 && claw_contact_hold_) continue;
+    update_claw_contact_locked(ticks[4], claw_load_permille);
+    for (size_t index = 0; index < kIds.size() - 1; ++index) {
+      // Gripper address 126 is an estimated load value, not a current sample.
+      // Only the four arm-axis current readings participate in this limit.
       if (std::abs(currents[index]) > config_.current_limit_ma) {
         trip_fault_locked("motor current limit exceeded: ID " +
                           std::to_string(kIds[index]));
@@ -473,22 +616,21 @@ class ArmController {
     }
   }
 
-  void update_claw_contact_locked(int32_t position_tick, int32_t current_ma) {
+  void update_claw_contact_locked(int32_t position_tick, int32_t load_permille) {
     if (!claw_closing_ || claw_contact_hold_ || !claw_goal_tick_) {
-      claw_last_sample_tick_ = position_tick;
       return;
     }
     const int32_t remaining = std::abs(*claw_goal_tick_ - position_tick);
-    const int32_t movement = claw_last_sample_tick_ < 0
-                                 ? config_.claw_stall_position_ticks + 1
-                                 : std::abs(position_tick - claw_last_sample_tick_);
-    const bool loaded = std::abs(current_ma) >= config_.claw_contact_current_ma;
-    const bool stalled = movement <= config_.claw_stall_position_ticks;
+    const bool loaded = load_permille >= config_.claw_contact_load_permille;
     const double now = monotonic_seconds();
-    const bool hard_current = std::abs(current_ma) >= config_.current_limit_ma;
-    if (remaining > config_.claw_stall_position_ticks && loaded && (stalled || hard_current)) {
+    const bool hard_load = load_permille >= 900;
+    // XL430 address 126 reports estimated load, not measured current. A soft
+    // object can keep compressing while the claw is still moving, so detect a
+    // sustained load before waiting for a position stall. A near-limit load
+    // holds immediately; lower loads use the configured persistence window.
+    if (remaining > config_.claw_stall_position_ticks && loaded) {
       if (!claw_stall_since_) claw_stall_since_ = now;
-      if (hard_current || now - *claw_stall_since_ >= config_.claw_contact_stall_s) {
+      if (hard_load || now - *claw_stall_since_ >= config_.claw_contact_stall_s) {
         // Keep the object at the point of first sustained contact instead of
         // continuing to chase the fully-closed position.
         write4(kIds[4], kGoalPosition, static_cast<uint32_t>(position_tick));
@@ -498,12 +640,12 @@ class ArmController {
         claw_closing_ = false;
         claw_stall_since_.reset();
         std::cerr << "[robot-arm] claw contact held at tick " << position_tick
-                  << " (current " << current_ma << " mA)" << std::endl;
+                  << " (estimated load " << load_permille / 10.0 << "%)"
+                  << std::endl;
       }
     } else {
       claw_stall_since_.reset();
     }
-    claw_last_sample_tick_ = position_tick;
   }
 
   void trip_fault_locked(const std::string& reason) {
@@ -579,7 +721,6 @@ class ArmController {
   ElesimArmSnapshot snapshot_{};
   std::optional<int32_t> claw_goal_tick_;
   std::optional<double> claw_stall_since_;
-  int32_t claw_last_sample_tick_ = -1;
   int32_t claw_contact_hold_tick_ = 0;
   bool claw_closing_ = false;
   bool claw_contact_hold_ = false;
@@ -617,7 +758,7 @@ ArmController& arm(void* handle) {
 
 extern "C" {
 
-int elesim_arm_abi_version() { return 3; }
+int elesim_arm_abi_version() { return 5; }
 
 void* elesim_arm_create(const char* device, const ElesimArmConfig* config,
                         char* error, size_t error_size) {
@@ -660,6 +801,13 @@ int elesim_arm_safe_hold(void* handle, char* error, size_t size) {
 }
 int elesim_arm_clear_fault(void* handle, char* error, size_t size) {
   return guarded([&] { arm(handle).clear_fault(); }, error, size);
+}
+int elesim_arm_reboot_faulted_motor(void* handle, int32_t* motor_id,
+                                    char* error, size_t size) {
+  return guarded([&] {
+    if (!motor_id) throw std::invalid_argument("missing reboot motor output");
+    *motor_id = arm(handle).reboot_faulted_motor();
+  }, error, size);
 }
 int elesim_arm_snapshot(void* handle, ElesimArmSnapshot* snapshot,
                         char* fault, size_t fault_size) {

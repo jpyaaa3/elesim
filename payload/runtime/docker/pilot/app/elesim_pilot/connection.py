@@ -81,6 +81,7 @@ class PilotConnection:
         state_sink: Any,
         dds_settings: Optional[DdsRuntimeSettings] = None,
         rgbd_topic: str = "",
+        rgbd_right_topic: str = "",
         send_hz: float = 30.0,
         discover_period_s: float = 1.0,
         endpoint_factory: Callable[..., Any] = PeerClient,
@@ -91,6 +92,7 @@ class PilotConnection:
         self.state_sink = state_sink
         self.dds_settings = dds_settings
         self.rgbd_topic = str(rgbd_topic).strip()
+        self.rgbd_right_topic = str(rgbd_right_topic).strip()
         self.send_period_s = 0.0 if send_hz <= 0.0 else 1.0 / float(send_hz)
         self.discover_period_s = max(0.1, float(discover_period_s))
         self.endpoint_factory = endpoint_factory
@@ -112,6 +114,7 @@ class PilotConnection:
         self.motion_guard: Optional[Callable[[dict[str, Any]], bool]] = None
         self.telemetry_received_at: Optional[float] = None
         self.trajectory_telemetry: dict[str, Any] = {}
+        self._imu_reader_received_at: float | None = None
         self._measurement_stamp: Optional[float] = None
 
         self._outbox: queue.Queue[_Submission] = queue.Queue()
@@ -256,6 +259,12 @@ class PilotConnection:
                 } if model else {},
                 "active": self._imu_model_applied,
                 "error": self._imu_model_error,
+                "reader": (
+                    self.trajectory_telemetry.get("imu_reader", {})
+                    if self._imu_reader_received_at is not None
+                    and time.monotonic() - self._imu_reader_received_at <= 1.0
+                    else {}
+                ),
             }
 
     def _run(self) -> None:
@@ -275,6 +284,19 @@ class PilotConnection:
                 format="encoded-rgbd-v1",
             )
             capabilities.extend((CAPABILITY_STREAM_RGBD, CAPABILITY_STREAM_RGBD_BROKER))
+        if self.rgbd_right_topic:
+            streams["rgbd_right"] = MediaStreamDescriptor(
+                transport=MEDIA_TRANSPORT_DDS,
+                media_kind=MEDIA_KIND_RGBD,
+                endpoint=self.rgbd_right_topic,
+                security=(
+                    MEDIA_SECURITY_DDS
+                    if self.dds_settings is not None
+                    and self.dds_settings.security_profile == "sros2"
+                    else MEDIA_SECURITY_NONE
+                ),
+                format="encoded-rgbd-v1",
+            )
         endpoint = self.endpoint_factory(
             EndpointDescriptor(
                 self.pilot_id,
@@ -379,6 +401,7 @@ class PilotConnection:
             self.telemetry_received_at = None
             self._measurement_stamp = None
             self.trajectory_telemetry = {}
+            self._imu_reader_received_at = None
             self.active_target = str(payload.get("target_id", ""))
             self.lease_id = str(payload.get("lease_id", ""))
             with self._imu_model_lock:
@@ -429,6 +452,7 @@ class PilotConnection:
             self.telemetry_received_at = None
             self._measurement_stamp = None
             self.trajectory_telemetry = {}
+            self._imu_reader_received_at = None
             self.lease_id = ""
             with self._imu_model_lock:
                 self._imu_model_request = None
@@ -446,6 +470,7 @@ class PilotConnection:
                 self.state_sink.accept_telemetry(payload)
                 if message.source_id == self.active_target:
                     self.trajectory_telemetry = payload
+                    self._imu_reader_received_at = time.monotonic()
                     q = payload.get("q")
                     stamp = payload.get("measurement_monotonic_s")
                     valid = (payload.get("q_source") == "measured" and

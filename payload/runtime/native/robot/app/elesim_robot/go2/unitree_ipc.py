@@ -71,6 +71,9 @@ class UnitreeIpcClient:
         self._server_seq = -1
         self._last_heartbeat_at = 0.0
         self._latest: Optional[OdomSample] = None
+        self._send_lock = threading.Lock()
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread: Optional[threading.Thread] = None
 
     @property
     def connected(self) -> bool:
@@ -118,8 +121,19 @@ class UnitreeIpcClient:
             raise
         self._socket = sock
         self._last_heartbeat_at = self._clock()
+        self._heartbeat_stop.clear()
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            name="unitree-ipc-heartbeat",
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
 
     def stop(self) -> None:
+        self._heartbeat_stop.set()
+        heartbeat = self._heartbeat_thread
+        if heartbeat is not None and heartbeat is not threading.current_thread():
+            heartbeat.join(timeout=0.25)
         sock = self._socket
         if sock is None:
             return
@@ -164,15 +178,29 @@ class UnitreeIpcClient:
                 if packet is None:
                     break
                 self._handle_server_packet(packet)
-            now = self._clock()
-            if now - self._last_heartbeat_at >= float(
-                self._config.ipc_heartbeat_interval_s
-            ):
-                self._send("heartbeat", {})
-                self._last_heartbeat_at = now
+            self._send_heartbeat_if_due()
         except Exception:
             self._disconnect()
             raise
+
+    def _heartbeat_loop(self) -> None:
+        interval = max(float(self._config.ipc_heartbeat_interval_s), 0.001)
+        while not self._heartbeat_stop.wait(interval / 2.0):
+            try:
+                self._send_heartbeat_if_due()
+            except Exception:
+                self._disconnect()
+                return
+
+    def _send_heartbeat_if_due(self) -> None:
+        with self._send_lock:
+            sock = self._require_socket()
+            now = self._clock()
+            interval = float(self._config.ipc_heartbeat_interval_s)
+            if now - self._last_heartbeat_at < interval:
+                return
+            self._send_locked(sock, "heartbeat", {})
+            self._last_heartbeat_at = now
 
     def latest_state(self) -> Optional[OdomSample]:
         return self._latest
@@ -199,7 +227,12 @@ class UnitreeIpcClient:
         self._send("command", payload)
 
     def _send(self, kind: str, payload: dict[str, object]) -> None:
-        sock = self._require_socket()
+        with self._send_lock:
+            self._send_locked(self._require_socket(), kind, payload)
+
+    def _send_locked(
+        self, sock: socket.socket, kind: str, payload: dict[str, object]
+    ) -> None:
         if self._send_seq >= (1 << 63) - 1:
             raise UnitreeIpcProtocolError("client sequence exhausted")
         self._send_seq += 1
@@ -222,6 +255,7 @@ class UnitreeIpcClient:
         return self._socket
 
     def _disconnect(self) -> None:
+        self._heartbeat_stop.set()
         sock, self._socket = self._socket, None
         if sock is not None:
             sock.close()
@@ -238,12 +272,14 @@ class UnitreeBridgeServer:
         *,
         clock: Callable[[], float] = time.monotonic,
         expected_client_uid: Optional[int] = None,
+        on_ready: Optional[Callable[[], None]] = None,
     ) -> None:
         self._config = config
         self._safety = safety
         self._backend = backend
         self._clock = clock
         self._expected_client_uid = expected_client_uid
+        self._on_ready = on_ready
         self._boot_id = new_boot_id()
         self._send_seq = -1
         self._seen_client_boots: set[str] = set()
@@ -264,6 +300,8 @@ class UnitreeBridgeServer:
         try:
             self._listener = self._open_listener()
             self._listener.settimeout(0.25)
+            if self._on_ready is not None:
+                self._on_ready()
             while not stopping.is_set():
                 try:
                     connection, _address = self._listener.accept()

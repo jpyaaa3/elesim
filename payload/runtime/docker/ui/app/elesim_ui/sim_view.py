@@ -169,22 +169,46 @@ def _pip_rect(
 class SimViewState:
     main_stream: str = "observer"
     preview_stream: str = "hand_eye_preview"
+    camera_source: str = "sim"
 
     def swap_streams(self) -> None:
         self.main_stream, self.preview_stream = self.preview_stream, self.main_stream
 
 
 class SimView:
-    """Render two named streams and issue simulation-session commands."""
+    """Render Sim streams and an optional physical ZED preview."""
 
-    def __init__(self, session: Any) -> None:
+    def __init__(
+        self,
+        session: Any = None,
+        *,
+        zed_preview: Any = None,
+        zed_right_preview: Any = None,
+    ) -> None:
         self.session = session
+        self.zed_preview = zed_preview
+        self.zed_right_preview = zed_right_preview
         self.state = SimViewState()
+        if zed_preview is not None or zed_right_preview is not None:
+            self.state.camera_source = "zed"
         self._textures: dict[str, int] = {}
         self._texture_versions: dict[str, int] = {}
         self._texture_sizes: dict[str, tuple[int, int]] = {}
 
     def draw(self) -> None:
+        if self.zed_preview is not None or self.zed_right_preview is not None:
+            if imgui.button("ZED View##camera-source-zed"):
+                self.state.camera_source = "zed"
+            if self.session is not None:
+                imgui.same_line()
+                if imgui.button("Sim Cameras##camera-source-sim"):
+                    self.state.camera_source = "sim"
+            if self.state.camera_source == "zed":
+                self._draw_zed()
+                return
+        if self.session is None:
+            imgui.text_disabled("Sim camera session is not configured")
+            return
         snapshot = self.session.snapshot
         if snapshot.last_error:
             imgui.text_colored(snapshot.last_error, 0.78, 0.18, 0.18)
@@ -217,6 +241,89 @@ class SimView:
                 display_aspect=4.0 / 3.0,
                 center=True,
             )
+
+    def _draw_zed(self) -> None:
+        left_source = str(getattr(self.zed_preview, "source_id", "")).strip()
+        right_source = str(getattr(self.zed_right_preview, "source_id", "")).strip()
+        source_ids = {source for source in (left_source, right_source) if source}
+        if source_ids and source_ids != {"robot-go2"}:
+            imgui.text("RGB-D SOURCE " + ", ".join(sorted(source_ids)))
+            imgui.text_colored(
+                "Select robot-go2 in Target to see the physical ZED Mini.",
+                0.9,
+                0.55,
+                0.12,
+            )
+        left_status = str(getattr(self.zed_preview, "status", "WAIT"))
+        right_status = str(getattr(self.zed_right_preview, "status", "WAIT"))
+        imgui.text(f"ZED MINI STEREO    LEFT {left_status}    RIGHT {right_status}")
+
+        available = max(1.0, float(imgui.get_content_region_available_width()))
+        available_height = self._available_content_height(fallback=available * 0.75)
+        spacing = float(imgui.get_style().item_spacing.x)
+        pane_width = max(1.0, (available - spacing) * 0.5)
+        pane_height = max(1.0, available_height)
+        self._draw_zed_pane("LEFT", self.zed_preview, pane_width, pane_height)
+        imgui.same_line()
+        self._draw_zed_pane("RIGHT", self.zed_right_preview, pane_width, pane_height)
+
+    def _draw_zed_pane(
+        self,
+        label: str,
+        preview: Any,
+        pane_width: float,
+        pane_height: float,
+    ) -> None:
+        imgui.begin_child(f"zed-{label.lower()}-pane", pane_width, pane_height, True)
+        if preview is None:
+            imgui.text(f"ZED {label}")
+            missing = (
+                "RIGHT stream is not configured"
+                if label == "RIGHT"
+                else "Left stream is not configured"
+            )
+            imgui.text_disabled(missing)
+            imgui.end_child()
+            return
+        status = str(preview.status)
+        imgui.text(f"ZED {label}  {status}")
+        frame = preview.frame
+        if (
+            GL is None
+            or frame is None
+            or not hasattr(frame, "shape")
+            or len(frame.shape) != 3
+            or int(frame.shape[0]) <= 0
+            or int(frame.shape[1]) <= 0
+        ):
+            error = str(preview.last_error)
+            message = error if error else "Waiting for ZED stream from Pilot..."
+            imgui.text_disabled(message)
+            imgui.end_child()
+            return
+        height, width = int(frame.shape[0]), int(frame.shape[1])
+        available = max(1.0, float(imgui.get_content_region_available_width()))
+        available_height = self._available_content_height(fallback=pane_height * 0.75)
+        draw_width, draw_height = _fit_aspect_size(
+            available,
+            available_height,
+            width / height,
+        )
+        x, y = _xy(imgui.get_cursor_screen_pos())
+        setter = getattr(imgui, "set_cursor_screen_pos", None)
+        if callable(setter) and draw_width < available:
+            setter((x + (available - draw_width) * 0.5, y))
+        texture = self._upload(
+            f"zed-{label.lower()}",
+            frame,
+            width,
+            height,
+            version=int(preview.frame_version),
+        )
+        imgui.image(texture, draw_width, draw_height)
+        if status == "STALE":
+            imgui.text_colored("ZED frame is stale", 0.9, 0.55, 0.12)
+        imgui.end_child()
 
     def _draw_stream(
         self,

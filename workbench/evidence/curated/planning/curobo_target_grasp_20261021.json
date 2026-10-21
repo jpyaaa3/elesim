@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-21",
+  "behavior": "Final open-claw grasp centre reaches the 20 mm object centre; target remains collision checked for every modeled arm/claw sphere",
+  "host_tests": {
+    "focused_passed": 81,
+    "final_pilot_ui_subset_passed": 61,
+    "dds_smoke": "not completed: elesim_interfaces overlay unavailable in host test shell",
+    "canonical": "not run: generated development wrapper unavailable"
+  },
+  "cuda": {
+    "scope": "Jetson CUDA offline planning only; no DDS, torque or motion",
+    "sphere_count": 1005,
+    "load_s": 71.0304809729987,
+    "total_s": 178.15044602799935,
+    "target_xyz": [
+      0.5060000419616699,
+      -0.012000000104308128,
+      0.17591999471187592
+    ],
+    "goal_xyz": [
+      0.5060000419616699,
+      -0.012000000104308128,
+      0.17591999471187592
+    ],
+    "final_fk": [
+      0.5059990882873535,
+      -0.012000000104308128,
+      0.17591999471187592
+    ],
+    "position_error_m": 9.5367431640625e-07,
+    "target_clearance_m": 0.0039503490552306175,
+    "goal_q": [
+      -0.0950009748339653,
+      0.0,
+      1.9036250006876365e-11,
+      1.9036250006876365e-11
+    ],
+    "start_q": [
+      -0.1,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "waypoints": 31,
+    "execution_samples": 61,
+    "dt_s": 0.05,
+    "body_collision_rejected": true
+  },
+  "deployment": {
+    "wheel_sha256": "f6cdb7a85b51b060ee9c353fbaca17a2593096cc1c3a6ea933358f0affb6a1b7",
+    "sphere_count": 1005,
+    "package": "/home/idim/elesim/roles/pilot/venv/lib/python3.10/site-packages/elesim_pilot",
+    "model": "/home/idim/elesim/roles/pilot/payload/data/models/planning/zed-mini",
+    "services_restarted": false,
+    "installed_model_sha256": {
+      "arm.urdf": "5eef2df8c97a3cd45e790e59378882c651ebc9985a6de0a3746e8cb8e6846ea0",
+      "robot.yml": "922089a24713c3e53d829a0bcd4b1b7b0706cebf57fd1b237a4a23d4ece24948",
+      "metadata.json": "92d07ecca38660a668c70cecf1c25513631f79a27ca5006217a9b357cfcf690c"
+    }
+  },
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/robot/arm/curobo.py": "b5c878a3fec7fedcfed93ceb0831895e68f2fbbd9a2c300d7c89b0be245a0a6d",
+    "payload/runtime/docker/pilot/app/elesim_pilot/arm_trajectory.py": "b5e8d1d369135de1bd4305f60a5da344f8370bbb69b1b94ac2ced314da613e49",
+    "model/elesim_model_builder/curobo.py": "1ba5eadc2a089da43f016d6f1033e298c6e57255305624ff2dcc2e6502eca39e"
+  }
+}

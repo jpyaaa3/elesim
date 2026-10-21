@@ -4,7 +4,9 @@ from types import SimpleNamespace
 
 from elesim_protocol import ControlU, MockObjectStatePayload, SimulationStatusPayload
 from elesim_ui import control_panel
+from elesim_ui.panels import go2
 from elesim_ui.panels.go2 import (
+    _draw_posture,
     _respawn_blocks_teleop,
     _send_go2_velocity,
     _stop_go2,
@@ -98,6 +100,65 @@ def test_respawn_blocks_held_teleop_until_all_motion_inputs_are_released() -> No
 
     assert _respawn_blocks_teleop(panel, active=False, key_stop=False) is False
     assert panel._go2_respawn_blocked is False
+
+
+def test_go2_stand_and_sit_buttons_are_always_visible(monkeypatch) -> None:
+    labels: list[str] = []
+    disabled: list[str] = []
+    monkeypatch.setattr(
+        go2,
+        "imgui",
+        SimpleNamespace(
+            same_line=lambda: None,
+            text_disabled=lambda text: disabled.append(str(text)),
+        ),
+    )
+    monkeypatch.setattr(
+        go2,
+        "_button",
+        lambda _panel, label, _width: labels.append(str(label)) or False,
+    )
+    panel = SimpleNamespace(
+        _host_state=SimpleNamespace(go2_sport_pose=""),
+        service=SimpleNamespace(
+            send_go2_velocity=lambda **_kwargs: None,
+            send_go2_sport_pose=lambda **_kwargs: None,
+        ),
+    )
+
+    _draw_posture(panel, 260.0)
+
+    assert "Stand##go2_stand_up" in labels
+    assert "Sit##go2_stand_down" in labels
+    assert disabled == ["Balance", "Recover"]
+
+
+def test_go2_sit_button_sends_stand_down_even_without_pose_feedback(monkeypatch) -> None:
+    sent: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        go2,
+        "imgui",
+        SimpleNamespace(same_line=lambda: None, text_disabled=lambda _text: None),
+    )
+    monkeypatch.setattr(
+        go2,
+        "_button",
+        lambda _panel, label, _width: str(label) == "Sit##go2_stand_down",
+    )
+    panel = SimpleNamespace(
+        _host_state=SimpleNamespace(go2_sport_pose=""),
+        service=SimpleNamespace(
+            send_go2_velocity=lambda **kwargs: sent.append(("velocity", kwargs)),
+            send_go2_sport_pose=lambda **kwargs: sent.append(("pose", kwargs)),
+        ),
+    )
+
+    _draw_posture(panel, 260.0)
+
+    assert sent == [
+        ("velocity", {"vx": 0.0, "vy": 0.0, "wz": 0.0}),
+        ("pose", {"pose": "stand_down"}),
+    ]
 
 
 def test_mock_object_section_remains_visible_without_a_sim_session(monkeypatch) -> None:

@@ -1388,6 +1388,7 @@ class SimScene(_SimSceneKinematicsMixin):
     _async_frame_seen: set[str] = field(default_factory=set)
     _camera_failures: set[str] = field(default_factory=set)
     _force_instant_arm_frames: int = 0
+    _arm_mirror_active: bool = False
     camera_joint_names: tuple[str, ...] = ()
     camera_hand_eye_joint_names: tuple[str, ...] = ()
     _camera_joint_position_cache: dict[str, float] = field(default_factory=dict)
@@ -1789,6 +1790,7 @@ class SimScene(_SimSceneKinematicsMixin):
         return start_q
 
     def apply_sim_q(self, q_errmodel: proto.SimQ, *, measured: bool = False) -> Optional[np.ndarray]:
+        self._arm_mirror_active = bool(measured)
         if self.mover is None:
             return None
         linear_m = float(q_errmodel.linear_m)
@@ -1810,11 +1812,24 @@ class SimScene(_SimSceneKinematicsMixin):
         if self.scene is not None:
             if int(self.sim_step_count) <= 0:
                 self._sim_wall_start_s = time.perf_counter()
+            mirror_go2 = self.go2 is not None and self.go2.mirror_mode
+            mirror_arm = self._arm_mirror_active and self.mover is not None
+            # Physics can displace both the GO2 base and the mirrored arm.
+            # Restore both before either viewer refresh path takes its snapshot,
+            # so displayed claw geometry uses the same measured q as Pilot FK.
+            restore_before_render = mirror_go2 or mirror_arm
+            refresh_on_step = bool(self.update_visualizer_on_step) and not restore_before_render
             self.scene.step(
-                update_visualizer=bool(self.update_visualizer_on_step),
-                refresh_visualizer=bool(self.update_visualizer_on_step),
+                update_visualizer=refresh_on_step,
+                refresh_visualizer=refresh_on_step,
             )
             self.sim_step_count += 1
+            if mirror_go2:
+                self.go2.reapply_last_mirror_pose()
+            if mirror_arm:
+                self.mover.reapply_last_kinematic_pose()
+            if restore_before_render and self.update_visualizer_on_step:
+                self.scene.visualizer.update(force=False, auto=True)
             self.update_visualizer_if_due()
 
     def update_visualizer_if_due(self) -> None:
@@ -1890,6 +1905,7 @@ class SimScene(_SimSceneKinematicsMixin):
 
     def reset_environment(self, *, mapping_cfg: Optional[proto.SimMappingConfig] = None) -> None:
         cfg = mapping_cfg if mapping_cfg is not None else proto.SimMappingConfig()
+        self._arm_mirror_active = False
         if self.scene is not None:
             try:
                 self.scene.reset()
@@ -2507,6 +2523,10 @@ class SimMover:
         self._q_cmd = q_target.copy()
         self._step_claws()
         self._apply_all_direct(q_target)
+
+    def reapply_last_kinematic_pose(self) -> None:
+        """Restore the mirrored arm after physics without advancing the claws."""
+        self._apply_all_direct(self._q_cmd)
 
 
 class AssetProcessor:
@@ -3350,6 +3370,7 @@ class SimRuntime:
         self._ik_marker = IkTargetMarker()
         self._arm_ghost = ArmGhost(os.path.join(app.cfg.build_dir, app.cfg.arm_urdf_name))
         self._ghost_frame = None
+        self._ghost_alignment_logged_plan_id = ""
 
     def _feedback_due(self, sim_time_s: float) -> bool:
         period = 1.0 / max(1.0, float(self.app.cfg.telemetry_max_hz))
@@ -3482,6 +3503,8 @@ class SimRuntime:
         elapsed = time.monotonic()-self.operator.arm_ghost_started_at
         if elapsed > 120:
             preview = None
+        if preview is not None:
+            self._log_arm_ghost_alignment(preview)
         frame = None if preview is None else (preview["plan_id"], int(elapsed*15), visible)
         if frame != self._ghost_frame:
             self._ghost_frame = frame
@@ -3490,6 +3513,116 @@ class SimRuntime:
             a.sim_scene.arm_ghost_q, a.sim_scene.arm_ghost_base = q, base
             self._arm_ghost.update(a.sim_scene.scene, q, base, visible=visible)
             self.operator._observer_dirty = True
+
+    def _log_arm_ghost_alignment(self, preview: dict[str, Any]) -> None:
+        """Compare the planned ghost frame with Genesis' actual arm root once.
+
+        This is presentation-only telemetry. It helps distinguish a base-frame
+        mismatch from a joint-state mismatch without changing the preview.
+        """
+        plan_id = str(preview.get("plan_id", ""))
+        if not plan_id or plan_id == self._ghost_alignment_logged_plan_id:
+            return
+        self._ghost_alignment_logged_plan_id = plan_id
+        try:
+            entity = self.app.sim_scene.go2_entity
+            if entity is None:
+                return
+            plate = entity.get_link("plate")
+            position = _to_numpy_1d(plate.get_pos())[:3]
+            quat_wxyz = _to_numpy_1d(plate.get_quat())[:4]
+            if position.size != 3 or quat_wxyz.size != 4:
+                raise ValueError("Genesis plate pose has an invalid shape")
+            genesis_base = np.eye(4, dtype=float)
+            genesis_base[:3, :3] = Rot.from_quat(
+                [quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]]
+            ).as_matrix()
+            genesis_base[:3, 3] = position
+            planned_base = np.asarray(preview["base"], dtype=float).reshape(4, 4)
+            delta_xyz_mm = (planned_base[:3, 3] - genesis_base[:3, 3]) * 1000.0
+            delta_rpy_deg = np.degrees(
+                Rot.from_matrix(genesis_base[:3, :3].T @ planned_base[:3, :3]).as_euler("xyz")
+            )
+
+            root_mesh_bbox_center_delta_mm = None
+            root_mesh_z_bounds_delta_mm = None
+            try:
+                if self._arm_ghost.meshes is None:
+                    self._arm_ghost._load()
+                root_name = self._arm_ghost.root
+                ghost_root_vertices = []
+                for link_name, mesh, visual in self._arm_ghost.meshes:
+                    if link_name != root_name:
+                        continue
+                    transform = planned_base @ visual
+                    vertices = np.asarray(mesh.vertices, dtype=float).reshape(-1, 3)
+                    ghost_root_vertices.append(vertices @ transform[:3, :3].T + transform[:3, 3])
+                genesis_root = entity.get_link(root_name)
+                genesis_root_vertices = [
+                    _to_numpy_1d(vgeom.get_vverts()).reshape(-1, 3)
+                    for vgeom in genesis_root.vgeoms
+                ]
+                if ghost_root_vertices and genesis_root_vertices:
+                    ghost_vertices = np.concatenate(ghost_root_vertices, axis=0)
+                    genesis_vertices = np.concatenate(genesis_root_vertices, axis=0)
+                    ghost_bounds = np.stack((ghost_vertices.min(axis=0), ghost_vertices.max(axis=0)))
+                    genesis_bounds = np.stack((genesis_vertices.min(axis=0), genesis_vertices.max(axis=0)))
+                    root_mesh_bbox_center_delta_mm = np.round(
+                        (ghost_bounds.mean(axis=0) - genesis_bounds.mean(axis=0)) * 1000.0, 2
+                    ).tolist()
+                    root_mesh_z_bounds_delta_mm = np.round(
+                        (ghost_bounds[:, 2] - genesis_bounds[:, 2]) * 1000.0, 2
+                    ).tolist()
+            except Exception as exc:
+                root_mesh_bbox_center_delta_mm = f"error:{type(exc).__name__}"
+
+            q_start = np.asarray(preview["positions"][0], dtype=float).reshape(4)
+            mover = self.app.sim_scene.mover
+            cmd_q = mover.current_4dof_q() if mover is not None else None
+            if cmd_q is None:
+                cmd_values = None
+                actual_values = None
+            else:
+                cmd_values = np.asarray(
+                    [cmd_q.linear_m, cmd_q.roll_rad, cmd_q.theta1_rad, cmd_q.theta2_rad],
+                    dtype=float,
+                )
+                measured = np.asarray(mover.get_dofs_position(), dtype=float).reshape(-1)
+                bend_values = measured[np.asarray(mover.bend_indices(), dtype=int)]
+                n_seg = max(0, min(int(mover.n_seg), len(bend_values)))
+                actual_values = np.asarray(
+                    [
+                        measured[int(mover.idx_linear())],
+                        measured[int(mover.idx_roll())],
+                        float(np.mean(bend_values[:n_seg])) if n_seg else 0.0,
+                        float(np.mean(bend_values[n_seg:])) if len(bend_values[n_seg:]) else 0.0,
+                    ],
+                    dtype=float,
+                )
+            print(
+                "[arm_ghost_alignment] plan=%s planned_minus_genesis_plate_mm=%s "
+                "rpy_deg=%s start_q_minus_mover_cmd_q=%s "
+                "start_q_minus_genesis_measured_q=%s genesis_measured_q=%s "
+                "ghost_minus_genesis_root_mesh_bbox_center_mm=%s "
+                "root_mesh_z_bounds_delta_mm=%s"
+                % (
+                    plan_id,
+                    np.round(delta_xyz_mm, 2).tolist(),
+                    np.round(delta_rpy_deg, 3).tolist(),
+                    None if cmd_values is None else np.round(q_start - cmd_values, 5).tolist(),
+                    None if actual_values is None else np.round(q_start - actual_values, 5).tolist(),
+                    None if actual_values is None else np.round(actual_values, 5).tolist(),
+                    root_mesh_bbox_center_delta_mm,
+                    root_mesh_z_bounds_delta_mm,
+                ),
+                flush=True,
+            )
+        except Exception as exc:
+            print(
+                "[arm_ghost_alignment] plan=%s comparison failed: %s"
+                % (plan_id, str(exc) or type(exc).__name__),
+                flush=True,
+            )
 
 
     def _publish_simulation_status(self, *, force: bool = False) -> None:
@@ -3836,8 +3969,6 @@ class SimRuntime:
                     a.sim_scene.step()
                 perf.section("physics", t_sec)
                 perf.mark_step(did_step, float(a.params.dt))
-                if did_step and a.sim_scene.go2 is not None and a.sim_scene.go2.mirror_mode:
-                    a.sim_scene.go2.reapply_last_mirror_pose()
                 q_cam = q_errmodel
                 arm_q = None
                 if q_cam is not None:

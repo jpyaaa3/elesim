@@ -40,8 +40,25 @@ def _rgbd_section(raw: object, source: Path) -> dict[str, Any]:
     topic = str(wire.get("topic", "")).strip()
     if format_name == "encoded-rgbd-v1" and (not topic or not topic.startswith("/")):
         raise ValueError(f"{source}: encoded rgbd.wire.topic must be an absolute topic")
+    right_topic = str(wire.get("right_topic", "")).strip()
+    if not right_topic and format_name == "encoded-rgbd-v1" and topic:
+        base = topic.rstrip("/")
+        right_topic = (
+            f"{base[:-len('/frame')]}/right"
+            if base.endswith("/frame")
+            else f"{base}/right"
+        )
+    if right_topic and not right_topic.startswith("/"):
+        raise ValueError(f"{source}: rgbd.wire.right_topic must be an absolute topic")
+    left_preview_topic = str(wire.get("left_preview_topic", "")).strip()
+    if left_preview_topic and not left_preview_topic.startswith("/"):
+        raise ValueError(
+            f"{source}: rgbd.wire.left_preview_topic must be an absolute topic"
+        )
     wire["format"] = format_name
     wire["topic"] = topic
+    wire["right_topic"] = right_topic
+    wire["left_preview_topic"] = left_preview_topic
     result["wire"] = wire
     if str(result.get("broker_role", "pilot")).strip() != "pilot":
         raise ValueError(f"{source}: rgbd.broker_role must be 'pilot'")

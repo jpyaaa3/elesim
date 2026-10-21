@@ -54,6 +54,13 @@ def test_motion_contract_rejects_legacy_u_and_invalid_numeric_values() -> None:
         MotionCommandRequest.from_payload({"command": "target", "q": [0, 0, 0]})
 
 
+def test_motor_fault_reboot_uses_existing_v6_motion_command_shape() -> None:
+    command = MotionCommandRequest.from_payload({"command": "reboot_faulted_motor"})
+    assert command.command == "reboot_faulted_motor"
+    assert command.q is None
+    assert command.go2_velocity is None
+
+
 def test_telemetry_q_is_a_canonical_four_vector() -> None:
     assert TelemetryPayload.from_payload({"q": [-0.1, 0.0, 0.1, -0.1]}).q == (
         -0.1,

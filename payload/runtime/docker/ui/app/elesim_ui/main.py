@@ -10,6 +10,7 @@ from elesim_ui.operator import RemoteControlService, RemotePanelState
 from elesim_ui.operator_session import OperatorSession
 from elesim_ui.peer_runtime import UiPeerHub
 from elesim_ui.sim_session import UiSimSession
+from elesim_ui.zed_preview import ZedCameraPreview
 from elesim_protocol import (
     configure_protocol_tracing,
     shutdown_protocol_tracing,
@@ -54,6 +55,24 @@ def _run(args: argparse.Namespace) -> None:
     pilot_id = str(args.pilot_id).strip() or config.pilot_id
     sim_id = str(args.sim_id).strip() or config.sim_id
     peer_hub = UiPeerHub(endpoint_id=config.endpoint_id, settings=config.dds)
+    zed_preview = None
+    zed_right_preview = None
+    if config.show_zed_preview and config.rgbd_topic:
+        zed_preview = ZedCameraPreview(
+            config.rgbd_topic,
+            endpoint_id=config.endpoint_id,
+            settings=config.dds,
+            stream_id="zed-left-preview",
+        )
+        zed_preview.start()
+        if config.rgbd_right_topic:
+            zed_right_preview = ZedCameraPreview(
+                config.rgbd_right_topic,
+                endpoint_id=config.endpoint_id,
+                settings=config.dds,
+                stream_id="zed-right-preview",
+            )
+            zed_right_preview.start()
 
     session = OperatorSession(
         ui_id=config.endpoint_id,
@@ -113,11 +132,17 @@ def _run(args: argparse.Namespace) -> None:
         pick_cfg=config.pick,
         gaze_cfg=config.gaze,
         sim_session=sim_session,
+        zed_preview=zed_preview,
+        zed_right_preview=zed_right_preview,
         endpoint_select=select_endpoint,
     )
     try:
         panel.run()
     finally:
+        if zed_preview is not None:
+            zed_preview.close()
+        if zed_right_preview is not None:
+            zed_right_preview.close()
         if sim_session is not None:
             sim_session.close()
         service.close()

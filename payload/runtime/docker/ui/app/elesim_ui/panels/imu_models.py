@@ -14,6 +14,36 @@ def draw_imu_model_panel(panel) -> None:
         panel._imu_model_header_init_open = True
     if not panel_header("IMU Model", visible=True)[0]:
         return
+    status = panel.service.imu_model_status
+    reader = status.get("reader") or {}
+    if not reader:
+        imgui.text("IMU reader: disabled or Robot telemetry unavailable")
+    else:
+        imgui.text("IMU serial: " + ("open" if reader.get("connected") else "disconnected"))
+        if reader.get("error"):
+            imgui.text_wrapped(str(reader["error"]))
+        for name in ("IMU1", "IMU2"):
+            sample = reader.get("sensors", {}).get(name)
+            if not sample:
+                imgui.text(f"{name}: waiting for samples")
+                continue
+            freshness = ("orientation freshness unverified" if sample.get("source_format") == "full-imu-v1"
+                         else "legacy: freshness unverified" if sample.get("sequence") is None
+                         else "fresh" if sample.get("fresh") else "stale")
+            imgui.text(f"{name}: {freshness}, age {sample['received_age_s']:.2f}s")
+            if sample.get("source_format") == "full-imu-v1":
+                imgui.text("  Reports: " + ("recent" if sample.get("reports_recent") else "stale"))
+            rpy = sample["rpy_rad"]
+            if rpy is None:
+                imgui.text("  Orientation: waiting for a valid quaternion")
+            else:
+                imgui.text(f"  RPY (rad): {rpy[0]:+.3f}, {rpy[1]:+.3f}, {rpy[2]:+.3f}")
+            full = sample.get("full_imu") or {}
+            for key in ("gravity", "gyro", "linear_accel", "accel", "mag"):
+                if key in full:
+                    vector = full[key]
+                    imgui.text(f"  {key}: {vector[0]:+.3f}, {vector[1]:+.3f}, {vector[2]:+.3f}")
+        imgui.text("Raw sensor frames; correction input is separate")
     models = panel.service.imu_models
     if not models:
         imgui.text("No Pilot IMU models available")
@@ -32,7 +62,6 @@ def draw_imu_model_panel(panel) -> None:
             on_result=lambda _result: None,
             on_error=lambda error: setattr(panel, "_imu_model_error", error),
         )
-    status = panel.service.imu_model_status
     requested = status.get("requested") or {}
     if requested:
         state = "active" if status.get("active") else "pending"

@@ -230,6 +230,12 @@ def rgbd_topic(state: InstallState, role: str) -> str:
     return f"/{state.dds.system_id}/{dds_node_key(state, role)}/rgbd/frame"
 
 
+def rgbd_right_topic(state: InstallState, role: str) -> str:
+    """Return the role-local color-only right-eye topic for ZED stereo."""
+
+    return f"/{state.dds.system_id}/{dds_node_key(state, role)}/rgbd/right"
+
+
 def rgbd_broker_topic(state: InstallState) -> str:
     """Return the inter-host RGB-D topic owned by Pilot.
 
@@ -241,6 +247,18 @@ def rgbd_broker_topic(state: InstallState) -> str:
     """
 
     return rgbd_topic(state, "pilot")
+
+
+def rgbd_broker_right_topic(state: InstallState) -> str:
+    """Return the Pilot-owned encoded right-eye broker topic."""
+
+    return rgbd_right_topic(state, "pilot")
+
+
+def rgbd_broker_left_preview_topic(state: InstallState) -> str:
+    """Return the color-only Pilot broker topic used by the UI preview."""
+
+    return f"/{state.dds.system_id}/{dds_node_key(state, 'pilot')}/rgbd/left_preview"
 
 
 def _rgbd_role_config(
@@ -266,6 +284,8 @@ def _rgbd_role_config(
             "format": "encoded-rgbd-v1",
             "capability": "stream.rgbd.broker.v1",
             "topic": rgbd_broker_topic(state),
+            "right_topic": rgbd_broker_right_topic(state),
+            "left_preview_topic": rgbd_broker_left_preview_topic(state),
             "latest_only": True,
         },
     }
@@ -693,6 +713,11 @@ def _robot_config(
     camera.pop("bind", None)
     camera.pop("advertise", None)
     camera["topic"] = rgbd_topic(state, "robot")
+    if str(camera.get("backend", "realsense")).strip().lower() == "zed":
+        camera["right_topic"] = rgbd_right_topic(state, "robot")
+        camera.setdefault("rotate_180", True)
+    else:
+        camera.pop("right_topic", None)
     raw["camera"] = camera
     raw["rgbd"] = _rgbd_role_config(
         state,
@@ -801,6 +826,9 @@ __all__ = [
     "generated_config_path",
     "generated_dds_config_path",
     "rgbd_broker_topic",
+    "rgbd_broker_right_topic",
+    "rgbd_broker_left_preview_topic",
+    "rgbd_right_topic",
     "rgbd_topic",
     "app_keystore_path",
     "app_directory",
