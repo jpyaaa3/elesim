@@ -4,11 +4,12 @@ import threading
 import time
 
 import numpy as np
+import pytest
 
 from elesim_sim.media import SharedFrameMailbox
 from elesim_sim.media import FrameDispatchWorker
 from elesim_sim.vision.frame_hub import FrameHub
-from elesim_sim.runtime import SimScene
+from elesim_sim.runtime import SimScene, _advance_capture_deadline, _camera_publish_due
 
 
 def test_frame_dispatch_worker_overwrites_while_consumer_is_busy() -> None:
@@ -177,6 +178,33 @@ def test_camera_rate_limit_requires_simulation_time_to_advance(monkeypatch) -> N
         depth_enabled=False,
     )
     assert camera.captures == 2
+
+
+@pytest.mark.parametrize("step_hz,expected_frames", [(100, 250), (60, 180)])
+def test_camera_cadence_tracks_slow_simulation_without_accumulating_frames(
+    monkeypatch, step_hz, expected_frames,
+) -> None:
+    now = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: now[0])
+    last_wall = next_sim = 0.0
+    frames = []
+    for step in range(step_hz * 10):
+        now[0] = 100.0 + step / step_hz
+        sim_time = step * 0.01
+        due, period, wall = _camera_publish_due(
+            last_wall_s=last_wall, next_sim_s=next_sim, max_hz=30.0,
+            sim_time_s=sim_time, force=False,
+        )
+        if due:
+            frames.append(wall)
+            last_wall = wall
+            next_sim = _advance_capture_deadline(next_sim, sim_time, period)
+
+    # At 0.6 RTF, advancing six simulated seconds in ten real seconds caps
+    # capture at 18 frames per real second. The 100 Hz case is also quantized
+    # by the strict wall-clock interval; a 30 Hz cap does not promise 30 FPS.
+    assert len(frames) == expected_frames
+    assert all(b - a >= 1.0 / 30.0 - 1e-9 for a, b in zip(frames, frames[1:]))
 
 
 def test_hand_eye_capture_caches_frame_pose_without_another_genesis_readback() -> None:

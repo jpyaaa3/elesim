@@ -13,7 +13,7 @@ from making the Sim control process un-importable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import multiprocessing as mp
 from multiprocessing.queues import Queue
 import queue
@@ -268,6 +268,14 @@ def resolve_single_dof_indices(
     return tuple(indices)
 
 
+@dataclass
+class _CameraSnapshotCache:
+    """Last successfully applied values in one never-stepped visual scene."""
+
+    epoch: Optional[int] = None
+    values: dict[tuple[str, ...], tuple[float, ...]] = field(default_factory=dict)
+
+
 def _apply_snapshot(
     entity: Any,
     robot_dof_indices: tuple[int, ...],
@@ -277,15 +285,34 @@ def _apply_snapshot(
     snapshot: CameraStateSnapshot,
     *,
     joint_positions: Optional[tuple[float, ...]] = None,
+    cache: Optional[_CameraSnapshotCache] = None,
 ) -> bool:
-    """Apply one latest state and report whether the observer pose changed."""
+    """Apply one latest state and report whether the observer pose changed.
+
+    Only this visual replica may skip exact repeated writes: its scene never
+    steps physics. Root changes are deferred until the final joint write so
+    a full robot snapshot performs forward kinematics once. Partial root-only
+    snapshots keep the ordinary setters and their immediate FK refresh.
+    """
 
     observer_pose_changed = False
+    previous = (
+        cache.values if cache is not None and cache.epoch == snapshot.epoch else {}
+    )
+    applied = dict(previous)
+
+    def changed(key: tuple[str, ...], values: Any) -> bool:
+        value = tuple(float(v) for v in values)
+        applied[key] = value
+        return key not in previous or previous[key] != value
+
     positions = (
         snapshot.robot_joint_positions
         if joint_positions is None
         else joint_positions
     )
+    q = None
+    joints_changed = False
     if positions is not None:
         q = np.asarray(positions, dtype=float).reshape(-1)
         if q.size != len(robot_dof_indices):
@@ -293,22 +320,41 @@ def _apply_snapshot(
                 "camera render joint snapshot size mismatch: "
                 f"{q.size} values for {len(robot_dof_indices)} joints"
             )
-        entity.set_dofs_position(q, dofs_idx_local=list(robot_dof_indices))
+        joints_changed = changed(("joints",), q)
+    root_changed = False
     if snapshot.root_pos is not None:
-        entity.set_pos(np.asarray(snapshot.root_pos, dtype=float).reshape(3))
+        pos = np.asarray(snapshot.root_pos, dtype=float).reshape(3)
+        if changed(("root_pos",), pos):
+            if q is not None:
+                entity.set_pos(pos, zero_velocity=False, skip_forward=True)
+            else:
+                entity.set_pos(pos)
+            root_changed = True
     if snapshot.root_quat_wxyz is not None:
-        entity.set_quat(np.asarray(snapshot.root_quat_wxyz, dtype=float).reshape(4))
+        quat = np.asarray(snapshot.root_quat_wxyz, dtype=float).reshape(4)
+        if changed(("root_quat",), quat):
+            if q is not None:
+                entity.set_quat(quat, zero_velocity=False, skip_forward=True)
+            else:
+                entity.set_quat(quat)
+            root_changed = True
+    if q is not None and (joints_changed or root_changed):
+        # The default zero_velocity=True preserves the old final velocity.
+        # Reapply unchanged joints after a root change to flush deferred FK.
+        entity.set_dofs_position(q, dofs_idx_local=list(robot_dof_indices))
 
     active = str(snapshot.mock_asset_id).strip()
     position = snapshot.mock_position
     euler = snapshot.mock_euler_deg
     for name, mock in mock_entities.items():
-        mock.set_pos(
+        mock_pos = (
             position
             if name == active and position is not None
             else (0.0, 0.0, -100.0)
         )
-        if name == active and euler is not None:
+        if changed(("mock_pos", name), mock_pos):
+            mock.set_pos(mock_pos)
+        if name == active and euler is not None and changed(("mock_euler", name), euler):
             from scipy.spatial.transform import Rotation as Rot
 
             quat_xyzw = Rot.from_euler("xyz", euler, degrees=True).as_quat()
@@ -320,10 +366,12 @@ def _apply_snapshot(
             )
 
     if target_entity is not None and snapshot.target_position is not None:
-        target_entity.set_pos(np.asarray(snapshot.target_position, dtype=float).reshape(3))
-        zero_velocity = getattr(target_entity, "zero_all_dofs_velocity", None)
-        if callable(zero_velocity):
-            zero_velocity()
+        target_pos = np.asarray(snapshot.target_position, dtype=float).reshape(3)
+        if changed(("target_pos",), target_pos):
+            target_entity.set_pos(target_pos)
+            zero_velocity = getattr(target_entity, "zero_all_dofs_velocity", None)
+            if callable(zero_velocity):
+                zero_velocity()
 
     if observer is not None and (
         snapshot.observer_pos is not None or snapshot.observer_lookat is not None
@@ -332,12 +380,19 @@ def _apply_snapshot(
         previous_lookat = tuple(float(v) for v in observer.lookat)
         pos = snapshot.observer_pos or tuple(float(v) for v in observer.pos)
         lookat = snapshot.observer_lookat or tuple(float(v) for v in observer.lookat)
-        observer.pos = tuple(float(v) for v in pos)
-        observer.lookat = tuple(float(v) for v in lookat)
-        observer_pose_changed = (
-            observer.pos != previous_pos or observer.lookat != previous_lookat
-        )
-        observer._set_camera_pose()
+        next_pos = tuple(float(v) for v in pos)
+        next_lookat = tuple(float(v) for v in lookat)
+        if changed(("observer",), next_pos + next_lookat):
+            observer.pos = next_pos
+            observer.lookat = next_lookat
+            observer_pose_changed = (
+                observer.pos != previous_pos or observer.lookat != previous_lookat
+            )
+            observer._set_camera_pose()
+    if cache is not None:
+        # A failed setter must not make a later retry skip a partial update.
+        cache.epoch = snapshot.epoch
+        cache.values = applied
     return observer_pose_changed
 
 
@@ -488,6 +543,7 @@ def _camera_render_process_main(
         from elesim_sim.simulation.arm_ghost import ArmGhost
         arm_ghost = ArmGhost(spec.hand_eye_urdf_path or spec.urdf_path)
         capture_logged: set[str] = set()
+        snapshot_cache = _CameraSnapshotCache()
 
         while not stop.is_set():
             try:
@@ -548,6 +604,7 @@ def _camera_render_process_main(
                 observer,
                 applied_snapshot,
                 joint_positions=joint_positions,
+                cache=snapshot_cache,
             )
             if observer is not None:
                 ik_marker.update(scene, snapshot.ik_target_position, snapshot.ik_target_direction,

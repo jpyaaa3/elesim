@@ -16,6 +16,7 @@ from elesim_sim.vision.sim_camera.async_worker import (
     CameraStateSnapshot,
     CameraRenderWorker,
     SharedRgbdMailbox,
+    _CameraSnapshotCache,
     _apply_snapshot,
     _genesis_init_kwargs,
     _make_urdf_morph,
@@ -222,6 +223,167 @@ def test_render_replica_rejects_a_joint_position_count_mismatch() -> None:
                 robot_joint_positions=(0.25,),
             ),
         )
+
+
+class _SnapshotEntity:
+    def __init__(self, *, fail=None) -> None:
+        self.calls = []
+        self.fail = fail
+
+    def _write(self, method, values, kwargs):
+        self.calls.append((method, tuple(float(v) for v in values), kwargs))
+        if self.fail == method:
+            raise RuntimeError("snapshot write failed")
+
+    def set_dofs_position(self, values, **kwargs):
+        self._write("joints", values, kwargs)
+
+    def set_pos(self, values, **kwargs):
+        self._write("pos", values, kwargs)
+
+    def set_quat(self, values, **kwargs):
+        self._write("quat", values, kwargs)
+
+    def zero_all_dofs_velocity(self):
+        self.calls.append(("zero", (), {}))
+
+
+def _snapshot_apply(entity, snapshot, *, cache=None, mocks=None, target=None, observer=None):
+    return _apply_snapshot(
+        entity, (2, 5), mocks or {}, target, observer, snapshot, cache=cache
+    )
+
+
+def _snapshot_full(*, epoch=0, step=1, **changes):
+    values = dict(
+        epoch=epoch, sim_step=step, sim_time_s=step * .01,
+        robot_joint_positions=(.25, -.5),
+        root_pos=(.3, -.2, .6), root_quat_wxyz=(1., 0., 0., 0.),
+    )
+    values.update(changes)
+    return CameraStateSnapshot(**values)
+
+
+def test_snapshot_defers_root_fk_and_flushes_with_one_joint_write():
+    entity = _SnapshotEntity()
+    _snapshot_apply(entity, _snapshot_full())
+    assert entity.calls == [
+        ("pos", (.3, -.2, .6), {"zero_velocity": False, "skip_forward": True}),
+        ("quat", (1., 0., 0., 0.), {"zero_velocity": False, "skip_forward": True}),
+        ("joints", (.25, -.5), {"dofs_idx_local": [2, 5]}),
+    ]
+
+
+def test_snapshot_cache_skips_exact_unchanged_state_and_invalidates_epoch():
+    entity, cache = _SnapshotEntity(), _CameraSnapshotCache()
+    _snapshot_apply(entity, _snapshot_full(), cache=cache)
+    assert len(entity.calls) == 3
+    _snapshot_apply(entity, _snapshot_full(step=2), cache=cache)
+    assert len(entity.calls) == 3
+    _snapshot_apply(entity, _snapshot_full(epoch=1, step=3), cache=cache)
+    assert len(entity.calls) == 6
+
+
+def test_snapshot_changed_root_flushes_even_when_joint_values_are_identical():
+    entity, cache = _SnapshotEntity(), _CameraSnapshotCache()
+    _snapshot_apply(entity, _snapshot_full(), cache=cache)
+    entity.calls.clear()
+    _snapshot_apply(entity, _snapshot_full(step=2, root_pos=(.4, -.2, .6)), cache=cache)
+    assert entity.calls == [
+        ("pos", (.4, -.2, .6), {"zero_velocity": False, "skip_forward": True}),
+        ("joints", (.25, -.5), {"dofs_idx_local": [2, 5]}),
+    ]
+
+
+def test_snapshot_partial_root_keeps_immediate_fk_and_omitted_fields():
+    entity, cache = _SnapshotEntity(), _CameraSnapshotCache()
+    _snapshot_apply(entity, _snapshot_full(), cache=cache)
+    entity.calls.clear()
+    partial = _snapshot_full(step=2, robot_joint_positions=None, root_pos=(.4, -.2, .6),
+                             root_quat_wxyz=None)
+    _snapshot_apply(entity, partial, cache=cache)
+    assert entity.calls == [("pos", (.4, -.2, .6), {})]
+    _snapshot_apply(entity, _snapshot_full(step=3, root_pos=(.4, -.2, .6)), cache=cache)
+    assert entity.calls == [("pos", (.4, -.2, .6), {})]
+
+
+def test_snapshot_cache_applies_joint_override_and_only_changed_values():
+    entity, cache = _SnapshotEntity(), _CameraSnapshotCache()
+    _apply_snapshot(entity, (2, 5), {}, None, None, _snapshot_full(),
+                    joint_positions=(.75, .1), cache=cache)
+    entity.calls.clear()
+    _apply_snapshot(entity, (2, 5), {}, None, None, _snapshot_full(step=2),
+                    joint_positions=(.75, .2), cache=cache)
+    assert entity.calls == [("joints", (.75, .2), {"dofs_idx_local": [2, 5]})]
+
+
+def test_snapshot_cache_retries_failed_snapshot_without_committing_any_values():
+    entity, cache = _SnapshotEntity(fail="joints"), _CameraSnapshotCache()
+    with pytest.raises(RuntimeError, match="snapshot write failed"):
+        _snapshot_apply(entity, _snapshot_full(), cache=cache)
+    entity.fail = None
+    entity.calls.clear()
+    _snapshot_apply(entity, _snapshot_full(), cache=cache)
+    assert [call[0] for call in entity.calls] == ["pos", "quat", "joints"]
+
+
+def test_snapshot_cache_preserves_mock_activation_and_omitted_orientation():
+    entity, cache = _SnapshotEntity(), _CameraSnapshotCache()
+    first, second = _SnapshotEntity(), _SnapshotEntity()
+    mocks = {"first": first, "second": second}
+    snapshot = _snapshot_full(mock_asset_id="first", mock_position=(1., 2., 3.),
+                              mock_euler_deg=(0., 0., 90.))
+    _snapshot_apply(entity, snapshot, cache=cache, mocks=mocks)
+    assert [call[0] for call in first.calls] == ["pos", "quat"]
+    assert second.calls == [("pos", (0., 0., -100.), {})]
+    first.calls.clear()
+    second.calls.clear()
+    _snapshot_apply(entity, snapshot, cache=cache, mocks=mocks)
+    assert first.calls == second.calls == []
+    switched = _snapshot_full(step=2, mock_asset_id="second", mock_position=(4., 5., 6.))
+    _snapshot_apply(entity, switched, cache=cache, mocks=mocks)
+    assert first.calls == [("pos", (0., 0., -100.), {})]
+    assert second.calls == [("pos", (4., 5., 6.), {})]
+    first.calls.clear()
+    _snapshot_apply(entity, snapshot, cache=cache, mocks=mocks)
+    assert first.calls == [("pos", (1., 2., 3.), {})]
+
+
+def test_snapshot_cache_skips_static_target_but_applies_movement_and_reset():
+    entity, target, cache = _SnapshotEntity(), _SnapshotEntity(), _CameraSnapshotCache()
+    snapshot = _snapshot_full(target_position=(.8, 0., .2))
+    _snapshot_apply(entity, snapshot, cache=cache, target=target)
+    _snapshot_apply(entity, snapshot, cache=cache, target=target)
+    assert target.calls == [("pos", (.8, 0., .2), {}), ("zero", (), {})]
+    _snapshot_apply(entity, _snapshot_full(step=3, target_position=(.9, 0., .2)),
+                    cache=cache, target=target)
+    _snapshot_apply(entity, _snapshot_full(epoch=1, target_position=(.9, 0., .2)),
+                    cache=cache, target=target)
+    assert len(target.calls) == 6
+
+
+def test_snapshot_cache_applies_observer_once_and_preserves_partial_pose():
+    class Camera:
+        def __init__(self):
+            self.poses = []
+
+        def set_pose(self, **kwargs):
+            self.poses.append(kwargs)
+
+    camera, cache = Camera(), _CameraSnapshotCache()
+    observer = ObserverCamera(
+        camera=camera, intrinsics=SimCameraIntrinsics(100., 100., 32., 24., 64, 48),
+        pos=(0., -2., 1.), lookat=(0., 0., 0.),
+    )
+    entity = _SnapshotEntity()
+    original = _snapshot_full(observer_pos=observer.pos, observer_lookat=observer.lookat)
+    assert not _snapshot_apply(entity, original, cache=cache, observer=observer)
+    assert not _snapshot_apply(entity, original, cache=cache, observer=observer)
+    assert len(camera.poses) == 1
+    moved = _snapshot_full(step=2, observer_pos=(1., -2., 1.))
+    assert _snapshot_apply(entity, moved, cache=cache, observer=observer)
+    assert observer.lookat == (0., 0., 0.)
+    assert len(camera.poses) == 2
 
 
 def test_observer_capture_forces_refresh_after_robot_state_snapshot() -> None:

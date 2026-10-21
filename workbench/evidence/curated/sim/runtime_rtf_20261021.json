@@ -1,0 +1,574 @@
+{
+  "date": "2026-10-21",
+  "question": "Sim RTF near 0.6 and increased perceived lag",
+  "source_base_revision": "f0049dc4b362f1a3feb6faa50c8a9dccb58acf14",
+  "deployed_source_revision": "1203cb49f0e7adcb972390f29f3dab1df493b007",
+  "remote": {
+    "host": "hckang@100.74.222.24",
+    "container": "elesim-merry-test-sim",
+    "image": "sha256:7396ee68f3f6efe991a2b0fbe7e793fc0c80d1dcb0a71c93c477625023b05e1b",
+    "gpu_index": 2,
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "gpu_name": "NVIDIA RTX A6000",
+    "genesis": "1.4.1"
+  },
+  "conditions": {
+    "dt_s": 0.01,
+    "substeps": 2,
+    "nominal_control_hz": 100,
+    "nominal_mppi_update_hz": 50,
+    "mppi_samples": 4096,
+    "mppi_iterations": 2,
+    "cameras": [
+      "observer",
+      "hand_eye_preview"
+    ],
+    "resolution": [
+      1280,
+      720
+    ],
+    "camera_max_hz": 30,
+    "telemetry_sim_time_max_hz": 20,
+    "realtime_factor_setting": 1.0,
+    "performance_mode": false,
+    "scope": "Existing registered SROS2/UI/media runtime, neutral commands after restart. No scripted walking trial."
+  },
+  "observations": {
+    "real_slowdown_confirmed": {
+      "samples": 229,
+      "message_counts": {
+        "telemetry": 258,
+        "operator_intent": 78,
+        "simulation_status": 35
+      },
+      "subscribed_topics": [
+        "/test/v6/peers/pilot_readiness_635005a7/a8dacf163d0842fa8ad3a81d789aabdd_bad73ed5"
+      ],
+      "first": {
+        "wall": 3301696.369624871,
+        "step": 8270,
+        "sim": 82.7,
+        "reported_cumulative_rtf": 0.5489870180381595,
+        "age_s": 0.002899646759033203
+      },
+      "last": {
+        "wall": 3301714.054398441,
+        "step": 9410,
+        "sim": 94.10000000000001,
+        "reported_cumulative_rtf": 0.5590003026083058,
+        "age_s": 0.002259492874145508
+      },
+      "window_wall_s": 17.68477357039228,
+      "window_sim_s": 11.400000000000006,
+      "step_hz": 64.46223331400633,
+      "window_rtf": 0.6446223331400637,
+      "wall_ms_per_step": 15.51295927227393,
+      "local_dds_age_ms": {
+        "p50": 2.046346664428711,
+        "p95": 2.532482147216797,
+        "max": 8.958816528320312
+      },
+      "telemetry_gap_ms": {
+        "p50": 75.67101996392012,
+        "p95": 110.10361090302467,
+        "max": 141.3657981902361
+      }
+    },
+    "trials": {
+      "baseline": {
+        "summary": {
+          "loop_avg_ms": 15.780550458715595,
+          "poll_avg_ms": 0.2241939711664482,
+          "command_avg_ms": 7.380301441677589,
+          "physics_avg_ms": 6.418492791612058,
+          "feedback_avg_ms": 1.0559501965923985,
+          "camera_avg_ms": 0.227562254259502,
+          "pacing_avg_ms": 0.01,
+          "steady_windows": 6,
+          "steps": 763,
+          "rtf_from_rounded_loop_mean": 0.633691456211339,
+          "max_loop_ms": 57.03
+        },
+        "config_restored": true,
+        "normal_restart_requested": true
+      },
+      "no-camera": {
+        "summary": {
+          "loop_avg_ms": 9.986633416458853,
+          "poll_avg_ms": 0.22167913549459684,
+          "command_avg_ms": 3.1468079800498754,
+          "physics_avg_ms": 4.171862011637573,
+          "feedback_avg_ms": 0.7915045719035745,
+          "camera_avg_ms": 0.01,
+          "pacing_avg_ms": 1.5747797173732336,
+          "steady_windows": 6,
+          "steps": 1203,
+          "rtf_from_rounded_loop_mean": 1.0013384474010147,
+          "max_loop_ms": 33.39
+        },
+        "config_restored": true,
+        "normal_restart_requested": true
+      },
+      "static-array": {
+        "summary": {
+          "loop_avg_ms": 12.771463414634146,
+          "poll_avg_ms": 0.20601272534464476,
+          "command_avg_ms": 5.69695652173913,
+          "physics_avg_ms": 4.860699893955462,
+          "feedback_avg_ms": 1.368780487804878,
+          "camera_avg_ms": 0.2073594909862142,
+          "pacing_avg_ms": 0.01,
+          "steady_windows": 6,
+          "steps": 943,
+          "rtf_from_rounded_loop_mean": 0.7829956266829632,
+          "max_loop_ms": 45.27
+        },
+        "config_restored": true,
+        "normal_restart_requested": true
+      },
+      "worker": {
+        "candidate": {
+          "loop_avg_ms": 17.330705035971224,
+          "poll_avg_ms": 0.27168345323741006,
+          "command_avg_ms": 8.003669064748202,
+          "physics_avg_ms": 7.194345323741007,
+          "feedback_avg_ms": 1.10031654676259,
+          "camera_avg_ms": 0.22328057553956834,
+          "pacing_avg_ms": 0.01,
+          "steady_windows": 6,
+          "steps": 695,
+          "rtf_from_rounded_loop_mean": 0.5770105705015591,
+          "max_loop_ms": 61.64
+        },
+        "reference": {
+          "loop_avg_ms": 18.514116743471583,
+          "poll_avg_ms": 0.2717818740399386,
+          "command_avg_ms": 8.290276497695853,
+          "physics_avg_ms": 7.732457757296467,
+          "feedback_avg_ms": 1.3832718894009217,
+          "camera_avg_ms": 0.2853763440860215,
+          "pacing_avg_ms": 0.01,
+          "steady_windows": 6,
+          "steps": 651,
+          "rtf_from_rounded_loop_mean": 0.5401283862772542,
+          "max_loop_ms": 74.77
+        },
+        "order": [
+          "candidate",
+          "reference"
+        ],
+        "complete": true,
+        "runtime_restored": true,
+        "config_restored": true,
+        "normal_running": true,
+        "original_runtime_sha256": "933157dadb5ac0892c78f0393a75505b4d07254c1997eda8cc960076e2bb4a54",
+        "candidate_runtime_sha256": "e246e3bd09682913ea1e929780e85cd4703247f5d01e42614c58d8ffd5ba6987",
+        "source_revision": "git-1203cb49f0e7adcb972390f29f3dab1df493b007",
+        "module_path": "/usr/local/lib/python3.10/dist-packages/elesim_sim/vision/sim_camera/async_worker.py"
+      },
+      "arm": {
+        "candidate": {
+          "loop_avg_ms": 16.58542904290429,
+          "poll_avg_ms": 0.23034653465346536,
+          "command_avg_ms": 6.966056105610561,
+          "physics_avg_ms": 7.064628712871287,
+          "feedback_avg_ms": 1.6679207920792076,
+          "camera_avg_ms": 0.2154620462046205,
+          "pacing_avg_ms": 0.01,
+          "steady_windows": 10,
+          "steps": 1212,
+          "rtf_from_rounded_loop_mean": 0.6029388793097444,
+          "max_loop_ms": 65.83
+        },
+        "reference": {
+          "loop_avg_ms": 18.893981220657274,
+          "poll_avg_ms": 0.2516525821596244,
+          "command_avg_ms": 8.657305164319247,
+          "physics_avg_ms": 7.596450704225353,
+          "feedback_avg_ms": 1.5970798122065728,
+          "camera_avg_ms": 0.25820657276995307,
+          "pacing_avg_ms": 0.01,
+          "steady_windows": 10,
+          "steps": 1065,
+          "rtf_from_rounded_loop_mean": 0.5292690769199423,
+          "max_loop_ms": 96.43
+        },
+        "order": [
+          "candidate",
+          "reference"
+        ],
+        "complete": true,
+        "runtime_restored": true,
+        "config_restored": true,
+        "normal_running": true,
+        "original_runtime_sha256": "35ae6307886c26098473f1f657a44edf5bd399127e4bb7e7c19c22f37ce1fe3c",
+        "candidate_runtime_sha256": "0df549431a5ca9664a0d2dd1044e0f7a6e608df88d1ed796aeda39c4c132fbb2",
+        "source_revision": "git-1203cb49f0e7adcb972390f29f3dab1df493b007",
+        "module_path": "/usr/local/lib/python3.10/dist-packages/elesim_sim/runtime.py"
+      },
+      "cpu-pose": {
+        "candidate": {
+          "loop_avg_ms": 18.622254174397032,
+          "poll_avg_ms": 0.25960111317254175,
+          "command_avg_ms": 7.973747680890539,
+          "physics_avg_ms": 7.9636920222634515,
+          "feedback_avg_ms": 1.6859369202226346,
+          "camera_avg_ms": 0.21996289424860854,
+          "pacing_avg_ms": 0.01,
+          "steady_windows": 10,
+          "steps": 1078,
+          "rtf_from_rounded_loop_mean": 0.5369919187199468,
+          "max_loop_ms": 77.63
+        },
+        "reference": {
+          "loop_avg_ms": 18.84068352059925,
+          "poll_avg_ms": 0.26588951310861425,
+          "command_avg_ms": 8.135533707865168,
+          "physics_avg_ms": 7.978211610486891,
+          "feedback_avg_ms": 1.61562734082397,
+          "camera_avg_ms": 0.2653651685393258,
+          "pacing_avg_ms": 0.010000000000000002,
+          "steady_windows": 10,
+          "steps": 1068,
+          "rtf_from_rounded_loop_mean": 0.5307663062789952,
+          "max_loop_ms": 88.87
+        },
+        "order": [
+          "candidate",
+          "reference"
+        ],
+        "complete": true,
+        "runtime_restored": true,
+        "config_restored": true,
+        "normal_running": true,
+        "original_runtime_sha256": "933157dadb5ac0892c78f0393a75505b4d07254c1997eda8cc960076e2bb4a54",
+        "candidate_runtime_sha256": "193acb3a491af05006454d14fe555cc614e249cc0e0f82b910166a81883c1d10",
+        "source_revision": "git-1203cb49f0e7adcb972390f29f3dab1df493b007",
+        "module_path": "/usr/local/lib/python3.10/dist-packages/elesim_sim/vision/sim_camera/async_worker.py"
+      }
+    },
+    "interpretation": [
+      "Mean step wall time exceeds the 10 ms budget. The timer is not the only source of the observed slowdown.",
+      "The camera-off control reached approximately 1.0 RTF while the comparable baseline with cameras was approximately 0.63. Rendering and visual-state activity share resources with main control/physics.",
+      "Command/physics section timers include waits for GPU work; they do not isolate arm arithmetic or pure Genesis kernel execution.",
+      "Same-host Sim-to-Pilot DDS message age was approximately 2 ms median. WAN/UI end-to-end latency was not measured.",
+      "Telemetry follows simulation-time cadence: at about 0.64 RTF, its measured median interval was about 76 ms.",
+      "Fixed-clock cadence regression emits 250 frames over 10 wall seconds at 100 steps/s and 180 at 60 steps/s after the deadline fix. These are scheduling tests, not measured media receive FPS.",
+      "The isolated GPU visual-worker trial improved one sequential full-runtime comparison modestly, while CPU pose with GPU GL rendering did not produce a meaningful gain and was rejected.",
+      "No paired trial combined all accepted patches. Full-runtime comparisons were candidate then reference, not randomized; host load and startup transients limit causal effect-size claims."
+    ]
+  },
+  "accepted_changes": [
+    "Authoritative arm/claw velocity reset uses skip_forward and the following position write performs one coherent FK; base/leg velocities preserved.",
+    "Visual-only camera replicas defer root changes to the joint FK and cache exact unchanged snapshot values per epoch.",
+    "Camera deadline always advances beyond a due slot even under floating-point rounding; no accumulating backlog.",
+    "Map go2_pympc_solve timing events to the existing canonical go2_mpc_solve fields with per-event averaging."
+  ],
+  "rejected_experiments": [
+    "CPU pose backend plus one Torch CPU thread in camera replicas, while keeping NVIDIA GL/NVENC and 1280x720; no meaningful full-runtime gain, not included in source.",
+    "Static Genesis performance mode was measured separately but left at the existing false default; not part of the patch."
+  ],
+  "equivalence": {
+    "arm": {
+      "cases": 8,
+      "all_snapshots_finite": true,
+      "untouched_velocity_exact": true,
+      "max_abs_errors": {
+        "qpos": 0.0,
+        "dof_position": 0.0,
+        "dof_velocity": 0.0,
+        "links_pos": 0.0,
+        "links_quat": 0.0,
+        "links_vel": 0.0,
+        "links_ang": 0.0
+      },
+      "old_median_ms": 2.6462203823029995,
+      "new_median_ms": 2.453580168851962,
+      "scope": "Private scene, no physics steps or DDS; paired ABBA blocks with CUDA synchronization"
+    },
+    "camera": {
+      "observer_full_robot": {
+        "cases": 11,
+        "fields_per_case": 21,
+        "all_array_equal": true,
+        "max_abs_error": {
+          "robot.links_pos": 0.0,
+          "robot.links_quat": 0.0,
+          "robot.links_vel": 0.0,
+          "robot.links_ang": 0.0,
+          "robot.qpos": 0.0,
+          "robot.dofs_position": 0.0,
+          "robot.dofs_velocity": 0.0,
+          "target.links_pos": 0.0,
+          "target.links_quat": 0.0,
+          "target.links_vel": 0.0,
+          "target.links_ang": 0.0,
+          "first.links_pos": 0.0,
+          "first.links_quat": 0.0,
+          "first.links_vel": 0.0,
+          "first.links_ang": 0.0,
+          "second.links_pos": 0.0,
+          "second.links_quat": 0.0,
+          "second.links_vel": 0.0,
+          "second.links_ang": 0.0,
+          "observer.pose": 0.0,
+          "observer.view": 0.0
+        },
+        "timings": {
+          "installed": {
+            "blocks": 8,
+            "mean_ms": 7.346836076370286,
+            "p50_ms": 7.382701034657657,
+            "p95_ms": 7.889034112061684,
+            "block_means_ms": [
+              7.402561197523028,
+              7.382945409820725,
+              6.845602280615519,
+              7.872472303764273,
+              7.897952008837213,
+              6.890407336565356,
+              7.100291414341579,
+              7.382456659494589
+            ]
+          },
+          "candidate": {
+            "blocks": 8,
+            "mean_ms": 2.5409343822199544,
+            "p50_ms": 2.5635319179855287,
+            "p95_ms": 2.8311771699615442,
+            "block_means_ms": [
+              2.8458075054610767,
+              2.2637815369913974,
+              2.489676757249981,
+              2.3452823710006974,
+              2.804006546890984,
+              2.6981603393020728,
+              2.6373870787210763,
+              2.243372922142347
+            ]
+          }
+        }
+      },
+      "hand_eye_arm": {
+        "cases": 11,
+        "fields_per_case": 21,
+        "all_array_equal": true,
+        "max_abs_error": {
+          "robot.links_pos": 0.0,
+          "robot.links_quat": 0.0,
+          "robot.links_vel": 0.0,
+          "robot.links_ang": 0.0,
+          "robot.qpos": 0.0,
+          "robot.dofs_position": 0.0,
+          "robot.dofs_velocity": 0.0,
+          "target.links_pos": 0.0,
+          "target.links_quat": 0.0,
+          "target.links_vel": 0.0,
+          "target.links_ang": 0.0,
+          "first.links_pos": 0.0,
+          "first.links_quat": 0.0,
+          "first.links_vel": 0.0,
+          "first.links_ang": 0.0,
+          "second.links_pos": 0.0,
+          "second.links_quat": 0.0,
+          "second.links_vel": 0.0,
+          "second.links_ang": 0.0,
+          "observer.pose": 0.0,
+          "observer.view": 0.0
+        },
+        "timings": {
+          "installed": {
+            "blocks": 8,
+            "mean_ms": 7.046458393839809,
+            "p50_ms": 7.08096603436085,
+            "p95_ms": 7.611860531809119,
+            "block_means_ms": [
+              6.96120682793359,
+              7.0339126395992935,
+              7.130957247378926,
+              6.389529502484947,
+              7.128019429122408,
+              6.7242931690998375,
+              7.868495381747683,
+              7.135252953351785
+            ]
+          },
+          "candidate": {
+            "blocks": 8,
+            "mean_ms": 2.442192477853193,
+            "p50_ms": 2.3865342955105007,
+            "p95_ms": 2.6807930951084322,
+            "block_means_ms": [
+              2.3825140087865293,
+              2.3048589937388897,
+              2.3175368745190403,
+              2.390554582234472,
+              2.70226465848585,
+              2.3171689438944063,
+              2.4817244266159832,
+              2.640917334550371
+            ]
+          }
+        }
+      }
+    }
+  },
+  "tdd": {
+    "red": [
+      "PyMpc solver timing events absent from canonical CSV fields.",
+      "Camera cache absent; scoped arm FK tests failed with the old write order.",
+      "Slow-simulation camera scheduler produced 186 instead of 180 frames over 10 wall seconds before the rounding fix."
+    ],
+    "green": {
+      "sim_suite_passed": 979,
+      "sim_suite_skipped": 5,
+      "sim_suite_duration_s": 104.89,
+      "harness_fault_injection_passed": 7
+    },
+    "command": "/home/user/ws/newsim/bin/elesim-compose -f /home/user/ws/newsim/containers/compose.yaml exec -T -e CUDA_VISIBLE_DEVICES= -e JAX_PLATFORMS=cpu dev /usr/local/bin/elesim-dev-env python3 -m pytest -q workbench/tests/apps/sim",
+    "environment": "Existing generated persistent development container; local GPU disabled. Initial all-Sim run had one JAX CUDA initialization error; explicit JAX_PLATFORMS=cpu resolved it.",
+    "not_run": [
+      "Whole-repository required/extended release gates",
+      "New walking stability trials",
+      "Remote installation update/activation of the final commit"
+    ]
+  },
+  "limits": [
+    "Real-time 1.0 with cameras has not been restored or proven by these changes.",
+    "The remaining camera-associated cost is not uniquely attributed to WebRTC encoding or raw copy time; device scheduling, driver waits and CPU dispatch remain candidates.",
+    "GPU proofs used private never-stepped scenes in the existing GPU 2 container; they prove final state equivalence, not walking stability.",
+    "Temporary profiles restored exact original installed module/config bytes and numeric file attributes and restarted the normal user Sim. Published images and instance pins stayed unchanged."
+  ],
+  "artifacts": {
+    "arm-candidate-profile.log": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/arm-candidate-profile.log",
+      "sha256": "79f7e25bfd01a6eb08960f6e256db719ea01f6b63cfc3fc9eb7ca2f136c36918",
+      "bytes": 20308
+    },
+    "arm-proof-result.json": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/arm-proof-result.json",
+      "sha256": "21413badd1556f0187f239314ad20e61711fa361f7e3fdc59a371ecbdc9b535f",
+      "bytes": 3265
+    },
+    "arm-proof.log": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/arm-proof.log",
+      "sha256": "9ea582781f3ba8b525578cdd013696bfc4067ebefc66b0adb5b4aeb8beaf2464",
+      "bytes": 5509
+    },
+    "arm-reference-profile.log": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/arm-reference-profile.log",
+      "sha256": "850a195183875880c6f434d71a118544340f17940dd7e5a645b026c21d14c908",
+      "bytes": 20308
+    },
+    "arm-result.json": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/arm-result.json",
+      "sha256": "7756ef557d3cc38eb9d8446f1a1245eeac1c940bb006a3fab3e507c4e789c851",
+      "bytes": 14666
+    },
+    "arm_write_probe.py": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/arm_write_probe.py",
+      "sha256": "07eda192ce282e365a7548abaf1ce9849de0821c11d8f5cf5530783ab6b5f9e8",
+      "bytes": 12367
+    },
+    "baseline-profile.log": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/baseline-profile.log",
+      "sha256": "015184daa09403aadfbf7533d31725d376c3d9e9785e35e48d8ce7659b7c71ce",
+      "bytes": 19026
+    },
+    "baseline-result.json": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/baseline-result.json",
+      "sha256": "68387b63b8535284af0dc4b40ed6c8e27c583af9a932a7139cd1b564a0d06a9c",
+      "bytes": 3351
+    },
+    "camera-snapshot-probe.log": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/camera-snapshot-probe.log",
+      "sha256": "f518636ebeb039c940d087a5a972a6d62b5431d2de3f33c3f2ba680d2d032909",
+      "bytes": 12792
+    },
+    "camera-snapshot-result.json": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/camera-snapshot-result.json",
+      "sha256": "c0c3704c30e703a4605b82d8ad5f308d3434f05486a6dfa327846623e9251544",
+      "bytes": 4663
+    },
+    "camera_snapshot_probe.py": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/camera_snapshot_probe.py",
+      "sha256": "bcdb4a9557795f2a6013d1143637581144a7b5477d09288dc4c608ef419bab19",
+      "bytes": 12173
+    },
+    "cpu-pose-candidate-profile.log": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/cpu-pose-candidate-profile.log",
+      "sha256": "c591786d18ae289a9ba9b056b16d513aeedfc7fcd7b2d1433d3fddf05fc7d484",
+      "bytes": 22927
+    },
+    "cpu-pose-reference-profile.log": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/cpu-pose-reference-profile.log",
+      "sha256": "629d2ae643e7fa7c534cd1382a77f7df66fc3de95f528a862571922b486fbb36",
+      "bytes": 19979
+    },
+    "cpu-pose-result.json": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/cpu-pose-result.json",
+      "sha256": "bc8f4fe7ba4eaeb39d71889b9643c587c96a43f90641a338951f066e3c5ce5e4",
+      "bytes": 14891
+    },
+    "dds-clock-result.json": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/dds-clock-result.json",
+      "sha256": "448ec805d1631197b1d0345258259ddc05accf2734f00264c4d26761da2ba0a0",
+      "bytes": 1014
+    },
+    "dds_clock_reader.py": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/dds_clock_reader.py",
+      "sha256": "455c65795ad64ac6933af9149cfe4367ced29f526f5ebdf3426f2afc17390607",
+      "bytes": 2759
+    },
+    "no-camera-profile.log": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/no-camera-profile.log",
+      "sha256": "bce17c9c6f41bd045d9f4e068fb922a491f2ef8e81f109ba780bc8a4d322e064",
+      "bytes": 8586
+    },
+    "no-camera-result.json": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/no-camera-result.json",
+      "sha256": "4cd9b6e83c2239fbcb5a45a95483a03b0a0b254e917e37787987d1ff59097b31",
+      "bytes": 3326
+    },
+    "profile_candidate.py": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/profile_candidate.py",
+      "sha256": "e25ef8ccf8b0a13c72ec52aa97fbf5779f74bc018a2d4c7dd0d6e7cfcb145234",
+      "bytes": 34407
+    },
+    "profile_worker_candidate.py": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/profile_worker_candidate.py",
+      "sha256": "c58fc54dcc5a11d9fe2cf240742b6f7481668540823baf8cc258bd37a74be22f",
+      "bytes": 1948
+    },
+    "selftest_profile_harness.py": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/selftest_profile_harness.py",
+      "sha256": "af41df9bbe6e34eb5d2c2f0a3b72e4382de6a7d3671e2b50badffda33666cfd6",
+      "bytes": 9989
+    },
+    "static-array-profile.log": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/static-array-profile.log",
+      "sha256": "9ec7490f2eb53c6c67021ddd376fddf4e43f3a6e72c59e73f740096cca9d2cd7",
+      "bytes": 31668
+    },
+    "static-array-result.json": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/static-array-result.json",
+      "sha256": "5d3fa974e232106ee8253b4299ee7960ac888a4d47138c8ffcaa66d8aaeb751f",
+      "bytes": 3352
+    },
+    "worker-candidate-profile.log": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/worker-candidate-profile.log",
+      "sha256": "0757a72edaad86bb2fb12a926f0398248009389011d314aceca8074193c9181c",
+      "bytes": 18697
+    },
+    "worker-reference-profile.log": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/worker-reference-profile.log",
+      "sha256": "ce06206d393ec49bed188252e42f05d739582ccaab4aacc20940723783497bc0",
+      "bytes": 18542
+    },
+    "worker-result.json": {
+      "path": "workbench/evidence/generated/sim-rtf-20261021/worker-result.json",
+      "sha256": "38d2bf437e56ec49d4f2a0c5c1b0c9fe12d69f8d89b9878c9a5df3247b20c424",
+      "bytes": 11909
+    }
+  }
+}

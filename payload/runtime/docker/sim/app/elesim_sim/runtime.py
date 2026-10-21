@@ -109,7 +109,9 @@ def _advance_capture_deadline(previous: float, current: float, period: float) ->
     interval = max(1e-9, float(period))
     if deadline > now + 1e-9:
         return deadline
-    missed = int((now - deadline) // interval) + 1
+    # Match the camera due check's tolerance. A deadline a rounding error
+    # ahead of now is already due; it must still advance by at least one slot.
+    missed = max(1, int((now - deadline + 1e-9) // interval) + 1)
     return deadline + missed * interval
 
 
@@ -153,6 +155,7 @@ class PerfLogger:
         "go2_mpc_torque",
         "go2_metrics",
     )
+    _GO2_DETAIL_ALIASES = {"go2_pympc_solve": "go2_mpc_solve"}
     _CAMERA_DETAIL_NAMES = (
         "camera_render",
         "camera_rgb_convert",
@@ -278,15 +281,15 @@ class PerfLogger:
         """Record a sub-stage measured outside the main loop section.
 
         Camera conversion intentionally calls this tiny callback so the
-        conversion module does not depend on the runtime logger.  Unknown
-        names are still accepted in memory but are not written to the fixed
-        CSV schema; this keeps a malformed optional metric from corrupting a
-        perf log.
+        conversion module does not depend on the runtime logger. Controller
+        aliases share the existing CSV fields; unknown names are ignored to
+        keep an optional metric from corrupting the fixed schema.
         """
 
         if not self.enabled:
             return
         key = str(name).strip().replace(".", "_")
+        key = self._GO2_DETAIL_ALIASES.get(key, key)
         if key not in self._CAMERA_DETAIL_NAMES and key not in self._GO2_DETAIL_NAMES:
             if not key.startswith(("camera_", "go2_")):
                 key = f"camera_{key}"
@@ -2471,12 +2474,16 @@ class SimMover:
             if index is not None:
                 indices.append(int(index))
                 values.append(float(value))
+        # Genesis defaults to clearing every DOF, including the floating base
+        # and legs of the merged GO2+arm. Only reset the kinematic arm DOFs.
+        # The position write below refreshes both pose and velocity FK, so defer
+        # the velocity-only refresh until that single coherent final update.
+        self.entity.set_dofs_velocity(
+            np.zeros(len(indices)), dofs_idx_local=indices, skip_forward=True
+        )
         self.entity.set_dofs_position(
             np.asarray(values, dtype=float), dofs_idx_local=indices, zero_velocity=False
         )
-        # Genesis defaults to clearing every DOF, including the floating base
-        # and legs of the merged GO2+arm. Only reset the kinematic arm DOFs.
-        self.entity.set_dofs_velocity(np.zeros(len(indices)), dofs_idx_local=indices)
 
     def _apply_claw_direct(self, left_value: float, right_value: float) -> None:
         if self._claw_left_idx is not None:

@@ -172,7 +172,7 @@ class _Entity:
             self.velocities[:] = 0
         self.position_writes.append((np.asarray(values), list(dofs_idx_local)))
 
-    def set_dofs_velocity(self, values, *, dofs_idx_local):
+    def set_dofs_velocity(self, values, *, dofs_idx_local, skip_forward=False):
         self.velocities[dofs_idx_local] = values
 
 
