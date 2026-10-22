@@ -62,6 +62,26 @@ def _bounded_integer(name: str, value: int, lower: int, upper: int) -> int:
     return int(value)
 
 
+def _select_mppi_update(array, candidates, costs, weighted, weighted_cost, best_index):
+    """Retain a scored feasible sample when both smooth alternatives fail.
+
+    Usually prefer the incumbent/feedback seed or their improving weighted
+    update, avoiding noise-induced force jitter. Hard rollout constraints make
+    feasibility nonconvex, so averaging finite samples can itself be invalid.
+    Every returned sample was already projected and scored with those bounds.
+    If none is finite, the final rollout check still rejects the solve.
+    """
+    deterministic_costs = array.where(array.isfinite(costs[:2]), costs[:2], array.inf)
+    incumbent = array.where(deterministic_costs[1] < deterministic_costs[0],
+                            candidates[1], candidates[0])
+    incumbent_cost = array.min(deterministic_costs)
+    finite_weighted = array.isfinite(weighted_cost)
+    smooth = array.where(finite_weighted & (weighted_cost <= incumbent_cost),
+                         weighted, incumbent)
+    return array.where(finite_weighted | array.isfinite(incumbent_cost),
+                       smooth, candidates[best_index])
+
+
 class _MppiInputLayout:
     """One owned host packet; slicing/reshaping is compiled into the GPU solve."""
 
@@ -310,7 +330,8 @@ class JaxMppiSolver:
                                     hips, geometry, force_floor, landing_search,
                                     motor_maps, motor_offsets, motor_limits, candidates)
                 finite = jp.isfinite(costs)
-                best = jp.min(jp.where(finite, costs, jp.inf))
+                best_index = jp.argmin(jp.where(finite, costs, jp.inf))
+                best = costs[best_index]
                 weights = jp.where(finite, jp.exp(-jp.clip(costs-best, 0., 80.)/1.), 0.)
                 weighted = jp.sum(candidates*weights[:, None, None, None], axis=0)/jp.maximum(jp.sum(weights), 1e-20)
                 weighted = project(weighted, contacts, loads, force_floor,
@@ -323,10 +344,8 @@ class JaxMppiSolver:
                 # The fresh feedback seed is a deterministic candidate too.
                 # Do not discard it when averaging noisy trajectories makes
                 # a worse solution than that available recovery trajectory.
-                seed_better = costs[1] < costs[0]
-                incumbent = jp.where(seed_better, seed, mean)
-                incumbent_cost = jp.minimum(costs[0], costs[1])
-                result = jp.where(weighted_cost <= incumbent_cost, weighted, incumbent)
+                result = _select_mppi_update(jp, candidates, costs, weighted,
+                                             weighted_cost, best_index)
                 return result, key
             mean, key = jax.lax.fori_loop(0, iterations, improve, (mean, key))
             cost = score(x, reference, feet, contacts, loads, mass, inertia, inverse,

@@ -126,6 +126,26 @@ def override_physics(params, *, dt=None, substeps=None):
     return replace(params, **changes)
 
 
+def advance_controlled_step(scene, command, arm_q, *, clock=time.perf_counter):
+    """Time the runtime's command, kinematic arm hold and physics in order.
+
+    A stationary arm still needs its position/velocity write on every step.
+    This probe excludes DDS, telemetry and WebRTC delivery; callers separately
+    include camera dispatch in their whole-step measurement.
+    """
+    started = clock()
+    scene.go2.set_planar_velocity(*command)
+    scene.go2.set_arm_q_for_metrics((arm_q.linear_m, arm_q.roll_rad,
+                                     arm_q.theta1_rad, arm_q.theta2_rad))
+    commanded = clock()
+    scene.apply_sim_q(arm_q)
+    held = clock()
+    scene.step()
+    stepped = clock()
+    return dict(command=commanded-started, arm=held-commanded,
+                physics=stepped-held, total=stepped-started)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config")
@@ -347,6 +367,8 @@ def main() -> None:
                           if controller._solver.backend == 'jax_mppi' else 0.),
                       locomotion_config=asdict(locomotion),
                       arm_motion=args.arm_motion,
+                      arm_hold_every_step=True,
+                      step_timing_scope="command+arm_hold+physics+camera_dispatch",
                       camera_target_hz=[cfg.sim_camera_max_hz, cfg.sim_observer_camera_max_hz] if args.cameras else None))
             for trial in range(args.repeat):
                 scene.reset_environment(mapping_cfg=app._proto_cfg)
@@ -356,6 +378,7 @@ def main() -> None:
                 solve_times.clear()
                 step_times = []
                 moving_step_times = []
+                section_times = {name: [] for name in ("command", "arm", "physics")}
                 frame_versions = {name: hub.version(name) for name in streams} if hub else {}
                 frame_counts = {name: 0 for name in streams}
                 frame_ages = {name: [] for name in streams}
@@ -367,13 +390,16 @@ def main() -> None:
                     t = step * dt
                     phase_s = (t - args.settle) % (args.duration + args.stop)
                     moving = t >= args.settle and phase_s < args.duration
-                    scene.go2.set_planar_velocity(*(args.command if moving else (0.0, 0.0, 0.0)))
+                    arm_q = arm_start
                     if args.arm_motion:
-                        scene.apply_sim_q(replace(arm_start,
+                        arm_q = replace(arm_start,
                             theta1_rad=arm_start.theta1_rad + .12*np.sin(2*np.pi*t/8.),
-                            theta2_rad=arm_start.theta2_rad + .08*np.sin(2*np.pi*t/8.)))
+                            theta2_rad=arm_start.theta2_rad + .08*np.sin(2*np.pi*t/8.))
                     step_started = time.perf_counter()
-                    scene.step()
+                    section_cost = advance_controlled_step(
+                        scene, args.command if moving else (0., 0., 0.), arm_q)
+                    for name in section_times:
+                        section_times[name].append(section_cost[name])
                     if hub is not None:
                         scene.maybe_publish_camera(arm_q=None, max_hz=cfg.sim_camera_max_hz,
                                                    sim_time_s=t, rgb_enabled=cfg.sim_camera_rgb,
@@ -406,6 +432,7 @@ def main() -> None:
                                base_twist=(controller._bridge.last_dq[:6].tolist()
                                            if controller._bridge.last_dq is not None else None),
                                faulted=bool(getattr(controller, "_faulted", False)),
+                               fault_reason=str(getattr(controller, "fault_reason", "")),
                                model_mass_kg=float(controller._data.Ig.mass),
                                model_inertia_trace=float(np.trace(controller._data.Ig.inertia)),
                                feet=[to_numpy_1d(entity.get_link(leg + "_foot").get_pos()).tolist()
@@ -475,6 +502,9 @@ def main() -> None:
                           solve_ms_p50_p95=(np.percentile(solve_times, [50, 95])*1000).tolist() if solve_times else None,
                           step_ms_p50_p95=(np.percentile(step_times, [50, 95])*1000).tolist() if step_times else None,
                           moving_step_ms_p50_p95=(np.percentile(moving_step_times, [50, 95])*1000).tolist() if moving_step_times else None,
+                          section_ms_mean_p50_p95={name: [float(np.mean(values))*1000,
+                              *(np.percentile(values, [50, 95])*1000).tolist()]
+                              for name, values in section_times.items() if values},
                           max_abs_roll_pitch=np.max(np.abs([r["rpy"][:2] for r in samples]), axis=0).tolist() if samples else None,
                           last=samples[-1] if samples else None))
         finally:

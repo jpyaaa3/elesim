@@ -91,6 +91,12 @@ checking remains active for both claws and every other modeled arm link.
 `motion_command`는 latest command 성격의 depth-1 best effort다. Estop과 local
 deadman은 이 carrier나 DDS discovery callback에 의존하지 않는다.
 
+Sim telemetry의 선택적 `go2_controller_fault`는 최대 512자 문자열이다. GO2
+제어기가 복구 불가능한 오류로 정지하면 사유를 유지하고, 명시적 제어기 reset
+후 빈 문자열로 해제한다. Pilot operator snapshot과 UI GO2 panel에 전달되며
+새 motion authority나 Robot의 arm `safety_fault` 해제 권한을 만들지 않는다.
+Protocol major 6의 additive telemetry 확장이며 기존 발신자는 생략할 수 있다.
+
 Robot presentation mirror restores the former hardware-state display path.
 Protocol major 6 is unchanged; the mirror capability adds no message type or
 payload field. The open telemetry state map also carries the additive

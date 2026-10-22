@@ -143,7 +143,9 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
         qos="reliable-control", notes=(
             "bounded state map; fields are additive by design; Robot measured state "
             "may feed opt-in Sim presentation.robot-state.v1 without motion authority; "
-            "imu_reader schema 1 carries two uncalibrated sensor diagnostics, not correction authority"
+            "imu_reader schema 1 carries two uncalibrated sensor diagnostics, not correction authority; "
+            "Sim go2_controller_fault is an additive 0..512 character locomotion fault string; "
+            "empty clears it after explicit controller reset and grants no motion authority"
         ),
     ),
     "ack": _contract(

@@ -6,6 +6,23 @@ from elesim_pilot.remote_state import RemoteState
 from elesim_protocol import SimMappingConfig
 
 
+def test_go2_controller_fault_survives_operator_codec_and_explicit_reset():
+    from elesim_protocol import decode_value, encode_value
+    state = RemoteState(SimMappingConfig(), clock=lambda:10.)
+    state.peer_connected(True)
+    state.target_changed('sim-a')
+    state.accept_telemetry({'go2_controller_fault':'touchdown timeout'})
+    host = state.snapshot(tx_seq=0)
+    assert host.go2_controller_fault == 'touchdown timeout'
+    assert decode_value(encode_value(host)).go2_controller_fault == 'touchdown timeout'
+    state.accept_telemetry({'sim_time_s':1.})
+    assert state.snapshot(tx_seq=0).go2_controller_fault == 'touchdown timeout'
+    state.accept_telemetry({'go2_controller_fault':''})
+    assert state.snapshot(tx_seq=0).go2_controller_fault == ''
+    state.target_changed('robot-a')
+    assert state.snapshot(tx_seq=0).go2_controller_fault == ''
+
+
 def test_measured_q_is_the_canonical_control_state() -> None:
     state = RemoteState(SimMappingConfig(), clock=lambda: 10.0)
     state.peer_connected(True)

@@ -391,6 +391,14 @@ def touchdown_candidates_world(base_position, placements, *, yaw_rotation,
     return candidates
 
 
+def _foothold_command_preview(shaper: Go2CommandShaper, yaw_rate: float, *, blocked=False):
+    """Respect a support gate's effective yaw without mutating operator intent."""
+    if not blocked and float(shaper.current.yaw_rate) == float(yaw_rate):
+        return shaper
+    return replace(shaper, current=replace(shaper.current, yaw_rate=float(yaw_rate)),
+                   target=replace(shaper.target, yaw_rate=float(yaw_rate)))
+
+
 def accelerating_touchdown_candidates(
     base_position, nominal_offsets, *, yaw_rotation, velocity_world,
     command_shaper: Go2CommandShaper, yaw_rate: float, remaining_swing_s,
@@ -411,6 +419,7 @@ def accelerating_touchdown_candidates(
         raise ValueError("remaining swing time must be finite and nonnegative")
     support_s = float(stance_duration_s) + .06
     half_s = .5 * float(stance_duration_s)
+    command_shaper = _foothold_command_preview(command_shaper, yaw_rate)
     current = command_shaper.current
     command = np.array([current.vx, current.vy, 0.])
     yaw = np.asarray(yaw_rotation, dtype=float)
@@ -431,7 +440,11 @@ def accelerating_touchdown_candidates(
     candidates[:, 2] = _GROUND_FOOT_HEIGHT_M
     # Keep excess measured travel in the forecast, but include the upcoming
     # acceleration instead of extrapolating today's low shaped speed forever.
-    forecast = np.where(np.abs(desired) > np.abs(velocity), desired, velocity).copy()
+    # Compare components in the robot's yaw frame. Mixing world X/Y components
+    # selects a different travel estimate as an identical gait turns in place.
+    measured_body = yaw.T @ velocity
+    forecast_body = np.where(np.abs(command) > np.abs(measured_body), command, measured_body)
+    forecast = yaw @ forecast_body
     forecast[2] = 0.
     landing = base + times[:, None]*forecast + correction
     end_correction = np.c_[to_end-(times+support_s)[:, None]*command[:2],
@@ -615,6 +628,7 @@ class PyMpcGenesisController:
         self._settling = False
         self._torque_mode_active = False
         self._faulted = False
+        self._fault_reason = ''
         self._step_i = 0
         self._force_requested = np.zeros((4, 3))
         self._forces = np.zeros((4, 3))
@@ -648,6 +662,10 @@ class PyMpcGenesisController:
     @property
     def tau_hold(self) -> np.ndarray:
         return self._tau_hold.copy()
+
+    @property
+    def fault_reason(self) -> str:
+        return getattr(self, '_fault_reason', '')
 
     @cached_property
     def _leg_control_dofs(self) -> range | list[int]:
@@ -852,6 +870,7 @@ class PyMpcGenesisController:
         self._pose_stage = "stand"
         self._pose_transition.reset(self._kin.stand_q)
         self._faulted = False
+        self._fault_reason = ''
         self._step_i = 0
         self._force_requested.fill(0.0)
         self._forces.fill(0.0)
@@ -875,16 +894,18 @@ class PyMpcGenesisController:
                            command_body, yaw_rate, remaining_swing_s, stance_duration_s,
                            *, base_rotation=None):
         if self._solver.backend == 'jax_mppi':
+            preview_shaper = _foothold_command_preview(self._command_shaper, yaw_rate,
+                blocked=bool(getattr(getattr(self, '_contact_gait', None), 'blocked', False)))
             candidates, landing, end = accelerating_touchdown_candidates(
                 base, self._nominal_foot_offsets_body, yaw_rotation=yaw_rotation,
-                velocity_world=velocity, command_shaper=self._command_shaper,
+                velocity_world=velocity, command_shaper=preview_shaper,
                 yaw_rate=yaw_rate, remaining_swing_s=remaining_swing_s,
                 stance_duration_s=stance_duration_s,
                 placement_scale=float(self._config.foot_placement_scale),
                 body_height_m=float(self._config.z_pos_des_m),
             )
             times = np.broadcast_to(np.asarray(remaining_swing_s, dtype=float), (4,))
-            heading = self._command_shaper.preview_yaw_displacement(
+            heading = preview_shaper.preview_yaw_displacement(
                 np.r_[times, times+float(stance_duration_s)+.06]).reshape(2, 4).T
             rotation = np.asarray(yaw_rotation if base_rotation is None else base_rotation)
             sine, cosine = np.sin(heading)[..., None], np.cos(heading)[..., None]
@@ -1515,6 +1536,7 @@ class PyMpcGenesisController:
         except Exception as exc:
             self._pose_transition.begin(self._current_leg_pose(), self._kin.stand_q)
             self._faulted = True
+            self._fault_reason = (str(exc) or type(exc).__name__)[:512]
             self._active = False
             self._pose_stage = "fault"
             self._walk_started_s = None

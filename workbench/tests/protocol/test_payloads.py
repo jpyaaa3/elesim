@@ -32,6 +32,18 @@ from elesim_protocol.payloads import (
 )
 
 
+@pytest.mark.parametrize('reason', ['', 'touchdown timeout after 0.30s: FR', 'x'*512])
+def test_optional_go2_controller_fault_survives_open_telemetry(reason):
+    value = TelemetryPayload.from_payload({'go2_controller_fault':reason})
+    assert value.raw['go2_controller_fault'] == reason
+
+
+@pytest.mark.parametrize('reason', [None, [], 1, 'x'*513])
+def test_go2_controller_fault_has_a_bounded_string_contract(reason):
+    with pytest.raises(ProtocolError):
+        TelemetryPayload.from_payload({'go2_controller_fault':reason})
+
+
 def test_discovery_and_target_selection_are_typed() -> None:
     assert DiscoverRequest.from_payload({"role": "robot", "capability": "motion.arm"}).role == "robot"
     assert SelectTargetRequest.from_payload({"target_id": "robot-a"}).target_id == "robot-a"

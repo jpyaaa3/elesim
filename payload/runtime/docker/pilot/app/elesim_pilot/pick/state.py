@@ -42,6 +42,7 @@ class HostState:
     go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
     go2_base_ang_vel: Optional[tuple[float, float, float]] = None
     go2_base_timestamp_s: float = 0.0
+    go2_controller_fault: str = ''
     go2_gait_phase: Optional[float] = None
     go2_gait_period_s: Optional[float] = None
     host_state_age_s: float = -1.0

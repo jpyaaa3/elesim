@@ -1023,6 +1023,7 @@ def test_solver_failure_returns_to_stand_without_pose_step():
     first = c._entity.control_dofs_position.call_args.args[0]
     assert np.all(first > 0.99)
     assert c._faulted
+    assert c.fault_reason == 'solver failure'
     for _ in range(25):
         c._step()
     np.testing.assert_allclose(c._entity.control_dofs_position.call_args.args[0], np.zeros(12))
@@ -1053,6 +1054,7 @@ def test_controller_reset_preempts_command_and_resets_solver_and_bridge():
     controller._swing_starts = np.ones((4, 3))
     controller._touchdowns = np.ones((4, 3))
     controller._last_contacts = np.zeros(4)
+    controller._fault_reason = 'old controller failure'
 
     controller.reset()
 
@@ -1067,6 +1069,7 @@ def test_controller_reset_preempts_command_and_resets_solver_and_bridge():
     assert not np.any(controller._touchdowns)
     assert not np.any(controller._touchdown_depths)
     assert controller._faulted is False
+    assert controller.fault_reason == ''
 
 
 def test_force_mode_damping_is_passive_and_restored_for_position_control():

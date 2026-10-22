@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import time
 from dataclasses import dataclass, field, replace
+from functools import cached_property
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 import xml.etree.ElementTree as ET
 from elesim_sim.shutdown import graceful_sigterm
@@ -804,6 +805,10 @@ class Go2Locomotion:
             self._entity.zero_all_dofs_velocity()
         except Exception:
             pass
+
+    @property
+    def fault_reason(self) -> str:
+        return str(getattr(self._controller, 'fault_reason', ''))
 
     def set_command_source(self, source: str) -> None:
         if self._controller is not None and hasattr(self._controller, "_command_source"):
@@ -2466,24 +2471,45 @@ class SimMover:
 
     def _apply_all_direct(self, q_target: np.ndarray) -> None:
         values = list(np.asarray(q_target, dtype=float).reshape(-1))
-        indices = list(self.dofs_idx_local)
         for index, value in (
             (self._claw_left_idx, self._claw_left_cmd),
             (self._claw_right_idx, self._claw_right_cmd),
         ):
             if index is not None:
-                indices.append(int(index))
                 values.append(float(value))
         # Genesis defaults to clearing every DOF, including the floating base
         # and legs of the merged GO2+arm. Only reset the kinematic arm DOFs.
         # The position write below refreshes both pose and velocity FK, so defer
         # the velocity-only refresh until that single coherent final update.
         self.entity.set_dofs_velocity(
-            np.zeros(len(indices)), dofs_idx_local=indices, skip_forward=True
+            self._direct_zero_velocity, dofs_idx_local=self._direct_dof_indices, skip_forward=True
         )
+        from torch import from_numpy
+
         self.entity.set_dofs_position(
-            np.asarray(values, dtype=float), dofs_idx_local=indices, zero_velocity=False
+            from_numpy(np.asarray(values, dtype=float)),
+            dofs_idx_local=self._direct_dof_indices, zero_velocity=False
         )
+
+    @cached_property
+    def _direct_dof_indices(self) -> range | list[int]:
+        indices = list(self.dofs_idx_local)
+        indices.extend(int(i) for i in (self._claw_left_idx, self._claw_right_idx) if i is not None)
+        # Preserve arbitrary joint order. A contiguous range lets Genesis use
+        # its slice path without staging a fresh GPU index array per write.
+        if indices and indices[0] >= 0 and all(
+            index == indices[0] + offset for offset, index in enumerate(indices)
+        ):
+            return range(indices[0], indices[0] + len(indices))
+        return indices
+
+    @cached_property
+    def _direct_zero_velocity(self):
+        from torch import from_numpy
+
+        # These immutable CPU tensors use the public setter's direct transfer
+        # path. Only the arm and claw DOFs are ever zeroed.
+        return from_numpy(np.zeros(len(self._direct_dof_indices), dtype=float))
 
     def _apply_claw_direct(self, left_value: float, right_value: float) -> None:
         if self._claw_left_idx is not None:
@@ -3910,6 +3936,7 @@ class SimRuntime:
                             sim_wall_elapsed_s=sim_wall_elapsed_s,
                             sim_realtime_factor=sim_realtime_factor,
                             sim_step_count=sim_step_count,
+                            go2_controller_fault=getattr(a.sim_scene.go2, 'fault_reason', ''),
                         )
                         refresh = getattr(a.sim_scene.go2, "refresh_camera_feedback", None)
                         if camera_base_pose is not None and callable(refresh):

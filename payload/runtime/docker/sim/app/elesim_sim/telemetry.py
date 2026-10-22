@@ -70,6 +70,7 @@ class RuntimeTelemetry:
         sim_wall_elapsed_s: Optional[float] = None,
         sim_realtime_factor: Optional[float] = None,
         sim_step_count: Optional[int] = None,
+        go2_controller_fault: str = '',
     ) -> tuple[np.ndarray, np.ndarray]:
         from scipy.spatial.transform import Rotation
 
@@ -92,6 +93,7 @@ class RuntimeTelemetry:
             "go2_base_lin_vel_body": self._vec3(linear_body),
             "go2_base_ang_vel": self._vec3(angular_body),
             "go2_base_timestamp_s": float(time.time()),
+            "go2_controller_fault": str(go2_controller_fault)[:512],
         }
         self._add_clock(
             payload,

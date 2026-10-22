@@ -384,6 +384,8 @@ class TelemetryPayload:
     @classmethod
     def from_payload(cls, payload: object) -> "TelemetryPayload":
         raw = _object(payload, context="telemetry")
+        if 'go2_controller_fault' in raw:
+            _text(raw['go2_controller_fault'], name='go2_controller_fault', maximum=512, allow_empty=True)
         q: Optional[tuple[float, float, float, float]] = None
         if "q" in raw:
             values = _vector(raw["q"], 4, name="telemetry q")

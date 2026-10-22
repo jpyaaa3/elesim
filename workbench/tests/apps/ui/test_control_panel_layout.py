@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from elesim_protocol import ControlU, MockObjectStatePayload, SimulationStatusPayload
 from elesim_ui import control_panel
 from elesim_ui.panels import go2
@@ -100,6 +102,16 @@ def test_respawn_blocks_held_teleop_until_all_motion_inputs_are_released() -> No
 
     assert _respawn_blocks_teleop(panel, active=False, key_stop=False) is False
     assert panel._go2_respawn_blocked is False
+
+
+def test_latched_go2_fault_stops_teleop_without_polling_held_keys(monkeypatch):
+    sent = []
+    panel = SimpleNamespace(_host_state=SimpleNamespace(go2_controller_fault='touchdown timeout'),
+        _go2_stop_sent=False,_go2_was_active=True,_go2_last_command_at=0.,
+        service=SimpleNamespace(send_go2_velocity=lambda **v:sent.append(v)))
+    monkeypatch.setattr(go2, '_key_down', lambda *_:pytest.fail('faulted teleop polled held keys'))
+    assert not go2._draw_teleop_pad(panel, 280.)
+    assert sent == [dict(vx=0.,vy=0.,wz=0.)]
 
 
 def test_go2_stand_and_sit_buttons_are_always_visible(monkeypatch) -> None:

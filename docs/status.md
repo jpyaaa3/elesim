@@ -6,6 +6,36 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### GO2 4096×2 장시간 실패 재현과 계측 보완 (2026-10-22)
+
+- `09c88d8`를 push하고 양쪽 `elesim-update`를 완료했다. 기존 SROS2 역할 키와
+  정책 파일의 SHA가 모두 같은 상태로 새 release binding을 정식 staging 및
+  instance replace transaction으로 등록했다. 원격 Sim/Pilot의 GPU 2번을 유지했다.
+- 컨테이너 내부에서 PID 1에 보낸 SIGSTOP은 적용되지 않았다. 기존 앱과 진단을
+  함께 돌린 초기 측정의 성능 수치는 폐기한다. 후속 진단은 Docker의 STOP 신호와
+  `/proc/1/status`의 정지를 확인한 뒤 실행했고, 종료 후 원래 앱을 재개했다.
+- 측정 하네스에 빠졌던 매-step 팔 자세 유지를 추가하고 command/arm/physics와
+  camera dispatch를 모두 step 시간에 포함했다. DDS와 WebRTC 전송은 포함하지
+  않는다. 두 1280×720 카메라, 실제 target collision, dt .01/substeps 2,
+  MPPI 4096×2 조건의 전진+회전은 **20.1초에 fault**, 직진은 **67.8초에 fault**로
+  실패했다. 제자리 회전은 **60초 보행 및 정지 복귀**를 통과했다. 600초 통과가 아니다.
+- 보행 step 중앙값/p95는 전진+회전 **13.28/16.67 ms**, 직진 **13.69/16.64 ms**,
+  제자리 회전 **13.86/16.45 ms**였다. 전진+회전에서 카메라를 끈 값은
+  **11.32/13.05 ms**다. 전체 실제 앱의 RTF 회복으로 해석하지 않는다.
+- 실제 실패 입력의 4096×2 CPU 재생에서 두 iteration 모두 finite 후보가 **0개**였다.
+  유효 후보를 가중 평균에서 잃는 일반적인 optimizer 오류도 고쳤지만, 그 수정만으로
+  이 실패를 해결하지 못한다. 원래 tilt·motor 제약과 최종 finite 검사를 유지한다.
+- 동일 몸통 속도에서 세계 축 방향만 바꿔도 착지 시점 몸통 예측이 **55.9 mm** 달라지는
+  좌표계 오류와, 지지 대기 중 유효 yaw=0을 예측에 반영하지 않는 오류를 재현하고
+  수정했다. 새 회귀 **3 failed → 통과**. 팔 쓰기는 연속 인덱스와 CPU tensor 경로로
+  정리하며 매-step 팔·claw 쓰기와 최종 FK, 몸통·다리 속도를 보존한다. GPU 동등성 및
+  새 설치본 보행·속도 재검증은 진행 중이다.
+- 오류 이유를 Sim→DDS→Pilot snapshot→UI로 전하고 explicit reset 시 비운다.
+  protocol-v6의 bounded additive telemetry 필드다. 4개 독립 프로세스의 실제 DDS
+  topology smoke에서 오류/해제 전달을 통과했다. 통합 software 검사 **1315 passed /
+  5 skipped**, 후속 팔·solver focused **90 passed**, 최종 전체 Sim **1013 passed /
+  5 skipped**다. [단독 실행 조건과 원시 artifact SHA](../workbench/evidence/curated/sim/gait_rtf_20261022.json).
+
 ### GO2 지지발 손실 복구·회전 디딤점 예측 회귀 (2026-10-22)
 
 - 기존 `1203cb4` 기반 실제 UI 4096×2 시험은 전진+좌회전 **54.0초의

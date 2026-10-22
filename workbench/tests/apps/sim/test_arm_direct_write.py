@@ -11,7 +11,7 @@ from elesim_sim.runtime import SimMover
 
 
 class _Entity:
-    def __init__(self, claws: int) -> None:
+    def __init__(self, claws: int, *, contiguous: bool = False) -> None:
         # Deliberate gaps model a merged floating GO2 and prevent a whole-entity
         # zero or a contiguous arm-range assumption from passing unnoticed.
         self.joints = {
@@ -24,6 +24,8 @@ class _Entity:
             self.joints["j_gripper_base_claw_left"] = 26
         if claws >= 2:
             self.joints["j_gripper_base_claw_right"] = 28
+        if contiguous:
+            self.joints = {name: 18 + i for i, name in enumerate(self.joints)}
         self.q = np.zeros(31)
         self.dq = np.arange(1.0, 32.0)
         self.links_q = self.q.copy()
@@ -57,8 +59,9 @@ class _Entity:
 
 @pytest.mark.parametrize("claws", (0, 1, 2))
 @pytest.mark.parametrize("instant", (False, True))
-def test_arm_and_claws_share_one_final_fk_without_clearing_go2_velocity(claws, instant):
-    entity = _Entity(claws)
+@pytest.mark.parametrize("contiguous", (False, True))
+def test_arm_and_claws_share_one_final_fk_without_clearing_go2_velocity(claws, instant, contiguous):
+    entity = _Entity(claws, contiguous=contiguous)
     mover = SimMover(
         entity,
         SimParam(dt=0.01),
@@ -76,7 +79,7 @@ def test_arm_and_claws_share_one_final_fk_without_clearing_go2_velocity(claws, i
     command = mover.set_4dof_instant if instant else mover.control_4dof
     command(-0.1, 0.2, 0.3, -0.3)
 
-    indices = [18, 20, 22, 24] + [26, 28][:claws]
+    indices = list(entity.joints.values())
     assert entity.calls == [
         ("velocity", tuple(indices), True),
         ("position", tuple(indices), False),
@@ -87,8 +90,8 @@ def test_arm_and_claws_share_one_final_fk_without_clearing_go2_velocity(claws, i
     np.testing.assert_array_equal(entity.dq, expected_dq)
     np.testing.assert_array_equal(entity.links_dq, expected_dq)
     np.testing.assert_array_equal(entity.links_q, entity.q)
-    np.testing.assert_array_equal(entity.q[[18, 20, 22, 24]], mover.get_last_command_full())
+    np.testing.assert_array_equal(entity.q[indices[:4]], mover.get_last_command_full())
     if claws:
-        assert entity.q[26] < 0.0
+        assert entity.q[indices[4]] < 0.0
     if claws == 2:
-        assert entity.q[28] > 0.0
+        assert entity.q[indices[5]] > 0.0

@@ -6,6 +6,19 @@ from elesim_protocol import SimQ
 from elesim_sim.telemetry import RuntimeTelemetry
 
 
+def test_go2_controller_fault_is_published_and_empty_reset_clears_it():
+    from types import SimpleNamespace
+    emitted = []
+    base = SimpleNamespace(get_pos=lambda:np.array([0.,0.,.3]),
+        get_quat=lambda:np.array([1.,0.,0.,0.]),get_vel=lambda:np.zeros(3),get_ang=lambda:np.zeros(3))
+    entity = SimpleNamespace(get_link=lambda _name:base)
+    telemetry = RuntimeTelemetry(emitted.append)
+    telemetry.send_go2_base(entity, go2_controller_fault='touchdown timeout')
+    assert emitted[-1]['go2_controller_fault'] == 'touchdown timeout'
+    telemetry.send_go2_base(entity, go2_controller_fault='')
+    assert emitted[-1]['go2_controller_fault'] == ''
+
+
 def test_runtime_telemetry_uses_canonical_q_and_normalized_direction() -> None:
     emitted: list[dict[str, object]] = []
     telemetry = RuntimeTelemetry(emitted.append)

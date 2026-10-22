@@ -31,6 +31,7 @@ from elesim_protocol import (
     SimulationCommandRequest,
     SimulationResultPayload,
     SimulationStatusPayload,
+    TelemetryPayload,
     WebRtcSignalPayload,
 )
 
@@ -58,6 +59,8 @@ EXPECTED = {
     "ui:imu_model",
     "ui:result",
     "ui:status",
+    "ui:go2-fault",
+    "ui:go2-fault-cleared",
 }
 
 
@@ -337,6 +340,10 @@ def _sim_process(barrier: Any, stop: Any, results: Any) -> None:
                         )
                         _report(results, "sim:webrtc")
                 if active_session and ui_id and not status_sent:
+                    for fault in ("GPU MPC produced no finite force trajectory", ""):
+                        peer.send("telemetry", target_id=ui_id, payload={
+                            "go2_controller_fault": fault,
+                        })
                     peer.send(
                         "simulation_status",
                         lease_id=active_session,
@@ -367,6 +374,7 @@ def _ui_process(barrier: Any, stop: Any, results: Any) -> None:
         open_sent = False
         session_id = ""
         simulation_sent = False
+        go2_fault_seen = False
         try:
             while not stop.is_set():
                 peer.heartbeat()
@@ -421,6 +429,14 @@ def _ui_process(barrier: Any, stop: Any, results: Any) -> None:
                     elif message.message_type == "simulation_status":
                         SimulationStatusPayload.from_payload(message.payload or {})
                         _report(results, "ui:status")
+                    elif message.message_type == "telemetry" and message.source_id == "sim-smoke":
+                        fault = TelemetryPayload.from_payload(message.payload or {}).raw.get(
+                            "go2_controller_fault")
+                        if fault == "GPU MPC produced no finite force trajectory":
+                            go2_fault_seen = True
+                            _report(results, "ui:go2-fault")
+                        elif fault == "" and go2_fault_seen:
+                            _report(results, "ui:go2-fault-cleared")
                     elif message.message_type == "webrtc_signal":
                         answer = WebRtcSignalPayload.from_payload(
                             message.payload or {}

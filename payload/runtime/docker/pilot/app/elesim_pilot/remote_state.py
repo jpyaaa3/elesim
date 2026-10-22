@@ -287,6 +287,7 @@ class RemoteState:
                 go2_base_lin_vel_body=None if base_velocity is None else tuple(base_velocity),
                 go2_base_ang_vel=None if angular_velocity is None else tuple(angular_velocity),
                 go2_base_timestamp_s=_number(data.get("go2_base_timestamp_s")),
+                go2_controller_fault=str(data.get('go2_controller_fault', ''))[:512],
                 go2_gait_phase=(None if data.get("go2_gait_phase") is None else _number(data.get("go2_gait_phase"))),
                 go2_gait_period_s=(None if data.get("go2_gait_period_s") is None else _number(data.get("go2_gait_period_s"))),
                 host_state_age_s=age,

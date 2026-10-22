@@ -1,0 +1,287 @@
+{
+  "scope": "Installed GPU2 Genesis physics/render diagnostics with stationary kinematic arm hold; DDS control and WebRTC delivery excluded. Normal app SIGSTOP verified from /proc/1/status and lifecycle restored. Earlier diagnostics with in-container PID1 SIGSTOP are invalid for performance comparisons.",
+  "trials": [
+    {
+      "trial": "no-camera",
+      "source_revision": "09c88d8d914525a0faf454efd779918ec1393e64",
+      "container_image_id": "sha256:0136155ff87424856291fe542c58643a097e6a81156295814e4fe511f9a13771",
+      "physical_gpu": "2",
+      "normal_sim_stop_verified": true,
+      "arm_hold_every_step": true,
+      "dt": 0.01,
+      "substeps": 2,
+      "mppi": [
+        4096,
+        2
+      ],
+      "command": [
+        0.8,
+        0.0,
+        0.8
+      ],
+      "cameras": false,
+      "camera_dimensions": [
+        1280,
+        720
+      ],
+      "fixed_target": true,
+      "completed": false,
+      "last_sim_s": 20.1,
+      "faulted": true,
+      "moving_step_ms_p50_p95": [
+        11.320129968225956,
+        13.051263568922876
+      ],
+      "sections_ms_mean_p50_p95": {
+        "command": [
+          0.010988697287367682,
+          0.010516028851270676,
+          0.013477867469191551
+        ],
+        "arm": [
+          1.9801940075675242,
+          1.9471021369099617,
+          2.6204711757600307
+        ],
+        "physics": [
+          7.345862880215782,
+          6.076425313949585,
+          10.749443667009473
+        ]
+      },
+      "wall_s": 19.187811461277306,
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": false,
+          "last_t": 20.1,
+          "last_stage": "fault",
+          "stand_after_s": null
+        }
+      ],
+      "max_abs_roll_pitch": [
+        0.3571300576716906,
+        0.23742187999310538
+      ],
+      "artifacts_sha256": {
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-verified-stop-09c88d8/no-camera.jsonl": "f30654aa3b6bd3949d829952ed0609fe4856ae1984f6a8ae2727861cdc4f441b",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-verified-stop-09c88d8/no-camera.jsonl.profile.json": "ba1b1493d465092c2ca45d91b3bc979229e6d375429f429436d854f906806c49",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-verified-stop-09c88d8/no-camera.jsonl.profile.json.fault.npz": "4cdf2e8459640339958957d8a53e56e3fdef52767dcaf4f192e37214341f2f81",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-verified-stop-09c88d8/no-camera.jsonl.profile.json.fault.json": "c5b156b6153dbba50e9a05119b4b33c28f59e767a69493b7e42e0552d510e780"
+      }
+    },
+    {
+      "trial": "camera-turn",
+      "source_revision": "09c88d8d914525a0faf454efd779918ec1393e64",
+      "container_image_id": "sha256:0136155ff87424856291fe542c58643a097e6a81156295814e4fe511f9a13771",
+      "physical_gpu": "2",
+      "normal_sim_stop_verified": true,
+      "arm_hold_every_step": true,
+      "dt": 0.01,
+      "substeps": 2,
+      "mppi": [
+        4096,
+        2
+      ],
+      "command": [
+        0.8,
+        0.0,
+        0.8
+      ],
+      "cameras": true,
+      "camera_dimensions": [
+        1280,
+        720
+      ],
+      "fixed_target": true,
+      "completed": false,
+      "last_sim_s": 20.1,
+      "faulted": true,
+      "moving_step_ms_p50_p95": [
+        13.281096238642931,
+        16.667587915435433
+      ],
+      "sections_ms_mean_p50_p95": {
+        "command": [
+          0.014879983678008123,
+          0.013994984328746796,
+          0.023478176444768906
+        ],
+        "arm": [
+          2.5217530888624298,
+          2.4715238250792027,
+          3.374038962647319
+        ],
+        "physics": [
+          8.92152874473499,
+          7.894013077020645,
+          13.487066607922316
+        ]
+      },
+      "wall_s": 23.837219190318137,
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": false,
+          "last_t": null,
+          "last_stage": null,
+          "stand_after_s": null
+        }
+      ],
+      "max_abs_roll_pitch": [
+        0.3588263891329968,
+        0.23312328878353106
+      ],
+      "artifacts_sha256": {
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-verified-stop-09c88d8/camera-turn.jsonl": "f5f6e3c31a5e6c720938d2831a8cabba2f0f311a788f9df704c1abb9fb109c3e",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-verified-stop-09c88d8/camera-turn.jsonl.profile.json": "4b37b66d68ee670f31cff3f3a2b29ca025bedfff03ccfb21f3e34d58d2ac6bb7",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-verified-stop-09c88d8/camera-turn.jsonl.profile.json.fault.npz": "e1b868aa04f7354f2ef21620fd2f943cd1e637bd93ef8b11c634e538fa59b74b",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-verified-stop-09c88d8/camera-turn.jsonl.profile.json.fault.json": "c5b156b6153dbba50e9a05119b4b33c28f59e767a69493b7e42e0552d510e780"
+      }
+    },
+    {
+      "trial": "camera-straight",
+      "source_revision": "09c88d8d914525a0faf454efd779918ec1393e64",
+      "container_image_id": "sha256:0136155ff87424856291fe542c58643a097e6a81156295814e4fe511f9a13771",
+      "physical_gpu": "2",
+      "normal_sim_stop_verified": true,
+      "arm_hold_every_step": true,
+      "dt": 0.01,
+      "substeps": 2,
+      "mppi": [
+        4096,
+        2
+      ],
+      "command": [
+        0.8,
+        0.0,
+        0.0
+      ],
+      "cameras": true,
+      "camera_dimensions": [
+        1280,
+        720
+      ],
+      "fixed_target": true,
+      "completed": false,
+      "last_sim_s": 67.8,
+      "faulted": true,
+      "moving_step_ms_p50_p95": [
+        13.686885125935078,
+        16.641872003674507
+      ],
+      "sections_ms_mean_p50_p95": {
+        "command": [
+          0.01473415222982006,
+          0.014253892004489899,
+          0.02157595008611679
+        ],
+        "arm": [
+          2.5534972595456096,
+          2.4658660404384136,
+          3.3824541606009007
+        ],
+        "physics": [
+          9.625326424203687,
+          10.980728082358837,
+          13.56386998668313
+        ]
+      },
+      "wall_s": 85.36707283416763,
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": false,
+          "last_t": null,
+          "last_stage": null,
+          "stand_after_s": null
+        }
+      ],
+      "max_abs_roll_pitch": [
+        0.253104352400115,
+        0.29667926739517636
+      ],
+      "artifacts_sha256": {
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-straight-09c88d8/camera-straight.jsonl": "24d6550c644b7931440d05b1a5c54756085b907892b032b1b3f1144bf4e98f19",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-straight-09c88d8/camera-straight.jsonl.profile.json": "67192b782705715e7b0cc6acecad842b7335430645bad13b3ec138b77b7ca0cb",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-straight-09c88d8/camera-straight.jsonl.profile.json.fault.npz": "55cd4b0bb2479f496b3278a975cdec949011b7f87a41006b141c9dc564883fdc",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-straight-09c88d8/camera-straight.jsonl.profile.json.fault.json": "f7dc5c05942d7d66ef65c6c3e41ca0a21b684c13af0c9e6b8c18951f4c501566"
+      }
+    },
+    {
+      "trial": "camera-yaw-only",
+      "source_revision": "09c88d8d914525a0faf454efd779918ec1393e64",
+      "container_image_id": "sha256:0136155ff87424856291fe542c58643a097e6a81156295814e4fe511f9a13771",
+      "physical_gpu": "2",
+      "normal_sim_stop_verified": true,
+      "arm_hold_every_step": true,
+      "dt": 0.01,
+      "substeps": 2,
+      "mppi": [
+        4096,
+        2
+      ],
+      "command": [
+        0.0,
+        0.0,
+        0.8
+      ],
+      "cameras": true,
+      "camera_dimensions": [
+        1280,
+        720
+      ],
+      "fixed_target": true,
+      "completed": true,
+      "last_sim_s": 64.9,
+      "faulted": false,
+      "moving_step_ms_p50_p95": [
+        13.858979567885399,
+        16.44805078394711
+      ],
+      "sections_ms_mean_p50_p95": {
+        "command": [
+          0.015641189108674344,
+          0.014849938452243805,
+          0.023907190188765522
+        ],
+        "arm": [
+          2.594714453730446,
+          2.5301279965788126,
+          3.397672367282212
+        ],
+        "physics": [
+          9.300316878307898,
+          9.224805515259504,
+          13.422310352325438
+        ]
+      },
+      "wall_s": 80.14329164801165,
+      "cycle_stops": [
+        {
+          "cycle": 1,
+          "completed": true,
+          "last_t": 64.9,
+          "last_stage": "stand",
+          "stand_after_s": 0.8000000000000043
+        }
+      ],
+      "max_abs_roll_pitch": [
+        0.09222821270616181,
+        0.13966084373876808
+      ],
+      "artifacts_sha256": {
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-straight-09c88d8/camera-yaw-only.jsonl": "8176552994901b590215e93a4fe82eb4fd4d05dd582ef10f6bba9177f0577194",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-straight-09c88d8/camera-yaw-only.jsonl.profile.json": "0c0fcda0d73986c3637b2b34343bfc91ff5afd146e9263880c0e6cc428e1648c"
+      }
+    }
+  ],
+  "turning_failure_cpu_replay": {
+    "same_4096x2_inputs": true,
+    "finite_candidates_each_iteration": [
+      0,
+      0
+    ],
+    "finite_sample_fallback_does_not_resolve_recorded_failure": true
+  }
+}

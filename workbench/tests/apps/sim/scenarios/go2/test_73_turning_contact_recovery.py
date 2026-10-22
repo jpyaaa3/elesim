@@ -3,10 +3,13 @@ import numpy as np
 import pytest
 from scipy.integrate import quad
 from scipy.spatial.transform import Rotation
+from types import SimpleNamespace
 
 from elesim_sim.robot.go2.locomotion.command import Go2CommandShaper
 from elesim_sim.robot.go2.locomotion.types import Go2Command
-from elesim_sim.robot.go2.pympc_controller import stance_end_foothold
+from elesim_sim.robot.go2.pympc_controller import (
+    PyMpcGenesisController, accelerating_touchdown_candidates, stance_end_foothold,
+)
 from elesim_sim.robot.go2.foot_workspace import reachable
 from workbench.tests.apps.sim.scenarios.go2.test_55_foot_workspace import LO, HI
 from workbench.tests.apps.sim.scenarios.go2.test_59_touchdown_tracking import search_controller
@@ -113,3 +116,38 @@ def test_turning_foothold_is_reachable_in_predicted_landing_and_end_poses():
         # A foot rejected at either endpoint must never be advertised as feasible.
         assert not all(reachable(2, result, base, rotation, LO+.04, HI-.04)
                        for base, rotation in zip(bases, rotations))
+
+
+def test_base_travel_forecast_does_not_depend_on_world_heading_during_sideways_drift():
+    from workbench.tests.apps.sim.scenarios.go2.test_68_accelerating_footholds import FEET
+    command = Go2Command(vx=.8, vy=.2, yaw_rate=.8)
+    shaper = Go2CommandShaper(current=command, target=command)
+    def predict(rotation):
+        return accelerating_touchdown_candidates([0.,0.,.3], FEET,
+            yaw_rotation=rotation, velocity_world=rotation @ [.5,-.3,0.],
+            command_shaper=shaper, yaw_rate=.8, remaining_swing_s=.18,
+            stance_duration_s=.6/2.2, placement_scale=1.35, body_height_m=.3)
+    _, landing, end = predict(np.eye(3))
+    rotation = Rotation.from_euler('z', .9).as_matrix()
+    _, rotated_landing, rotated_end = predict(rotation)
+    np.testing.assert_allclose(rotated_landing, landing @ rotation.T, atol=1e-12)
+    np.testing.assert_allclose(rotated_end, end @ rotation.T, atol=1e-12)
+
+
+@pytest.mark.parametrize('current_yaw', [0., .8])
+def test_blocked_support_never_forecasts_operator_yaw_while_balance_requests_zero(current_yaw):
+    from workbench.tests.apps.sim.scenarios.go2.test_68_accelerating_footholds import FEET
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    c._solver = SimpleNamespace(backend='jax_mppi')
+    c._config = SimpleNamespace(foot_placement_scale=1.35, z_pos_des_m=.3)
+    c._contact_gait = SimpleNamespace(blocked=True)
+    c._nominal_foot_offsets_body = FEET.copy()
+    c._command_shaper = Go2CommandShaper(
+        current=Go2Command(vx=.8,yaw_rate=current_yaw), target=Go2Command(vx=.8,yaw_rate=.8))
+    rotation = Rotation.from_euler('xyz', [.1,-.1,.7]).as_matrix()
+    _, _, future_rotations = c._predict_touchdowns([0.,0.,.3],
+        Rotation.from_euler('z',.7).as_matrix(), [.5,.4,0.], np.zeros(3), [.8,0.,0.],
+        0., np.full(4,.18), .6/2.2, base_rotation=rotation)
+    np.testing.assert_allclose(future_rotations, np.broadcast_to(rotation,(4,2,3,3)),atol=1e-12)
+    assert c._command_shaper.current.yaw_rate == current_yaw
+    assert c._command_shaper.target.yaw_rate == .8

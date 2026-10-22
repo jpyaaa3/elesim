@@ -314,6 +314,9 @@ def _key_down(panel, key: int) -> bool:
 
 
 def _draw_teleop_pad(panel, width: float) -> bool:
+    if getattr(getattr(panel, '_host_state', None), 'go2_controller_fault', ''):
+        _stop_go2(panel)
+        return False
     spacing_x = _style_spacing_x()
     cell = max(scaled(panel, _PAD_MIN_CELL_W), min(scaled(panel, _PAD_MAX_CELL_W), (float(width) - spacing_x * 4.0) / 5.0))
     row_w = cell * 5.0 + spacing_x * 4.0
@@ -454,6 +457,11 @@ def draw_go2_panel(panel) -> None:
         return
 
     width = max(scaled(panel, 220.0), float(imgui.get_content_region_available_width()))
+    fault = str(getattr(getattr(panel, '_host_state', None), 'go2_controller_fault', ''))
+    if fault:
+        imgui.text_colored('GO2 controller stopped', 1., .3, .3)
+        imgui.text_wrapped(fault)
+        imgui.text_disabled('Reset simulation before retrying locomotion.')
     _draw_teleop_pad(panel, width)
 
     changed_avoid, enabled = imgui.checkbox(
