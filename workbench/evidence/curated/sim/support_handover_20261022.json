@@ -238,12 +238,84 @@
     "new_red_failed": 6,
     "new_red_passed": 17,
     "change": "Only when crossing a new liftoff, require current normal force >5N on every foot that will remain in support, in addition to existing confirmation and full load ramp. Existing stance impulse tolerance and active swing timing unchanged.",
-    "remote_acceptance": "pending; no stability improvement claimed",
+    "remote_acceptance": "failed; ~12.7 walking sim seconds, no finite force trajectory",
     "focused_passed": 504,
     "focused_skipped": 1,
     "artifacts_sha256": {
       "workbench/evidence/generated/gait-rtf-20261022/fresh-support-red.log": "cf9136663d3a9228746bb1071aa99821f49cb248948c253789496083a34158a7",
-      "workbench/evidence/generated/gait-rtf-20261022/fresh-support-green.log": "a331848a94e4ac59bd2f9eb6370c55bb1356d900659c62441938af6da9828eb8"
-    }
+      "workbench/evidence/generated/gait-rtf-20261022/fresh-support-green.log": "a331848a94e4ac59bd2f9eb6370c55bb1356d900659c62441938af6da9828eb8",
+      "workbench/evidence/generated/gait-rtf-20261022/sim-fresh-support.log": "e74fa03405ba941cba29f5c76c6b8d50928ba7867732b772a581444f0d627736",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-fresh-support-9106d60/contact_events.jsonl": "08e2758f097ce26f357b262086497bd5983354a8c9dcb8ca90c48ecebbac718b",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-fresh-support-9106d60/result.json": "0d97e154cc342975eb68aa3d0d367a965b36b686c20ac489d74ca0db2c2e42f1",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-fresh-support-9106d60/history.json": "f011e5441405413195654106200822c9b2385dcef663ad35d60575b527d97944",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-fresh-support-9106d60/fault.npz": "8fd51c8428df1fad2aec0ae1dac9ea72dd6569514a728b5d626fb0321ca9e4cf",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-fresh-support-9106d60/fault.json": "a581f652cf5c08fd4d2f64e3bcf33d427441018323245c7f9368d6d90fdcc4b7",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-fresh-support-9106d60/loop.csv": "1dfe9b9b0b3d61546a11116700a7fae2c05ba5b5c1f438374195cf2de0619a36",
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-fresh-support-9106d60/result.json": "5b526318b0c549e6f3deb65bb7d02d0621aff4cf1caadd88a2e27ec40515f579",
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-fresh-support-9106d60/telemetry.jsonl": "27d6244a0ecc4cd2b76035fb35b8caad0a861940de871f54156c0d617631db52",
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-fresh-support-9106d60/walk.mp4": "f70ce38b4e300df03ebaee5ef08765ff8ff3c6b33b7a47649b6443891292b151"
+    },
+    "source_revision": "9106d6012516baf43e5e11a36358c709b3575d30",
+    "full_sim_passed": 1023,
+    "full_sim_skipped": 5,
+    "local_release_key": "98b702830f5181e969b4c50654c7cacfc9bbb688864c21308a7437c625fdd6d2",
+    "remote_release_key": "c598fb4f640c6e3d764403b82a0d06e53a56a4248d1a34ed9969ca6f73f4ed3f",
+    "remote_sim_image": "sha256:a4a66d78189c903fffd235ae19779a47bee31a85c6a4259c27fd7671762d0a04",
+    "role_keys_and_policies_unchanged": true,
+    "remote_gpu_ids": [
+      "2"
+    ],
+    "completed": false,
+    "exact_liftoffs_observed": 34,
+    "liftoffs_without_current_support": 0,
+    "moving_performance_windows": 12,
+    "moving_medians": {
+      "loop_avg_ms": 17.72968776408682,
+      "sim_realtime_factor": 0.5635922453642372,
+      "physics_avg_ms": 12.945753124550777,
+      "command_avg_ms": 3.3389119453497242
+    },
+    "lifecycle": {
+      "mode": "reference",
+      "image": "sha256:a4a66d78189c903fffd235ae19779a47bee31a85c6a4259c27fd7671762d0a04",
+      "source": "git-9106d6012516baf43e5e11a36358c709b3575d30",
+      "gpu": "2",
+      "normal_app_stop_verified": true,
+      "exit_before_stop": null,
+      "exit_code": 0,
+      "normal_app_resumed": true
+    },
+    "last_observed_roll_rad": 0.7204025765318894,
+    "interpretation": "Present-ground-force check is insufficient for stability; new lifts still permitted while body substantially tilted. Single run does not prove relative regression or CPU optimization benefit."
+  },
+  "posture_hold_candidate": {
+    "thresholds": {
+      "max_abs_roll_pitch_rad": 0.25,
+      "max_abs_euler_roll_pitch_rate_rad_s": 1.0
+    },
+    "changes": "At a new GPU gait liftoff only, defer above attitude/rate thresholds and report blocked. Explicit posture_hold preserves active swings but requests zero translation and keeps stance braking damping; ordinary landing holds preserve existing progress reference. CPU gait unchanged.",
+    "new_red_cases": 15,
+    "remote_acceptance": "pending",
+    "focused_passed": 522,
+    "focused_skipped": 1,
+    "posture_braking_red_failed": 3,
+    "posture_braking_red_passed": 15,
+    "independent_review": "6.1 Sol: Euler/body frames and resume semantics consistent; fixed persistent-progress and damping cancellation during recovery before remote test; no proven gait improvement.",
+    "large_swing_precursor": {
+      "FR_horizontal_transfer_m": 0.625,
+      "RL_horizontal_transfer_m": 0.501,
+      "swing_duration_s": 0.18181818181818182,
+      "FR_cubic_peak_reference_speed_m_s": 5.15625,
+      "FR_cubic_initial_reference_acceleration_m_s2": 113.4375,
+      "limit": "Reference trajectory math, not measured foot motion; stance-force collapse follows; causality still under investigation."
+    },
+    "artifacts_sha256": {
+      "workbench/evidence/generated/gait-rtf-20261022/liftoff-posture-red.log": "be078d84b39fc241288195e49909d2919adf0829240883478c9e2139013f3ba7",
+      "workbench/evidence/generated/gait-rtf-20261022/posture-braking-red-corrected.log": "b3c85fde99eb60cf4c9a78b7b190dc7e97f45fd6418f71b5702ec6ac26903450",
+      "workbench/evidence/generated/gait-rtf-20261022/posture-braking-green.log": "c1e15b5670ff46e68745bde5134f80f195cf6912e1e2ed4aef339bc59be4e268",
+      "workbench/evidence/generated/gait-rtf-20261022/sim-posture-braking.log": "91daeadf6640806ded4549e8f5a84b2ff7034b38a372d92ed2279b9c1abb3df6"
+    },
+    "full_sim_passed": 1041,
+    "full_sim_skipped": 5
   }
 }

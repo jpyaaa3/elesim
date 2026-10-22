@@ -6,6 +6,30 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 큰 swing 전이와 몸통 회복 대기 후보 (2026-10-22)
+
+- `9106d60`의 전체 앱 전진+회전은 약 **12.7 sim초** 후 finite force trajectory
+  fault로 실패했다. 정확한 liftoff 이벤트 **34개 모두** 남은 두 발의 현재 힘이
+  5 N보다 컸다. 현재 하중 검사만으로 안정성을 해결하지 못했다. 보행 성능
+  12개 창 중앙값은 **17.73 ms / RTF .564**이며, 단일 실행 차이를 속도 개선으로
+  확정하지 않는다. 종료 후 정상 Sim/Pilot을 복원했다.
+- 6.1 Sol 독립 검토에서 마지막 큰 기울기 이전의 FR 목표 전이가 약 **.625 m /
+  .182 s**임을 확인했다. 현재 cubic 수평 swing의 목표 최고속도는 약 **5.16 m/s**,
+  시작 가속도는 약 **113 m/s²**다. 이어 실제 지지력이 사라지고 roll 속도가
+  커졌다. Swing 반작용·추종 포화·지지발 미끄러짐을 분리할 필요가 있으며,
+  목표 수치를 실제 발 속도/가속도로 해석하지 않는다.
+- 다음 GPU 후보는 새 liftoff 직전 roll/pitch **.25 rad** 또는 정확한 Euler
+  roll/pitch rate **1 rad/s** 초과 시 현재 지지로 회복을 기다린다. 이미 시작한
+  swing은 계속한다. 자세 대기 중에는 기존 착지 대기의 속도 유지와 달리 제동을
+  요청하며, stance damping 상쇄도 하지 않는다. 실제 접촉·힘/토크 제한과
+  CPU gait 정책은 보존한다. 새 정책 **15 failed → 수정**, 리뷰의 제동 회귀는
+  fixture 수정 뒤 **3 failed / 15 passed → 수정**, GO2 **522 passed /
+  1 skipped**, 전체 Sim **1041 passed / 5 skipped**다. 실제 장시간 GPU 효과는
+  검증 전이다.
+- 계측은 현재 tick의 토크 생성 뒤 힘 명령·최종/포화 전 토크, 관절 속도,
+  swing 시작/종료점과 centroidal 내부 각운동량을 함께 기록하도록 보완했다.
+  새 계측의 GPU 실행 및 원인 판정은 아직 완료하지 않았다.
+
 ### 지지 전환의 현재 하중 검사와 팔 상태 배열 중복 제거 (2026-10-22)
 
 - 복원한 `c7e7f90`의 전체 앱 기준 보행은 약 **52 sim초** 후 finite force
@@ -20,8 +44,10 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   diagonal을 들 수 있음을 회귀 **6 failed / 17 passed**로 재현했다. 새 liftoff를
   넘기 직전에 남을 두 발의 현재 normal force도 각각 5 N보다 큰지 확인한다.
   stance 중 짧은 impulse 누락 허용, 기존 swing 진행, 접촉 확인·load ramp·
-  탐색 timeout·힘/토크 제한은 유지한다. GO2 focused **504 passed / 1 skipped**다.
-  실제 장시간 GPU 보행 효과는 검증 전이다.
+  탐색 timeout·힘/토크 제한은 유지한다. GO2 focused **504 passed / 1 skipped**,
+  전체 Sim **1023 passed / 5 skipped**다. `9106d60`을 push하고 양쪽 정식
+  update/등록을 완료했다. 기존 역할 키·정책의 SHA가 같고, 원격 실제 두 역할의
+  GPU reservation은 `['2']`다. 후속 실제 시험의 실패는 위 항목에 기록했다.
 - 팔 payload의 네 batch 배열을 link별 row로 나눴다가 다시 stack하던 작업을
   제거했다. 질량·중심·속도·관성은 정확히 같고 노드별 물리량도 유지한다.
   새 회귀 **2 failed → 통과**, focused **25 passed**, 전체 Sim **1016 passed /

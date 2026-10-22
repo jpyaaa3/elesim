@@ -164,6 +164,22 @@ def solver_update_stride(sim_dt: float, prediction_dt: float, *, backend: str) -
     return max(1, int(np.floor(prediction_dt/sim_dt + 1e-9)))
 
 
+def body_ready_for_liftoff(rpy, angular_velocity_body):
+    """Keep four-foot recovery available before starting another swing."""
+    rpy = np.asarray(rpy, dtype=float)
+    angular = np.asarray(angular_velocity_body, dtype=float)
+    if (rpy.shape != (3,) or angular.shape != (3,)
+            or not np.isfinite(rpy).all() or not np.isfinite(angular).all()):
+        raise ValueError('liftoff requires finite body attitude and angular velocity')
+    if np.max(np.abs(rpy[:2])) > .25:
+        return False
+    roll, pitch = rpy[:2]
+    sr, cr = np.sin(roll), np.cos(roll)
+    roll_rate = angular[0] + np.tan(pitch)*(sr*angular[1]+cr*angular[2])
+    pitch_rate = cr*angular[1]-sr*angular[2]
+    return bool(max(abs(roll_rate), abs(pitch_rate)) <= 1.)
+
+
 class ContactGatedGait:
     """Admit new liftoffs only after their remaining support actually lands."""
 
@@ -171,6 +187,7 @@ class ContactGatedGait:
         self.time = 0.0
         self.phase_rate = 0.0
         self.blocked = True
+        self.posture_hold = False
         self.confirmed = np.zeros(4, dtype=bool)
         self.contact_age = np.zeros(4)
         self.loss_age = np.zeros(4)
@@ -199,7 +216,7 @@ class ContactGatedGait:
         self.blocked = not bool(np.all(self.confirmed))
 
     def update(self, normal_forces, *, dt, gait_hz, duty, horizon_dt, horizon, settling,
-               foot_heights, support_handover=False):
+               foot_heights, support_handover=False, liftoff_ready=True):
         normal = np.asarray(normal_forces, dtype=float)
         if normal.shape != (4,) or not np.all(np.isfinite(normal)):
             raise RuntimeError("invalid foot contact force feedback")
@@ -213,6 +230,8 @@ class ContactGatedGait:
                                        dt=horizon_dt, horizon=horizon)[:, 0].astype(bool)
         airborne = heights > _MAX_GROUND_FOOT_HEIGHT_M
         loss_now = airborne | ((normal <= 2.0) & (self.loss_age + dt >= 0.08 - 1e-9))
+        deferred_liftoff = False
+        self.posture_hold = False
         if support_handover and duty > .5:
             loaded = self.confirmed & (self.load >= 1.-1e-9) & ~loss_now
             proposed = contact_schedule(self.time+dt, gait_hz=gait_hz, duty=duty,
@@ -224,7 +243,10 @@ class ContactGatedGait:
                 # A completed ramp may survive a short unloaded impulse.
                 # That tolerance must not authorize lifting the other pair
                 # while a remaining foot has no current ground force.
-                supported = bool(np.all(loaded[proposed] & (normal[proposed] > 5.)))
+                supported = bool(liftoff_ready
+                                 and np.all(loaded[proposed] & (normal[proposed] > 5.)))
+                deferred_liftoff = not supported and not settling
+                self.posture_hold = not liftoff_ready and not settling
             elif np.all(old_planned):
                 # Retain the landing ramp's original pause. Only the incoming
                 # diagonal can release it; an unloaded departing foot must
@@ -283,7 +305,7 @@ class ContactGatedGait:
         if np.any(self.missing_age > 0.30):
             legs = ",".join(_LEGS[i].value for i in np.flatnonzero(self.search))
             raise RuntimeError(f"touchdown timeout after 0.30s: {legs}")
-        self.blocked = bool(np.any(planned & (self.load < 1.0)))
+        self.blocked = bool(deferred_liftoff or np.any(planned & (self.load < 1.0)))
         support = (planned & self.confirmed).astype(float)
         if self.blocked or np.any(self._finished_swing):
             # Do not promise future support or lift the old pair while waiting.
@@ -997,6 +1019,8 @@ class PyMpcGenesisController:
             settling=self._balance_only(),
             foot_heights=feet[:, 2],
             support_handover=self._solver.backend == 'jax_mppi',
+            liftoff_ready=(body_ready_for_liftoff(rpy, dq[3:6])
+                           if self._solver.backend == 'jax_mppi' else True),
         )
         if self._contact_gait.blocked:
             cmd_world = np.zeros(3)
@@ -1084,6 +1108,11 @@ class PyMpcGenesisController:
             return sample
         sample = trailing_crouch_reference(sample, command_vx=float(self._cmd.vx),
                                            crouch_m=_WALK_TRAILING_CROUCH_M)
+        if getattr(self._contact_gait, 'posture_hold', False):
+            # Existing contact handovers retain attained translation. A body
+            # recovery hold must instead brake before exhausting stance reach;
+            # _sample already supplied the blocked zero-velocity reference.
+            return sample
         command_world = Rotation.from_euler('z', sample.rpy[2]).apply(
             [self._cmd.vx, self._cmd.vy, 0.])
         return landing_velocity_reference(sample, blocked=self._contact_gait.blocked,
@@ -1319,7 +1348,8 @@ class PyMpcGenesisController:
         Final torque limits and filtering still apply.
         """
         reference = np.zeros(12)
-        if self._solver.backend != 'jax_mppi' or self._settling:
+        if (self._solver.backend != 'jax_mppi' or self._settling
+                or getattr(self._contact_gait, 'posture_hold', False)):
             return reference
         command_world = Rotation.from_euler('z', sample.rpy[2]).apply(
             [self._cmd.vx, self._cmd.vy, 0.])
