@@ -15,6 +15,7 @@ import math
 import time
 import uuid
 import zlib
+from array import array
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any, Callable, Optional
@@ -582,11 +583,13 @@ class DdsEncodedRgbdPublisher(_RgbdRosEndpoint):
         message.height = int(frame.height)
         message.color_codec = str(frame.color_codec)
         message.color_encoding = str(frame.color_encoding)
-        message.color_data = list(frame.color_payload)
+        # ROSIDL accepts an owned uint8 array directly. A Python integer list
+        # incurs per-byte validation under the GIL for every video frame.
+        message.color_data = array('B', bytes(frame.color_payload))
         message.has_depth = bool(frame.has_depth)
         message.depth_codec = str(frame.depth_codec)
         message.depth_encoding = str(frame.depth_encoding)
-        message.depth_data = list(frame.depth_payload)
+        message.depth_data = array('B', bytes(frame.depth_payload))
         message.depth_scale = float(frame.depth_scale)
         metadata = frame.metadata
         message.fx = float(metadata.fx)

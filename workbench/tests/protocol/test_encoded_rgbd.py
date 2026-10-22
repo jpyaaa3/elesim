@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from array import array
 
 import numpy as np
 import pytest
@@ -160,9 +161,42 @@ def test_dds_publisher_maps_encoded_frame_without_raw_image_fields() -> None:
     message = sent[0]
     assert message.source.endpoint_id == "pilot-main"
     assert message.frame_sequence == 7
-    assert message.color_data == list(frame.color_payload)
-    assert message.depth_data == list(frame.depth_payload)
+    # Generated ROSIDL setters validate a Python list one element at a time.
+    # An owned unsigned-byte array takes their native buffer path instead.
+    assert isinstance(message.color_data, array) and message.color_data.typecode == 'B'
+    assert isinstance(message.depth_data, array) and message.depth_data.typecode == 'B'
+    assert bytes(message.color_data) == frame.color_payload
+    assert bytes(message.depth_data) == frame.depth_payload
     assert message.has_depth is True
+
+
+def test_real_encoded_rosidl_buffer_preserves_all_serialized_values() -> None:
+    from copy import deepcopy
+    messages=pytest.importorskip('elesim_interfaces.msg')
+    serialization=pytest.importorskip('rclpy.serialization')
+    sent=[]
+    publisher=object.__new__(DdsEncodedRgbdPublisher)
+    publisher._closed=False
+    publisher.wall_clock=lambda:10.
+    publisher.published=publisher.dropped=0
+    publisher.last_drop_reason=''
+    publisher._RosEncodedRgbdFrame=messages.EncodedRgbdFrame
+    publisher._publisher=type('Sink',(),{'publish':lambda self,msg:sent.append(msg)})()
+    frame=_frame()
+    assert publisher.publish(frame)
+    actual=sent[0]
+    reference=deepcopy(actual)
+    reference.color_data=list(frame.color_payload)
+    reference.depth_data=list(frame.depth_payload)
+    # CDR alignment padding is not deterministic. Compare every decoded field
+    # and the exact payload bytes, rather than allocator-dependent padding.
+    assert serialization.deserialize_message(
+        serialization.serialize_message(actual),messages.EncodedRgbdFrame
+    )==serialization.deserialize_message(
+        serialization.serialize_message(reference),messages.EncodedRgbdFrame
+    )
+    assert bytes(actual.color_data)==frame.color_payload
+    assert bytes(actual.depth_data)==frame.depth_payload
 
 
 def test_dds_publisher_maps_numpy_pose_metadata_without_truthiness_check() -> None:

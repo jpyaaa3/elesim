@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import time
 import uuid
+from array import array
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any, Callable, Optional
@@ -353,7 +354,9 @@ class DdsRgbdPublisher(_RgbdRosEndpoint):
         message.color.encoding = "bgr8"
         message.color.is_bigendian = False
         message.color.step = width * 3
-        message.color.data = color.tobytes()
+        # The generated Image setter has a native unsigned-byte array path;
+        # bytes would be checked element by element under Python's GIL.
+        message.color.data = array('B', color.tobytes())
 
         message.depth.header = message.header
         message.depth.height = height
@@ -361,7 +364,7 @@ class DdsRgbdPublisher(_RgbdRosEndpoint):
         message.depth.encoding = depth_encoding
         message.depth.is_bigendian = False
         message.depth.step = width * int(depth.dtype.itemsize)
-        message.depth.data = depth.tobytes() if self.send_depth else b""
+        message.depth.data = array('B', depth.tobytes() if self.send_depth else b'')
 
         message.camera_info.header = message.header
         message.camera_info.height = height

@@ -78,6 +78,8 @@ class FakeRos2SecurityRunner:
 
     def __call__(self, command: Sequence[str]) -> None:
         call = tuple(command)
+        assert call[:2] == ('env', 'ROS_DOMAIN_ID=0')
+        call = call[2:]
         self.calls.append(call)
         assert call[:2] == ("ros2", "security")
         operation = call[2]
@@ -133,6 +135,7 @@ class SymlinkRos2SecurityRunner(FakeRos2SecurityRunner):
 
     def __call__(self, command: Sequence[str]) -> None:
         super().__call__(command)
+        command = tuple(command)[2:]
         operation = command[2]
         keystore = Path(command[3])
         if operation == "create_keystore":
@@ -460,6 +463,8 @@ def test_generation_rejects_symlinked_cli_output(tmp_path: Path) -> None:
     outside.write_text("outside", encoding="utf-8")
 
     def malicious_runner(command: Sequence[str]) -> None:
+        assert tuple(command[:2]) == ('env', 'ROS_DOMAIN_ID=0')
+        command = tuple(command)[2:]
         keystore = Path(command[3])
         (keystore / "public").mkdir(parents=True)
         (keystore / "private").mkdir()

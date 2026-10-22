@@ -6,6 +6,39 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### RGB-D DDS 메시지의 바이트별 Python 검증 병목 (2026-10-22)
+
+- `bacb1a7`을 양쪽 정식 updater로 설치·등록하고 GPU2 선택을 시작 전후에 확인했다.
+  정상 Sim/Pilot을 완전히 중단한 뒤 같은 설치 이미지·설정·SROS2 역할의 단독 진단으로
+  두 1280×720 WebRTC 스트림, 팔 유지, dt .01/substeps 2, MPPI 4096×2를 실행했다.
+- RGB-D DDS 발행만 10초씩 교대로 멈춘 **비용 분리 시험**에서 초기 다섯 창을 제외한
+  보행 시작 전 loop 중앙값은 발행 켬 **17.28 ms / RTF .578**(7개 창), 끔
+  **9.04 ms / RTF 1.106**(10개 창)이었다. 보행 중에는 각각 **33.86 / 14.64 ms**
+  (각 3개 창)였다. 발행을 끈 진단을 운영 성능이나 보행 수용시험으로 인정하지 않는다.
+- 60개 RGB-D 발행의 cProfile에서 생성 ROSIDL `color_data`/`depth_data` setter의
+  누적 시간은 약 **1.303 / .479초**였다. 원래 `list(payload)`와 생성 setter의 바이트별
+  타입·범위 검사가 수백만 Python 호출을 만들었다. 이 계측 시간에는 profiler 비용이
+  포함된다. WebRTC 인코더 하나의 비용으로 해석하지 않는다.
+- Encoded RGB-D와 raw Image의 payload는 소유권이 분리된 `array('B')`로 전달해
+  생성 ROSIDL의 native buffer 경로를 사용한다. RGB·uint16/float32 깊이·깊이 생략의
+  실제 ROS 직렬화/역직렬화에서 모든 필드와 payload 바이트가 동일하다. CDR 여백은
+  비결정적이므로 큰 메시지의 전체 직렬화 byte hash가 항상 같다고 주장하지 않는다.
+  회귀 **5 failed → 32 passed**, 설치 fixture를 포함한 후속 focused **93 passed**다.
+- Required 검사에서 protocol **165**, Pilot **492 / 21 skipped**, Sim **1014 /
+  5 skipped**, UI **114**, model/release tests **90**, DDS RGB-D **2**, 두 WebRTC
+  **2**, 실제 4-process topology 및 Sim 모터·보행·gripper·stop smoke가 통과했다.
+  초기 전체 실행에서 과거 Call sign/삭제된 up wrapper/domain 격리를 기대하지 않던
+  설치 fixture 15개와, 자동 heartbeat를 켠 채 누락을 가정한 Robot 테스트 1개가
+  실패했다. 현재 사양에 맞춰 fixture만 고쳤고 IPC **22 passed**다. Robot 실행 코드는
+  바꾸지 않았다. 최종 Robot **161**, protocol **165**, setup **1272 / 3 skipped**
+  재검증이 통과했다. 수정 후 재실행을 포함해 required의 모든 항목이 통과했다
+  (**3312 passed / 29 skipped**, topology와 Sim motor script smoke 별도).
+- 작은 GPU 커널 쓰기와 1 ms Python switch interval 대조는 전체 개선을 입증하지
+  못해 적용하지 않았다. 지연된 미래 착지 추가와 상태 feedback force 후보만으로도
+  저장한 실패 입력의 finite 해는 복구되지 않아 보행 로직에 적용하지 않았다.
+  최신 실제 UI 계측 보행은 약 **49초 후 finite trajectory fault**였고 600초 통과가 아니다.
+  바이트 버퍼 수정본을 양쪽에 갱신한 실제 RTF·보행 검증은 아직 진행 중이다.
+
 ### GO2 4096×2 장시간 실패 재현과 계측 보완 (2026-10-22)
 
 - 정상 UI→Pilot→Sim 및 두 WebRTC 수신을 포함한 `dc5b423` 시험에서 정지 15초의

@@ -441,6 +441,11 @@ def test_missing_keepalive_stops_motion_within_deadman_plus_one_tick(
     client = UnitreeIpcClient(config, safety, expected_server_uid=os.getuid())
     try:
         client.start()
+        # Leave the socket open while actually stopping the client's automatic
+        # keepalive; an otherwise idle client now sends these autonomously.
+        client._heartbeat_stop.set()
+        client._heartbeat_thread.join(timeout=0.2)
+        assert not client._heartbeat_thread.is_alive()
         client.set_velocity(0.2, 0.0, 0.0)
         _wait(lambda: any(item[:3] == (0.2, 0.0, 0.0) for item in backend.velocities))
         moving_at = next(

@@ -705,8 +705,8 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'data-field="install-release"' not in html
     assert 'releaseSelect.className = "role-release"' in script
     assert 'release_key' in script
-    assert catalog["ko"]["role.release"] == "릴리즈 / 별칭"
-    assert catalog["en"]["role.release"] == "Release / alias"
+    assert catalog["ko"]["role.release"] == "별칭"
+    assert catalog["en"]["role.release"] == "Call sign"
     assert catalog["en"]["role.add.guidance"] == "Use the [+] button above to add a role card."
     assert 'warning.hidden = !isActive(slot) || local !== slot;' in script
     assert "nextRoleNumbers = {pilot: 1, ui: 1, sim: 1, robot: 1}" in script

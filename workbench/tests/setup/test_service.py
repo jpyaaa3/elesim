@@ -42,7 +42,9 @@ def test_general_service_uses_existing_container_installer_contract(
     SetupService(_capabilities(), log=logs.append).run(request)
 
     assert (request.prefix / "containers/compose.yaml").is_file()
-    assert (request.bin_dir / "elesim-up").is_file()
+    assert (request.bin_dir / "elesim-instance").is_file()
+    assert not (request.bin_dir / "elesim-up").exists()
+    assert not (request.bin_dir / "elesim-down").exists()
     assert any("[setup]" in line for line in logs)
 
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from array import array
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -76,6 +78,50 @@ def _frame() -> RgbdFrame:
         depth_scale=0.001,
         intrinsics=RgbdIntrinsics(1.0, 2.0, 3.0, 4.0, 3, 2),
     )
+
+
+@pytest.mark.parametrize('depth_dtype',(np.uint16,np.float32))
+@pytest.mark.parametrize('send_depth',(False,True))
+def test_raw_publisher_uses_owned_unsigned_byte_buffers(depth_dtype,send_depth):
+    sent=[]
+    publisher=_publisher_with(sent.append)
+    publisher.send_depth=send_depth
+    frame=replace(_frame(),depth_raw=np.arange(6,dtype=depth_dtype).reshape(2,3))
+    frame.color_bgr[:]=np.arange(18,dtype=np.uint8).reshape(2,3,3)+128
+    assert publisher.publish(frame)
+    message=sent[0]
+    for actual,expected in ((message.color.data,frame.color_bgr.tobytes()),
+        (message.depth.data,frame.depth_raw.tobytes() if send_depth else b'')):
+        assert isinstance(actual,array) and actual.typecode=='B'
+        assert bytes(actual)==expected
+    frame.color_bgr[:]=0
+    frame.depth_raw[:]=0
+    assert bytes(message.color.data)!=frame.color_bgr.tobytes()
+
+
+@pytest.mark.parametrize('depth_dtype',(np.uint16,np.float32))
+@pytest.mark.parametrize('send_depth',(False,True))
+def test_real_raw_rosidl_buffers_preserve_all_serialized_values(depth_dtype,send_depth):
+    from copy import deepcopy
+    messages=pytest.importorskip('elesim_interfaces.msg')
+    serialization=pytest.importorskip('rclpy.serialization')
+    sent=[]
+    publisher=_publisher_with(sent.append,message_factory=messages.RgbdFrame)
+    publisher.send_depth=send_depth
+    frame=replace(_frame(),depth_raw=np.arange(6,dtype=depth_dtype).reshape(2,3))
+    frame.color_bgr[:]=231
+    assert publisher.publish(frame)
+    actual=sent[0]
+    reference=deepcopy(actual)
+    reference.color.data=frame.color_bgr.tobytes()
+    reference.depth.data=frame.depth_raw.tobytes() if send_depth else b''
+    assert serialization.deserialize_message(
+        serialization.serialize_message(actual),messages.RgbdFrame
+    )==serialization.deserialize_message(
+        serialization.serialize_message(reference),messages.RgbdFrame
+    )
+    assert bytes(actual.color.data)==frame.color_bgr.tobytes()
+    assert bytes(actual.depth.data)==(frame.depth_raw.tobytes() if send_depth else b'')
 
 
 def test_malformed_rgbd_frame_is_counted_as_a_drop() -> None:

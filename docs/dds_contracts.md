@@ -257,6 +257,11 @@ subscriber는 latest-only depth-1 semantics를 사용하며 오래된 sample을 
 쌓지 않는다. 새 inter-host consumer는 Robot/Sim source topic을 직접 구독하지
 않고 Pilot broker endpoint만 사용한다.
 
+Python publisher는 raw Image와 EncodedRgbdFrame의 uint8 payload에 소유권이
+분리된 `array('B')`를 넣어 생성 ROSIDL의 native buffer 경로를 사용한다.
+기존 payload 크기·값 검증과 wire 필드는 유지한다. 이는 protocol-v6의
+로컬 표현 최적화이며 새 wire schema가 아니다.
+
 RGB-D는 WebRTC를 대체하지 않는다. Pilot/Sim이 제어·perception에 쓰는 정합
 sample과 UI가 보는 observer/hand-eye 영상은 서로 다른 경로다.
 

@@ -448,5 +448,166 @@
     "response": "stopped both roles before walking, restored specific GPU2 through instance replace, checked Compose before restart and actual DeviceRequests after restart",
     "red_cases": 3,
     "fix": "preserve compute, role_compute and viewer while rotating stopped scoped units"
+  },
+  "rgbd_publication_cost_isolation": {
+    "source_revision": "bacb1a7c33feac08c44facd6645c07747696e316",
+    "physical_gpu": "2",
+    "normal_roles_stopped": true,
+    "two_webrtc_receivers": true,
+    "camera_size": [
+      1280,
+      720
+    ],
+    "mppi": [
+      4096,
+      2
+    ],
+    "dt": 0.01,
+    "substeps": 2,
+    "diagnostic_only": "RGBD DDS publication alternated in 10-wall-second blocks. Not a full-feature runtime or endurance acceptance.",
+    "steady_idle_rule": "discard first five reports; end before first MPPI solve report; excludes post-fault standing windows",
+    "steady_idle_on": {
+      "windows": 7,
+      "loop_ms_median": 17.278373866286287,
+      "rtf_median": 0.5780724856703185
+    },
+    "steady_idle_off": {
+      "windows": 10,
+      "loop_ms_median": 9.035148333608717,
+      "rtf_median": 1.1061058333627574
+    },
+    "walking_on": {
+      "windows": 3,
+      "loop_ms_median": 33.85711972756932
+    },
+    "walking_off": {
+      "windows": 3,
+      "loop_ms_median": 14.637042710516791
+    },
+    "profiled_frames": 60,
+    "profiled_color_depth_setter_cumulative_ms": [
+      1302.813283,
+      479.013936
+    ],
+    "profiler_overhead_included": true,
+    "lifecycle": {
+      "mode": "rgbd-cost-sweep",
+      "image": "sha256:2a4fcfd7dde3694d29b8384709dcabdc3c2693a1afe3d5e175b7399837a8495f",
+      "source": "git-bacb1a7c33feac08c44facd6645c07747696e316",
+      "gpu": "2",
+      "normal_app_stop_verified": true,
+      "exit_before_stop": null,
+      "exit_code": 0,
+      "normal_app_resumed": true
+    },
+    "artifacts_sha256": {
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-rgbd-cost-bacb1a7/loop.csv": "cb4d5ac40de3ba88948b2d833e454c4b4ec8cb2d2f56f367f3846245b9de1fb4",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-rgbd-cost-bacb1a7/switch.jsonl": "faa3043b346a448ef6131eb24cdc13361e785edcb9f71dfb309c9af7c26b557e",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-rgbd-cost-bacb1a7/profile.json": "e14cba5069c78c94e152b70e6f9ac6f9428aac670b2cf28ae41898398e6ca77e",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-rgbd-cost-bacb1a7/result.json": "7b48b1d9c46d0190525637e75f66a887775fae5225f2ed1d3fb32a4afe681265"
+    }
+  },
+  "rosidl_byte_buffer_candidate": {
+    "changes": "owned unsigned-byte arrays for encoded RGBD and raw Image payload fields; validated bounds and all message fields retained",
+    "red_regressions": 5,
+    "focused_passed": 32,
+    "real_rosidl_roundtrip_cases": 5,
+    "all_payload_bytes_and_decoded_fields_identical": true,
+    "cdr_alignment_padding_nondeterministic": true,
+    "local_720p_setter_and_serialize_microbenchmark": [
+      {
+        "message": "EncodedRgbdFrame",
+        "width": 1280,
+        "height": 720,
+        "color_bytes": 2764800,
+        "depth_bytes": 1843200,
+        "setters_and_serialization": {
+          "reference": {
+            "median_ms": 617.4038199824281,
+            "mean_ms": 635.1058855264758
+          },
+          "array": {
+            "median_ms": 1.965324452612549,
+            "mean_ms": 2.2483133167649307
+          }
+        },
+        "wire_bytes_identical": false,
+        "decoded_fields_identical": true,
+        "different_byte_offsets": [
+          9,
+          10,
+          17,
+          18,
+          19,
+          50,
+          51,
+          57,
+          58,
+          59,
+          2764865,
+          2764866,
+          2764867,
+          2764873,
+          2764874,
+          2764875,
+          2764881,
+          2764882,
+          2764883,
+          4608130,
+          4608131,
+          4608165,
+          4608166,
+          4608167,
+          4608168,
+          4608169,
+          4608170,
+          4608171
+        ],
+        "wire_sha256": "93810868ac2cc0d6252f1b243beded9c775718eada1679a22160a7556e5313c8"
+      },
+      {
+        "message": "RgbdFrame",
+        "width": 1280,
+        "height": 720,
+        "color_bytes": 2764800,
+        "depth_bytes": 1843200,
+        "setters_and_serialization": {
+          "reference": {
+            "median_ms": 478.61012048088014,
+            "mean_ms": 478.7369444772291
+          },
+          "array": {
+            "median_ms": 2.133317000698298,
+            "mean_ms": 2.7256348597196243
+          }
+        },
+        "wire_bytes_identical": true,
+        "decoded_fields_identical": true,
+        "different_byte_offsets": [],
+        "wire_sha256": "dabcd9331f64232c3565e808fc9316cb7a096a426993213aaff6b90ff20bd267"
+      }
+    ],
+    "remote_full_feature_measurement_pending": true,
+    "required_matrix": {
+      "passed": 3312,
+      "skipped": 29,
+      "protocol": 165,
+      "robot": 161,
+      "pilot": 492,
+      "sim": 1014,
+      "ui": 114,
+      "model_release_tests": 90,
+      "dds_rgbd": 2,
+      "webrtc_media": 2,
+      "setup": 1272,
+      "topology_script": "passed",
+      "dds_sim_motor_script": "passed",
+      "initial_failures": "15 outdated setup fixture expectations and 1 test that did not stop autonomous IPC heartbeats; corrected tests and reran their gates; Robot runtime unchanged",
+      "artifacts_sha256": {
+        "workbench/evidence/generated/gait-rtf-20261022/required-byte-buffers.log": "cb5fc89a45918cddcc830678cba3f200e121005f17cfd724fec30ef5bc77eea7",
+        "workbench/evidence/generated/gait-rtf-20261022/required-byte-buffers-recheck.log": "be3a11aa992827940ebaebf705d7bc7dd9b3223f257e55b24b9e0e8c2e4b1718",
+        "workbench/evidence/generated/gait-rtf-20261022/setup-byte-buffers.log": "9efb68227f91d4c43065822a44eca7eee3474f19d4b2a66363f02d2ad15ffdea"
+      }
+    }
   }
 }
