@@ -1247,6 +1247,44 @@ def test_search_depth_cap_also_stops_velocity_feedforward():
     np.testing.assert_allclose(tau, np.zeros(12), atol=1e-10)
 
 
+@pytest.mark.parametrize('normal,height,soft_contact', [
+    (50., .022, True), (5., .022, False), (0., .022, False),
+    (50., .05, False),
+])
+def test_search_stops_winding_down_on_real_contact_before_support_confirmation(
+        normal, height, soft_contact):
+    c = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    _init_torque_controller(c)
+    c._dt = .01
+    c._last_contacts.fill(0.)
+    c._was_searching.fill(True)
+    c._contact_gait.search.fill(True)
+    c._contact_gait.confirmed.fill(False)
+    c._contact_gait.load.fill(0.)
+    c._contact_gait.observed_normal.fill(normal)
+    feet = sample().feet_world.copy()
+    feet[:, 2] = height
+    c._search_targets[:] = feet
+    c._search_targets[:, 2] -= .025
+    c._search_min_z[:] = height-.04
+    state = PyMpcInput(**{**vars(sample()), 'contacts': np.zeros((4, 3))})
+    previous = c._search_targets.copy()
+    for _ in range(3):
+        tau = c._torques(state, feet, np.zeros((4, 3)),
+                         np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
+    if soft_contact:
+        # Keep the existing 8 mm swing preload, without a downward velocity
+        # request or deeper position accumulation during contact verification.
+        np.testing.assert_allclose(c._search_targets[:, 2], height-.008)
+        np.testing.assert_allclose(tau.reshape(4, 3)[:, 2], -8.)
+    else:
+        np.testing.assert_allclose(c._search_targets[:, 2], previous[:, 2]-.15*c._dt*3)
+    # An impulse never grants support or starts the GRF/load ramp here.
+    np.testing.assert_array_equal(c._forces, np.zeros((4, 3)))
+    assert not c._contact_gait.confirmed.any()
+    assert not c._contact_gait.load.any()
+
+
 def test_search_retarget_velocity_matches_lateral_reference_motion():
     c = PyMpcGenesisController.__new__(PyMpcGenesisController)
     _init_torque_controller(c)

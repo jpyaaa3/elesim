@@ -609,5 +609,46 @@
         "workbench/evidence/generated/gait-rtf-20261022/setup-byte-buffers.log": "9efb68227f91d4c43065822a44eca7eee3474f19d4b2a66363f02d2ad15ffdea"
       }
     }
+  },
+  "eec3e2c_full_app_followup": {
+    "source_revision": "eec3e2c65bf04364cf00396e263cbf8710f28fca",
+    "physical_gpu": "2",
+    "mppi": [
+      4096,
+      2
+    ],
+    "dt": 0.01,
+    "substeps": 2,
+    "camera_dimensions": [
+      1280,
+      720
+    ],
+    "rgbd_dds_enabled": true,
+    "both_webrtc_received": true,
+    "normal_app_idle_sim_s": 15,
+    "normal_app_idle_wall_s": 16.25597418495454,
+    "normal_app_walk_failed_after_sim_s": 25.85,
+    "normal_app_error": "GPU MPC produced no finite force trajectory",
+    "diagnostic_walk_loop_median_ms": 18.238263992084697,
+    "diagnostic_walk_rtf_median": 0.5480671176801026,
+    "diagnostic_walk_windows": 31,
+    "diagnostic_solve_event_median_ms": 6.9137376304420215,
+    "diagnostic_note": "official selected image/config/services with contact/cost observers; fresh settled boot used after initial UI reset wait timed out; no mid-walk resets; normal roles fully stopped and restored by coordinator",
+    "nominal_gait_cycle_s": 0.4,
+    "measured_gait_cycle_median_s": [
+      0.67,
+      0.68
+    ],
+    "unconfirmed_contact_target_depth_max_m": 0.020156342425191206,
+    "required_walk_sim_s": 600,
+    "passed": false,
+    "artifact_sha256": {
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-full-eec3e2c/result.json": "5bbb92e640a1a62f5a739197ae1175527f15bc39bcf942802767f4cf6e8562de",
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-full-eec3e2c/telemetry.jsonl": "ff86d70489ab49e7c6a4847409b30f702ba13cc70de695711cf14b7e36e1a30b",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-reference-eec3e2c/loop.csv": "00da57fd6a0ca6edc55f0c3ad74645626a70e6d75c0927f653bc68abafbcf6c2",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-reference-eec3e2c/history.json": "eccaf487ea0495e920913d672145c17effb3e7df21f377be37b69c2e76e63a40",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-reference-eec3e2c/profile.json": "de4e8d3568aea2b51cd9aca0e198de5e9ee49d8bfbf71f2ad02302959d373f23",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-reference-eec3e2c/fault.npz": "7d850ccd6cb6fae4f04bb98bc9c58642cc6828fce79fd66c8fbe0f0bda67f119"
+    }
   }
 }

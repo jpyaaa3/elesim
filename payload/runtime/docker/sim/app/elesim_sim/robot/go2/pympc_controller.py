@@ -1221,11 +1221,19 @@ class PyMpcGenesisController:
                           f"sim_time={self._sim_time:.3f} foot_z={feet[i, 2]:.3f} "
                           f"mode={'swing' if finished_swing else 'lost_support'} "
                           f"target_z={self._search_targets[i, 2]:.3f}")
-                # Search below the retained reference, with bounded force.
-                descent = min(
+                # A real landing can precede its 40 ms support confirmation.
+                # Stop winding the search into the floor during that interval;
+                # retain at most the existing swing preload and foot damping.
+                # An airborne force impulse never enables this contact hold.
+                touching = (self._contact_gait.observed_normal[i] > 5.0
+                            and feet[i, 2] <= _MAX_GROUND_FOOT_HEIGHT_M)
+                if touching:
+                    self._search_targets[i, 2] = max(
+                        self._search_targets[i, 2], feet[i, 2]-_SWING_TOUCHDOWN_DEPTH_M)
+                descent = (0.0 if touching else min(
                     0.15 * self._dt,
                     max(0.0, self._search_targets[i, 2] - self._search_min_z[i]),
-                )
+                ))
                 self._search_targets[i, 2] -= descent
                 desired_vel = np.array((0.0, 0.0, -descent / self._dt))
                 previous_target = self._search_targets[i].copy()
