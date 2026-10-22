@@ -295,7 +295,7 @@
     },
     "changes": "At a new GPU gait liftoff only, defer above attitude/rate thresholds and report blocked. Explicit posture_hold preserves active swings but requests zero translation and keeps stance braking damping; ordinary landing holds preserve existing progress reference. CPU gait unchanged.",
     "new_red_cases": 15,
-    "remote_acceptance": "pending",
+    "remote_acceptance": "failed; approximately 5.4 walking sim seconds, no finite force trajectory",
     "focused_passed": 522,
     "focused_skipped": 1,
     "posture_braking_red_failed": 3,
@@ -313,9 +313,223 @@
       "workbench/evidence/generated/gait-rtf-20261022/liftoff-posture-red.log": "be078d84b39fc241288195e49909d2919adf0829240883478c9e2139013f3ba7",
       "workbench/evidence/generated/gait-rtf-20261022/posture-braking-red-corrected.log": "b3c85fde99eb60cf4c9a78b7b190dc7e97f45fd6418f71b5702ec6ac26903450",
       "workbench/evidence/generated/gait-rtf-20261022/posture-braking-green.log": "c1e15b5670ff46e68745bde5134f80f195cf6912e1e2ed4aef339bc59be4e268",
-      "workbench/evidence/generated/gait-rtf-20261022/sim-posture-braking.log": "91daeadf6640806ded4549e8f5a84b2ff7034b38a372d92ed2279b9c1abb3df6"
+      "workbench/evidence/generated/gait-rtf-20261022/sim-posture-braking.log": "91daeadf6640806ded4549e8f5a84b2ff7034b38a372d92ed2279b9c1abb3df6",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-posture-51292d6/history.json": "a153a6b4a047648860d0160cf613b72d7ac4381a7f5bfd4538b7ea70d95127e0",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-posture-51292d6/model.json": "a55775fc6628a04469fe22ce28e4110517401676f26f7c47d1a339f748f242c9",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-posture-51292d6/fault.npz": "ae80656b977218b036ab495db68127dda1b4e8d0d372a46b861ee77ac2ce0aaa",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-posture-51292d6/fault.json": "a581f652cf5c08fd4d2f64e3bcf33d427441018323245c7f9368d6d90fdcc4b7",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-posture-51292d6/result.json": "d6369938dddd304ec5fe8873e35385cc1396d7528e851c159f548c35c74ec0cc",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-posture-51292d6/dynamic_analysis.json": "b3dfef71419e0259bc03358e0c87c565fa89949e44a7c355b0409b5092871228",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-posture-51292d6/loop.csv": "97c8462643d1dbcbf3e006a7a240a3539cc46dae67e45cd3e699674e8ef59861"
     },
     "full_sim_passed": 1041,
-    "full_sim_skipped": 5
+    "full_sim_skipped": 5,
+    "source_revision": "51292d68bae8ea3ae116a9eb4ae42a314f933ca7",
+    "completed": false,
+    "posture_hold_completed_rows": 0,
+    "completed_torque_rows": 451,
+    "trace_rows": 452,
+    "lifecycle": {
+      "mode": "reference",
+      "image": "sha256:801af0ffcefdf1f7c6acd87250be0152704210838ab664c07c0c860bdfcc3392",
+      "source": "git-51292d68bae8ea3ae116a9eb4ae42a314f933ca7",
+      "gpu": "2",
+      "normal_app_stop_verified": true,
+      "exit_before_stop": null,
+      "exit_code": 0,
+      "normal_app_resumed": true
+    },
+    "dynamic_interpretation": "Posture gate never activated. Existing stance calf reaches its physical extension bound. Ordinary landing holds brake yaw while retaining translation, inconsistent with curved foothold forecast. Torque bias zero-force feasibility holds; non-foot contact forces are zero. Large reference swing alone is not a discriminator.",
+    "yaw_progress": {
+      "cruise_peak_abs_shaped_yaw_command_rad_s": 0.8,
+      "cruise_rows": 426,
+      "cruise_blocked_fraction": 0.3075117,
+      "actual_yaw_advance_rad": 1.8571919,
+      "shaped_yaw_integral_rad": 3.5053,
+      "cruise_conditional": {
+        "unblocked": {
+          "rows": 295,
+          "aligned_euler_yawrate_mean_rad_s": 0.4509622,
+          "aligned_euler_yawrate_median_rad_s": 0.4301391
+        },
+        "ordinary_blocked": {
+          "rows": 131,
+          "aligned_euler_yawrate_mean_rad_s": 0.3789147,
+          "aligned_euler_yawrate_median_rad_s": 0.3224953
+        }
+      },
+      "ordinary_blocked_runs": [
+        {
+          "start_t": 22.59,
+          "end_t": 22.66,
+          "duration_s": 0.08,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.9062547,
+          "euler_yawrate_end_rad_s": 0.0277468,
+          "euler_yawrate_delta_rad_s": -0.8785079,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 22.91,
+          "end_t": 22.99,
+          "duration_s": 0.09,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.3224953,
+          "euler_yawrate_end_rad_s": -0.1815358,
+          "euler_yawrate_delta_rad_s": -0.5040311,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 23.23,
+          "end_t": 23.32,
+          "duration_s": 0.1,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.7318967,
+          "euler_yawrate_end_rad_s": 0.0045354,
+          "euler_yawrate_delta_rad_s": -0.7273613,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 23.56,
+          "end_t": 23.65,
+          "duration_s": 0.1,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.1363611,
+          "euler_yawrate_end_rad_s": -0.1086748,
+          "euler_yawrate_delta_rad_s": -0.2450358,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 23.9,
+          "end_t": 23.99,
+          "duration_s": 0.1,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.9806538,
+          "euler_yawrate_end_rad_s": 0.2536617,
+          "euler_yawrate_delta_rad_s": -0.7269921,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 24.24,
+          "end_t": 24.34,
+          "duration_s": 0.11,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.6140481,
+          "euler_yawrate_end_rad_s": 0.0296044,
+          "euler_yawrate_delta_rad_s": -0.5844437,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 24.58,
+          "end_t": 24.68,
+          "duration_s": 0.11,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.818452,
+          "euler_yawrate_end_rad_s": 0.1306817,
+          "euler_yawrate_delta_rad_s": -0.6877703,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 24.92,
+          "end_t": 25.02,
+          "duration_s": 0.11,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.5443834,
+          "euler_yawrate_end_rad_s": -0.0249014,
+          "euler_yawrate_delta_rad_s": -0.5692848,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 25.27,
+          "end_t": 25.36,
+          "duration_s": 0.1,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.7711649,
+          "euler_yawrate_end_rad_s": 0.0474464,
+          "euler_yawrate_delta_rad_s": -0.7237185,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 25.61,
+          "end_t": 25.7,
+          "duration_s": 0.1,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.5620587,
+          "euler_yawrate_end_rad_s": -0.0415211,
+          "euler_yawrate_delta_rad_s": -0.6035798,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 25.94,
+          "end_t": 26.05,
+          "duration_s": 0.12,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.7753756,
+          "euler_yawrate_end_rad_s": 0.2047943,
+          "euler_yawrate_delta_rad_s": -0.5705813,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 26.1,
+          "end_t": 26.13,
+          "duration_s": 0.04,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.2224372,
+          "euler_yawrate_end_rad_s": 0.292292,
+          "euler_yawrate_delta_rad_s": 0.0698548,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 26.33,
+          "end_t": 26.42,
+          "duration_s": 0.1,
+          "starts_inside_trace": true,
+          "ends_inside_trace": true,
+          "euler_yawrate_start_rad_s": 0.6995579,
+          "euler_yawrate_end_rad_s": -0.0126564,
+          "euler_yawrate_delta_rad_s": -0.7122143,
+          "shaped_yaw_command_start_rad_s": 0.8
+        },
+        {
+          "start_t": 26.67,
+          "end_t": 26.71,
+          "duration_s": 0.05,
+          "starts_inside_trace": true,
+          "ends_inside_trace": false,
+          "euler_yawrate_start_rad_s": 1.1895939,
+          "euler_yawrate_end_rad_s": 1.3379658,
+          "euler_yawrate_delta_rad_s": 0.1483719,
+          "shaped_yaw_command_start_rad_s": 0.8
+        }
+      ]
+    }
+  },
+  "landing_yaw_progress_candidate": {
+    "changes": "Only ordinary blocked GPU landing keeps attained same-command Euler yaw rate bounded by the effective shaped command. World-Z rate maps to body frame, angle reference remains current; both foothold forecasts receive effective yaw. Posture/CPU/release braking preserved.",
+    "corrected_red_failed": 8,
+    "corrected_red_passed": 8,
+    "remote_acceptance": "pending",
+    "artifacts_sha256": {
+      "workbench/evidence/generated/gait-rtf-20261022/landing-yaw-red-corrected.log": "5403a037d5d6811b7fc400ce4cf864d1388f22bad8ce7e9cd2414721bb276d18",
+      "workbench/evidence/generated/gait-rtf-20261022/landing-yaw-green.log": "bc798ae74de471dff9d7d50cd8338ede7cc4a75cd91c6f9bc0812295690c9463",
+      "workbench/evidence/generated/gait-rtf-20261022/sim-landing-yaw.log": "a30e2a8bdd66d354da22353e2a5bb6849da61c0df9a548b41e9cfee5f3392fe0"
+    },
+    "focused_passed": 538,
+    "focused_skipped": 1,
+    "full_sim_passed": 1057,
+    "full_sim_skipped": 5,
+    "independent_review": "6.1 Sol read-only GO for GPU2 after full Sim; yaw frames, forecast consistency, release and settling behavior checked. No actual GPU improvement claimed."
   }
 }

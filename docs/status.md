@@ -1,10 +1,31 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-22. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-23. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### 착지 대기의 회전 제동과 디딤점 예측 불일치 (2026-10-23)
+
+- `51292d6`을 양쪽 정식 update/등록 후 원격 GPU2에서 검증했다. 두 WebRTC·
+  RGB-D DDS·팔 유지·4096×2·dt .01/substeps 2를 유지했지만 약 **5.4 sim초**
+  보행 뒤 finite trajectory fault로 실패했다. 451개 완료 torque tick에서 자세
+  회복 대기는 한 번도 작동하지 않았다. 종료 후 정상 Sim/Pilot을 복원했다.
+- 100 Hz 실제 기록의 독립 분석에서 일반 착지 대기가 cruise tick의 **30.75%**였다.
+  이때 전진 진행은 보존하지만 회전을 제동했다. 개별 대기에서 Euler yaw 속도가
+  **.818→.131**, **.700→−.013 rad/s**로 줄었다. 마지막 FL 디딤 예측의 실제
+  stance 끝 yaw 오차는 **−.190 rad**, 횡방향 위치 오차는 **−115 mm**였고,
+  이어 지지 FL calf가 실제 관절 상한을 넘었다. 상관관계이며 단독 인과 증명은 아니다.
+  Torque bias와 zero-GRF는 feasible했고 non-foot 접촉 증거는 없었다.
+- 일반 GPU 착지 대기에서만 이미 달성한 같은 방향의 정확한 Euler yaw 속도를
+  유효 shaped 명령 크기까지 유지하는 후보를 회귀 **8 failed / 8 passed**로 재현했다.
+  회전 reference는 world-Z에서 body frame으로 변환하고 두 디딤 예측에도 같은
+  yaw 속도를 준다. 대기 중 yaw 각도는 현재값으로 유지해 seed의 추가 가속 요청을
+  만들지 않는다. 키 해제·반대 방향·자세 회복·CPU 경로의 제동은 유지한다.
+  수정 후 GO2 **538 passed / 1 skipped**, 전체 Sim **1057 passed / 5 skipped**다.
+  독립 코드 검토를 완료했으며 실제 장시간 GPU 검증은 진행 중이다. 600초 gate와
+  운영 보행의 실시간 속도는 여전히 미해결이다.
 
 ### 큰 swing 전이와 몸통 회복 대기 후보 (2026-10-22)
 

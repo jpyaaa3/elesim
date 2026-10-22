@@ -1009,6 +1009,7 @@ class PyMpcGenesisController:
         ref_rpy = rpy.copy()
         ref_rpy[0:2] = 0.0
         ref_rpy[2] += horizon_t * yaw_rate
+        ref_angular_velocity = np.array((0.0, 0.0, yaw_rate))
         # Actual support feedback is required even with CSV diagnostics off.
         contacts = self._contact_gait.update(
             self._normal_contact_forces(**state_args), dt=self._dt,
@@ -1026,7 +1027,18 @@ class PyMpcGenesisController:
             cmd_world = np.zeros(3)
             ref_com[:2] = com[:2]
             ref_rpy[2] = rpy[2]
-            yaw_rate = 0.0
+            if (self._solver.backend == 'jax_mppi'
+                    and not getattr(self._contact_gait, 'posture_hold', False)):
+                # Like attained translation, keep existing same-command yaw
+                # through ordinary landing confirmation. Repeatedly braking
+                # it contradicts the curved foothold forecast. Use xyz Euler
+                # yaw rate, then map world-Z rotation back to the body frame.
+                attained_yaw = (np.sin(rpy[0])*dq[4]+np.cos(rpy[0])*dq[5])/np.cos(rpy[1])
+                direction = np.sign(yaw_rate)
+                yaw_rate = direction*float(np.clip(direction*attained_yaw, 0., abs(yaw_rate)))
+            else:
+                yaw_rate = 0.0
+            ref_angular_velocity = rot_m.T @ np.array((0.0, 0.0, yaw_rate))
         stance_duration_s = float(self._config.gait_duty / self._config.gait_hz)
         base_velocity_world = rot_m @ dq[:3]
         self._base_velocity_world = base_velocity_world.copy()
@@ -1087,7 +1099,7 @@ class PyMpcGenesisController:
             desired_com_position=ref_com,
             desired_com_velocity=cmd_world,
             desired_rpy=ref_rpy,
-            desired_angular_velocity_body=np.array((0.0, 0.0, yaw_rate)),
+            desired_angular_velocity_body=ref_angular_velocity,
             footholds_world=footholds,
             preview_footholds_world=preview,
             contacts=contacts,
