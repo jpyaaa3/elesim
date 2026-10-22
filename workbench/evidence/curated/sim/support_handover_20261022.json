@@ -1,0 +1,249 @@
+{
+  "scope": "Complete selected Sim/Pilot/UI with DDS and two 1280x720 WebRTC streams; normal remote roles fully stopped during diagnostics; physical GPU2 only; dt .01/substeps 2; MPPI 4096x2. No physical Robot motion.",
+  "source_revision": "c7e7f901e43ab1f12d21d4d6fd2f652aead67947",
+  "required_continuous_walk_sim_s": 600,
+  "trials": [
+    {
+      "name": "reference",
+      "diagnostic_intervention": "none",
+      "completed": false,
+      "error": "GO2 controller fault: GPU MPC produced no finite force trajectory",
+      "last_history_sim_s": 74.8800000000014,
+      "approximately_walked_sim_s": 52.7300000000014,
+      "moving_performance_windows": 49,
+      "moving_medians": {
+        "loop_avg_ms": 18.470373931725366,
+        "sim_realtime_factor": 0.5411418571034198,
+        "physics_avg_ms": 13.524236383958968,
+        "command_avg_ms": 3.4729084790736997,
+        "go2_mpc_solve_avg_ms": 6.914544296611486
+      },
+      "solve_timing_note": "Per-call solve average, not per-tick additive cost. Controller tick 100Hz; nominal solve 50Hz with support-change solves.",
+      "support_transition_observations": [
+        {
+          "sim_s": 68.17999999999797,
+          "departing": [
+            0,
+            3
+          ],
+          "remaining": [
+            1,
+            2
+          ],
+          "normal_n": [
+            119.7510757446289,
+            0.0
+          ]
+        },
+        {
+          "sim_s": 69.51999999999866,
+          "departing": [
+            0,
+            3
+          ],
+          "remaining": [
+            1,
+            2
+          ],
+          "normal_n": [
+            98.10802459716797,
+            0.0
+          ]
+        },
+        {
+          "sim_s": 72.24000000000005,
+          "departing": [
+            0,
+            3
+          ],
+          "remaining": [
+            1,
+            2
+          ],
+          "normal_n": [
+            114.73235321044922,
+            0.0
+          ]
+        }
+      ],
+      "observation_limit": "History every two ticks; a transition can be observed up to one tick after actual liftoff. A new per-liftoff observer will record exact boundary forces.",
+      "lifecycle": {
+        "mode": "reference",
+        "image": "sha256:0f8ea84e34c2f9aa0bf1b0699a3a862df3065c5a5a55f94b61644a0c185e4baa",
+        "source": "git-c7e7f901e43ab1f12d21d4d6fd2f652aead67947",
+        "gpu": "2",
+        "normal_app_stop_verified": true,
+        "exit_before_stop": null,
+        "exit_code": 0,
+        "normal_app_resumed": true
+      },
+      "adoption": "baseline retained",
+      "artifacts_sha256": {
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-reference-c7e7f90/result.json": "0ada74ada9a948f98f11eb0073033180678334f253d2823e1c52ac4f441596d5",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-reference-c7e7f90/history.json": "0d292ba9cdd74534f84e08bcd18a0b4d23a1abb42a6b06346ccc86eae74e38f5",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-reference-c7e7f90/loop.csv": "8ae79f0d6b639f26b6ad1eaab7f556697ea4c1f9f783870ba171a605a861d989",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-reference-c7e7f90/profile.json": "fe55bbea16d0d78afb8798cd595e5844ad0b2e3ac2798e02b28402e872f0c1af",
+        "workbench/evidence/generated/gait-rtf-20261022/live-ui-reference-c7e7f90/plan.json": "a60cb31c746408cd6649f9fa81c0305872135d37628ff8e7519dec348189f8ed",
+        "workbench/evidence/generated/gait-rtf-20261022/live-ui-reference-c7e7f90/result.json": "ac6f0781b8ebbd95a935f96a7c5d26bc3fed6ab7ac7a0ff6e4f8d9319fdfa1df",
+        "workbench/evidence/generated/gait-rtf-20261022/live-ui-reference-c7e7f90/telemetry.jsonl": "40e019a3f925931e02b32a37098f80180e6e33c526dbf818b085ed1441d2c6b4",
+        "workbench/evidence/generated/gait-rtf-20261022/live-ui-reference-c7e7f90/walk.mp4": "c6506d9aeb3c0be282c55ffe3e743c78ba20560fbde4cee07d8686c6be39e9c7"
+      }
+    },
+    {
+      "name": "warmstart",
+      "diagnostic_intervention": "retain constraint acceleration warmstart during kinematic arm writes; equality and collision caches still invalidated",
+      "completed": false,
+      "error": "GO2 controller fault: touchdown timeout after 0.30s: FL",
+      "last_history_sim_s": 32.86000000000203,
+      "approximately_walked_sim_s": 15.26000000000203,
+      "moving_performance_windows": 14,
+      "moving_medians": {
+        "loop_avg_ms": 18.130570313573664,
+        "sim_realtime_factor": 0.5505291499335816,
+        "physics_avg_ms": 13.17107964476401,
+        "command_avg_ms": 3.523395951430712,
+        "go2_mpc_solve_avg_ms": 6.759549416049179
+      },
+      "solve_timing_note": "Per-call solve average, not per-tick additive cost. Controller tick 100Hz; nominal solve 50Hz with support-change solves.",
+      "support_transition_observations": [
+        {
+          "sim_s": 28.480000000001652,
+          "departing": [
+            0,
+            3
+          ],
+          "remaining": [
+            1,
+            2
+          ],
+          "normal_n": [
+            115.55043029785156,
+            0.0
+          ]
+        },
+        {
+          "sim_s": 29.840000000001865,
+          "departing": [
+            0,
+            3
+          ],
+          "remaining": [
+            1,
+            2
+          ],
+          "normal_n": [
+            148.02822875976562,
+            0.0
+          ]
+        },
+        {
+          "sim_s": 30.26000000000193,
+          "departing": [
+            1,
+            2
+          ],
+          "remaining": [
+            0,
+            3
+          ],
+          "normal_n": [
+            0.0,
+            85.89080810546875
+          ]
+        },
+        {
+          "sim_s": 31.86000000000218,
+          "departing": [
+            1,
+            2
+          ],
+          "remaining": [
+            0,
+            3
+          ],
+          "normal_n": [
+            0.0,
+            67.97801208496094
+          ]
+        }
+      ],
+      "observation_limit": "History every two ticks; a transition can be observed up to one tick after actual liftoff. A new per-liftoff observer will record exact boundary forces.",
+      "lifecycle": {
+        "mode": "retain-constraint-warmstart",
+        "image": "sha256:0f8ea84e34c2f9aa0bf1b0699a3a862df3065c5a5a55f94b61644a0c185e4baa",
+        "source": "git-c7e7f901e43ab1f12d21d4d6fd2f652aead67947",
+        "gpu": "2",
+        "normal_app_stop_verified": true,
+        "exit_before_stop": null,
+        "exit_code": 0,
+        "normal_app_resumed": true
+      },
+      "adoption": "rejected; no demonstrated speed or gait benefit",
+      "artifacts_sha256": {
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-warmstart-c7e7f90/result.json": "12b61883b7844080cc37e64861c8e12c4428f8e39838f886a57b91510f2d6ef5",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-warmstart-c7e7f90/history.json": "68e4f758a4ca6c209c78101140d9e7f78012c24cb2aba82e61927154dc7eca80",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-warmstart-c7e7f90/loop.csv": "1ccf1ad45e7dab51c7275fdb47a1f432ebb1388146459efbecbc06d9367a6820",
+        "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-warmstart-c7e7f90/profile.json": "8527a945286c68793bf256258285473e2fdb928251f641154aa62d3f60065e6b",
+        "workbench/evidence/generated/gait-rtf-20261022/live-ui-warmstart-c7e7f90/plan.json": "66b7d3350e8a89bce29fc0e08437fa5b5e689dc997364c201136593d3ca322ed",
+        "workbench/evidence/generated/gait-rtf-20261022/live-ui-warmstart-c7e7f90/result.json": "a46c8cb3be0a0fc474c2fc404f39b2d99d1dc0f8b05a4702fcd44d527a0659f8",
+        "workbench/evidence/generated/gait-rtf-20261022/live-ui-warmstart-c7e7f90/telemetry.jsonl": "05fe5b6469f58ef7e29111adb51f8a84b3a2640b333fe445fc629122e7ce0c3b",
+        "workbench/evidence/generated/gait-rtf-20261022/live-ui-warmstart-c7e7f90/walk.mp4": "1e32b9fb0d53a001642d6c952ee316cb8f23cfe774cbc32ec8b31ddb82c3bd0a"
+      }
+    }
+  ],
+  "payload_batch_arrays": {
+    "change": "Keep already batched public/snapshot position, quaternion, linear and angular velocity arrays; remove row splitting and restacking. Scalar fallback still stacks once.",
+    "new_red_cases": 2,
+    "focused_passed": 25,
+    "full_sim_passed": 1016,
+    "full_sim_skipped": 5,
+    "equivalence": "Full payload mass, COM, velocity and inertia arrays exactly equal; original per-link inertias and reset handling unchanged.",
+    "benchmark": {
+      "scope": "CPU payload measure only; same 19-link state; no Genesis or GPU",
+      "state_fields_exact": true,
+      "batches": 7,
+      "calls_per_batch": 2000,
+      "per_call_ms": {
+        "reference": [
+          0.2688630715,
+          0.313833722,
+          0.295652221,
+          0.31340485100000004,
+          0.468500072,
+          0.319281377,
+          0.31089515700000003
+        ],
+        "batch_arrays": [
+          0.2178700155,
+          0.211604655,
+          0.20629936999999998,
+          0.21868460999999997,
+          0.239919095,
+          0.2068114005,
+          0.24307537899999998
+        ]
+      },
+      "median_ms": {
+        "reference": 0.31340485100000004,
+        "batch_arrays": 0.2178700155
+      }
+    },
+    "benchmark_limit": "Local CPU payload-measure microbenchmark; not full remote Sim latency.",
+    "artifacts_sha256": {
+      "workbench/evidence/generated/gait-rtf-20261022/payload-array-benchmark.json": "3ca60b7956856bd724a768abb2802d565a7b43a67b0b0fb5317bb288e04e8fc1",
+      "workbench/evidence/generated/gait-rtf-20261022/sim-payload-arrays.log": "d978702bcbb501e3abcffdd590f55406fa49317bef1de9791c409b26e0cac914"
+    }
+  },
+  "fresh_support_candidate": {
+    "new_red_failed": 6,
+    "new_red_passed": 17,
+    "change": "Only when crossing a new liftoff, require current normal force >5N on every foot that will remain in support, in addition to existing confirmation and full load ramp. Existing stance impulse tolerance and active swing timing unchanged.",
+    "remote_acceptance": "pending; no stability improvement claimed",
+    "focused_passed": 504,
+    "focused_skipped": 1,
+    "artifacts_sha256": {
+      "workbench/evidence/generated/gait-rtf-20261022/fresh-support-red.log": "cf9136663d3a9228746bb1071aa99821f49cb248948c253789496083a34158a7",
+      "workbench/evidence/generated/gait-rtf-20261022/fresh-support-green.log": "a331848a94e4ac59bd2f9eb6370c55bb1356d900659c62441938af6da9828eb8"
+    }
+  }
+}

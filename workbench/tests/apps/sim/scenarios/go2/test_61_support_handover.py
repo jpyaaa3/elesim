@@ -90,6 +90,35 @@ def test_new_airborne_evidence_blocks_liftoff_even_if_previous_load_was_full():
     assert schedule[1, 0] == 0.
 
 
+@pytest.mark.parametrize('unloaded_force', [0., 2., 5.])
+@pytest.mark.parametrize('time,remaining', [(.72, [1, 2]), (5.04, [0, 3])])
+def test_new_liftoff_requires_present_ground_force_from_both_remaining_feet(
+        unloaded_force, time, remaining):
+    gait = gait_at(time)
+    normal, heights = np.full(4, 60.), np.full(4, .023)
+    normal[remaining[0]] = unloaded_force
+    schedule = advance(gait, normal, heights)
+    # A prior confirmation and completed ramp do not prove that the next
+    # diagonal is still carrying the body when the other pair is lifted.
+    assert gait.time == pytest.approx(time)
+    assert not np.any(gait._swinging)
+    np.testing.assert_array_equal(schedule[:, 0], np.ones(4))
+    assert gait.confirmed[remaining[0]]
+    assert gait.load[remaining[0]] == 1.
+    normal[remaining[0]] = 60.
+    advance(gait, normal, heights)
+    assert gait.time == pytest.approx(time + .01)
+    assert np.any(gait._swinging)
+
+
+def test_brief_force_gap_during_stance_does_not_freeze_an_existing_swing():
+    gait = gait_at(.35)
+    advance(gait, [50., 0., 50., 50.], np.full(4, .023))
+    assert gait.time == pytest.approx(.36)
+    assert gait.confirmed[1]
+    assert gait.load[1] == 1.
+
+
 def test_single_support_cannot_advance_after_losing_a_required_foot():
     gait = gait_at(.35)
     heights = np.full(4, .023)

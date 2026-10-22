@@ -132,12 +132,13 @@ class ArmPayloadCompensator:
             for (name, _), value in zip(fields, values):
                 if not np.all(np.isfinite(value)):
                     raise ValueError(f'payload {name} must contain finite vectors')
-            return zip(*values)
+            return tuple(values)
         methods = [getattr(self._arm, f'get_links_{name}', None) for name, _ in fields]
         if not all(callable(method) for method in methods) or not all(
                 hasattr(link, 'idx_local') for link in links):
-            return [tuple(_to_numpy_1d(getattr(link, f'get_{name}')())[:width]
+            rows = [tuple(_to_numpy_1d(getattr(link, f'get_{name}')())[:width]
                           for name, width in fields) for link in links]
+            return tuple(np.stack(column) for column in zip(*rows))
         # Entity and link getters use the same authored link origin and world
         # velocity. Read each field once instead of synchronizing four times
         # per arm link on every control tick.
@@ -148,7 +149,7 @@ class ArmPayloadCompensator:
             if flat.size != len(links)*width or not np.all(np.isfinite(flat)):
                 raise ValueError(f'payload {name} must contain {len(links)} finite {width}-vectors')
             values.append(flat.reshape(len(links), width))
-        return zip(*values)
+        return tuple(values)
 
     def measure(self, *, dt: float | None = None, snapshot=None) -> ArmPayloadSnapshot | None:
         elapsed = None if dt is None else float(dt)
@@ -158,8 +159,7 @@ class ArmPayloadCompensator:
         if properties is None:
             return None
 
-        pos, quat, vel, ang = (np.stack(values) for values in
-                               zip(*self._link_states(properties.links, snapshot=snapshot)))
+        pos, quat, vel, ang = self._link_states(properties.links, snapshot=snapshot)
         rotation = Rot.from_quat(quat[:, [1, 2, 3, 0]]).as_matrix()
         offsets_world = np.einsum('nij,nj->ni', rotation, properties.offsets)
         centers_world = pos + offsets_world

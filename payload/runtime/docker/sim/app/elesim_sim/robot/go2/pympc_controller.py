@@ -221,7 +221,10 @@ class ContactGatedGait:
                 # Before crossing a liftoff, every foot that will remain in
                 # support needs full measured loading. Departing feet may
                 # already be unloaded; they do not own the next support set.
-                supported = bool(np.all(loaded[proposed]))
+                # A completed ramp may survive a short unloaded impulse.
+                # That tolerance must not authorize lifting the other pair
+                # while a remaining foot has no current ground force.
+                supported = bool(np.all(loaded[proposed] & (normal[proposed] > 5.)))
             elif np.all(old_planned):
                 # Retain the landing ramp's original pause. Only the incoming
                 # diagonal can release it; an unloaded departing foot must

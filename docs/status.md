@@ -6,6 +6,29 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 지지 전환의 현재 하중 검사와 팔 상태 배열 중복 제거 (2026-10-22)
+
+- 복원한 `c7e7f90`의 전체 앱 기준 보행은 약 **52 sim초** 후 finite force
+  trajectory fault로 실패했다. 두 WebRTC·RGB-D DDS·팔 유지·4096×2·GPU2를
+  유지한 보행 49개 성능 창의 loop 중앙값은 **18.47 ms / RTF .541**였다.
+- 매-step 팔 쓰기에서 constraint acceleration warmstart만 유지한 대조는
+  약 **15 sim초** 후 FL 착지 timeout으로 실패했다. Equality geometry와
+  collision cache 초기화는 유지했으며 loop 중앙값은 **18.13 ms / RTF .551**
+  (14개 창)이었다. 안정성·속도 이득을 입증하지 못해 채택하지 않는다.
+  두 진단은 정상 Sim/Pilot을 완전히 중단한 단독 장면이며 종료 후 복원했다.
+- 접촉 이력과 load ramp가 남아 있으면 현재 바닥 힘이 없는 발을 남긴 채 반대
+  diagonal을 들 수 있음을 회귀 **6 failed / 17 passed**로 재현했다. 새 liftoff를
+  넘기 직전에 남을 두 발의 현재 normal force도 각각 5 N보다 큰지 확인한다.
+  stance 중 짧은 impulse 누락 허용, 기존 swing 진행, 접촉 확인·load ramp·
+  탐색 timeout·힘/토크 제한은 유지한다. GO2 focused **504 passed / 1 skipped**다.
+  실제 장시간 GPU 보행 효과는 검증 전이다.
+- 팔 payload의 네 batch 배열을 link별 row로 나눴다가 다시 stack하던 작업을
+  제거했다. 질량·중심·속도·관성은 정확히 같고 노드별 물리량도 유지한다.
+  새 회귀 **2 failed → 통과**, focused **25 passed**, 전체 Sim **1016 passed /
+  5 skipped**다. 로컬 CPU microbenchmark 중앙값은 **.313→.218 ms**이며,
+  이를 전체 원격 step 절감으로 대신하지 않는다.
+  [조건·결과·원시 파일 SHA](../workbench/evidence/curated/sim/support_handover_20261022.json).
+
 ### 실측 보행 주기 예측의 실제 실패와 되돌림 (2026-10-22)
 
 - `14519db`를 양쪽 정식 updater로 설치·등록했고 실제 이미지 및 GPU2 reservation을

@@ -101,6 +101,20 @@ def test_bridge_and_full_payload_share_a_snapshot_with_no_further_gpu_queries():
         np.testing.assert_array_equal(getattr(actual_payload,field),getattr(reference_payload,field))
 
 
+@pytest.mark.parametrize('use_snapshot', [False, True])
+def test_payload_keeps_existing_batch_arrays_instead_of_restacking_each_link(use_snapshot):
+    entity = Entity()
+    payload = ArmPayloadCompensator(entity)
+    snapshot = reader(entity).read() if use_snapshot else None
+    expected = payload.measure(snapshot=snapshot)
+    # Properties have been prepared. Current world state is already four
+    # batch arrays; rebuilding each one through per-link rows adds no data.
+    with patch.object(np, 'stack', side_effect=AssertionError('restacked live payload rows')):
+        actual = payload.measure(snapshot=snapshot)
+    for name in ('mass_kg', 'com_world', 'vel_world', 'inertia_world'):
+        np.testing.assert_array_equal(getattr(actual, name), getattr(expected, name))
+
+
 @pytest.mark.parametrize('name,shape',[('pos',(18,3)),('quat',(19,3)),('velocity',(2,30)),('contact_force',(19,2))])
 def test_bad_public_field_shape_is_rejected(name,shape):
     entity=Entity();entity.values[name]=np.zeros(shape)
