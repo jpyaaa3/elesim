@@ -248,12 +248,12 @@ class ContactGatedGait:
                 deferred_liftoff = not supported and not settling
                 self.posture_hold = not liftoff_ready and not settling
             elif np.all(old_planned):
-                # Retain the landing ramp's original pause. Only the incoming
-                # diagonal can release it; an unloaded departing foot must
-                # not then prevent that verified pair from taking over.
-                incoming_offset = 0. if (self.time*gait_hz) % 1. < .5 else .5
-                incoming = _PHASE_OFFSETS == incoming_offset
-                supported = bool(np.all(loaded[incoming]))
+                # Spend nominal four-foot dwell while the incoming pair
+                # confirms contact and ramps load. An existing loaded pair
+                # still supports the body. The branch above owns the next
+                # liftoff and must verify its actual remaining support.
+                supported = bool(np.all(loaded[_PHASE_OFFSETS == 0.])
+                                 or np.all(loaded[_PHASE_OFFSETS == .5]))
             else:
                 supported = bool(not self.blocked and np.all(loaded[old_planned]))
             self.phase_rate = float(supported and not settling)
@@ -305,7 +305,9 @@ class ContactGatedGait:
         if np.any(self.missing_age > 0.30):
             legs = ",".join(_LEGS[i].value for i in np.flatnonzero(self.search))
             raise RuntimeError(f"touchdown timeout after 0.30s: {legs}")
-        self.blocked = bool(deferred_liftoff or np.any(planned & (self.load < 1.0)))
+        unfinished_landing = support_handover and np.any(nominal & self._swinging)
+        self.blocked = bool(deferred_liftoff or unfinished_landing
+                            or np.any(planned & (self.load < 1.0)))
         support = (planned & self.confirmed).astype(float)
         if self.blocked or np.any(self._finished_swing):
             # Do not promise future support or lift the old pair while waiting.

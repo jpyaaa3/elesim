@@ -520,16 +520,64 @@
     "changes": "Only ordinary blocked GPU landing keeps attained same-command Euler yaw rate bounded by the effective shaped command. World-Z rate maps to body frame, angle reference remains current; both foothold forecasts receive effective yaw. Posture/CPU/release braking preserved.",
     "corrected_red_failed": 8,
     "corrected_red_passed": 8,
-    "remote_acceptance": "pending",
+    "remote_acceptance": "failed; approximately5.8walking simseconds, nofiniteforce trajectory, stancecalf extension before rising pitch",
     "artifacts_sha256": {
       "workbench/evidence/generated/gait-rtf-20261022/landing-yaw-red-corrected.log": "5403a037d5d6811b7fc400ce4cf864d1388f22bad8ce7e9cd2414721bb276d18",
       "workbench/evidence/generated/gait-rtf-20261022/landing-yaw-green.log": "bc798ae74de471dff9d7d50cd8338ede7cc4a75cd91c6f9bc0812295690c9463",
-      "workbench/evidence/generated/gait-rtf-20261022/sim-landing-yaw.log": "a30e2a8bdd66d354da22353e2a5bb6849da61c0df9a548b41e9cfee5f3392fe0"
+      "workbench/evidence/generated/gait-rtf-20261022/sim-landing-yaw.log": "a30e2a8bdd66d354da22353e2a5bb6849da61c0df9a548b41e9cfee5f3392fe0",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-yaw-progress-900f841/history.json": "12f62612a20707edb4a7cfffb53e375e9456a853030c99e6eb6f80549cc4fca6",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-yaw-progress-900f841/model.json": "a55775fc6628a04469fe22ce28e4110517401676f26f7c47d1a339f748f242c9",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-yaw-progress-900f841/fault.npz": "18fbd454816a2442bc996c8906470a19b1355e3dc757ab50d5878b6881fa4086",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-yaw-progress-900f841/result.json": "f81bac7cdd5b2724674cd284ffd9157f603321bad710c86fd53847b523a48710",
+      "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-yaw-progress-900f841/loop.csv": "074dcf6e30bd40996e29087b8bb6f47a5994b4851bda878f7329c478a3b9b706",
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-yaw-progress-900f841/result.json": "9532038ffcc6a518562e0f93506169c080d33e05ecd7b27e11db6e7e91a911f0",
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-yaw-progress-900f841/progress.json": "cc2516a0de9d3328d03509774355f1e32d3a33ec17508fec0ccacc9b647c4bf4",
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-yaw-progress-900f841/telemetry.jsonl": "5691a68d7f95aff1c7491639d46759c9858204361259ce9ff35e4005b31b6218"
     },
     "focused_passed": 538,
     "focused_skipped": 1,
     "full_sim_passed": 1057,
     "full_sim_skipped": 5,
-    "independent_review": "6.1 Sol read-only GO for GPU2 after full Sim; yaw frames, forecast consistency, release and settling behavior checked. No actual GPU improvement claimed."
+    "independent_review": "6.1 Sol read-only GO for GPU2 after full Sim; yaw frames, forecast consistency, release and settling behavior checked. No actual GPU improvement claimed.",
+    "source_revision": "900f841cba58b426bb4c4e808591af51479a6336",
+    "completed": false,
+    "lifecycle": {
+      "mode": "reference",
+      "image": "sha256:e3599df3acc8cf74755efbe459a1b3d048e578c4edcb470e2fa90eb76c260bc0",
+      "source": "git-900f841cba58b426bb4c4e808591af51479a6336",
+      "gpu": "2",
+      "normal_app_stop_verified": true,
+      "exit_before_stop": null,
+      "exit_code": 0,
+      "normal_app_resumed": true
+    },
+    "local_release_key": "34271c86f55e0ffadad816f9692f721432c053a39c360be67a18de9b371de43e",
+    "remote_release_key": "35abb5408b36c7340ce638ea25746a9851ed87fb5896928a194e4bf07ccf24a0",
+    "remote_gpu_ids": [
+      "2"
+    ],
+    "role_keys_and_policies_unchanged": true
+  },
+  "overlap_clock_candidate": {
+    "changes": "Advance only within nominal four-foot dwell on existing fully-loaded diagonal support while contact confirmation/ramp completes; stop at next liftoff until unchanged full confirmed/load/current-force/posture gate passes. Actual support horizon remains flat while blocked, active swings and all thresholds/CPU policy retained.",
+    "red_failed": 3,
+    "red_passed": 4,
+    "remote_acceptance": "pending",
+    "observed_ready_to_liftoff_delay_ms": [
+      30,
+      50
+    ],
+    "observation_limit": "First10completed handovers; stressed finalhandover only20ms difference; no assumedcounterfactual gaitpass.",
+    "artifacts_sha256": {
+      "workbench/evidence/generated/gait-rtf-20261022/overlap-clock-red.log": "e10a3171b730fbba638a3539f088a1fdddeb5482f2245f638936a3a750e8fb84",
+      "workbench/evidence/generated/gait-rtf-20261022/overlap-clock-green.log": "44aa5b5efa0081cefcc82d6169ec57854278eb1fc61ea364f0a850d0fe9b365d",
+      "workbench/evidence/generated/gait-rtf-20261022/overlap-active-swing-red.log": "96a54558e050ac0c63e06fc35035db3d9d9ab14bfd54f8d8e585cab01def6dbd",
+      "workbench/evidence/generated/gait-rtf-20261022/sim-overlap-clock.log": "ceb8c2f7cbdce6afa6987d466f7ead450a7e4b2c377590e600d17bbef9bee1ce"
+    },
+    "review_active_swing_red_failed": 1,
+    "review_active_swing_red_passed": 7,
+    "full_sim_passed": 1068,
+    "full_sim_skipped": 5,
+    "independent_review": "6.1 Sol: nominal dwell can overlap safely; existing proposed liftoff gate remains before clock advance. Corrected timing uses previous load/current force; unfinished actual swing retains blocked flat actualsupport horizon."
   }
 }
