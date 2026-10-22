@@ -114,6 +114,41 @@ def _messages(client: PeerClient) -> list[object]:
     return list(client.receive())
 
 
+def _restart_overlap_node():
+    now = [1.0]
+    node = object.__new__(DdsPeerNode)
+    node.clock = lambda: now[0]
+    node.directory = PeerDirectory(heartbeat_timeout_s=3.5)
+    node._wire_descriptors = {}
+    node._closed = False
+    for boot in ('old', 'new'):
+        identity = PeerIdentity('pilot', boot)
+        node.directory.announce(PeerDescriptor(identity, role='pilot'), now=now[0])
+        node.directory.heartbeat(PeerHeartbeat(identity, 1, 1), now=now[0])
+        node._wire_descriptors[identity] = SimpleNamespace(identity=identity)
+    return node, now
+
+
+def test_restart_overlap_makes_exact_peer_unavailable_without_killing_authority_cleanup():
+    node, now = _restart_overlap_node()
+    old, new = PeerIdentity('pilot', 'old'), PeerIdentity('pilot', 'new')
+    assert node.describe(old) is None
+    assert node.describe(new) is None
+    now[0] = 4.
+    node.directory.heartbeat(PeerHeartbeat(new, 1, 2), now=now[0])
+    now[0] = 4.6
+    assert node.describe(old) is None
+    assert node.describe(new).identity == new
+
+
+def test_publish_to_overlapping_boots_raises_retryable_transport_error_without_selecting_one():
+    node, _ = _restart_overlap_node()
+    envelope = make_envelope('ack', 'sim', target_id='pilot',
+                             payload={'reply_to':'request', 'ok':True, 'reason':''}, seq=1)
+    with pytest.raises(DdsTransportError, match='ambiguous'):
+        node.publish(envelope)
+
+
 def test_received_telemetry_preserves_carrier_boot_without_changing_payload_wire_shape():
     bus = _Bus()
     robot = PeerClient(EndpointDescriptor("robot", "robot"), node_factory=bus.factory)

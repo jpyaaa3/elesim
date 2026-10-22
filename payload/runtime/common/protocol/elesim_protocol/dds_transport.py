@@ -625,13 +625,23 @@ class DdsPeerNode:
         peer = self._wire_descriptors.get(identity)
         if peer is None:
             return None
-        resolved = self.resolve(identity.endpoint_id)
+        try:
+            resolved = self.resolve(identity.endpoint_id)
+        except PeerAmbiguityError:
+            # Restart overlap is unavailable authority, including during local
+            # lease cleanup. Never pick a boot or terminate the DDS loop.
+            return None
         return peer if resolved is not None and resolved.identity == identity else None
 
     def publish(self, envelope: Envelope, *, motion: bool = False) -> None:
         if self._closed:
             raise DdsTransportError("DDS peer is closed")
-        target = self.resolve(envelope.target_id)
+        try:
+            target = self.resolve(envelope.target_id)
+        except PeerAmbiguityError as exc:
+            raise DdsTransportError(
+                f"target peer {envelope.target_id!r} is ambiguous"
+            ) from exc
         if target is None:
             self._diagnostic(
                 "control",

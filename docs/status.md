@@ -6,6 +6,24 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Pilot 재시작 중 boot 중복이 Sim 통신 스레드를 종료시키는 오류 (2026-10-22)
+
+- `ac78062`를 양쪽 정식 updater로 설치·등록했고 실제 원격 Sim/Pilot 이미지와
+  GPU2 reservation을 확인했다. Cold scene build는 약 110초, 카메라 build는
+  약 23초였다. 이 준비 대기 중 UI operator snapshot 응답이 끊겨 보행은 시작하지
+  못했다. 이 구간을 새 보행 성능이나 안정성 결과로 인정하지 않는다.
+- Pilot만 재시작하자 기존/신규 boot ID가 heartbeat timeout 동안 중복되었고,
+  `DdsPeerNode.describe()`의 `PeerAmbiguityError`가 Sim endpoint `_run`과
+  close의 lease-revoke 알림까지 전파해 DDS thread를 종료했다. Container는
+  running으로 남았다. 중복 boot에서 어느 쪽도 선택하지 않는 정책은 유지한다.
+- Exact 조회는 중복 상태를 unavailable로, publish는 기존 retry 대상인
+  `DdsTransportError`로 처리한다. 새 wire field·QoS·authority 완화 없이 protocol
+  major 6을 유지하며 `dds_contracts.md`에 기록했다. 회귀 **2 failed → 수정**,
+  전체 protocol+Sim endpoint **183 passed**다. 원래 boot가 stale해진 뒤
+  남은 exact boot만 다시 조회할 수 있는 것까지 검증했다. 실제 네 독립 프로세스의
+  DDS topology smoke도 통과했다.
+- 원래 보행 주기 예측 수정의 GPU 보행 효과와 600초 연속 보행 gate는 미해결이다.
+
 ### 실제 운영 보행의 착지 탐색 누적과 RTF 재검증 (2026-10-22)
 
 - `eec3e2c`를 양쪽 정식 updater로 설치·등록했다. 원격 Sim/Pilot의 실제

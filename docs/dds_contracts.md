@@ -19,6 +19,12 @@ prefix를 광고한다. descriptor와 같은 endpoint/boot의 heartbeat가 확�
 전에는 peer를 live authority로 취급하지 않는다. startup queue는 heartbeat
 timeout 동안 최대 512 envelope만 보관한다.
 
+동일 endpoint에 두 live boot가 겹치면 어느 쪽도 authority 대상으로 선택하지
+않는다. Exact-identity 조회는 unavailable을 반환하고 발행은 재시도 가능한
+transport 오류로 거부한다. Lease/session의 로컬 해제와 DDS 루프는 계속
+작동하며, 이전 boot의 heartbeat timeout 후 남은 정확한 boot만 다시 발견한다.
+이 복구는 protocol 6의 기존 identity·wire·QoS를 유지한다.
+
 RGB-D는 source와 Pilot의 local handoff 이후 Pilot이 소유하는 별도 DDS stream이다.
 observer와 hand-eye 픽셀은 DDS payload가 아니며 WebRTC DTLS/SRTP track이다.
 `webrtc_signal`만 PeerEnvelope에 들어간다. 기존 typed
