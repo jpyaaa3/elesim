@@ -23,8 +23,14 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 - 실제 바닥 접촉이 시작되면 확인 전 탐색의 계속 하강을 멈추고 기존 swing의
   8 mm preload 이하로 제한하는 회귀를 추가했다(**1 failed / 3 passed → 수정**).
   공중 힘, 5 N 이하 힘에는 적용하지 않으며, 40 ms 접촉 확인·60 ms load ramp·
-  미확인 발의 GRF=0·힘/토크 제한은 유지한다. focused **127 passed**, 전체 Sim **1018 passed / 5 skipped**다.
-  이 수정의 설치 GPU 보행 효과는 아직 검증 전이다.
+  미확인 발의 GRF=0·힘/토크 제한은 유지했다. focused **127 passed**, 전체 Sim
+  **1018 passed / 5 skipped**였지만 `e4ce7ce`의 실제 운영 보행은 약 **4.2초**에
+  네 발 착지 timeout으로 실패했다. 이 preload 제한은 채택하지 않고 되돌린다.
+- 다음 회귀는 접촉 확인/load ramp가 늘리는 실제 liftoff 간격을 stance 예측에
+  반영한다(**2 failed → 수정**, focused **125 passed**). 명목 주기로 시작하고
+  최근 8개 실측 cycle의 중앙값에서 기존 swing 시간을 뺀다. 정지 중 이력을 비우며
+  실제 접촉 gate·swing 시간·기존 reach margin과 CPU acados 분기는 유지한다.
+  전체 Sim **1018 passed / 5 skipped**다. 설치 GPU 보행 효과는 아직 검증 전이다.
 
 ### RGB-D DDS 메시지의 바이트별 Python 검증 병목 (2026-10-22)
 

@@ -650,5 +650,25 @@
       "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-reference-eec3e2c/profile.json": "de4e8d3568aea2b51cd9aca0e198de5e9ee49d8bfbf71f2ad02302959d373f23",
       "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-reference-eec3e2c/fault.npz": "7d850ccd6cb6fae4f04bb98bc9c58642cc6828fce79fd66c8fbe0f0bda67f119"
     }
+  },
+  "e4ce7ce_preload_limit_rejected": {
+    "source_revision": "e4ce7ceeeb99608dfbbd4baec408f4fcd8f2f58c",
+    "physical_gpu": "2",
+    "normal_app": true,
+    "mppi": [
+      4096,
+      2
+    ],
+    "both_webrtc": true,
+    "rgbd_dds": true,
+    "walk_last_elapsed_sim_s": 4.199999999999999,
+    "failure": "touchdown timeout after 0.30s: FL,FR,RL,RR",
+    "complete": false,
+    "decision": "revert preload limitation; retain original search controller",
+    "first_attempt": "180s startup wait exhausted; physics scene cold compilation took 110.62s; not a gait result",
+    "artifacts_sha256": {
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-full-e4ce7ce-2/result.json": "0ffefe234dfab3ca911b4c05c9d979b9eddddbfc65e6065bed7ea8cd95032d34",
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-full-e4ce7ce-2/telemetry.jsonl": "4aff2ebcf0a17d336862cafdf4e1e8ab5d51545942c4c344736a999efbcf640d"
+    }
   }
 }
