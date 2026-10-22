@@ -428,10 +428,16 @@ class PilotConnection:
             if descriptor is not None and self.on_target_selected is not None:
                 try:
                     self.on_target_selected(dict(descriptor))
-                except (KeyError, ProtocolError, TypeError, ValueError) as exc:
+                except Exception as exc:
+                    # Middleware publisher/subscriber creation may raise an
+                    # RCLError or an OS error. Optional media setup must not
+                    # terminate the shared heartbeat/motion command thread.
                     self.state_sink.accept_error(
                         f"target stream configuration failed: {exc}"
                     )
+                    self._diagnostic('stream', dedupe=f'stream:{self.active_target}:{type(exc).__name__}',
+                        state='failed',
+                        target=self.active_target, error=exc)
             return
         if message_type in {"target_lost", "target_released"}:
             # A local loss event can be queued before a newer grant is

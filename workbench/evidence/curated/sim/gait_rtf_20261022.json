@@ -283,5 +283,142 @@
       0
     ],
     "finite_sample_fallback_does_not_resolve_recorded_failure": true
+  },
+  "candidate_20ad73e": {
+    "source_revision": "20ad73e83dccf30b97eee0f3eb1f79d2672e7c1d",
+    "image": "sha256:40e29737800d0b4e653c6d6e9ab1c2c4a692df48f7bdd17b9f8ae6e72cda728b",
+    "lifecycle_restored": true,
+    "trials": [
+      {
+        "trial": "no-camera",
+        "completed": true,
+        "last_sim_s": 22.900000000000002,
+        "fault": "",
+        "step_ms_p50_p95": [
+          11.066874489188194,
+          12.808936624787748
+        ],
+        "sections_ms_mean_p50_p95": {
+          "command": [
+            0.01049153992663259,
+            0.010166550055146217,
+            0.01224866136908531
+          ],
+          "arm": [
+            1.6386109157262936,
+            1.599104842171073,
+            2.2978950757533307
+          ],
+          "physics": [
+            7.1005754405632615,
+            5.768442526459694,
+            10.687001049518583
+          ]
+        },
+        "max_abs_roll_pitch": [
+          0.41989033238824347,
+          0.20756305326871138
+        ],
+        "arm_write_proof": {
+          "n_links": 46,
+          "n_dofs": 32,
+          "cases": 8,
+          "max_abs_error": {
+            "get_links_pos": 0.0,
+            "get_links_quat": 0.0,
+            "get_links_vel": 0.0,
+            "get_links_ang": 0.0,
+            "get_dofs_position": 0.0,
+            "get_dofs_velocity": 0.0
+          },
+          "body_and_leg_velocities_preserved": true,
+          "reference_source_revision": "09c88d8",
+          "reference_function_sha256": "7b4a0d74053d052e3209461da81658fa4d02dcaaf20bc02eba0749cfcd8469c0",
+          "synchronized_arm_write_ms_mean_p50_p95": {
+            "reference": [
+              1.5597230521962047,
+              1.5274311881512403,
+              1.5802039299160242
+            ],
+            "installed": [
+              1.2440522317774594,
+              1.2475952971726656,
+              1.2780203251168132
+            ]
+          }
+        },
+        "artifacts_sha256": {
+          "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-candidate-20ad73e/no-camera.jsonl": "8ae538d7c2113b0a5096a84e1e0f8ea1d2c7f1134faf6f91b6fa12da0f08476b",
+          "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-candidate-20ad73e/no-camera.jsonl.profile.json.arm-proof.json": "09ee6f272221adb1376b7d846a6844627b825c57c5fefbb456cd2af17f16f01c"
+        }
+      },
+      {
+        "trial": "camera-turn",
+        "completed": false,
+        "last_sim_s": 104.3,
+        "fault": "GPU MPC produced no finite force trajectory",
+        "step_ms_p50_p95": [
+          12.680176179856062,
+          16.446505673229694
+        ],
+        "sections_ms_mean_p50_p95": {
+          "command": [
+            0.013613073681524486,
+            0.013032928109169006,
+            0.019758474081754684
+          ],
+          "arm": [
+            2.1718075229211258,
+            2.0235381089150906,
+            3.0322030652314425
+          ],
+          "physics": [
+            9.500213944922885,
+            10.348463896661997,
+            13.693573884665966
+          ]
+        },
+        "max_abs_roll_pitch": [
+          0.41989033238824347,
+          0.23904198246819397
+        ],
+        "arm_write_proof": {
+          "n_links": 46,
+          "n_dofs": 32,
+          "cases": 8,
+          "max_abs_error": {
+            "get_links_pos": 0.0,
+            "get_links_quat": 0.0,
+            "get_links_vel": 0.0,
+            "get_links_ang": 0.0,
+            "get_dofs_position": 0.0,
+            "get_dofs_velocity": 0.0
+          },
+          "body_and_leg_velocities_preserved": true,
+          "reference_source_revision": "09c88d8",
+          "reference_function_sha256": "7b4a0d74053d052e3209461da81658fa4d02dcaaf20bc02eba0749cfcd8469c0",
+          "synchronized_arm_write_ms_mean_p50_p95": {
+            "reference": [
+              1.7264437745325267,
+              1.7231237143278122,
+              1.7490692669525743
+            ],
+            "installed": [
+              1.3700961950235069,
+              1.3668714091181755,
+              1.3884343206882477
+            ]
+          }
+        },
+        "artifacts_sha256": {
+          "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-candidate-20ad73e/camera-turn.jsonl": "0eb820d7f97b547f90617c38eba9a3b9c773d3c11c3fce69e1649088eaef5bac",
+          "workbench/evidence/generated/gait-rtf-20261022/gait-rtf-20261022-candidate-20ad73e/camera-turn.jsonl.profile.json.arm-proof.json": "261afd21333fa598a25c469fa6e263ae5599ddd562066a8bdabaa64ad2d1c4f2"
+        }
+      }
+    ]
+  },
+  "operational_ui_gate_20ad73e": {
+    "passed": false,
+    "reason": "Existing SROS2 policies predate /test/pilot_readiness/rgbd/left_preview; RCLError on its publisher terminated pilot-dds thread. No operational walking or video result is claimed."
   }
 }

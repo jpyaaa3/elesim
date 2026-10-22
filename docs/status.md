@@ -35,6 +35,16 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   topology smoke에서 오류/해제 전달을 통과했다. 통합 software 검사 **1315 passed /
   5 skipped**, 후속 팔·solver focused **90 passed**, 최종 전체 Sim **1013 passed /
   5 skipped**다. [단독 실행 조건과 원시 artifact SHA](../workbench/evidence/curated/sim/gait_rtf_20261022.json).
+- `20ad73e`를 양쪽 update/등록한 GPU2 검증에서 8개 팔 자세, 46 links/32 DOFs의
+  위치·회전·선속도·각속도와 관절 상태는 기존 방식과 **오차 0**이었다. 팔 밖의
+  속도도 보존했다. 동기화한 팔 쓰기 평균 **1.560→1.244 ms**. 팔 유지·양 카메라를
+  포함한 보행 step 중앙값/p95 **12.68/16.45 ms**, 전진+회전은 **104.3초에 finite
+  trajectory fault**였다. 이전 20.1초보다 오래 갔지만 600초 안정성/1.0 RTF 통과가 아니다.
+- 실제 UI→DDS→Pilot 운영 검증에서 기존 SROS2 정책에 새 stereo left preview 토픽
+  권한이 없음을 확인했다. Publisher의 RCLError가 `pilot-dds` 스레드를 종료시켰고
+  container는 running으로 남았다. Media 초기화 callback의 middleware/OS 예외를
+  보고하고 heartbeat·telemetry·motion을 유지하도록 회귀 수정했다(**2 failed →
+  Pilot connection 21 passed**). 현재 정책의 정식 보안 갱신과 운영 재검증은 진행 중이다.
 
 ### GO2 지지발 손실 복구·회전 디딤점 예측 회귀 (2026-10-22)
 

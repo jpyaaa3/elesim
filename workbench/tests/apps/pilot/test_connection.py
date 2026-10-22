@@ -320,7 +320,8 @@ def test_simulation_status_is_typed_and_delivered_only_from_the_active_target() 
     assert received == [SimulationStatusPayload.from_payload(payload)]
 
 
-def test_invalid_target_stream_configuration_does_not_escape_connection_thread() -> None:
+@pytest.mark.parametrize('failure', [ValueError, RuntimeError, OSError])
+def test_invalid_target_stream_configuration_does_not_escape_connection_thread(failure) -> None:
     value, sink, endpoint = connection()
     value.endpoints = [
         EndpointDescriptor(
@@ -329,7 +330,7 @@ def test_invalid_target_stream_configuration_does_not_escape_connection_thread()
     ]
 
     def reject_descriptor(_descriptor: dict[str, object]) -> None:
-        raise ValueError("missing media server key")
+        raise failure("preview publisher rejected by middleware")
 
     value.on_target_selected = reject_descriptor
     value.handle_envelope(
@@ -340,8 +341,16 @@ def test_invalid_target_stream_configuration_does_not_escape_connection_thread()
     assert value.active_target == "sim-a"
     assert sink.targets == ["sim-a"]
     assert sink.errors == [
-        "target stream configuration failed: missing media server key"
+        "target stream configuration failed: preview publisher rejected by middleware"
     ]
+    value.handle_envelope(endpoint,envelope('telemetry',{'go2_vel':[.8,0.,0.]},
+        source_id='sim-a',lease_id='lease-a'))
+    assert sink.telemetry[-1]['go2_vel'] == [.8,0.,0.]
+    value.submit({'t':'target','source':'target','go2_vel':[.8,0.,0.]})
+    value.drain_outbox(endpoint,now=10.)
+    value.flush_target(endpoint,now=10.1)
+    assert endpoint.sent[-1][0] == 'motion_command'
+    assert endpoint.sent[-1][1]['lease_id'] == 'lease-a'
 
 
 def test_target_submission_is_canonical_and_latest_rate_limited_value_is_retained() -> None:
