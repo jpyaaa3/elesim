@@ -186,21 +186,6 @@ class ContactGatedGait:
         self.swing_remaining = np.zeros(4)
         self.observed_normal = np.zeros(4)
         self.observed_heights = np.zeros(4)
-        self._elapsed_s = 0.0
-        self._last_liftoff_s = np.full(4, np.nan)
-        self._cycle_durations = []
-
-    def stance_duration_s(self, *, gait_hz, duty) -> float:
-        """Forecast support using the observed cycle, including landing holds.
-
-        Swing still takes its configured duration. Contact confirmation/load
-        holds stretch the time between liftoffs; a nominal-only stance lead
-        otherwise leaves the foot behind the moving body before its next lift.
-        """
-        nominal_cycle = 1.0 / float(gait_hz)
-        cycle = (nominal_cycle if not self._cycle_durations else
-                 max(nominal_cycle, float(np.median(self._cycle_durations))))
-        return cycle - (1.0-float(duty))*nominal_cycle
 
     def prime(self, normal_forces, *, dt):
         """Observe the already loaded feet while position control holds ready."""
@@ -223,10 +208,6 @@ class ContactGatedGait:
             raise RuntimeError("invalid foot height feedback")
         self.observed_normal = normal.copy()
         self.observed_heights = heights.copy()
-        self._elapsed_s += dt
-        if settling:
-            self._cycle_durations.clear()
-            self._last_liftoff_s.fill(np.nan)
         # Observe loss BEFORE advancing the clock across the next liftoff.
         old_planned = contact_schedule(self.time, gait_hz=gait_hz, duty=duty,
                                        dt=horizon_dt, horizon=horizon)[:, 0].astype(bool)
@@ -263,12 +244,6 @@ class ContactGatedGait:
             schedule.fill(1.0)
         nominal = schedule[:, 0].astype(bool)
         liftoff = self._previous_planned & ~nominal
-        for i in np.flatnonzero(liftoff):
-            previous = self._last_liftoff_s[i]
-            if np.isfinite(previous):
-                self._cycle_durations.append(self._elapsed_s-previous)
-            self._last_liftoff_s[i] = self._elapsed_s
-        self._cycle_durations = self._cycle_durations[-8:]
         self._previous_planned = nominal.copy()
         self._swinging |= liftoff
         self.swing_elapsed[self._swinging] += dt
@@ -1025,12 +1000,7 @@ class PyMpcGenesisController:
             ref_com[:2] = com[:2]
             ref_rpy[2] = rpy[2]
             yaw_rate = 0.0
-        stance_duration_s = (
-            self._contact_gait.stance_duration_s(
-                gait_hz=self._config.gait_hz, duty=self._config.gait_duty)
-            if self._solver.backend == 'jax_mppi'
-            else float(self._config.gait_duty / self._config.gait_hz)
-        )
+        stance_duration_s = float(self._config.gait_duty / self._config.gait_hz)
         base_velocity_world = rot_m @ dq[:3]
         self._base_velocity_world = base_velocity_world.copy()
         swing_previous = self._swing_previous_contacts(contacts[:, 0])

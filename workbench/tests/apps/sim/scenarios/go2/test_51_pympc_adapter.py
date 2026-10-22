@@ -564,7 +564,6 @@ def test_landing_wait_keeps_search_reach_separate_from_ground_support(
         return contacts.copy()
     c._contact_gait = SimpleNamespace(
         update=update_contacts, blocked=waiting,
-        stance_duration_s=lambda **kw: kw['duty']/kw['gait_hz'],
         load=1.-search, search=search, swing_remaining=np.zeros(4), time=0.)
     c._cmd, c._dt, c._sim_time = command, .02, 1.
     c._step_i, c._solve_stride = 0, 1

@@ -129,39 +129,6 @@ def test_already_airborne_feet_finish_swing_while_other_support_is_missing():
     np.testing.assert_array_equal(schedule[[1, 2], 0], [1., 1.])
 
 
-def test_foothold_stance_forecast_includes_measured_support_handover_delays():
-    gate = ready()
-    time_s = 0.
-    previous_swing = np.zeros(4, dtype=bool)
-    liftoffs = []
-    for _ in range(300):
-        grounded = ~gate._swinging
-        gate.update(np.where(grounded, 50., 0.), dt=.01, gait_hz=2.5, duty=.6,
-                    horizon_dt=.02, horizon=12, settling=False,
-                    foot_heights=np.where(grounded, .022, .07), support_handover=True)
-        time_s += .01
-        if gate._swinging[0] and not previous_swing[0]:
-            liftoffs.append(time_s)
-        previous_swing = gate._swinging.copy()
-    measured_cycle = np.median(np.diff(liftoffs[-4:]))
-    assert measured_cycle > .4+.1
-    assert gate.stance_duration_s(gait_hz=2.5, duty=.6) == pytest.approx(measured_cycle-.16)
-
-
-def test_stance_forecast_starts_nominal_and_forgets_old_cycles_during_settling():
-    gate = ready()
-    assert gate.stance_duration_s(gait_hz=2.5, duty=.6) == pytest.approx(.24)
-    for _ in range(180):
-        grounded = ~gate._swinging
-        gate.update(np.where(grounded, 50., 0.), dt=.01, gait_hz=2.5, duty=.6,
-                    horizon_dt=.02, horizon=12, settling=False,
-                    foot_heights=np.where(grounded, .022, .07), support_handover=True)
-    assert gate.stance_duration_s(gait_hz=2.5, duty=.6) > .34
-    gate.update([50.]*4, dt=.01, gait_hz=2.5, duty=.6, horizon_dt=.02,
-                horizon=12, settling=True, foot_heights=[.022]*4, support_handover=True)
-    assert gate.stance_duration_s(gait_hz=2.5, duty=.6) == pytest.approx(.24)
-
-
 @pytest.mark.parametrize("progress", [0., 1.])
 def test_swing_has_zero_endpoint_velocity(progress):
     _, velocity = swing_foot_reference(progress, np.array([0., 0., .025]),

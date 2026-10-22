@@ -194,7 +194,6 @@ def sample_controller():
     schedule = contact_schedule(.07, gait_hz=c._config.gait_hz,
                                 duty=c._config.gait_duty, dt=.02, horizon=30)
     c._contact_gait = SimpleNamespace(update=lambda *args, **kw: schedule.copy(),
-        stance_duration_s=lambda **kw: kw['duty']/kw['gait_hz'],
         blocked=False, load=schedule[:,0].copy(), search=np.zeros(4,dtype=bool),
         swing_remaining=np.where(schedule[:,0] == 0., .15, 0.), time=.07)
     c._cmd = Go2Command(vx=.168)
@@ -208,19 +207,6 @@ def sample_controller():
     c._foot_lower, c._foot_upper = np.tile(LO+.04,(4,1)), np.tile(HI-.04,(4,1))
     c._predict_touchdowns = Mock(wraps=c._predict_touchdowns)
     return c, q, schedule
-
-
-@pytest.mark.parametrize('backend', ['jax_mppi', 'acados'])
-def test_sample_uses_measured_support_duration_for_gpu_footholds_only(backend):
-    c, _, schedule = sample_controller()
-    c._solver.backend = backend
-    c._contact_gait.stance_duration_s = lambda **kw: .52
-    state, *_ = c._sample()
-    expected = .52 if backend == 'jax_mppi' else c._config.gait_duty/c._config.gait_hz
-    assert c._predict_touchdowns.call_count >= 1
-    for call in c._predict_touchdowns.call_args_list:
-        assert call.args[7] == pytest.approx(expected)
-    np.testing.assert_array_equal(state.contacts, schedule)
 
 
 def test_actual_sample_predicts_liftoff_and_next_stance_but_keeps_a_latched_swing():

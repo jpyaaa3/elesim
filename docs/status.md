@@ -6,6 +6,21 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 실측 보행 주기 예측의 실제 실패와 되돌림 (2026-10-22)
+
+- `14519db`를 양쪽 정식 updater로 설치·등록했고 실제 이미지 및 GPU2 reservation을
+  확인했다. 초기 reset 명령이 시계에 반영되지 않아, 아직 한 번도 걷지 않은 새
+  중립 장면에서 reset 없이 시작했다. 두 WebRTC·RGB-D DDS·팔 유지·4096×2·
+  dt .01/substeps 2를 모두 유지했지만 전진+회전 약 **2.8 sim초** 후 finite force
+  trajectory fault로 실패했다. 600초 gate는 통과하지 못했다.
+- 최근 gait cycle로 stance 예측을 늘린 변경은 실제 개선이 없어 되돌린다.
+  두 실패 실험(preload 제한, 실측 stance 외삽)을 모두 제거하고 `eec3e2c`의
+  기준 보행 로직을 복원한다. RGB-D buffer와 재시작 boot 중복 복구는 유지한다.
+  복원한 접촉·디딤점·토크 focused **144 passed**다.
+- 별도 실제 DDS 프로세스에서 기존/신규 Pilot boot의 중복을 만들었다. Sim이 양쪽
+  exact peer를 unavailable로 거부하고 살아남으며, 이전 boot 만료 후 새 Pilot이
+  lease를 다시 얻는 smoke를 통과했다. 보행 회복의 증거로 대신하지 않는다.
+
 ### Pilot 재시작 중 boot 중복이 Sim 통신 스레드를 종료시키는 오류 (2026-10-22)
 
 - `ac78062`를 양쪽 정식 updater로 설치·등록했고 실제 원격 Sim/Pilot 이미지와
@@ -36,7 +51,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   보행 physics 구간(제어기 포함)은 **13.30 ms**, 별도 solve 호출은 **6.91 ms**다.
   solve 호출 평균을 매 tick 비용으로 더하지 않는다. 이 계측 보행도 약 34초 후 실패했다.
 - 실패 전 12초 접촉 이력에서 실제 gait cycle 중앙값은 **.67–.68초**였다
-  (명목 .4초). 착지 확인 중에도 실제 바닥 힘을 받는 발의 탐색 목표가 실측 발보다
+  (설치 설정 2.2 Hz의 명목 .455초). 착지 확인 중에도 실제 바닥 힘을 받는 발의 탐색 목표가 실측 발보다
   최대 **20.2 mm** 낮아졌다. 명목 주기와 지지 전환 지연의 차이도 추가 조사 대상이다.
 - 실제 바닥 접촉이 시작되면 확인 전 탐색의 계속 하강을 멈추고 기존 swing의
   8 mm preload 이하로 제한하는 회귀를 추가했다(**1 failed / 3 passed → 수정**).
