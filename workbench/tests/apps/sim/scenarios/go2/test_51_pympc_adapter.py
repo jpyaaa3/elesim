@@ -566,6 +566,7 @@ def test_landing_wait_keeps_search_reach_separate_from_ground_support(
         update=update_contacts, blocked=waiting,
         load=1.-search, search=search, swing_remaining=np.zeros(4), time=0.)
     c._cmd, c._dt, c._sim_time = command, .02, 1.
+    c._step_i, c._solve_stride = 0, 1
     c._command_shaper = Go2CommandShaper(current=command, target=command)
     c._walk_started_s, c._settling = 0., False
     c._last_contacts, c._touchdowns = contacts[:, 0].copy(), np.zeros((4, 3))

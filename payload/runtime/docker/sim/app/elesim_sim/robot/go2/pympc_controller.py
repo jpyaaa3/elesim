@@ -652,7 +652,8 @@ class PyMpcGenesisController:
         if metrics is not None:
             metrics.set_tau_limits(self._tau_lim)
             metrics.set_control_rate_info(self._rate_info)
-        print(f"[go2_pympc] backend={self._solver.backend} solve_hz=25 torque_hz="
+        print(f"[go2_pympc] backend={self._solver.backend} "
+              f"solve_hz={self._rate_info.sim_hz/self._solve_stride:g} torque_hz="
               f"{self._rate_info.sim_hz:.1f} (experimental)")
 
     @property
@@ -1002,15 +1003,17 @@ class PyMpcGenesisController:
         stance_duration_s = float(self._config.gait_duty / self._config.gait_hz)
         base_velocity_world = rot_m @ dq[:3]
         self._base_velocity_world = base_velocity_world.copy()
-        candidates, predicted_bases, predicted_rotations = self._predict_touchdowns(
-            q[:3], yaw_rot,
-            base_velocity_world if self._solver.backend == 'jax_mppi' else vel,
-            cmd_world, cmd_body, yaw_rate, self._contact_gait.swing_remaining,
-            stance_duration_s, base_rotation=rot_m,
-        )
         swing_previous = self._swing_previous_contacts(contacts[:, 0])
-        for i in range(4):
-            if contacts[i, 0] == 0 and swing_previous[i] == 1:
+        liftoff = (contacts[:, 0] == 0) & (swing_previous == 1)
+        candidates = feet
+        if np.any(liftoff):
+            candidates, predicted_bases, predicted_rotations = self._predict_touchdowns(
+                q[:3], yaw_rot,
+                base_velocity_world if self._solver.backend == 'jax_mppi' else vel,
+                cmd_world, cmd_body, yaw_rate, self._contact_gait.swing_remaining,
+                stance_duration_s, base_rotation=rot_m,
+            )
+            for i in np.flatnonzero(liftoff):
                 projected, feasible = stance_end_foothold(
                     i, candidates[i], q[:3], rot_m, base_velocity_world, cmd_world,
                     self._contact_gait.swing_remaining[i], stance_duration_s,
@@ -1024,7 +1027,7 @@ class PyMpcGenesisController:
             feet, candidates, contacts[:, 0], swing_previous, self._touchdowns,
         )
         preview = footholds.copy()
-        if self._solver.backend == "jax_mppi":
+        if self._solver.backend == "jax_mppi" and self._force_solve_due(contacts[:, 0]):
             future_s = future_touchdown_times(
                 contacts, gait_time=self._gait_time(), gait_hz=float(self._config.gait_hz),
             )
@@ -1110,6 +1113,12 @@ class PyMpcGenesisController:
             self._contact_link_idxs = indices
         return forces[indices, 2].copy()
 
+    def _force_solve_due(self, contacts) -> bool:
+        return bool(np.any(contacts)) and (
+            self._step_i % self._solve_stride == 0
+            or not np.array_equal(contacts, self._last_contacts)
+        )
+
     def _torques(self, sample: PyMpcInput, feet: np.ndarray, foot_vel: np.ndarray,
                  jacobians: np.ndarray, joint_vel: np.ndarray) -> np.ndarray:
         contacts = sample.contacts[:, 0]
@@ -1131,7 +1140,7 @@ class PyMpcGenesisController:
         if not np.any(contacts):
             self._force_requested.fill(0.0)
             self._forces.fill(0.0)
-        elif self._step_i % self._solve_stride == 0 or support_changed:
+        elif self._force_solve_due(contacts):
             started = time.perf_counter()
             solver_sample = sample
             if self._solver.backend == 'jax_mppi':

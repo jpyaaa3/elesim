@@ -169,7 +169,7 @@ def test_controller_routes_both_liftoff_and_future_preview_through_one_predictio
         np.testing.assert_array_equal(candidates, expected)
 
 
-def test_actual_sample_predicts_liftoff_and_next_stance_but_keeps_a_latched_swing():
+def sample_controller():
     from pathlib import Path
     from unittest.mock import Mock
     import pinocchio as pin
@@ -199,12 +199,18 @@ def test_actual_sample_predicts_liftoff_and_next_stance_but_keeps_a_latched_swin
     c._cmd = Go2Command(vx=.168)
     c._command_shaper = Go2CommandShaper(current=c._cmd, target=Go2Command(vx=.8))
     c._dt, c._sim_time, c._walk_started_s, c._settling = .01, 1., 0., False
+    c._step_i, c._solve_stride = 0, 2
     c._last_contacts = np.ones(4)
     c._touchdowns = FEET.copy()
     c._was_searching = np.zeros(4,dtype=bool)
     c._nominal_foot_offsets_body = FEET.copy()
     c._foot_lower, c._foot_upper = np.tile(LO+.04,(4,1)), np.tile(HI-.04,(4,1))
     c._predict_touchdowns = Mock(wraps=c._predict_touchdowns)
+    return c, q, schedule
+
+
+def test_actual_sample_predicts_liftoff_and_next_stance_but_keeps_a_latched_swing():
+    c, q, schedule = sample_controller()
     first, *_ = c._sample()
     assert c._predict_touchdowns.call_count == 2
     assert np.any(first.preview_footholds_world != first.footholds_world)
@@ -216,4 +222,32 @@ def test_actual_sample_predicts_liftoff_and_next_stance_but_keeps_a_latched_swin
     c._cmd = c._command_shaper.update(.1)
     second, *_ = c._sample()
     np.testing.assert_array_equal(second.footholds_world[swinging], first.footholds_world[swinging])
-    assert c._predict_touchdowns.call_count == 4
+    assert c._predict_touchdowns.call_count == 3
+
+
+def test_between_solves_sample_retains_actuation_state_without_unused_foothold_predictions(monkeypatch):
+    from dataclasses import fields
+    c, q, schedule = sample_controller()
+    first, *_ = c._sample()
+    c._last_contacts = schedule[:,0].copy()
+    c._touchdowns = first.footholds_world.copy()
+    c._step_i = 1
+    c._predict_touchdowns.reset_mock()
+    actual = c._sample()
+    assert c._predict_touchdowns.call_count == 0
+    with monkeypatch.context() as patch:
+        patch.setattr(c,'_force_solve_due',lambda contacts:True)
+        reference = c._sample()
+    for field in fields(actual[0]):
+        if field.name != 'preview_footholds_world':
+            np.testing.assert_equal(getattr(actual[0],field.name),getattr(reference[0],field.name))
+    for measured, expected in zip(actual[1:],reference[1:]):
+        np.testing.assert_array_equal(measured,expected)
+    assert np.any(reference[0].preview_footholds_world!=reference[0].footholds_world)
+    # A support change must prepare a new force solve even on an odd tick.
+    c._last_contacts[np.flatnonzero(schedule[:,0])[0]] = 0.
+    c._predict_touchdowns.reset_mock()
+    support_changed, *_ = c._sample()
+    assert c._predict_touchdowns.call_count == 1
+    np.testing.assert_array_equal(support_changed.preview_footholds_world,
+                                  reference[0].preview_footholds_world)

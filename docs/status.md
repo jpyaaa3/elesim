@@ -8,6 +8,19 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### GO2 4096×2 장시간 실패 재현과 계측 보완 (2026-10-22)
 
+- 정상 UI→Pilot→Sim 및 두 WebRTC 수신을 포함한 `dc5b423` 시험에서 정지 15초의
+  RTF 중앙값은 약 **.517**이었다. 전진+회전 약 **4.2초 이후 FL 착지 timeout**으로
+  실패했다. 단독 Genesis 진단의 104.3초 결과를 정상 앱의 안정성으로 대신하지 않는다.
+- 새 stereo preview 토픽을 포함한 managed SROS2 rotate를 정식 경로로 완료했다.
+  이 과정에서 rotate가 기존 역할별 GPU 선택을 지우는 오류를 발견했다. GPU 제한을
+  확인하기 전에 재시작한 것은 작업 절차 오류였다. 보행 명령 전에 두 역할을 즉시
+  중단하고 정상 instance replace로 GPU2 선택을 복구했다. 다음 시작 **전** Compose와
+  시작 후 실제 두 컨테이너의 `DeviceRequests=['2']`를 확인했다. Rotate에서도
+  compute·role_compute·viewer를 보존하는 회귀를 추가했다(**3 failed → 수정**).
+- 디딤점 예측은 새 swing 시작과 실제 force solve가 있는 tick에서만 수행한다.
+  생략한 계산을 강제로 수행한 대조와 토크 생성에 쓰는 sample 입력이 정확히 같다.
+  접촉 변화에 따른 즉시 solve는 유지한다. 새 focused **125 passed**, 전체 Sim
+  **1014 passed / 5 skipped**. GPU 설치본의 새 성능 측정은 아직 진행 중이다.
 - `09c88d8`를 push하고 양쪽 `elesim-update`를 완료했다. 기존 SROS2 역할 키와
   정책 파일의 SHA가 모두 같은 상태로 새 release binding을 정식 staging 및
   instance replace transaction으로 등록했다. 원격 Sim/Pilot의 GPU 2번을 유지했다.

@@ -920,13 +920,24 @@ def test_scoped_rotation_requires_all_targets_stopped_before_issuing_generation(
     assert calls == []
 
 
+@pytest.mark.parametrize('gpu_mode,gpu_device', [('inherit',''),('specific','2'),('cpu','')])
 def test_scoped_rotation_replaces_every_unit_then_activates_authority(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, gpu_mode: str, gpu_device: str,
 ) -> None:
+    from elesim_setup.state import ComputeSettings
     topology = _registration_topology(tmp_path, "sros2")
     old_release = _release(LOCAL_UUID, ("pilot", "sim", "ui"), marker="a")
     new_release = _release(LOCAL_UUID, ("pilot", "sim", "ui"), marker="e")
     plans = _rotation_plans(topology, new_release, old_release)
+    prior = {}
+    updated_plans = []
+    for host,unit,instance,release,previous,previous_release in plans:
+        previous = replace(previous,compute=ComputeSettings(gpu_mode,gpu_device),
+            role_compute={role:ComputeSettings('specific','2') for role in unit.roles if role in {'pilot','sim'}},
+            viewer='sim' in unit.roles)
+        prior[host.host_id] = previous
+        updated_plans.append((host,unit,instance,release,previous,previous_release))
+    plans = updated_plans
     events: list[tuple[str, str]] = []
     calls: list[tuple[str, InstanceState, ReleaseManifest, object | None, bool]] = []
     operations = {
@@ -959,6 +970,9 @@ def test_scoped_rotation_replaces_every_unit_then_activates_authority(
         assert bundle is not None
         assert bundle.generation == generation
         assert replace_existing is True
+        assert instance.compute == prior[host_id].compute
+        assert instance.role_compute == prior[host_id].role_compute
+        assert instance.viewer == prior[host_id].viewer
 
 
 def test_scoped_rotation_failure_restores_prior_state_release_and_generation(

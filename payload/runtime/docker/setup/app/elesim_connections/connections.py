@@ -1858,7 +1858,9 @@ class ConnectionDeploymentRunner:
         starting: bool = False,
     ) -> ConnectionTopology:
         plans = self._scoped_unit_plans(topology, operations)
-        if starting and runtime_options is None:
+        if (starting or action == 'rotate') and runtime_options is None:
+            # Security rotation replaces credentials and their release binding;
+            # retain the existing instance's explicitly selected GPU and viewer.
             plans = [
                 (host, unit, replace(instance, compute=previous.compute, compute_is_explicit=previous.compute_is_explicit,
                                      role_compute=previous.role_compute, viewer=previous.viewer) if previous else instance,

@@ -420,5 +420,33 @@
   "operational_ui_gate_20ad73e": {
     "passed": false,
     "reason": "Existing SROS2 policies predate /test/pilot_readiness/rgbd/left_preview; RCLError on its publisher terminated pilot-dds thread. No operational walking or video result is claimed."
+  },
+  "complete_app_ui_trial_dc5b423": {
+    "source_revision": "dc5b423b0e685b3cb5278ba787d1cae943f2a3a1",
+    "physical_gpu": "2",
+    "dt": 0.01,
+    "mppi": [
+      4096,
+      2
+    ],
+    "actual_ui_dds_webrtc": true,
+    "idle_sim_s": 15,
+    "idle_reported_rtf_median": 0.5172767009038746,
+    "last_walk_sim_s": 4.2,
+    "completed": false,
+    "error": "touchdown timeout after 0.30s: FL",
+    "artifacts_sha256": {
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-20ad73e/plan.json": "52d39d786330a8cfb4ed61d32932b5594798a07c112761e0c54da36de24b0985",
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-20ad73e/result.json": "fa5dffae6ab62ca4d01f563787cd296111f7999f3068e7fdcc4e5632b412901a",
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-20ad73e/telemetry.jsonl": "eac5622315820bfaf83d682df177706028f19a943c4604e51545e12f1866b17b",
+      "workbench/evidence/generated/gait-rtf-20261022/live-ui-20ad73e/walk.mp4": "df13ab4f26708eed8492a4b11c5b245bd50a30b70c43f11a78c96cf4cc6281f6"
+    }
+  },
+  "security_rotation_gpu_regression": {
+    "rotation_generation": "g-20261022t074151070563z-8d92ec087bf8",
+    "observed_problem": "rotate discarded role_compute; restart was attempted before reservation validation",
+    "response": "stopped both roles before walking, restored specific GPU2 through instance replace, checked Compose before restart and actual DeviceRequests after restart",
+    "red_cases": 3,
+    "fix": "preserve compute, role_compute and viewer while rotating stopped scoped units"
   }
 }
