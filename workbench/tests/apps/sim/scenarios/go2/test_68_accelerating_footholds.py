@@ -148,7 +148,7 @@ def test_controller_routes_both_liftoff_and_future_preview_through_one_predictio
     c._command_shaper = Go2CommandShaper(current=Go2Command(vx=.168),
                                        target=Go2Command(vx=.8))
     times = np.array([.18, .27, 0., .09])
-    candidates, bases = c._predict_touchdowns(
+    candidates, bases, rotations = c._predict_touchdowns(
         [0.,0.,.273], np.eye(3), [.05,0.,0.], [.168,0.,0.],
         [ .168,0.,0.], 0., times, .6/2.2)
     if backend == 'jax_mppi':
@@ -156,8 +156,10 @@ def test_controller_routes_both_liftoff_and_future_preview_through_one_predictio
         np.testing.assert_allclose(candidates, expected)
         np.testing.assert_allclose(bases[:,0], landing)
         np.testing.assert_allclose(bases[:,1], end)
+        np.testing.assert_array_equal(rotations, np.broadcast_to(np.eye(3), (4, 2, 3, 3)))
     else:
         assert bases is None
+        assert rotations is None
         expected = touchdown_candidates_world([0.,0.,.273],
             touchdown_offsets_body(FEET, command_body=[.168,0.,0.], yaw_rate=0.,
                 half_stance_s=.3/2.2, placement_scale=1.35),

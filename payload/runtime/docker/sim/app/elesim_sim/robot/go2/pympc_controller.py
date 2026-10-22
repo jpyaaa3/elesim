@@ -37,6 +37,7 @@ from elesim_sim.simulation.genesis.control_state import EntityControlStateReader
 
 _LEGS = (LegId.FL, LegId.FR, LegId.RL, LegId.RR)
 _PHASE_OFFSETS = np.array((0.0, 0.5, 0.5, 0.0))
+_GROUND_FOOT_HEIGHT_M = .025
 _SWING_TOUCHDOWN_DEPTH_M = .008
 # Current footholds target the flat floor. A 22 mm foot sphere with a 2 mm
 # local offset cannot support the body once its frame clears 30 mm.
@@ -415,13 +416,11 @@ def accelerating_touchdown_candidates(
     yaw = np.asarray(yaw_rotation, dtype=float)
     desired = yaw @ command
     velocity = np.asarray(velocity_world, dtype=float)
-    placements = touchdown_offsets_body(
-        feet, command_body=np.zeros(3), yaw_rate=yaw_rate,
-        half_stance_s=.5*float(stance_duration_s), placement_scale=placement_scale,
-    )
-    to_landing = np.array([command_shaper.preview_planar_displacement(t) for t in times])
-    to_middle = np.array([command_shaper.preview_planar_displacement(t+half_s) for t in times])
-    to_end = np.array([command_shaper.preview_planar_displacement(t+support_s) for t in times])
+    travel, headings = command_shaper.preview_planar_motion(
+        np.concatenate((times, times+half_s, times+support_s)))
+    to_landing, to_middle, to_end = np.split(travel, 3)
+    _, middle_heading, _ = np.split(headings, 3)
+    placements = Rotation.from_euler('z', middle_heading).apply(feet)
     placements[:, :2] += float(placement_scale) * (to_middle-to_landing)
     correction = np.c_[to_landing-times[:, None]*command[:2], np.zeros(len(feet))] @ yaw.T
     candidates = touchdown_candidates_world(
@@ -429,7 +428,7 @@ def accelerating_touchdown_candidates(
         desired_velocity_world=desired, remaining_swing_s=times,
         travel_correction_world=correction[:, :2],
     )
-    candidates[:, 2] = .025
+    candidates[:, 2] = _GROUND_FOOT_HEIGHT_M
     # Keep excess measured travel in the forecast, but include the upcoming
     # acceleration instead of extrapolating today's low shaped speed forever.
     forecast = np.where(np.abs(desired) > np.abs(velocity), desired, velocity).copy()
@@ -447,7 +446,7 @@ def stance_end_foothold(
     base_rotation: np.ndarray, body_velocity_world: np.ndarray,
     desired_velocity_world: np.ndarray, remaining_swing_s: float,
     stance_duration_s: float, lower: np.ndarray, upper: np.ndarray,
-    *, predicted_base_positions=None,
+    *, predicted_base_positions=None, predicted_base_rotations=None,
 ) -> tuple[np.ndarray, bool]:
     """Keep a new touchdown in reach through its predicted support interval.
 
@@ -483,9 +482,15 @@ def stance_end_foothold(
         if predicted.shape != (2, 3) or not np.isfinite(predicted).all():
             raise ValueError("foothold prediction needs finite landing/end body positions")
         landing_base, end_base = predicted
+    landing_rotation = end_rotation = base_rotation
+    if predicted_base_rotations is not None:
+        rotations = np.asarray(predicted_base_rotations, dtype=float)
+        if rotations.shape != (2, 3, 3) or not np.isfinite(rotations).all():
+            raise ValueError('foothold prediction needs finite landing/end body rotations')
+        landing_rotation, end_rotation = rotations
     projected, feasible = project_ground_target(
-        leg, target, end_base, base_rotation, lower, upper)
-    if feasible and reachable(leg, projected, landing_base, base_rotation, lower, upper):
+        leg, target, end_base, end_rotation, lower, upper)
+    if feasible and reachable(leg, projected, landing_base, landing_rotation, lower, upper):
         return projected, True
     return np.asarray(target, dtype=float).copy(), False
 
@@ -867,7 +872,8 @@ class PyMpcGenesisController:
         self._solver.reset()
 
     def _predict_touchdowns(self, base, yaw_rotation, velocity, desired_world,
-                           command_body, yaw_rate, remaining_swing_s, stance_duration_s):
+                           command_body, yaw_rate, remaining_swing_s, stance_duration_s,
+                           *, base_rotation=None):
         if self._solver.backend == 'jax_mppi':
             candidates, landing, end = accelerating_touchdown_candidates(
                 base, self._nominal_foot_offsets_body, yaw_rotation=yaw_rotation,
@@ -877,7 +883,15 @@ class PyMpcGenesisController:
                 placement_scale=float(self._config.foot_placement_scale),
                 body_height_m=float(self._config.z_pos_des_m),
             )
-            return candidates, np.stack((landing, end), axis=1)
+            times = np.broadcast_to(np.asarray(remaining_swing_s, dtype=float), (4,))
+            heading = self._command_shaper.preview_yaw_displacement(
+                np.r_[times, times+float(stance_duration_s)+.06]).reshape(2, 4).T
+            rotation = np.asarray(yaw_rotation if base_rotation is None else base_rotation)
+            sine, cosine = np.sin(heading)[..., None], np.cos(heading)[..., None]
+            rotations = np.stack((cosine*rotation[0]-sine*rotation[1],
+                                  sine*rotation[0]+cosine*rotation[1],
+                                  np.broadcast_to(rotation[2], (4, 2, 3))), axis=-2)
+            return candidates, np.stack((landing, end), axis=1), rotations
         placements = touchdown_offsets_body(
             self._nominal_foot_offsets_body, command_body=command_body,
             yaw_rate=yaw_rate, half_stance_s=.5*stance_duration_s,
@@ -888,7 +902,7 @@ class PyMpcGenesisController:
             desired_velocity_world=desired_world, remaining_swing_s=remaining_swing_s,
         )
         candidates[:, 2] = .025
-        return candidates, None
+        return candidates, None, None
 
     def _sample(self) -> tuple[PyMpcInput, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         pin = self._pin
@@ -967,11 +981,11 @@ class PyMpcGenesisController:
         stance_duration_s = float(self._config.gait_duty / self._config.gait_hz)
         base_velocity_world = rot_m @ dq[:3]
         self._base_velocity_world = base_velocity_world.copy()
-        candidates, predicted_bases = self._predict_touchdowns(
+        candidates, predicted_bases, predicted_rotations = self._predict_touchdowns(
             q[:3], yaw_rot,
             base_velocity_world if self._solver.backend == 'jax_mppi' else vel,
             cmd_world, cmd_body, yaw_rate, self._contact_gait.swing_remaining,
-            stance_duration_s,
+            stance_duration_s, base_rotation=rot_m,
         )
         swing_previous = self._swing_previous_contacts(contacts[:, 0])
         for i in range(4):
@@ -981,6 +995,7 @@ class PyMpcGenesisController:
                     self._contact_gait.swing_remaining[i], stance_duration_s,
                     self._foot_lower[i], self._foot_upper[i],
                     predicted_base_positions=(None if predicted_bases is None else predicted_bases[i]),
+                    predicted_base_rotations=(None if predicted_rotations is None else predicted_rotations[i]),
                 )
                 candidates[i] = (projected if feasible
                                  else self._reachable_target(i, candidates[i]))
@@ -993,9 +1008,9 @@ class PyMpcGenesisController:
                 contacts, gait_time=self._gait_time(), gait_hz=float(self._config.gait_hz),
             )
             if np.any(future_s):
-                future, future_bases = self._predict_touchdowns(
+                future, future_bases, future_rotations = self._predict_touchdowns(
                     q[:3], yaw_rot, base_velocity_world, cmd_world, cmd_body,
-                    yaw_rate, future_s, stance_duration_s,
+                    yaw_rate, future_s, stance_duration_s, base_rotation=rot_m,
                 )
                 for i in np.flatnonzero(future_s):
                     predicted_base = future_bases[i, 0]
@@ -1004,10 +1019,11 @@ class PyMpcGenesisController:
                         cmd_world, future_s[i], stance_duration_s,
                         self._foot_lower[i], self._foot_upper[i],
                         predicted_base_positions=future_bases[i],
+                        predicted_base_rotations=future_rotations[i],
                     )
                     if not feasible:
                         projected, feasible = project_ground_target(
-                            int(i), future[i], predicted_base, rot_m,
+                            int(i), future[i], predicted_base, future_rotations[i, 0],
                             self._foot_lower[i], self._foot_upper[i],
                         )
                     preview[i] = projected if feasible else future[i]
@@ -1159,17 +1175,22 @@ class PyMpcGenesisController:
                     # Resetting the target to the measured airborne foot both
                     # brakes the descent and can leave the entire 4 cm search
                     # above the floor. A newly lost stance has no active swing
-                    # target, so retain its measured XY and height instead.
+                    # target. Retain its measured XY, but start descent from
+                    # the known floor reference rather than an airborne height.
                     finished_swing = (
                         self._last_contacts[i] == 0
                         and self._contact_gait.swing_progress[i] >= 1.0
                     )
                     self._search_targets[i] = self._touchdowns[i] if finished_swing else feet[i]
+                    if not finished_swing:
+                        self._search_targets[i, 2] = min(feet[i, 2], _GROUND_FOOT_HEIGHT_M)
                     self._search_min_z[i] = self._search_targets[i, 2] - .04
                     if finished_swing:
                         self._search_targets[i, 2] -= self._touchdown_depths[i]
                     print(f"[go2_pympc] touchdown search leg={_LEGS[i].value} "
-                          f"sim_time={self._sim_time:.3f} foot_z={feet[i, 2]:.3f}")
+                          f"sim_time={self._sim_time:.3f} foot_z={feet[i, 2]:.3f} "
+                          f"mode={'swing' if finished_swing else 'lost_support'} "
+                          f"target_z={self._search_targets[i, 2]:.3f}")
                 # Search below the retained reference, with bounded force.
                 descent = min(
                     0.15 * self._dt,

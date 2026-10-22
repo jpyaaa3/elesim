@@ -5,11 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import math
 
+import numpy as np
+
 from elesim_sim.robot.go2.locomotion.kinematics import TROT_PHASE_OFFSET
 from elesim_sim.robot.go2.locomotion.types import ALL_LEGS, Go2Command
 
 
 _TROT_PHASE_OFFSETS = tuple(float(TROT_PHASE_OFFSET[leg]) for leg in ALL_LEGS)
+_MOTION_NODES, _MOTION_WEIGHTS = np.polynomial.legendre.leggauss(8)
+_MOTION_NODES = .5 * (_MOTION_NODES + 1.)
+_MOTION_WEIGHTS = .5 * _MOTION_WEIGHTS
 
 
 def trot_all_stance(time_s: float, *, gait_hz: float, duty: float) -> bool:
@@ -122,6 +127,61 @@ class Go2CommandShaper:
         scale = travel / distance if distance > 0.0 else 0.0
         return (float(self.current.vx) * step_s + dx * scale,
                 float(self.current.vy) * step_s + dy * scale)
+
+    def preview_yaw_displacement(self, times_s) -> np.ndarray:
+        """Integrate the bounded yaw acceleration without advancing state."""
+        times = np.asarray(times_s, dtype=float)
+        if times.ndim != 1 or not np.isfinite(times).all() or np.any(times < 0.):
+            raise ValueError('yaw preview requires finite nonnegative 1D times')
+        delta = float(self.target.yaw_rate) - float(self.current.yaw_rate)
+        ramp = np.minimum(times, abs(delta)/self.yaw_accel_radps2)
+        return (float(self.current.yaw_rate)*times
+                + math.copysign(self.yaw_accel_radps2, delta)*ramp*(times-.5*ramp))
+
+    def preview_planar_motion(self, times_s) -> tuple[np.ndarray, np.ndarray]:
+        """Forecast XY travel and yaw relative to the current body heading.
+
+        Velocity commands remain body aligned while heading changes. Split
+        quadrature at the two acceleration saturation times; steady commands
+        use an exact circular arc and straight commands an exact ramp integral.
+        The requested times are evaluated together without advancing the shaper.
+        """
+        times = np.asarray(times_s, dtype=float)
+        if times.ndim != 1 or not np.isfinite(times).all() or np.any(times < 0.):
+            raise ValueError('motion preview requires finite nonnegative 1D times')
+        current = np.array([self.current.vx, self.current.vy], dtype=float)
+        delta = np.array([self.target.vx, self.target.vy], dtype=float) - current
+        distance = float(np.linalg.norm(delta))
+        linear_ramp = distance / self.linear_accel_mps2
+        w = float(self.current.yaw_rate)
+        dw = float(self.target.yaw_rate) - w
+        yaw_ramp = abs(dw) / self.yaw_accel_radps2
+        yaw_accel = math.copysign(self.yaw_accel_radps2, dw)
+        ramp = np.minimum(times, yaw_ramp)
+        headings = w*times + yaw_accel*ramp*(times-.5*ramp)
+        if distance == 0. and dw == 0.:
+            # Stable also as w approaches zero: avoid subtracting cos(theta)
+            # from one or dividing the displacement by a small yaw rate.
+            along = times*np.sinc(headings/np.pi)
+            across = .5*times*headings*np.sinc(headings/(2.*np.pi))**2
+            return np.c_[along*current[0]-across*current[1],
+                         across*current[0]+along*current[1]], headings
+        if w == 0. and dw == 0.:
+            ramp = np.minimum(times, linear_ramp)
+            scale = self.linear_accel_mps2*ramp*(times-.5*ramp)/max(distance, 1e-12)
+            return times[:, None]*current + scale[:, None]*delta, headings
+        edges = np.sort(np.stack((np.zeros_like(times), np.minimum(times, linear_ramp),
+                                  np.minimum(times, yaw_ramp), times), axis=1), axis=1)
+        widths = np.diff(edges, axis=1)
+        nodes = edges[:, :-1, None] + widths[..., None]*_MOTION_NODES
+        velocity = current + np.minimum(nodes/max(linear_ramp, 1e-12), 1.)[..., None]*delta
+        ramp = np.minimum(nodes, yaw_ramp)
+        angle = w*nodes + yaw_accel*ramp*(nodes-.5*ramp)
+        sine, cosine = np.sin(angle), np.cos(angle)
+        rotated = np.stack((cosine*velocity[..., 0]-sine*velocity[..., 1],
+                            sine*velocity[..., 0]+cosine*velocity[..., 1]), axis=-1)
+        travel = np.sum(rotated*(widths[..., None]*_MOTION_WEIGHTS)[..., None], axis=(1, 2))
+        return travel, headings
 
     def braking_ready(self, *, time_s: float, threshold: float) -> bool:
         """Finish command braking/dwell; actual contact owns the support gate."""
