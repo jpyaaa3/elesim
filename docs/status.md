@@ -6,6 +6,18 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 실제 팔 4DOF × 독립 오차 검증 (2026-10-26, 진행 중)
+
+- Linear·Roll·두 Bend의 허용 범위에 Latin hypercube 자세를 뽑고 독립 오차
+  seed와 교차하는 RGB-D 실험을 추가했다. visibility로 자세를 버리지 않으며
+  미검출·지원 평면 부재·오보정도 평가 분모에 남긴다. 0.8 m 고정 bench base,
+  static pose, 이상적인 동기 encoder 조건이며 물리 구동 검증은 아니다.
+- Pilot의 설치된 FK와 독립 URDF FK는 무작위 80자세에서 일치했다. CPU 합성
+  12자세×8조건에서는 낮은 판을 바닥으로 수용해 약 12 cm 오보정하는 사례가
+  드러났다. configured floor height의 match tolerance로 plane identity를
+  보장할 수 없다. 이 실패를 숨기지 않고 별도 false-floor 항목에 기록한다.
+  전체 Genesis GPU2 matrix와 정식 이미지 갱신 검증은 진행 중이다.
+
 ### Sensor-only 부분 점군 기준선 (2026-10-26)
 
 - Pilot에 RGB-D·intrinsics·encoder만 허용하는 schema-1 로컬 replay packet과

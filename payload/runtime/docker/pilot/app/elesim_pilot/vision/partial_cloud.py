@@ -7,6 +7,7 @@ camera-truth fields. A caller supplies a pose derived from its robot model.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import math
 from pathlib import Path
 import zipfile
@@ -19,6 +20,41 @@ from .perception.depth_pose import CameraIntrinsics
 
 _FIELDS = frozenset({"schema_version", "color_bgr", "depth_raw", "depth_scale", "intrinsics",
                      "seq", "ts", "source_id", "source_boot_id", "calibration_id", "encoder_q"})
+
+
+class ArmCameraModel:
+    """Nominal camera FK from the installed four-DOF model and hand-eye file.
+
+    A replay may declare its fixed arm-base transform. Camera/world truth is
+    never taken from a sensor packet. This class does not command an arm.
+    """
+
+    def __init__(self, model_path, hand_eye_path, *, base_world_transform=None):
+        from .perception_bridge.hand_eye import load_hand_eye_transform
+
+        raw = json.loads(Path(model_path).read_text())
+        if raw.get("schema_version") != 1:
+            raise ValueError("unsupported arm model schema")
+        self.context = dict(raw["context"])
+        if base_world_transform is not None:
+            self.context["base_world_T"] = camera_transform(base_world_transform)
+        limits = self.context["limit"]["value"]
+        bend = math.radians(limits["bend_deg"])
+        self.lower = np.array([self.context["linear_min_m"], math.radians(limits["roll_min_deg"]), -bend, -bend])
+        self.upper = np.array([self.context["linear_max_m"], math.radians(limits["roll_max_deg"]), bend, bend])
+        if not np.all(np.isfinite([self.lower, self.upper])) or np.any(self.lower >= self.upper):
+            raise ValueError("invalid arm joint limits")
+        self.mount, meta = load_hand_eye_transform(hand_eye_path)
+        self.parent_frame = meta["parent_frame"]
+
+    def camera_pose(self, q):
+        from .perception_bridge.hand_eye import camera_world_transform
+
+        q = np.asarray(q, dtype=float)
+        if (q.shape != (4,) or not np.all(np.isfinite(q))
+                or np.any(q < self.lower-1e-9) or np.any(q > self.upper+1e-9)):
+            raise ValueError("arm replay exceeds joint limits")
+        return camera_world_transform(self.context, q, self.mount, parent_frame=self.parent_frame)
 
 
 @dataclass(frozen=True)

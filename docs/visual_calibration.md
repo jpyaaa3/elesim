@@ -179,3 +179,40 @@ Sim RGB-D intrinsics now follow the renderer's vertical FOV and integer pixel
 centre convention, verified against the actual camera during this run. The
 [pinned Genesis camera implementation](https://raw.githubusercontent.com/Genesis-Embodied-AI/genesis-world/v1.4.1/genesis/vis/camera.py)
 defines both the vertical focal length and half-pixel raster sampling.
+
+## Four-DOF pose and error matrix
+
+`vision_arm_scene.py` extends the Cartesian fixture with the installed arm URDF,
+the ZED hand-eye transform and all four joint coordinates: Linear, Roll, Bend 1
+and Bend 2. A Latin hypercube spans the declared joint limits without filtering
+poses by floor or object visibility. Each pose is crossed with independently
+seeded errors and repeated for three RGB-D captures to exercise stabilization.
+The bench arm base is explicitly fixed at Z=0.8 m. Genesis poses the actual arm
+mesh and checks its node9 transform against independent URDF FK; Pilot uses its
+own installed arm model. This remains static geometry, with ideal synchronized
+encoders, rather than physical actuation or a moving GO2 acceptance test.
+
+The eight conditions are clean depth, world tilt/height error, local camera-mount
+SE(3) error, noisy/incomplete depth, a high plane hiding the floor, a low plane
+hiding it, a finite plane with visible floor, and total depth loss. The consumer
+receives only sensor packets and the pre-existing nominal arm/hand-eye model.
+It cannot read the generated condition labels or true camera/object geometry.
+Absent targets and unsupported floors remain in the denominator. The evaluator
+counts false plane selections separately from point accuracy; an experiment may
+complete while its overall acceptance result is false.
+
+```bash
+python3 -m workbench.research.experiments.vision_arm_scene data --backend genesis --poses 24 --error-seeds 2
+python3 -m workbench.research.experiments.vision_reconstruct data/sensors predictions \
+  --arm-model /opt/elesim/data/models/arm/default.json \
+  --hand-eye /opt/elesim/data/calibration/cameras/zed_mini.hand_eye.json
+python3 -m workbench.research.experiments.vision_arm_evaluate data/truth predictions --output evaluation.json
+```
+
+`--report-only` on the evaluator preserves a failed acceptance report with a zero
+process exit status; `accepted` in that report remains false. A nearby tabletop
+and a camera height error can supply identical plane observations. The configured
+height's matching tolerance does not establish the physical identity of a lone
+plane. Likewise, local mount error rotates with Roll/Bend and can leave unknown
+XY/yaw components after per-frame floor correction. Neither case permits a
+universal millimetre accuracy guarantee over arbitrary arm poses.
