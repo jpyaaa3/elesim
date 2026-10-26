@@ -92,7 +92,11 @@ def evaluate_matrix(truth_directory, predictions):
     usable = [summary[name]["after_p95_m"] for name in ("clean","tilt_height","noisy")]
     accuracy = all(value is not None and value<.012 for value in usable)
     false_floors = sum(row["false_floor_accepted"] for row in rows)
-    guarded = all(summary[name]["corrected_cases"]==0 for name in ("missing_depth","wrong_plane"))
+    # A camera can be below the high tabletop and still see the genuine floor.
+    # Its valid floor selection is not a rejection failure merely because the
+    # producer labelled that scene 'wrong_plane'. Assess physical truth instead.
+    guarded = (summary["missing_depth"]["corrected_cases"]==0
+               and summary["wrong_plane"]["false_floor_cases"]==0)
     qs=np.array([row["q"] for row in manifest["cases"] if row["condition"]=="clean" and row["error_seed"]==0])
     return {"complete":True,"accepted":bool(accuracy and false_floors==0 and guarded),
         "backend":manifest["backend"],"cases":len(rows),"frames":len(by_name),"unique_poses":len(qs),

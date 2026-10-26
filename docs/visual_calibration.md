@@ -202,10 +202,11 @@ counts false plane selections separately from point accuracy; an experiment may
 complete while its overall acceptance result is false.
 
 ```bash
-python3 -m workbench.research.experiments.vision_arm_scene data --backend genesis --poses 24 --error-seeds 2
+python3 -m workbench.research.experiments.vision_arm_scene data --backend genesis --poses 24 --error-seeds 2 \
+  --data-root payload/data --config payload/config/sim/config.yaml
 python3 -m workbench.research.experiments.vision_reconstruct data/sensors predictions \
-  --arm-model /opt/elesim/data/models/arm/default.json \
-  --hand-eye /opt/elesim/data/calibration/cameras/zed_mini.hand_eye.json
+  --arm-model payload/data/models/arm/default.json \
+  --hand-eye payload/data/calibration/cameras/zed_mini.hand_eye.json
 python3 -m workbench.research.experiments.vision_arm_evaluate data/truth predictions --output evaluation.json
 ```
 
@@ -216,3 +217,14 @@ height's matching tolerance does not establish the physical identity of a lone
 plane. Likewise, local mount error rotates with Roll/Bend and can leave unknown
 XY/yaw components after per-frame floor correction. Neither case permits a
 universal millimetre accuracy guarantee over arbitrary arm poses.
+
+The GPU 2 run processed all 384 pose/error cases (1,152 frames). Height/tilt point
+p95 fell from 113.29 to 2.10 mm, and noisy/incomplete depth from 100.53 to 4.09 mm,
+where the object and supported floor were both available. General local mount
+SE(3) error retained 56.87 mm p95. Only 32/48 clean cases supplied a supported
+floor, and 10/48 also had object points. A low plane hiding the floor was wrongly
+accepted in 32/48 cases, worsening point p95 from 1.13 to 106.96 mm. Overall
+acceptance failed; these outcomes are not a guarantee over the whole joint space.
+The [curated record](../workbench/evidence/curated/experiments/vision_arm_matrix_20261026.json)
+and [pose matrix](../workbench/evidence/curated/experiments/vision_arm_matrix_20261026.png)
+retain availability, rejected cases and false plane selections.

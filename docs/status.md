@@ -6,17 +6,36 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 실제 팔 4DOF × 독립 오차 검증 (2026-10-26, 진행 중)
+### 실제 팔 4DOF × 독립 오차 검증 (2026-10-26)
 
 - Linear·Roll·두 Bend의 허용 범위에 Latin hypercube 자세를 뽑고 독립 오차
   seed와 교차하는 RGB-D 실험을 추가했다. visibility로 자세를 버리지 않으며
   미검출·지원 평면 부재·오보정도 평가 분모에 남긴다. 0.8 m 고정 bench base,
   static pose, 이상적인 동기 encoder 조건이며 물리 구동 검증은 아니다.
-- Pilot의 설치된 FK와 독립 URDF FK는 무작위 80자세에서 일치했다. CPU 합성
-  12자세×8조건에서는 낮은 판을 바닥으로 수용해 약 12 cm 오보정하는 사례가
-  드러났다. configured floor height의 match tolerance로 plane identity를
-  보장할 수 없다. 이 실패를 숨기지 않고 별도 false-floor 항목에 기록한다.
-  전체 Genesis GPU2 matrix와 정식 이미지 갱신 검증은 진행 중이다.
+- `4ffe351`을 push하고 양쪽 정식 updater를 실행한 뒤 GPU2 A6000에서 **24자세
+  × 8조건 × 오차 seed 2개 = 384경우, 1,152 frame**을 처리했다. Roll은
+  **−88.10..84.83°**, 두 Bend는 **−34.52..35.94° / −34.67..34.03°**다.
+  Pilot FK와 독립 URDF FK는 무작위 80자세에서 일치했고, 실제 Genesis node9
+  transform도 각 샘플에서 대조했다. Consumer에는 RGB-D/q와 nominal arm·hand-eye
+  파일만 제공했으며 truth/generator/network/GPU 접근은 없다.
+- 물체가 관측되고 보정도 가능한 경우의 위치 p95는 높이·기울기 조건
+  **113.29 → 2.10 mm**, 잡음·누락 조건 **100.53 → 4.09 mm**였다. 회전하는
+  local SE(3) 장착 오차는 **115.39 → 56.87 mm**로 남았다. 단일 frame 평면
+  제약만으로 모든 장착 오차를 복구할 수 없다.
+- 정상 조건 **48경우 중 32경우**가 바닥을 지원했고 나머지 16경우는 보정을
+  주지 않았다. 물체도 관측된 경우는 정상 10/48, tilt/height 12/48이므로
+  위 정확도를 전체 자세에 보장한다고 해석하지 않는다. 낮은 판 조건에서는
+  **32/48경우가 모두 잘못된 판을 수용**, 위치 p95가 **1.13 → 106.96 mm**로
+  악화했다. Overall acceptance는 **FAIL**이다. configured height의 허용 오차는
+  lone plane의 물리적 identity를 보장하지 않는다.
+- 높은 판 조건의 유효 선택 1건은 판 아래에서 보인 실제 바닥이었다. 평가기는
+  scene label만으로 이 경우를 오탐 처리하던 검사를 수정해 독립 정답 평면
+  geometry로 판정한다. 낮은 판 오인식 32건과 전체 FAIL은 변하지 않는다.
+- 진단 one-off는 모두 제거됐고 기존 test Sim/Pilot의 ID·이미지·실행 상태는
+  보존했다. 관련 host 회귀 **59 passed**. Canonical required는 알려진 dev
+  wrapper의 최초 의존성/image build가 진행 중이어서 아직 완료되지 않았다.
+  [수치·SHA·격리 증거](../workbench/evidence/curated/experiments/vision_arm_matrix_20261026.json),
+  [자세별 결과 그림](../workbench/evidence/curated/experiments/vision_arm_matrix_20261026.png).
 
 ### Sensor-only 부분 점군 기준선 (2026-10-26)
 

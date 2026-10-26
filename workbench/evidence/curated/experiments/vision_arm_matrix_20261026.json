@@ -1,0 +1,564 @@
+{
+  "complete": true,
+  "accepted": false,
+  "backend": "genesis",
+  "cases": 384,
+  "frames": 1152,
+  "unique_poses": 24,
+  "observed_q_min": [
+    -0.1676356522838343,
+    -1.537691681529515,
+    -0.6024399306242263,
+    -0.6050547354089896
+  ],
+  "observed_q_max": [
+    -0.006986109482433778,
+    1.4805186954009772,
+    0.6272709161242069,
+    0.5939467681330151
+  ],
+  "nominal_joint_lower": [
+    -0.172666667,
+    -1.5707963267948966,
+    -0.6283185307179586,
+    -0.6283185307179586
+  ],
+  "nominal_joint_upper": [
+    0.0,
+    1.5707963267948966,
+    0.6283185307179586,
+    0.6283185307179586
+  ],
+  "metrics": {
+    "clean": {
+      "cases": 48,
+      "corrected_cases": 32,
+      "object_cases": 10,
+      "corrected_object_cases": 10,
+      "false_floor_cases": 0,
+      "reasons": {
+        "tracking": 32,
+        "no_supported_floor_plane": 16
+      },
+      "correction_availability": 0.6666666666666666,
+      "before_p95_m": 0.0011391963558742804,
+      "after_p95_m": 0.002098259646030034,
+      "surface_p95_m": 0.0012706412113524766,
+      "case_p95_error_p95_m": 0.0022078603994599693
+    },
+    "tilt_height": {
+      "cases": 48,
+      "corrected_cases": 32,
+      "object_cases": 12,
+      "corrected_object_cases": 12,
+      "false_floor_cases": 0,
+      "reasons": {
+        "tracking": 32,
+        "no_supported_floor_plane": 16
+      },
+      "correction_availability": 0.6666666666666666,
+      "before_p95_m": 0.1132880827158936,
+      "after_p95_m": 0.002098046022690146,
+      "surface_p95_m": 0.0012650378723348538,
+      "case_p95_error_p95_m": 0.0021815539449502332
+    },
+    "mount": {
+      "cases": 48,
+      "corrected_cases": 32,
+      "object_cases": 11,
+      "corrected_object_cases": 11,
+      "false_floor_cases": 0,
+      "reasons": {
+        "tracking": 32,
+        "no_supported_floor_plane": 16
+      },
+      "correction_availability": 0.6666666666666666,
+      "before_p95_m": 0.11538919446319974,
+      "after_p95_m": 0.056872254741328086,
+      "surface_p95_m": 0.04672706849709171,
+      "case_p95_error_p95_m": 0.06143001507410592
+    },
+    "noisy": {
+      "cases": 48,
+      "corrected_cases": 32,
+      "object_cases": 12,
+      "corrected_object_cases": 12,
+      "false_floor_cases": 0,
+      "reasons": {
+        "tracking": 32,
+        "no_supported_floor_plane": 16
+      },
+      "correction_availability": 0.6666666666666666,
+      "before_p95_m": 0.1005341503503767,
+      "after_p95_m": 0.004089570685917771,
+      "surface_p95_m": 0.002664866789696268,
+      "case_p95_error_p95_m": 0.004985356402653903
+    },
+    "wrong_plane": {
+      "cases": 48,
+      "corrected_cases": 1,
+      "object_cases": 1,
+      "corrected_object_cases": 1,
+      "false_floor_cases": 0,
+      "reasons": {
+        "reference_mismatch": 30,
+        "no_supported_floor_plane": 17,
+        "tracking": 1
+      },
+      "correction_availability": 0.020833333333333332,
+      "before_p95_m": 0.0011425900510259462,
+      "after_p95_m": 0.0011623097554408894,
+      "surface_p95_m": 0.0010116726902087104,
+      "case_p95_error_p95_m": 0.0011623097554408894
+    },
+    "near_table": {
+      "cases": 48,
+      "corrected_cases": 32,
+      "object_cases": 10,
+      "corrected_object_cases": 10,
+      "false_floor_cases": 32,
+      "reasons": {
+        "tracking": 32,
+        "no_supported_floor_plane": 16
+      },
+      "correction_availability": 0.6666666666666666,
+      "before_p95_m": 0.0011338845939210457,
+      "after_p95_m": 0.10696042966069483,
+      "surface_p95_m": 0.04319050837806009,
+      "case_p95_error_p95_m": 0.107225617031505
+    },
+    "ambiguous_plane": {
+      "cases": 48,
+      "corrected_cases": 28,
+      "object_cases": 10,
+      "corrected_object_cases": 6,
+      "false_floor_cases": 0,
+      "reasons": {
+        "tracking": 28,
+        "no_supported_floor_plane": 16,
+        "ambiguous_reference": 4
+      },
+      "correction_availability": 0.5833333333333334,
+      "before_p95_m": 0.0011753792411789662,
+      "after_p95_m": 0.0013157084526222219,
+      "surface_p95_m": 0.0010832847406966688,
+      "case_p95_error_p95_m": 0.0015991042876826957
+    },
+    "missing_depth": {
+      "cases": 48,
+      "corrected_cases": 0,
+      "object_cases": 0,
+      "corrected_object_cases": 0,
+      "false_floor_cases": 0,
+      "reasons": {
+        "no_supported_floor_plane": 48
+      },
+      "correction_availability": 0.0,
+      "before_p95_m": null,
+      "after_p95_m": null,
+      "surface_p95_m": null,
+      "case_p95_error_p95_m": null
+    }
+  },
+  "false_floor_accepted_cases": 32,
+  "observable_accuracy_passed": true,
+  "far_plane_and_missing_depth_rejected": false,
+  "criteria": {
+    "observable_point_p95_below_m": 0.012,
+    "false_floor_acceptance_cases": 0,
+    "false_floor_offset_above_m": 0.025,
+    "false_floor_tilt_above_deg": 5
+  },
+  "genesis_reference_fk_max_abs": 4.424345455333878e-06,
+  "scope": "static actual arm geometry at a known fixed bench base; no actuator dynamics or exposure timing",
+  "sampling": "Latin hypercube joint poses crossed with independent error seeds; no visibility filtering",
+  "evaluation_alignment": "none; fixed declared bench coordinates",
+  "schema_version": 1,
+  "date": "2026-10-26",
+  "tested_source_revision": "4ffe3515d2e7960f6248ea6301be6ce67cdceefd",
+  "gpu": {
+    "host": "100.74.222.24",
+    "host_index": 2,
+    "uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "name": "NVIDIA RTX A6000",
+    "software_renderer": false
+  },
+  "release": {
+    "build_fingerprints": {
+      "pilot": "f0d56ce44e1c45f213083781ab4968afe53cdf8132820aded1e3024f79e3b5e6",
+      "sim": "715f73cf6c30a37a7977779775a386f25eeb4ca013800b0d79f0e6bbfe4fd4d2"
+    },
+    "image_ids": {
+      "pilot": "sha256:d0238ac1c9654fe94c515ec229a41380b2eab9278f27249cd71baa62b091bfe7",
+      "sim": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57"
+    },
+    "install_uuid": "3fc3487e-0788-4a76-a152-e485144b0d0b",
+    "platform": "linux/amd64",
+    "release_key": "5b98a8e643c604f15c4b7d98b74a57b4fd258602f810f811682f2710ab1691ba",
+    "role_images": {
+      "pilot": "elesim/pilot:merry-mole",
+      "sim": "elesim/sim:merry-gull"
+    },
+    "runtime_data_digest": "dcb47d839b0c79df19b81a7a70dad9e7f6cab768ac6e245fa5952d92983306ca",
+    "schema_version": 1,
+    "source_revision": "git-4ffe3515d2e7960f6248ea6301be6ce67cdceefd"
+  },
+  "conditions": {
+    "pose_count": 24,
+    "sampling": "Latin hypercube across declared full Linear/Roll/Bend1/Bend2 bounds",
+    "seed": 217,
+    "error_seeds": 2,
+    "conditions_per_pose": 8,
+    "captures_per_case": 3,
+    "resolution": [
+      320,
+      240
+    ],
+    "base": "known fixed bench arm base at [0,0,0.8] m, identity orientation",
+    "dynamics": "disabled; static visual arm poses, no real actuation or moving GO2",
+    "sensor": "original optical images; 0.5 mm synthetic depth noise, 1..3 mm plus 10..35% dropout in noisy condition",
+    "world_tilt_height": "independent per-error-seed rotation components within +-6 degrees and height within +-40 mm; no XY/yaw component",
+    "mount": "local SE(3) perturbation with rotation components within +-6 degrees and translation within +-40 mm; rotates with arm",
+    "negative_planes": "high plane at 0.35..0.50 m, low plane at 0.08..0.14 m, finite low plane with floor also visible",
+    "visibility_filtering": false,
+    "object_detection": "HSV red masks; no renderer segmentation"
+  },
+  "isolation": {
+    "producer": {
+      "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+      "exit_code": 0,
+      "network_mode": "none",
+      "device_requests": [
+        {
+          "Driver": "nvidia",
+          "Count": 0,
+          "DeviceIDs": [
+            "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+          ],
+          "Capabilities": [
+            [
+              "gpu"
+            ]
+          ],
+          "Options": null
+        }
+      ],
+      "mounts": [
+        {
+          "destination": "/diagnostic/run.py",
+          "read_only": true
+        },
+        {
+          "destination": "/nominal-data",
+          "read_only": true
+        },
+        {
+          "destination": "/nominal-config.yaml",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        }
+      ]
+    },
+    "consumer": {
+      "image_id": "sha256:d0238ac1c9654fe94c515ec229a41380b2eab9278f27249cd71baa62b091bfe7",
+      "exit_code": 0,
+      "network_mode": "none",
+      "device_requests": [],
+      "mounts": [
+        {
+          "destination": "/nominal/arm.json",
+          "read_only": true
+        },
+        {
+          "destination": "/nominal/hand-eye.json",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        },
+        {
+          "destination": "/diagnostic/run.py",
+          "read_only": true
+        },
+        {
+          "destination": "/sensors",
+          "read_only": true
+        }
+      ]
+    },
+    "evaluator": {
+      "image_id": "sha256:d0238ac1c9654fe94c515ec229a41380b2eab9278f27249cd71baa62b091bfe7",
+      "exit_code": 0,
+      "network_mode": "none",
+      "device_requests": [],
+      "mounts": [
+        {
+          "destination": "/truth",
+          "read_only": true
+        },
+        {
+          "destination": "/predictions",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        },
+        {
+          "destination": "/diagnostic/run.py",
+          "read_only": true
+        }
+      ]
+    }
+  },
+  "normal_services_unchanged": true,
+  "diagnostic_containers_remaining": [],
+  "script_sha256": {
+    "vision_arm_scene.py": "cb22630132160235b805849087e3ba0ab5ec778062da307049742fe9b73e4d05",
+    "vision_reconstruct.py": "e5d4e7d87838d6e7402f4cd3fe99a126cf7c01370aa91c0ce33e21206eddd8ab",
+    "vision_arm_evaluate.py": "5849753a2b1ddcd237aae53f050c7e3a4da58115f25df49a67c0a425a5bf758d"
+  },
+  "nominal_model_sha256": {
+    "pilot_arm_model": "ad00122b9ba19c77cd4d817634fba310e5e3e758e21688c52db400f2f570cbe7",
+    "sim_arm_urdf": "d21ae4ff4917306d55450de1c30f3d8eb4c841588684733cce62ba729ce4a8f6",
+    "hand_eye": "4cfba6124c6ab1287932ffc75f057ab2f1f1f3c808ab0b0b2b05a4dbbaf5579d"
+  },
+  "evidence": {
+    "generated_directory": "workbench/evidence/generated/vision-arm-matrix-20261026",
+    "remote_directory": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-4ffe351-def0c73f",
+    "bundle_sha256": "0f65d1ff80d9def084b57bd77ffa4eeddccb755618fd3000c4b2a88cdef804a1",
+    "bundle_bytes": 6752100,
+    "file_sha256": {
+      "result.json": {
+        "sha256": "14974414eb3d1fa74fad033f22bce86e9ec149403ddfcab6330e66dfa3edfa0f",
+        "bytes": 240091
+      },
+      "provenance.json": {
+        "sha256": "44ef20599cf3cd027820ee90bbc5fa4852e31ce71ee52f537a0f78f436fae0b4",
+        "bytes": 7165
+      },
+      "update-result.json": {
+        "sha256": "a1ac08ed5187827bbdfdb091bc41c556c65dea531d960a3e1ca8f98c9722d320",
+        "bytes": 336
+      },
+      "experiment-manifest.json": {
+        "sha256": "b3824f3b4e535a1fab91a6fe34fb96296b37448a44a0d7b001d00d0d4c82ebb7",
+        "bytes": 376
+      },
+      "producer.log": {
+        "sha256": "6c6329357b5ce08a34eb5d7cea2a190db7493729220e120791d45389de054e7a",
+        "bytes": 1604
+      },
+      "consumer.log": {
+        "sha256": "ca538cb452cbf79366aa3f86e723fb81233adff6b499c6f81f0ce5b338173496",
+        "bytes": 592
+      },
+      "evaluator.log": {
+        "sha256": "e3ba09190ed3dfe04eac5394d37514786627a99768936ac5ee8b43c42d7db5f7",
+        "bytes": 4773
+      },
+      "coordinator.log": {
+        "sha256": "4ab5d48abd0236d8cc0cb0779f87f513b1d3c583d8e382b2ae459536cd0bcfb5",
+        "bytes": 109
+      },
+      "remote_arm.py": {
+        "sha256": "2e002b02b6346221e3c1b2c6d4b3454fab8c2178c72d00a9f910c4d1e74dc9f1",
+        "bytes": 12016
+      },
+      "vision_arm_scene.py": {
+        "sha256": "cb22630132160235b805849087e3ba0ab5ec778062da307049742fe9b73e4d05",
+        "bytes": 16912
+      },
+      "vision_reconstruct.py": {
+        "sha256": "e5d4e7d87838d6e7402f4cd3fe99a126cf7c01370aa91c0ce33e21206eddd8ab",
+        "bytes": 4810
+      },
+      "vision_arm_evaluate.py": {
+        "sha256": "5849753a2b1ddcd237aae53f050c7e3a4da58115f25df49a67c0a425a5bf758d",
+        "bytes": 7312
+      },
+      "producer.compose.yaml": {
+        "sha256": "58f33c9cff17cf46355bdc356731f8016150024940e1168fd18ed4566f05804f",
+        "bytes": 1748
+      },
+      "consumer.compose.yaml": {
+        "sha256": "630b5d73e507226fd18027b353fb19c260fe75ff97ea5271e7173186d4fd7bb0",
+        "bytes": 1839
+      },
+      "evaluator.compose.yaml": {
+        "sha256": "20df63e065e3c80c9a67f04d8bb3771760fd0f105350d507dda5d1db9307fc31",
+        "bytes": 1402
+      },
+      "evaluation/evaluation.json": {
+        "sha256": "719ae77c2b6d96e645c17a4d1b7c7be13d1beedfc71abb57d77834b944cfd09a",
+        "bytes": 216288
+      },
+      "consumer/predictions/result.json": {
+        "sha256": "727b411b1b830692261aa829cf55ca861098e2e6158cbd7bc07f6fae2da99206",
+        "bytes": 2443069
+      },
+      "produced/data/truth/manifest.json": {
+        "sha256": "e9af8ce618d3170c49808c7f61bfc159f5912b2debe8945cb188a1c30acd1e1c",
+        "bytes": 349354
+      },
+      "produced/data/sensors/view-0001-2.npz": {
+        "sha256": "87f3ff20f37babe917d7ea2d957e229e0f0db403045e5eb15d352f47b1daa305",
+        "bytes": 247724
+      },
+      "consumer/predictions/view-0001-2.npz": {
+        "sha256": "28379f154f1354c66ec3224ced66ac6b44facdca6c4e3ab8fbb64245854269b9",
+        "bytes": 65393
+      },
+      "produced/data/truth/case-0001.npz": {
+        "sha256": "127a8b8c44bf81e31ddd3990d511190ad36ffa442cfdb5be47f4a99213b273e3",
+        "bytes": 180422
+      },
+      "produced/data/sensors/view-0048-2.npz": {
+        "sha256": "aeb3f92a6f5ad4c8e1af9ff0c708cdc6817d74dff5a72d417587710a9944c2bf",
+        "bytes": 242280
+      },
+      "consumer/predictions/view-0048-2.npz": {
+        "sha256": "19a5038f8f5609deab5da99c4f658fe5d3cb2a2a0892c6a2e054eaf095527392",
+        "bytes": 35156
+      },
+      "produced/data/truth/case-0048.npz": {
+        "sha256": "9a69f8828e803fbf43ae66603cc312548b16366fec99ec430ec47f12a6aa7d17",
+        "bytes": 162675
+      },
+      "produced/data/sensors/view-0097-2.npz": {
+        "sha256": "56c76d997817a66b8f8c2c9143110734be040bbf5e7d9a0c8b05a62d0b532980",
+        "bytes": 242568
+      },
+      "consumer/predictions/view-0097-2.npz": {
+        "sha256": "0e4a9d12bed8cefa7a810a42b79c29d629a972da9f5ddfe21fedc15220355b83",
+        "bytes": 58609
+      },
+      "produced/data/truth/case-0097.npz": {
+        "sha256": "78fbab02d00f04886bb980a5db3c8d4488e644d484080e0f358fc3c8158badfd",
+        "bytes": 169200
+      },
+      "produced/data/sensors/view-0144-2.npz": {
+        "sha256": "ee90cebbc4a0e3e35e25aaf3b83282d5c99e348db2ff464878a0db95a7197ab2",
+        "bytes": 217548
+      },
+      "consumer/predictions/view-0144-2.npz": {
+        "sha256": "122e6d7ed42aa21a7d930ae724868917c0e2167799b996f2b7b4ca49c82694d3",
+        "bytes": 2159
+      },
+      "produced/data/truth/case-0144.npz": {
+        "sha256": "6782b84b00e40481ab6439fe84023abe0a86bd02f76cbc731b48a1211b92c8ef",
+        "bytes": 156516
+      },
+      "produced/data/sensors/view-0241-2.npz": {
+        "sha256": "dfff3f9878c56bb3497c920435e92bf2033d0ae91403f30968d86149ddc884d2",
+        "bytes": 246658
+      },
+      "consumer/predictions/view-0241-2.npz": {
+        "sha256": "a944ee7766631e26e074368bc4fb0d98da84f81a64ef8131e0807efe65dc47fc",
+        "bytes": 37516
+      },
+      "produced/data/truth/case-0241.npz": {
+        "sha256": "59d4e9220e47d95c1b6f35b05ae31e393864a2ef91d2289ebd1d3e3134c10270",
+        "bytes": 180272
+      },
+      "produced/data/sensors/view-0289-2.npz": {
+        "sha256": "02a616f8ae6890b7fe154bed0ae67a05f117d95009be6bf89053f10d9835319b",
+        "bytes": 247645
+      },
+      "consumer/predictions/view-0289-2.npz": {
+        "sha256": "ec0d1f6c2dfa0d50804e87d7185de2a9db0f149f97f727dc086b9d0583ca01c4",
+        "bytes": 65440
+      },
+      "produced/data/truth/case-0289.npz": {
+        "sha256": "127a8b8c44bf81e31ddd3990d511190ad36ffa442cfdb5be47f4a99213b273e3",
+        "bytes": 180422
+      },
+      "produced/data/sensors/view-0336-2.npz": {
+        "sha256": "ad17cbe2c92a25e86859b977e119c0c4df6e778633c7a1c85307163d255ef771",
+        "bytes": 8085
+      },
+      "consumer/predictions/view-0336-2.npz": {
+        "sha256": "09243aab0063d28801823a5ee77db187588e30163e1862691356efc169b88f0b",
+        "bytes": 812
+      },
+      "produced/data/truth/case-0336.npz": {
+        "sha256": "ac1bfb69170331ccadac7da7c7c2ffe1b115eaa00b8c63073ddf135dc70ade15",
+        "bytes": 154943
+      },
+      "consumer/predictions/cloud-06e08baf001f4f6aaeb7a3df0d8b21f8.npy": {
+        "sha256": "92b2ee8b93f217893553178adecbaf57c30946561a969389eddfe049082331d5",
+        "bytes": 177104
+      },
+      "consumer/predictions/cloud-0aaf90982a944605803d410d0e15c6fd.npy": {
+        "sha256": "5085a5cb1fc6ca40d8d33360d5995ff413e39f032da105d5d422659728e4c12a",
+        "bytes": 397448
+      },
+      "consumer/predictions/cloud-103768ce16924de3b64c1ffce02f992e.npy": {
+        "sha256": "6614c24ce2bb6f8599ea4df686171f54b9c7248daf4f38a7986507f8f9853733",
+        "bytes": 363320
+      },
+      "consumer/predictions/cloud-27c16666de9546038409dbf0ad8dee5e.npy": {
+        "sha256": "7d4356a97b9dee82f3593a0a32d9d7b001dfe0dc57c00604b45be6d54289e220",
+        "bytes": 68456
+      },
+      "consumer/predictions/cloud-2d65cfc0d04448349073de955039ad4a.npy": {
+        "sha256": "b7a4e3a4c9f6209aa33a948b1114a4bb3fde2215e531c8429147501e37ac4931",
+        "bytes": 208136
+      },
+      "consumer/predictions/cloud-351e8defc12d48169a50fc7c82097843.npy": {
+        "sha256": "663a5ffe7e810cdc1262292e8cecff9fc4f2122b6e3ea08f84f94a3c01de88a2",
+        "bytes": 339704
+      },
+      "consumer/predictions/cloud-4af2d3a7e5104e87b13d838b3a0477d1.npy": {
+        "sha256": "2e2f071b5e67934b9ab5744cd4b2946d68c278e62581255b745da96d7bea2539",
+        "bytes": 363824
+      },
+      "consumer/predictions/cloud-7dd9b159c2364617896d01919a3f164f.npy": {
+        "sha256": "bccedd2e2acf49ed25a1b498609e498f8aa02289891e6eb3f4039ded2314cc6a",
+        "bytes": 131432
+      },
+      "consumer/predictions/cloud-87a0c3cb8ca8458ab98f6d1e4cb67fd0.npy": {
+        "sha256": "73cfea6772dad54e84eaaa02687f2558595f051cb4687c6671d02ffeb65c63e7",
+        "bytes": 416552
+      },
+      "consumer/predictions/cloud-b1ce4b8e93e04a5fae18df9c90ef54fb.npy": {
+        "sha256": "3b2595636e574e6c9fe901ec8ba9bab49d411b23e574bd035b3f9990fb4aa90b",
+        "bytes": 131264
+      },
+      "consumer/predictions/cloud-d7f6171ac8d6456eaa77314b1aebe1f7.npy": {
+        "sha256": "6e59bf4f48ad0654ab546eeffeec0b0fc4d496bcdf6fc86463bc5e4564612194",
+        "bytes": 381368
+      },
+      "consumer/predictions/cloud-e76d82ed2a4c48aeba276f099d195c5b.npy": {
+        "sha256": "1391bec40090337b1873b517273ba239d0ba52f7f2e58fff421e1aaba6cd0c78",
+        "bytes": 360560
+      },
+      "consumer/predictions/cloud-ef7dfcee0710455982f8b24a9a9ee95a.npy": {
+        "sha256": "4081400bacfe96ac35f2e82e6f1f202635759f0afb4e958219e1faf3682d738b",
+        "bytes": 364136
+      }
+    }
+  },
+  "figure": {
+    "path": "vision_arm_matrix_20261026.png",
+    "sha256": "09aab670f427632a3a134523f938e3ba257ba69f6394a69fa0ef4acf02abb5f4",
+    "generator": "workbench/research/analysis/vision_arm_matrix_plot.py"
+  },
+  "limitations": [
+    "static bench geometry and ideal encoders, not physical sensor/arm accuracy",
+    "supporting plane unavailable for 16/48 clean pose-seed cases",
+    "independent object points available in only 10/48 clean and 12/48 tilt-height cases",
+    "per-frame plane constraints cannot recover all local mount SE(3) errors",
+    "a nearby table hiding the floor can be indistinguishable from camera height error",
+    "no completion model, no object grasp or live workflow acceptance"
+  ],
+  "evaluation_note": "Original evaluator wrongly counted one genuine visible floor in the high-plane condition as a rejection failure by scene label. Its physical selected-plane classification is correct (false_floor_cases=0); revised evaluator checks that geometry instead. Overall acceptance still fails due to 32 low-plane false accepts.",
+  "host_regression": {
+    "passed": 59,
+    "canonical_required": "development attachment first build still running"
+  }
+}

@@ -124,3 +124,14 @@ def test_arm_rgbd_matrix_keeps_absent_targets_and_reports_failures(tmp_path):
     assert not result["accepted"]
     summary = json.loads((tmp_path/"predictions/result.json").read_text())
     assert len(summary["frames"]) == generated["frames"]
+    # Scene condition labels cannot override the selected plane's independent
+    # geometry. A genuine floor can remain visible below a high tabletop.
+    clean = next(row for row in result["rows"] if row["condition"] == "clean" and row["floor_valid"])
+    manifest_path = produced/"truth/manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    next(row for row in manifest["cases"] if row["case_id"] == clean["case_id"])["condition"] = "wrong_plane"
+    manifest_path.write_text(json.dumps(manifest))
+    relabelled = evaluate_matrix(produced/"truth", tmp_path/"predictions")
+    assert relabelled["metrics"]["wrong_plane"]["corrected_cases"] == 1
+    assert relabelled["metrics"]["wrong_plane"]["false_floor_cases"] == 0
+    assert relabelled["far_plane_and_missing_depth_rejected"]
