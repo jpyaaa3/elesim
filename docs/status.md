@@ -6,6 +6,53 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 물리 적분까지 전체 50 Hz로 맞춘 실제 실행 (2026-10-23)
+
+- 사용자 요청에 따라 `7e84048` 정식 설치 이미지의 진단 실행에서 dt **.02**,
+  substeps **1**로 물리 내부 적분도 **50 Hz**로 바꿨다. 팔 명령·다리 토크
+  갱신·MPPI 모두 50 Hz이며 실제 MPPI stride는 **1**이다. GPU2·4096×2,
+  기존 팔·DDS 모터 경로·RGB-D와 두 1280×720 WebRTC를 유지했다.
+  토크 필터 alpha는 100→50 Hz에서 같은 시간상수를 유지하도록 **.5→.75**로
+  바꿨고, 이미 MPPI 50 Hz에서 적용되던 force alpha **.7**은 유지했다.
+- 정지 측정 구간은 clock RTF **1.000**이었다. Walk 첫 1초를 제외한 **153 tick**의
+  전체 loop 평균은 **23.07 ms**, p95 **33.13 ms**, 실제 clock RTF **.860**이다.
+  전체 정상 walk 203 tick의 평균은 **23.57 ms / RTF .842**였고 **72.4%**가
+  20 ms 예산을 넘었다. 기존 100 Hz는 MPPI가 두 tick마다 실행되지만 이
+  구성은 매 tick 실행되므로 한 step 비용이 같다고 가정하지 않는다.
+- 전진 명령 후 **4.90 sim초**, 실제 walk 진입 후 **4.06 sim초**에 네 발의
+  `touchdown timeout after 0.30s: FL,FR,RL,RR`로 실패했다. 마지막 UI pitch는
+  약 **−.391 rad**였고 요청한 20초 전진을 완료하지 못했다. 현재 revision의
+  100 Hz 대조도 fault가 있었으므로, 이 단일 실행으로 주기 하향만을 실패
+  원인으로 확정하지 않는다. 실시간 성능과 정상 보행의 동시 통과는 미달이다.
+- 종료 후 기존 **100 Hz** Sim/Pilot의 정확한 컨테이너·이미지·GPU2 실행 상태를
+  복원했다. 운영 설정·소스 기본값은 변경하지 않았다.
+  [조건·결과·원시 파일 SHA](../workbench/evidence/curated/sim/all50_20261023.json).
+
+### CPU 물리 + GPU MPPI와 전체 GPU 배치의 첫 비교 (2026-10-23)
+
+- 양쪽 정식 updater와 기존 키·정책을 보존하는 등록 API로 `7e84048`을 적용했다.
+  원격 test의 실제 Sim 이미지는 `cfc4bc915652`, Pilot은 `ac1f3b62f32b`이며
+  두 역할의 GPU reservation은 `['2']`다. 같은 이미지·설정에서 parent Genesis
+  초기화만 GPU/CPU로 바꿨다. 전역 `use_gpu=True`, MPPI 4096×2·명목 50 Hz,
+  dt .01/substeps 2, 팔 쓰기, SROS2 DDS, RGB-D와 두 1280×720 WebRTC를 유지했다.
+  CPU 물리 실행에서도 MPPI `cuda:0`, NVIDIA GL renderer와 NVENC를 확인했다.
+- 두 실행의 설정·제어 코드 hash는 같았지만 실제 보행 궤적은 달라졌다.
+  walk 진입 후 첫 100 tick을 제외한 다음 **200 tick**의 전체 루프 평균은
+  GPU 물리 **18.87 ms**, CPU 물리 **17.35 ms**였다. 주 스레드 CPU 시간은
+  **13.47 / 11.20 ms**, 나머지 경과 시간은 **5.39 / 6.14 ms**다.
+  나머지 시간에는 scheduling·lock·device 대기가 섞이므로 순수 GPU 계산
+  시간으로 해석하지 않는다. 단일 실행의 약 8% 차이를 반복 검증한 개선으로
+  확정하지 않는다.
+- GPU는 walk 시작 약 **3.32 sim초** 뒤 finite force trajectory fault,
+  CPU는 약 **6.52 sim초** 뒤 touchdown timeout으로 실패했다. CPU 실행은
+  전진도 거의 이루지 못했다. 둘 다 요청한 20초 전진을 완료하지 못했으므로
+  CPU 배치 채택이나 정상 보행의 속도 우위를 입증한 결과가 아니다.
+  두 실행 모두 종료 후 원래 Sim/Pilot 실행 상태를 복원했다.
+- GPU 재측정과 CUDA/CPU 세부 추적은 자동 승인 검토의 workspace 지출 한도로
+  진행하지 못했다. 운영 물리 backend는 GPU를 유지한다. 진단 코드는 generated
+  evidence에만 있으며 production 로직 변경은 없다.
+  [조건·결과·원시 파일 SHA](../workbench/evidence/curated/sim/backend_placement_20261023.json).
+
 ### 명목 네 발 지지 시간과 실제 착지 대기의 중복 (2026-10-23)
 
 - `900f841`을 양쪽 정식 update/등록 후 전체 앱·원격 GPU2로 검증했다. 일반 착지

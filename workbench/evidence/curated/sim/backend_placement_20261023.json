@@ -1,0 +1,513 @@
+{
+  "date": "2026-10-23",
+  "source_revision": "7e840481a9b9d423c82a8d5cd5380b96fffc7d7d",
+  "status": "partial; two clean full-app attempts both faulted, repeat and main-process CUDA trace blocked by approval-review workspace spend cap",
+  "remote_host": "hckang@100.74.222.24",
+  "gpu_physical_index": "2",
+  "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+  "gpu_model": "NVIDIA RTX A6000",
+  "cpu_model": "Intel Xeon Gold 5218R CPU @2.10GHz (2 sockets, 80 logical CPUs)",
+  "comparison": {
+    "scope": "First matched attempt on remote GPU 2; CPU Genesis physics vs GPU Genesis physics, same GPU JAX MPPI and cameras. Each trial faulted; no completed walking acceptance or CUDA trace.",
+    "window": "Moving ticks 100..299, 200 ticks each after entering walk_stage with vx >= .1; excludes first 100 moving ticks; same command .8 m/s, different realized trajectories",
+    "trials": {
+      "gpu-b": {
+        "ticks": 200,
+        "wall_mean_ms": 18.866476345000002,
+        "wall_p50_ms": 18.839741500000002,
+        "wall_p95_ms": 27.490026299999982,
+        "thread_cpu_mean_ms": 13.47182114,
+        "off_cpu_elapsed_mean_ms": 5.394655205,
+        "measured_clock_rtf": 0.5254761822121694,
+        "start_sim_s": 14.88,
+        "end_sim_s": 16.87,
+        "start_position": [
+          0.15031315386295319,
+          -0.04329369589686394,
+          0.3019261658191681
+        ],
+        "end_position": [
+          1.128143072128296,
+          -0.14217416942119598,
+          0.3058459758758545
+        ]
+      },
+      "cpu-a": {
+        "ticks": 200,
+        "wall_mean_ms": 17.346510785,
+        "wall_p50_ms": 16.94841,
+        "wall_p95_ms": 27.23319389999999,
+        "thread_cpu_mean_ms": 11.202888100000001,
+        "off_cpu_elapsed_mean_ms": 6.143622685,
+        "measured_clock_rtf": 0.5717394037735604,
+        "start_sim_s": 12.950000000000001,
+        "end_sim_s": 14.94,
+        "start_position": [
+          0.07205414026975632,
+          -0.06916923820972443,
+          0.30093979835510254
+        ],
+        "end_position": [
+          -0.03575943037867546,
+          0.0300474651157856,
+          0.28198307752609253
+        ]
+      }
+    },
+    "observed_cpu_wall_reduction_fraction": 0.08056435829379582
+  },
+  "controls": {
+    "dt_s": 0.01,
+    "substeps": 2,
+    "mppi_samples": 4096,
+    "mppi_iterations": 2,
+    "mppi_nominal_hz": 50,
+    "mppi_actual_device_both": "cuda:0 (container mapped physical GPU2)",
+    "cameras_both": [
+      "observer 1280x720",
+      "hand_eye_preview 1280x720"
+    ],
+    "encoder_both": "h264_nvenc",
+    "security_profile": "sros2",
+    "normal_pilot_dds_motion": true,
+    "rgbd_runtime_enabled": true,
+    "rgbd_ui_counter_exposed": false,
+    "global_sim_use_gpu_both": true,
+    "only_parent_genesis_backend_changed": true
+  },
+  "trials": {
+    "gpu-b": {
+      "physics_backend": "backend.cuda",
+      "state_tensor_device": "cuda:0",
+      "solver_device": "cuda:0",
+      "solver_stride": 2,
+      "ui_complete": false,
+      "fault": "RuntimeError: GO2 controller fault: GPU MPC produced no finite force trajectory",
+      "first_fault_sim_s": 17.2,
+      "max_ui_tilt_rad": 0.1608677915532779,
+      "actual_decoded_resolutions": {
+        "observer": [
+          [
+            1280,
+            720
+          ]
+        ],
+        "hand_eye_preview": [
+          [
+            1280,
+            720
+          ]
+        ]
+      },
+      "received_frames": {
+        "observer": 500,
+        "hand_eye_preview": 498
+      },
+      "normal_restored": true,
+      "source": "git-7e840481a9b9d423c82a8d5cd5380b96fffc7d7d",
+      "provenance": {
+        "sim": {
+          "service": "svc-test-sim-readiness-c539c9eacd40eb82be9248b70089b842baf793273edb8366c40f485b9a1e3ed5",
+          "image_id": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+          "gpu": [
+            "2"
+          ],
+          "compose_config_sha256": "d2178be4da8f9258c520ab9e4c2af0af77dd0c321f7ee9ca8ff765a4bd84f21c"
+        },
+        "pilot": {
+          "service": "svc-test-pilot-readiness-d39169984432beb78b10f10fc15cf26d5ded22898e1164f06eb9c49f5a9611af",
+          "image_id": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+          "gpu": [
+            "2"
+          ],
+          "compose_config_sha256": "d903bbf9e9de1748cc5c84a6b15e97d1bc9de2aadb787299c7e61515deab3c6e"
+        }
+      },
+      "devices": {
+        "backend": "backend.cuda",
+        "device": "cuda:0",
+        "state_tensor_device": "cuda:0",
+        "solver_device": "cuda:0",
+        "solver_backend": "jax_mppi",
+        "solver_stride": 2,
+        "controller_type": "PyMpcGenesisController",
+        "genesis_zerocopy": true
+      },
+      "standing": {
+        "ticks": 735,
+        "actual_clock": {
+          "intervals": 734,
+          "simulated_s": 7.34,
+          "wall_s": 7.890065163999999,
+          "realtime_factor": 0.9302838249663917,
+          "method": "Sum adjacent selected non-reset sim-clock increments / sum wall-start increments"
+        },
+        "wall_ms": {
+          "n": 735,
+          "total": 7811.806858000001,
+          "mean": 10.628308650340138,
+          "p50": 9.715991,
+          "p95": 17.87883,
+          "minimum": 5.038174,
+          "maximum": 33.181961
+        },
+        "thread_cpu_ms": {
+          "n": 735,
+          "total": 5712.490799,
+          "mean": 7.772096325170068,
+          "p50": 6.956441,
+          "p95": 12.018661699999996,
+          "minimum": 4.650043,
+          "maximum": 24.956794
+        },
+        "process_cpu_ms": {
+          "n": 735,
+          "total": 12840.680576,
+          "mean": 17.470313708843538,
+          "p50": 16.103187,
+          "p95": 31.041126499999997,
+          "minimum": 5.133464,
+          "maximum": 57.595593
+        },
+        "off_cpu_elapsed_ms": {
+          "n": 735,
+          "total": 2099.316059,
+          "mean": 2.8562123251700684,
+          "p50": 2.4523480000000006,
+          "p95": 6.589258699999998,
+          "minimum": -0.0023999999999997357,
+          "maximum": 11.391696000000001
+        },
+        "off_cpu_scope": "Elapsed minus main-thread CPU; scheduling/locks/device waits, not GPU execution time"
+      },
+      "moving_all": {
+        "ticks": 332,
+        "actual_clock": {
+          "intervals": 331,
+          "simulated_s": 3.3100000000000005,
+          "wall_s": 6.246253930000002,
+          "realtime_factor": 0.5299176173582171,
+          "method": "Sum adjacent selected non-reset sim-clock increments / sum wall-start increments"
+        },
+        "wall_ms": {
+          "n": 332,
+          "total": 6214.965231,
+          "mean": 18.719774792168675,
+          "p50": 18.643555,
+          "p95": 27.657082899999995,
+          "minimum": 8.955311,
+          "maximum": 39.003194
+        },
+        "thread_cpu_ms": {
+          "n": 332,
+          "total": 4399.625771,
+          "mean": 13.251884852409638,
+          "p50": 13.0149255,
+          "p95": 18.02713395,
+          "minimum": 7.198146,
+          "maximum": 25.763404
+        },
+        "process_cpu_ms": {
+          "n": 332,
+          "total": 22131.365768000003,
+          "mean": 66.66074026506026,
+          "p50": 66.458027,
+          "p95": 97.07702019999999,
+          "minimum": 27.066273,
+          "maximum": 136.842811
+        },
+        "off_cpu_elapsed_ms": {
+          "n": 332,
+          "total": 1815.3394600000001,
+          "mean": 5.467889939759036,
+          "p50": 5.3438110000000005,
+          "p95": 10.271140999999998,
+          "minimum": 0.1614570000000004,
+          "maximum": 13.242678000000002
+        },
+        "off_cpu_scope": "Elapsed minus main-thread CPU; scheduling/locks/device waits, not GPU execution time"
+      },
+      "moving_trimmed": {
+        "ticks": 232,
+        "actual_clock": {
+          "intervals": 231,
+          "simulated_s": 2.3100000000000005,
+          "wall_s": 4.31156154,
+          "realtime_factor": 0.5357687646504057,
+          "method": "Sum adjacent selected non-reset sim-clock increments / sum wall-start increments"
+        },
+        "wall_ms": {
+          "n": 232,
+          "total": 4293.3827949999995,
+          "mean": 18.50596032327586,
+          "p50": 18.5265165,
+          "p95": 27.327335249999997,
+          "minimum": 8.955311,
+          "maximum": 33.909567
+        },
+        "thread_cpu_ms": {
+          "n": 232,
+          "total": 3066.369752,
+          "mean": 13.217111000000001,
+          "p50": 12.9972145,
+          "p95": 17.811729999999997,
+          "minimum": 7.198146,
+          "maximum": 25.763404
+        },
+        "process_cpu_ms": {
+          "n": 232,
+          "total": 15325.620139,
+          "mean": 66.05870749568966,
+          "p50": 66.086631,
+          "p95": 95.64441839999999,
+          "minimum": 27.066273,
+          "maximum": 132.566723
+        },
+        "off_cpu_elapsed_ms": {
+          "n": 232,
+          "total": 1227.013043,
+          "mean": 5.288849323275862,
+          "p50": 5.252163500000001,
+          "p95": 10.15773625,
+          "minimum": 0.1614570000000004,
+          "maximum": 12.891704999999998
+        },
+        "off_cpu_scope": "Elapsed minus main-thread CPU; scheduling/locks/device waits, not GPU execution time"
+      },
+      "raw_directory": "workbench/evidence/generated/backend-placement-20261023/gpu-b",
+      "sha256": {
+        "configuration.json": "52ccf3f1821a22650cefbe1f4cceaeba078b57c10175ceded60b2ea170576925",
+        "ticks.npz": "3daf56b419dbf1574ed6284f2f457fd1e6c5d1013a545a04e9de33b44ae189db",
+        "loop.csv": "4bd8d093a16cbc4b513de68ca97eb00ae1109769ebf523631bda289f993fc787",
+        "telemetry.jsonl": "e6cc40a4e9b5effb09de37cd453e8ae5e62ad8b1a6830a279fc1b5f9bff7f4d8",
+        "ui-result.json": "59f794e85fb4e376d77a217e0ab62397cb2f40cee7f64a1ea9819023b6a3533c",
+        "result.json": "d937572c5c2689e6496738c5ccb58ad97fe5ad86195669b7241973d72a1a8dc5",
+        "runtime.log": "4a2826a3fddcb375126af631e0317ea0ae06447186a50354333def4642a65700",
+        "sim_probe.py": "b9710e35e603565726a96c0cd1c17c002fbc634c83d9cf9587a3696e87f3295c",
+        "remote_trial.py": "67cd33c7a456b0ea98e48f4d063d30cb4d1cf30abffe17ac22871809dbd88ca2",
+        "ui_probe.py": "42e6b343657763608fd61676d7619c89547c6c3b663ca0072c904e4be3f76895"
+      }
+    },
+    "cpu-a": {
+      "physics_backend": "backend.cpu",
+      "state_tensor_device": "cpu",
+      "solver_device": "cuda:0",
+      "solver_stride": 2,
+      "ui_complete": false,
+      "fault": "RuntimeError: GO2 controller fault: touchdown timeout after 0.30s: FL,FR,RL",
+      "first_fault_sim_s": 18.47,
+      "max_ui_tilt_rad": 0.32364562786672946,
+      "actual_decoded_resolutions": {
+        "observer": [
+          [
+            1280,
+            720
+          ]
+        ],
+        "hand_eye_preview": [
+          [
+            1280,
+            720
+          ]
+        ]
+      },
+      "received_frames": {
+        "observer": 609,
+        "hand_eye_preview": 610
+      },
+      "normal_restored": true,
+      "source": "git-7e840481a9b9d423c82a8d5cd5380b96fffc7d7d",
+      "provenance": {
+        "sim": {
+          "service": "svc-test-sim-readiness-c539c9eacd40eb82be9248b70089b842baf793273edb8366c40f485b9a1e3ed5",
+          "image_id": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+          "gpu": [
+            "2"
+          ],
+          "compose_config_sha256": "d2178be4da8f9258c520ab9e4c2af0af77dd0c321f7ee9ca8ff765a4bd84f21c"
+        },
+        "pilot": {
+          "service": "svc-test-pilot-readiness-d39169984432beb78b10f10fc15cf26d5ded22898e1164f06eb9c49f5a9611af",
+          "image_id": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+          "gpu": [
+            "2"
+          ],
+          "compose_config_sha256": "d903bbf9e9de1748cc5c84a6b15e97d1bc9de2aadb787299c7e61515deab3c6e"
+        }
+      },
+      "devices": {
+        "backend": "backend.cpu",
+        "device": "cpu",
+        "state_tensor_device": "cpu",
+        "solver_device": "cuda:0",
+        "solver_backend": "jax_mppi",
+        "solver_stride": 2,
+        "controller_type": "PyMpcGenesisController",
+        "genesis_zerocopy": true
+      },
+      "standing": {
+        "ticks": 730,
+        "actual_clock": {
+          "intervals": 729,
+          "simulated_s": 7.290000000000001,
+          "wall_s": 7.284543496000012,
+          "realtime_factor": 1.0007490522917442,
+          "method": "Sum adjacent selected non-reset sim-clock increments / sum wall-start increments"
+        },
+        "wall_ms": {
+          "n": 730,
+          "total": 7194.178918,
+          "mean": 9.85503961369863,
+          "p50": 9.6373945,
+          "p95": 15.464116399999996,
+          "minimum": 3.455088,
+          "maximum": 26.76399
+        },
+        "thread_cpu_ms": {
+          "n": 730,
+          "total": 4624.985145000001,
+          "mean": 6.335596089041097,
+          "p50": 5.638486,
+          "p95": 10.621411799999999,
+          "minimum": 3.360913,
+          "maximum": 19.596099
+        },
+        "process_cpu_ms": {
+          "n": 730,
+          "total": 11517.588977000001,
+          "mean": 15.777519146575344,
+          "p50": 15.170844,
+          "p95": 26.4964973,
+          "minimum": 4.29348,
+          "maximum": 46.239886
+        },
+        "off_cpu_elapsed_ms": {
+          "n": 730,
+          "total": 2569.193773,
+          "mean": 3.519443524657534,
+          "p50": 3.549088,
+          "p95": 6.458120199999999,
+          "minimum": 0.0941749999999999,
+          "maximum": 11.192895999999998
+        },
+        "off_cpu_scope": "Elapsed minus main-thread CPU; scheduling/locks/device waits, not GPU execution time"
+      },
+      "moving_all": {
+        "ticks": 652,
+        "actual_clock": {
+          "intervals": 651,
+          "simulated_s": 6.51,
+          "wall_s": 10.903604227999992,
+          "realtime_factor": 0.5970502839127815,
+          "method": "Sum adjacent selected non-reset sim-clock increments / sum wall-start increments"
+        },
+        "wall_ms": {
+          "n": 652,
+          "total": 10821.477678000001,
+          "mean": 16.59735840184049,
+          "p50": 15.979153499999999,
+          "p95": 26.535663249999985,
+          "minimum": 6.510867,
+          "maximum": 47.07725
+        },
+        "thread_cpu_ms": {
+          "n": 652,
+          "total": 7070.1969309999995,
+          "mean": 10.843860323619632,
+          "p50": 10.3167845,
+          "p95": 16.59151735,
+          "minimum": 6.168683,
+          "maximum": 30.861226
+        },
+        "process_cpu_ms": {
+          "n": 652,
+          "total": 38988.68827,
+          "mean": 59.79860164110429,
+          "p50": 56.9279255,
+          "p95": 98.39607575,
+          "minimum": 20.224824,
+          "maximum": 169.480804
+        },
+        "off_cpu_elapsed_ms": {
+          "n": 652,
+          "total": 3751.280747,
+          "mean": 5.753498078220859,
+          "p50": 5.499718999999999,
+          "p95": 11.062720999999994,
+          "minimum": 0.19396799999999992,
+          "maximum": 16.216024
+        },
+        "off_cpu_scope": "Elapsed minus main-thread CPU; scheduling/locks/device waits, not GPU execution time"
+      },
+      "moving_trimmed": {
+        "ticks": 552,
+        "actual_clock": {
+          "intervals": 551,
+          "simulated_s": 5.51,
+          "wall_s": 9.29221116299999,
+          "realtime_factor": 0.5929697359805904,
+          "method": "Sum adjacent selected non-reset sim-clock increments / sum wall-start increments"
+        },
+        "wall_ms": {
+          "n": 552,
+          "total": 9223.900297,
+          "mean": 16.70996430615942,
+          "p50": 16.100529,
+          "p95": 27.169085849999995,
+          "minimum": 6.510867,
+          "maximum": 47.07725
+        },
+        "thread_cpu_ms": {
+          "n": 552,
+          "total": 6028.773778000001,
+          "mean": 10.921691626811596,
+          "p50": 10.338665500000001,
+          "p95": 16.710959449999997,
+          "minimum": 6.168683,
+          "maximum": 30.861226
+        },
+        "process_cpu_ms": {
+          "n": 552,
+          "total": 33251.408832,
+          "mean": 60.23805947826087,
+          "p50": 57.3232165,
+          "p95": 98.70557604999995,
+          "minimum": 20.224824,
+          "maximum": 169.480804
+        },
+        "off_cpu_elapsed_ms": {
+          "n": 552,
+          "total": 3195.1265189999995,
+          "mean": 5.788272679347825,
+          "p50": 5.54667,
+          "p95": 11.122830599999997,
+          "minimum": 0.19396799999999992,
+          "maximum": 16.216024
+        },
+        "off_cpu_scope": "Elapsed minus main-thread CPU; scheduling/locks/device waits, not GPU execution time"
+      },
+      "raw_directory": "workbench/evidence/generated/backend-placement-20261023/cpu-a",
+      "sha256": {
+        "configuration.json": "015dbef4c5404599add3a2a108b4a49f73be2ae472f44d18459d73dfa413f79b",
+        "ticks.npz": "25b97dea1a7b01e0b9465dd3db662bf55b10ec357fe5d9ebec91855164396b44",
+        "loop.csv": "e8b47c373f3e609bf9e5e2bb663a235611df029ca2f5721ad3be37a595d1be09",
+        "telemetry.jsonl": "387f744814afc22f12a67d999b71b21b7f0640c09e71235a0a16124f6aa98f5d",
+        "ui-result.json": "61bad17abc053fa1e1e3d5657f2ef652e3e7424e7cbb3182ac1112bb64a2963f",
+        "result.json": "81c562e3d8a1fbad043ba2c54bff12563b5d94c6d0c4924fc96b8f9c0857d823",
+        "runtime.log": "8275bea13be28ee26d90f3bc7b2cb0671537afabf38a7e9af74bb88cb8118ff3",
+        "sim_probe.py": "b9710e35e603565726a96c0cd1c17c002fbc634c83d9cf9587a3696e87f3295c",
+        "remote_trial.py": "67cd33c7a456b0ea98e48f4d063d30cb4d1cf30abffe17ac22871809dbd88ca2",
+        "ui_probe.py": "42e6b343657763608fd61676d7619c89547c6c3b663ca0072c904e4be3f76895"
+      }
+    }
+  },
+  "limits": [
+    "One GPU and one CPU attempt, differing realized locomotion/contact trajectories; cannot isolate all of the observed time difference as backend cost.",
+    "Both failed before requested 20-sim-second forward interval completed; neither is gait acceptance.",
+    "Compact main-loop recorder and normal PerfLogger enabled; no nested profiler or CUPTI in these trials.",
+    "Main-thread off-CPU elapsed includes scheduling, locks and device waits; cannot interpret as pure GPU time.",
+    "No new CPU/GPU kernel trace yet, no GPU repeat yet.",
+    "Offline NumPy analysis used existing host NumPy; no dependencies were installed into host Python."
+  ],
+  "all_recorded_workload_fields_same": true
+}

@@ -1,0 +1,639 @@
+{
+  "date": "2026-10-23",
+  "source_revision": "7e840481a9b9d423c82a8d5cd5380b96fffc7d7d",
+  "status": "executed; failed walking gate; normal 100Hz services restored",
+  "remote_host": "hckang@100.74.222.24",
+  "physical_gpu": "2",
+  "purpose": "Uniform 50Hz simulation/leg torque/arm-command/MPPI test, including 20ms single-step physics integration",
+  "rates": {
+    "simulation_hz": 50.0,
+    "physics_integration_hz": 50.0,
+    "effective_torque_hz": 50.0,
+    "nominal_mppi_solve_hz": 50.0,
+    "solver_stride": 1
+  },
+  "configuration": {
+    "trial": {
+      "source_revision": "7e840481a9b9d423c82a8d5cd5380b96fffc7d7d",
+      "mode": "gpu",
+      "trace": false,
+      "simulation_hz": 50,
+      "phases": [
+        {
+          "name": "standing",
+          "sim_s": 8,
+          "command": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "forward",
+          "sim_s": 20,
+          "command": [
+            0.8,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "stop",
+          "sim_s": 3,
+          "command": [
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    "pid": 1,
+    "trace_scope": "Main Sim process CUDA/CPU only; camera workers/OpenGL/NVENC are not captured. Clean trials determine latency; trace trials have profiler overhead. Wall minus thread CPU includes scheduling/locks/GPU waits and is not pure GPU time.",
+    "effective_init": {
+      "backend": "backend.gpu",
+      "logging_level": "warning",
+      "performance_mode": "False"
+    },
+    "backend": "backend.cuda",
+    "device": "cuda:0",
+    "state_tensor_device": "cuda:0",
+    "genesis_zerocopy": true,
+    "sim_parameters": {
+      "dt": 0.02,
+      "substeps": 1,
+      "realtime": true,
+      "realtime_factor": 1.0,
+      "gravity": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "roll_rate": 2.877698870688251,
+      "bend_rate": 0.2877698870688251
+    },
+    "sim_config": {
+      "use_gpu": true,
+      "genesis_performance_mode": false,
+      "camera_gpu_convert": true,
+      "camera_execution": "async_process",
+      "camera_worker_start_timeout_s": 180.0,
+      "camera_first_frame_timeout_s": 30.0,
+      "enable_viewer": false,
+      "visualizer_max_hz": 30.0,
+      "telemetry_max_hz": 20.0,
+      "floor": true,
+      "use_hardware": false,
+      "use_go2": true,
+      "build_dir": "/opt/elesim/data/models/assemblies/zed-mini",
+      "assy_build_json": "blueprint.json",
+      "urdf_name": "robot.urdf",
+      "arm_urdf_name": "arm.urdf",
+      "camera_profile": "zed_mini",
+      "hand_eye_config": "/opt/elesim/data/calibration/cameras/zed_mini.hand_eye.json",
+      "sim_camera_enable": true,
+      "sim_camera_jpeg": true,
+      "sim_camera_jpeg_quality": 75,
+      "sim_camera_rgb": true,
+      "sim_camera_depth": true,
+      "sim_camera_max_hz": 30.0,
+      "sim_camera_width": 1280,
+      "sim_camera_height": 720,
+      "sim_camera_fov_deg": 60.0,
+      "sim_observer_camera_enable": true,
+      "sim_observer_camera_jpeg": true,
+      "sim_observer_camera_jpeg_quality": 85,
+      "sim_observer_camera_max_hz": 30.0,
+      "sim_observer_camera_width": 1280,
+      "sim_observer_camera_height": 720,
+      "sim_observer_camera_fov_deg": 40.0,
+      "sim_observer_camera_pos": [
+        3.5,
+        0.5,
+        2.5
+      ],
+      "sim_observer_camera_lookat": [
+        0.0,
+        0.0,
+        0.5
+      ],
+      "perf_log_enable": false,
+      "perf_log_interval_s": 2.0,
+      "perf_log_path": ""
+    },
+    "locomotion_config": {
+      "mirror_from_host": false,
+      "mode": "pympc",
+      "stance_time_s": 0.3,
+      "swing_time_s": 0.15,
+      "raibert_kv": 0.05,
+      "nominal_body_height_m": 0.3,
+      "foot_swing_height_m": 0.06,
+      "leg_kp": 80.0,
+      "leg_kv": 4.0,
+      "command_idle_threshold": 0.05,
+      "ground_height_m": 0.0,
+      "foot_radius_m": 0.022,
+      "leg_max_rate_radps": 6.0,
+      "foot_max_step_m": 0.008,
+      "base_vel_blend": 0.0,
+      "gait_hz": 2.2,
+      "gait_duty": 0.6,
+      "z_pos_des_m": 0.3,
+      "mpc_steps_per_gait": 16,
+      "torque_safety_scale": 0.9,
+      "mpc_leg_kv_damping": 1.0,
+      "mpc_ctrl_hz": 50.0,
+      "mpc_solver_backend": "jax_mppi",
+      "mpc_gpu_samples": 4096,
+      "mpc_gpu_iterations": 2,
+      "mpc_gpu_seed": 42,
+      "mpc_command_ramp_s": 0.15,
+      "mpc_command_accel_mps2": 1.2,
+      "mpc_command_yaw_accel_radps2": 3.0,
+      "mpc_stop_dwell_s": 0.2,
+      "mpc_pose_transition_s": 0.35,
+      "mpc_torque_ramp_s": 0.12,
+      "mpc_torque_warmup_s": 0.05,
+      "mpc_ready_pose_s": 0.12,
+      "mpc_ready_kp": 120.0,
+      "mpc_ready_kv": 6.0,
+      "mpc_aux_kp": 15.0,
+      "mpc_aux_kv": 2.0,
+      "mpc_tau_filter_alpha": 0.75,
+      "mpc_force_filter_alpha": 0.7,
+      "mpc_physical_friction": 0.8,
+      "mpc_optimization_friction": 0.55,
+      "mpc_fz_max_n": 180.0,
+      "mpc_joint_armature": 0.01,
+      "mpc_joint_damping": 0.1,
+      "mpc_joint_frictionloss": 0.2,
+      "mpc_foot_placement_scale": 1.35,
+      "mpc_payload_enable": true,
+      "mpc_payload_mass_kg": 0.0,
+      "mpc_pitch_trim_gain_x_forward": 0.0,
+      "mpc_pitch_trim_gain_x_backward": -0.15,
+      "mpc_pitch_trim_gain_z": 0.9,
+      "mpc_pitch_trim_z_ref_m": 0.12,
+      "mpc_pitch_trim_max_rad": 0.05
+    },
+    "controller_type": "PyMpcGenesisController",
+    "solver_backend": "jax_mppi",
+    "solver_device": "cuda:0",
+    "solver_stride": 1,
+    "simulation_hz": 50.0,
+    "physics_integration_hz": 50.0,
+    "effective_torque_hz": 50.0,
+    "nominal_mppi_solve_hz": 50.0,
+    "module_sha256": {
+      "elesim_sim.runtime": "3e3d0b3fc08d98fb14e5823feecf0f546d7907e5b0e4c44ef38d1b7ef05c748e",
+      "elesim_sim.robot.go2.pympc_controller": "a465429f3833dae4da39714979c07cffb618495f6351e98881bffee0d10560e7",
+      "elesim_sim.robot.go2.pympc_jax": "ff61d9a7ac54fd632c72fcdf45a02712e4b43aae9e1af8207f3628206d242477",
+      "elesim_sim.robot.go2.pympc_solver": "9545e5206a516d02b0b690f4c9b04ff2c0731340d9b44fd63695490a3edef410"
+    },
+    "camera_spec": {
+      "urdf_path": "/opt/elesim/data/models/assemblies/zed-mini/robot.urdf",
+      "robot_pos": [
+        0.0,
+        0.0,
+        0.32
+      ],
+      "robot_euler_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "use_gpu": true,
+      "gpu_convert": true,
+      "dt": 0.02,
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "substeps": 1,
+      "floor": true,
+      "hand_eye_config": "/opt/elesim/data/calibration/cameras/zed_mini.hand_eye.json",
+      "hand_eye_width": 1280,
+      "hand_eye_height": 720,
+      "hand_eye_fov_deg": 60.0,
+      "hand_eye_rgb": true,
+      "hand_eye_depth": true,
+      "observer_width": 1280,
+      "observer_height": 720,
+      "observer_fov_deg": 40.0,
+      "observer_pos": [
+        3.5,
+        0.5,
+        2.5
+      ],
+      "observer_lookat": [
+        0.0,
+        0.0,
+        0.5
+      ],
+      "mock_assets": [
+        "/opt/elesim/data/models/objects/demo_box.obj"
+      ],
+      "target_enable": true,
+      "target_xyz": [
+        0.8,
+        0.0,
+        0.2
+      ],
+      "target_radius": 0.025,
+      "target_color_rgba": [
+        0.85,
+        0.15,
+        0.15,
+        1.0
+      ],
+      "target_gravity": false,
+      "robot_joint_names": [
+        "FL_hip_joint",
+        "FL_thigh_joint",
+        "FL_calf_joint",
+        "FR_hip_joint",
+        "FR_thigh_joint",
+        "FR_calf_joint",
+        "RL_hip_joint",
+        "RL_thigh_joint",
+        "RL_calf_joint",
+        "RR_hip_joint",
+        "RR_thigh_joint",
+        "RR_calf_joint",
+        "j_plate_housing",
+        "j_housing_wedge",
+        "j_wedge_node0",
+        "j_node0_node1",
+        "j_node1_node2",
+        "j_node2_node3",
+        "j_node3_node4",
+        "j_node4_node5",
+        "j_node5_node6",
+        "j_node6_node7",
+        "j_node7_node8",
+        "j_node8_node9",
+        "j_gripper_base_claw_left",
+        "j_gripper_base_claw_right"
+      ],
+      "hand_eye_urdf_path": "/opt/elesim/data/models/assemblies/zed-mini/arm.urdf",
+      "hand_eye_robot_pos": [
+        0.315,
+        0.0,
+        0.40700000000000003
+      ],
+      "hand_eye_robot_euler_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "hand_eye_robot_joint_names": [
+        "j_plate_housing",
+        "j_housing_wedge",
+        "j_wedge_node0",
+        "j_node0_node1",
+        "j_node1_node2",
+        "j_node2_node3",
+        "j_node3_node4",
+        "j_node4_node5",
+        "j_node5_node6",
+        "j_node6_node7",
+        "j_node7_node8",
+        "j_node8_node9",
+        "j_gripper_base_claw_left",
+        "j_gripper_base_claw_right"
+      ]
+    },
+    "trace_done": false,
+    "ticks": 1254
+  },
+  "filters": {
+    "torque_alpha_before": 0.5,
+    "torque_alpha_after": 0.75,
+    "time_constant_preserved": true,
+    "force_alpha": 0.7,
+    "force_filter_nominal_cadence_hz_before_and_after": 50
+  },
+  "result": {
+    "ui_complete": false,
+    "fault": "RuntimeError: GO2 controller fault: touchdown timeout after 0.30s: FL,FR,RL,RR",
+    "first_fault_sim_s": 18.96,
+    "first_walk_tick_sim_s": 14.9,
+    "fault_after_walk_entry_s": 4.0600000000000005,
+    "forward_command_start_sim_s": 14.06,
+    "fault_after_forward_command_s": 4.9,
+    "max_ui_abs_tilt_rad": 0.39077789912571315,
+    "last_forward_telemetry": {
+      "wall_s": 14.783433862030506,
+      "wall_time_s": 1792730609.92682,
+      "monotonic_s": 678950.170627465,
+      "mode": "gpu",
+      "phase": "forward",
+      "phase_elapsed_sim_s": 4.639999999999999,
+      "sim_time_s": 18.7,
+      "step": 935,
+      "rtf_window": 0.8083491268018402,
+      "rtf_reported": 0.965498828376748,
+      "position": [
+        0.21031473577022552,
+        0.015476868487894535,
+        0.25917112827301025
+      ],
+      "rpy": [
+        0.15331957114528447,
+        -0.39077789912571315,
+        -0.09566279559631247
+      ],
+      "command": [
+        0.8,
+        0.0,
+        0.0
+      ],
+      "go2_vel": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "fault": "",
+      "rx_age_s": 0.07528460212051868,
+      "tx_seq": 157,
+      "streams": {
+        "observer": {
+          "version": 422,
+          "since_last_decode_s": 0.026515288976952434,
+          "resolution": [
+            1280,
+            720
+          ],
+          "error": ""
+        },
+        "hand_eye_preview": {
+          "version": 423,
+          "since_last_decode_s": 0.012644437025301158,
+          "resolution": [
+            1280,
+            720
+          ],
+          "error": ""
+        }
+      },
+      "rgbd": {
+        "configured_ui_previews": {},
+        "host_fields": {},
+        "host_transport_counters_exposed": false,
+        "runtime_rgbd_modified": false
+      }
+    },
+    "normal_restored": true,
+    "final_normal": {
+      "sim": {
+        "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+        "running": true,
+        "image_id": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+        "gpu": [
+          "2"
+        ]
+      },
+      "pilot": {
+        "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+        "running": true,
+        "image_id": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+        "gpu": [
+          "2"
+        ]
+      }
+    },
+    "video_frame_counts": {
+      "observer": 417,
+      "hand_eye_preview": 417
+    },
+    "decoded_resolutions": {
+      "observer": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "hand_eye_preview": [
+        [
+          1280,
+          720
+        ]
+      ]
+    }
+  },
+  "timing": {
+    "all_valid": {
+      "ticks": 1253,
+      "actual_clock": {
+        "intervals": 1252,
+        "simulated_s": 25.040000000000003,
+        "wall_s": 25.070423967999993,
+        "realtime_factor": 0.9987864597727257,
+        "method": "Sum adjacent selected non-reset sim-clock increments / sum wall-start increments"
+      },
+      "wall_ms": {
+        "n": 1253,
+        "total": 24879.56765,
+        "mean": 19.855999720670393,
+        "p50": 19.736748,
+        "p95": 30.6147504,
+        "minimum": 4.129219,
+        "maximum": 999.945697
+      },
+      "thread_cpu_ms": {
+        "n": 1253,
+        "total": 15796.213660000001,
+        "mean": 12.606714812450122,
+        "p50": 10.867191,
+        "p95": 20.945748000000002,
+        "minimum": 3.898154,
+        "maximum": 977.120562
+      },
+      "process_cpu_ms": {
+        "n": 1253,
+        "total": 46893.463574,
+        "mean": 37.42495097685555,
+        "p50": 28.064102,
+        "p95": 93.12206499999999,
+        "minimum": 4.46375,
+        "maximum": 1034.213096
+      },
+      "off_cpu_elapsed_ms": {
+        "n": 1253,
+        "total": 9083.35399,
+        "mean": 7.249284908220271,
+        "p50": 7.126431,
+        "p95": 12.873695799999998,
+        "minimum": -0.0010989999999999611,
+        "maximum": 22.825135000000046
+      },
+      "off_cpu_scope": "Elapsed minus main-thread CPU; scheduling/locks/device waits, not GPU execution time"
+    },
+    "moving_raw": {
+      "ticks": 203,
+      "actual_clock": {
+        "intervals": 202,
+        "simulated_s": 4.040000000000001,
+        "wall_s": 4.797126306000003,
+        "realtime_factor": 0.8421708627823649,
+        "method": "Sum adjacent selected non-reset sim-clock increments / sum wall-start increments"
+      },
+      "wall_ms": {
+        "n": 203,
+        "total": 4784.026476999999,
+        "mean": 23.566632891625613,
+        "p50": 22.746284,
+        "p95": 33.54932219999999,
+        "minimum": 14.470381,
+        "maximum": 43.545452
+      },
+      "thread_cpu_ms": {
+        "n": 203,
+        "total": 3122.982934,
+        "mean": 15.384152384236454,
+        "p50": 15.044843,
+        "p95": 21.452488799999998,
+        "minimum": 10.598542,
+        "maximum": 26.228501
+      },
+      "process_cpu_ms": {
+        "n": 203,
+        "total": 17420.1181,
+        "mean": 85.81338965517241,
+        "p50": 83.635045,
+        "p95": 121.02181509999996,
+        "minimum": 46.244199,
+        "maximum": 164.939837
+      },
+      "off_cpu_elapsed_ms": {
+        "n": 203,
+        "total": 1661.0435429999998,
+        "mean": 8.182480507389162,
+        "p50": 7.73509,
+        "p95": 12.431751399999996,
+        "minimum": 2.8138729999999974,
+        "maximum": 19.810379
+      },
+      "off_cpu_scope": "Elapsed minus main-thread CPU; scheduling/locks/device waits, not GPU execution time"
+    },
+    "moving_steady": {
+      "ticks": 153,
+      "actual_clock": {
+        "intervals": 152,
+        "simulated_s": 3.040000000000001,
+        "wall_s": 3.533557989000002,
+        "realtime_factor": 0.8603226576339057,
+        "method": "Sum adjacent selected non-reset sim-clock increments / sum wall-start increments"
+      },
+      "wall_ms": {
+        "n": 153,
+        "total": 3530.4709199999998,
+        "mean": 23.074973333333332,
+        "p50": 22.397023,
+        "p95": 33.1259862,
+        "minimum": 14.470381,
+        "maximum": 43.545452
+      },
+      "thread_cpu_ms": {
+        "n": 153,
+        "total": 2306.2139959999995,
+        "mean": 15.073294091503264,
+        "p50": 14.784221,
+        "p95": 21.0656292,
+        "minimum": 10.598542,
+        "maximum": 26.228501
+      },
+      "process_cpu_ms": {
+        "n": 153,
+        "total": 12889.179603,
+        "mean": 84.24300394117647,
+        "p50": 80.38475,
+        "p95": 116.50135940000004,
+        "minimum": 46.244199,
+        "maximum": 164.939837
+      },
+      "off_cpu_elapsed_ms": {
+        "n": 153,
+        "total": 1224.256924,
+        "mean": 8.001679241830066,
+        "p50": 7.378580999999999,
+        "p95": 12.219217000000002,
+        "minimum": 2.8138729999999974,
+        "maximum": 19.810379
+      },
+      "off_cpu_scope": "Elapsed minus main-thread CPU; scheduling/locks/device waits, not GPU execution time"
+    },
+    "standing_after_startup": {
+      "ticks": 350,
+      "actual_clock": {
+        "intervals": 349,
+        "simulated_s": 6.98,
+        "wall_s": 6.982084444999998,
+        "realtime_factor": 0.9997014580650782,
+        "method": "Sum adjacent selected non-reset sim-clock increments / sum wall-start increments"
+      },
+      "wall_ms": {
+        "n": 350,
+        "total": 6936.056276,
+        "mean": 19.817303645714286,
+        "p50": 19.826942,
+        "p95": 29.2932391,
+        "minimum": 8.455108,
+        "maximum": 38.704977
+      },
+      "thread_cpu_ms": {
+        "n": 350,
+        "total": 4116.756077,
+        "mean": 11.76216022,
+        "p50": 10.1959995,
+        "p95": 20.62858765,
+        "minimum": 5.480412,
+        "maximum": 30.376023
+      },
+      "process_cpu_ms": {
+        "n": 350,
+        "total": 9937.587418,
+        "mean": 28.393106908571426,
+        "p50": 26.6372005,
+        "p95": 48.96446220000001,
+        "minimum": 8.706666,
+        "maximum": 62.605772
+      },
+      "off_cpu_elapsed_ms": {
+        "n": 350,
+        "total": 2819.3001990000002,
+        "mean": 8.055143425714286,
+        "p50": 7.928046499999999,
+        "p95": 13.136593949999998,
+        "minimum": 0.3923090000000009,
+        "maximum": 17.441503
+      },
+      "off_cpu_scope": "Elapsed minus main-thread CPU; scheduling/locks/device waits, not GPU execution time"
+    }
+  },
+  "deadline_overrun_fraction_all_nonfault_walk_ticks": 0.7241379310344828,
+  "limits": [
+    "One failed run; no completed 20-second forward or long-duration gait acceptance.",
+    "Prior current-source 100Hz reference also faulted, so this run does not establish lower cadence as the cause.",
+    "Physics integration changed from 5ms to20ms as requested, in addition to control cadence; torque filter was mapped to the previous continuous time constant, other physical gains and bounds retained.",
+    "Normal compact loop recorder and PerfLogger remain enabled; no CUPTI trace or added GPU synchronization.",
+    "Camera stream rate limits and DDS safety/heartbeat timers remain existing independent settings; actual physics/torque/arm writes/MPPI run on50Hz simulation loop.",
+    "No production defaults or installed config files changed; cadence applied only to diagnostic construction arguments."
+  ],
+  "raw_directory": "workbench/evidence/generated/backend-placement-20261023/all50-gpu-a",
+  "sha256": {
+    "sim_probe.py": "2a5561b0a59e986e90d01dbd4fc82343ef1cf9909e0490813d3e08bb9ec11ab0",
+    "remote_trial.py": "67cd33c7a456b0ea98e48f4d063d30cb4d1cf30abffe17ac22871809dbd88ca2",
+    "ui_probe.py": "42e6b343657763608fd61676d7619c89547c6c3b663ca0072c904e4be3f76895",
+    "trial.json": "3409d370f97ae8ac517fbaab7091ef3202ea6d9342f495dd7d0e2f5d94331e6f",
+    "configuration.json": "9b9ef4be48a10963f9a26a20ce5de6af0bfceaa7b6bf1027f73a754263410101",
+    "ticks.npz": "e71c0ce7c51030c77861af9c3e5f9a532f6fe7305d429ba25aec9972ed98d465",
+    "loop.csv": "322e47c9c4b1a0b63079a5bd30c6e4f3ae749f78e74d252658c3d301af1c1d63",
+    "ui-result.json": "23c44ebccb7566bcab1f07cc17568b7e8a6ad2852f67f7944dab1530c850e94d",
+    "telemetry.jsonl": "e59e045646a4092c471ffcb2a1551072714dd71d06373ea67cb903fbd471df48",
+    "result.json": "3f7e0056c9708363d8fd80b14c54729db4842fbd16b1a56e9f9168f839c7be40",
+    "runtime.log": "3beb3ed6c46be1460d2ac13797f68a65c7fa462dfde668f0fc28d91a6550aa49"
+  }
+}
