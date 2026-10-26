@@ -84,7 +84,7 @@ def test_correction_recovers_height_and_normal_without_inventing_planar_translat
     actual = camera_pose(0.8, pitch=0.12)
     predicted = camera_pose(0.86, pitch=0.19)
     reference = Plane((0, 0, 1), 0)
-    corrected = correct_camera_pose(predicted, measured_floor(actual), reference)
+    corrected = correct_camera_pose(predicted, measured_floor(actual), reference, correct_distance=True)
     plane = plane_in_world(measured_floor(actual), corrected)
     np.testing.assert_allclose(plane.normal, reference.normal, atol=1e-12)
     assert plane.offset_m == pytest.approx(0, abs=1e-12)
@@ -115,7 +115,7 @@ def test_table_does_not_become_floor_without_confirmation():
 
 
 def test_floor_and_table_remain_distinct_and_only_selected_plane_is_anchored():
-    estimator = FloorEstimator(FloorSettings(stable_frames=2))
+    estimator = FloorEstimator(FloorSettings(stable_frames=2), correct_distance=True)
     pose = camera_pose()
     identity = ("sim", "boot", "calib")
     for stamp in (10, 10.1):

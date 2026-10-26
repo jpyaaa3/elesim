@@ -11,7 +11,7 @@ def test_only_stable_plane_can_be_confirmed_and_no_motion_is_requested(monkeypat
     monkeypatch.setattr(floor_calibration, "panel_header", lambda *_a, **_k: (True,))
     def button(label):
         buttons.append(label)
-        return label == "Confirm selected plane"
+        return label == "Confirm horizontal reference"
     monkeypatch.setattr(floor_calibration, "imgui", NS(text=messages.append,
         text_wrapped=messages.append, combo=lambda *_a: (False, 0),
         button=button, same_line=lambda: None))
@@ -23,6 +23,8 @@ def test_only_stable_plane_can_be_confirmed_and_no_motion_is_requested(monkeypat
     floor_calibration.draw_floor_calibration_panel(NS(service=service))
     assert calls == expected
     assert any("timing unverified" in text for text in messages)
+    assert any("Plane direction" in text for text in messages)
+    assert not any("Height error" in text or "configured height" in text for text in messages)
 
 
 def test_export_path_is_taken_from_async_result_on_pilot_not_invented_locally(monkeypatch):

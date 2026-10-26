@@ -96,6 +96,35 @@ def sample_cases(lower, upper, *, poses=24, error_seeds=2, seed=217):
     return result
 
 
+def sample_joint_cases(lower, upper, *, poses=24, error_seeds=2, seed=217):
+    """Cross measured q with joint biases, keeping the camera mount exact."""
+    if not 4 <= poses <= 128 or not 1 <= error_seeds <= 4:
+        raise ValueError("arm matrix budget requires 4..128 poses and 1..4 error seeds")
+    lower,upper=np.asarray(lower),np.asarray(upper)
+    values=qmc.scale(qmc.LatinHypercube(d=4,seed=seed).random(poses),lower,upper)
+    rng=np.random.default_rng(seed+31)
+    bounds=np.array([.005,np.radians(5),np.radians(1.5),np.radians(1.5)])
+    errors=[rng.uniform(-bounds,bounds) for _ in range(error_seeds)]
+    heights=rng.uniform(.08,.5,error_seeds)
+    result=[]
+    for condition in ("clean","joint_offsets","deflection","raised_horizontal","two_horizontal","noisy"):
+        for error_seed,offset in enumerate(errors):
+            boot=uuid.uuid4().hex
+            for pose_id,q in enumerate(values):
+                error=offset.copy()
+                if condition=='clean':error[:]=0
+                if condition=='deflection':
+                    error*=np.array([1.,.5+.5*np.cos(q[1]),.5+.5*np.cos(5*q[2]),.5+.5*np.cos(5*q[3])])
+                actual=np.clip(q+error,lower,upper)
+                result.append({'case_id':len(result),'pose_id':pose_id,'q':q.tolist(),
+                    'actual_q':actual.tolist(),'joint_offset':(actual-q).tolist(),
+                    'condition':condition,'error_seed':error_seed,'boot':boot,
+                    'rotation_vector':[0.,0.,0.],'translation':[0.,0.,0.],
+                    'noise_sigma_m':.002 if condition=='noisy' else .0005,
+                    'dropout':.25 if condition=='noisy' else 0.,'table_height_m':float(heights[error_seed])})
+    return result
+
+
 def case_pose(nominal, case):
     actual = nominal.copy()
     rotation = Rotation.from_rotvec(case["rotation_vector"]).as_matrix()
@@ -133,8 +162,8 @@ def analytic_frame(pose, intrinsics, boxes, case):
     distance = np.where(distance > .05, distance, 100.)
     color = np.full((*distance.shape, 3), 155, dtype=np.uint8)
     geometries = [(b["center"], b["size"], b["rotation"], [12, 24, 230]) for b in boxes]
-    if case["condition"] in ("wrong_plane", "near_table", "ambiguous_plane"):
-        side = .9 if case["condition"] == "ambiguous_plane" else 20.
+    if case["condition"] in ("wrong_plane", "near_table", "ambiguous_plane", "raised_horizontal", "two_horizontal"):
+        side = .9 if case["condition"] in ("ambiguous_plane", "two_horizontal") else 20.
         geometries.append((np.array([.6, 0, case["table_height_m"]-.02]),
                            np.array([side, side, .04]), np.eye(3), [155, 155, 155]))
     for center, size, rotation, bgr in geometries:
@@ -149,7 +178,7 @@ def analytic_frame(pose, intrinsics, boxes, case):
 
 
 def produce_matrix(output, *, data_root, config_path, backend="analytic", poses=24,
-                   error_seeds=2, seed=217, width=320, height=240, base_height=.8):
+                   error_seeds=2, seed=217, width=320, height=240, base_height=.8, joint_errors=False):
     import hashlib
     import yaml
 
@@ -164,7 +193,8 @@ def produce_matrix(output, *, data_root, config_path, backend="analytic", poses=
     bend = np.radians(config["bend_deg"])
     lower = [float(linear.get("lower")), np.radians(config["roll_min_deg"]), -bend, -bend]
     upper = [float(linear.get("upper")), np.radians(config["roll_max_deg"]), bend, bend]
-    cases = sample_cases(lower, upper, poses=poses, error_seeds=error_seeds, seed=seed)
+    sampler=sample_joint_cases if joint_errors else sample_cases
+    cases = sampler(lower, upper, poses=poses, error_seeds=error_seeds, seed=seed)
     boxes = scene_boxes(seed+672)
     focal = height/2/np.tan(np.radians(30))
     intrinsics = np.array([focal, focal, (width-1)/2, (height-1)/2, width, height])
@@ -208,14 +238,15 @@ def produce_matrix(output, *, data_root, config_path, backend="analytic", poses=
     try:
         for case in cases:
             nominal = arm.camera_pose(case["q"])
-            actual = case_pose(nominal, case)
+            actual_q=case.get('actual_q',case['q'])
+            actual = arm.camera_pose(actual_q) if joint_errors else case_pose(nominal, case)
             if camera is None:
                 color, ideal = analytic_frame(actual, intrinsics, boxes, case)
             else:
                 import torch
                 from elesim_sim.vision.sim_camera.mount import _render_camera
 
-                values = arm.joint_values(case["q"])
+                values = arm.joint_values(actual_q)
                 entity.set_dofs_position(torch.as_tensor([values[name] for name in names], device=gs.device,
                                                         dtype=gs.tc_float), dofs_idx_local=indices)
                 link = entity.get_link(arm.parent)
@@ -225,15 +256,15 @@ def produce_matrix(output, *, data_root, config_path, backend="analytic", poses=
                 live = np.eye(4)
                 live[:3, :3] = Rotation.from_quat(quat[[1, 2, 3, 0]]).as_matrix()
                 live[:3, 3] = pos
-                expected = arm.link_poses(case["q"])[arm.parent]
+                expected = arm.link_poses(actual_q)[arm.parent]
                 error = float(np.max(np.abs(live-expected)))
                 fk_error = max(fk_error, error)
                 if error > 2e-5:
                     raise RuntimeError(f"Genesis arm FK differs from reference URDF: {error}")
-                actual = case_pose(live @ arm.mount, case)
+                actual = live @ arm.mount if joint_errors else case_pose(live @ arm.mount, case)
                 for side, table in tables.items():
-                    visible_side = .9 if case["condition"] == "ambiguous_plane" else 20.
-                    enabled = case["condition"] in ("wrong_plane", "near_table", "ambiguous_plane") and side == visible_side
+                    visible_side = .9 if case["condition"] in ("ambiguous_plane", "two_horizontal") else 20.
+                    enabled = case["condition"] in ("wrong_plane", "near_table", "ambiguous_plane", "raised_horizontal", "two_horizontal") and side == visible_side
                     table.set_pos((.6, 0, case["table_height_m"]-.02 if enabled else 20.))
                 camera.set_pose(transform=actual @ np.diag([1, -1, -1, 1]))
                 rgb, depth, _, _ = _render_camera(camera, rgb=True, depth=True, force_render=True)
@@ -277,7 +308,8 @@ def produce_matrix(output, *, data_root, config_path, backend="analytic", poses=
         "base_height_m": base_height, "urdf_sha256": hashlib.sha256(arm.path.read_bytes()).hexdigest(),
         "genesis_reference_fk_max_abs": fk_error,
         "scope": "static actual arm geometry at a known fixed bench base; no actuator dynamics or exposure timing",
-        "sampling": "Latin hypercube joint poses crossed with independent error seeds; no visibility filtering"}
+        "sampling": "Latin hypercube joint poses crossed with independent error seeds; no visibility filtering",
+        "error_model":"measured vs actual joints; camera mount fixed" if joint_errors else "legacy extrinsic errors"}
     (truth/"manifest.json").write_text(json.dumps(manifest, indent=2, allow_nan=False)+"\n")
     return {"cases": len(cases), "frames": len(frames), "backend": backend}
 
@@ -293,10 +325,11 @@ def main():
     parser.add_argument("--seed", type=int, default=217)
     parser.add_argument("--width", type=int, default=320)
     parser.add_argument("--height", type=int, default=240)
+    parser.add_argument("--joint-errors",action="store_true",help="perturb actual arm joints instead of camera extrinsics")
     args = parser.parse_args()
     print(json.dumps(produce_matrix(args.output, data_root=args.data_root, config_path=args.config,
         backend=args.backend, poses=args.poses, error_seeds=args.error_seeds, seed=args.seed,
-        width=args.width, height=args.height)))
+        width=args.width, height=args.height,joint_errors=args.joint_errors)))
 
 
 if __name__ == "__main__": main()

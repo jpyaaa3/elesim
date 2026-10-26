@@ -120,6 +120,15 @@ Operator view schema 1의 선택적 service 값 `floor_calibration_status`는 �
 경계를 사용한다. 구형 UI는 새 service 값을 무시하며 구형 Pilot에는 새
 service 값이 없어 이 제어를 표시하지 않는다.
 
+시각 기울기 보정은 같은 schema 1 service object의 additive
+`correction_mode="orientation"`, `observable=["tilt_2d"]`와
+`unobservable=["translation_3d", "rotation_about_normal"]`로 범위를 표시한다.
+`confirm_floor_calibration`은 선택 면이 수평이라는 operator 확인이며
+`reference.kind="confirmed_horizontal"`, `absolute=false`를 반환한다. 높이가
+다른 평행면은 같은 방향 근거로 사용할 수 있다. Camera origin·관절값·Robot
+명령은 변경하지 않으며 `distance_error_m`는 legacy 진단 값일 뿐 적용량이 아니다.
+새 carrier/message/operation은 없고 protocol major 6은 유지한다.
+
 Robot presentation mirror restores the former hardware-state display path.
 Protocol major 6 is unchanged; the mirror capability adds no message type or
 payload field. The open telemetry state map also carries the additive

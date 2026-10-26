@@ -6,6 +6,29 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 불완전한 관절로 생긴 시각 기울기 보정 (2026-10-26, 진행 중)
+
+- 목표는 실제 바닥의 semantic identity나 Z=0 높이를 찾는 것이 아니라 팔의
+  관절 오차 때문에 기울어진 관측 좌표계를 바로잡는 것이다. 실사용 보정은
+  최소 tilt 회전만 적용하고 현재 FK camera origin을 그대로 유지한다.
+  Camera mount는 고정하며 전체 관절·위치·yaw 식별을 주장하지 않는다.
+- 서로 다른 높이의 수평면을 같은 방향 근거로 사용한다. 3도 이상 충돌하는
+  지지 평면 방향은 거부하고, UI의 확인은 선택 면이 수평이라는 operator
+  선언이다. 동기화·source epoch·freshness·active workflow 경계는 유지한다.
+- 실제 q와 reported q를 분리한 24자세×6조건×2 seed 합성 RGB-D 회귀를 만들었다.
+  Actual q에는 Linear ±5 mm, Roll ±5도, Bend별 ±1.5도의 오차와 pose-dependent
+  deflection을 주고 camera mount는 바꾸지 않는다. Primary metric은 잔여
+  tilt와 cross-view object-normal 일관성이다. CPU analytic 288경우·864 frame은
+  통과했고 camera-origin 강제 이동은 전부 0이었다. 실제 Genesis GPU2 검증은 남았다.
+- 관련 host 회귀 58개와 새 focused batch 29개는 통과했다(중복 포함). 넓은
+  Protocol/Pilot/UI host batch는 830 passed, 32 skipped, 8 subtests passed이며
+  host Shapely/PyAV 부재로 관련 4개 파일을 제외했다. 역할 기본값을 함께 읽는
+  Protocol linear 시험은 Sim/Robot source root를 추가해 확인했다. 기존 설치의
+  dev 이미지 준비가 미완료여서 canonical을 재시도하지 않았으며 real RMW,
+  isolated-release gate 통과로 해석하지 않는다.
+- 이전 높이·장착오차 실험은 역사적 결과로 보존하되 현재 수용 조건으로 쓰지
+  않는다. 재현은 명시적인 `--legacy-height` 옵션으로만 실행한다.
+
 ### 실제 팔 4DOF × 독립 오차 검증 (2026-10-26)
 
 - Linear·Roll·두 Bend의 허용 범위에 Latin hypercube 자세를 뽑고 독립 오차

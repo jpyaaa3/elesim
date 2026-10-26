@@ -103,6 +103,8 @@ def fit_recording(path, *, allow_unverified_clock=False):
             if len(line) > 65536 or index >= 2000:
                 raise ValueError("floor recording exceeds its record bounds")
             raw = json.loads(line)
+            if raw.get("result", {}).get("correction_mode") == "orientation":
+                raise ValueError("orientation-only references do not provide a fixed metric plane for mount translation fitting")
             if raw.get("result", {}).get("valid"):
                 records.append(raw)
     poses, planes, initial, reference_key, identity = [], [], None, None, None

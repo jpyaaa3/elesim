@@ -70,7 +70,7 @@ def test_observable_height_tilt_correction_is_not_limited_to_zero_roll():
         actual = producer.camera_pose(q)
         actual[:3, :3] = Rotation.from_rotvec([.04, -.03, 0]).as_matrix() @ actual[:3, :3]
         actual[2, 3] += .035
-        estimator = FloorEstimator(FloorSettings(stable_frames=1), reference_height_m=0)
+        estimator = FloorEstimator(FloorSettings(stable_frames=1), reference_height_m=0, correct_distance=True)
         result = estimator.update([measured_plane(actual)], predicted, stamp=10, now=10,
                                   identity=("sensor", "boot", "calibration"))
         assert result["valid"], result["reason"]
@@ -85,7 +85,7 @@ def test_far_table_and_missing_depth_are_rejected_across_noncentral_roll():
     for q in rng.uniform(pilot.lower, pilot.upper, (30, 4)):
         pose = producer.camera_pose(q)
         for planes in ([measured_plane(pose, .4)], []):
-            estimator = FloorEstimator(FloorSettings(stable_frames=1), reference_height_m=0)
+            estimator = FloorEstimator(FloorSettings(stable_frames=1), reference_height_m=0, correct_distance=True)
             result = estimator.update(planes, pose, stamp=10, now=10, identity=("a", "b", "c"))
             assert not result["valid"]
             assert estimator.corrected_pose(now=10) is None
@@ -136,7 +136,7 @@ def test_arm_rgbd_matrix_keeps_absent_targets_and_reports_failures(tmp_path):
         config_path=ROOT/"payload/config/sim/config.yaml", poses=4, error_seeds=1, width=160, height=120)
     replay = reconstruct(produced/"sensors", tmp_path/"predictions",
         arm_model=DATA/"models/arm/default.json",
-        hand_eye=DATA/"calibration/cameras/zed_mini.hand_eye.json")
+        hand_eye=DATA/"calibration/cameras/zed_mini.hand_eye.json",correct_distance=True)
     assert generated["frames"] == replay["frames"] == 96
     result = evaluate_matrix(produced/"truth", tmp_path/"predictions")
     assert result["complete"]

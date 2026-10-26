@@ -26,7 +26,7 @@ def test_blind_replay_corrects_observable_error_and_retains_xy_yaw_error(tmp_pat
         "payload/runtime/docker/pilot/app", "payload/runtime/common/protocol"))
     env["OPENBLAS_NUM_THREADS"] = "1"
     completed = subprocess.run(
-        [sys.executable, str(blind / "reconstruct.py"), str(blind / "sensors"), str(blind / "result")],
+        [sys.executable, str(blind / "reconstruct.py"), str(blind / "sensors"), str(blind / "result"), "--legacy-height"],
         cwd=blind, env=env, text=True, capture_output=True, timeout=60, check=True,
     )
     assert json.loads(completed.stdout)["valid_frames"] == 36

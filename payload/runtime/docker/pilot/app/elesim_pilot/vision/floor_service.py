@@ -220,8 +220,13 @@ class FloorCalibrationService:
             angle = np.arccos(np.clip((np.trace(difference)-1)/2, -1, 1))
             if angle > np.radians(3) or np.linalg.norm(current_pose[:3, 3]-self._last_pose[:3, 3]) > 0.02:
                 return None
-            correction = self._last_correction @ np.linalg.inv(self._last_pose)
-            return correction @ current_pose
+            # Reuse only the measured orientation delta. Applying a rigid
+            # delta to the full pose would rotate a newer camera origin about
+            # the old one and silently introduce translation again.
+            correction = self._last_correction[:3, :3] @ self._last_pose[:3, :3].T
+            result = current_pose.copy()
+            result[:3, :3] = correction @ result[:3, :3]
+            return result
 
     def corrected_world_point(self, frame, point):
         pose = self.corrected_camera_pose(frame)

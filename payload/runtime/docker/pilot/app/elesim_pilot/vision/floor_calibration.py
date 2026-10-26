@@ -1,4 +1,4 @@
-"""Metric plane observations and the three camera-pose constraints they supply.
+"""Metric plane observations for correcting the camera's visual tilt.
 
 All fitting happens in the original optical frame. A confirmed reference is
 fixed; fitting the reference anew after every correction would hide the very
@@ -72,6 +72,7 @@ class FloorSettings:
     normal_max_deg: float = 25.0
     match_angle_deg: float = 15.0
     match_distance_m: float = 0.18
+    normal_consensus_deg: float = 3.0
     stable_frames: int = 3
     stale_after_s: float = 0.5
     future_tolerance_s: float = 0.03
@@ -91,6 +92,8 @@ class FloorSettings:
                 raise ValueError(f"{name} must be finite and positive")
         if not 0 < self.normal_max_deg < 90 or not 0 < self.match_angle_deg < 90:
             raise ValueError("plane angle limits must be within (0, 90)")
+        if not math.isfinite(self.normal_consensus_deg) or not 0 < self.normal_consensus_deg < self.match_angle_deg:
+            raise ValueError("plane normal consensus must be within the reference angle bound")
         if self.max_height_m <= self.min_height_m:
             raise ValueError("invalid camera height range")
         if (not math.isfinite(self.range_noise_m) or self.range_noise_m < 0
@@ -220,8 +223,12 @@ def plane_in_camera(plane: Plane, transform):
     return plane_in_world(plane, inverse)
 
 
-def correct_camera_pose(predicted, observed: Plane, reference: Plane):
-    """Apply only minimum tilt and normal translation; leave the plane's gauge free."""
+def correct_camera_pose(predicted, observed: Plane, reference: Plane, *, correct_distance=False):
+    """Correct minimum tilt while keeping the FK camera origin unchanged.
+
+    Distance correction is retained only for explicit historical experiments
+    with a known metric plane reference. It is not used by the live observer.
+    """
     pose = camera_transform(predicted)
     current = pose[:3, :3] @ observed.normal
     target = np.asarray(reference.normal)
@@ -232,8 +239,9 @@ def correct_camera_pose(predicted, observed: Plane, reference: Plane):
     sine, cosine = np.linalg.norm(cross), float(np.clip(current @ target, -1, 1))
     if sine > 1e-12:
         pose[:3, :3] = Rotation.from_rotvec(cross/sine * np.arctan2(sine, cosine)).as_matrix() @ pose[:3, :3]
-    height = float(target @ pose[:3, 3]) + reference.offset_m
-    pose[:3, 3] += target*(observed.offset_m-height)
+    if correct_distance:
+        height = float(target @ pose[:3, 3]) + reference.offset_m
+        pose[:3, 3] += target*(observed.offset_m-height)
     return pose
 
 
@@ -284,13 +292,17 @@ class PoseHistory:
 
 
 class FloorEstimator:
-    """Track confirmed metric geometry without silently promoting tables to floors."""
+    """Track trusted plane directions; no semantic floor or absolute height is needed."""
 
-    def __init__(self, settings=None, *, reference_height_m=None):
+    def __init__(self, settings=None, *, reference_height_m=None, reference_normal=None,
+                 correct_distance=False):
         self.settings = settings or FloorSettings()
         if reference_height_m is not None and not math.isfinite(reference_height_m):
             raise ValueError("floor reference height must be finite")
         self._configured_height = reference_height_m
+        self._configured_normal = (None if reference_normal is None
+                                   else Plane(tuple(reference_normal), 0).normal)
+        self.correct_distance = bool(correct_distance)
         self._next_id = 0
         self.reset()
 
@@ -299,22 +311,26 @@ class FloorEstimator:
         self._last_stamp = 0.0
         self._last_valid_stamp = 0.0
         self._previous = []
-        self._reference = (None if self._configured_height is None
-                           else Plane((0, 0, 1), -self._configured_height))
-        self._reference_kind = "configured" if self._reference is not None else ""
+        self._reference = (None if self._configured_height is None and self._configured_normal is None
+                           else Plane(self._configured_normal or (0, 0, 1), -(self._configured_height or 0.)))
+        self._reference_kind = ("configured" if self._configured_height is not None else
+                                "configured_direction" if self._reference is not None else "")
         self._corrected = None
         self._result = {"state": "searching", "valid": False, "reason": "waiting_for_depth",
                         "candidates": [], "normal_error_deg": None, "distance_error_m": None,
                         "required_stable_frames": self.settings.stable_frames,
-                        "capture_time_s": 0.0, "observable": ["tilt_2d", "normal_distance"],
-                        "unobservable": ["plane_translation_2d", "rotation_about_normal"]}
+                        "capture_time_s": 0.0,
+                        "correction_mode": "pose" if self.correct_distance else "orientation",
+                        "observable": ["tilt_2d", "normal_distance"] if self.correct_distance else ["tilt_2d"],
+                        "unobservable": (["plane_translation_2d", "rotation_about_normal"] if self.correct_distance
+                                         else ["translation_3d", "rotation_about_normal"])}
 
     def snapshot(self, *, now):
         result = dict(self._result)
         result["candidates"] = [dict(p) for p in result["candidates"]]
         result["reference"] = (None if self._reference is None else {
             **self._reference.payload(), "kind": self._reference_kind,
-            "absolute": self._reference_kind == "configured"})
+            "absolute": self.correct_distance and self._reference_kind == "configured"})
         if self._last_stamp and now-self._last_stamp > self.settings.stale_after_s:
             result.update(state="lost", valid=False, reason="stale_depth",
                           normal_error_deg=None, distance_error_m=None)
@@ -327,8 +343,13 @@ class FloorEstimator:
         candidate = next((p for p in self._previous if p["id"] == candidate_id), None)
         if candidate is None or candidate["count"] < self.settings.stable_frames:
             raise ValueError("floor candidate is missing or not stable")
-        self._reference = candidate["plane"]
-        self._reference_kind = "initial_observation"
+        if self.correct_distance:
+            self._reference, self._reference_kind = candidate["plane"], "initial_observation"
+        else:
+            # Confirmation asserts that the selected surface is horizontal,
+            # rather than treating an FK-biased initial normal as ground truth.
+            self._reference = Plane(self._configured_normal or (0, 0, 1), 0.)
+            self._reference_kind = "confirmed_horizontal" if self._configured_normal is None else "configured_direction"
         self._result.update(valid=False, state="acquiring", reason="reference_confirmed")
         self._corrected = None
 
@@ -359,17 +380,18 @@ class FloorEstimator:
         candidates, available = [], list(self._previous)
         for observed in planes[:cfg.max_planes]:
             world = plane_in_world(observed, pose)
-            if world.normal[2] < 0:
+            target = self._reference.normal if self._reference is not None else (self._configured_normal or (0, 0, 1))
+            if np.dot(world.normal, target) < 0:
                 observed, world = observed.flipped(), world.flipped()
             height = float(np.dot(world.normal, pose[:3, 3]))+world.offset_m
-            if (world.normal[2] < math.cos(math.radians(cfg.normal_max_deg))
-                    or not cfg.min_height_m <= height <= cfg.max_height_m
+            if (np.dot(world.normal, target) < math.cos(math.radians(cfg.normal_max_deg))
+                    or (self.correct_distance and not cfg.min_height_m <= height <= cfg.max_height_m)
                     or world.area_m2 < cfg.min_area_m2 or min(world.span_m) < cfg.min_span_m
                     or world.rms_m > cfg.max_rms_m):
                 continue
             previous = next((p for p in available
                              if np.dot(p["plane"].normal, world.normal) > math.cos(math.radians(cfg.match_angle_deg))
-                             and abs(p["plane"].offset_m-world.offset_m) < cfg.match_distance_m
+                             and (not self.correct_distance or abs(p["plane"].offset_m-world.offset_m) < cfg.match_distance_m)
                              and stamp-p["stamp"] <= cfg.stale_after_s), None)
             if previous is not None:
                 available = [p for p in available if p is not previous]
@@ -393,17 +415,22 @@ class FloorEstimator:
             return self.snapshot(now=now)
         matches = [p for p in candidates
                    if np.dot(p["plane"].normal, self._reference.normal) > math.cos(math.radians(cfg.match_angle_deg))
-                   and abs(p["plane"].offset_m-self._reference.offset_m) < cfg.match_distance_m]
-        if len(matches) != 1:
+                   and (not self.correct_distance or abs(p["plane"].offset_m-self._reference.offset_m) < cfg.match_distance_m)]
+        inconsistent = (self.correct_distance and len(matches) != 1)
+        if not self.correct_distance:
+            inconsistent = any(np.dot(a["plane"].normal, b["plane"].normal)
+                               < math.cos(math.radians(cfg.normal_consensus_deg))
+                               for a in matches for b in matches)
+        if not matches or inconsistent:
             self._result.update(state="lost", reason="ambiguous_reference" if matches else "reference_mismatch")
             return self.snapshot(now=now)
-        selected = matches[0]
+        selected = max(matches, key=lambda p: (p["plane"].inliers, p["plane"].area_m2, -p["plane"].rms_m))
         if selected["count"] < cfg.stable_frames:
             self._result.update(state="acquiring", reason="waiting_for_stable_plane")
             return self.snapshot(now=now)
         observed, reference = selected["observed"], self._reference
         expected = plane_in_camera(reference, pose)
-        self._corrected = correct_camera_pose(pose, observed, reference)
+        self._corrected = correct_camera_pose(pose, observed, reference, correct_distance=self.correct_distance)
         self._last_valid_stamp = stamp
         self._result.update(state="tracking", valid=True, reason="",
             selected_id=selected["id"],

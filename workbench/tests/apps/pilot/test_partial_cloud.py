@@ -16,7 +16,7 @@ def packet(**extra):
 
 
 @pytest.mark.parametrize("key", ["camera_world_origin", "camera_world_pose", "object_world",
-    "asset_id", "silhouette_xz", "mesh_path", "true_camera_pose"])
+    "asset_id", "silhouette_xz", "mesh_path", "true_camera_pose", "actual_q", "joint_offset"])
 def test_sensor_packet_rejects_truth_and_catalog_shortcuts(tmp_path,key):
     path=tmp_path/'frame.npz'
     np.savez_compressed(path,**packet(**{key:np.array([1,2,3])}))

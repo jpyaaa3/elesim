@@ -17,7 +17,7 @@ from elesim_pilot.vision.partial_cloud import ArmCameraModel, SensorObservation,
 from elesim_pilot.vision.perception.detector import HsvDetector
 
 
-def reconstruct(sensor_directory, output, *, arm_model=None, hand_eye=None, base_height=.8):
+def reconstruct(sensor_directory, output, *, arm_model=None, hand_eye=None, base_height=.8, correct_distance=False):
     output=Path(output); output.mkdir(parents=True,exist_ok=False)
     camera_model = None
     if arm_model is not None:
@@ -28,7 +28,9 @@ def reconstruct(sensor_directory, output, *, arm_model=None, hand_eye=None, base
         "keep_largest_component":camera_model is None,"morph_kernel_px":3,
         "hsv":{"ranges":[{"lower":[0,100,60],"upper":[12,255,255]},
                            {"lower":[168,100,60],"upper":[179,255,255]}]}})
-    estimator=FloorEstimator(reference_height_m=0.0)
+    estimator=FloorEstimator(reference_height_m=0.0 if correct_distance else None,
+                             reference_normal=None if correct_distance else (0,0,1),
+                             correct_distance=correct_distance)
     clouds={}; rows=[]
     for path in sorted(Path(sensor_directory).glob("view-*.npz")):
         observed=SensorObservation.load(path)
@@ -67,7 +69,8 @@ def reconstruct(sensor_directory, output, *, arm_model=None, hand_eye=None, base
     result={"schema_version":1,"frames":rows,"fused_clouds":len(clouds),
         "inputs":("RGB-D, intrinsics and measured four-DOF q; installed nominal arm FK and hand-eye"
                   if camera_model else "RGB-D, intrinsics and ideal virtual-rig encoder readings only"),
-        "alignment":"fixed encoder/world coordinates; no ICP"}
+        "alignment":"fixed encoder/world coordinates; no ICP",
+        "correction_mode":"pose" if correct_distance else "orientation"}
     (output/"result.json").write_text(json.dumps(result,indent=2,allow_nan=False)+"\n")
     return {"frames":len(rows),"valid_frames":sum(r["floor_valid"] for r in rows),"clouds":len(clouds)}
 
@@ -79,9 +82,10 @@ def main():
     parser.add_argument("--arm-model",type=Path)
     parser.add_argument("--hand-eye",type=Path)
     parser.add_argument("--base-height",type=float,default=.8)
+    parser.add_argument("--legacy-height",action="store_true",help="reproduce the historical known-height experiment")
     args=parser.parse_args()
     print(json.dumps(reconstruct(args.sensors,args.output,arm_model=args.arm_model,
-                                 hand_eye=args.hand_eye,base_height=args.base_height)))
+                                 hand_eye=args.hand_eye,base_height=args.base_height,correct_distance=args.legacy_height)))
 
 
 if __name__=="__main__": main()

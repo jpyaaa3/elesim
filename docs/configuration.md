@@ -46,8 +46,11 @@ Pilot과 Sim의 `config/config.yaml`은
 ### RGB-D edge broker
 
 Pilot 평면 관측 설정은 다음과 같다. `reference_height_m: null`이면 UI의
-Visual Calibration에서 기준면을 선택한다. `clock_verified`는 촬영/측정 시각
-정합을 실제 확인한 뒤 설정하며, `apply`는 perception world 좌표 보정만 켠다.
+Visual Calibration에서 수평이라고 확인할 수 있는 면을 선택한다. 실사용 보정은
+법선 방향에 따른 기울기만 수정하며 camera origin과 관절값을 바꾸지 않는다.
+`reference_height_m`는 legacy 호환 필드로, non-null이면 수평 방향의 사전
+기준을 제공하지만 높이 매칭이나 위치 보정에는 사용하지 않는다.
+`clock_verified`는 촬영/측정 시각 정합을 실제 확인한 뒤 설정한다.
 
 ```yaml
 vision:

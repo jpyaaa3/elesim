@@ -1,8 +1,8 @@
-# Depth-plane visual calibration
+# Plane-based visual tilt calibration
 
 Pilot observes fixed planes in the original RGB-D optical frame, compares them
 with the camera pose predicted by arm/body measurements, and optionally corrects
-the camera's tilt and normal distance. Robot owns actuation and safety. This
+the camera's tilt. The camera origin remains the FK estimate. Robot owns actuation and safety. This
 observer never changes motor commands, the selected IMU model, or a hand-eye file.
 
 ## Operator workflow
@@ -11,20 +11,21 @@ observer never changes motor commands, the selected IMU model, or a hand-eye fil
    six updates per second; it does not require a detected target object.
 2. Open **Visual Calibration**. The perception preview outlines eligible planes
    in yellow and labels them with the same IDs as the candidate dropdown.
-3. Initially keep the body and arm stationary. Select the actual fixed floor
-   plane and press **Confirm selected plane** after it has been observed for
-   three consecutive accepted frames. A large tabletop is only a candidate,
-   never silently promoted to the floor. The selected reference outline is mint.
-4. Inspect tilt error in degrees and signed height error in millimetres. An
-   initial observed reference provides relative consistency, not an independently
-   measured absolute camera height. A configured floor height is an explicit
-   external assumption in the current world coordinate system.
+3. Initially keep the body and arm stationary. Select a surface known to be
+   horizontal and press **Confirm horizontal reference** after three consecutive
+   accepted frames. A floor, tabletop or broad platform supplies the same
+   direction constraint regardless of its height. Confirmation asserts world-up;
+   it does not preserve an FK-biased initial normal as the reference.
+4. Inspect tilt error in degrees. Translation and rotation about the reference
+   normal remain unobserved; this is not full four-joint or camera-position
+   identification. A lone inclined surface cannot establish horizontal without
+   an independent reference. Do not confirm an unknown slope as horizontal.
 5. Repeat at different stationary arm poses. Keep the reference fixed. Use
    **Export floor observations** to save up to the last 2,000 records as JSONL
    in a private `/tmp/elesim-floor-calibration-*` directory in the Pilot runtime.
    The UI reports the exact path on that host/container. Exports contain no
    camera image, credentials or executable model.
-6. Enable **Apply visual correction** only after validating the source timing
+6. Enable **Apply visual tilt correction** only after validating the source timing
    and reference. Application is off by default. The switch changes perception
    world coordinates consumed by Pick/Gaze, so future planned motion can change;
    the observer itself sends no motor commands. It is available only for a valid,
@@ -35,10 +36,13 @@ Reference selection/reset and calibration configuration changes require active
 IK/Pick/Gaze workflows to stop first. Observation and export can continue while
 those workflows run.
 
-Configured `vision.perception.calibration.reference_height_m` permits automatic
-matching to that known horizontal plane. With its default `null`, selecting a
-reference explicitly is required. An inclined selected plane retains its actual
-normal; the observer does not flatten it into world gravity.
+With `vision.perception.calibration.reference_height_m: null` (the default), an
+explicit reference confirmation is required. This legacy field remains readable:
+a non-null value declares a horizontal reference for automatic direction
+matching, but its numeric height does not gate or translate the live correction.
+Historical metric-height experiments must explicitly request `correct_distance`.
+The lower-level estimator also accepts an independently known inclined reference
+normal; it preserves that declared direction rather than flattening it.
 
 ## Measurement and timing
 
@@ -51,11 +55,14 @@ extent, fit residual, plausible orientation/height and temporal association gate
 the candidates. Thresholds in `FloorSettings` are initial engineering settings,
 not measured camera specifications.
 
-A confirmed plane remains fixed. Its normal and offset are transformed into each
-capture's optical frame and compared with the measured normal and offset. The
-camera correction uses only minimum tilt and translation normal to the plane;
-in-plane translation and rotation about the normal remain unobserved. Nearby
-parallel planes make an association ambiguous rather than forcing a match.
+A confirmed reference direction remains fixed. Its normal is transformed into
+each capture's optical frame and compared with the measured normal. Correction
+uses the minimum tilt rotation and never relocates the camera. All translation
+and rotation about the normal remain unobserved. Supported parallel planes at
+different levels supply one consistent direction. Competing supported normals
+that differ by more than the 3-degree consensus bound reject correction.
+Plane offsets remain diagnostic measurements, not a demand to map a surface to
+world Z=0. Minimum support, residual, coarse direction and temporal gates remain.
 
 Decoded RGB-D retains its existing source ID, boot ID, capture timestamp and
 calibration ID. Camera intrinsics and depth scale are included in the local
@@ -81,7 +88,7 @@ out of order supplies a correction. Correction reuse is further limited to
 200 ms and camera motion within 2 cm / 3 degrees of the measured pose. These
 are bounded reuse limits, not an accuracy guarantee.
 
-## Offline fixed-mount fit
+## Historical offline fixed-mount fit
 
 On a machine/environment with the Pilot package and its declared scientific
 dependencies installed, run:
@@ -90,7 +97,7 @@ dependencies installed, run:
 python3 -m elesim_pilot.vision.hand_eye_calibration observations.jsonl --output candidate.json
 ```
 
-The command fits one fixed camera mount and, when necessary, a fixed unknown
+This is outside the current imperfect-joint tilt objective. The command fits one fixed camera mount and, when necessary, a fixed unknown
 reference plane. It reserves every fifth observation for validation, refuses
 mixed source epochs/mounts/reference planes, and rejects a rank-deficient fit.
 Motion must excite the parameters; repeated copies of one pose are insufficient.
@@ -98,6 +105,10 @@ Unverified timing is rejected unless explicitly allowed for exploratory analysis
 with `--allow-unverified-clock`. The output is created exclusively and is never
 installed automatically. Replacing a physical camera mount requires separate
 review of the candidate and its independent validation.
+
+Current orientation-only exports cannot establish a fixed metric plane and are
+rejected by this legacy translation fitter. Use historical metric observations
+only when reproducing that experiment; current operation keeps the mount fixed.
 
 Logs retain paired measured q/body states and available raw IMU/model diagnostic
 metadata for later comparisons. Fixed mount fitting assumes the supplied parent
@@ -114,10 +125,38 @@ rank checks and held-out fitting. A low residual on the very plane used to make
 a correction is not an independent accuracy result. Physical acceptance needs
 independent height/angle or reference-point measurements, poses not used for
 calibration, false-floor selection and loss rates, and timing/performance evidence
-on the intended ZED Mini or D435. Absolute 6-DOF accuracy is not established by
-floor consistency alone.
+on the intended ZED Mini or D435. Current primary metrics are remaining tilt in
+degrees, supported-pose coverage and cross-view object-normal consistency.
+Unchanged camera-origin translation is a required invariant. Absolute 6-DOF
+accuracy and individual joint biases are not established by plane direction.
 
-## Sensor-only partial-cloud experiment
+## Imperfect-joint tilt experiment
+
+`vision_arm_scene --joint-errors` independently samples reported four-DOF poses
+and synthetic physical joint errors. The rendered arm uses actual q; sensor
+packets contain reported q only. The nominal ZED mount is exact and unchanged.
+Errors include up to 5 mm Linear, 5 degrees Roll and 1.5 degrees per Bend,
+clipped to software limits, plus a bounded pose-dependent deflection fixture.
+Trusted horizontal surfaces vary in level and can appear together. No source
+truth or scene labels are provided to Pilot.
+
+```bash
+python3 -m workbench.research.experiments.vision_arm_scene data --joint-errors --backend genesis \
+  --poses 24 --error-seeds 2 --data-root payload/data --config payload/config/sim/config.yaml
+python3 -m workbench.research.experiments.vision_reconstruct data/sensors predictions \
+  --arm-model payload/data/models/arm/default.json \
+  --hand-eye payload/data/calibration/cameras/zed_mini.hand_eye.json
+python3 -m workbench.research.experiments.vision_tilt_evaluate data/truth predictions --output evaluation.json
+```
+
+The independent evaluator checks true camera tilt and visible object top-face
+normals, plus agreement between different views of the same object's normal.
+It never performs ICP or adds a translation correction. Position/yaw error can
+remain even when the world looks upright; that is reported as an unobserved
+direction, not hidden by a height anchor. Static simulation and synthetic noise
+do not validate physical load-dependent arm deformation or exposure timing.
+
+## Historical sensor-only partial-cloud experiment
 
 The next perception stage preserves observed object surface points; it does not
 complete an unseen shape. `vision.partial_cloud` accepts a strict schema-1 local
@@ -132,7 +171,7 @@ Three independent research processes implement the baseline:
 
 ```bash
 python3 -m workbench.research.experiments.vision_scene data --backend genesis --seeds 3
-python3 -m workbench.research.experiments.vision_reconstruct data/sensors predictions
+python3 -m workbench.research.experiments.vision_reconstruct data/sensors predictions --legacy-height
 python3 -m workbench.research.experiments.vision_evaluate data/truth predictions --output evaluation.json
 ```
 
@@ -180,7 +219,7 @@ centre convention, verified against the actual camera during this run. The
 [pinned Genesis camera implementation](https://raw.githubusercontent.com/Genesis-Embodied-AI/genesis-world/v1.4.1/genesis/vis/camera.py)
 defines both the vertical focal length and half-pixel raster sampling.
 
-## Four-DOF pose and error matrix
+## Historical four-DOF extrinsic-error matrix
 
 `vision_arm_scene.py` extends the Cartesian fixture with the installed arm URDF,
 the ZED hand-eye transform and all four joint coordinates: Linear, Roll, Bend 1
@@ -205,6 +244,7 @@ complete while its overall acceptance result is false.
 python3 -m workbench.research.experiments.vision_arm_scene data --backend genesis --poses 24 --error-seeds 2 \
   --data-root payload/data --config payload/config/sim/config.yaml
 python3 -m workbench.research.experiments.vision_reconstruct data/sensors predictions \
+  --legacy-height \
   --arm-model payload/data/models/arm/default.json \
   --hand-eye payload/data/calibration/cameras/zed_mini.hand_eye.json
 python3 -m workbench.research.experiments.vision_arm_evaluate data/truth predictions --output evaluation.json

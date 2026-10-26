@@ -78,7 +78,8 @@ def test_unverified_source_history_can_record_but_not_apply_visual_correction():
         assert service.corrected_world_point(f, [0, 0, 0.8]) is None
         service.clock_verified = True
         point = service.corrected_world_point(f, [0, 0, 0.8])
-        np.testing.assert_allclose(point, [0, 0, 0], atol=1e-5)
+        # Visual tilt correction does not relocate the FK camera origin.
+        np.testing.assert_allclose(point, [0, 0, 0.05], atol=1e-5)
         assert service.corrected_world_point(frame(100.0, boot="other"), [0, 0, 0.8]) is None
         assert service.corrected_world_point(frame(101.0), [0, 0, 0.8]) is None
     finally:
@@ -153,7 +154,8 @@ def test_operator_floor_reference_operations_never_call_motion_commands():
         response = loads_envelope(dumps_envelope(make_envelope("operator_result", "pilot", target_id="ui", payload=result)))
         result = response.payload
         assert result["ok"]
-        assert decode_value(result["result"])["reference"]["kind"] == "initial_observation"
+        assert decode_value(result["result"])["reference"]["kind"] == "confirmed_horizontal"
+        assert decode_value(result["result"])["correction_mode"] == "orientation"
         result = dispatcher.handle({"request_id": "floor-reset", "operation": "service_call",
             "name": "reset_floor_calibration", "args": []})
         assert result["ok"]
