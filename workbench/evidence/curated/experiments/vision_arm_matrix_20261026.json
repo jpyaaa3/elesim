@@ -162,7 +162,7 @@
   },
   "false_floor_accepted_cases": 32,
   "observable_accuracy_passed": true,
-  "far_plane_and_missing_depth_rejected": false,
+  "far_plane_and_missing_depth_rejected": true,
   "criteria": {
     "observable_point_p95_below_m": 0.012,
     "false_floor_acceptance_cases": 0,
@@ -558,7 +558,249 @@
   ],
   "evaluation_note": "Original evaluator wrongly counted one genuine visible floor in the high-plane condition as a rejection failure by scene label. Its physical selected-plane classification is correct (false_floor_cases=0); revised evaluator checks that geometry instead. Overall acceptance still fails due to 32 low-plane false accepts.",
   "host_regression": {
-    "passed": 59,
-    "canonical_required": "development attachment first build still running"
+    "passed": 60,
+    "canonical_required": {
+      "started_via": "/home/user/ws/newsim/bin/elesim-dev",
+      "tests_started": false,
+      "completed": false,
+      "reason": "first generated development image CUDA dependency preparation was incomplete after 2616.6 seconds; interrupted only the owned build clients with SIGINT",
+      "exit_code": 130,
+      "log_sha256": "3a17663da4e080c6a0ad5622056e770ebc2962db32ea23bd9c9942678252d646"
+    }
+  },
+  "reevaluation": {
+    "revision": "9c1922dcf252ea1b7b9221c5a1cf4b45d64132d0",
+    "script_sha256": "1f39a64eca17aa8d45d708f4876b1e6f94cc3bd9a378ae1aa280de5bec927aab",
+    "audit": {
+      "image_id": "sha256:d0238ac1c9654fe94c515ec229a41380b2eab9278f27249cd71baa62b091bfe7",
+      "mounts": [
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-4ffe351-def0c73f/vision_arm_evaluate_v2.py",
+          "Destination": "/diagnostic/run.py",
+          "Mode": "ro",
+          "RW": false,
+          "Propagation": "rprivate"
+        },
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-4ffe351-def0c73f/produced/data/truth",
+          "Destination": "/truth",
+          "Mode": "ro",
+          "RW": false,
+          "Propagation": "rprivate"
+        },
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-4ffe351-def0c73f/consumer/predictions",
+          "Destination": "/predictions",
+          "Mode": "ro",
+          "RW": false,
+          "Propagation": "rprivate"
+        },
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-4ffe351-def0c73f/reevaluation-v2",
+          "Destination": "/output",
+          "Mode": "rw",
+          "RW": true,
+          "Propagation": "rprivate"
+        }
+      ],
+      "device_requests": null,
+      "network_mode": "none"
+    },
+    "point_metrics_unchanged": true,
+    "false_floor_cases": 32,
+    "accepted": false,
+    "genuine_floor_no_longer_rejected_by_scene_label": true,
+    "evaluation_sha256": "d4784a4f5882fbff0bb7c97368a52bc5a1cb95edc55411081450a72c272cd722"
+  },
+  "exploratory_multipose_fit": {
+    "applied_to_runtime": false,
+    "policy": "all poses with object points are held out; no condition labels or truth",
+    "scope": "offline fixed-mount candidate with trusted FK, bench base and known Z=0 floor; not applied",
+    "heldout_object_metrics": {
+      "clean": {
+        "heldout_object_cases": 10,
+        "per_frame_p95_m": 0.002098259646030034,
+        "fixed_mount_p95_m": 0.002663459029754246
+      },
+      "tilt_height": {
+        "heldout_object_cases": 12,
+        "per_frame_p95_m": 0.002098046022690146,
+        "fixed_mount_p95_m": 0.1087820759327299
+      },
+      "mount": {
+        "heldout_object_cases": 11,
+        "per_frame_p95_m": 0.056872254741328086,
+        "fixed_mount_p95_m": 0.002661118444213016
+      },
+      "noisy": {
+        "heldout_object_cases": 12,
+        "per_frame_p95_m": 0.004089570685917771,
+        "fixed_mount_p95_m": 0.10351354128314938
+      },
+      "near_table": {
+        "heldout_object_cases": 10,
+        "per_frame_p95_m": 0.10696042966069483,
+        "fixed_mount_p95_m": 0.12017033038070979
+      },
+      "ambiguous_plane": {
+        "heldout_object_cases": 6,
+        "per_frame_p95_m": 0.0013157084526222219,
+        "fixed_mount_p95_m": 0.002724408696028702
+      }
+    },
+    "fit_groups": [
+      {
+        "boot": "ef7dfcee0710455982f8b24a9a9ee95a",
+        "training_poses": 11,
+        "validation_poses": 5,
+        "training_distance_rms_m": 0.00024521231604380606,
+        "training_normal_rms_deg": 0.013723500258841904,
+        "condition_number": 7.09280877752294,
+        "heldout_plane_distance_p95_m": 0.000917428794220676,
+        "heldout_plane_normal_p95_deg": 0.08922542705355972,
+        "condition_label_added_only_by_evaluator": "clean"
+      },
+      {
+        "boot": "4af2d3a7e5104e87b13d838b3a0477d1",
+        "training_poses": 11,
+        "validation_poses": 5,
+        "training_distance_rms_m": 0.00023592193084990027,
+        "training_normal_rms_deg": 0.013833087417455736,
+        "condition_number": 7.092628144762892,
+        "heldout_plane_distance_p95_m": 0.0010420818787356676,
+        "heldout_plane_normal_p95_deg": 0.08760197504238082,
+        "condition_label_added_only_by_evaluator": "clean"
+      },
+      {
+        "boot": "103768ce16924de3b64c1ffce02f992e",
+        "training_poses": 10,
+        "validation_poses": 6,
+        "training_distance_rms_m": 0.03297590820958276,
+        "training_normal_rms_deg": 1.8958867359149667,
+        "condition_number": 11.738091282780433,
+        "heldout_plane_distance_p95_m": 0.0809273663768085,
+        "heldout_plane_normal_p95_deg": 4.036824483754692,
+        "condition_label_added_only_by_evaluator": "tilt_height"
+      },
+      {
+        "boot": "e76d82ed2a4c48aeba276f099d195c5b",
+        "training_poses": 10,
+        "validation_poses": 6,
+        "training_distance_rms_m": 0.012491671215766588,
+        "training_normal_rms_deg": 3.5954010160726706,
+        "condition_number": 10.366670449694917,
+        "heldout_plane_distance_p95_m": 0.04848114997598752,
+        "heldout_plane_normal_p95_deg": 8.634696183596805,
+        "condition_label_added_only_by_evaluator": "tilt_height"
+      },
+      {
+        "boot": "351e8defc12d48169a50fc7c82097843",
+        "training_poses": 11,
+        "validation_poses": 5,
+        "training_distance_rms_m": 0.00018898582468588045,
+        "training_normal_rms_deg": 0.014092675673336002,
+        "condition_number": 7.1249572749068175,
+        "heldout_plane_distance_p95_m": 0.0012956995277047189,
+        "heldout_plane_normal_p95_deg": 0.08388832388362782,
+        "condition_label_added_only_by_evaluator": "mount"
+      },
+      {
+        "boot": "87a0c3cb8ca8458ab98f6d1e4cb67fd0",
+        "training_poses": 10,
+        "validation_poses": 6,
+        "training_distance_rms_m": 0.00024347951099930939,
+        "training_normal_rms_deg": 0.01218296871374959,
+        "condition_number": 7.205683949891866,
+        "heldout_plane_distance_p95_m": 0.0008994142044642659,
+        "heldout_plane_normal_p95_deg": 0.08635511928086823,
+        "condition_label_added_only_by_evaluator": "mount"
+      },
+      {
+        "boot": "d7f6171ac8d6456eaa77314b1aebe1f7",
+        "training_poses": 10,
+        "validation_poses": 6,
+        "training_distance_rms_m": 0.010670830978315438,
+        "training_normal_rms_deg": 2.919778621242741,
+        "condition_number": 5.725192994869016,
+        "heldout_plane_distance_p95_m": 0.024937894863666973,
+        "heldout_plane_normal_p95_deg": 3.3689055229820446,
+        "condition_label_added_only_by_evaluator": "noisy"
+      },
+      {
+        "boot": "0aaf90982a944605803d410d0e15c6fd",
+        "training_poses": 10,
+        "validation_poses": 6,
+        "training_distance_rms_m": 0.04200753951553028,
+        "training_normal_rms_deg": 5.808430735806847,
+        "condition_number": 8.456486905271674,
+        "heldout_plane_distance_p95_m": 0.0673196194122427,
+        "heldout_plane_normal_p95_deg": 12.384897171474446,
+        "condition_label_added_only_by_evaluator": "noisy"
+      },
+      {
+        "boot": "27c16666de9546038409dbf0ad8dee5e",
+        "training_poses": 0,
+        "validation_poses": 1,
+        "unavailable": "hand-eye calibration requires 6..2048 paired poses and planes",
+        "condition_label_added_only_by_evaluator": "wrong_plane"
+      },
+      {
+        "boot": "2d65cfc0d04448349073de955039ad4a",
+        "training_poses": 11,
+        "validation_poses": 5,
+        "training_distance_rms_m": 0.08785885517609407,
+        "training_normal_rms_deg": 0.06124689797362141,
+        "condition_number": 15.873412780796121,
+        "heldout_plane_distance_p95_m": 0.1720331238310591,
+        "heldout_plane_normal_p95_deg": 0.17328367076324272,
+        "condition_label_added_only_by_evaluator": "near_table"
+      },
+      {
+        "boot": "06e08baf001f4f6aaeb7a3df0d8b21f8",
+        "training_poses": 11,
+        "validation_poses": 5,
+        "training_distance_rms_m": 0.10232201613648502,
+        "training_normal_rms_deg": 0.060934158219973486,
+        "condition_number": 15.954507678636068,
+        "heldout_plane_distance_p95_m": 0.20088149192279617,
+        "heldout_plane_normal_p95_deg": 0.16702430069650467,
+        "condition_label_added_only_by_evaluator": "near_table"
+      },
+      {
+        "boot": "7dd9b159c2364617896d01919a3f164f",
+        "training_poses": 11,
+        "validation_poses": 3,
+        "training_distance_rms_m": 0.00026956480604237604,
+        "training_normal_rms_deg": 0.014089603479542096,
+        "condition_number": 7.0932037580268,
+        "heldout_plane_distance_p95_m": 0.0006622369552638284,
+        "heldout_plane_normal_p95_deg": 0.08813216263073219,
+        "condition_label_added_only_by_evaluator": "ambiguous_plane"
+      },
+      {
+        "boot": "b1ce4b8e93e04a5fae18df9c90ef54fb",
+        "training_poses": 11,
+        "validation_poses": 3,
+        "training_distance_rms_m": 0.00027284351244080777,
+        "training_normal_rms_deg": 0.013800748580732672,
+        "condition_number": 7.093530708568022,
+        "heldout_plane_distance_p95_m": 0.0007725321299469678,
+        "heldout_plane_normal_p95_deg": 0.08471479516104106,
+        "condition_label_added_only_by_evaluator": "ambiguous_plane"
+      }
+    ],
+    "candidate_file_sha256": "b619f4a6a139b1cdcb48bf7d3f2eb8b0da6b29f97cba2e6210d94c38f4c57aa4",
+    "independent_object_evaluation_sha256": "c738b63660670ac9e9ae00e6cda9869440fb977adbc43e030d67d55a8e96783f",
+    "object_validation_bundle_sha256": "8891534ce606c3e5e874c7e8167640ba65a5287d6bf7045f4e72bbc5f1c91427",
+    "scripts_sha256": {
+      "vision_arm_mount_fit.py": "18cf1bc7dd80485e494567362171fd278864a9e98de802af3811806bdff240c5",
+      "vision_arm_mount_evaluate.py": "08dd08f64072c2525df0ffbaba0027fa78c5b2fc64f3fde4a079aecdec7f189e"
+    },
+    "interpretation": "fixed local mount only; world-dependent errors do not fit this model; no automatic selector or floor rejection policy established",
+    "analysis_environment": "host NumPy 2.2.6, SciPy 1.15.3; exploratory replay, not canonical runtime acceptance"
   }
 }

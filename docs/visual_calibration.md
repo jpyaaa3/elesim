@@ -228,3 +228,27 @@ acceptance failed; these outcomes are not a guarantee over the whole joint space
 The [curated record](../workbench/evidence/curated/experiments/vision_arm_matrix_20261026.json)
 and [pose matrix](../workbench/evidence/curated/experiments/vision_arm_matrix_20261026.png)
 retain availability, rejected cases and false plane selections.
+
+An exploratory analysis fits one fixed mount per source boot from the blind
+consumer's supported-plane observations. Every pose containing object points is
+held out of fitting; the fit never reads condition labels, objects or camera
+truth. An independent evaluator then measures those object points without
+registration. The local-mount condition improved from 56.87 to 2.66 mm p95 over
+11 held-out object observations. This supports investigating fixed-mount
+calibration under trusted FK, a trusted bench base and a genuine known floor.
+It does not establish physical accuracy or an automatic model selector.
+
+```bash
+python3 -m workbench.research.analysis.vision_arm_mount_fit predictions/result.json \
+  payload/data/calibration/cameras/zed_mini.hand_eye.json --output candidates.json
+python3 -m workbench.research.analysis.vision_arm_mount_evaluate candidates.json \
+  object-validation --output object-validation.json
+```
+
+`object-validation/` is a private evaluator bundle of held-out predicted points,
+corresponding ideal depth and true poses. It is not an input to fitting. The
+world-tilt/height and noisy conditions did not fit the same fixed-mount model:
+their held-out point errors remained above 100 mm. The low-plane case also had
+large training plane-distance RMS (87.9 and 102.3 mm), providing a model
+consistency diagnostic rather than a demonstrated rejection policy. Candidates
+are not applied to the runtime or installed hand-eye files.

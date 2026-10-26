@@ -33,9 +33,20 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   geometry로 판정한다. 낮은 판 오인식 32건과 전체 FAIL은 변하지 않는다.
 - 진단 one-off는 모두 제거됐고 기존 test Sim/Pilot의 ID·이미지·실행 상태는
   보존했다. 관련 host 회귀 **59 passed**. Canonical required는 알려진 dev
-  wrapper의 최초 의존성/image build가 진행 중이어서 아직 완료되지 않았다.
+  wrapper를 실행했으나 최초 개발 이미지의 CUDA 의존성 준비가 끝나지 않아
+  **2,616.6초 뒤 이번에 시작한 build client만 SIGINT로 중단**했다(exit 130).
+  테스트 본문은 미실행이며 canonical 통과로 해석하지 않는다. 다른 설치
+  update와 정상 앱은 중단하지 않았다. 생성된 dev 외 별도 개발 이미지는 없다.
   [수치·SHA·격리 증거](../workbench/evidence/curated/experiments/vision_arm_matrix_20261026.json),
   [자세별 결과 그림](../workbench/evidence/curated/experiments/vision_arm_matrix_20261026.png).
+- 후속 offline 탐색에서는 condition/truth 없이 consumer의 plane/q 기록만
+  사용해 source boot별 고정 mount를 fit했다. **물체 점이 있는 자세는 전부
+  피팅에서 제외**했다. 고정 local-mount 조건의 held-out 물체 관측 11건은
+  기존 per-frame **56.87 mm → fixed-mount 2.66 mm p95**였다. 높이·기울기를
+  world에서 바꾼 조건과 잡음 조건에는 같은 고정 mount 모델이 맞지 않았다.
+  낮은 판 조건의 training plane-distance RMS는 **87.9 / 102.3 mm**로 컸다.
+  이는 model consistency 진단의 단서이며 자동 reject/모델 선택을 구현한
+  결과가 아니다. Candidate는 설치·적용하지 않았다. 추가 host 회귀 1개 통과.
 
 ### Sensor-only 부분 점군 기준선 (2026-10-26)
 

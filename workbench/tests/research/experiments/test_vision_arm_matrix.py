@@ -102,6 +102,31 @@ def test_low_table_and_camera_height_error_can_supply_identical_measurements():
     assert table_view.offset_m == pytest.approx(floor_view.offset_m)
 
 
+def test_multipose_mount_fit_excludes_every_object_pose_from_training(tmp_path):
+    from workbench.research.analysis.vision_arm_mount_fit import fit_candidates
+    pilot, producer = models()
+    delta = np.eye(4)
+    delta[:3,:3] = Rotation.from_rotvec([.04,-.03,.05]).as_matrix()
+    delta[:3,3] = [.02,-.01,.03]
+    rows = []
+    rng = np.random.default_rng(1187)
+    for index,q in enumerate(rng.uniform(pilot.lower,pilot.upper,(40,4))):
+        predicted = pilot.camera_pose(q)
+        actual = producer.camera_pose(q) @ delta
+        rows.append({"name":f"view-{index:04d}.npz","boot":"camera-boot","encoder_q":q.tolist(),
+            "points":100 if index % 4 == 0 else 0,"floor_valid":True,
+            "predicted_pose":predicted.tolist(),"observed_plane":measured_plane(actual).payload()})
+    path=tmp_path/'observations.json';path.write_text(json.dumps({"frames":rows}))
+    result=fit_candidates(path,DATA/'calibration/cameras/zed_mini.hand_eye.json')
+    candidate=result['groups'][0]
+    assert candidate['training_poses']==30 and candidate['validation_poses']==10
+    assert set(candidate['training_frames']).isdisjoint(candidate['validation_frames'])
+    for row in rows:
+        assert (row['name'] in candidate['validation_frames']) == bool(row['points'])
+    np.testing.assert_allclose(candidate['candidate_mount'],pilot.mount @ delta,atol=1e-8)
+    assert candidate['heldout_plane_distance_p95_m']<1e-8
+
+
 def test_arm_rgbd_matrix_keeps_absent_targets_and_reports_failures(tmp_path):
     from workbench.research.experiments.vision_reconstruct import reconstruct
     from workbench.research.experiments.vision_arm_evaluate import evaluate_matrix
