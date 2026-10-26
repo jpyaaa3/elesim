@@ -30,7 +30,7 @@ def test_only_stable_plane_can_be_confirmed_and_no_motion_is_requested(monkeypat
 def test_export_path_is_taken_from_async_result_on_pilot_not_invented_locally(monkeypatch):
     monkeypatch.setattr(floor_calibration, "panel_header", lambda *_a, **_k: (True,))
     monkeypatch.setattr(floor_calibration, "imgui", NS(text=lambda *_: None,
-        text_wrapped=lambda *_: None, button=lambda label: label == "Export floor observations",
+        text_wrapped=lambda *_: None, button=lambda label: label == "Export plane observations",
         same_line=lambda: None))
     def submit(name, *args, **kwargs):
         assert name == "export_floor_calibration"
@@ -45,7 +45,7 @@ def test_stopped_perception_keeps_export_available(monkeypatch):
     messages = []
     monkeypatch.setattr(floor_calibration, "panel_header", lambda *_a, **_k: (True,))
     monkeypatch.setattr(floor_calibration, "imgui", NS(text=messages.append,
-        text_wrapped=messages.append, button=lambda label: label == "Export floor observations"))
+        text_wrapped=messages.append, button=lambda label: label == "Export plane observations"))
     def submit(name, *args, **kwargs):
         assert name == "export_floor_calibration"
         kwargs["on_result"]("/tmp/retained-observations.jsonl")

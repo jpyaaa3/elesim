@@ -17,7 +17,7 @@ def draw_floor_calibration_panel(panel):
         imgui.text_wrapped(str(status["reason"]))
     if not status.get("enabled"):
         imgui.text_wrapped("Start perception to observe depth planes.")
-        if status.get("records", 0) and imgui.button("Export floor observations"):
+        if status.get("records", 0) and imgui.button("Export plane observations"):
             _submit(panel, "export_floor_calibration")
         _draw_result(panel)
         return
@@ -48,7 +48,7 @@ def draw_floor_calibration_panel(panel):
     if imgui.button("Reset plane reference"):
         _submit(panel, "reset_floor_calibration")
     imgui.same_line()
-    if imgui.button("Export floor observations"):
+    if imgui.button("Export plane observations"):
         _submit(panel, "export_floor_calibration")
     if status.get("correction_available") or status.get("apply_requested"):
         changed, value = imgui.checkbox("Apply visual tilt correction", bool(status.get("apply_requested")))

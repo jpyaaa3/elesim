@@ -21,7 +21,7 @@ observer never changes motor commands, the selected IMU model, or a hand-eye fil
    identification. A lone inclined surface cannot establish horizontal without
    an independent reference. Do not confirm an unknown slope as horizontal.
 5. Repeat at different stationary arm poses. Keep the reference fixed. Use
-   **Export floor observations** to save up to the last 2,000 records as JSONL
+   **Export plane observations** to save up to the last 2,000 records as JSONL
    in a private `/tmp/elesim-floor-calibration-*` directory in the Pilot runtime.
    The UI reports the exact path on that host/container. Exports contain no
    camera image, credentials or executable model.
@@ -51,7 +51,7 @@ UI image rotations, preview overlays and rendered reference geometry are exclude
 from the measurement. Invalid/too-near/too-far depth pixels are dropped, at most
 4,096 spatially distributed pixels are deprojected, and bounded RANSAC plus
 weighted covariance fitting extracts up to four planes. Support area, two-axis
-extent, fit residual, plausible orientation/height and temporal association gate
+extent, fit residual, plausible orientation and temporal association gate
 the candidates. Thresholds in `FloorSettings` are initial engineering settings,
 not measured camera specifications.
 
@@ -155,6 +155,29 @@ It never performs ICP or adds a translation correction. Position/yaw error can
 remain even when the world looks upright; that is reported as an unobserved
 direction, not hidden by a height anchor. Static simulation and synthetic noise
 do not validate physical load-dependent arm deformation or exposure timing.
+
+The 2026-10-26 GPU 2 (RTX A6000) run tested revision `ff640b5`, published through
+the official updaters on both hosts. It crossed 24 four-joint poses, six conditions
+and two error seeds: 288 cases / 864 Genesis RGB-D frames. Camera tilt p95 on
+supported cases fell from **6.56 to 0.10 degrees** for joint offsets and from
+**4.40 to 0.10 degrees** for the pose-dependent deflection fixture. Raised and
+parallel horizontal surfaces also remained near **0.10 degrees**, without using
+their heights to translate the camera. The camera-origin shift was exactly zero.
+
+Each condition supported 32/48 pose/error cases (16/24 unique poses); the other
+16 cases remained unavailable and were retained in the denominator. No corrected
+case exceeded three degrees of tilt. Independent object top-face p95 decreased
+from 5.97 to 0.09 degrees for joint offsets, but cross-view coverage was only four
+view pairs per condition, and the raised plane hid all test objects. These are
+limited static simulation results, not physical or arbitrary-pose guarantees.
+Normal test containers retained their IDs, images and stopped state, and all
+diagnostic containers were removed.
+
+[Metrics and provenance](../workbench/evidence/curated/experiments/visual_tilt_20261026.json)
+and [before/after figure](../workbench/evidence/curated/experiments/visual_tilt_20261026.png)
+record availability, unchanged origins, image/module hashes and sensor-only
+consumer isolation. The ideal clean-arm control acquired about 0.10 degrees of
+tilt error after correction; the experiment does not establish its cause.
 
 ## Historical sensor-only partial-cloud experiment
 

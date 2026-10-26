@@ -1,0 +1,708 @@
+{
+  "schema_version": 1,
+  "complete": true,
+  "accepted": true,
+  "backend": "genesis",
+  "cases": 288,
+  "frames": 864,
+  "unique_poses": 24,
+  "q_min": [
+    -0.1676356522838343,
+    -1.537691681529515,
+    -0.6024399306242263,
+    -0.6050547354089896
+  ],
+  "q_max": [
+    -0.006986109482433778,
+    1.4805186954009772,
+    0.6272709161242069,
+    0.5939467681330151
+  ],
+  "metrics": {
+    "clean": {
+      "cases": 48,
+      "corrected_cases": 32,
+      "availability": 0.6666666666666666,
+      "reasons": {
+        "tracking": 32,
+        "no_supported_floor_plane": 16
+      },
+      "camera_origin_shift_max_m": 0.0,
+      "object_top_face_observations": 20,
+      "cross_view_pairs": 4,
+      "tilt_before_p95_deg": 0.00015385264327427096,
+      "tilt_after_p95_deg": 0.09943705459035708,
+      "object_normal_before_p95_deg": 0.17105765605236373,
+      "object_normal_after_p95_deg": 0.17844729199341677,
+      "cross_view_before_p95_deg": 0.3010602335831996,
+      "cross_view_after_p95_deg": 0.3090368237947776,
+      "tilt_after_max_deg": 0.10240062635820023
+    },
+    "joint_offsets": {
+      "cases": 48,
+      "corrected_cases": 32,
+      "availability": 0.6666666666666666,
+      "reasons": {
+        "tracking": 32,
+        "no_supported_floor_plane": 16
+      },
+      "camera_origin_shift_max_m": 0.0,
+      "object_top_face_observations": 19,
+      "cross_view_pairs": 4,
+      "tilt_before_p95_deg": 6.558458715199407,
+      "tilt_after_p95_deg": 0.09857127087886877,
+      "object_normal_before_p95_deg": 5.971171119486008,
+      "object_normal_after_p95_deg": 0.09466816419237421,
+      "cross_view_before_p95_deg": 5.377194934530265,
+      "cross_view_after_p95_deg": 0.2925093955695033,
+      "tilt_after_max_deg": 0.108655141001027
+    },
+    "deflection": {
+      "cases": 48,
+      "corrected_cases": 32,
+      "availability": 0.6666666666666666,
+      "reasons": {
+        "tracking": 32,
+        "no_supported_floor_plane": 16
+      },
+      "camera_origin_shift_max_m": 0.0,
+      "object_top_face_observations": 20,
+      "cross_view_pairs": 4,
+      "tilt_before_p95_deg": 4.398579018020953,
+      "tilt_after_p95_deg": 0.0993602255194269,
+      "object_normal_before_p95_deg": 5.066307766985043,
+      "object_normal_after_p95_deg": 0.12901201197399884,
+      "cross_view_before_p95_deg": 3.8286838608879887,
+      "cross_view_after_p95_deg": 0.13851039292695216,
+      "tilt_after_max_deg": 0.10513342685201789
+    },
+    "raised_horizontal": {
+      "cases": 48,
+      "corrected_cases": 32,
+      "availability": 0.6666666666666666,
+      "reasons": {
+        "tracking": 32,
+        "no_supported_floor_plane": 16
+      },
+      "camera_origin_shift_max_m": 0.0,
+      "object_top_face_observations": 0,
+      "cross_view_pairs": 0,
+      "tilt_before_p95_deg": 6.558458715199407,
+      "tilt_after_p95_deg": 0.09782545192968872,
+      "object_normal_before_p95_deg": null,
+      "object_normal_after_p95_deg": null,
+      "cross_view_before_p95_deg": null,
+      "cross_view_after_p95_deg": null,
+      "tilt_after_max_deg": 0.10723607342398482
+    },
+    "two_horizontal": {
+      "cases": 48,
+      "corrected_cases": 32,
+      "availability": 0.6666666666666666,
+      "reasons": {
+        "tracking": 32,
+        "no_supported_floor_plane": 16
+      },
+      "camera_origin_shift_max_m": 0.0,
+      "object_top_face_observations": 11,
+      "cross_view_pairs": 4,
+      "tilt_before_p95_deg": 6.558458715199407,
+      "tilt_after_p95_deg": 0.09881894678653301,
+      "object_normal_before_p95_deg": 6.337635945881656,
+      "object_normal_after_p95_deg": 0.1919647338729265,
+      "cross_view_before_p95_deg": 5.335320064480911,
+      "cross_view_after_p95_deg": 0.25445000462848977,
+      "tilt_after_max_deg": 0.1079908758854784
+    },
+    "noisy": {
+      "cases": 48,
+      "corrected_cases": 32,
+      "availability": 0.6666666666666666,
+      "reasons": {
+        "tracking": 32,
+        "no_supported_floor_plane": 16
+      },
+      "camera_origin_shift_max_m": 0.0,
+      "object_top_face_observations": 19,
+      "cross_view_pairs": 4,
+      "tilt_before_p95_deg": 6.558458715199407,
+      "tilt_after_p95_deg": 0.09873517693283132,
+      "object_normal_before_p95_deg": 5.972227396289136,
+      "object_normal_after_p95_deg": 0.8748742871084533,
+      "cross_view_before_p95_deg": 5.74366277953603,
+      "cross_view_after_p95_deg": 1.690572455775957,
+      "tilt_after_max_deg": 0.10000158489243478
+    }
+  },
+  "bad_direction_accepts_above_3deg": 0,
+  "all_camera_origins_unchanged": true,
+  "camera_mount_perturbed": false,
+  "genesis_reference_fk_max_abs": 4.424345455333878e-06,
+  "criteria": {
+    "supported_case_tilt_p95_below_deg": 1.0,
+    "bad_direction_above_deg": 3.0,
+    "bad_direction_cases": 0,
+    "minimum_supported_cases_per_condition": 8,
+    "camera_origin_shift_m": 0.0
+  },
+  "scope": "static imperfect arm, exact fixed camera mount, trusted horizontal surfaces at arbitrary heights; no full joint/position/yaw identification",
+  "evaluation_alignment": "none",
+  "date": "2026-10-26",
+  "tested_source_revision": "ff640b5efaba82e644f2849758de48093182a657",
+  "sampling": "Latin hypercube joint poses crossed with independent error seeds; no visibility filtering",
+  "joint_lower": [
+    -0.172666667,
+    -1.5707963267948966,
+    -0.6283185307179586,
+    -0.6283185307179586
+  ],
+  "joint_upper": [
+    0.0,
+    1.5707963267948966,
+    0.6283185307179586,
+    0.6283185307179586
+  ],
+  "error_model": "measured vs actual joints; camera mount fixed",
+  "assumptions": {
+    "fixed_nominal_camera_mount": true,
+    "known_horizontal_direction": true,
+    "known_plane_height_required": false,
+    "base_height_m": 0.8,
+    "static_pose": true,
+    "ideal_capture_encoder_synchronization": true,
+    "actual_q_hidden_from_consumer": true
+  },
+  "gpu": {
+    "host": "hckang@100.74.222.24",
+    "host_index": 2,
+    "uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "model": "NVIDIA RTX A6000",
+    "cuda_visible_device_count": 1,
+    "renderer_software": false
+  },
+  "release": {
+    "build_fingerprints": {
+      "pilot": "a6fce54543f9da52172a558cd0fd0d6f2dfac1dd94d4f7fd05c65f56d0cf4962",
+      "sim": "715f73cf6c30a37a7977779775a386f25eeb4ca013800b0d79f0e6bbfe4fd4d2"
+    },
+    "image_ids": {
+      "pilot": "sha256:89e44ce3c50e68008f4f4cfea1800a4bd71d4fe935d9fef82da8d10051d214a5",
+      "sim": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57"
+    },
+    "install_uuid": "3fc3487e-0788-4a76-a152-e485144b0d0b",
+    "platform": "linux/amd64",
+    "release_key": "7afd72ec60ee9c5f80a7b4ccefd307c29c70b7249728149e0ebb3826a4596740",
+    "role_images": {
+      "pilot": "elesim/pilot:merry-whale",
+      "sim": "elesim/sim:merry-turtle"
+    },
+    "runtime_data_digest": "dcb47d839b0c79df19b81a7a70dad9e7f6cab768ac6e245fa5952d92983306ca",
+    "schema_version": 1,
+    "source_revision": "git-ff640b5efaba82e644f2849758de48093182a657"
+  },
+  "conditions": [
+    "clean",
+    "joint_offsets",
+    "deflection",
+    "raised_horizontal",
+    "two_horizontal",
+    "noisy"
+  ],
+  "supported_pose_ids": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    7,
+    9,
+    10,
+    11,
+    13,
+    14,
+    16,
+    18,
+    19,
+    22,
+    23
+  ],
+  "unsupported_pose_ids": [
+    5,
+    6,
+    8,
+    12,
+    15,
+    17,
+    20,
+    21
+  ],
+  "isolation": {
+    "network_disabled_in_all_stages": true,
+    "consumer_allowed_inputs": [
+      "sensor RGB-D/intrinsics/source identity/capture time/reported q",
+      "nominal arm model",
+      "nominal hand-eye mount",
+      "reconstruction script"
+    ],
+    "consumer_forbidden_inputs": [
+      "actual q and joint-error values",
+      "true camera and object poses",
+      "truth/scene geometry and generator",
+      "GPU",
+      "network"
+    ],
+    "runtime_module_sha256_assertions": {
+      "producer": "mount.py",
+      "consumer": "floor_calibration.py"
+    },
+    "stages": {
+      "producer": {
+        "exit_code": 0,
+        "wall_s": 116.37103900080547,
+        "audit": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-ff640b5-042b9325/vision_arm_scene.py",
+              "Destination": "/diagnostic/run.py",
+              "Mode": "ro",
+              "RW": false,
+              "Propagation": "rprivate"
+            },
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/.cache/elesim/setup/sources-v2/214060c4fbf83f6cf0eeaa9e7a53712736fefb7961fefdfb73db0e075a36bc6a/snapshots/git-ff640b5efaba82e644f2849758de48093182a657/elesim-main/payload/data",
+              "Destination": "/nominal-data",
+              "Mode": "ro",
+              "RW": false,
+              "Propagation": "rprivate"
+            },
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/.cache/elesim/setup/sources-v2/214060c4fbf83f6cf0eeaa9e7a53712736fefb7961fefdfb73db0e075a36bc6a/snapshots/git-ff640b5efaba82e644f2849758de48093182a657/elesim-main/payload/config/sim/config.yaml",
+              "Destination": "/nominal-config.yaml",
+              "Mode": "ro",
+              "RW": false,
+              "Propagation": "rprivate"
+            },
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-ff640b5-042b9325/produced",
+              "Destination": "/output",
+              "Mode": "rw",
+              "RW": true,
+              "Propagation": "rprivate"
+            }
+          ],
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "none"
+        }
+      },
+      "consumer": {
+        "exit_code": 0,
+        "wall_s": 13.77055978635326,
+        "audit": {
+          "image_id": "sha256:89e44ce3c50e68008f4f4cfea1800a4bd71d4fe935d9fef82da8d10051d214a5",
+          "mounts": [
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-ff640b5-042b9325/vision_reconstruct.py",
+              "Destination": "/diagnostic/run.py",
+              "Mode": "ro",
+              "RW": false,
+              "Propagation": "rprivate"
+            },
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-ff640b5-042b9325/produced/data/sensors",
+              "Destination": "/sensors",
+              "Mode": "ro",
+              "RW": false,
+              "Propagation": "rprivate"
+            },
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/.cache/elesim/setup/sources-v2/214060c4fbf83f6cf0eeaa9e7a53712736fefb7961fefdfb73db0e075a36bc6a/snapshots/git-ff640b5efaba82e644f2849758de48093182a657/elesim-main/payload/data/models/arm/default.json",
+              "Destination": "/nominal/arm.json",
+              "Mode": "ro",
+              "RW": false,
+              "Propagation": "rprivate"
+            },
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/.cache/elesim/setup/sources-v2/214060c4fbf83f6cf0eeaa9e7a53712736fefb7961fefdfb73db0e075a36bc6a/snapshots/git-ff640b5efaba82e644f2849758de48093182a657/elesim-main/payload/data/calibration/cameras/zed_mini.hand_eye.json",
+              "Destination": "/nominal/hand-eye.json",
+              "Mode": "ro",
+              "RW": false,
+              "Propagation": "rprivate"
+            },
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-ff640b5-042b9325/consumer",
+              "Destination": "/output",
+              "Mode": "rw",
+              "RW": true,
+              "Propagation": "rprivate"
+            }
+          ],
+          "device_requests": [],
+          "network_mode": "none"
+        }
+      },
+      "evaluator": {
+        "exit_code": 0,
+        "wall_s": 1.9151208163239062,
+        "audit": {
+          "image_id": "sha256:89e44ce3c50e68008f4f4cfea1800a4bd71d4fe935d9fef82da8d10051d214a5",
+          "mounts": [
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-ff640b5-042b9325/consumer/predictions",
+              "Destination": "/predictions",
+              "Mode": "ro",
+              "RW": false,
+              "Propagation": "rprivate"
+            },
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-ff640b5-042b9325/evaluation",
+              "Destination": "/output",
+              "Mode": "rw",
+              "RW": true,
+              "Propagation": "rprivate"
+            },
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-ff640b5-042b9325/vision_tilt_evaluate.py",
+              "Destination": "/diagnostic/run.py",
+              "Mode": "ro",
+              "RW": false,
+              "Propagation": "rprivate"
+            },
+            {
+              "Type": "bind",
+              "Source": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-ff640b5-042b9325/produced/data/truth",
+              "Destination": "/truth",
+              "Mode": "ro",
+              "RW": false,
+              "Propagation": "rprivate"
+            }
+          ],
+          "device_requests": [],
+          "network_mode": "none"
+        }
+      }
+    }
+  },
+  "normal_services_before": {
+    "sim": {
+      "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+      "image": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+      "running": false
+    },
+    "pilot": {
+      "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+      "image": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+      "running": false
+    }
+  },
+  "normal_services_after": {
+    "sim": {
+      "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+      "image": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+      "running": false
+    },
+    "pilot": {
+      "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+      "image": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+      "running": false
+    }
+  },
+  "normal_services_unchanged": true,
+  "diagnostic_containers_remaining": [],
+  "source_paths": {
+    "floor_calibration.py": "payload/runtime/docker/pilot/app/elesim_pilot/vision/floor_calibration.py",
+    "floor_service.py": "payload/runtime/docker/pilot/app/elesim_pilot/vision/floor_service.py",
+    "partial_cloud.py": "payload/runtime/docker/pilot/app/elesim_pilot/vision/partial_cloud.py",
+    "mount.py": "payload/runtime/docker/sim/app/elesim_sim/vision/sim_camera/mount.py",
+    "pilot_arm_model": "payload/data/models/arm/default.json",
+    "sim_arm_urdf": "payload/data/models/assemblies/zed-mini/arm.urdf",
+    "hand_eye": "payload/data/calibration/cameras/zed_mini.hand_eye.json"
+  },
+  "tested_source_sha256": {
+    "floor_calibration.py": "220397e37a3e229208d6b2989163433787cb5e970b5efa8b2c0b45a5dc55866a",
+    "floor_service.py": "614c8a873187d4e501f15e6d3b9a6c4346d90abc2c2f22d915ef4a42a547f5e3",
+    "partial_cloud.py": "bd2bda151d91f33fc7e2ef13b04dd6e407550fa7319592367702a0e03dae66db",
+    "mount.py": "1f435649ca925d00a7aeb25756d0e1d1863ab3a075b46b81f30c8f231becec66",
+    "pilot_arm_model": "ad00122b9ba19c77cd4d817634fba310e5e3e758e21688c52db400f2f570cbe7",
+    "sim_arm_urdf": "d21ae4ff4917306d55450de1c30f3d8eb4c841588684733cce62ba729ce4a8f6",
+    "hand_eye": "4cfba6124c6ab1287932ffc75f057ab2f1f1f3c808ab0b0b2b05a4dbbaf5579d"
+  },
+  "script_sha256": {
+    "vision_arm_scene.py": "5cc28141dec2b7524582c70681b0c20da9d495ba5acd4e147ba625fae9c6e293",
+    "vision_reconstruct.py": "8a7e0fa60f5d3e3ea47c7c59e9dc06043303e36e91a7b8b93526c9584d22b19e",
+    "vision_tilt_evaluate.py": "860369679c1dec4f1144a2cfa1e183c90c828866e9ba6ea6fd2758f5a31304ff"
+  },
+  "evidence": {
+    "remote_directory": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-ff640b5-042b9325",
+    "local_directory": "workbench/evidence/generated/visual-tilt-20261026",
+    "bundle": "evidence.zip",
+    "bundle_bytes": 6186080,
+    "bundle_sha256": "0279eccf10895150541bf0321224989c3c70eb334ce58950b26fa96ae4d5cb21",
+    "verified_files": {
+      "result.json": {
+        "sha256": "79b0876a26e88f5014b2f1b11da14c4595c1356a9e21fa39dd003b1c07ff7620",
+        "bytes": 254440
+      },
+      "provenance.json": {
+        "sha256": "429701f08d06cb119f408b94c793da6766b082a5d18cb0ed02d5f6a99f6502f8",
+        "bytes": 7171
+      },
+      "update-result.json": {
+        "sha256": "80289c182cc99780188866c3100f1ef1f4202676dc1803b077c0a02a93d0804a",
+        "bytes": 336
+      },
+      "experiment-manifest.json": {
+        "sha256": "0e01a2d710757589cbb98fa5afced577bec47d7af505c9cec2708ef7baef9e5d",
+        "bytes": 377
+      },
+      "producer.log": {
+        "sha256": "d0f515d3a9d46d0486f009259f5d07213961054dbf8c27c8cabdcd8daa68da84",
+        "bytes": 1468
+      },
+      "consumer.log": {
+        "sha256": "6b68285fd0015b207738dd38f744df1f14e0214c0f7ef60981286abb1a69da53",
+        "bytes": 591
+      },
+      "evaluator.log": {
+        "sha256": "e10d99435641e2ef4cb889ab5e15fc32427f292d353ad0552a549e2227f1a6ce",
+        "bytes": 4774
+      },
+      "coordinator.log": {
+        "sha256": "4ab5d48abd0236d8cc0cb0779f87f513b1d3c583d8e382b2ae459536cd0bcfb5",
+        "bytes": 109
+      },
+      "remote_tilt.py": {
+        "sha256": "9ec17d2c5042f36462a7190aa0ce9e3d694ef404402a93c770fbe84481149ce8",
+        "bytes": 12043
+      },
+      "vision_arm_scene.py": {
+        "sha256": "5cc28141dec2b7524582c70681b0c20da9d495ba5acd4e147ba625fae9c6e293",
+        "bytes": 19247
+      },
+      "vision_reconstruct.py": {
+        "sha256": "8a7e0fa60f5d3e3ea47c7c59e9dc06043303e36e91a7b8b93526c9584d22b19e",
+        "bytes": 5241
+      },
+      "vision_tilt_evaluate.py": {
+        "sha256": "860369679c1dec4f1144a2cfa1e183c90c828866e9ba6ea6fd2758f5a31304ff",
+        "bytes": 7848
+      },
+      "producer.compose.yaml": {
+        "sha256": "cd55f00ac98f6e64e6996a6d547296a5c2c5a4479b25955a8727d68a74be13c1",
+        "bytes": 1748
+      },
+      "consumer.compose.yaml": {
+        "sha256": "5668c554cf0da933dac5546741e2748a483a1c932d3bccd0e9f934dd6e131d9b",
+        "bytes": 1839
+      },
+      "evaluator.compose.yaml": {
+        "sha256": "383b93897d73e69b6478059a51fc77398f425cc79e1cce74e04661d392ada905",
+        "bytes": 1403
+      },
+      "evaluation/evaluation.json": {
+        "sha256": "f42b581c777f33d66515fbc6afb1540fe71df0d612a1ffe89c1d36a7eb55ab6b",
+        "bytes": 228554
+      },
+      "consumer/predictions/result.json": {
+        "sha256": "0bccc8b6c76a727e46ebd13be79a83f47f80176da5b640f86d091282bfc9f0db",
+        "bytes": 2055667
+      },
+      "produced/data/truth/manifest.json": {
+        "sha256": "45c39d060f80ed3d5454397e07bd39405909f1643fffba7bd2029543d237e41a",
+        "bytes": 336678
+      },
+      "produced/data/sensors/view-0001-2.npz": {
+        "sha256": "ce58a405dadac17253e0d415b4d8a6fcfc7e61c2550b9cb2f4531422449d13d0",
+        "bytes": 247723
+      },
+      "consumer/predictions/view-0001-2.npz": {
+        "sha256": "d662ff61346ba5fee4cc76d09bdfedfa0ba2217e594862a6285ffb1a58030076",
+        "bytes": 65383
+      },
+      "produced/data/truth/case-0001.npz": {
+        "sha256": "127a8b8c44bf81e31ddd3990d511190ad36ffa442cfdb5be47f4a99213b273e3",
+        "bytes": 180422
+      },
+      "produced/data/sensors/view-0048-2.npz": {
+        "sha256": "4c24a688e85d24efe981fe9910c2580014083e674f8c269a576b0bdeb0213756",
+        "bytes": 241819
+      },
+      "consumer/predictions/view-0048-2.npz": {
+        "sha256": "b8605db9d421c295c2e623ee15ccff32a0a6cdfc9482ab6b44bcd5a29f147b25",
+        "bytes": 19432
+      },
+      "produced/data/truth/case-0048.npz": {
+        "sha256": "d1c80da2f1c1f0335a59fd88098457e479da7b33aaab941e660e1ace113e7859",
+        "bytes": 161641
+      },
+      "produced/data/sensors/view-0096-2.npz": {
+        "sha256": "24910fb81ebeaa7426877c45356d7e8792ece6342f544f95ae78a6d9e672a8e3",
+        "bytes": 241215
+      },
+      "consumer/predictions/view-0096-2.npz": {
+        "sha256": "22caa17abaf76f7fc528412aceaf38940c26a6a226c4e0abfd40f194d93112ad",
+        "bytes": 14637
+      },
+      "produced/data/truth/case-0096.npz": {
+        "sha256": "8d763c335f15c8137343a6085f513ce5fe8966b53ad55b4e8c827b1afa064a30",
+        "bytes": 160259
+      },
+      "produced/data/sensors/view-0144-2.npz": {
+        "sha256": "3e128fe5e9bec654b49f4ae5619356a5cc4520c71583ad01680fed051a7f035c",
+        "bytes": 240642
+      },
+      "consumer/predictions/view-0144-2.npz": {
+        "sha256": "09243aab0063d28801823a5ee77db187588e30163e1862691356efc169b88f0b",
+        "bytes": 812
+      },
+      "produced/data/truth/case-0144.npz": {
+        "sha256": "7a8bec3522755e3d36209958f5e994140ce5840cad9fcc6ce836dcd7efd23c99",
+        "bytes": 160814
+      },
+      "produced/data/sensors/view-0192-2.npz": {
+        "sha256": "68fd92ce7d454b7573c09a5f5e54a65a078f80c16a25a54aa08716a6c8b330e7",
+        "bytes": 241830
+      },
+      "consumer/predictions/view-0192-2.npz": {
+        "sha256": "b12f65d67927d71c29b1829ece64fbcfa53022d9bbfd7b38aaa09b8d80e80e28",
+        "bytes": 19436
+      },
+      "produced/data/truth/case-0192.npz": {
+        "sha256": "d1c80da2f1c1f0335a59fd88098457e479da7b33aaab941e660e1ace113e7859",
+        "bytes": 161641
+      },
+      "produced/data/sensors/view-0240-2.npz": {
+        "sha256": "83241dfea5389e53292c9ebc48064f3a956bb2e3bb0de2ebd940f9d7c395a918",
+        "bytes": 209852
+      },
+      "consumer/predictions/view-0240-2.npz": {
+        "sha256": "f6d01c387d61e73dc60531fb60557ce8eed45633fe1b66453aa5b9c4ac6528df",
+        "bytes": 15990
+      },
+      "produced/data/truth/case-0240.npz": {
+        "sha256": "d1c80da2f1c1f0335a59fd88098457e479da7b33aaab941e660e1ace113e7859",
+        "bytes": 161641
+      },
+      "produced/data/sensors/view-0005-2.npz": {
+        "sha256": "d0a5e7aabdbb216abab7994960622d3d6fdb9aea551b60da346f8d0e09d86d3a",
+        "bytes": 172529
+      },
+      "consumer/predictions/view-0005-2.npz": {
+        "sha256": "09243aab0063d28801823a5ee77db187588e30163e1862691356efc169b88f0b",
+        "bytes": 812
+      },
+      "produced/data/truth/case-0005.npz": {
+        "sha256": "0254804495074aea35977b9f52d72b9e2ec5db61edf8fc3dd622edce4bb20884",
+        "bytes": 42187
+      },
+      "consumer/predictions/cloud-0a5c5fddcec9464db81e85c55b4f1c31.npy": {
+        "sha256": "4aa7aa40d1bbd6bba4570a87b12a7a2be0c4643337cc363349524c7c66ef8fd0",
+        "bytes": 128
+      },
+      "consumer/predictions/cloud-0e97b4ce07fe4f4ebd8dac7be9e0d2e2.npy": {
+        "sha256": "9cc4166c26128f5868f97ea227e13a2d7d9cd01432285fdcadd290b87ebd2843",
+        "bytes": 361040
+      },
+      "consumer/predictions/cloud-19265ef01b944ddb8ff09946561f7880.npy": {
+        "sha256": "40ffaf7bce02685b8e3b246a489eab4f66f783561000e57018613ef6278d321f",
+        "bytes": 189152
+      },
+      "consumer/predictions/cloud-2e3dad42334c409fa0869d1451a61352.npy": {
+        "sha256": "28cf90bdbefcf516831e1b6993383f9a133fe62f4dc5a9df7ad95f92180025ff",
+        "bytes": 373472
+      },
+      "consumer/predictions/cloud-43e60f32df2341128e9671b069dad0d6.npy": {
+        "sha256": "6065154710918dbc50e48afbfc8082457679afa6604032ea931145f9b18b8c00",
+        "bytes": 155528
+      },
+      "consumer/predictions/cloud-47f76a4c4a2f47619e8ab9f0130bf8ff.npy": {
+        "sha256": "48501de8b620da4e9d6a45ec5f9d2cee6c640c0576d7b3a2c1807fa0f9bc482e",
+        "bytes": 404240
+      },
+      "consumer/predictions/cloud-6ca20b9b86a84b14b61dcfeaa3d95b71.npy": {
+        "sha256": "82964c968030ddd615d1d261ca8171c747e77c2752b335546ee1913a2ed1e7b6",
+        "bytes": 345032
+      },
+      "consumer/predictions/cloud-98f6b71da32c45389da2a074f01e8b7b.npy": {
+        "sha256": "7b81c39af0a9dbb1d8a3d8d48b6303fdf59c1621d5cd6a936246ba7c4236edc9",
+        "bytes": 329048
+      },
+      "consumer/predictions/cloud-9dd2b64717e24ec891449660b509f84b.npy": {
+        "sha256": "21d4c6703c45836ed5ccd08b1bc1c419726f58b76c396ba0fefe370e425f3aed",
+        "bytes": 362648
+      },
+      "consumer/predictions/cloud-bad602a5d5ed4fdaa45fa4b822307fa7.npy": {
+        "sha256": "e804417bc1d5f3319e453be3b16d38d983dad64a979fc27ac959c90ce5077405",
+        "bytes": 365192
+      },
+      "consumer/predictions/cloud-d08db235a42548338edf904f33597833.npy": {
+        "sha256": "4aa7aa40d1bbd6bba4570a87b12a7a2be0c4643337cc363349524c7c66ef8fd0",
+        "bytes": 128
+      },
+      "consumer/predictions/cloud-efb8c8e90c6a424d8420c67a7ec726f4.npy": {
+        "sha256": "c1f0a8d38f415447b55b409cad262e1d76ee4822b18e9078909a5825454bc3b4",
+        "bytes": 362672
+      }
+    },
+    "all_file_hashes_verified": true
+  },
+  "figure": {
+    "path": "workbench/evidence/curated/experiments/visual_tilt_20261026.png",
+    "sha256": "80e36ceaffff32e9f58b195918a7ff82f5e6391ffff8911a0d1fabb538c087c6",
+    "generator": "workbench/research/analysis/visual_tilt_plot.py"
+  },
+  "host_regression": {
+    "broad_protocol_pilot_ui": {
+      "passed": 830,
+      "skipped": 32,
+      "subtests_passed": 8,
+      "partial_evidence": true
+    },
+    "excluded_missing_dependencies": [
+      "test_hug_geometry.py",
+      "test_mock_hug.py",
+      "test_stereo_rgbd.py",
+      "test_zed_preview.py"
+    ],
+    "final_orientation_ui_research_focused": {
+      "passed": 18
+    },
+    "canonical_gates_run": false,
+    "canonical_reason": "Known generated dev attachment initial image preparation did not complete in the previous task; its build client was interrupted after 2616.6s, exit 130. No repeated build or host dependency installation. Required/extended, real-RMW smoke and isolated-release gates were not run."
+  },
+  "limitations": [
+    "Static synthetic joint offsets and a bounded pose-dependent fixture; not hardware load, actuation, moving capture or exposure-time validation.",
+    "A trusted direction must be independently declared. Unknown slopes cannot establish world-up; semantic floor identity is not inferred.",
+    "Camera translation, rotation about the plane normal and individual joint errors remain unobserved.",
+    "Supported-case accuracy is conditional on plane visibility: 32/48 cases and 16/24 unique poses per condition. No visibility filtering.",
+    "Cross-view normal metrics have only four view pairs per condition; raised planes hide all object top faces, so no object normal metric is reported for that condition.",
+    "Clean ideal-arm control gains about 0.10 degrees p95 tilt error after correction; this experiment does not establish its cause.",
+    "Existing test instance pins remain unchanged; update publishes a release and does not activate it."
+  ]
+}

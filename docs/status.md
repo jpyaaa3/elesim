@@ -6,7 +6,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 불완전한 관절로 생긴 시각 기울기 보정 (2026-10-26, 진행 중)
+### 불완전한 관절로 생긴 시각 기울기 보정 (2026-10-26, 소프트웨어·정적 Genesis 검증)
 
 - 목표는 실제 바닥의 semantic identity나 Z=0 높이를 찾는 것이 아니라 팔의
   관절 오차 때문에 기울어진 관측 좌표계를 바로잡는 것이다. 실사용 보정은
@@ -19,7 +19,23 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   Actual q에는 Linear ±5 mm, Roll ±5도, Bend별 ±1.5도의 오차와 pose-dependent
   deflection을 주고 camera mount는 바꾸지 않는다. Primary metric은 잔여
   tilt와 cross-view object-normal 일관성이다. CPU analytic 288경우·864 frame은
-  통과했고 camera-origin 강제 이동은 전부 0이었다. 실제 Genesis GPU2 검증은 남았다.
+  통과했고 camera-origin 강제 이동은 전부 0이었다.
+- `ff640b5`를 push하고 양쪽 정식 updater를 완료한 뒤 실제 GPU2 A6000의
+  Genesis RGB-D 864 frame을 격리된 consumer로 처리했다. 관절 오차 조건의
+  tilt p95는 **6.56 → 0.10도**, pose-dependent deflection은 **4.40 → 0.10도**,
+  높이가 다른 수평면·복수 평행면·noise 조건도 약 **0.10도**였다. Camera
+  origin 강제 이동은 0이며 3도 이상 잔여 tilt를 수용한 경우는 없었다.
+- 조건마다 **32/48경우, 16/24자세**에서 기준면을 지원했다. 나머지는 보정을
+  거부했고 평가 분모에 남겼다. Joint-offset 조건의 독립 물체 상면 normal
+  p95는 **5.97 → 0.09도**였으나 cross-view는 조건당 4쌍에 불과하다.
+  높은 판이 물체를 가린 조건에는 object-normal 정확도를 산출하지 않았다.
+  Clean control은 보정 후 약 0.10도 오차를 얻었으며 원인은 단정하지 않는다.
+- Consumer에는 RGB-D/reported q와 nominal arm·hand-eye만 제공했고 actual q,
+  truth·generator·network·GPU 접근은 없었다. Normal test Sim/Pilot의 ID·image·
+  stopped 상태는 유지했고 진단 컨테이너는 모두 제거했다. 실기 하중·운동·
+  노출 동기화·전체 관절/위치/yaw 정확도는 미검증이다.
+  [수치·격리·SHA 증거](../workbench/evidence/curated/experiments/visual_tilt_20261026.json),
+  [전후 결과 그림](../workbench/evidence/curated/experiments/visual_tilt_20261026.png).
 - 관련 host 회귀 58개와 새 focused batch 29개는 통과했다(중복 포함). 넓은
   Protocol/Pilot/UI host batch는 830 passed, 32 skipped, 8 subtests passed이며
   host Shapely/PyAV 부재로 관련 4개 파일을 제외했다. 역할 기본값을 함께 읽는
