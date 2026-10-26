@@ -195,6 +195,19 @@ def runtime(
     return value, arm
 
 
+def test_arm_sample_wall_time_retains_measurement_age_for_rgbd_pairing(monkeypatch):
+    from elesim_robot.runtime import ArmSnapshot
+    from elesim_protocol import SimQ
+    clock = FakeClock()
+    value, _ = runtime(clock=clock)
+    value._arm_snapshot = ArmSnapshot(clock()-0.125, {}, {}, {}, SimQ(0, 0, 0, 0))
+    monkeypatch.setattr("elesim_robot.runtime.time.time", lambda: 1000.0)
+    state = value.state()
+    assert state["measurement_time_s"] == pytest.approx(999.875)
+    assert state["measurement_monotonic_s"] == 99.875
+    assert state["q_source"] == "measured"
+
+
 @pytest.mark.parametrize("closed,degrees", [(False, 340.0), (True, 230.0)])
 def test_logical_gripper_state_uses_physical_open_and_closed_positions(closed, degrees):
     value, arm = runtime()

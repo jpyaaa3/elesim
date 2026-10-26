@@ -234,6 +234,11 @@ class PerceptionConfig:
     sim_camera_source_boot_id: str = ""
     sim_camera_wire_format: str = "raw-rgbd-v1"
     run_local: bool = True
+    floor_calibration_enabled: bool = True
+    floor_calibration_apply: bool = False
+    floor_calibration_clock_verified: bool = False
+    floor_calibration_max_hz: float = 6.0
+    floor_calibration_reference_height_m: Optional[float] = None
 
     def resolved_detector_config_path(self) -> Path:
         raw = str(self.detector_config).strip()

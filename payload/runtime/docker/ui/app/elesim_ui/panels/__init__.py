@@ -9,6 +9,7 @@ _EXPORTS = {
     "draw_perception_panel": "perception",
     "draw_resolution_panel": "live_visual_status",
     "draw_imu_model_panel": "imu_models",
+    "draw_floor_calibration_panel": "floor_calibration",
     "draw_status_panel": "live_visual_status",
 }
 

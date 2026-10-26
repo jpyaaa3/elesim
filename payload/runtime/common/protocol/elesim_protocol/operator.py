@@ -21,6 +21,7 @@ SERVICE_CALLS = frozenset(
         "select_endpoint",
         "select_imu_model",
         "plan_arm_to_target", "execute_arm_trajectory", "cancel_arm_trajectory",
+        "confirm_floor_calibration", "reset_floor_calibration", "export_floor_calibration",
     }
 )
 

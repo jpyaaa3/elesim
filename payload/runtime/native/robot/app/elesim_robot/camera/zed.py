@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Any
 
 import numpy as np
@@ -17,6 +18,7 @@ class ZedFrame:
     intrinsics: RgbdIntrinsics
     right_color_bgr: np.ndarray | None = None
     right_intrinsics: RgbdIntrinsics | None = None
+    ts: float = 0.0
 
 
 class ZedMiniCamera:
@@ -77,6 +79,11 @@ class ZedMiniCamera:
         error = self._camera.grab(self._runtime)
         if error != sl.ERROR_CODE.SUCCESS:
             raise RuntimeError(f"ZED Mini grab failed: {error}")
+        capture_time = time.time()
+        if hasattr(self._camera, "get_timestamp") and hasattr(sl, "TIME_REFERENCE"):
+            sensor_time = self._camera.get_timestamp(sl.TIME_REFERENCE.IMAGE).get_nanoseconds()/1e9
+            if np.isfinite(sensor_time) and abs(sensor_time-capture_time) < 5:
+                capture_time = float(sensor_time)
         for error in (
             self._camera.retrieve_image(self._image, sl.VIEW.LEFT, sl.MEM.CPU, self._resolution),
             self._camera.retrieve_image(self._right_image, sl.VIEW.RIGHT, sl.MEM.CPU, self._resolution),
@@ -96,6 +103,7 @@ class ZedMiniCamera:
             self._intrinsics,
             right_color_bgr=right_color,
             right_intrinsics=self._right_intrinsics,
+            ts=capture_time,
         )
 
     def stop(self) -> None:

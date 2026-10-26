@@ -104,6 +104,7 @@ class PilotConnection:
         self.lease_id = ""
         self.endpoints: list[dict[str, Any]] = []
         self.operator_handler: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
+        self.telemetry_observer = None
         self.on_target_selected: Optional[Callable[[dict[str, Any]], None]] = None
         self.on_target_changed: Optional[Callable[[str], None]] = None
         self.simulation_status_handler: Optional[
@@ -474,6 +475,13 @@ class PilotConnection:
         if message_type == "telemetry":
             if not self.active_target or message.source_id == self.active_target:
                 self.state_sink.accept_telemetry(payload)
+                observer = getattr(self, "telemetry_observer", None)
+                if observer is not None:
+                    try:
+                        observer(payload, source_id=message.source_id, source_boot_id=message.source_boot_id)
+                    except Exception as exc:
+                        self._diagnostic("calibration", dedupe="floor-observer-error",
+                            state="observation-error", reason=str(exc)[:256])
                 if message.source_id == self.active_target:
                     self.trajectory_telemetry = payload
                     self._imu_reader_received_at = time.monotonic()

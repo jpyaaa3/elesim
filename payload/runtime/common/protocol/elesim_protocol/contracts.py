@@ -86,7 +86,8 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
         "operator_intent", ("ui",), ("pilot",),
         authority="pilot workflow",
         notes=("view_snapshot reads; allowlisted service_call/state_call/state_set writes; "
-               "additive v6 arm trajectory prepare/execute/cancel; no Robot trajectory wire type"),
+               "additive v6 arm trajectory prepare/execute/cancel and Pilot floor reference confirm/reset/export; "
+               "floor status is an optional service snapshot value; no Robot motion is issued by calibration"),
     ),
     "operator_result": _contract(
         "operator_result", ("pilot",), ("ui",),
@@ -144,6 +145,8 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
             "bounded state map; fields are additive by design; Robot measured state "
             "may feed opt-in Sim presentation.robot-state.v1 without motion authority; "
             "imu_reader schema 1 carries two uncalibrated sensor diagnostics, not correction authority; "
+            "optional Robot measurement_time_s is the arm sample time in the source wall clock "
+            "for RGB-D pairing; measurement_monotonic_s retains its existing freshness meaning; "
             "Sim go2_controller_fault is an additive 0..512 character locomotion fault string; "
             "empty clears it after explicit controller reset and grants no motion authority"
         ),

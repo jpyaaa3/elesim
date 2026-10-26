@@ -456,6 +456,12 @@ world:
     markers: true
 vision:
   perception:
+    calibration:
+      enabled: true
+      apply: false
+      clock_verified: false
+      max_hz: 6.0
+      reference_height_m: null
     camera:
       profile: zed_mini
     tracking:

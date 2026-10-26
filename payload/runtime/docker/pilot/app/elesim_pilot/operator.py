@@ -91,6 +91,10 @@ class OperatorDispatcher:
             "available_endpoints": self.service.available_endpoints,
             "active_endpoint": self.service.active_endpoint,
             "imu_models": getattr(self.service, "imu_models", []),
+            "floor_calibration_status": (
+                self.service.floor_calibration_status()
+                if callable(getattr(self.service, "floor_calibration_status", None)) else {}
+            ),
             "imu_model_status": (
                 self.service.imu_model_status()
                 if callable(getattr(self.service, "imu_model_status", None))

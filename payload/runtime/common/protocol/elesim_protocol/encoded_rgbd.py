@@ -321,6 +321,9 @@ def rgbd_from_encoded_frame(frame: "EncodedRgbdFrame") -> Any:
         camera_world_origin=frame.metadata.camera_world_origin,
         camera_world_look=frame.metadata.camera_world_look,
         camera_world_right=frame.metadata.camera_world_right,
+        source_id=frame.source_id,
+        source_boot_id=frame.source_boot_id,
+        calibration_id=frame.metadata.calibration_id,
     )
 
 

@@ -45,6 +45,24 @@ Pilot과 Sim의 `config/config.yaml`은
 
 ### RGB-D edge broker
 
+Pilot 평면 관측 설정은 다음과 같다. `reference_height_m: null`이면 UI의
+Visual Calibration에서 기준면을 선택한다. `clock_verified`는 촬영/측정 시각
+정합을 실제 확인한 뒤 설정하며, `apply`는 perception world 좌표 보정만 켠다.
+
+```yaml
+vision:
+  perception:
+    calibration:
+      enabled: true
+      apply: false
+      clock_verified: false
+      max_hz: 6.0
+      reference_height_m: null
+```
+
+관측·보정·오프라인 장착값 후보 계산 절차는
+[`visual_calibration.md`](visual_calibration.md)를 따른다.
+
 설치 생성 runtime config에는 RGB-D source와 inter-host broker를 구분하는
 `rgbd` metadata가 들어간다.
 

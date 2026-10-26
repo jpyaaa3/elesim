@@ -78,6 +78,12 @@ class SimRenderedCamera:
                     camera_world_origin=frame.camera_world_origin,
                     camera_world_look=frame.camera_world_look,
                     camera_world_right=frame.camera_world_right,
+                    ts=float(frame.ts),
+                    seq=int(frame.seq),
+                    source_id=str(frame.source_id),
+                    source_boot_id=str(frame.source_boot_id),
+                    calibration_id=str(frame.calibration_id),
+                    arm_q=frame.arm_q,
                 )
             last_exc = RuntimeError(
                 f"no DDS RGB-D sample received from {self._topic}"

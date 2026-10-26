@@ -103,6 +103,23 @@ Sim telemetry의 선택적 `go2_controller_fault`는 최대 512자 문자열이�
 새 motion authority나 Robot의 arm `safety_fault` 해제 권한을 만들지 않는다.
 Protocol major 6의 additive telemetry 확장이며 기존 발신자는 생략할 수 있다.
 
+Depth-plane calibration 역시 protocol major 6의 additive surface다. Robot의
+선택적 `measurement_time_s`는 arm sample의 source wall-clock 시각이며 기존
+`measurement_monotonic_s`는 freshness 확인 의미를 유지한다. Pilot은 이를
+같은 source의 RGB-D capture time과 대응시키며 다른 host의 monotonic clock을
+서로 비교하지 않는다. 기존 encoded RGB-D의 source/boot/calibration ID와
+capture time은 decode/adapter 뒤에도 보존한다. ROSIDL 메시지와 carrier는
+바뀌지 않는다.
+
+Operator view schema 1의 선택적 service 값 `floor_calibration_status`는 평면
+후보·기준면·측정 오차·동기화/freshness 상태를 전달한다. Allowlisted
+`confirm_floor_calibration(candidate_id)`, `reset_floor_calibration()`과
+`export_floor_calibration()`은 Pilot-local 관측 상태와 bounded 기록만 다룬다.
+실제 arm motion이나 Robot correction-model 설치 권한을 만들지 않는다.
+카메라 좌표 보정 선택은 기존 `update_perception_config`의 검증된 설정
+경계를 사용한다. 구형 UI는 새 service 값을 무시하며 구형 Pilot에는 새
+service 값이 없어 이 제어를 표시하지 않는다.
+
 Robot presentation mirror restores the former hardware-state display path.
 Protocol major 6 is unchanged; the mirror capability adds no message type or
 payload field. The open telemetry state map also carries the additive

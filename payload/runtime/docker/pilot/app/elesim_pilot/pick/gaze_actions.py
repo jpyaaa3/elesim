@@ -224,6 +224,9 @@ class GazeActions:
         self.stop_gaze_stabilizer()
         self.stop_object_pick()
         self.stop_perception_capture()
+        floor = getattr(self, "_floor_calibration", None)
+        if floor is not None:
+            floor.close()
         if self.client is not None:
             self.client.close()
 

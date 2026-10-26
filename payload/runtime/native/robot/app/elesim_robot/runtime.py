@@ -596,6 +596,9 @@ class RobotRuntime:
                     ],
                     "q_source": "measured",
                     "measurement_monotonic_s": snapshot.sampled_at,
+                    # Source-local conversion allows RGB-D/arm alignment even
+                    # when the Pilot runs on a different host.
+                    "measurement_time_s": time.time() - max(0.0, now-snapshot.sampled_at),
                 }
             )
             if snapshot.claw_load_permille is not None:

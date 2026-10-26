@@ -176,6 +176,7 @@ def test_encoded_stereo_worker_publishes_rotated_left_rgbd_and_right_color() -> 
                 right_intrinsics=SimpleNamespace(
                     fx=101.0, fy=111.0, cx=0.75, cy=0.6, width=2, height=2
                 ),
+                ts=1234.5,
             )
 
         def stop(self) -> None:
@@ -224,3 +225,4 @@ def test_encoded_stereo_worker_publishes_rotated_left_rgbd_and_right_color() -> 
     assert (right.metadata.cx, right.metadata.cy) == (0.25, 0.4)
     assert left.seq == right.seq == 1
     assert left.source_boot_id == right.source_boot_id == "boot-a"
+    assert left.ts == right.ts == 1234.5

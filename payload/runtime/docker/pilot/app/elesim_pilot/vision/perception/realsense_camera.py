@@ -29,6 +29,12 @@ class RealSenseFrame:
     camera_world_origin: Optional[tuple[float, float, float]] = None
     camera_world_look: Optional[tuple[float, float, float]] = None
     camera_world_right: Optional[tuple[float, float, float]] = None
+    ts: float = 0.0
+    seq: int = 0
+    source_id: str = ""
+    source_boot_id: str = ""
+    calibration_id: str = ""
+    arm_q: Optional[tuple[float, float, float, float]] = None
 
 
 class RealSenseCamera:
@@ -148,4 +154,11 @@ class RealSenseCamera:
             width=int(intr.width),
             height=int(intr.height),
         )
-        return RealSenseFrame(color_bgr=color, depth_raw=depth, depth_scale=float(self._depth_scale), intrinsics=intrinsics)
+        stamp = time.time()
+        get_timestamp = getattr(color_frame, "get_timestamp", None)
+        if callable(get_timestamp):
+            sensor_stamp = float(get_timestamp())/1000.0
+            if np.isfinite(sensor_stamp) and abs(sensor_stamp-stamp) < 5:
+                stamp = sensor_stamp
+        return RealSenseFrame(color_bgr=color, depth_raw=depth, depth_scale=float(self._depth_scale),
+                              intrinsics=intrinsics, ts=stamp)

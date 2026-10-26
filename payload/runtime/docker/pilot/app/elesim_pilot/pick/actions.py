@@ -139,6 +139,9 @@ class _ControlServiceCore(
             else np.asarray(hand_eye_transform, dtype=float).reshape(4, 4).copy()
         )
         self._hand_eye_parent_frame = str(hand_eye_parent_frame)
+        self._floor_calibration = None
+        self._floor_pose_samples = deque(maxlen=256)
+        self._floor_pose_lock = threading.Lock()
         self._go2_arm_mount = go2_arm_mount
         self._perception_capture: Optional[PerceptionCapture] = None
         self._perception_capture_epoch: int = 0
@@ -296,6 +299,15 @@ class _ControlServiceCore(
 
     @staticmethod
     def _validate_perception_config(config: PerceptionConfig) -> None:
+        if (not math.isfinite(config.floor_calibration_max_hz)
+                or not 0 < config.floor_calibration_max_hz <= 30):
+            raise ValueError("floor calibration rate must be within (0, 30] Hz")
+        for name in ("floor_calibration_enabled", "floor_calibration_apply", "floor_calibration_clock_verified"):
+            if type(getattr(config, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
+        height = config.floor_calibration_reference_height_m
+        if height is not None and (isinstance(height, bool) or not math.isfinite(height)):
+            raise ValueError("floor reference height must be finite")
         provider = str(getattr(config, "provider", "")).strip().lower()
         if provider != "local" or not bool(getattr(config, "run_local", False)):
             raise ValueError(

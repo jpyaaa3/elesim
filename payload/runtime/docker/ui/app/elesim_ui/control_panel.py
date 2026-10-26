@@ -33,6 +33,7 @@ from .panels import (
     draw_perception_panel,
     draw_resolution_panel,
     draw_imu_model_panel,
+    draw_floor_calibration_panel,
     draw_status_panel,
 )
 
@@ -886,6 +887,7 @@ class ControlPanel:
                         draw_go2_panel,
                         draw_ik_panel,
                         draw_imu_model_panel,
+                        draw_floor_calibration_panel,
                     ),
                     item_width=first_item_w,
                 )
@@ -927,6 +929,7 @@ class ControlPanel:
                     draw_go2_panel,
                     draw_ik_panel,
                     draw_imu_model_panel,
+                    draw_floor_calibration_panel,
                 ),
                 item_width=max(scaled(self, 120.0), left_w * 0.45),
             )
@@ -953,6 +956,7 @@ class ControlPanel:
                     draw_go2_panel,
                     draw_ik_panel,
                     draw_imu_model_panel,
+                    draw_floor_calibration_panel,
                     draw_sim_video_panel,
                     draw_status_panel,
                     draw_resolution_panel,

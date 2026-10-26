@@ -147,6 +147,16 @@ class RemoteControlService:
     def imu_model_status(self) -> dict[str, Any]:
         return dict(self.session.service_value("imu_model_status", {}))
 
+    @property
+    def floor_calibration_status(self) -> dict[str, Any]:
+        return dict(self.session.service_value("floor_calibration_status", {}))
+
+    def floor_calibration_async(self, name, *args, on_result, on_error):
+        if name not in {"confirm_floor_calibration", "reset_floor_calibration", "export_floor_calibration"}:
+            raise ValueError("unsupported floor calibration operation")
+        return self.session.submit("service_call", name, *args,
+            on_result=on_result, on_error=on_error, request_timeout_s=5.0)
+
     def select_imu_model_async(
         self, model_id: str, *, on_result: Callable[[Any], None], on_error: Callable[[str], None]
     ) -> str:

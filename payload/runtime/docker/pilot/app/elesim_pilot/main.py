@@ -303,6 +303,7 @@ def _run() -> None:
         ),
     )
     simulation_sync = SimulationWorkflowSync(runtime.service)
+    connection.telemetry_observer = runtime.service.accept_floor_telemetry
     directory = Path(args.config).resolve().parent
     trajectory = ArmTrajectory(connection, runtime.service, runtime.state,
         model_dir=directory / bundle.ik_config.curobo_model,

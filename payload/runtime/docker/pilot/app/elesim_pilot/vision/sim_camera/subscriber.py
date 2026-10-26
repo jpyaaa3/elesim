@@ -43,6 +43,8 @@ class SimCameraSubscriber:
             else DdsRgbdSubscriber
         )
         self._encoded = self.wire_format == "encoded-rgbd-v1"
+        self._expected_source_id = str(expected_source_id)
+        self._expected_boot_id = str(expected_boot_id)
         self._subscriber = subscriber_factory(
             self.topic,
             endpoint_id=self.endpoint_id,
@@ -95,4 +97,7 @@ class SimCameraSubscriber:
             camera_world_origin=sample.camera_world_origin,
             camera_world_look=sample.camera_world_look,
             camera_world_right=sample.camera_world_right,
+            source_id=str(getattr(sample, "source_id", "") or self._expected_source_id),
+            source_boot_id=str(getattr(sample, "source_boot_id", "") or self._expected_boot_id),
+            calibration_id=str(getattr(sample, "calibration_id", "")),
         )

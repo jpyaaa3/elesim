@@ -50,6 +50,10 @@ class RgbdFrame:
     camera_world_origin: Optional[tuple[float, float, float]] = None
     camera_world_look: Optional[tuple[float, float, float]] = None
     camera_world_right: Optional[tuple[float, float, float]] = None
+    # Local decoded provenance; these values already exist in the encoded wire.
+    source_id: str = ""
+    source_boot_id: str = ""
+    calibration_id: str = ""
 
     def to_meta_dict(self) -> dict[str, object]:
         result: dict[str, object] = {

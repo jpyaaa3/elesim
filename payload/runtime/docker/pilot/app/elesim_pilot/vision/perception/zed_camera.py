@@ -8,6 +8,7 @@ silent RealSense fallback.
 from __future__ import annotations
 
 from typing import Any
+import time
 
 import numpy as np
 
@@ -110,6 +111,11 @@ class ZedMiniCamera:
         status = self._camera.grab(self._runtime)
         if not self._success(status):
             raise RuntimeError(f"ZED Mini grab failed: {status}")
+        stamp = time.time()
+        if hasattr(self._camera, "get_timestamp") and hasattr(sl, "TIME_REFERENCE"):
+            sensor_stamp = self._camera.get_timestamp(sl.TIME_REFERENCE.IMAGE).get_nanoseconds()/1e9
+            if np.isfinite(sensor_stamp) and abs(sensor_stamp-stamp) < 5:
+                stamp = float(sensor_stamp)
         view = getattr(sl, "VIEW").LEFT
         measure = getattr(sl, "MEASURE").DEPTH
         self._camera.retrieve_image(self._image, view)
@@ -125,6 +131,7 @@ class ZedMiniCamera:
             depth_raw=np.ascontiguousarray(depth, dtype=np.float32),
             depth_scale=1.0,
             intrinsics=self._intrinsics,
+            ts=stamp,
         )
 
 

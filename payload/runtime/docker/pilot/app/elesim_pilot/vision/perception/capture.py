@@ -44,8 +44,12 @@ def save_perception_frame_bundle(
         cv2.imwrite(str(overlay_path), np.ascontiguousarray(overlay_bgr, dtype=np.uint8))
     if depth_raw is not None and np.asarray(depth_raw).size > 0:
         depth = np.asarray(depth_raw)
-        depth_path = out_dir / f"{tag}_depth.png"
-        cv2.imwrite(str(depth_path), depth.astype(np.uint16))
+        if depth.dtype == np.uint16:
+            depth_path = out_dir / f"{tag}_depth.png"
+            cv2.imwrite(str(depth_path), depth)
+        else:
+            # Metric float depth must not be truncated to whole metres.
+            np.savez_compressed(out_dir / f"{tag}_depth.npz", depth=depth)
         depth_vis_path = out_dir / f"{tag}_depth_vis.jpg"
         d = depth.astype(np.float32)
         if float(np.nanmax(d)) > 0.0:
@@ -162,6 +166,10 @@ class _PerceptionCaptureStorage:
         preview_publish_fn: Optional[Callable[..., None]] = None,
         target_uv_fn: Optional[Callable[[], Tuple[float, float]]] = None,
         mock_world_xyz_fn: Optional[Callable[[], Optional[tuple[float, float, float]]]] = None,
+        frame_observer: Optional[Callable[[Any], None]] = None,
+        world_point_fn: Optional[Callable[[Any, np.ndarray], Optional[tuple[float, float, float]]]] = None,
+        preview_overlay_fn: Optional[Callable[[Any, np.ndarray], np.ndarray]] = None,
+        camera_pose_fn: Optional[Callable[[Any], Optional[np.ndarray]]] = None,
     ) -> None:
         self._config = config
         self._publish_fn = publish_fn
@@ -169,6 +177,10 @@ class _PerceptionCaptureStorage:
         self._preview_publish_fn = preview_publish_fn
         self._target_uv_fn = target_uv_fn
         self._mock_world_xyz_fn = mock_world_xyz_fn
+        self._frame_observer = frame_observer
+        self._world_point_fn = world_point_fn
+        self._preview_overlay_fn = preview_overlay_fn
+        self._camera_pose_fn = camera_pose_fn
         self._stop_event = threading.Event()
         self._refresh_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -178,6 +190,8 @@ class _PerceptionCaptureStorage:
         self._cached_overlay: Optional[np.ndarray] = None
         self._cached_depth: Optional[np.ndarray] = None
         self._cached_frame_idx: int = -1
+        self._live_frame_meta: dict[str, Any] = {}
+        self._cached_frame_meta: dict[str, Any] = {}
         self._record_lock = threading.Lock()
         self._record_active: bool = False
         self._record_path: Optional[Path] = None
@@ -228,6 +242,7 @@ class _PerceptionCaptureStorage:
             )
             self._cached_depth = None if depth_raw is None else np.asarray(depth_raw).copy()
             self._cached_frame_idx = int(frame_idx)
+            self._cached_frame_meta = dict(getattr(self, "_live_frame_meta", {}))
         self._record_frame_if_needed(color_bgr, overlay_bgr=overlay_bgr)
 
     def is_recording(self) -> bool:
@@ -422,6 +437,7 @@ class _PerceptionCaptureStorage:
             overlay = None if self._cached_overlay is None else self._cached_overlay.copy()
             depth = None if self._cached_depth is None else self._cached_depth.copy()
             frame_idx = int(self._cached_frame_idx)
+            frame_meta = dict(getattr(self, "_cached_frame_meta", {}))
         snap = self.snapshot()
         meta: dict[str, Any] = {
             "frame_idx": frame_idx,
@@ -434,6 +450,7 @@ class _PerceptionCaptureStorage:
             "p_world": snap.p_world,
             "image_scale": float(snap.image_scale),
             "bbox_wh": list(snap.bbox_wh),
+            **frame_meta,
         }
         if extra_meta:
             meta.update(extra_meta)
@@ -518,6 +535,22 @@ class _PerceptionCaptureLifecycle(_PerceptionCaptureStorage):
         return True
 
     def _capture_live_frame(self, cam: Any) -> Any | None:
+        frame = self._capture_live_frame_raw(cam)
+        if frame is not None and getattr(frame, "intrinsics", None) is not None:
+            intr = frame.intrinsics
+            self._live_frame_meta = {
+                "capture_time_s": float(getattr(frame, "ts", 0.0)),
+                "source_id": str(getattr(frame, "source_id", "")),
+                "source_boot_id": str(getattr(frame, "source_boot_id", "")),
+                "calibration_id": str(getattr(frame, "calibration_id", "")),
+                "depth_scale": float(frame.depth_scale),
+                "intrinsics": {name: getattr(intr, name) for name in ("fx", "fy", "cx", "cy", "width", "height")}}
+        observer = getattr(self, "_frame_observer", None)
+        if frame is not None and observer is not None:
+            observer(frame)
+        return frame
+
+    def _capture_live_frame_raw(self, cam: Any) -> Any | None:
         miss_count = 0
         last_status = ""
         while not self._stop_event.is_set():
@@ -805,8 +838,12 @@ class _PerceptionDetectionActions(_PerceptionCaptureLifecycle):
 
         return refine_detection_mask(det, erode_px=int(erode_px))
 
-    @staticmethod
-    def _world_from_sim_frame(frame: Any, p_camera: np.ndarray) -> Optional[tuple[float, float, float]]:
+    def _world_from_sim_frame(self, frame: Any, p_camera: np.ndarray) -> Optional[tuple[float, float, float]]:
+        corrected = getattr(self, "_world_point_fn", None)
+        if corrected is not None:
+            point = corrected(frame, p_camera)
+            if point is not None:
+                return point
         origin = getattr(frame, "camera_world_origin", None)
         look = getattr(frame, "camera_world_look", None)
         right = getattr(frame, "camera_world_right", None)
@@ -864,6 +901,12 @@ class _PerceptionDetectionActions(_PerceptionCaptureLifecycle):
         cam_origin = getattr(frame, "camera_world_origin", None) if frame is not None else None
         cam_look = getattr(frame, "camera_world_look", None) if frame is not None else None
         cam_right = getattr(frame, "camera_world_right", None) if frame is not None else None
+        pose_fn = getattr(self, "_camera_pose_fn", None)
+        corrected_pose = pose_fn(frame) if pose_fn is not None and frame is not None else None
+        if corrected_pose is not None:
+            cam_origin = tuple(float(v) for v in corrected_pose[:3, 3])
+            cam_look = tuple(float(v) for v in corrected_pose[:3, 2])
+            cam_right = tuple(float(v) for v in corrected_pose[:3, 0])
         p_world = self._publish_fn(
             object_camera_xyz=(float(p_cam[0]), float(p_cam[1]), float(p_cam[2])),
             label=str(obs.label),
@@ -1260,6 +1303,9 @@ class _PerceptionCameraPipelines(_PerceptionDetectionActions):
                     target_uv=target_uv,
                     center_uv=center_uv,
                 )
+                annotate = getattr(self, "_preview_overlay_fn", None)
+                if annotate is not None:
+                    vis = annotate(frame, vis)
                 self._update_frame_cache(
                     frame.color_bgr,
                     overlay_bgr=vis,
@@ -1620,6 +1666,9 @@ class _PerceptionCameraPipelines(_PerceptionDetectionActions):
                     target_uv=target_uv,
                     center_uv=center_uv,
                 )
+                annotate = getattr(self, "_preview_overlay_fn", None)
+                if annotate is not None:
+                    vis = annotate(frame, vis)
                 self._update_frame_cache(
                     frame.color_bgr,
                     overlay_bgr=vis,

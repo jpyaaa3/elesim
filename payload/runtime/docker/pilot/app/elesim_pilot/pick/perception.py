@@ -2,9 +2,117 @@
 from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import fields
+from elesim_pilot.vision.floor_calibration import PoseHistory
+from elesim_pilot.vision.floor_service import FloorCalibrationService
+from elesim_pilot.vision.perception_bridge.hand_eye import camera_world_transform
 from ._deps import *  # noqa: F401,F403
 
 class PerceptionActions:
+    def _start_floor_calibration(self):
+        previous = getattr(self, "_floor_calibration", None)
+        if previous is not None:
+            previous.close()
+        self._floor_calibration = None
+        cfg = self._perception_cfg
+        if cfg.floor_calibration_enabled:
+            self._floor_calibration = FloorCalibrationService(
+                max_hz=cfg.floor_calibration_max_hz,
+                reference_height_m=cfg.floor_calibration_reference_height_m,
+                apply=cfg.floor_calibration_apply,
+                clock_verified=cfg.floor_calibration_clock_verified,
+                pose_provider=self._floor_camera_pose, evidence_provider=self._floor_pose_evidence)
+        return self._floor_calibration
+
+    def floor_calibration_status(self):
+        observer = getattr(self, "_floor_calibration", None)
+        return ({"enabled": False, "state": "idle", "valid": False}
+                if observer is None else observer.snapshot())
+
+    def confirm_floor_calibration(self, candidate_id: str):
+        self._require_floor_calibration_idle()
+        if self._floor_calibration is None:
+            raise RuntimeError("start perception to observe a floor reference")
+        return self._floor_calibration.confirm(candidate_id)
+
+    def reset_floor_calibration(self):
+        self._require_floor_calibration_idle()
+        return (self._floor_calibration.reset() if self._floor_calibration is not None
+                else self.floor_calibration_status())
+
+    def export_floor_calibration(self):
+        if self._floor_calibration is None:
+            raise RuntimeError("no floor calibration observations")
+        return self._floor_calibration.export()
+
+    def _require_floor_calibration_idle(self):
+        workers = [getattr(self, name, None) for name in ("_pick_e2e_worker", "_wrap_worker")]
+        if (self._visual_busy() or bool(self.state.pick_running)
+                or any(worker is not None and worker.is_alive() for worker in workers)):
+            raise RuntimeError("stop active IK/Pick/Gaze before changing visual calibration")
+
+    def accept_floor_telemetry(self, payload, *, source_id, source_boot_id):
+        """Store source-timestamped measurements; never run FK on the DDS thread."""
+        stamp = payload.get("measurement_time_s")
+        q = payload.get("q")
+        if (payload.get("q_source") != "measured" or isinstance(stamp, bool)
+                or not isinstance(stamp, (int, float))
+                or not math.isfinite(stamp) or stamp <= 0
+                or not isinstance(q, (list, tuple)) or len(q) != 4
+                or not all(not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(v) for v in q)):
+            return
+        go2 = payload.get("go2") or {}
+        if not isinstance(go2, Mapping):
+            return
+        identity = (str(source_id), str(source_boot_id))
+        with self._floor_pose_lock:
+            if self._floor_pose_samples and self._floor_pose_samples[-1][0] != identity:
+                self._floor_pose_samples.clear()
+            if self._floor_pose_samples and stamp <= self._floor_pose_samples[-1][1]:
+                return
+            self._floor_pose_samples.append((identity, float(stamp), tuple(q), dict(go2), {
+                "imu_reader": payload.get("imu_reader", {}), "imu_model": payload.get("imu_model"),
+                "imu_feedback_connected": bool(payload.get("imu_feedback_connected", False))}))
+
+    def _floor_pose_evidence(self, frame):
+        identity = (str(getattr(frame, "source_id", "")), str(getattr(frame, "source_boot_id", "")))
+        stamp = float(getattr(frame, "ts", 0))
+        with self._floor_pose_lock:
+            samples = [s for s in self._floor_pose_samples if s[0] == identity]
+        before = next((s for s in reversed(samples) if s[1] <= stamp), None)
+        after = next((s for s in samples if s[1] >= stamp), None)
+        return {"initial_mount": None if self._hand_eye_transform is None else self._hand_eye_transform.tolist(),
+                "parent_frame": self._hand_eye_parent_frame,
+                "samples": [{"measurement_time_s": s[1], "q": list(s[2]), "go2": s[3], **s[4]}
+                            for s in (before, after) if s is not None]}
+
+    def _floor_camera_pose(self, frame):
+        if self._hand_eye_transform is None or not self._ik_context:
+            return None
+        identity = (str(getattr(frame, "source_id", "")), str(getattr(frame, "source_boot_id", "")))
+        stamp = float(getattr(frame, "ts", 0.0))
+        with self._floor_pose_lock:
+            samples = [s for s in self._floor_pose_samples if s[0] == identity]
+        before = next((s for s in reversed(samples) if s[1] <= stamp), None)
+        after = next((s for s in samples if s[1] >= stamp), None)
+        if before is None or after is None or after[1]-before[1] > 0.15:
+            return None
+        history = PoseHistory()
+        for sample in (before, after):
+            _, time_s, q, go2 = sample[:4]
+            context = self._ik_context
+            if self._go2_arm_mount is not None:
+                position, rpy = go2.get("position"), go2.get("rpy")
+                body_stamp = go2.get("timestamp", 0.0)
+                if position is None or rpy is None or abs(body_stamp-time_s) > 0.15:
+                    return None
+                base = self._go2_arm_mount.arm_base_world_transform(position, rpy)
+                from elesim_pilot.robot.arm.iklib.kinematics import with_base_world_transform
+                context = with_base_world_transform(context, base)
+            pose = camera_world_transform(context, q, self._hand_eye_transform,
+                                          parent_frame=self._hand_eye_parent_frame)
+            history.add(time_s, pose, identity=identity)
+        return history.at(stamp, identity=identity)
+
     def _publish_perception_to_host(
         self,
         *,
@@ -65,6 +173,7 @@ class PerceptionActions:
             else:
                 self._retire_perception_capture(old)
         cfg = self._perception_cfg
+        floor = self._start_floor_calibration()
         self.state.visual_target_label = str(cfg.target_label).strip()
         epoch = int(self._perception_capture_epoch) + 1
         self._perception_capture_epoch = epoch
@@ -80,6 +189,10 @@ class PerceptionActions:
                 float(self.state.visual_target_uv_v),
             ),
             mock_world_xyz_fn=self._mock_world_xyz_from_state,
+            frame_observer=None if floor is None else floor.submit,
+            world_point_fn=None if floor is None else floor.corrected_world_point,
+            preview_overlay_fn=None if floor is None else floor.overlay,
+            camera_pose_fn=None if floor is None else floor.corrected_camera_pose,
         )
         self._perception_capture = cap
         self.state.set_perception_status(running=True, failed=False, msg="starting")
@@ -88,6 +201,9 @@ class PerceptionActions:
     def stop_perception_capture(self, *, stop_recording: bool = True) -> None:
         cap = self._perception_capture
         if cap is None:
+            floor = getattr(self, "_floor_calibration", None)
+            if floor is not None:
+                floor.close()
             if bool(stop_recording):
                 self._stop_observer_camera_recording()
                 self.state.set_perception_recording(False)
@@ -103,6 +219,9 @@ class PerceptionActions:
         if bool(stop_recording):
             self._retire_perception_capture(cap, stop_recording=True)
             self.state.set_perception_recording(False)
+        floor = getattr(self, "_floor_calibration", None)
+        if floor is not None:
+            floor.close()
         self.state.set_perception_status(
             running=False,
             failed=False,
@@ -367,6 +486,7 @@ class PerceptionActions:
             return None
 
     def update_perception_config(self, config: PerceptionConfig | Mapping[str, Any] | Any) -> None:
+        previous = self._perception_cfg
         if isinstance(config, PerceptionConfig):
             updated = config
         else:
@@ -388,7 +508,26 @@ class PerceptionActions:
                 )
             updated = replace(self._perception_cfg, **raw)
         self._validate_perception_config(updated)
+        if any(getattr(previous, field.name) != getattr(updated, field.name)
+               for field in fields(PerceptionConfig) if field.name.startswith("floor_calibration_")):
+            self._require_floor_calibration_idle()
         self._perception_cfg = updated
+        floor = getattr(self, "_floor_calibration", None)
+        restart_fields = ("floor_calibration_enabled", "floor_calibration_max_hz",
+                          "floor_calibration_reference_height_m", "sim_camera_source_id",
+                          "sim_camera_source_boot_id")
+        if (floor is not None or getattr(self, "_perception_capture", None) is not None) and any(
+                getattr(previous, name) != getattr(updated, name) for name in restart_fields):
+            floor = self._start_floor_calibration()
+            cap = self._perception_capture
+            if cap is not None:
+                cap._frame_observer = None if floor is None else floor.submit
+                cap._world_point_fn = None if floor is None else floor.corrected_world_point
+                cap._preview_overlay_fn = None if floor is None else floor.overlay
+                cap._camera_pose_fn = None if floor is None else floor.corrected_camera_pose
+        if floor is not None:
+            floor.apply = bool(updated.floor_calibration_apply)
+            floor.clock_verified = bool(updated.floor_calibration_clock_verified)
         self.state.visual_target_label = str(updated.target_label).strip()
 
     def _mock_world_xyz_from_state(self) -> Optional[tuple[float, float, float]]:

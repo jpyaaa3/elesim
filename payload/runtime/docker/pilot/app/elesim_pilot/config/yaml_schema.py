@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import math
 import types
 from dataclasses import Field, fields, replace
 from typing import Any, Mapping, Union, get_args, get_origin, get_type_hints
@@ -172,6 +173,7 @@ _register("ik_config", "robot.arm.ik", _field_names(IkConfig))
 
 # Vision.
 _perception_tracking = _prefixed(PerceptionConfig, "track_") | {"reacquire_on_lost"}
+_perception_calibration = _prefixed(PerceptionConfig, "floor_calibration_")
 _perception_publish = {
     "publish_hz",
     "sim_camera_topic",
@@ -192,6 +194,7 @@ _perception_runtime_injected = {
 _perception_runtime = (
     _field_names(PerceptionConfig)
     - _perception_tracking
+    - _perception_calibration
     - _perception_publish
     - _perception_detector
     - {"camera_profile"}
@@ -213,6 +216,8 @@ _register(
     aliases={"camera_profile": "profile"},
 )
 _register("perception_config", "vision.perception.runtime", _perception_runtime)
+_register("perception_config", "vision.perception.calibration", _perception_calibration,
+          strip_prefix="floor_calibration_")
 # These values are filled from the selected DDS peer descriptor at runtime.
 # Treating them as mapped would accidentally make process identity writable in
 # the static application YAML, so only mark them as intentionally owned here.
@@ -409,6 +414,10 @@ def build_bundle_from_yaml(data: Mapping[str, Any], *, config_dir: str) -> AppCo
         raise ConfigValidationError(str(exc)) from exc
 
     perception_config = components["perception_config"]
+    if (not 0 < perception_config.floor_calibration_max_hz <= 30
+            or (perception_config.floor_calibration_reference_height_m is not None
+                and not math.isfinite(perception_config.floor_calibration_reference_height_m))):
+        raise ConfigValidationError("invalid vision.perception.calibration rate/reference height")
     provider = str(perception_config.provider).strip().lower()
     if provider != "local" or not bool(perception_config.run_local):
         raise ConfigValidationError(

@@ -1,10 +1,44 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-23. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-26. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### 뎁스 평면 기반 시각 캘리브레이션 소프트웨어 (2026-10-26)
+
+- Pilot에 metric depth deprojection, bounded multi-plane RANSAC/weighted fit,
+  지지 면적·두 축 폭·잔차 검사, 고정 기준면 선택과 추적을 구현했다. 큰
+  책상도 자동으로 바닥으로 승격하지 않으며 초기 관측 기준은 상대 기준임을
+  표시한다. 보정은 camera tilt 2축과 plane-normal distance만 다룬다.
+- 기존 encoded RGB-D의 source/boot/calibration ID와 capture time을 adapter
+  뒤에도 보존한다. Robot의 additive `measurement_time_s`로 source wall-clock
+  관절 측정 시각을 제공하고 Pilot에서 bracketing pose를 보간한다. 실제
+  촬영/측정 timing 검증은 별도이며 telemetry 기반 보정은 기본 차단한다.
+- 기존 perception 입력을 받는 6 Hz latest-only worker, 선택적 world-coordinate
+  보정, 원본과 분리된 preview plane outline, UI Visual Calibration의 기준면
+  선택/reset/기록 export를 연결했다. 기본값은 관측 ON, 좌표 보정 OFF다.
+  Active IK/Pick/Gaze 중 기준·설정 변경은 거부한다. Observer 자체는 motor
+  명령을 보내지 않으나 좌표 보정 적용 뒤 기존 workflow의 계획 결과는 바뀔
+  수 있다. 구체적 절차와 한계는 `docs/visual_calibration.md`를 따른다.
+- 최대 2,000개의 plane·예측 pose·raw q/body/IMU model 진단 기록을 export하고,
+  별도 offline fixed-mount fitter는 rank 부족과 source/reference 혼합을 거부한다.
+  매 다섯 번째 관측은 fitting에서 제외해 plane consistency를 평가한다.
+  결과는 별도 candidate 파일이며 설치된 hand-eye 값을 자동 변경하지 않는다.
+- 합성 1280×720 입력, 4,096점, 두 평면의 host CPU fitting 20회는 median
+  **11.02 ms**, p95 **13.63 ms**였다. 초기 fixed-128-trial RANSAC은 median
+  35.40 ms였고 confidence 기반 조기 종료를 넣었다. 물리 카메라 정확도,
+  live latency나 Sim step 성능의 증거는 아니다. 원자료는
+  `workbench/evidence/generated/floor-calibration-20261026/`에 있다.
+- Host에서 Protocol/Pilot/UI wheel을 build하고 새 모듈 6개 포함 및 source
+  checkout 밖 zip-wheel import를 확인했다. 최종 전체 host 회귀는 **969 passed,
+  32 skipped, 18 subtests passed**다. Host의 Shapely/PyAV 부재로 관련 4개
+  파일은 제외했다. Canonical gate 통과로 해석하지 않는다.
+- 알려진 installed `elesim-dev` wrapper는 존재하지만 pinned Docker socket에
+  접근이 거부됐다. Canonical required/extended, release build/verify 및 real-RMW
+  `smoke_topology.py`는 미실행이며 host에도 `rclpy`가 없다. 실기 ZED/D435
+  timing·기준면 정답·독립 높이/자세 오차와 IMU/plane/combined 비교는 남아 있다.
 
 ### 물리 적분까지 전체 50 Hz로 맞춘 실제 실행 (2026-10-23)
 

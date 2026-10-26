@@ -139,7 +139,7 @@ class CameraPublisherThread:
                     depth_scale=source.depth_scale,
                     intrinsics=self._orient_intrinsics(source.intrinsics),
                     seq=seq,
-                    ts=time.time(),
+                    ts=float(getattr(source, "ts", 0.0) or time.time()),
                 )
                 frame = (
                     encoded_frame_from_rgbd(

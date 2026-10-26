@@ -393,6 +393,16 @@ Mock hug 기능은 protocol major 6의 capability-gated additive extension이다
 
 ## 6. 모델과 설정 lifecycle
 
+Pilot의 depth-plane calibration은 기존 perception RGB-D를 관측하며 원본
+optical frame에서 평면을 추정한다. 기준면 선택과 bounded latest-only worker는
+Pilot 소유이고 UI는 상태·후보 선택·기록 export만 요청한다. 원본 영상과 depth는
+수정하지 않는다. 카메라 기울기 2축과 평면 법선 방향 거리만 보정 대상으로
+삼으며, 단일 평면의 접선 이동/yaw는 관측했다고 취급하지 않는다. 기본값은
+관측만 켜고 좌표 보정은 끈다. 소스 촬영 시각과 Robot 측정 시각의 정합,
+기준면과 freshness가 검증된 관측만 perception 좌표 보정에 사용한다.
+Robot 모터 명령과 IMU 모델 선택에는 관여하지 않는다. 상세 절차와 실제
+검증 경계는 [`visual_calibration.md`](visual_calibration.md)를 따른다.
+
 Pilot의 선택적 `robot.arm.ik.backend=curobo`는 Jetson CUDA에서 position IK를
 계산한다. 기본값은 `native`이며 새 DDS participant나 Robot 의존성을 만들지
 않는다. 별도 `CuRoboPlanner.plan_joint` API와 `elesim-plan` CLI는 시간 간격을
