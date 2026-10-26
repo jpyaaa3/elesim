@@ -6,6 +6,23 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Sensor-only 부분 점군 기준선 (2026-10-26)
+
+- Pilot에 RGB-D·intrinsics·encoder만 허용하는 schema-1 로컬 replay packet과
+  visible surface deprojection, bounded voxel fusion을 추가했다. object/camera
+  truth와 asset/mesh 필드를 거부하며 ICP로 pose 오차를 지우지 않는다.
+- 별도 producer/consumer/evaluator 실험은 무작위 물체와 숨긴 camera mount
+  오차를 사용하고, floor fitting에 쓰지 않은 물체 점의 world 오차를 평가한다.
+  XY/yaw negative control을 포함한다. CPU analytic 3-seed 회귀는 통과했으며
+  실제 Genesis·격리 mount 검증은 아직 진행 중이다. PCN·실제 팔 FK·grasp의
+  완료 증거로 해석하지 않는다. 절차는 `docs/visual_calibration.md`에 있다.
+- Genesis vertical FOV와 raster pixel centre에 맞게 Sim RGB-D intrinsics를
+  수정했다. width로 focal length를 만들던 부분을 height로 바꾸고 integer
+  pixel 좌표의 principal point를 `(width-1)/2, (height-1)/2`로 맞췄다.
+- 새 sensor/geometry/analytic 실험 시험 **13 passed**, 기존 floor/hand-eye 및
+  host 가능 Sim camera 회귀 **59 passed, 2 skipped**. Host의 Genesis 부재로
+  `test_async_camera.py`는 수집할 수 없었다. canonical gate는 미실행이다.
+
 ### 뎁스 평면 기반 시각 캘리브레이션 소프트웨어 (2026-10-26)
 
 - Pilot에 metric depth deprojection, bounded multi-plane RANSAC/weighted fit,

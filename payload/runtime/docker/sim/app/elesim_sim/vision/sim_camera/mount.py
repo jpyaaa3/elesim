@@ -136,9 +136,11 @@ def intrinsics_from_fov(*, width: int, height: int, fov_deg: float) -> SimCamera
     w = int(width)
     h = int(height)
     fov = float(np.radians(fov_deg))
-    fx = (w * 0.5) / max(np.tan(fov * 0.5), 1e-6)
+    # Genesis Camera.fov is vertical. OpenCV integer pixel coordinates denote
+    # pixel centres; Genesis's raster projection uses u+.5/v+.5 instead.
+    fx = (h * 0.5) / max(np.tan(fov * 0.5), 1e-6)
     fy = fx
-    return SimCameraIntrinsics(fx=float(fx), fy=float(fy), cx=w * 0.5, cy=h * 0.5, width=w, height=h)
+    return SimCameraIntrinsics(fx=float(fx), fy=float(fy), cx=(w-1)*0.5, cy=(h-1)*0.5, width=w, height=h)
 
 
 @dataclass

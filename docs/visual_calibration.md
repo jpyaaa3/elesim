@@ -116,3 +116,40 @@ independent height/angle or reference-point measurements, poses not used for
 calibration, false-floor selection and loss rates, and timing/performance evidence
 on the intended ZED Mini or D435. Absolute 6-DOF accuracy is not established by
 floor consistency alone.
+
+## Sensor-only partial-cloud experiment
+
+The next perception stage preserves observed object surface points; it does not
+complete an unseen shape. `vision.partial_cloud` accepts a strict schema-1 local
+NPZ replay packet containing RGB-D, intrinsics, source identity/time and encoder
+readings. Camera-world truth, object poses, asset IDs, silhouettes and meshes are
+rejected. This file format adds no DDS message or runtime control command.
+Points are deprojected through the original pixels and transformed using the
+declared encoder model plus an optional floor correction. Bounded voxel means
+combine views without ICP or any other alignment that could hide pose errors.
+
+Three independent research processes implement the baseline:
+
+```bash
+python3 -m workbench.research.experiments.vision_scene data --backend genesis --seeds 3
+python3 -m workbench.research.experiments.vision_reconstruct data/sensors predictions
+python3 -m workbench.research.experiments.vision_evaluate data/truth predictions --output evaluation.json
+```
+
+The producer randomizes a box and hidden camera mount error, writing sensor and
+private truth directories separately. The consumer receives only its script,
+sensor directory and output directory. A declared virtual Cartesian encoder rig
+supplies nominal camera extrinsics; no true Sim camera pose or object catalog is
+available. The example detector uses image color, not the renderer segmentation
+buffer. A known horizontal floor at world Z=0 is an explicit reference assumption.
+This test does not exercise real arm FK, exposure synchronization or GO2 motion.
+
+Only the evaluator reads private truth. It measures corresponding visible object
+points in fixed world coordinates, without alignment, and their distance to the
+true object surface. Correction must reduce p95 point error by at least 70%,
+below 12 mm, and keep surface p95 below 12 mm. A separate XY/yaw perturbation
+must retain over 25 mm p95 error: a plane cannot resolve those directions.
+The analytic CPU backend is a deterministic regression fixture; it is not
+evidence of Genesis rendering or physical accuracy. PCN/completion, arbitrary
+object segmentation, live workflow wiring and grasp/contact validation remain
+separate stages.
