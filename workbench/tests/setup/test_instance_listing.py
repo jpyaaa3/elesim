@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 from pathlib import Path
@@ -9,7 +10,7 @@ import sys
 import pytest
 
 from elesim_setup import instance_listing
-from elesim_setup.instance_identity import image_reference, project_name
+from elesim_setup.instance_identity import image_reference, instance_container_name, project_name, service_key
 from elesim_setup.instances import InstanceEndpoint, InstanceState
 from elesim_setup.ownership import (
     DockerOwnership,
@@ -184,7 +185,7 @@ def test_cli_json_preserves_grouped_instance_ids_and_null_call_sign(installation
     output = capsys.readouterr()
     assert output.err == ""
     assert json.loads(output.out) == {
-        "instances": [{"system_id": "alpha", "roles": {"pilot": "lion", "ui": None}}]
+        "instances": [{"system_id": "alpha", "roles": {"pilot": "lion", "ui": None}, "active": None}]
     }
 
 
@@ -350,6 +351,159 @@ def test_copied_host_bundle_lists_without_the_installed_setup_package(installati
     assert completed.returncode == 0, completed.stderr
     assert completed.stderr == ""
     assert json.loads(completed.stdout) == {
-        "instances": [{"system_id": "alpha", "roles": {"pilot": "lion"}}]
+        "instances": [{"system_id": "alpha", "roles": {"pilot": "lion"}, "active": None}]
     }
     assert _snapshot(installation) == before
+
+
+def _container(prefix, system, role):
+    owner = instance_listing.OwnershipManifest.load(prefix / "install-ownership.json")
+    endpoint = f"{system}-{role}"
+    return [
+        instance_container_name(owner.install_uuid, system, role, endpoint,
+                                install_name=owner.docker.install_name, naming=owner.docker.container_naming),
+        "running", owner.install_uuid, owner.docker.project, service_key(system, endpoint),
+        system, role, "False",
+    ]
+
+
+def _docker_snapshot(monkeypatch, containers=(), *, engine="engine-a", error=None, raw=None):
+    calls = []
+
+    def run(arguments, **kwargs):
+        assert tuple(arguments[:3]) == ("docker", "--context", "test-context")
+        assert kwargs["timeout"] == 2.0
+        assert kwargs["env"]["DOCKER_CONTEXT"] == "test-context"
+        assert "DOCKER_HOST" not in kwargs["env"]
+        args = tuple(arguments[3:])
+        calls.append(args)
+        if error is not None:
+            raise error
+        if args == ("info", "--format", "{{.ID}}"):
+            return subprocess.CompletedProcess(arguments, 0, stdout=engine + "\n")
+        assert args[:2] == ("container", "ls")
+        assert f"label=io.elesim.install_uuid={INSTALL}" in args
+        assert f"label=com.docker.compose.project={project_name(INSTALL, install_name='quick')}" in args
+        output = raw if raw is not None else "\n".join(json.dumps(c) for c in containers)
+        return subprocess.CompletedProcess(arguments, 0, stdout=output)
+
+    monkeypatch.setattr(instance_listing.subprocess, "run", run)
+    return calls
+
+
+def test_activity_marks_only_registered_running_instances_in_one_read(installation, monkeypatch):
+    older = _release(installation, {"pilot": "duck", "sim": "horse"})
+    walker = _release(installation, {"sim": "goose"}, revision="d")
+    current = _release(installation, {"pilot": "jellyfish", "sim": "alpaca"}, revision="e")
+    _register(installation, "readiness", older, ("pilot", "sim"))
+    _register(installation, "tddwalk", walker, ("sim",))
+    _register(installation, "test", current, ("pilot", "sim"))
+    # One running registered role is enough, even when the other role is down.
+    calls = _docker_snapshot(monkeypatch, [_container(installation, "test", "pilot")])
+    before = _snapshot(installation)
+
+    rows = instance_listing.list_instances(installation, include_activity=True)
+
+    assert rows == (
+        {"system_id": "readiness", "roles": {"pilot": "duck", "sim": "horse"}, "active": False},
+        {"system_id": "tddwalk", "roles": {"sim": "goose"}, "active": False},
+        {"system_id": "test", "roles": {"pilot": "jellyfish", "sim": "alpaca"}, "active": True},
+    )
+    assert instance_listing.format_instances(rows) == (
+        "readiness\n  pilot: duck\n  sim: horse\n\n"
+        "tddwalk\n  sim: goose\n\n"
+        "test (active)\n  pilot: jellyfish\n  sim: alpaca"
+    )
+    assert len(calls) == 2  # Engine identity once, runtime inventory once.
+    assert _snapshot(installation) == before
+
+
+def test_mint_color_covers_the_entire_active_group_only():
+    rows = (
+        {"system_id": "idle", "roles": {"sim": "goose"}, "active": False},
+        {"system_id": "test", "roles": {"pilot": "jellyfish", "sim": "alpaca"}, "active": True},
+    )
+    assert instance_listing.format_instances(rows, color=True) == (
+        "idle\n  sim: goose\n\n"
+        "\033[38;2;94;234;212mtest (active)\n  pilot: jellyfish\n  sim: alpaca\033[0m"
+    )
+
+
+@pytest.mark.parametrize("field,value", [
+    (0, "elesim-quick-alpha-pilot-diagnostic"),
+    (1, "paused"), (1, "exited"), (2, FOREIGN_INSTALL), (3, "elesim-other"),
+    (4, "orphan-service"), (5, "another"), (6, "sim"), (7, "True"),
+])
+def test_foreign_or_nonruntime_containers_cannot_mark_an_instance_active(
+    installation, monkeypatch, field, value,
+):
+    release = _release(installation, {"pilot": "lion"})
+    _register(installation, "alpha", release)
+    container = _container(installation, "alpha", "pilot")
+    container[field] = value
+    _docker_snapshot(monkeypatch, [container])
+
+    rows = instance_listing.list_instances(installation, include_activity=True)
+
+    assert rows[0]["active"] is False
+
+
+@pytest.mark.parametrize("error", [
+    FileNotFoundError("docker"), PermissionError("docker socket"),
+    subprocess.TimeoutExpired("docker", 2.), subprocess.CalledProcessError(1, "docker"),
+])
+def test_unavailable_docker_preserves_callsigns_with_unknown_activity(installation, monkeypatch, error):
+    release = _release(installation, {"pilot": "lion"})
+    _register(installation, "alpha", release)
+    _docker_snapshot(monkeypatch, error=error)
+
+    rows = instance_listing.list_instances(installation, include_activity=True)
+
+    assert rows == ({"system_id": "alpha", "roles": {"pilot": "lion"}, "active": None},)
+    assert instance_listing.format_instances(rows, color=True) == "alpha\n  pilot: lion"
+
+
+def test_wrong_engine_does_not_query_containers(installation, monkeypatch):
+    release = _release(installation, {"pilot": "lion"})
+    _register(installation, "alpha", release)
+    calls = _docker_snapshot(monkeypatch, engine="another-engine")
+    rows = instance_listing.list_instances(installation, include_activity=True)
+    assert rows[0]["active"] is None
+    assert calls == [("info", "--format", "{{.ID}}")]
+
+
+@pytest.mark.parametrize("raw", ["{", "null", '["incomplete"]'])
+def test_malformed_docker_response_is_unknown_instead_of_stopped(installation, monkeypatch, raw):
+    release = _release(installation, {"pilot": "lion"})
+    _register(installation, "alpha", release)
+    _docker_snapshot(monkeypatch, raw=raw)
+    assert instance_listing.list_instances(installation, include_activity=True)[0]["active"] is None
+
+
+@pytest.mark.parametrize("tty,no_color,term,colored", [
+    (True, False, "xterm-256color", True),
+    (False, False, "xterm-256color", False),
+    (True, True, "xterm-256color", False),
+    (True, False, "dumb", False),
+])
+def test_cli_color_respects_terminal_and_no_color(installation, monkeypatch, tty, no_color, term, colored):
+    release = _release(installation, {"pilot": "lion"})
+    _register(installation, "alpha", release)
+    _docker_snapshot(monkeypatch, [_container(installation, "alpha", "pilot")])
+    output = io.StringIO()
+    output.isatty = lambda: tty
+    monkeypatch.setattr(instance_listing.sys, "stdout", output)
+    monkeypatch.setenv("TERM", term)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    if no_color:
+        monkeypatch.setenv("NO_COLOR", "1")
+
+    assert instance_listing.main(["--prefix", str(installation)]) == 0
+
+    assert "alpha (active)\n  pilot: lion" in output.getvalue()
+    assert ("\033[" in output.getvalue()) is colored
+    output.seek(0)
+    output.truncate()
+    assert instance_listing.main(["--prefix", str(installation), "--json"]) == 0
+    assert json.loads(output.getvalue())["instances"][0]["active"] is True
+    assert "\033[" not in output.getvalue()

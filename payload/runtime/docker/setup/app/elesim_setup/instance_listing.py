@@ -1,4 +1,4 @@
-"""Read registered instance call signs on the host without starting Docker."""
+"""List registered call signs and optionally inspect the pinned Docker runtime."""
 
 from __future__ import annotations
 
@@ -8,10 +8,11 @@ import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 import sys
 from typing import Sequence
 
-from .instance_identity import is_scoped_project, named_image_parts
+from .instance_identity import instance_container_name, is_scoped_project, named_image_parts, service_key
 from .ownership import OwnershipManifest
 from .releases import load_release, _reject_symlinked_ancestors
 
@@ -21,6 +22,55 @@ _SYSTEM = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
 _ENDPOINT = re.compile(r"[a-z][a-z0-9_-]{0,62}\Z")
 _KEY = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_STATE_BYTES = 1024 * 1024
+_DOCKER_TIMEOUT_S = 2.0
+_ACTIVE_COLOR = "\033[38;2;94;234;212m"
+_COLOR_RESET = "\033[0m"
+
+
+def _running_containers(owner: OwnershipManifest) -> set[tuple[str, str, str, str]] | None:
+    """Return owned running endpoint identities, or None when status is unknown."""
+    boundary = owner.docker
+    if boundary is None or not boundary.context or not boundary.engine_id:
+        return None
+    command = ("docker", "--context", boundary.context)
+    environment = dict(os.environ)
+    environment.pop("DOCKER_HOST", None)
+    environment["DOCKER_CONTEXT"] = boundary.context
+
+    def query(*arguments: str) -> str:
+        return subprocess.run(
+            (*command, *arguments), capture_output=True, text=True, check=True,
+            timeout=_DOCKER_TIMEOUT_S, env=environment,
+        ).stdout
+
+    fields = (".Names", ".State", '(.Label "io.elesim.install_uuid")',
+              '(.Label "com.docker.compose.project")', '(.Label "com.docker.compose.service")',
+              '(.Label "io.elesim.system_id")', '(.Label "io.elesim.role")',
+              '(.Label "com.docker.compose.oneoff")')
+    output_format = "[" + ",".join("{{json " + field + "}}" for field in fields) + "]"
+    try:
+        if query("info", "--format", "{{.ID}}").strip() != boundary.engine_id:
+            return None
+        output = query(
+            "container", "ls", "--filter", "status=running",
+            "--filter", f"label=io.elesim.install_uuid={owner.install_uuid}",
+            "--filter", f"label=com.docker.compose.project={boundary.project}",
+            "--format", output_format,
+        )
+        running = set()
+        for line in output.splitlines():
+            values = json.loads(line)
+            if not isinstance(values, list) or len(values) != 8 or not all(isinstance(v, str) for v in values):
+                return None
+            name, state, install, project, service, system, role, oneoff = values
+            if (state == "running" and install == owner.install_uuid
+                    and project == boundary.project and oneoff.lower() != "true"):
+                running.add((name, service, system, role))
+        return running
+    except (OSError, subprocess.SubprocessError, ValueError):
+        # Listing remains usable with Docker stopped, missing or inaccessible.
+        # Unknown is distinct from an observed empty set of running containers.
+        return None
 
 
 def _read_state(path: Path) -> dict:
@@ -65,12 +115,13 @@ def _read_state(path: Path) -> dict:
     return value
 
 
-def list_instances(prefix: Path) -> tuple[dict, ...]:
+def list_instances(prefix: Path, *, include_activity: bool = False) -> tuple[dict, ...]:
     """Read exact local pins, including stopped instances and historical releases.
 
     Listing takes no lifecycle locks and creates no registry/lock files. Atomic
     registration snapshots are sufficient; concurrent removal may report an
-    error, and the operator can repeat the read.
+    error, and the operator can repeat the read. include_activity adds a bounded
+    read of the pinned Engine; it never starts Docker or changes containers.
     """
     prefix = Path(os.path.abspath(prefix.expanduser()))
     _reject_symlinked_ancestors(prefix)
@@ -86,7 +137,7 @@ def list_instances(prefix: Path) -> tuple[dict, ...]:
         return ()
     if not root.is_dir():
         raise ValueError("instance registry must be a directory")
-    rows, releases = [], {}
+    rows, releases, expected = [], {}, {}
     for child in sorted(root.iterdir(), key=lambda path: path.name):
         _reject_symlinked_ancestors(child)
         if not child.is_dir():
@@ -120,34 +171,47 @@ def list_instances(prefix: Path) -> tuple[dict, ...]:
             parts = named_image_parts(release.role_images[role], role)
             callsigns[role] = parts[1] if parts else None
         rows.append({"system_id": child.name, "roles": callsigns})
+        expected[child.name] = {
+            (instance_container_name(owner.install_uuid, child.name, endpoint["role"], endpoint["endpoint_id"],
+                                     install_name=owner.docker.install_name, naming=owner.docker.container_naming),
+             service_key(child.name, endpoint["endpoint_id"]), child.name, endpoint["role"])
+            for endpoint in state["endpoints"]
+        }
+    if include_activity and rows:
+        running = _running_containers(owner)
+        for row in rows:
+            row["active"] = None if running is None else bool(expected[row["system_id"]] & running)
     return tuple(rows)
 
 
-def format_instances(rows: Sequence[dict]) -> str:
+def format_instances(rows: Sequence[dict], *, color: bool = False) -> str:
     if not rows:
         return "No registered instances."
     groups = []
     for row in rows:
-        lines = [row["system_id"]]
+        active = row.get("active") is True
+        lines = [row["system_id"] + (" (active)" if active else "")]
         lines.extend(f"  {role}: {name or '(no call sign)'}" for role, name in row["roles"].items())
-        groups.append("\n".join(lines))
+        group = "\n".join(lines)
+        groups.append(_ACTIVE_COLOR + group + _COLOR_RESET if color and active else group)
     return "\n\n".join(groups)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="elesim list", description=__doc__)
     parser.add_argument("--prefix", type=Path, required=True, help=argparse.SUPPRESS)
-    parser.add_argument("--json", action="store_true", help="print instance IDs and role call signs as JSON")
+    parser.add_argument("--json", action="store_true", help="print instance IDs, role call signs and activity as JSON")
     args = parser.parse_args(argv)
     try:
-        rows = list_instances(args.prefix)
+        rows = list_instances(args.prefix, include_activity=True)
     except (OSError, ValueError) as exc:
         print(f"Unable to list instances: {exc}", file=sys.stderr)
         return 1
     if args.json:
         print(json.dumps({"instances": rows}))
     else:
-        print(format_instances(rows))
+        color = sys.stdout.isatty() and os.environ.get("TERM") != "dumb" and "NO_COLOR" not in os.environ
+        print(format_instances(rows, color=color))
     return 0
 
 

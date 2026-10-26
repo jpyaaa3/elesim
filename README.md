@@ -53,18 +53,17 @@ DDS is used by default, while video is sent via WebRTC.
 
 ```bash
 ./elesim connections         # Manage topology and system registrations
+./elesim list                # Show all registered systems
 
 ./elesim up <system-id>      # Start a registered system
 ./elesim down <system-id>    # Stop a registered system
 ./elesim logs <system-id>    # Check its logs
-./elesim info <system-id>    # Show its status
 ./elesim remove <system-id>  # Remove the system registration
-
-./elesim update              # Update/build/publish EleSim
 
 ./elesim tailscale login     # Log in to the Docker Desktop Tailscale sidecar
 ./elesim tailscale status    # Show sanitized Tailscale status
 
+./elesim update              # Update/build/publish EleSim
 ./elesim uninstall           # Remove EleSim
 ```
 

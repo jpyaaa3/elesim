@@ -36,14 +36,21 @@ native 설치는 이 단계를 실행하지 않는다. 수동 재시도는 설�
 현재 컴퓨터의 해당 설치에 등록된 인스턴스 ID와 역할별 콜사인을 한 번에
 조회하려면 다음 명령을 사용한다. 정지한 인스턴스도 포함하며, 각 인스턴스가
 고정한 release의 배정된 역할만 표시한다. Docker가 꺼져 있어도 조회할 수 있다.
+고정된 Docker Engine에 연결되면 등록된 앱 역할 중 하나 이상이 실행 중인
+인스턴스에 `(active)`를 붙이고, 터미널에서는 해당 이름과 역할별 콜사인
+전체를 민트색으로 표시한다. 이 표시는 현재 컴퓨터의 컨테이너 실행 여부다.
+파일·파이프로 출력할 때와 `NO_COLOR`가 설정된 경우에는 색상 코드를 넣지 않는다.
 
 ```bash
 elesim list
 ```
 
 예를 들어 `test` 아래에 `pilot: ferret`, `sim: goose`, `ui: otter`가 표시된다.
-`elesim list --json`은 같은 정보를 JSON으로 출력한다. readable 별칭이 없는
-구형 hash 태그는 `(no call sign)`으로 표시한다.
+`elesim list --json`은 같은 정보와 인스턴스별 `active` 값을 JSON으로 출력한다.
+`true`는 하나 이상 실행 중, `false`는 실행 중인 앱 역할이 없음을 뜻한다.
+Docker 조회 실패나 Engine 불일치 때도 등록 목록은 표시하며, 실행 상태를
+확인하지 못했으므로 `active`는 `null`이고 `(active)`와 색상을 표시하지 않는다.
+readable 별칭이 없는 구형 hash 태그는 `(no call sign)`으로 표시한다.
 
 Scoped 설치의 정확한 owner identity는 다음 read-only 명령으로 확인할 수 있다.
 

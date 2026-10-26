@@ -136,7 +136,12 @@ pull하고, sidecar와 namespace를 공유하며 당시 실행 중이던 role/Co
 기존 `elesim-instance <system>` 명령으로 전달되며 `info`는 `status`에 대응한다.
 `elesim list`는 현재 컴퓨터의 해당 설치에 등록된 instance ID 아래에 배정된
 역할별 콜사인을 표시한다. 각 instance의 고정 release metadata를 읽으므로
-Docker를 시작하지 않으며, `--json`으로 같은 정보를 JSON으로 받을 수 있다.
+Docker가 꺼져 있어도 목록을 볼 수 있다. 고정된 Docker Engine의 컨테이너를
+읽기 전용으로 한 번 조회해 등록된 앱 역할 중 하나 이상이 실행 중이면
+`(active)`를 붙이고 터미널에서 해당 그룹을 민트색으로 표시한다. 진단용
+일회성 컨테이너와 Tailscale·개발 컨테이너 등은 active 판정에 포함하지 않는다.
+Docker를 시작하거나 컨테이너 상태를 바꾸지 않는다. `--json`은 같은 정보에
+`active: true|false|null`을 포함하며 `null`은 실행 상태를 조회하지 못했다는 뜻이다.
 `elesim connections`와 `elesim uninstall`도 기존 전용 wrapper를 호출한다.
 `elesim update`는 설치된 Tailscale sidecar를 먼저 갱신한 뒤 release update를
 실행한다. sidecar 갱신 실패 시 release update는 실행하지 않는다. 아래 개별

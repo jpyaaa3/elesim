@@ -386,10 +386,16 @@ def test_scoped_instance_dispatcher_requires_registered_system_and_execs_exact_w
     assert "symlink" in linked.stderr
 
 
-def test_installed_list_reads_pinned_callsigns_without_docker(local_state, tmp_path):
+@pytest.mark.parametrize("docker_available", [False, True])
+def test_installed_list_reads_pinned_callsigns_and_activity(local_state, tmp_path, docker_available):
+    import sys
+
     from elesim_setup.instances import InstanceEndpoint, InstanceState
+    from elesim_setup.instance_identity import instance_container_name, service_key
 
     state = replace(local_state(roles=("sim", "ui")), prefix=str(tmp_path / "install with spaces"))
+    state = replace(state, container_network=replace(
+        state.container_network, docker_context="test-context", docker_engine_id="engine-a"))
     ContainerInstaller(state).run()
     owner = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
     data = tmp_path / "release-data"
@@ -410,7 +416,22 @@ def test_installed_list_reads_pinned_callsigns_without_docker(local_state, tmp_p
     fake_bin.mkdir()
     marker = fake_bin / "docker.called"
     docker = fake_bin / "docker"
-    docker.write_text(f'#!/bin/bash\ntouch "{marker}"\nexit 97\n')
+    running = [
+        instance_container_name(owner.install_uuid, "lab", "sim", "sim-test",
+                                install_name=owner.docker.install_name, naming=owner.docker.container_naming),
+        "running", owner.install_uuid, owner.docker.project, service_key("lab", "sim-test"),
+        "lab", "sim", "False",
+    ]
+    docker.write_text(
+        f'#!{sys.executable}\n'
+        'import json,sys\nfrom pathlib import Path\n'
+        f'Path({str(marker)!r}).write_text("called")\n'
+        f'if not {docker_available!r}: raise SystemExit(97)\n'
+        'assert sys.argv[1:3]==["--context","test-context"]\n'
+        'if sys.argv[3:]==["info","--format","{{.ID}}"]: print("engine-a")\n'
+        f'elif sys.argv[3:5]==["container","ls"]: print(json.dumps({running!r}))\n'
+        'else: raise SystemExit(98)\n'
+    )
     docker.chmod(0o755)
     environment = dict(os.environ, PATH=f"{fake_bin}:{os.environ['PATH']}", PYTHONPATH="/unrelated")
     shadow = tmp_path / "unrelated checkout"
@@ -419,11 +440,13 @@ def test_installed_list_reads_pinned_callsigns_without_docker(local_state, tmp_p
 
     listed = subprocess.run([state.bin_path / "elesim", "list"], env=environment, cwd=shadow, capture_output=True, text=True)
     assert listed.returncode == 0, listed.stderr
-    assert listed.stdout == "lab\n  sim: goose\n"
+    assert listed.stdout == ("lab (active)\n  sim: goose\n" if docker_available else "lab\n  sim: goose\n")
     structured = subprocess.run([state.bin_path / "elesim", "list", "--json"], env=environment, cwd=shadow, capture_output=True, text=True)
     assert structured.returncode == 0, structured.stderr
-    assert json.loads(structured.stdout) == {"instances": [{"system_id": "lab", "roles": {"sim": "goose"}}]}
-    assert not marker.exists()
+    assert json.loads(structured.stdout) == {"instances": [{
+        "system_id": "lab", "roles": {"sim": "goose"}, "active": True if docker_available else None,
+    }]}
+    assert marker.exists()
     assert (state.prefix_path / "maintenance/elesim_setup/instance_listing.py").is_file()
     invalid = subprocess.run([state.bin_path / "elesim", "list", "--prefix", "/other"], env=environment, capture_output=True, text=True)
     assert invalid.returncode == 64
