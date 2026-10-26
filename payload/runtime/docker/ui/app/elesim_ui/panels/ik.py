@@ -91,7 +91,6 @@ def draw_ik_panel(panel) -> None:
         if changed:
             panel.state.set_target(float(x), float(y), float(z))
             panel.service.send_current_target_meta(source="target")
-        imgui.text_disabled("Observer: green marker = Target xyz")
 
         changed_dir, (vx, vy, vz) = _draw_float3_input(
             panel,

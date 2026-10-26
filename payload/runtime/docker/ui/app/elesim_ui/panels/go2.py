@@ -413,11 +413,6 @@ def _draw_posture(panel, width: float) -> None:
     # Stand and Sit are explicit commands, not a toggle: go2_sport_pose is
     # command history and does not reliably describe the robot's current pose.
     btn_w = max(86.0, min(160.0, ((float(width) / scale) - 8.0) / 2.0))
-    host = getattr(panel, "_host_state", None)
-    last_pose = str(getattr(host, "go2_sport_pose", "") if host is not None else "").strip().lower()
-    standing_poses = {"stand_up", "balance_stand", "recovery_stand", "static_walk", "trot_run", "economic_gait"}
-    is_standing = last_pose in standing_poses
-
     if _button(panel, "Stand##go2_stand_up", btn_w):
         _stop_go2(panel)
         panel.service.send_go2_sport_pose(pose="stand_up")
@@ -425,19 +420,6 @@ def _draw_posture(panel, width: float) -> None:
     if _button(panel, "Sit##go2_stand_down", btn_w):
         _stop_go2(panel)
         panel.service.send_go2_sport_pose(pose="stand_down")
-
-    if is_standing and _button(panel, "Balance##go2_balance", btn_w):
-        _stop_go2(panel)
-        panel.service.send_go2_sport_pose(pose="balance_stand")
-    elif not is_standing:
-        imgui.text_disabled("Balance")
-
-    imgui.same_line()
-    if is_standing and _button(panel, "Recover##go2_recovery", btn_w):
-        _stop_go2(panel)
-        panel.service.send_go2_sport_pose(pose="recovery_stand")
-    elif not is_standing:
-        imgui.text_disabled("Recover")
 
 
 def draw_go2_panel(panel) -> None:
@@ -463,13 +445,5 @@ def draw_go2_panel(panel) -> None:
         imgui.text_wrapped(fault)
         imgui.text_disabled('Reset simulation before retrying locomotion.')
     _draw_teleop_pad(panel, width)
-
-    changed_avoid, enabled = imgui.checkbox(
-        "Obstacle Avoid",
-        bool(getattr(panel, "_go2_obstacles_avoid_enabled", False)),
-    )
-    if changed_avoid:
-        panel._go2_obstacles_avoid_enabled = bool(enabled)
-        panel.service.send_go2_obstacles_avoid(enabled=bool(enabled))
 
     _draw_posture(panel, width)

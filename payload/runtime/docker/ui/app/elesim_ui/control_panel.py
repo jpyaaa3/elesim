@@ -49,6 +49,7 @@ _THREE_COLUMN_MIN_W = _THREE_COLUMN_BASE_W * 3.0 + _DEFAULT_SPACING_X * 2.0
 _TWO_COLUMN_MIN_W = 720.0
 _INITIAL_WINDOW_W = 1440
 _INITIAL_WINDOW_H = 900
+_RESPAWN_DOUBLE_PRESS_S = 0.5
 _UI_RESOLUTION_PRESETS = (
     ("Small 80%", 0.80),
     ("Default 100%", 1.00),
@@ -187,7 +188,8 @@ class ControlPanel:
         self._go2_last_command_at = 0.0
         self._go2_send_period_s = 1.0 / 20.0
         self._go2_stop_sent = False
-        self._go2_obstacles_avoid_enabled = False
+        self._respawn_first_press_at: float | None = None
+        self._respawn_shortcut_window = None
         self._resolution_header_init_open = False
         self._glfw_window = None
         self._camera_window = None
@@ -208,6 +210,54 @@ class ControlPanel:
         self._ui_style_base_scalars: dict[str, float] = {}
         self._ui_style_base_vectors: dict[str, tuple[float, float]] = {}
         self._pending_file_browse: Optional[tuple[str, str]] = None
+
+    def respawn_simulation(self) -> None:
+        self._clear_respawn_shortcut()
+        self.service.reset_simulation()
+        self._go2_respawn_blocked = True
+        self._go2_was_active = False
+
+    def _clear_respawn_shortcut(self) -> None:
+        self._respawn_first_press_at = None
+        self._respawn_shortcut_window = None
+
+    def _handle_respawn_key(
+        self, window, key: int, action: int, mods: int, *, want_text_input: bool,
+    ) -> None:
+        # GLFW distinguishes a fresh press from the OS's held-key repeats.
+        if action != glfw.PRESS:
+            return
+        if (
+            key != glfw.KEY_R or mods or want_text_input
+            or glfw.get_window_attrib(window, glfw.FOCUSED) != glfw.TRUE
+        ):
+            self._clear_respawn_shortcut()
+            return
+        now = time.monotonic()
+        previous = self._respawn_first_press_at
+        if (
+            previous is not None and self._respawn_shortcut_window is window
+            and 0. <= now - previous <= _RESPAWN_DOUBLE_PRESS_S
+        ):
+            self.respawn_simulation()
+        else:
+            self._respawn_first_press_at = now
+            self._respawn_shortcut_window = window
+
+    def _install_respawn_shortcut(self, window, renderer) -> None:
+        def key_callback(callback_window, key, scancode, action, mods):
+            renderer.keyboard_callback(callback_window, key, scancode, action, mods)
+            self._handle_respawn_key(
+                window, key, action, mods,
+                want_text_input=bool(renderer.io.want_text_input),
+            )
+
+        def focus_callback(_window, focused):
+            if not focused:
+                self._clear_respawn_shortcut()
+
+        glfw.set_key_callback(window, key_callback)
+        glfw.set_window_focus_callback(window, focus_callback)
 
     def _draw_endpoint_selector(self, *, dropdown: bool = False) -> None:
         now = time.monotonic()
@@ -961,6 +1011,7 @@ class ControlPanel:
         self._install_ui_style()
         main_impl = GlfwRenderer(window)
         self._main_imgui_impl = main_impl
+        self._install_respawn_shortcut(window, main_impl)
 
         # Keep camera streams in one independently resizable native window.
         # The contexts are separate, while the OpenGL share context keeps the
@@ -1012,6 +1063,7 @@ class ControlPanel:
                 glfw.set_window_size(camera_window, camera_width, camera_height)
                 camera_impl = GlfwRenderer(camera_window)
                 self._camera_imgui_impl = camera_impl
+                self._install_respawn_shortcut(camera_window, camera_impl)
                 glfw.make_context_current(window)
                 self._set_imgui_context(self._main_imgui_context)
 

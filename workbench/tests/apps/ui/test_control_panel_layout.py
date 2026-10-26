@@ -114,7 +114,8 @@ def test_latched_go2_fault_stops_teleop_without_polling_held_keys(monkeypatch):
     assert sent == [dict(vx=0.,vy=0.,wz=0.)]
 
 
-def test_go2_stand_and_sit_buttons_are_always_visible(monkeypatch) -> None:
+@pytest.mark.parametrize("pose", ("", "stand_up", "balance_stand", "recovery_stand"))
+def test_go2_posture_only_shows_stand_and_sit(monkeypatch, pose) -> None:
     labels: list[str] = []
     disabled: list[str] = []
     monkeypatch.setattr(
@@ -131,7 +132,7 @@ def test_go2_stand_and_sit_buttons_are_always_visible(monkeypatch) -> None:
         lambda _panel, label, _width: labels.append(str(label)) or False,
     )
     panel = SimpleNamespace(
-        _host_state=SimpleNamespace(go2_sport_pose=""),
+        _host_state=SimpleNamespace(go2_sport_pose=pose),
         service=SimpleNamespace(
             send_go2_velocity=lambda **_kwargs: None,
             send_go2_sport_pose=lambda **_kwargs: None,
@@ -140,9 +141,8 @@ def test_go2_stand_and_sit_buttons_are_always_visible(monkeypatch) -> None:
 
     _draw_posture(panel, 260.0)
 
-    assert "Stand##go2_stand_up" in labels
-    assert "Sit##go2_stand_down" in labels
-    assert disabled == ["Balance", "Recover"]
+    assert labels == ["Stand##go2_stand_up", "Sit##go2_stand_down"]
+    assert disabled == []
 
 
 def test_go2_sit_button_sends_stand_down_even_without_pose_feedback(monkeypatch) -> None:
