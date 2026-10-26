@@ -1,0 +1,368 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-26",
+  "tested_source_revision": "cc030b1de6853d4d3a06b832346faced47d00f09",
+  "accepted": true,
+  "backend": "Genesis 1.4.1 GPU rasterizer",
+  "gpu": {
+    "host": "100.74.222.24",
+    "host_index": 2,
+    "uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "name": "NVIDIA RTX A6000",
+    "visible_cuda_devices": 1,
+    "software_renderer": false
+  },
+  "release": {
+    "build_fingerprints": {
+      "pilot": "134ea873c975f7a0a6d3c31235e6b8b515e77ea70251735f625071f630e3c093",
+      "sim": "715f73cf6c30a37a7977779775a386f25eeb4ca013800b0d79f0e6bbfe4fd4d2"
+    },
+    "image_ids": {
+      "pilot": "sha256:b19e8f96e954f6a0d7ee470b9d6e4e7154453452a37904b755c0dbcce5af46b3",
+      "sim": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57"
+    },
+    "install_uuid": "3fc3487e-0788-4a76-a152-e485144b0d0b",
+    "platform": "linux/amd64",
+    "release_key": "f67307b655450098f684ddf719300a0035168d3aa8cf30ada07f1b17ad462e33",
+    "role_images": {
+      "pilot": "elesim/pilot:merry-hare",
+      "sim": "elesim/sim:merry-eel"
+    },
+    "runtime_data_digest": "dcb47d839b0c79df19b81a7a70dad9e7f6cab768ac6e245fa5952d92983306ca",
+    "schema_version": 1,
+    "source_revision": "git-cc030b1de6853d4d3a06b832346faced47d00f09"
+  },
+  "conditions": {
+    "objects": "3 independently seeded boxes with hidden size, XY position and yaw",
+    "seed_values": [
+      815,
+      816,
+      817
+    ],
+    "resolution": [
+      640,
+      480
+    ],
+    "frames": 48,
+    "stable_evaluated_frames": 36,
+    "views_per_condition_and_object": 8,
+    "stable_frames_required": 3,
+    "pose_model": "ideal virtual Cartesian encoder rig, nominal mount, no true camera pose",
+    "floor_prior": "known horizontal plane at world Z=0",
+    "synthetic_depth_noise_sigma_m": 0.0005,
+    "observable_perturbation": {
+      "rotation_vector_rad": [
+        0.055,
+        -0.04,
+        0
+      ],
+      "local_translation_m": [
+        0,
+        0,
+        -0.06
+      ]
+    },
+    "unobservable_perturbation": {
+      "local_yaw_rad": 0.14,
+      "local_translation_m": [
+        0.045,
+        -0.025,
+        0
+      ]
+    },
+    "object_detector": "RGB HSV red component, eroded by one pixel; no renderer segmentation"
+  },
+  "metrics": {
+    "observable": {
+      "before_p95_m": 0.08646459660013846,
+      "after_p95_m": 0.0009934417237267015,
+      "surface_p95_m": 0.000974444954119398
+    },
+    "unobservable": {
+      "before_p95_m": 0.07059936596590709,
+      "after_p95_m": 0.0705908446861952,
+      "surface_p95_m": 0.04205577786754267
+    }
+  },
+  "negative_control_retains_error": true,
+  "alignment": "none; fixed shared encoder/world coordinates",
+  "acceptance": {
+    "observable_point_p95_below_m": 0.012,
+    "observable_ratio_after_before_below": 0.3,
+    "observable_surface_p95_below_m": 0.012,
+    "negative_control_point_p95_above_m": 0.025
+  },
+  "sensor_packet_fields": [
+    "calibration_id",
+    "color_bgr",
+    "depth_raw",
+    "depth_scale",
+    "encoder_q",
+    "intrinsics",
+    "schema_version",
+    "seq",
+    "source_boot_id",
+    "source_id",
+    "ts"
+  ],
+  "isolation": {
+    "producer": {
+      "network_mode": "none",
+      "mounts": [
+        {
+          "destination": "/diagnostic/run.py",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        }
+      ],
+      "device_requests": [
+        {
+          "Driver": "nvidia",
+          "Count": 0,
+          "DeviceIDs": [
+            "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+          ],
+          "Capabilities": [
+            [
+              "gpu"
+            ]
+          ],
+          "Options": null
+        }
+      ],
+      "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+      "exit_code": 0
+    },
+    "consumer": {
+      "network_mode": "none",
+      "mounts": [
+        {
+          "destination": "/sensors",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        },
+        {
+          "destination": "/diagnostic/run.py",
+          "read_only": true
+        }
+      ],
+      "device_requests": [],
+      "image_id": "sha256:b19e8f96e954f6a0d7ee470b9d6e4e7154453452a37904b755c0dbcce5af46b3",
+      "exit_code": 0
+    },
+    "evaluator": {
+      "network_mode": "none",
+      "mounts": [
+        {
+          "destination": "/predictions",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        },
+        {
+          "destination": "/diagnostic/run.py",
+          "read_only": true
+        },
+        {
+          "destination": "/truth",
+          "read_only": true
+        }
+      ],
+      "device_requests": [],
+      "image_id": "sha256:b19e8f96e954f6a0d7ee470b9d6e4e7154453452a37904b755c0dbcce5af46b3",
+      "exit_code": 0
+    }
+  },
+  "consumer_visible_truth": false,
+  "consumer_visible_scene_generator": false,
+  "normal_services_unchanged": true,
+  "diagnostic_containers_remaining": [],
+  "fused_clouds": 6,
+  "example_fused_cloud_vertices": 1905,
+  "experiment_scripts_sha256": {
+    "vision_scene.py": "e728727faf7131e0068f60d4304a50a3ba691cff47206e697e125c0e45d9a53a",
+    "vision_reconstruct.py": "c5a52116b407a6eaaa3569412c67f1c34f13920df988c3f5af4f61defc9b0262",
+    "vision_evaluate.py": "c791d9ebf3c6b069712c5c9a1a22d58d8e440ea3e365053e09a425fb1b32291a"
+  },
+  "runtime_modules_sha256": {
+    "elesim_sim.vision.sim_camera.mount": "1f435649ca925d00a7aeb25756d0e1d1863ab3a075b46b81f30c8f231becec66",
+    "elesim_pilot.vision.partial_cloud": "ff2927f3dffc1e4ffd55515fb406be4f4827c4f6b0425911085594cf835262f0"
+  },
+  "host_regression": {
+    "passed": 75,
+    "skipped": 2,
+    "canonical": false,
+    "async_camera_not_collected": "host has no Genesis"
+  },
+  "local_published_release": {
+    "source_root": "/home/user/.cache/elesim/setup/sources-v2/214060c4fbf83f6cf0eeaa9e7a53712736fefb7961fefdfb73db0e075a36bc6a/snapshots/git-cc030b1de6853d4d3a06b832346faced47d00f09/elesim-main",
+    "release_key": "0e6f88fc87d45dd8ff7a5ed89741a4f32e9acdf5c010875d65d80df45ac2cef2",
+    "source_revision": "git-cc030b1de6853d4d3a06b832346faced47d00f09",
+    "roles": {
+      "ui": "elesim/ui:warm3-monkey"
+    }
+  },
+  "evidence": {
+    "local_generated_directory": "workbench/evidence/generated/vision-baseline-20261026",
+    "remote_directory": "/home/hckang/ws/newsim/logs/diagnostics/vision-floor-20261026-cc030b1-dc5eed8a",
+    "bundle_bytes": 4055088,
+    "bundle_sha256": "f8b8bb14364e49647d4e9d4e873357e2a908e518312f38f5a48b814f4f8c52d8",
+    "bundle_file_hashes": {
+      "result.json": {
+        "sha256": "6a0d9027b1ea3b4a75aa8a4de022d3c5f5a3b812d82cd7a11fd802a4009b337b",
+        "bytes": 13880
+      },
+      "provenance.json": {
+        "sha256": "34380cdaad6872fee5d3e0ac0258705ffe1fc2c36ca02bf95187f9c241605cbb",
+        "bytes": 5450
+      },
+      "update-result.json": {
+        "sha256": "8406fc3a9ab2c81a19cef60658d1881268642c9d3fb062ae110d7548a2191d2b",
+        "bytes": 336
+      },
+      "experiment-manifest.json": {
+        "sha256": "51a91c8cae9122f948a0f2300acc9a9e97785f2236b932f7ecae674c02d6c80e",
+        "bytes": 368
+      },
+      "producer.log": {
+        "sha256": "2f3768b8353c0a02e3aebd322bcc4fd1c228e94973dc68488ebd8bec0d729008",
+        "bytes": 1327
+      },
+      "consumer.log": {
+        "sha256": "978382a39ebe52474adc84004fa631d9b0695530c9ac8176919dbca8f0fb34aa",
+        "bytes": 588
+      },
+      "evaluator.log": {
+        "sha256": "af6186575a28f2f5047a302d7045af64c77bf4bb4e185ee739ab10d2c417b160",
+        "bytes": 1133
+      },
+      "coordinator.log": {
+        "sha256": "4ab5d48abd0236d8cc0cb0779f87f513b1d3c583d8e382b2ae459536cd0bcfb5",
+        "bytes": 109
+      },
+      "remote_vision.py": {
+        "sha256": "6768f148600014c150d37dba60873cea68fb296bdd985dca663a85feb4ec0add",
+        "bytes": 11416
+      },
+      "vision_scene.py": {
+        "sha256": "e728727faf7131e0068f60d4304a50a3ba691cff47206e697e125c0e45d9a53a",
+        "bytes": 7594
+      },
+      "vision_reconstruct.py": {
+        "sha256": "c5a52116b407a6eaaa3569412c67f1c34f13920df988c3f5af4f61defc9b0262",
+        "bytes": 3616
+      },
+      "vision_evaluate.py": {
+        "sha256": "c791d9ebf3c6b069712c5c9a1a22d58d8e440ea3e365053e09a425fb1b32291a",
+        "bytes": 3392
+      },
+      "producer.compose.yaml": {
+        "sha256": "d6d3de6090c80f91349eefd4bad7cb42d6f05a9dc04cd21cdd52faed157ebdb6",
+        "bytes": 1187
+      },
+      "consumer.compose.yaml": {
+        "sha256": "c683b95c0fafb3c0e2df577c73b6fba2b7487f5d0113ac78a6d580f9fbfbcf5d",
+        "bytes": 1227
+      },
+      "evaluator.compose.yaml": {
+        "sha256": "ff3c3c9f35d72f1ab764d0507dd78fbab7ab96a8e9bc4dcc6cde61da0deae08c",
+        "bytes": 1398
+      },
+      "evaluation/evaluation.json": {
+        "sha256": "d9541462abb2d888ffa785a07149c1f71e761f53bb3352861eb5bebdd3beb547",
+        "bytes": 7347
+      },
+      "consumer/predictions/result.json": {
+        "sha256": "5824d32e9ec09d541b9fb387156b8c840bae6ae245753bb21cfbd620352d3485",
+        "bytes": 12684
+      },
+      "produced/data/truth/manifest.json": {
+        "sha256": "d7db103dd3d49c4a8e78fc96a73b664e10f3147f510fa4a1b2d4c2569f3427e4",
+        "bytes": 7136
+      },
+      "produced/data/sensors/view-0007.npz": {
+        "sha256": "d08680a7e56677895923727c158f0c02483f410cd8dfd5eb1604d6892c422cb8",
+        "bytes": 959314
+      },
+      "produced/data/truth/view-0007.npz": {
+        "sha256": "70f2e488018d7563945aacf395346adb6b7b54a78e6fd384ed5771c3c800d9b2",
+        "bytes": 104388
+      },
+      "consumer/predictions/view-0007.npz": {
+        "sha256": "d3ebeaa550b408c4066a9817667313a2412680787227705ebbe48ab3ba366331",
+        "bytes": 336180
+      },
+      "produced/data/sensors/view-0015.npz": {
+        "sha256": "9d466d27f6265b8a385a2aa112cacc07612a0d59bc8c5a7c2224bbd2b7382b7a",
+        "bytes": 814380
+      },
+      "produced/data/truth/view-0015.npz": {
+        "sha256": "4a08cb9ca230ba5a2ac392b0daf8f443baee9694140ec3d7cf549fcda4b775f6",
+        "bytes": 4324
+      },
+      "consumer/predictions/view-0015.npz": {
+        "sha256": "1b650c9cca636c08df7a208ba40e34948f856a0f0d837431a5dbca2e0ee641e7",
+        "bytes": 394510
+      },
+      "produced/data/sensors/view-0039.npz": {
+        "sha256": "e6f385d0c3c9d1529f548a9af947e16f76d5bc8e3f5a1957de56e8d5fe7e8ad7",
+        "bytes": 959049
+      },
+      "produced/data/truth/view-0039.npz": {
+        "sha256": "e897c89867378b6f0da9e13ab0de5ac942f89a84de862b9c1733c850f49a2291",
+        "bytes": 100276
+      },
+      "consumer/predictions/view-0039.npz": {
+        "sha256": "1874b619354833b60363bcf36ad1c424054f6c6ba02d6efcc97a85e4fbe5a495",
+        "bytes": 208083
+      },
+      "consumer/predictions/cloud-783b73c40e274f5ab150865851079421.npy": {
+        "sha256": "5ff35f9efc0c3187969c2c7eaa3c28d9cd2b09b8285e89506eff9fae901a6fb9",
+        "bytes": 38696
+      },
+      "consumer/predictions/cloud-a6f0c9e1716e4e9fbc6d13edc74e8076.npy": {
+        "sha256": "6ea94fc5fade93fc89de83e160e2a3390f48e956d7bbbc635a4f8fe4e76f4e4a",
+        "bytes": 49376
+      },
+      "consumer/predictions/cloud-a83661031cb545819b35116712d7f5cb.npy": {
+        "sha256": "e4fefc4f030721d483320b44ec242853e337d646e5872a8c7bd00bed97a70587",
+        "bytes": 29528
+      },
+      "consumer/predictions/cloud-bf7bd801837944eda12892d3d7eb5ab6.npy": {
+        "sha256": "3cd1bdade8c81ceb820529c51a1db9d473b28444e7ffc3f585c8e569779c684c",
+        "bytes": 43592
+      },
+      "consumer/predictions/cloud-f1b34fdcc5ee4e37b0737ea0d898e431.npy": {
+        "sha256": "f07976e10fa81536aa177adcf7688006f99d163e951e3bb6e50568e593cebb5f",
+        "bytes": 45848
+      },
+      "consumer/predictions/cloud-f48e187efc0d44c7a8c34c2aa6135a42.npy": {
+        "sha256": "ce93192bc89c562298dc292326e6dc09f7e7258433564ad27a6206cd715bf058",
+        "bytes": 30392
+      }
+    }
+  },
+  "scope_limitations": [
+    "static visible object surfaces, no grasp/contact acceptance",
+    "simple color segmentation and boxes only",
+    "virtual encoder model, not physical arm FK or exposure synchronization",
+    "one fixed known plane cannot establish XY or yaw",
+    "no PCN or other shape completion, no live Pick/Gaze integration",
+    "0.5 mm noise is an injected fixture setting, not measured sensor accuracy"
+  ],
+  "intrinsics_reference": "https://raw.githubusercontent.com/Genesis-Embodied-AI/genesis-world/v1.4.1/genesis/vis/camera.py",
+  "figure": {
+    "path": "vision_partial_cloud_20261026.png",
+    "sha256": "75bb0e75665ad1d48229e9828b65c14ed25e7348c0482f24f4faacec8a142694",
+    "bytes": 152092,
+    "generator": "workbench/research/analysis/vision_partial_cloud_plot.py"
+  }
+}

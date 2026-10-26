@@ -403,6 +403,13 @@ Pilot 소유이고 UI는 상태·후보 선택·기록 export만 요청한다. �
 Robot 모터 명령과 IMU 모델 선택에는 관여하지 않는다. 상세 절차와 실제
 검증 경계는 [`visual_calibration.md`](visual_calibration.md)를 따른다.
 
+후속 부분 점군 기준선은 RGB-D, intrinsics, source identity/time과 encoder만
+허용하는 로컬 replay packet을 사용한다. Pilot은 실제 관측된 물체 표면을
+deproject하고 FK/기준면으로 정한 좌표계에서 bounded voxel fusion한다. Sim
+camera/object truth, mesh/catalog와 생성용 script는 consumer 입력에 포함하지
+않는다. 별도 evaluator만 private truth를 읽고 정렬 없이 오차를 측정한다.
+이 연구 파일 경계는 새 DDS 계약이나 runtime Pick/Gaze 경로를 추가하지 않는다.
+
 Pilot의 선택적 `robot.arm.ik.backend=curobo`는 Jetson CUDA에서 position IK를
 계산한다. 기본값은 `native`이며 새 DDS participant나 Robot 의존성을 만들지
 않는다. 별도 `CuRoboPlanner.plan_joint` API와 `elesim-plan` CLI는 시간 간격을

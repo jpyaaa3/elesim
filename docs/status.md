@@ -13,14 +13,25 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   truth와 asset/mesh 필드를 거부하며 ICP로 pose 오차를 지우지 않는다.
 - 별도 producer/consumer/evaluator 실험은 무작위 물체와 숨긴 camera mount
   오차를 사용하고, floor fitting에 쓰지 않은 물체 점의 world 오차를 평가한다.
-  XY/yaw negative control을 포함한다. CPU analytic 3-seed 회귀는 통과했으며
-  실제 Genesis·격리 mount 검증은 아직 진행 중이다. PCN·실제 팔 FK·grasp의
-  완료 증거로 해석하지 않는다. 절차는 `docs/visual_calibration.md`에 있다.
+  XY/yaw negative control을 포함한다. CPU analytic 3-seed 회귀와 실제 Genesis
+  1.4.1 GPU2의 3개 상자·48 RGB-D frame 시험을 통과했다. 안정화 뒤 36 frame의
+  물체 점 world error p95는 tilt/height 조건 **86.46 → 0.99 mm**, object surface
+  distance p95 **0.97 mm**였다. XY/yaw 조건은 **70.60 → 70.59 mm**로 남았다.
+  별도 컨테이너의 실제 mount를 검사했으며 consumer는 truth·scene generator를
+  받지 않고 network도 없다. 당시 test Sim/Pilot은 같은 ID·이미지·실행 상태를
+  유지했고 진단 컨테이너는 남지 않았다. 양쪽 정식 updater로 `cc030b1`을
+  게시한 뒤 그 새 이미지의 runtime module SHA를 확인했다.
+- 알려진 Z=0 바닥, 이상적인 가상 Cartesian encoder, 인공 depth noise sigma
+  0.5 mm 조건이다. 단순 HSV segmentation과 보이는 부분의 4 mm voxel fusion
+  기준선이며 PCN·실제 팔 FK·카메라 정확도·grasp의 완료 증거로 해석하지 않는다.
+  절차는 `docs/visual_calibration.md`,
+  [수치·격리·SHA 증거](../workbench/evidence/curated/experiments/vision_partial_cloud_20261026.json)를 따른다.
 - Genesis vertical FOV와 raster pixel centre에 맞게 Sim RGB-D intrinsics를
   수정했다. width로 focal length를 만들던 부분을 height로 바꾸고 integer
   pixel 좌표의 principal point를 `(width-1)/2, (height-1)/2`로 맞췄다.
 - 새 sensor/geometry/analytic 실험 시험 **13 passed**, 기존 floor/hand-eye 및
-  host 가능 Sim camera 회귀 **59 passed, 2 skipped**. Host의 Genesis 부재로
+  host 가능 Sim camera 회귀 **59 passed, 2 skipped**, Pilot 경계 **3 passed**.
+  Host의 Genesis 부재로
   `test_async_camera.py`는 수집할 수 없었다. canonical gate는 미실행이다.
 
 ### 뎁스 평면 기반 시각 캘리브레이션 소프트웨어 (2026-10-26)

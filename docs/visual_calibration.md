@@ -153,3 +153,29 @@ The analytic CPU backend is a deterministic regression fixture; it is not
 evidence of Genesis rendering or physical accuracy. PCN/completion, arbitrary
 object segmentation, live workflow wiring and grasp/contact validation remain
 separate stages.
+
+The 2026-10-26 acceptance run used fresh `cc030b1` release images on remote GPU 2
+(RTX A6000) after updating both installations. Three boxes produced 48 Genesis
+RGB-D frames; 36 passed the three-frame stability gate. Observable point p95
+fell from 86.46 to 0.99 mm and surface p95 was 0.97 mm. The XY/yaw control stayed
+at 70.59 mm. All three processes had networking disabled; actual container mounts
+confirmed the consumer received only its script, sensor directory and output.
+The existing test services kept their exact container/image IDs and running
+state. No diagnostic container remained after the run. These figures use ideal
+virtual encoders, a known floor and injected 0.5 mm depth noise; they are not
+physical-camera accuracy measurements.
+
+See the [curated record](../workbench/evidence/curated/experiments/vision_partial_cloud_20261026.json)
+for image IDs, module/script SHA256, mount audits, thresholds and bundle hashes.
+The original bundle, representative sensor frames and `partial-cloud.ply` are
+under `workbench/evidence/generated/vision-baseline-20261026/`. To plot a collected
+bundle in an environment with NumPy and Matplotlib already installed, use:
+
+```bash
+python3 -m workbench.research.analysis.vision_partial_cloud_plot collected baseline.png
+```
+
+Sim RGB-D intrinsics now follow the renderer's vertical FOV and integer pixel
+centre convention, verified against the actual camera during this run. The
+[pinned Genesis camera implementation](https://raw.githubusercontent.com/Genesis-Embodied-AI/genesis-world/v1.4.1/genesis/vis/camera.py)
+defines both the vertical focal length and half-pixel raster sampling.
