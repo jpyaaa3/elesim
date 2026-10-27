@@ -225,3 +225,126 @@ python3 -m workbench.research.analysis.adapointr_preprocessing_plot \
 [Metrics/provenance](../workbench/evidence/curated/experiments/adapointr_preprocessing_20261027.json),
 [fidelity and output sensitivity](../workbench/evidence/curated/experiments/adapointr_preprocessing_metrics_20261027.png),
 [same-frame output comparison](../workbench/evidence/curated/experiments/adapointr_preprocessing_clouds_20261027.png).
+
+## AP-PS55 checkpoint/frame replay, 2026-10-27
+
+The proposed original **cropped ShapeNet-55** checkpoint could not be obtained.
+Its README URL and the URL recommended by the author in issues
+[#88](https://github.com/yuxumin/PoinTr/issues/88) and
+[#132](https://github.com/yuxumin/PoinTr/issues/132) resolve to the same expired
+share. The author also states in #132 that the best checkpoint was lost. This
+trial therefore does **not** validate a recovered original or paper-best S55
+checkpoint with the official radius-1 inference path.
+
+An available alternative is the **third-party inference-only AP-PS55** release
+from [SGA-GSN](https://huggingface.co/robotic-vt-grasp-project/SGA-GSN/tree/133836b26c3af5806e2594882c2d445f0e0bda24).
+The 130,024,020-byte checkpoint has published LFS SHA256
+`66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7`,
+verified after download. Its metadata labels it AP-PS55, epoch 512, with optimizer
+state omitted; it records source-checkpoint SHA256
+`69c9b32c6b61252f1f9d95edefcf59005de97c2a83caec6a72dc1408d7d69827`.
+This is useful provenance from the redistributor, not proof that it is identical
+to the unavailable original author's file. The checkpoint is retained only in
+the remote research asset directory and is not added to Git or runtime images.
+
+Use the upstream **Projected_ShapeNet55** config: 8,192 output points and grouper
+centers `[256,128]`. Cropped ShapeNet55 also has 8,192 output points but uses
+`[512,256]` and a different dataset. Merely changing the output count or pairing
+the cropped config with this file would not establish the correct model bundle.
+Strict loading of AP-PS55 into the Projected config succeeds with no missing or
+unexpected parameters. No training or fine-tuning was performed.
+
+The official generic inference script adds unit-radius normalization only for
+the `ShapeNet` dataset; `Projected_ShapeNet` training/test transforms do not
+recenter/rescale the already prepared dataset coordinates. That does not justify
+passing arbitrary world-meter coordinates unchanged. The separate public
+SGA-GSN usage subtracts the observed visual/contact centroid while retaining
+metric size and world axes. This motivates a **center-only Z-up hypothesis** for
+our vision-only input, not a claim to reproduce the full pretrained training
+distribution or the tactile pipeline.
+
+Research revision `4664db276a881629f9f9f513cf8774ad3fc16025` was pushed and both
+official updaters completed. Required research files were downloaded from that
+revision with SHA256 verification. The previous scientific image and sole GPU 2
+were retained. The same 48 requested captures, 20 observed objects from ten
+captures and eight boxes were used; input IDs, point hashes, sampling seed zero,
+inverse world-frame evaluation and acceptance thresholds were fixed. All
+observed points remain separate and exact. Inference cannot read private truth;
+only the network/GPU-free evaluator and later plots receive it.
+
+The matrix crosses AP-PS55 center-only/radius .5/radius 1.0 with Y-up/Z-up axes,
+plus the unchanged PCN radius-.5 Y-up baseline: **140 inferred observations**.
+Before seeing its results, center-only Z-up was declared the primary candidate
+from the published usage above. All six AP-PS55 treatments remain reported.
+The deterministic input sampler is our existing random/repetition policy, not
+the upstream `UpSamplePoints` implementation. PCN and PS55 differ in checkpoint,
+output density and grouper config, so this is not a weights-only ablation.
+
+| Median per-observation metric | PCN .5, Y-up | AP-PS55 center, Y-up | AP-PS55 center, Z-up (primary) | AP-PS55 .5, Y-up | AP-PS55 .5, Z-up | AP-PS55 1.0, Y-up | AP-PS55 1.0, Z-up |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Predicted surface p95, mm | 27.10 | 13.74 | **13.27** | 13.60 | 13.93 | 39.78 | 38.93 |
+| Observation-to-output p95, mm | 11.84 | 4.34 | **4.62** | 2.50 | 2.71 | 16.93 | 12.51 |
+| Precision at 10 mm | .823 | .920 | **.922** | .912 | .891 | .405 | .458 |
+| F1 at 10 mm | .432 | .841 | **.865** | .802 | .778 | .286 | .309 |
+| Hidden-surface recall at 10 mm | .065 | .601 | **.695** | .507 | .473 | .000 | .0004 |
+| Warm standalone forward, ms | 13.29 | 13.68 | **13.64** | 13.10 | 13.86 | 13.58 | 14.02 |
+| Existing median geometry criteria | FAIL | PASS | **PASS** | PASS | FAIL | FAIL | FAIL |
+
+The observed-only F1 baseline remains **.595** and observed surface p95 **1.06
+mm**. Here hidden recall means truth samples more than 10 mm from any observed
+point; it is an unobserved-surface proxy, not a ray-visibility classification.
+All timings exclude acquisition/segmentation and live Sim/MPPI contention;
+the initial remote inventory showed other GPU-2 activity. They are not exclusive
+hardware performance or end-to-end latency measurements.
+
+The PCN baseline reproduces the previous geometry values. AP-PS55 already
+improves that baseline with the same radius-.5 transform, so improvements cannot
+be assigned solely to removing normalization. Center-only improves the primary
+candidate's hidden recall and F1 further. Radius 1.0 degrades AP-PS55 sharply:
+normalization used by a different checkpoint family is not a general remedy.
+
+Post-trial robustness reruns keep the predeclared primary and vary only sampling
+seed to 1 and 2, adding **40 observations**, with no changed acceptance criteria.
+All three seed aggregates pass:
+
+| Sampling seed | Surface p95, mm | Observation p95, mm | F1 at 10 mm | Hidden recall at 10 mm |
+| --- | ---: | ---: | ---: | ---: |
+| 0 | 13.27 | 4.62 | .865 | .695 |
+| 1 | 12.71 | 4.75 | .865 | .693 |
+| 2 | 12.96 | 4.72 | .866 | .701 |
+
+This is **median acceptance on the existing box replay**, not universal
+completion acceptance. At seed zero, all 20 observations improve F1 over their
+own observed-only baseline, but only **12/20** meet all five geometry conditions
+individually. The worst surface p95 is **24.17 mm**; one box seen twice has hidden
+recall around .05. Repeated seeds and repeated views do not create new object
+generalization evidence. Unseen shapes, sizes, sensor noise, timing, object
+segmentation and live calibration integration remain untested. No production
+adapter, grasp collision shape or motion path was enabled.
+
+Seven new config/frame tests and the previous related tests give **23 host
+passes**. Inference and evaluation stages all exited zero, normal test Sim/Pilot
+IDs/images/stopped states stayed unchanged, and diagnostic containers were
+removed. CPU-only figures and the archived output/metadata have verified SHA256
+manifests. Canonical required/extended, real-RMW and isolated-release gates remain
+unrun for the already documented incomplete development-attachment preparation.
+
+Reproduce inside the existing scientific worker with explicit frame choices:
+
+```bash
+python3 -m workbench.research.experiments.adapointr_infer \
+  /inputs /output/predictions \
+  --vendor /vendor --config /vendor/cfgs/Projected_ShapeNet55_models/AdaPoinTr.yaml \
+  --checkpoint /checkpoint.pth \
+  --checkpoint-sha256 66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7 \
+  --profile projected55 --normalization center-only --axis-order model-native --seed 0
+```
+
+Here `model-native` means no axis permutation: the input and inverse output
+remain in our world Z-up frame. It does not certify the checkpoint's native
+dataset orientation. Using `world-z-up` applies the explicit `(x,z,y)` swap and
+tests the Y-up alternative.
+
+[Metrics/provenance](../workbench/evidence/curated/experiments/adapointr_profiles_20261027.json),
+[all seven conditions](../workbench/evidence/curated/experiments/adapointr_profiles_metrics_20261027.png),
+[observed/baseline/primary/truth](../workbench/evidence/curated/experiments/adapointr_profiles_clouds_20261027.png).

@@ -6,7 +6,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### AdaPoinTr 체크포인트·입력 규약 재시험 (2026-10-27, 진행 중)
+### AdaPoinTr 체크포인트·입력 규약 재시험 (2026-10-27, 기존 box replay 중앙값 기준 통과)
 
 - 공식 cropped ShapeNet-55 URL과 저자가 이슈 #88/#132에서 안내한 URL은 같은
   만료된 링크다. 현재 원본 체크포인트를 확보한 것으로 취급하지 않는다.
@@ -15,13 +15,41 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   확보해 별도의 탐색 비교에 사용한다. 원본 저자 배포와 동일한 파일이거나
   논문 최고 성능 가중치임을 증명한 것은 아니다.
 - PCN 16,384점, cropped ShapeNet55 8,192점, Projected55 8,192점의 config와
-  입력 affine 규칙을 명시적으로 구분한다. 새 host 회귀 7개와 기존 관련
-  회귀를 합쳐 **23 passed**다. 기본 PCN 연구 경로는 유지한다.
-- 고정 RGB-D 48 capture/20 object 입력·독립 truth evaluator·GPU2를 유지하고
-  PCN 현재 기본값과 AP-PS55의 반경 .5/1.0/metric center-only 및 축 대조군을
-  비교한다. 공개 SGA-GSN의 center-only world-coordinate 사용 사례는 가설의
-  근거이며 pretrained 모델의 전체 학습 규약 일치를 증명하지 않는다.
-  관측 보존·표면 오차·hidden recall·F1의 기존 수용 기준은 유지한다.
+  입력 affine 규칙을 명시적으로 구분했다. 새 host 회귀 7개와 기존 관련
+  회귀를 합쳐 **23 passed**다. `4664db2` push 및 양쪽 정식 update 후,
+  고정 RGB-D 48 capture/20 object 입력·독립 evaluator·GPU2에서 비교했다.
+- AP-PS55는 Projected55 config로 **32,470,033 parameter strict load**에
+  missing/unexpected=0이며 8,192점을 출력한다. Center-only/.5/1.0 × 두 축과
+  기존 PCN baseline의 7조건, **140 observation-variant**를 실행했다.
+  사전 지정한 center-only world Z-up 후보는 관측 중심만 빼고 meter 크기를
+  유지한다. 공개 SGA-GSN 사용 사례에 근거한 가설이지 학습 규약의 완전한
+  재현을 증명한 것은 아니다.
+- Seed 0의 물체 관측별 중앙값은 PCN 대비 표면 p95 **27.10 → 13.27 mm**,
+  관측점→출력 p95 **11.84 → 4.62 mm**, F1@10mm **.432 → .865**,
+  미관측 표면 recall **.065 → .695**다. 관측만의 F1은 **.595**다.
+  같은 반경 .5에서도 AP-PS55는 F1 **.802**로 개선됐으므로 효과를 전처리
+  제거에만 귀속하지 않는다. 반경 1.0은 두 축 모두 FAIL이었다.
+- 사전 후보의 sampling seed 1·2, 추가 **40 observation**도 기존 중앙값
+  수용 기준을 통과했다. 세 seed의 표면 p95 중앙값은 **12.71~13.27 mm**,
+  F1 **.865~.866**, 미관측 recall **.693~.701**이다. 이것은 같은 기록을
+  다시 샘플한 결과로 새 물체 검증은 아니다.
+- Seed 0 개별 관측은 **20/20** F1 개선이지만 다섯 형상 기준을 모두 만족한
+  것은 **12/20**이다. 최악 표면 p95 **24.17 mm**, 특정 box의 미관측 recall은
+  약 .05로 실패가 남는다. 기존 8개 box의 중앙값 통과와 일반 형상·실기
+  정확도를 구분한다. Hidden은 관측점에서 10 mm 넘게 떨어진 truth 표면의
+  대용 지표이며 ray visibility로 분류한 것은 아니다.
+- PCN baseline의 관측·출력 array **20/20**은 이전 기록과 완전히 같았다.
+  독립 평가를 포함한 모든 stage가 정상 종료했고 원본 관측과 일반 test
+  Sim/Pilot의 ID·이미지·stopped 상태는 유지했으며 진단 컨테이너는 제거했다.
+  원자료 **299파일**을 내려받아 SHA256을 검증했다. 약 **13.6 ms** 단독
+  forward는 acquisition·Sim/MPPI 동시 실행 지연이 아니다. Canonical gate는
+  기존 dev 준비 미완료 사유로 실행하지 않았다. Production 의존성·설정·
+  collision/grasp 경로는 바꾸지 않았다. 새 형상·크기·잡음의 독립 검증과
+  runtime 통합은 남는다.
+  [해석·재현](shape_completion.md#ap-ps55-checkpointframe-replay-2026-10-27),
+  [수치·격리 증거](../workbench/evidence/curated/experiments/adapointr_profiles_20261027.json),
+  [7조건 비교](../workbench/evidence/curated/experiments/adapointr_profiles_metrics_20261027.png),
+  [관측·기준선·후보·정답](../workbench/evidence/curated/experiments/adapointr_profiles_clouds_20261027.png).
 
 ### AdaPoinTr 전처리 원인 분리 (2026-10-27, GPU 대조 실험 완료)
 

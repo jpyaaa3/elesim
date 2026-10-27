@@ -1,0 +1,2100 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-27",
+  "experiment": "Fixed box replay: PCN versus third-party AP-PS55 model/frame combinations",
+  "status": "predeclared primary passes aggregate replay criteria in three sampling seeds; individual failures remain; no production integration",
+  "tested_revision": "4664db276a881629f9f9f513cf8774ad3fc16025",
+  "source_sha256": {
+    "workbench/research/experiments/adapointr.py": "189ea3ea0f8059db22e819199c4e5952ceb8ef861e9b16e0d69f082d440619f3",
+    "workbench/research/experiments/adapointr_infer.py": "0a4b6e1654ec0711a2708866c839e8f2d432e23da759255cf6285f1f48813619",
+    "workbench/research/experiments/adapointr_evaluate.py": "4ba2d311c3adad83f2472a27c302324fc2c35ecbaaaa425b8e93f5aeafda3e35",
+    "workbench/research/support/adapointr_profiles.py": "69ab8c9105ad0c7bff1c91850c0064fe1b8f6904c795553b5f37e535bce0a7c8",
+    "workbench/research/support/adapointr_backend.py": "77615a62e109e3bc079c14ec45034c70be451768118b7719f2957a2f507b4f9b",
+    "workbench/research/support/adapointr_ops.py": "42b823caa64d4a247f9e03e6ceb8731aa1f502c35b0c0f395b6e0c733bf2d2ef"
+  },
+  "upstream_revision": "4603257ed3db9e7dad349b712e1b2fe0da207015",
+  "checkpoint": {
+    "complete": true,
+    "mirror_revision": "133836b26c3af5806e2594882c2d445f0e0bda24",
+    "url": "https://huggingface.co/robotic-vt-grasp-project/SGA-GSN/resolve/133836b26c3af5806e2594882c2d445f0e0bda24/checkpoints/shape_completion/ap_ps55.pth",
+    "expected_sha256": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7",
+    "lineage": "third-party inference-only AP-PS55 release; not original ShapeNet-55/CD=.81 checkpoint",
+    "bytes": 130024020,
+    "sha256": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7",
+    "wall_s": 10.662817789241672
+  },
+  "checkpoint_lineage": {
+    "mirror_repository": "robotic-vt-grasp-project/SGA-GSN",
+    "mirror_revision": "133836b26c3af5806e2594882c2d445f0e0bda24",
+    "source_checkpoint_sha256_claimed_by_mirror": "69c9b32c6b61252f1f9d95edefcf59005de97c2a83caec6a72dc1408d7d69827",
+    "source_epoch_claimed_by_mirror": 512,
+    "author_original_file_equivalence_proven": false,
+    "cropped_shapenet55_obtained": false,
+    "original_s55_url": "https://cloud.tsinghua.edu.cn/f/e73573ca08574e51a714/?dl=1",
+    "original_ps55_url": "https://cloud.tsinghua.edu.cn/f/41ed3a765c4b42d98d01/?dl=1",
+    "original_urls_result": "expired share HTML, not checkpoints",
+    "source_references": [
+      "https://github.com/yuxumin/PoinTr/issues/132",
+      "https://github.com/yuxumin/PoinTr/issues/88",
+      "https://huggingface.co/robotic-vt-grasp-project/SGA-GSN/tree/133836b26c3af5806e2594882c2d445f0e0bda24",
+      "https://github.com/Yiju1213/SGA-GSN/blob/2a16d87c83d7723aea2c9a95be56cd601838226e/datasets/VTG3D_Dataset.py"
+    ]
+  },
+  "design": {
+    "original_captures": 48,
+    "captures_with_objects": 10,
+    "distinct_observations": 20,
+    "distinct_boxes": 8,
+    "matrix_variants": [
+      {
+        "label": "pcn-r05-yup",
+        "profile": "pcn",
+        "normalization": "observed-radius",
+        "radius": ".5",
+        "axis_order": "world-z-up"
+      },
+      {
+        "label": "ps55-center-yup",
+        "profile": "projected55",
+        "normalization": "center-only",
+        "radius": ".5",
+        "axis_order": "world-z-up"
+      },
+      {
+        "label": "ps55-center-zup",
+        "profile": "projected55",
+        "normalization": "center-only",
+        "radius": ".5",
+        "axis_order": "model-native"
+      },
+      {
+        "label": "ps55-r05-yup",
+        "profile": "projected55",
+        "normalization": "observed-radius",
+        "radius": ".5",
+        "axis_order": "world-z-up"
+      },
+      {
+        "label": "ps55-r05-zup",
+        "profile": "projected55",
+        "normalization": "observed-radius",
+        "radius": ".5",
+        "axis_order": "model-native"
+      },
+      {
+        "label": "ps55-r10-yup",
+        "profile": "projected55",
+        "normalization": "observed-radius",
+        "radius": "1.",
+        "axis_order": "world-z-up"
+      },
+      {
+        "label": "ps55-r10-zup",
+        "profile": "projected55",
+        "normalization": "observed-radius",
+        "radius": "1.",
+        "axis_order": "model-native"
+      }
+    ],
+    "matrix_inferred_observations": 140,
+    "primary": "ps55-center-zup",
+    "baseline": "pcn-r05-yup",
+    "primary_chosen_before_results": true,
+    "primary_basis": "Public SGA-GSN center-only world-coordinate usage, used as a vision-only hypothesis, not proof of full pretrained input compatibility",
+    "sampling_seed_matrix": 0,
+    "robustness_seeds": [
+      1,
+      2
+    ],
+    "additional_robustness_observations": 40,
+    "inputs_manifest_sha256": "5aae930e9728225a34c2802a665f727ae24d533a136bfb3f88a7fb14fb418130",
+    "same_observations_and_sampling_indices": true,
+    "no_truth_or_oracle_alignment_in_inference": true,
+    "geometry_criteria": {
+      "median_surface_p95_mm_max": 20.0,
+      "median_observed_to_prediction_p95_mm_max": 10.0,
+      "median_precision_10mm_min": 0.8,
+      "median_hidden_recall_10mm_min": 0.5,
+      "median_f1_improves_over_partial": true,
+      "initial_forward_wall_ms_median_max": 100.0
+    },
+    "input_sampling_policy": "Existing deterministic random selection/repetition; not upstream UpSamplePoints",
+    "hidden_surface_definition": "Truth surface samples farther than 10 mm from any observed point; not ray-visibility classification",
+    "no_training": true
+  },
+  "model_records": {
+    "pcn-r05-yup": {
+      "model_profile": {
+        "name": "pcn",
+        "dataset_config": "cfgs/dataset_configs/PCN.yaml",
+        "output_points": 16384,
+        "center_num": [
+          512,
+          256
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "observed-radius",
+      "normalization_radius": 0.5,
+      "sampling_seed": 0,
+      "sampling_policy": "deterministic full-cloud random selection or observed-point repetition; not upstream UpSamplePoints",
+      "gpu": "NVIDIA RTX A6000",
+      "gpu_count": 1,
+      "max_allocated_bytes": 179115008,
+      "tf32": false,
+      "truth_access": false,
+      "official_affine_matched": false,
+      "model_ref": "pcn"
+    },
+    "ps55-center-yup": {
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "center-only",
+      "normalization_radius": null,
+      "sampling_seed": 0,
+      "sampling_policy": "deterministic full-cloud random selection or observed-point repetition; not upstream UpSamplePoints",
+      "gpu": "NVIDIA RTX A6000",
+      "gpu_count": 1,
+      "max_allocated_bytes": 178261504,
+      "tf32": false,
+      "truth_access": false,
+      "official_affine_matched": false,
+      "model_ref": "projected55"
+    },
+    "ps55-center-zup": {
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "center-only",
+      "normalization_radius": null,
+      "sampling_seed": 0,
+      "sampling_policy": "deterministic full-cloud random selection or observed-point repetition; not upstream UpSamplePoints",
+      "gpu": "NVIDIA RTX A6000",
+      "gpu_count": 1,
+      "max_allocated_bytes": 178261504,
+      "tf32": false,
+      "truth_access": false,
+      "official_affine_matched": false,
+      "model_ref": "projected55"
+    },
+    "ps55-r05-yup": {
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "observed-radius",
+      "normalization_radius": 0.5,
+      "sampling_seed": 0,
+      "sampling_policy": "deterministic full-cloud random selection or observed-point repetition; not upstream UpSamplePoints",
+      "gpu": "NVIDIA RTX A6000",
+      "gpu_count": 1,
+      "max_allocated_bytes": 178261504,
+      "tf32": false,
+      "truth_access": false,
+      "official_affine_matched": false,
+      "model_ref": "projected55"
+    },
+    "ps55-r05-zup": {
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "observed-radius",
+      "normalization_radius": 0.5,
+      "sampling_seed": 0,
+      "sampling_policy": "deterministic full-cloud random selection or observed-point repetition; not upstream UpSamplePoints",
+      "gpu": "NVIDIA RTX A6000",
+      "gpu_count": 1,
+      "max_allocated_bytes": 178261504,
+      "tf32": false,
+      "truth_access": false,
+      "official_affine_matched": false,
+      "model_ref": "projected55"
+    },
+    "ps55-r10-yup": {
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "observed-radius",
+      "normalization_radius": 1.0,
+      "sampling_seed": 0,
+      "sampling_policy": "deterministic full-cloud random selection or observed-point repetition; not upstream UpSamplePoints",
+      "gpu": "NVIDIA RTX A6000",
+      "gpu_count": 1,
+      "max_allocated_bytes": 178261504,
+      "tf32": false,
+      "truth_access": false,
+      "official_affine_matched": false,
+      "model_ref": "projected55"
+    },
+    "ps55-r10-zup": {
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "observed-radius",
+      "normalization_radius": 1.0,
+      "sampling_seed": 0,
+      "sampling_policy": "deterministic full-cloud random selection or observed-point repetition; not upstream UpSamplePoints",
+      "gpu": "NVIDIA RTX A6000",
+      "gpu_count": 1,
+      "max_allocated_bytes": 178261504,
+      "tf32": false,
+      "truth_access": false,
+      "official_affine_matched": false,
+      "model_ref": "projected55"
+    }
+  },
+  "evaluations": {
+    "pcn-r05-yup": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 27.102242268891246,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 11.836771557441118,
+        "precision_10mm": 0.82330322265625,
+        "recall_10mm": 0.3255,
+        "f1_10mm": 0.43229561023197044,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.06531654738713909,
+        "forward_wall_ms_median": 13.288722839206457
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": false,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; declared sensor-derived frame; not general-object or grasp acceptance",
+      "model_profile": {
+        "name": "pcn",
+        "dataset_config": "cfgs/dataset_configs/PCN.yaml",
+        "output_points": 16384,
+        "center_num": [
+          512,
+          256
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "observed-radius"
+    },
+    "ps55-center-yup": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 13.736934635276768,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 4.337925012421051,
+        "precision_10mm": 0.9197998046875,
+        "recall_10mm": 0.7797499999999999,
+        "f1_10mm": 0.8409449747399307,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.6005912682221968,
+        "forward_wall_ms_median": 13.679009163752198
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": true,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; declared sensor-derived frame; not general-object or grasp acceptance",
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "center-only"
+    },
+    "ps55-center-zup": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 13.271897071379936,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 4.6234989218710805,
+        "precision_10mm": 0.92156982421875,
+        "recall_10mm": 0.821625,
+        "f1_10mm": 0.8649570548011443,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.6947073244240647,
+        "forward_wall_ms_median": 13.639868702739477
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": true,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; declared sensor-derived frame; not general-object or grasp acceptance",
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "center-only"
+    },
+    "ps55-r05-yup": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 13.600971972386244,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 2.5040638406602582,
+        "precision_10mm": 0.91156005859375,
+        "recall_10mm": 0.7319166666666667,
+        "f1_10mm": 0.8017703445884303,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.5074408837923268,
+        "forward_wall_ms_median": 13.102034805342555
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": true,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; declared sensor-derived frame; not general-object or grasp acceptance",
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "observed-radius"
+    },
+    "ps55-r05-zup": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 13.926330398244062,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 2.713355396521758,
+        "precision_10mm": 0.89111328125,
+        "recall_10mm": 0.6879583333333333,
+        "f1_10mm": 0.777563110425693,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.47339826569995874,
+        "forward_wall_ms_median": 13.855055440217257
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": false,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; declared sensor-derived frame; not general-object or grasp acceptance",
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "observed-radius"
+    },
+    "ps55-r10-yup": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 39.778504552588856,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 16.929693099107922,
+        "precision_10mm": 0.4046630859375,
+        "recall_10mm": 0.21433333333333332,
+        "f1_10mm": 0.28613985609515713,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.0,
+        "forward_wall_ms_median": 13.579935068264604
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": false,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; declared sensor-derived frame; not general-object or grasp acceptance",
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "observed-radius"
+    },
+    "ps55-r10-zup": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 38.92864244420489,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 12.511170786743431,
+        "precision_10mm": 0.45831298828125,
+        "recall_10mm": 0.2510833333333333,
+        "f1_10mm": 0.30944304023713665,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.00039303001164554845,
+        "forward_wall_ms_median": 14.016215456649661
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": false,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; declared sensor-derived frame; not general-object or grasp acceptance",
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "observed-radius"
+    }
+  },
+  "primary_robustness": {
+    "seed_0": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 13.271897071379936,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 4.6234989218710805,
+        "precision_10mm": 0.92156982421875,
+        "recall_10mm": 0.821625,
+        "f1_10mm": 0.8649570548011443,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.6947073244240647,
+        "forward_wall_ms_median": 13.639868702739477
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": true,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; declared sensor-derived frame; not general-object or grasp acceptance",
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "center-only"
+    },
+    "ps55-center-zup-seed1": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 12.708286852438388,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 4.7477440544053255,
+        "precision_10mm": 0.92333984375,
+        "recall_10mm": 0.8213333333333334,
+        "f1_10mm": 0.865100037800207,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.6933817957813118,
+        "forward_wall_ms_median": 13.232683530077338
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": true,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; declared sensor-derived frame; not general-object or grasp acceptance",
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "center-only"
+    },
+    "ps55-center-zup-seed2": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 12.957149321777832,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 4.724053183689101,
+        "precision_10mm": 0.92242431640625,
+        "recall_10mm": 0.8252083333333333,
+        "f1_10mm": 0.8657624318600508,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.7011212568252745,
+        "forward_wall_ms_median": 13.968179002404213
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": true,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; declared sensor-derived frame; not general-object or grasp acceptance",
+      "model_profile": {
+        "name": "projected55",
+        "dataset_config": "cfgs/dataset_configs/Projected_ShapeNet-55_noise.yaml",
+        "output_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "official_affine": "none",
+        "frame_warning": "none assumes prepared dataset coordinates, not raw world coordinates"
+      },
+      "normalization": "center-only"
+    }
+  },
+  "primary_individual_observations": [
+    {
+      "id": "view-0001-2-component-01",
+      "capture": "view-0001-2.npz",
+      "assigned_box": 8,
+      "observed_points": 978,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 11.002708549792487,
+      "observed_to_prediction_p95_mm": 4.038455203080822,
+      "precision_10mm": 0.9227294921875,
+      "f1_10mm": 0.8909303931201913,
+      "partial_f1_10mm": 0.6743261157755193,
+      "hidden_recall_10mm": 0.7477951153324288,
+      "all_five_geometry_conditions": true
+    },
+    {
+      "id": "view-0003-2-component-01",
+      "capture": "view-0003-2.npz",
+      "assigned_box": 3,
+      "observed_points": 506,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 19.53275700529022,
+      "observed_to_prediction_p95_mm": 4.2466972349144,
+      "precision_10mm": 0.895263671875,
+      "f1_10mm": 0.5584157072535088,
+      "partial_f1_10mm": 0.3594230637774284,
+      "hidden_recall_10mm": 0.23924874613168284,
+      "all_five_geometry_conditions": false
+    },
+    {
+      "id": "view-0007-2-component-01",
+      "capture": "view-0007-2.npz",
+      "assigned_box": 2,
+      "observed_points": 3091,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 9.134917588404468,
+      "observed_to_prediction_p95_mm": 4.0595268490665815,
+      "precision_10mm": 0.960205078125,
+      "f1_10mm": 0.965654765897646,
+      "partial_f1_10mm": 0.6749116607773852,
+      "hidden_recall_10mm": 0.9458220108695652,
+      "all_five_geometry_conditions": true
+    },
+    {
+      "id": "view-0007-2-component-02",
+      "capture": "view-0007-2.npz",
+      "assigned_box": 1,
+      "observed_points": 1163,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 24.17319718992327,
+      "observed_to_prediction_p95_mm": 7.955830886168736,
+      "precision_10mm": 0.8265380859375,
+      "f1_10mm": 0.32969574133879576,
+      "partial_f1_10mm": 0.2946066936687273,
+      "hidden_recall_10mm": 0.04704341694368893,
+      "all_five_geometry_conditions": false
+    },
+    {
+      "id": "view-0007-2-component-03",
+      "capture": "view-0007-2.npz",
+      "assigned_box": 5,
+      "observed_points": 1433,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 10.430218925287152,
+      "observed_to_prediction_p95_mm": 6.019880610763777,
+      "precision_10mm": 0.947021484375,
+      "f1_10mm": 0.9013695987723824,
+      "partial_f1_10mm": 0.5857030704545929,
+      "hidden_recall_10mm": 0.7608479157774932,
+      "all_five_geometry_conditions": true
+    },
+    {
+      "id": "view-0014-2-component-01",
+      "capture": "view-0014-2.npz",
+      "assigned_box": 7,
+      "observed_points": 5079,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 11.115953116387788,
+      "observed_to_prediction_p95_mm": 5.865946681059621,
+      "precision_10mm": 0.9432373046875,
+      "f1_10mm": 0.7948138211031408,
+      "partial_f1_10mm": 0.6267666075413401,
+      "hidden_recall_10mm": 0.4261842710409321,
+      "all_five_geometry_conditions": false
+    },
+    {
+      "id": "view-0018-2-component-01",
+      "capture": "view-0018-2.npz",
+      "assigned_box": 0,
+      "observed_points": 2311,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 11.219526894881602,
+      "observed_to_prediction_p95_mm": 5.319912140648021,
+      "precision_10mm": 0.939697265625,
+      "f1_10mm": 0.9379704654419383,
+      "partial_f1_10mm": 0.6043265875785067,
+      "hidden_recall_10mm": 0.8937389770723104,
+      "all_five_geometry_conditions": true
+    },
+    {
+      "id": "view-0018-2-component-02",
+      "capture": "view-0018-2.npz",
+      "assigned_box": 3,
+      "observed_points": 879,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 15.639601458573374,
+      "observed_to_prediction_p95_mm": 4.541277361340585,
+      "precision_10mm": 0.90625,
+      "f1_10mm": 0.8679014712225044,
+      "partial_f1_10mm": 0.5372097275553117,
+      "hidden_recall_10mm": 0.7377848017911234,
+      "all_five_geometry_conditions": true
+    },
+    {
+      "id": "view-0018-2-component-03",
+      "capture": "view-0018-2.npz",
+      "assigned_box": 1,
+      "observed_points": 1027,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 13.64814432361902,
+      "observed_to_prediction_p95_mm": 4.498298867092304,
+      "precision_10mm": 0.907958984375,
+      "f1_10mm": 0.4368124279482213,
+      "partial_f1_10mm": 0.35390946502057613,
+      "hidden_recall_10mm": 0.09331210191082802,
+      "all_five_geometry_conditions": false
+    },
+    {
+      "id": "view-0018-2-component-04",
+      "capture": "view-0018-2.npz",
+      "assigned_box": 4,
+      "observed_points": 1707,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 15.282719761522669,
+      "observed_to_prediction_p95_mm": 5.59291963793091,
+      "precision_10mm": 0.9093017578125,
+      "f1_10mm": 0.8497864686545434,
+      "partial_f1_10mm": 0.6309965204494895,
+      "hidden_recall_10mm": 0.6288452620188592,
+      "all_five_geometry_conditions": true
+    },
+    {
+      "id": "view-0025-2-component-01",
+      "capture": "view-0025-2.npz",
+      "assigned_box": 8,
+      "observed_points": 978,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 9.745085869031046,
+      "observed_to_prediction_p95_mm": 3.8261682159743153,
+      "precision_10mm": 0.9586181640625,
+      "f1_10mm": 0.9460206821190174,
+      "partial_f1_10mm": 0.6734468273269953,
+      "hidden_recall_10mm": 0.8789776574136764,
+      "all_five_geometry_conditions": true
+    },
+    {
+      "id": "view-0027-2-component-01",
+      "capture": "view-0027-2.npz",
+      "assigned_box": 3,
+      "observed_points": 506,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 19.451309473085352,
+      "observed_to_prediction_p95_mm": 4.3198903561123085,
+      "precision_10mm": 0.8958740234375,
+      "f1_10mm": 0.5479433810874954,
+      "partial_f1_10mm": 0.3587499145182247,
+      "hidden_recall_10mm": 0.22619174576090434,
+      "all_five_geometry_conditions": false
+    },
+    {
+      "id": "view-0031-2-component-01",
+      "capture": "view-0031-2.npz",
+      "assigned_box": 2,
+      "observed_points": 3091,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 9.373408279761376,
+      "observed_to_prediction_p95_mm": 4.024342648232322,
+      "precision_10mm": 0.9605712890625,
+      "f1_10mm": 0.9674444440986407,
+      "partial_f1_10mm": 0.675277363801954,
+      "hidden_recall_10mm": 0.9522352541220466,
+      "all_five_geometry_conditions": true
+    },
+    {
+      "id": "view-0031-2-component-02",
+      "capture": "view-0031-2.npz",
+      "assigned_box": 1,
+      "observed_points": 1163,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 24.158988102093023,
+      "observed_to_prediction_p95_mm": 7.873230034181618,
+      "precision_10mm": 0.8280029296875,
+      "f1_10mm": 0.3371467641869647,
+      "partial_f1_10mm": 0.2956966340008521,
+      "hidden_recall_10mm": 0.050816696914700546,
+      "all_five_geometry_conditions": false
+    },
+    {
+      "id": "view-0031-2-component-03",
+      "capture": "view-0031-2.npz",
+      "assigned_box": 5,
+      "observed_points": 1433,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 10.58690686836312,
+      "observed_to_prediction_p95_mm": 5.228082385607829,
+      "precision_10mm": 0.944580078125,
+      "f1_10mm": 0.8940583649521298,
+      "partial_f1_10mm": 0.5864523275579206,
+      "hidden_recall_10mm": 0.7413105413105413,
+      "all_five_geometry_conditions": true
+    },
+    {
+      "id": "view-0038-2-component-01",
+      "capture": "view-0038-2.npz",
+      "assigned_box": 7,
+      "observed_points": 5079,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 13.0681073496316,
+      "observed_to_prediction_p95_mm": 5.828019661786388,
+      "precision_10mm": 0.9407958984375,
+      "f1_10mm": 0.7864882768503513,
+      "partial_f1_10mm": 0.625665693179866,
+      "hidden_recall_10mm": 0.4136454030901025,
+      "all_five_geometry_conditions": false
+    },
+    {
+      "id": "view-0042-2-component-01",
+      "capture": "view-0042-2.npz",
+      "assigned_box": 0,
+      "observed_points": 2311,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 11.691475059738195,
+      "observed_to_prediction_p95_mm": 5.119942451630992,
+      "precision_10mm": 0.9354248046875,
+      "f1_10mm": 0.9339183133905855,
+      "partial_f1_10mm": 0.604245420180285,
+      "hidden_recall_10mm": 0.8858192505510654,
+      "all_five_geometry_conditions": true
+    },
+    {
+      "id": "view-0042-2-component-02",
+      "capture": "view-0042-2.npz",
+      "assigned_box": 3,
+      "observed_points": 879,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 15.34806589839313,
+      "observed_to_prediction_p95_mm": 4.25463515788481,
+      "precision_10mm": 0.905029296875,
+      "f1_10mm": 0.8687857647603227,
+      "partial_f1_10mm": 0.5368530146924344,
+      "hidden_recall_10mm": 0.7431881005660129,
+      "all_five_geometry_conditions": true
+    },
+    {
+      "id": "view-0042-2-component-03",
+      "capture": "view-0042-2.npz",
+      "assigned_box": 1,
+      "observed_points": 1027,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 13.475686793128272,
+      "observed_to_prediction_p95_mm": 4.260261445095686,
+      "precision_10mm": 0.9149169921875,
+      "f1_10mm": 0.44289929024117347,
+      "partial_f1_10mm": 0.354924943450545,
+      "hidden_recall_10mm": 0.09807671873339709,
+      "all_five_geometry_conditions": false
+    },
+    {
+      "id": "view-0042-2-component-04",
+      "capture": "view-0042-2.npz",
+      "assigned_box": 4,
+      "observed_points": 1707,
+      "output_points": 8192,
+      "observed_unchanged": true,
+      "surface_p95_mm": 14.664192895069517,
+      "observed_to_prediction_p95_mm": 4.705720482401576,
+      "precision_10mm": 0.92041015625,
+      "f1_10mm": 0.862012638379784,
+      "partial_f1_10mm": 0.6306840874079991,
+      "hidden_recall_10mm": 0.651629847057006,
+      "all_five_geometry_conditions": true
+    }
+  ],
+  "primary_individual_summary": {
+    "all_five_geometry_conditions_passed": 12,
+    "f1_improved_over_own_partial": 20,
+    "worst_surface_p95_mm": 24.17319718992327,
+    "worst_observations": [
+      {
+        "id": "view-0007-2-component-02",
+        "box": 1,
+        "surface_p95_mm": 24.17319718992327,
+        "hidden_recall_10mm": 0.04704341694368893
+      },
+      {
+        "id": "view-0031-2-component-02",
+        "box": 1,
+        "surface_p95_mm": 24.158988102093023,
+        "hidden_recall_10mm": 0.050816696914700546
+      },
+      {
+        "id": "view-0003-2-component-01",
+        "box": 3,
+        "surface_p95_mm": 19.53275700529022,
+        "hidden_recall_10mm": 0.23924874613168284
+      }
+    ]
+  },
+  "interpretation": [
+    "AP-PS55 with partial-centroid subtraction, metric size and Z-up axes passes the existing median criteria. F1 and hidden-surface coverage improve markedly over PCN.",
+    "All three sampling seed aggregates pass. They reuse the same 20 observations and eight boxes, not independent object generalization tests.",
+    "AP-PS55 radius .5 Y-up also passes and improves the same-frame PCN baseline. The gain cannot be assigned solely to removing scale normalization.",
+    "Radius 1 fails for this PS55 bundle; the official cropped ShapeNet55 unit-radius path has not been validated because its original checkpoint is unavailable.",
+    "Only 12 of 20 seed-zero observations meet all five geometry conditions individually. No all-input or general-object guarantee is established."
+  ],
+  "verification": {
+    "new_host_tests_passed": 7,
+    "related_host_tests_passed": 23,
+    "host_command": "python3 -m pytest -q workbench/tests/research/experiments/test_adapointr_profiles.py workbench/tests/research/experiments/test_adapointr.py workbench/tests/research/experiments/test_adapointr_preprocessing.py",
+    "all_gpu_and_evaluation_stages_exit_zero": true,
+    "pcn_baseline_exact_reproduction_npz_arrays": 20,
+    "official_update_before_test": {
+      "revision": "4664db276a881629f9f9f513cf8774ad3fc16025",
+      "local_official_update_exit_code": 0,
+      "local_revision_matched": true,
+      "remote_official_update": {
+        "exit_code": 0,
+        "source_root": "/home/hckang/.cache/elesim/setup/sources-v2/214060c4fbf83f6cf0eeaa9e7a53712736fefb7961fefdfb73db0e075a36bc6a/snapshots/git-4664db276a881629f9f9f513cf8774ad3fc16025/elesim-main",
+        "source_ref": "main",
+        "expected_revision": "4664db276a881629f9f9f513cf8774ad3fc16025",
+        "revision_matched": true
+      }
+    },
+    "canonical_run": false,
+    "canonical_reason": "Known optional development image preparation remains incomplete; required/extended, real-RMW and isolated-release gates were not run."
+  },
+  "isolation": {
+    "gpu_host_index": 2,
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+    "all_compute_network_modes_none": true,
+    "inference_truth_mounts": false,
+    "evaluation_gpu": false,
+    "normal_before": {
+      "sim": {
+        "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+        "image": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+        "running": false
+      },
+      "pilot": {
+        "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+        "image": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+        "running": false
+      }
+    },
+    "normal_after": {
+      "sim": {
+        "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+        "image": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+        "running": false
+      },
+      "pilot": {
+        "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+        "image": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+        "running": false
+      }
+    },
+    "normal_unchanged": true,
+    "diagnostic_containers_remaining": [],
+    "stage_audits": {
+      "matrix": {
+        "infer-pcn-r05-yup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+              "read_only": true
+            },
+            {
+              "destination": "/vendor",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_profiles.py",
+              "read_only": true
+            },
+            {
+              "destination": "/checkpoint.pth",
+              "read_only": true
+            },
+            {
+              "destination": "/deps",
+              "read_only": true
+            },
+            {
+              "destination": "/inputs",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_backend.py",
+              "read_only": true
+            },
+            {
+              "destination": "/cache",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_ops.py",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            }
+          ],
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "none"
+        },
+        "evaluate-pcn-r05-yup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/output",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/truth",
+              "read_only": true
+            },
+            {
+              "destination": "/predictions",
+              "read_only": true
+            }
+          ],
+          "device_requests": [],
+          "network_mode": "none"
+        },
+        "infer-ps55-center-yup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/checkpoint.pth",
+              "read_only": true
+            },
+            {
+              "destination": "/inputs",
+              "read_only": true
+            },
+            {
+              "destination": "/cache",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+              "read_only": true
+            },
+            {
+              "destination": "/deps",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_profiles.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_backend.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_ops.py",
+              "read_only": true
+            },
+            {
+              "destination": "/vendor",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr.py",
+              "read_only": true
+            }
+          ],
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "none"
+        },
+        "evaluate-ps55-center-yup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/truth",
+              "read_only": true
+            },
+            {
+              "destination": "/predictions",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            }
+          ],
+          "device_requests": [],
+          "network_mode": "none"
+        },
+        "infer-ps55-center-zup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/vendor",
+              "read_only": true
+            },
+            {
+              "destination": "/deps",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_backend.py",
+              "read_only": true
+            },
+            {
+              "destination": "/inputs",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr.py",
+              "read_only": true
+            },
+            {
+              "destination": "/checkpoint.pth",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_ops.py",
+              "read_only": true
+            },
+            {
+              "destination": "/cache",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_profiles.py",
+              "read_only": true
+            }
+          ],
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "none"
+        },
+        "evaluate-ps55-center-zup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/predictions",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/truth",
+              "read_only": true
+            }
+          ],
+          "device_requests": [],
+          "network_mode": "none"
+        },
+        "infer-ps55-r05-yup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_backend.py",
+              "read_only": true
+            },
+            {
+              "destination": "/vendor",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_ops.py",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            },
+            {
+              "destination": "/cache",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_profiles.py",
+              "read_only": true
+            },
+            {
+              "destination": "/checkpoint.pth",
+              "read_only": true
+            },
+            {
+              "destination": "/deps",
+              "read_only": true
+            },
+            {
+              "destination": "/inputs",
+              "read_only": true
+            }
+          ],
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "none"
+        },
+        "evaluate-ps55-r05-yup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/truth",
+              "read_only": true
+            },
+            {
+              "destination": "/predictions",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            }
+          ],
+          "device_requests": [],
+          "network_mode": "none"
+        },
+        "infer-ps55-r05-zup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr.py",
+              "read_only": true
+            },
+            {
+              "destination": "/vendor",
+              "read_only": true
+            },
+            {
+              "destination": "/deps",
+              "read_only": true
+            },
+            {
+              "destination": "/cache",
+              "read_only": false
+            },
+            {
+              "destination": "/checkpoint.pth",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_profiles.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_ops.py",
+              "read_only": true
+            },
+            {
+              "destination": "/inputs",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_backend.py",
+              "read_only": true
+            }
+          ],
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "none"
+        },
+        "evaluate-ps55-r05-zup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/truth",
+              "read_only": true
+            },
+            {
+              "destination": "/predictions",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            }
+          ],
+          "device_requests": [],
+          "network_mode": "none"
+        },
+        "infer-ps55-r10-yup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/deps",
+              "read_only": true
+            },
+            {
+              "destination": "/cache",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_backend.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_ops.py",
+              "read_only": true
+            },
+            {
+              "destination": "/inputs",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            },
+            {
+              "destination": "/vendor",
+              "read_only": true
+            },
+            {
+              "destination": "/checkpoint.pth",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_profiles.py",
+              "read_only": true
+            }
+          ],
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "none"
+        },
+        "evaluate-ps55-r10-yup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/truth",
+              "read_only": true
+            },
+            {
+              "destination": "/predictions",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            }
+          ],
+          "device_requests": [],
+          "network_mode": "none"
+        },
+        "infer-ps55-r10-zup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/trial/workbench/research/support/adapointr_ops.py",
+              "read_only": true
+            },
+            {
+              "destination": "/inputs",
+              "read_only": true
+            },
+            {
+              "destination": "/cache",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/checkpoint.pth",
+              "read_only": true
+            },
+            {
+              "destination": "/deps",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_profiles.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr.py",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_backend.py",
+              "read_only": true
+            },
+            {
+              "destination": "/vendor",
+              "read_only": true
+            }
+          ],
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "none"
+        },
+        "evaluate-ps55-r10-zup": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/truth",
+              "read_only": true
+            },
+            {
+              "destination": "/predictions",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            }
+          ],
+          "device_requests": [],
+          "network_mode": "none"
+        }
+      },
+      "robustness": {
+        "infer-ps55-center-zup-seed1": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/output",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_backend.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_ops.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+              "read_only": true
+            },
+            {
+              "destination": "/checkpoint.pth",
+              "read_only": true
+            },
+            {
+              "destination": "/deps",
+              "read_only": true
+            },
+            {
+              "destination": "/inputs",
+              "read_only": true
+            },
+            {
+              "destination": "/cache",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_profiles.py",
+              "read_only": true
+            },
+            {
+              "destination": "/vendor",
+              "read_only": true
+            }
+          ],
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "none"
+        },
+        "evaluate-ps55-center-zup-seed1": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/truth",
+              "read_only": true
+            },
+            {
+              "destination": "/predictions",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            }
+          ],
+          "device_requests": [],
+          "network_mode": "none"
+        },
+        "infer-ps55-center-zup-seed2": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/checkpoint.pth",
+              "read_only": true
+            },
+            {
+              "destination": "/deps",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr.py",
+              "read_only": true
+            },
+            {
+              "destination": "/cache",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_profiles.py",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_ops.py",
+              "read_only": true
+            },
+            {
+              "destination": "/vendor",
+              "read_only": true
+            },
+            {
+              "destination": "/inputs",
+              "read_only": true
+            },
+            {
+              "destination": "/trial/workbench/research/support/adapointr_backend.py",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            },
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+              "read_only": true
+            }
+          ],
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "none"
+        },
+        "evaluate-ps55-center-zup-seed2": {
+          "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+          "mounts": [
+            {
+              "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+              "read_only": true
+            },
+            {
+              "destination": "/truth",
+              "read_only": true
+            },
+            {
+              "destination": "/predictions",
+              "read_only": true
+            },
+            {
+              "destination": "/output",
+              "read_only": false
+            }
+          ],
+          "device_requests": [],
+          "network_mode": "none"
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Third-party inference-only AP-PS55 mirror; original-author file equivalence and paper-best checkpoint status unproven.",
+    "Not the unavailable cropped ShapeNet55 checkpoint or a confirmation of that official normalization path.",
+    "Existing static box replay with red connected-component segmentation only. No unseen shape, size, noise, real sensor, grasp or live calibration integration validation.",
+    "PCN and PS55 bundles differ in weights, output density (16384 versus 8192), grouper configuration and parameter count. Not a weights-only ablation.",
+    "The existing Triton FPS/Torch gather backend is reused; no direct comparison against a compiled native upstream CUDA binary.",
+    "GPU2 was reserved exclusively among visible devices, but other host GPU2 activity was present at initial inventory. Wall times exclude acquisition and live Sim/MPPI coexecution.",
+    "No production adapter, model dependency or automatic collision/grasp/motion use was enabled."
+  ],
+  "evidence": {
+    "remote_root": "/home/hckang/ws/newsim/logs/diagnostics/adapointr-20261027-c18ff631/contract-598fe6d2",
+    "local_root": "workbench/evidence/generated/adapointr-shapenet-20261027",
+    "bundle": "evidence.zip",
+    "bytes": 42746688,
+    "sha256": "61ec2981a8514c75ca52a412848583ff90dec0324391141353a5c8030585f898",
+    "verified_files": 299,
+    "manifest_sha256": "5da83e1963a4ee20c1baa4a92c00311b5366ae0ea10e0435540663e1d3077e91"
+  },
+  "figures": [
+    {
+      "path": "workbench/evidence/curated/experiments/adapointr_profiles_metrics_20261027.png",
+      "sha256": "fc8aa1f5289a1deae8d9a2d9d47b83efcafc14fd1853eb87ddbc1a9bc739c35b",
+      "bytes": 218936
+    },
+    {
+      "path": "workbench/evidence/curated/experiments/adapointr_profiles_clouds_20261027.png",
+      "sha256": "f13f271eaf7df6bdbba819e1d4f8f96a24db604fb402ef0942e78f8e2cf9707a",
+      "bytes": 1066879
+    }
+  ],
+  "figure_generator": {
+    "path": "workbench/research/analysis/adapointr_profiles_plot.py",
+    "sha256": "852b75e4972212b07905f2cd3d3e592a34c36d6dcf19bad92e684767b37eb0c4"
+  },
+  "models": {
+    "pcn": {
+      "checkpoint_sha256": "f58a5650b348ca3d68fc8e01e3e88f57d5a889bbad5521fec7a2760eda664fa1",
+      "parameters": 32494657,
+      "missing_keys": [],
+      "unexpected_keys": [],
+      "config": {
+        "NAME": "AdaPoinTr",
+        "num_query": 512,
+        "num_points": 16384,
+        "center_num": [
+          512,
+          256
+        ],
+        "global_feature_dim": 1024,
+        "encoder_type": "graph",
+        "decoder_type": "fc",
+        "encoder_config": {
+          "embed_dim": 384,
+          "depth": 6,
+          "num_heads": 6,
+          "k": 8,
+          "n_group": 2,
+          "mlp_ratio": 2.0,
+          "block_style_list": [
+            "attn-graph",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn"
+          ],
+          "combine_style": "concat"
+        },
+        "decoder_config": {
+          "embed_dim": 384,
+          "depth": 8,
+          "num_heads": 6,
+          "k": 8,
+          "n_group": 2,
+          "mlp_ratio": 2.0,
+          "self_attn_block_style_list": [
+            "attn-graph",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn"
+          ],
+          "self_attn_combine_style": "concat",
+          "cross_attn_block_style_list": [
+            "attn-graph",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn"
+          ],
+          "cross_attn_combine_style": "concat"
+        }
+      },
+      "backend": "original upstream forward; Triton FPS and Torch gather; inference-only imports"
+    },
+    "projected55": {
+      "checkpoint_sha256": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7",
+      "parameters": 32470033,
+      "missing_keys": [],
+      "unexpected_keys": [],
+      "config": {
+        "NAME": "AdaPoinTr",
+        "num_query": 512,
+        "num_points": 8192,
+        "center_num": [
+          256,
+          128
+        ],
+        "global_feature_dim": 1024,
+        "encoder_type": "graph",
+        "decoder_type": "fc",
+        "encoder_config": {
+          "embed_dim": 384,
+          "depth": 6,
+          "num_heads": 6,
+          "k": 8,
+          "n_group": 2,
+          "mlp_ratio": 2.0,
+          "block_style_list": [
+            "attn-graph",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn"
+          ],
+          "combine_style": "concat"
+        },
+        "decoder_config": {
+          "embed_dim": 384,
+          "depth": 8,
+          "num_heads": 6,
+          "k": 8,
+          "n_group": 2,
+          "mlp_ratio": 2.0,
+          "self_attn_block_style_list": [
+            "attn-graph",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn"
+          ],
+          "self_attn_combine_style": "concat",
+          "cross_attn_block_style_list": [
+            "attn-graph",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn",
+            "attn"
+          ],
+          "cross_attn_combine_style": "concat"
+        }
+      },
+      "backend": "original upstream forward; Triton FPS and Torch gather; inference-only imports"
+    }
+  }
+}
