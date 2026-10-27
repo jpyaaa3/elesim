@@ -6,6 +6,23 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Jetson Robot 설치 source 누락 수정 (2026-10-27)
+
+- Git에 존재하는 `native_arm/`을 bootstrap archive 추출 목록에서 누락해
+  Robot 설치가 `Installation source is incomplete`로 중단되는 문제를 재현했다.
+  C++ controller와 bundled Dynamixel SDK tree를 보존하고, Linux 빌드에 필요한
+  소스·헤더·라이선스 **32개**를 snapshot 완료 검사의 필수 입력에 넣었다.
+- 기존의 같은 Git revision 캐시에서도 이 tree가 빠지면 재사용하지 않고
+  재다운로드한다. HTTP 304 뒤 무조건 재요청·캐시 복구와 native tree 내부의
+  symlink 거부를 회귀로 확인했다. 설치 경로의 SDK 추가 다운로드는 없다.
+- Bootstrap **110 passed**이며 추출한 소스만으로 host C++ shared library를
+  실제 빌드했다. 보고된 `0ac1626`의 실제 Git archive도 새 추출기로 처리하면
+  native **39파일**이 보존되고 Robot installer source 사전검사를 통과한다.
+- Host setup 전체 **1,313개 통과**다. 샌드박스 실행의 1,299 passed와 소켓
+  권한/입출력 실패 14개를 권한 허용 후 재실행한 14 passed를 합친 결과다.
+  실제 Jetson ARM64/ROSIDL 빌드·systemd 등록·기기 동작은 이번에 실행하지 않았다.
+  기존 dev 준비 미완료에 따른 canonical gate 공백은 아래 기록과 같다.
+
 ### Workbench 미사용 도구 보관 (2026-10-27)
 
 - 구형 실행기·결과 전용 그림·height/mount 실험 CLI **24개**를 로컬 ZIP으로

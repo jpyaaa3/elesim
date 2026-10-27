@@ -151,6 +151,8 @@ def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, b
         members.setdefault(relative.as_posix(), b"")
     for relative in bootstrap_module._BOOTSTRAP_ROLE_CONFIG_FILES:
         members.setdefault(relative.as_posix(), b"{}\n")
+    for relative in bootstrap_module._BOOTSTRAP_ROBOT_NATIVE_FILES:
+        members.setdefault(relative.as_posix(), b"")
     return members
 
 
@@ -221,6 +223,34 @@ def test_source_snapshot_allows_explicitly_excluded_public_examples(
         destination.write_text("public: true\n", encoding="utf-8")
 
     bootstrap_module._validate_source_snapshot(root)
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "build.py",
+        "control.cpp",
+        "control.h",
+        "motion_limits.h",
+        "correction_model.cpp",
+        "correction_model.h",
+        "vendor/LICENSE",
+        "vendor/dynamixel_sdk/dynamixel_sdk.h",
+        "vendor/dynamixel_sdk/port_handler_linux.cpp",
+        "vendor/dynamixel_sdk/group_handler.h",
+    ),
+)
+def test_source_snapshot_requires_robot_native_build_inputs(
+    tmp_path: Path,
+    relative: str,
+) -> None:
+    snapshot = tmp_path / "snapshot"
+    _write_valid_snapshot(snapshot)
+    root = snapshot / "elesim-main"
+    (root / "payload/runtime/native/robot/native_arm" / relative).unlink()
+
+    with pytest.raises(BootstrapError, match=Path(relative).name):
+        bootstrap_module._validate_source_snapshot(root)
 
 
 @pytest.mark.parametrize(
@@ -484,6 +514,44 @@ def test_safe_extract_returns_valid_source_root(tmp_path: Path) -> None:
     assert (root / "payload/runtime/docker/shared/generate_go2_pympc.py").is_file()
 
 
+def test_downloaded_robot_native_sources_build_without_checkout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native = PurePosixPath("payload/runtime/native/robot/native_arm")
+    source = Path(__file__).resolve().parents[3] / native
+    native_members = {
+        (native / path.relative_to(source).as_posix()).as_posix(): path.read_bytes()
+        for path in source.rglob("*")
+        if path.is_file()
+        and (path.suffix in {".py", ".cpp", ".h"} or path.name in {"LICENSE", "README.md"})
+    }
+    opener = _URLSequence(
+        _Response(_archive_payload(tmp_path, extra_members=native_members))
+    )
+    monkeypatch.setattr(urllib.request, "urlopen", opener)
+
+    root = download_source("https://archives.example/robot.tar.gz", tmp_path)
+
+    for relative, expected in native_members.items():
+        assert (root / relative).is_file(), relative
+        assert (root / relative).read_bytes() == expected
+    bootstrap_module._validate_source_snapshot(root)
+    compiler = shutil.which("g++")
+    if compiler is None:
+        pytest.skip("native arm compilation needs g++")
+    monkeypatch.setenv("CXX", compiler)
+    library = tmp_path / "installed/native/libelesim_arm.so"
+    subprocess.run(
+        [sys.executable, str(root / native / "build.py"), str(library)],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert library.is_file() and library.stat().st_size > 0
+
+
 def test_curl_snapshot_excludes_build_test_doubles(tmp_path: Path) -> None:
     archive = tmp_path / "source.tgz"
     excluded = (
@@ -525,14 +593,21 @@ def test_safe_extract_ignores_links_outside_install_source_boundary(
     assert not (extracted / "log").exists()
 
 
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "payload/runtime/docker/setup/app/elesim_connections/connections.py",
+        "payload/runtime/native/robot/native_arm/control.cpp",
+        "payload/runtime/native/robot/native_arm/vendor/dynamixel_sdk/port_handler_linux.cpp",
+    ),
+)
 def test_safe_extract_rejects_links_inside_install_source_boundary(
     tmp_path: Path,
+    relative: str,
 ) -> None:
     archive = tmp_path / "source-with-source-link.tgz"
     with tarfile.open(archive, "w:gz") as bundle:
-        link = tarfile.TarInfo(
-            "elesim-main/payload/runtime/docker/setup/app/elesim_connections/connections.py"
-        )
+        link = tarfile.TarInfo(f"elesim-main/{relative}")
         link.type = tarfile.SYMTYPE
         link.linkname = "other.py"
         bundle.addfile(link)
@@ -853,6 +928,30 @@ def test_download_source_refresh_repairs_existing_snapshot(
 
     assert refreshed == first
     assert contract.is_file()
+
+
+def test_download_source_repairs_cached_snapshot_missing_native_arm(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commit = "a" * 40
+    payload = _archive_payload(tmp_path, commit=commit)
+    opener = _URLSequence(
+        _Response(payload, headers={"ETag": '"same-commit"'}),
+        _Response(status=304),
+        _Response(payload, headers={"ETag": '"same-commit"'}),
+    )
+    monkeypatch.setattr(urllib.request, "urlopen", opener)
+    url = f"https://codeload.github.com/owner/elesim/tar.gz/{commit}"
+    first = download_source(url, tmp_path, ref=commit)
+    shutil.rmtree(first / "payload/runtime/native/robot/native_arm")
+
+    repaired = download_source(url, tmp_path, ref=commit)
+
+    assert repaired == first
+    bootstrap_module._validate_source_snapshot(repaired)
+    assert _headers(opener.requests[1]) == {"if-none-match": '"same-commit"'}
+    assert _headers(opener.requests[2]) == {}
 
 
 def test_download_source_without_validators_downloads_on_every_run(

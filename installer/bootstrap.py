@@ -43,6 +43,38 @@ _BOOTSTRAP_ROLE_APPLICATIONS = {
     role: runtime / "app"
     for role, runtime in _BOOTSTRAP_ROLE_RUNTIMES.items()
 }
+_BOOTSTRAP_ROBOT_NATIVE_ROOT = _BOOTSTRAP_ROLE_RUNTIMES["robot"] / "native_arm"
+_BOOTSTRAP_ROBOT_NATIVE_FILES = frozenset(
+    _BOOTSTRAP_ROBOT_NATIVE_ROOT / relative
+    for relative in (
+        "build.py",
+        "control.cpp",
+        "control.h",
+        "motion_limits.h",
+        "correction_model.cpp",
+        "correction_model.h",
+        "vendor/LICENSE",
+        "vendor/dynamixel_sdk/dynamixel_sdk.h",
+        *(
+            f"vendor/dynamixel_sdk/{name}{suffix}"
+            for name in (
+                "group_bulk_read",
+                "group_bulk_write",
+                "group_sync_read",
+                "group_sync_write",
+                "group_fast_bulk_read",
+                "group_fast_sync_read",
+                "group_handler",
+                "packet_handler",
+                "port_handler",
+                "protocol1_packet_handler",
+                "protocol2_packet_handler",
+                "port_handler_linux",
+            )
+            for suffix in (".cpp", ".h")
+        ),
+    )
+)
 _BOOTSTRAP_SOURCE_FILES = frozenset(
     {
         PurePosixPath("installer/bootstrap.py"),
@@ -98,6 +130,7 @@ _BOOTSTRAP_SOURCE_TREES = (
     PurePosixPath("payload/data/models/objects"),
     PurePosixPath("payload/data/policies"),
     PurePosixPath("payload/data/calibration"),
+    _BOOTSTRAP_ROBOT_NATIVE_ROOT,
     PurePosixPath("payload/runtime/native/robot/firmware"),
 )
 _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
@@ -223,6 +256,7 @@ _BOOTSTRAP_REQUIRED_TREE_FILES = frozenset(
         *_BOOTSTRAP_PROTOCOL_PYTHON_FILES,
         *_BOOTSTRAP_ROLE_ENTRYPOINT_FILES,
         *_BOOTSTRAP_ROLE_CONFIG_FILES,
+        *_BOOTSTRAP_ROBOT_NATIVE_FILES,
         PurePosixPath("payload/runtime/docker/shared/install_go2_pympc.sh"),
         PurePosixPath("payload/runtime/docker/shared/generate_go2_pympc.py"),
         PurePosixPath("payload/runtime/common/elesim_interfaces/msg/RgbdFrame.msg"),
