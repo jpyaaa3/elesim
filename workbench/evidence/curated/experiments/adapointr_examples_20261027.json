@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "source_revision": "4664db276a881629f9f9f513cf8774ad3fc16025",
+  "selection": "Three deliberately chosen examples spanning observed quality; not a random evaluation sample",
+  "source": "Recorded static Genesis RGB-D trial; no new inference or scene rendering",
+  "panels": [
+    "Recorded RGB with highlighted component",
+    "Observed points",
+    "PCN baseline",
+    "AP-PS55 primary",
+    "Evaluation truth"
+  ],
+  "examples": [
+    {
+      "id": "view-0007-2-component-01",
+      "selection_label": "good",
+      "file": "adapointr_example_good.png",
+      "sha256": "a5ea475ab991b613f3e2bca06c3881d250f4d99f0feac852e90f24eb139a1f79",
+      "bytes": 480030,
+      "source_sha256": {
+        "/results/predictions-pcn-r05-yup/predictions/view-0007-2-component-01.npz": "b9fc12caa8606c7a8bdec40092f8f1ac8bd825e1baf69fb3d47d241c50ed0219",
+        "/results/predictions-ps55-center-zup/predictions/view-0007-2-component-01.npz": "598d82f25f814c54139fa41dfcfba01a31ae03d795d0b41d6b8989a201cfa758",
+        "/sensors/view-0007-2.npz": "143198e651bbabdc374dba268f4b061a0ddca6a257acdcd2177a3c8a30b70b83",
+        "/truth/case-0007.npz": "b7d4d7f918ae8016d3b11f3f55e1c175a9e06d7a1c618a6018ed76026b3d6016"
+      },
+      "before": {
+        "surface_p95_mm": 28.6332973307981,
+        "f1_10mm": 0.378178376108404,
+        "hidden_recall_10mm": 0.056216032608695655
+      },
+      "after": {
+        "surface_p95_mm": 9.134917588404468,
+        "f1_10mm": 0.965654765897646,
+        "hidden_recall_10mm": 0.9458220108695652
+      },
+      "curated_path": "workbench/evidence/curated/experiments/adapointr_example_good_20261027.png"
+    },
+    {
+      "id": "view-0003-2-component-01",
+      "selection_label": "partial",
+      "file": "adapointr_example_partial.png",
+      "sha256": "eb2f8fdd125590252ff3c186ff029e52f0793d5159a48f26f102b77611f7fa23",
+      "bytes": 352264,
+      "source_sha256": {
+        "/results/predictions-pcn-r05-yup/predictions/view-0003-2-component-01.npz": "efb64078805e38d68eaeaa4cc56769e40d8e6fad181760a6a68d0877c764cd23",
+        "/results/predictions-ps55-center-zup/predictions/view-0003-2-component-01.npz": "25e31adb0bcbd32494dcd4348474eaa160e0c1a0453f43d9e263b3bc1b125574",
+        "/sensors/view-0003-2.npz": "fa87bfd2968fa005b5d81043d84ebe5a6b4281f33c888a309e12dcff0e2c7825",
+        "/truth/case-0003.npz": "50bd4aa27729062861fd6a8f831fb6b6f818efa0d8f27e0c8641722f7abe1207"
+      },
+      "before": {
+        "surface_p95_mm": 27.12868426384723,
+        "f1_10mm": 0.35592352301400215,
+        "hidden_recall_10mm": 0.06157293778678903
+      },
+      "after": {
+        "surface_p95_mm": 19.53275700529022,
+        "f1_10mm": 0.5584157072535088,
+        "hidden_recall_10mm": 0.23924874613168284
+      },
+      "curated_path": "workbench/evidence/curated/experiments/adapointr_example_partial_20261027.png"
+    },
+    {
+      "id": "view-0007-2-component-02",
+      "selection_label": "failure",
+      "file": "adapointr_example_failure.png",
+      "sha256": "c135f4b9ffd439e528dc861467e88cfc218eba75842bd4d756ad3d1369acf9f6",
+      "bytes": 386383,
+      "source_sha256": {
+        "/results/predictions-pcn-r05-yup/predictions/view-0007-2-component-02.npz": "0e428f48cf2c140df65a40a3042761159bb63a434800907eda7f72667daf15bf",
+        "/results/predictions-ps55-center-zup/predictions/view-0007-2-component-02.npz": "82cc6223d0f3563c0a0c7c9d54a84ab1c5ad4891ec69228f0c5139df46ff4d51",
+        "/sensors/view-0007-2.npz": "143198e651bbabdc374dba268f4b061a0ddca6a257acdcd2177a3c8a30b70b83",
+        "/truth/case-0007.npz": "b7d4d7f918ae8016d3b11f3f55e1c175a9e06d7a1c618a6018ed76026b3d6016"
+      },
+      "before": {
+        "surface_p95_mm": 20.541163539740104,
+        "f1_10mm": 0.25391887503970634,
+        "hidden_recall_10mm": 0.007454417245895034
+      },
+      "after": {
+        "surface_p95_mm": 24.17319718992327,
+        "f1_10mm": 0.32969574133879576,
+        "hidden_recall_10mm": 0.04704341694368893
+      },
+      "curated_path": "workbench/evidence/curated/experiments/adapointr_example_failure_20261027.png"
+    }
+  ],
+  "generator": {
+    "path": "workbench/research/analysis/adapointr_examples.py",
+    "sha256": "25e1edbdf367d0e6448d7db0ceee7a6efe3955ce6b25cec9d45611b211bc66e5"
+  },
+  "evidence": {
+    "local_root": "workbench/evidence/generated/adapointr-examples-20261027",
+    "bundle_sha256": "517d9bccb469c96b1d6ecb8f5cce6feb2f449e33ab6a4ae4c90e4aafecb78380",
+    "bundle_bytes": 1154497
+  },
+  "execution": {
+    "cpu_only": true,
+    "network_mode": "none",
+    "no_new_inference": true,
+    "diagnostic_containers_remaining": []
+  }
+}
