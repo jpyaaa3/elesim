@@ -10,6 +10,7 @@
 | [`deployment.md`](deployment.md) | release, multi-host topology, Connection Manager, SROS2 rollout |
 | [`configuration.md`](configuration.md) | source/installed config 필드와 ownership |
 | [`dds_contracts.md`](dds_contracts.md) | protocol v6 message registry, QoS, RGB-D wire, fencing |
+| [`runbook.md`](runbook.md) | Jetson systemd 서비스 재시작과 Ubuntu Sim·UI 원클릭 시작 순서 |
 | [`status.md`](status.md) | R0–R5 운영 마일스톤, 완료 조건, 검증 공백, 환경별 acceptance gate |
 | [`research.md`](research.md) | repository-only experiments와 진단 절차 |
 

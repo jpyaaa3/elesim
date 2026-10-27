@@ -1,0 +1,25 @@
+schema_version: 1
+extends: /home/idim/elesim/roles/pilot/payload/config/pilot/config.yaml
+mode: arm_manual
+profiles:
+  arm_manual:
+    simulation:
+      runtime:
+        use_hardware: true
+        use_go2: true
+    vision:
+      perception:
+        runtime:
+          enabled: false
+          autostart: false
+          run_local: true
+          show_preview: false
+robot:
+  arm:
+    hardware:
+      linear_u_limit_deg: 259.0
+      linear_u_max_deg: 259.0
+    ik:
+      backend: native
+      curobo_model: /home/idim/elesim/roles/pilot/payload/data/models/planning/zed-mini
+      curobo_world: /home/idim/elesim/roles/pilot/config/world.yaml

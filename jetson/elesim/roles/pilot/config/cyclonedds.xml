@@ -1,0 +1,1 @@
+<CycloneDDS><Domain Id="68"><General><Interfaces><NetworkInterface name="wlP1p1s0"/></Interfaces><AllowMulticast>true</AllowMulticast></General><Discovery><ParticipantIndex>auto</ParticipantIndex></Discovery></Domain></CycloneDDS>

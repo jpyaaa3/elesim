@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -e /home/idim/elesim/security/provisioning-required || -L /home/idim/elesim/security/provisioning-required ]]; then
+  printf 'EleSim 실행 거부: managed SROS2 role bundle이 아직 provision되지 않았습니다.\n' >&2
+  printf 'operator laptop에서 elesim-connections를 실행해 전체 host generation을 적용하십시오.\n' >&2
+  exit 78
+fi
+set +u
+source /opt/ros/humble/setup.bash
+source /home/idim/elesim/ros/install/setup.bash
+# The daemon would re-source the Unitree workspace inside
+# `bash -c 'set -euo pipefail; source ...'`, and colcon's and ament's setup
+# scripts read variables they never define, so that subshell always fails.
+# Source it here, where -u is already off, and hand over the ready marker.
+source /home/idim/ros2_ws/install/setup.bash
+export ELESIM_UNITREE_WORKSPACE_READY=/home/idim/ros2_ws/install/setup.bash
+set -u
+exec /home/idim/elesim/roles/robot/venv/bin/elesim-unitree-bridge --config /home/idim/elesim/roles/robot/config/installed.yaml "$@"

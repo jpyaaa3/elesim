@@ -1,0 +1,60 @@
+{
+  "profile": "custom",
+  "roles": [
+    "robot"
+  ],
+  "prefix": "/home/idim/elesim",
+  "bin_dir": "/home/idim/elesim/bin",
+  "source_root": "/home/idim/.cache/elesim/setup/sources-v2/4a06ca2a43a315751c2f3d8a3a67ddca20af2487169d68f4b1c2f8c4f9e0ed4f/snapshots/git-45b76272b604f87e72259d5bee874dcf2c9f96d5/elesim-wrap-grasp-rl",
+  "source_repository": "jpyaaa3/elesim",
+  "source_ref": "wrap-grasp-rl",
+  "network": {
+    "turn_urls": [],
+    "sim_id": "sim-default",
+    "pilot_id": "pilot-main",
+    "ui_id": "ui-main",
+    "robot_id": "robot-go2"
+  },
+  "dds": {
+    "system_id": "elesim",
+    "domain_id": 0,
+    "rmw_implementation": "rmw_cyclonedds_cpp",
+    "discovery_mode": "static",
+    "static_peers": [
+      "100.88.154.118",
+      "100.66.88.107",
+      "100.74.222.24"
+    ],
+    "interface": "tailscale0",
+    "security_profile": "trusted-network",
+    "security_provisioning": "none",
+    "security_generation": "",
+    "security_bundle": "",
+    "keystore": "",
+    "enclave": ""
+  },
+  "compute": {
+    "gpu_mode": "inherit",
+    "gpu_device": ""
+  },
+  "turn": {
+    "mode": "none",
+    "realm": "",
+    "public_host": "",
+    "secret_file": "",
+    "credential_file": ""
+  },
+  "runtime_text_logs": {
+    "enabled": true
+  },
+  "container_network": {
+    "mode": "direct-host",
+    "docker_context": "",
+    "docker_engine_id": "",
+    "tailscale_hostname": "",
+    "tailscale_state_dir": ""
+  },
+  "install_mode": "native",
+  "install_go2_mpc": true,
+  "schema_version": 9
+}

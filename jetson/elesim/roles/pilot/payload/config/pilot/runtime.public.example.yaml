@@ -1,0 +1,27 @@
+schema_version: 3
+runtime:
+  role: pilot
+  endpoint_id: pilot-main
+  active_target: sim-default
+rgbd:
+  schema_version: 1
+  broker_role: pilot
+  source_role: auto
+  local_handoff: source-dds-to-pilot
+  wire:
+    format: encoded-rgbd-v1
+    capability: stream.rgbd.broker.v1
+    topic: /elesim/pilot_main/rgbd/frame
+    latest_only: true
+dds:
+  system_id: elesim
+  node_key: pilot-main
+  domain_id: 0
+  rmw_implementation: rmw_cyclonedds_cpp
+  discovery_mode: static
+  static_peers: [10.8.0.2]
+  network_interface: wg0
+  vendor_config: /etc/elesim/cyclonedds.xml
+  security_profile: sros2
+  keystore: /etc/elesim/keystore
+  enclave: /elesim/pilot-main

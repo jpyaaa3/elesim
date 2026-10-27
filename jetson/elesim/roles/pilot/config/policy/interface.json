@@ -1,0 +1,212 @@
+{
+  "checkpoint": "/home/hckang/elesim/sim/rl_runs/wrap_grasp/stage3_ab_curr/model_best.pt",
+  "git_commit": "e65409e778cead5bf32b29440adbfaf470de6bc0",
+  "observation": {
+    "dim": 16,
+    "note": "raw values -- normalisation is inside policy.pt",
+    "channels": [
+      {
+        "name": "joint/linear",
+        "unit": "m",
+        "source": "linear stage position, beta-compensated"
+      },
+      {
+        "name": "joint/roll",
+        "unit": "rad",
+        "source": "roll joint angle, beta-compensated"
+      },
+      {
+        "name": "joint/theta1",
+        "unit": "rad",
+        "source": "mean of segment 1's node angles, beta-compensated"
+      },
+      {
+        "name": "joint/theta2",
+        "unit": "rad",
+        "source": "mean of segment 2's node angles, beta-compensated"
+      },
+      {
+        "name": "object/radius",
+        "unit": "m",
+        "source": "perception"
+      },
+      {
+        "name": "object/height",
+        "unit": "m",
+        "source": "perception"
+      },
+      {
+        "name": "object/pos_x",
+        "unit": "m",
+        "source": "perception, robot frame"
+      },
+      {
+        "name": "object/pos_y",
+        "unit": "m",
+        "source": "perception, robot frame"
+      },
+      {
+        "name": "object/pos_z",
+        "unit": "m",
+        "source": "perception, robot frame"
+      },
+      {
+        "name": "object/lean_x",
+        "unit": "-",
+        "source": "object axis unit vector, x component"
+      },
+      {
+        "name": "object/lean_y",
+        "unit": "-",
+        "source": "object axis unit vector, y component"
+      },
+      {
+        "name": "load/linear",
+        "unit": "N",
+        "source": "linear stage load"
+      },
+      {
+        "name": "load/roll",
+        "unit": "Nm",
+        "source": "roll joint load"
+      },
+      {
+        "name": "load/bend",
+        "unit": "Nm",
+        "source": "mean load over the bend joints"
+      },
+      {
+        "name": "load/bend_repeat",
+        "unit": "Nm",
+        "source": "the same value again -- the sim reports one bend load into two channels, so the robot must too"
+      },
+      {
+        "name": "episode/progress",
+        "unit": "-",
+        "source": "macro steps taken / max_steps"
+      }
+    ]
+  },
+  "action": {
+    "dim": 5,
+    "note": "first four are waypoint increments in [-1, 1] scaled by rate_limit; the fifth is the lift request, positive means lift now",
+    "channels": [
+      {
+        "name": "delta/linear",
+        "scale_m": 0.04
+      },
+      {
+        "name": "delta/roll",
+        "scale_rad": 0.3
+      },
+      {
+        "name": "delta/theta1",
+        "scale_rad": 0.25
+      },
+      {
+        "name": "delta/theta2",
+        "scale_rad": 0.25
+      },
+      {
+        "name": "lift_request",
+        "threshold": 0.0
+      }
+    ]
+  },
+  "waypoint": {
+    "home": [
+      -0.1656,
+      0.0,
+      -0.593411945678072,
+      0.593411945678072
+    ],
+    "limits": {
+      "linear_m": [
+        -0.23,
+        0.0
+      ],
+      "roll_rad": [
+        -1.5707963267948966,
+        1.5707963267948966
+      ],
+      "theta_rad": [
+        -0.6283185307179586,
+        0.6283185307179586
+      ]
+    },
+    "coupled_curl_cap": {
+      "rule": "abs(theta1_weight * theta1 + theta2) <= cap",
+      "theta1_weight": 1.5,
+      "cap_rad": 1.0647,
+      "why": "the backbone reaches its own housing past this; swept on a 9x9 grid, every folding cell is separated exactly by this bound"
+    },
+    "arm": {
+      "n_seg": 5,
+      "bend_joints": [
+        "j_wedge_node0",
+        "j_node0_node1",
+        "j_node1_node2",
+        "j_node2_node3",
+        "j_node3_node4",
+        "j_node4_node5",
+        "j_node5_node6",
+        "j_node6_node7",
+        "j_node7_node8",
+        "j_node8_node9"
+      ],
+      "linear_joint": "j_plate_housing",
+      "roll_joint": "j_housing_wedge"
+    },
+    "sign_conventions": {
+      "linear_axis_sign": 1.0,
+      "roll_axis_sign": 1.0,
+      "bend_axis_sign": 1.0,
+      "warning": "runtime.JointLayout uses bend_axis_sign -1 where this uses +1; the waypoints here are already in the convention control_u_to_sim_q produces. Getting it wrong folds the arm through the quadruped."
+    }
+  },
+  "timing": {
+    "macro_step_s": 0.4,
+    "substeps": 40,
+    "substep_s": 0.01,
+    "move_fraction": 0.6,
+    "note": "the waypoint is interpolated over the first move_fraction of the step and held for the rest",
+    "max_steps": 28
+  },
+  "lift_script": {
+    "note": "the policy chooses when; the roll-back itself is scripted and has to be reimplemented on the robot",
+    "roll_target_rad": 0.0,
+    "roll_rate_rad_per_substep": 0.015,
+    "roll_seconds_for_90deg": 1.0471975511965979,
+    "settle_substeps": 80,
+    "hold_substeps": 100,
+    "speed_matters": "measured on 32 envs: 0.31 s holds 0%, 0.52 s 0%, 0.79 s 3%, 1.05 s 72%, 1.57 s 75%",
+    "wrap_angle_floor_rad": 2.0944,
+    "wrap_angle_floor_on_robot": "not available -- the wrap angle is computed from simulator contacts. On the robot the policy's request is the only gate."
+  },
+  "trained_under": {
+    "object_radius_m": [
+      0.05,
+      0.05
+    ],
+    "object_mass_kg": [
+      0.15,
+      0.5
+    ],
+    "object_pos_jitter_m": [
+      0.03,
+      0.03,
+      0.01
+    ],
+    "surface_friction": 2.0,
+    "joint_residual_deg": {
+      "beta0": 0.8,
+      "jitter": 0.2,
+      "estimator_gain": 0.8,
+      "tracking_tolerance": "measured: no loss up to 2 deg of joint error, 3 deg still clean at 100 mm, breaks at 4 deg"
+    },
+    "observation_noise": {
+      "joint_rad": 0.005,
+      "object_pos_m": 0.004
+    }
+  }
+}

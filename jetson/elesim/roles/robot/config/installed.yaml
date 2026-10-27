@@ -1,0 +1,88 @@
+schema_version: 5
+runtime:
+  endpoint_id: robot-go2
+  device: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTAAMNB6-if00-port0
+  use_go2: true
+rgbd:
+  schema_version: 1
+  broker_role: pilot
+  source_role: robot
+  local_handoff: source-dds-to-pilot
+  wire:
+    format: encoded-rgbd-v1
+    capability: stream.rgbd.broker.v1
+    topic: /elesim/pilot_main/rgbd/frame
+    latest_only: true
+dds:
+  system_id: elesim-arm-20261016
+  node_key: robot_go2
+  domain_id: 68
+  rmw_implementation: rmw_cyclonedds_cpp
+  discovery_mode: multicast
+  static_peers: []
+  network_interface: wlP1p1s0
+  vendor_config: /home/idim/elesim/roles/robot/config/cyclonedds.xml
+  security_profile: trusted-network
+  security_provisioning: none
+  security_generation: ''
+  keystore: ''
+  enclave: ''
+arm:
+  command_direction:
+  - 1
+  - 1
+  - 1
+  - -1
+  motor_direction:
+  - 1
+  - 1
+  - 1
+  - -1
+  baudrate: 1000000
+  current_limit_ma: 2500
+  claw_contact_stall_s: 0.05
+  profile_vel_seg1: 150
+  profile_acc_seg1: 20
+  profile_vel_seg2: 150
+  profile_acc_seg2: 20
+  claw_contact_load_permille: 250
+mapping:
+  linear_q_min_m: -0.17266666666666666
+  linear_q_max_m: 0.0
+  roll_q_min_rad: -1.5707963267948966
+  roll_q_max_rad: 1.5707963267948966
+  seg1_q_min_rad: -0.6283185307179586
+  seg1_q_max_rad: 0.6283185307179586
+  seg2_q_min_rad: -0.6283185307179586
+  seg2_q_max_rad: 0.6283185307179586
+go2:
+  enabled: true
+  backend: unitree_ros2
+  pose_source: sportmodestate
+  ros_workspace: /home/idim/ros2_ws
+  network_interface: eno1
+  ros_domain_id: 0
+  ipc_socket_path: /run/elesim-unitree/bridge.sock
+  ipc_robot_user: idim
+  ipc_bridge_user: elesim-unitree
+  ipc_heartbeat_interval_s: 0.1
+  stand_on_start: none
+  gait_on_start: none
+  status_log_interval_s: 5.0
+camera:
+  enabled: true
+  topic: /elesim/robot_go2/rgbd/frame
+  width: 640
+  height: 480
+  fps: 30
+  backend: zed
+  right_topic: /elesim/robot_go2/rgbd/right
+  rotate_180: true
+safety:
+  command_deadman_s: 0.5
+  monitor_period_s: 0.05
+  read_failure_limit: 3
+  telemetry_period_s: 0.1
+  max_go2_vx_m_s: 0.8
+  max_go2_vy_m_s: 0.5
+  max_go2_wz_rad_s: 1.5

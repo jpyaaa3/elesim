@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if ! command -v python3 >/dev/null 2>&1; then
+  printf 'host python3가 없어 EleSim 안전 제거기를 실행할 수 없습니다.\n' >&2
+  exit 127
+fi
+export PYTHONPATH=/home/idim/elesim/maintenance
+export PYTHONNOUSERSITE=1
+export PYTHONDONTWRITEBYTECODE=1
+cd -- /home/idim/elesim/maintenance
+exec python3 -B -S -m elesim_setup.uninstall --manifest /home/idim/elesim/install-ownership.json "$@"

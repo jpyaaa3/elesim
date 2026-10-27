@@ -1,0 +1,21 @@
+[Unit]
+Description=EleSim robot hardware endpoint
+After=network-online.target elesim-unitree-bridge.service
+Wants=network-online.target
+BindsTo=elesim-unitree-bridge.service
+ConditionPathExists=!"/home/idim/elesim/security/provisioning-required"
+
+[Service]
+Type=simple
+User=idim
+SupplementaryGroups=elesim-unitree
+Environment="HOME=/home/idim"
+WorkingDirectory="/home/idim/elesim/roles/robot"
+ExecStart="/home/idim/elesim/bin/elesim-robot"
+Restart=on-failure
+RestartPreventExitStatus=78
+RestartSec=2
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

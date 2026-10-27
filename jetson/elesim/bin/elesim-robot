@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -e /home/idim/elesim/security/provisioning-required || -L /home/idim/elesim/security/provisioning-required ]]; then
+  printf 'EleSim 실행 거부: managed SROS2 role bundle이 아직 provision되지 않았습니다.\n' >&2
+  printf 'operator laptop에서 elesim-connections를 실행해 전체 host generation을 적용하십시오.\n' >&2
+  exit 78
+fi
+set +u
+source /opt/ros/humble/setup.bash
+source /home/idim/elesim/ros/install/setup.bash
+set -u
+export ELESIM_SYSTEM_ID=elesim
+export ELESIM_DDS_DISCOVERY_MODE=multicast
+export ELESIM_DDS_STATIC_PEERS=''
+export ELESIM_DDS_NETWORK_INTERFACE=tailscale0
+export ELESIM_DDS_SECURITY_PROFILE=sros2
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export ROS_LOCALHOST_ONLY=0
+export CYCLONEDDS_URI=file:///home/idim/elesim/roles/robot/config/cyclonedds.xml
+export ELESIM_DDS_VENDOR_CONFIG=/home/idim/elesim/roles/robot/config/cyclonedds.xml
+export ROS_SECURITY_ENABLE=true
+export ROS_SECURITY_STRATEGY=Enforce
+export ROS_SECURITY_KEYSTORE=/home/idim/elesim/security/roles/robot
+export ELESIM_DDS_ENCLAVE=''
+exec /home/idim/elesim/roles/robot/venv/bin/elesim-robot --config /home/idim/elesim/roles/robot/config/installed.yaml "$@"

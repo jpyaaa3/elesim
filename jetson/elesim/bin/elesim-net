@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+set +u
+source /opt/ros/humble/setup.bash
+source /home/idim/elesim/ros/install/setup.bash
+set -u
+export ELESIM_SYSTEM_ID=elesim
+export ELESIM_DDS_DISCOVERY_MODE=multicast
+export ELESIM_DDS_STATIC_PEERS=''
+export ELESIM_DDS_NETWORK_INTERFACE=tailscale0
+export ELESIM_DDS_SECURITY_PROFILE=sros2
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export ROS_LOCALHOST_ONLY=0
+export CYCLONEDDS_URI=file:///home/idim/elesim/roles/robot/config/cyclonedds.xml
+export ELESIM_DDS_VENDOR_CONFIG=/home/idim/elesim/roles/robot/config/cyclonedds.xml
+export ROS_SECURITY_ENABLE=true
+export ROS_SECURITY_STRATEGY=Enforce
+export ROS_SECURITY_KEYSTORE=/home/idim/elesim/security/roles/robot
+export ELESIM_DDS_ENCLAVE=''
+export ROS_SECURITY_ENCLAVE_OVERRIDE=''
+exec /home/idim/elesim/tools/venv/bin/elesim-net --state /home/idim/elesim/install-state.json "$@"

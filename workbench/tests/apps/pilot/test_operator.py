@@ -3,7 +3,13 @@ from __future__ import annotations
 import math
 
 from elesim_pilot.operator import OperatorDispatcher
+from elesim_pilot.pick.state import PanelState
 from elesim_protocol import OPERATOR_VIEW_SCHEMA_VERSION, decode_value
+
+
+def test_pilot_ik_target_starts_at_requested_xyz() -> None:
+    state = PanelState()
+    assert (state.target_x, state.target_y, state.target_z) == (0.3, 0.2, 0.3)
 
 
 class State:

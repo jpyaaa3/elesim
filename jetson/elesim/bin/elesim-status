@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+if (( $# == 1 )) && [[ $1 == --gpu-devices ]]; then
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    nvidia-smi --query-gpu=index,uuid --format=csv,noheader,nounits 2>/dev/null || true
+  fi
+  exit 0
+fi
+host_name="$(hostname -f 2>/dev/null || hostname 2>/dev/null || printf unknown)"
+host_ips="$(hostname -I 2>/dev/null | tr '\n' ' ' | xargs 2>/dev/null || true)"
+[[ -n $host_ips ]] || host_ips=unknown
+printf 'EleSim status (current-host only)\n'
+printf 'edition=%s\n' general-native
+printf 'host=%s\n' "$host_name"
+printf 'host_ips=%s\n' "$host_ips"
+printf 'scope=native Robot systemd units on this host\n'
+if (( $# != 0 )); then
+  printf '사용법: elesim-status [--gpu-devices]\n' >&2
+  exit 64
+fi
+status_unit() {
+  local label=$1 unit=$2 active sub_state
+  active="$(systemctl is-active "$unit" 2>/dev/null || true)"
+  sub_state="$(systemctl show -p SubState --value "$unit" 2>/dev/null || true)"
+  [[ -n $active ]] || active=not-found
+  [[ -n $sub_state ]] || sub_state=unknown
+  printf '[%s] unit=%s active=%s substate=%s host=%s ips=%s\n' "$label" "$unit" "$active" "$sub_state" "$host_name" "$host_ips"
+}
+status_unit robot elesim-robot.service
+status_unit unitree_bridge elesim-unitree-bridge.service

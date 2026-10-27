@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if (( $# != 0 )); then
+  printf '사용법: elesim-up
+' >&2
+  exit 64
+fi
+exec sudo -n systemctl start elesim-robot.service

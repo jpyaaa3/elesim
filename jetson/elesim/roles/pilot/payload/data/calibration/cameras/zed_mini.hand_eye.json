@@ -1,0 +1,8 @@
+{
+  "parent_frame": "node9",
+  "child_frame": "zed_left_optical_frame",
+  "measurement_reference_frame": "node9",
+  "translation_m": [0.08527, -0.04332, -0.04206],
+  "quaternion_xyzw": [0.5, 0.5, 0.5, 0.5],
+  "notes": "ZED Mini, under-slung below the gripper and mounted rolled 180 deg, so image up = node9 -Z. Optical axes: +X right, +Y down, +Z look (ZED SDK reports the LEFT camera as the reference frame). Origin is the LEFT lens front-surface centre derived from CAD (0807.stl / ZEDM.stl); the true imager sits a few mm behind the front glass, so subtract that along node9 +X once the datasheet offset is known. Right lens is at node9 [0.08527, 0.01968, -0.04206]; baseline is 63.0 mm along node9 +Y. This is not the mesh attachment point; see payload/data/models/assemblies/zed-mini/assets/camera/camera_frame.json for that."
+}

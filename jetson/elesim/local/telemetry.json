@@ -1,0 +1,88 @@
+{
+  "camera": {
+    "backend": "zed",
+    "error": "RuntimeError('No ZED Mini video device detected; check the USB 3 connection')",
+    "frames_published": 0,
+    "healthy": false,
+    "last_frame_at": 0.0,
+    "running": false
+  },
+  "claw_closed": false,
+  "claw_load_permille": 0,
+  "device": "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTAAMNB6-if00-port0",
+  "go2": {
+    "angular_velocity": [
+      -0.008522114716470242,
+      0.030892664566636086,
+      -0.011717907153069973
+    ],
+    "leg_q": [
+      0.0938374400138855,
+      1.2246192693710327,
+      -2.7781431674957275,
+      -0.07370291650295258,
+      1.2358825206756592,
+      -2.774604558944702,
+      0.40461117029190063,
+      1.237300157546997,
+      -2.779801607131958,
+      -0.4167827367782593,
+      1.2393286228179932,
+      -2.784477472305298
+    ],
+    "linear_velocity_body": [
+      -2.474239657601629e-08,
+      -3.171321205641675e-09,
+      -3.091291205237212e-07
+    ],
+    "position": [
+      -0.027140626683831215,
+      0.012213741429150105,
+      0.050245657563209534
+    ],
+    "rpy": [
+      0.011648360639810562,
+      -0.08458220213651635,
+      0.09297237545251846
+    ],
+    "timestamp": 1792583478.2705235
+  },
+  "hardware_read_failures": 0,
+  "imu_feedback_connected": false,
+  "imu_model": {
+    "id": "identity",
+    "version": 1
+  },
+  "imu_model_selection_id": "",
+  "lease_active": true,
+  "measurement_monotonic_s": 6111.618410036,
+  "motor_currents_ma": {
+    "1": -46,
+    "2": -3,
+    "3": -32,
+    "4": 0
+  },
+  "motor_positions_deg": {
+    "1": 181.27472527472528,
+    "2": 181.45054945054946,
+    "3": 11.780219780219781,
+    "4": 349.97802197802196,
+    "5": 339.95604395604397
+  },
+  "motor_positions_raw": {
+    "1": 2062,
+    "2": 2064,
+    "3": 134,
+    "4": 114,
+    "5": 3867
+  },
+  "q": [
+    -0.12084981684981685,
+    0.012658431937541348,
+    -0.587197806363279,
+    0.5933352279087536
+  ],
+  "q_source": "measured",
+  "safety_fault": "",
+  "torque_enabled": false
+}

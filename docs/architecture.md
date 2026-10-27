@@ -66,6 +66,13 @@ IK 목표 XYZ/방향의 표시 intent는 UI simulation-session의 `set_ik_target
 Async observer snapshot에 표시 상태를 포함하고 Observer camera만 debug
 marker를 렌더한다. Hand-eye RGB-D는 제외한다.
 
+IK 목표 XYZ의 초기값은 Pilot과 UI 모두 `(0.3, 0.2, 0.3)` m다. UI는 IK와
+숫자 설정의 입력 초안을 별도로 보관하며, 해당 변경의 Pilot 처리 응답 이후에
+요청한 snapshot을 받아야 초안을 해제한다. 먼저 요청한 옛 snapshot이나 이전
+입력의 늦은 응답은 최신 입력을 덮지 않는다. 요청 실패·timeout에서는 해당
+초안을 해제하고 오류를 표시한다. 이 초안은 측정 telemetry나 hardware 상태를
+대신하지 않는다.
+
 Robot의 Python DDS/runtime은 lease, 명령 검증과 deadman을 맡는다. 승인된 이론 q는
 Jetson 프로세스 안의 C++ arm controller로 전달한다. C++ controller는 로컬
 주기(명목상 5 ms)마다 이론 q와 최신 IMU sample을 `correction_model.cpp`의

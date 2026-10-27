@@ -1,10 +1,26 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-21. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-23. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### IK 기본 좌표와 숫자 입력 되돌림 수정 (2026-10-23)
+
+- Pilot `PanelState`와 UI의 오프라인 초기 IK 목표를 `(0.3, 0.2, 0.3)` m로
+  맞췄다. UI 숫자 입력은 로컬 초안으로 유지하고, Pilot 처리 응답 이후에 보낸
+  snapshot에서 확인한 값으로 동기화한다. IK XYZ·방향, mock 좌표·방향과
+  allowlist의 숫자 설정에 적용한다. 오래된 snapshot·응답이 최신 입력을 덮지
+  않으며, 실패·timeout은 초안을 해제하고 기존 오류 경로로 알린다.
+- Ubuntu의 기존 `elesim-ui` Conda 환경에서 UI 전체 **123 passed**, Pilot
+  dispatcher·기본 좌표 **7 passed**. 기존 `elesim-sim` 환경에서 Pilot operator
+  surface **7 passed, 1 skipped**. UI 환경의 SciPy 부재로 수집하지 못한 Pilot
+  surface를 의존성이 있는 기존 Sim 환경에서 실행했으며, 새 패키지는 설치하지
+  않았다. Generated dev wrapper 부재로 canonical Docker gates는 미실행이다.
+- 실제 GUI 입력·다중 호스트 DDS는 미검증이며 Jetson 설치 wheel과 실행 중인
+  프로세스는 갱신하지 않았다. 배포된 Pilot은 수정본 설치 후 재시작해야 새
+  기본값을 사용한다. 소스 설치 UI는 재실행하면 입력 수정이 반영된다.
 
 ### main 통합 전 macOS 호스트 검증 (2026-10-21)
 

@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "curobo_version": "0.7.8+elesim.1",
+  "joint_names": [
+    "j_plate_housing",
+    "j_housing_wedge",
+    "j_wedge_node0",
+    "j_node4_node5"
+  ],
+  "q_bounds": [
+    [
+      -0.17266666666666666,
+      0.0
+    ],
+    [
+      -1.5707963267948966,
+      1.5707963267948966
+    ],
+    [
+      -0.6283185307179586,
+      0.6283185307179586
+    ],
+    [
+      -0.6283185307179586,
+      0.6283185307179586
+    ]
+  ],
+  "sources": {
+    "arm.urdf": "d21ae4ff4917306d55450de1c30f3d8eb4c841588684733cce62ba729ce4a8f6",
+    "robot_config.yaml": "a0ed8376a90c89f3a70dc11c4d79844176bcb35e8eeab766277f18c6a9e5dd91",
+    "arm_model.json": "ad00122b9ba19c77cd4d817634fba310e5e3e758e21688c52db400f2f570cbe7",
+    "assets/plate/plate_mesh.obj": "77cdc669b8c35c235db6edb951a12a01ce706f379ed5a73ad97ae687a4acea67",
+    "assets/housing/housing_mesh.obj": "7bd8aec718f9b3541f403bd457448a29d60de193f5e29e14c56e05ac70df8e21",
+    "assets/wedge/wedge_mesh.obj": "b466e42154e2ae890b41094e5738412187fbcf352fb634706418286f7f09889d",
+    "assets/node/node_mesh.obj": "05a412f156ed8c5261d41fa31c9e8ff36d7cc9512139c8f47ab6e81d658c669a",
+    "assets/node_end/node_end_mesh.obj": "b2362cfa1872f04ce988bc2b688f08dc1826c4c7b1a9d126d58d0dc3b228ce65",
+    "assets/gripper_base/gripper_base_mesh.obj": "597581d382eb8f9df2783949f4c9c18c468227cc8162679ec55fa523abf63668",
+    "assets/gripper_claw_left/gripper_claw_left_mesh.obj": "b07092ed3187a12cab9bd068fdaa442b85e3671458c373a28b45e0b22ed1febb",
+    "assets/gripper_claw_right/gripper_claw_right_mesh.obj": "11401fbae8eaf572da9f33ca1626debb5c498d79119fdad7ae5196e4eced940c"
+  },
+  "voxel_m": 0.03,
+  "link_voxel_m": {
+    "plate": 0.03,
+    "housing": 0.03,
+    "wedge": 0.03,
+    "node0": 0.03,
+    "node1": 0.03,
+    "node2": 0.03,
+    "node3": 0.03,
+    "node4": 0.03,
+    "node5": 0.03,
+    "node6": 0.03,
+    "node7": 0.03,
+    "node8": 0.03,
+    "node9": 0.03,
+    "gripper_base": 0.03,
+    "gripper_claw_left": 0.015,
+    "gripper_claw_right": 0.015
+  },
+  "max_velocity": [
+    0.2,
+    3.5,
+    1.0,
+    1.0
+  ],
+  "robot_velocity_scale": 1.0,
+  "separated_pairs": [
+    {
+      "parent": "housing",
+      "child": "node0",
+      "min_gap_m": 0.016627809334007277
+    },
+    {
+      "parent": "wedge",
+      "child": "node1",
+      "min_gap_m": 0.010678070312660836
+    },
+    {
+      "parent": "housing",
+      "child": "node1",
+      "min_gap_m": 0.03867807031266084
+    },
+    {
+      "parent": "node0",
+      "child": "node2",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "wedge",
+      "child": "node2",
+      "min_gap_m": 0.010678070312660836
+    },
+    {
+      "parent": "housing",
+      "child": "node2",
+      "min_gap_m": 0.03867807031266084
+    },
+    {
+      "parent": "node1",
+      "child": "node3",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "node0",
+      "child": "node3",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "housing",
+      "child": "node3",
+      "min_gap_m": 0.016324964719991814
+    },
+    {
+      "parent": "node2",
+      "child": "node4",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "node1",
+      "child": "node4",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "node3",
+      "child": "node5",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "node2",
+      "child": "node5",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "node4",
+      "child": "node6",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "node3",
+      "child": "node6",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "node5",
+      "child": "node7",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "node4",
+      "child": "node7",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "node6",
+      "child": "node8",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "node5",
+      "child": "node8",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "node7",
+      "child": "node9",
+      "min_gap_m": 0.01067807031266084
+    },
+    {
+      "parent": "node6",
+      "child": "node9",
+      "min_gap_m": 0.007163870648416996
+    },
+    {
+      "parent": "node7",
+      "child": "gripper_base",
+      "min_gap_m": 0.022139192073856492
+    }
+  ],
+  "sphere_count": 1005,
+  "grasp_offset_local": [
+    0.12300000000000007,
+    -0.012,
+    0.020919999999999994
+  ],
+  "artifacts": {
+    "arm.urdf": "5eef2df8c97a3cd45e790e59378882c651ebc9985a6de0a3746e8cb8e6846ea0",
+    "robot.yml": "922089a24713c3e53d829a0bcd4b1b7b0706cebf57fd1b237a4a23d4ece24948"
+  }
+}

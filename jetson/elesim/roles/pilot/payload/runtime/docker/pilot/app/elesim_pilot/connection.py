@@ -1,0 +1,773 @@
+"""Direct protocol-v6 DDS connection for the pilot deployment."""
+
+from __future__ import annotations
+
+import queue
+import math
+import threading
+import time
+import uuid
+from dataclasses import dataclass
+from typing import Any, Callable, Mapping, Optional
+
+from elesim_protocol import (
+    CAPABILITY_OPERATOR_CONTROL,
+    CAPABILITY_SIM_MOCK_HUG,
+    CAPABILITY_STREAM_RGBD,
+    CAPABILITY_STREAM_RGBD_BROKER,
+    DdsRuntimeSettings,
+    DdsTransportError,
+    EndpointDescriptor,
+    Envelope,
+    PeerClient,
+    ProtocolError,
+    SimMappingConfig,
+    SimulationStatusPayload,
+    MEDIA_KIND_RGBD,
+    MEDIA_SECURITY_DDS,
+    MEDIA_SECURITY_NONE,
+    MEDIA_TRANSPORT_DDS,
+    MediaStreamDescriptor,
+    encode_value,
+)
+from elesim_protocol.tracing import current_trace_context, message_span, sampled_span
+
+
+@dataclass(frozen=True)
+class _Submission:
+    kind: str
+    payload: dict[str, Any]
+    force: bool = False
+
+
+def canonical_motion_payload(message: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert the pilot command API to one canonical motion payload."""
+
+    command = str(message.get("t", "")).strip()
+    if not command:
+        raise ValueError("pilot command requires t")
+    body = {
+        str(key): value
+        for key, value in message.items()
+        if key not in {"t", "ts", "seq"}
+    }
+    if "u" in body:
+        raise ValueError("pilot must resolve partial motor input to canonical q")
+    q = body.get("q")
+    if isinstance(q, Mapping):
+        body["q"] = [
+            float(q["linear_m"]),
+            float(q["roll_rad"]),
+            float(q["theta1_rad"]),
+            float(q["theta2_rad"]),
+        ]
+    return {"command": command, **body}
+
+
+class PilotConnection:
+    """Owns the Pilot's DDS participant and direct peer traffic.
+
+    Workflow threads submit plain commands to a queue. The connection thread
+    alone spins the ROS executor, which keeps rclpy lifecycle and callbacks on
+    one thread.
+    """
+
+    def __init__(
+        self,
+        *,
+        pilot_id: str,
+        initial_target: str,
+        mapping: SimMappingConfig,
+        state_sink: Any,
+        dds_settings: Optional[DdsRuntimeSettings] = None,
+        rgbd_topic: str = "",
+        send_hz: float = 30.0,
+        discover_period_s: float = 1.0,
+        endpoint_factory: Callable[..., Any] = PeerClient,
+    ) -> None:
+        self.pilot_id = str(pilot_id)
+        self.desired_target = str(initial_target)
+        self.mapping = mapping
+        self.state_sink = state_sink
+        self.dds_settings = dds_settings
+        self.rgbd_topic = str(rgbd_topic).strip()
+        self.send_period_s = 0.0 if send_hz <= 0.0 else 1.0 / float(send_hz)
+        self.discover_period_s = max(0.1, float(discover_period_s))
+        self.endpoint_factory = endpoint_factory
+
+        self.stop_event = threading.Event()
+        self.ready = threading.Event()
+        self.thread: Optional[threading.Thread] = None
+        self.active_target = ""
+        self.lease_id = ""
+        self.endpoints: list[dict[str, Any]] = []
+        self.operator_handler: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
+        self.on_target_selected: Optional[Callable[[dict[str, Any]], None]] = None
+        self.on_target_changed: Optional[Callable[[str], None]] = None
+        self.simulation_status_handler: Optional[
+            Callable[[SimulationStatusPayload], None]
+        ] = None
+        self.control_tick: Optional[Callable[[], None]] = None
+        self.on_closing: Optional[Callable[[], None]] = None
+        self.motion_guard: Optional[Callable[[dict[str, Any]], bool]] = None
+        self.telemetry_received_at: Optional[float] = None
+        self.trajectory_telemetry: dict[str, Any] = {}
+        self._measurement_stamp: Optional[float] = None
+
+        self._outbox: queue.Queue[_Submission] = queue.Queue()
+        self._outbox_lock = threading.Lock()
+        self._pending_target: Optional[dict[str, Any]] = None
+        self._last_target_sent_at: Optional[float] = None
+        self._connection_thread_ident: Optional[int] = None
+        self._active_endpoint: Any = None
+        self._last_discover_at: Optional[float] = None
+        self._selection_requested = ""
+        self._selection_requested_at: Optional[float] = None
+        self._diagnostic_seen: dict[str, float] = {}
+        self._imu_model_lock = threading.Lock()
+        self._imu_model_request: Optional[dict[str, Any]] = None
+        self._imu_model_route: tuple[str, str] = ("", "")
+        self._imu_model_applied = False
+        self._imu_model_error = ""
+        self._imu_model_sent_at: Optional[float] = None
+        self._imu_model_message_id = ""
+        self._imu_model_selection_id = ""
+
+    def start(self) -> None:
+        if self.thread is not None and self.thread.is_alive():
+            return
+        self.stop_event.clear()
+        self.ready.clear()
+        self.thread = threading.Thread(
+            target=self._run,
+            name="pilot-dds",
+            daemon=True,
+        )
+        self.thread.start()
+        if not self.ready.wait(timeout=3.0):
+            raise RuntimeError("pilot protocol connection failed to start")
+
+    def close(self) -> None:
+        self.stop_event.set()
+        if self.thread is not None:
+            self.thread.join(timeout=3.0)
+        self.state_sink.peer_connected(False)
+
+    def submit(self, message: Mapping[str, Any], *, force: bool = False) -> None:
+        payload = dict(message)
+        if str(payload.get("t", "")).strip() == "sim_reset":
+            submission = _Submission("reset", payload, True)
+            with self._outbox_lock:
+                # Respawn supersedes commands waiting in the normal motion
+                # queue and the rate-limited latest target.
+                pending_selects: list[_Submission] = []
+                while True:
+                    try:
+                        queued = self._outbox.get_nowait()
+                    except queue.Empty:
+                        break
+                    if queued.kind == "select":
+                        pending_selects.append(queued)
+                on_connection_thread = (
+                    threading.get_ident() == self._connection_thread_ident
+                    and self._active_endpoint is not None
+                )
+                if on_connection_thread:
+                    self._pending_target = None
+                    self._last_target_sent_at = None
+                    try:
+                        self._send_motion(
+                            self._active_endpoint,
+                            canonical_motion_payload(payload),
+                        )
+                    except DdsTransportError as exc:
+                        self.state_sink.accept_error(
+                            f"urgent simulation reset deferred after DDS send failure: {exc}"
+                        )
+                        self._outbox.put(submission)
+                else:
+                    self._outbox.put(submission)
+                for pending_select in pending_selects:
+                    self._outbox.put(pending_select)
+            return
+        with self._outbox_lock:
+            self._outbox.put(_Submission("motion", payload, bool(force)))
+
+    def select_target(self, target_id: str) -> None:
+        self.desired_target = str(target_id)
+        self._selection_requested = ""
+        self._selection_requested_at = None
+        with self._outbox_lock:
+            self._outbox.put(_Submission("select", {"target_id": self.desired_target}, True))
+
+    def motion_route(self) -> tuple[str, str, str]:
+        descriptor = next((d for d in self.endpoints if d.get("endpoint_id") == self.active_target), {})
+        return self.active_target, str(descriptor.get("instance_id", "")), self.lease_id
+
+    def clear_pending_motion(self) -> None:
+        with self._outbox_lock:
+            retained = []
+            while True:
+                try:
+                    item = self._outbox.get_nowait()
+                except queue.Empty:
+                    break
+                if item.kind != "motion" or item.payload.get("t") in {"torque_off", "estop"}:
+                    retained.append(item)
+            for item in retained:
+                self._outbox.put(item)
+            self._pending_target = None
+
+    def send_trajectory_q(self, q: list[float], route: tuple[str, str, str]) -> None:
+        if threading.get_ident() != self._connection_thread_ident or self._active_endpoint is None:
+            raise RuntimeError("trajectory samples must be sent on the DDS thread")
+        if self.motion_route() != route or not all(route):
+            raise RuntimeError("trajectory route fence changed")
+        self._active_endpoint.send("motion_command", target_id=route[0], lease_id=route[2],
+                                   payload={"command": "target", "source": "curobo", "q": q})
+
+    def release_trajectory_route(self, route: tuple[str, str, str]) -> None:
+        if self._active_endpoint is not None and self.motion_route() == route:
+            self._active_endpoint.send("release_target", payload={})
+
+    def select_imu_model(self, model: Mapping[str, Any]) -> dict[str, Any]:
+        target = self.active_target
+        descriptor = next(
+            (item for item in self.endpoints if item.get("endpoint_id") == target), None
+        )
+        if descriptor is None or descriptor.get("role") != "robot" or not self.lease_id:
+            raise RuntimeError("IMU model requires an active Robot motion lease")
+        with self._imu_model_lock:
+            self._imu_model_request = dict(model)
+            self._imu_model_route = (target, self.lease_id)
+            self._imu_model_applied = False
+            self._imu_model_error = ""
+            self._imu_model_sent_at = None
+            self._imu_model_message_id = ""
+            self._imu_model_selection_id = uuid.uuid4().hex
+        return self.imu_model_status()
+
+    def imu_model_status(self) -> dict[str, Any]:
+        with self._imu_model_lock:
+            model = self._imu_model_request or {}
+            return {
+                "requested": {
+                    "id": model.get("id"), "version": model.get("version"),
+                } if model else {},
+                "active": self._imu_model_applied,
+                "error": self._imu_model_error,
+            }
+
+    def _run(self) -> None:
+        streams = {}
+        capabilities = [CAPABILITY_OPERATOR_CONTROL, CAPABILITY_SIM_MOCK_HUG]
+        if self.rgbd_topic:
+            streams["rgbd"] = MediaStreamDescriptor(
+                transport=MEDIA_TRANSPORT_DDS,
+                media_kind=MEDIA_KIND_RGBD,
+                endpoint=self.rgbd_topic,
+                security=(
+                    MEDIA_SECURITY_DDS
+                    if self.dds_settings is not None
+                    and self.dds_settings.security_profile == "sros2"
+                    else MEDIA_SECURITY_NONE
+                ),
+                format="encoded-rgbd-v1",
+            )
+            capabilities.extend((CAPABILITY_STREAM_RGBD, CAPABILITY_STREAM_RGBD_BROKER))
+        endpoint = self.endpoint_factory(
+            EndpointDescriptor(
+                self.pilot_id,
+                "pilot",
+                tuple(capabilities),
+                streams=streams or None,
+            ),
+            settings=self.dds_settings,
+            trace_context_provider=current_trace_context,
+        )
+        self._connection_thread_ident = threading.get_ident()
+        self._active_endpoint = endpoint
+        identity = getattr(endpoint, "identity", None)
+        if identity is None:
+            identity = getattr(getattr(endpoint, "node", None), "identity", None)
+        self._diagnostic(
+            "lifecycle",
+            dedupe="started",
+            state="started",
+            endpoint=self.pilot_id,
+            boot=getattr(identity, "boot_id", "unknown"),
+        )
+        self.ready.set()
+        try:
+            while not self.stop_event.is_set():
+                try:
+                    endpoint.heartbeat()
+                    # Target updates are coalesced to the latest value; poll
+                    # twice per former cycle so an operator slider does not
+                    # wait behind a 20 ms DDS receive timeout.
+                    messages = tuple(endpoint.receive(timeout_ms=10))
+                    self.state_sink.peer_connected(bool(endpoint.registered))
+                    for message in messages:
+                        self.handle_envelope(endpoint, message)
+                    now = time.monotonic()
+                    self.drain_outbox(endpoint, now=now)
+                    self.flush_target(endpoint, now=now)
+                    self.flush_imu_model(endpoint, now=now)
+                    if self.control_tick is not None:
+                        self.control_tick()
+                    if endpoint.registered and (
+                        self._last_discover_at is None
+                        or now - self._last_discover_at >= self.discover_period_s
+                    ):
+                        endpoint.send("discover", payload={})
+                        self._last_discover_at = now
+                except DdsTransportError as exc:
+                    self.state_sink.peer_connected(False)
+                    self.state_sink.accept_error(f"DDS peer transport failed: {exc}")
+                    self._diagnostic(
+                        "transport",
+                        dedupe=f"error:{exc}",
+                        state="failed",
+                        error=exc,
+                    )
+                    self.stop_event.wait(0.1)
+                except (ProtocolError, ValueError) as exc:
+                    self.state_sink.accept_error(f"protocol receive failed: {exc}")
+        finally:
+            try:
+                if self.on_closing is not None:
+                    self.on_closing()
+            finally:
+                self._active_endpoint = None
+                self._connection_thread_ident = None
+                endpoint.close()
+
+    def handle_envelope(self, endpoint: Any, message: Envelope) -> None:
+        trace_message: dict[str, Any] = {
+            "t": message.message_type,
+            "seq": message.seq,
+            "source": message.source_id,
+            "_trace": dict(message.trace_context or {}),
+        }
+        with message_span(
+            "elesim_pilot.connection.PilotConnection.handle_envelope",
+            trace_message,
+            endpoint=self.pilot_id,
+            direction="consume",
+        ):
+            self._handle_envelope(endpoint, message)
+
+    def _handle_envelope(self, endpoint: Any, message: Envelope) -> None:
+        payload = dict(message.payload or {})
+        message_type = message.message_type
+        if message_type == "endpoint_list":
+            raw_endpoints = payload.get("endpoints", [])
+            self.endpoints = [dict(value) for value in raw_endpoints if isinstance(value, Mapping)]
+            endpoint_ids = ",".join(
+                sorted(str(value.get("endpoint_id", "")) for value in self.endpoints)
+            )
+            self._diagnostic(
+                "discovery",
+                dedupe=f"endpoints:{endpoint_ids}",
+                state="endpoint-list",
+                endpoint=self.pilot_id,
+                peers=endpoint_ids or "none",
+            )
+            self._request_desired_target(endpoint)
+            return
+        if message_type == "target_selected":
+            self.telemetry_received_at = None
+            self._measurement_stamp = None
+            self.trajectory_telemetry = {}
+            self.active_target = str(payload.get("target_id", ""))
+            self.lease_id = str(payload.get("lease_id", ""))
+            with self._imu_model_lock:
+                if self._imu_model_route != (self.active_target, self.lease_id):
+                    self._imu_model_request = None
+                    self._imu_model_applied = False
+                    self._imu_model_error = ""
+            self._selection_requested = self.active_target
+            self._selection_requested_at = None
+            self._diagnostic(
+                "target",
+                dedupe=f"selected:{self.active_target}",
+                state="selected",
+                source=self.pilot_id,
+                target=self.active_target,
+                lease=self.lease_id,
+            )
+            self.state_sink.target_changed(self.active_target)
+            self._notify_target_changed(self.active_target)
+            descriptor = next(
+                (value for value in self.endpoints if value.get("endpoint_id") == self.active_target),
+                None,
+            )
+            if descriptor is not None and self.on_target_selected is not None:
+                try:
+                    self.on_target_selected(dict(descriptor))
+                except (KeyError, ProtocolError, TypeError, ValueError) as exc:
+                    self.state_sink.accept_error(
+                        f"target stream configuration failed: {exc}"
+                    )
+            return
+        if message_type in {"target_lost", "target_released"}:
+            # A local loss event can be queued before a newer grant is
+            # delivered in the same receive pass. Keep that new authority.
+            if message.lease_id and (
+                message.source_id != self.active_target
+                or message.lease_id != self.lease_id
+            ):
+                return
+            self._diagnostic(
+                "target",
+                dedupe=f"lost:{self.active_target}",
+                state="lost",
+                source=self.pilot_id,
+                target=self.active_target or "none",
+            )
+            self.active_target = ""
+            self.telemetry_received_at = None
+            self._measurement_stamp = None
+            self.trajectory_telemetry = {}
+            self.lease_id = ""
+            with self._imu_model_lock:
+                self._imu_model_request = None
+                self._imu_model_applied = False
+                self._imu_model_error = ""
+            self._selection_requested = ""
+            self._selection_requested_at = None
+            self.state_sink.target_changed("")
+            self._notify_target_changed("")
+            endpoint.send("discover", payload={})
+            self._last_discover_at = time.monotonic()
+            return
+        if message_type == "telemetry":
+            if not self.active_target or message.source_id == self.active_target:
+                self.state_sink.accept_telemetry(payload)
+                if message.source_id == self.active_target:
+                    self.trajectory_telemetry = payload
+                    q = payload.get("q")
+                    stamp = payload.get("measurement_monotonic_s")
+                    valid = (payload.get("q_source") == "measured" and
+                             isinstance(q, (list, tuple)) and len(q) == 4 and
+                             all(isinstance(v, (int, float)) and math.isfinite(v) for v in q) and
+                             isinstance(stamp, (int, float)) and math.isfinite(stamp))
+                    if valid and (self._measurement_stamp is None or stamp > self._measurement_stamp):
+                        self._measurement_stamp = stamp
+                        self.telemetry_received_at = time.monotonic()
+                    elif not valid:
+                        self.telemetry_received_at = None
+                with self._imu_model_lock:
+                    if (
+                        self._imu_model_request is not None
+                        and (message.source_id, message.lease_id)
+                        == self._imu_model_route
+                        and payload.get("imu_model") == {
+                            "id": self._imu_model_request.get("id"),
+                            "version": self._imu_model_request.get("version"),
+                        }
+                        and payload.get("imu_model_selection_id")
+                        == self._imu_model_selection_id
+                    ):
+                        self._imu_model_applied = True
+                        self._imu_model_error = ""
+            return
+        if message_type == "simulation_status":
+            if self.active_target and message.source_id != self.active_target:
+                return
+            try:
+                status = SimulationStatusPayload.from_payload(payload)
+            except ProtocolError as exc:
+                self.state_sink.accept_error(f"invalid simulation status: {exc}")
+                return
+            if self.simulation_status_handler is not None:
+                self.simulation_status_handler(status)
+            return
+        if message_type == "ack":
+            self.state_sink.accept_ack(payload)
+            with self._imu_model_lock:
+                if (
+                    payload.get("reply_to") == self._imu_model_message_id
+                    and (message.source_id, message.lease_id) == self._imu_model_route
+                    and not payload.get("ok", False)
+                ):
+                    reason = str(payload.get("reason", "model rejected"))
+                    if reason != "stale_sequence":
+                        self._imu_model_error = reason
+            return
+        if message_type == "error":
+            self.state_sink.accept_error(str(payload.get("reason", "peer error")))
+            return
+        if message_type == "operator_intent":
+            request_id = str(payload.get("request_id", ""))
+            if self.operator_handler is None:
+                result = {
+                    "request_id": request_id,
+                    "ok": False,
+                    "error": "pilot_not_ready",
+                }
+            else:
+                try:
+                    result = self.operator_handler(payload)
+                except Exception as exc:
+                    reason = f"operator handler failed: {exc}"
+                    self.state_sink.accept_error(reason)
+                    result = {"request_id": request_id, "ok": False, "error": reason}
+            self._send_operator_result(endpoint, message, request_id=request_id, result=result)
+
+    def _send_operator_result(
+        self,
+        endpoint: Any,
+        message: Envelope,
+        *,
+        request_id: str,
+        result: Mapping[str, Any],
+    ) -> None:
+        try:
+            wire_result = encode_value(dict(result))
+            if not isinstance(wire_result, dict):
+                raise ProtocolError("operator result must be an object")
+        except (ProtocolError, TypeError, ValueError) as exc:
+            reason = f"invalid operator result: {exc}"
+            self.state_sink.accept_error(reason)
+            wire_result = {"request_id": request_id, "ok": False, "error": reason}
+        try:
+            endpoint.send(
+                "operator_result",
+                target_id=message.source_id,
+                payload=wire_result,
+                trace_context=message.trace_context,
+            )
+        except (DdsTransportError, ProtocolError, TypeError, ValueError) as exc:
+            self.state_sink.accept_error(f"operator result send failed: {exc}")
+
+    def _request_desired_target(
+        self,
+        endpoint: Any,
+        *,
+        now: Optional[float] = None,
+    ) -> None:
+        if not self.desired_target or self.active_target == self.desired_target:
+            return
+        if not any(value.get("endpoint_id") == self.desired_target for value in self.endpoints):
+            self._diagnostic(
+                "discovery",
+                dedupe=f"waiting:{self.desired_target}",
+                state="waiting-target",
+                source=self.pilot_id,
+                target=self.desired_target,
+            )
+            return
+        current = time.monotonic() if now is None else float(now)
+        if (
+            self._selection_requested == self.desired_target
+            and self._selection_requested_at is not None
+            and current - self._selection_requested_at < self.discover_period_s
+        ):
+            return
+        endpoint.send("select_target", payload={"target_id": self.desired_target})
+        self._diagnostic(
+            "target",
+            dedupe=f"request:{self.desired_target}",
+            state="select-requested",
+            source=self.pilot_id,
+            target=self.desired_target,
+        )
+        self._selection_requested = self.desired_target
+        self._selection_requested_at = current
+
+    def _notify_target_changed(self, target_id: str) -> None:
+        if self.on_target_changed is None:
+            return
+        try:
+            self.on_target_changed(str(target_id))
+        except Exception as exc:
+            self.state_sink.accept_error(f"target change callback failed: {exc}")
+
+    def drain_outbox(self, endpoint: Any, *, now: float) -> None:
+        while True:
+            with self._outbox_lock:
+                try:
+                    submission = self._outbox.get_nowait()
+                except queue.Empty:
+                    return
+                if submission.kind == "reset":
+                    self._pending_target = None
+                    self._last_target_sent_at = None
+            if submission.kind == "reset":
+                try:
+                    self._send_motion(
+                        endpoint,
+                        canonical_motion_payload(submission.payload),
+                    )
+                except DdsTransportError:
+                    with self._outbox_lock:
+                        self._outbox.put(submission)
+                    raise
+                continue
+            if submission.kind == "select":
+                self._selection_requested = ""
+                self._selection_requested_at = None
+                self._request_desired_target(endpoint, now=now)
+                continue
+            payload = canonical_motion_payload(submission.payload)
+            if payload["command"] == "target" and not submission.force:
+                with self._outbox_lock:
+                    self._pending_target = payload
+                continue
+            try:
+                self._send_motion(
+                    endpoint,
+                    payload,
+                    allow_without_lease=payload["command"] == "estop",
+                )
+            except DdsTransportError:
+                self._outbox.put(submission)
+                raise
+            if payload["command"] == "target":
+                self._last_target_sent_at = float(now)
+
+    def flush_target(self, endpoint: Any, *, now: float) -> None:
+        with self._outbox_lock:
+            if self._pending_target is None:
+                return
+            if self._last_target_sent_at is not None and now - self._last_target_sent_at < self.send_period_s:
+                return
+            if not self.active_target or not self.lease_id:
+                return
+            payload = self._pending_target
+        self._send_motion(endpoint, payload)
+        with self._outbox_lock:
+            if self._pending_target is payload:
+                self._pending_target = None
+            self._last_target_sent_at = float(now)
+
+    def flush_imu_model(self, endpoint: Any, *, now: float) -> None:
+        with self._imu_model_lock:
+            model = self._imu_model_request
+            if (
+                model is None
+                or self._imu_model_applied
+                or self._imu_model_error
+                or self._imu_model_route != (self.active_target, self.lease_id)
+                or (
+                    self._imu_model_sent_at is not None
+                    and now - self._imu_model_sent_at < 1.0
+                )
+            ):
+                return
+            envelope = endpoint.send(
+                "motion_command",
+                target_id=self.active_target,
+                payload={
+                    "command": "set_imu_model", "model": dict(model),
+                    "selection_id": self._imu_model_selection_id,
+                },
+                lease_id=self.lease_id,
+            )
+            self._imu_model_sent_at = now
+            self._imu_model_message_id = envelope.message_id
+
+    def _send_motion(
+        self,
+        endpoint: Any,
+        payload: dict[str, Any],
+        *,
+        allow_without_lease: bool = False,
+    ) -> None:
+        if self.motion_guard is not None and not self.motion_guard(payload):
+            self._diagnostic("motion", dedupe="trajectory-owns-motion", state="blocked",
+                             reason="cuRobo workflow owns motion")
+            return
+        if not self.active_target:
+            self.state_sink.accept_error("no_active_target")
+            self._diagnostic(
+                "motion",
+                dedupe="no-target",
+                state="blocked",
+                source=self.pilot_id,
+                reason="no_active_target",
+            )
+            return
+        if not self.lease_id and not allow_without_lease:
+            self.state_sink.accept_error("no_active_lease")
+            self._diagnostic(
+                "motion",
+                dedupe="no-lease",
+                state="blocked",
+                source=self.pilot_id,
+                target=self.active_target,
+                reason="no_active_lease",
+            )
+            return
+        mock_hug = payload.get("mock_hug")
+        if isinstance(mock_hug, Mapping) and mock_hug.get("target_id"):
+            descriptor = next(
+                (
+                    value
+                    for value in self.endpoints
+                    if str(value.get("endpoint_id", "")) == self.active_target
+                ),
+                None,
+            )
+            route = (
+                self.active_target,
+                "" if descriptor is None else str(descriptor.get("instance_id", "")),
+                self.lease_id,
+            )
+            expected = tuple(
+                str(mock_hug.get(name, ""))
+                for name in ("target_id", "target_boot_id", "target_lease_id")
+            )
+            if route != expected:
+                self.state_sink.accept_error("mock_hug_route_fence_changed")
+                self._diagnostic(
+                    "motion",
+                    dedupe="mock-hug-route-fence",
+                    state="blocked",
+                    source=self.pilot_id,
+                    target=self.active_target,
+                    reason="mock_hug_route_fence_changed",
+                )
+                return
+        command = str(payload.get("command", "unknown"))
+        every = 10 if command == "target" else 1
+        with sampled_span(
+            "elesim_pilot.connection.PilotConnection._send_motion",
+            sample_key=f"motion:{command}",
+            every=every,
+            attributes={
+                "code.function.name": "elesim_pilot.connection.PilotConnection._send_motion",
+                "elesim.flow.id": f"motion.{command}",
+                "elesim.motion.command": command,
+            },
+            kind="producer",
+        ):
+            endpoint.send(
+                "motion_command",
+                target_id=self.active_target,
+                payload=payload,
+                lease_id=self.lease_id,
+            )
+
+    def _diagnostic(
+        self,
+        event: str,
+        *,
+        dedupe: str,
+        interval: float = 5.0,
+        **fields: object,
+    ) -> None:
+        now = time.monotonic()
+        previous = self._diagnostic_seen.get(dedupe)
+        if previous is not None and now - previous < interval:
+            return
+        self._diagnostic_seen[dedupe] = now
+        rendered = " ".join(
+            f"{key}={str(value).replace(chr(10), ' ')[:160]}"
+            for key, value in fields.items()
+        )
+        print(f"[pilot-dds] event={event} {rendered}", flush=True)
+
+
+__all__ = ["PilotConnection", "canonical_motion_payload"]

@@ -1,0 +1,8 @@
+{
+  "parent_frame": "node9",
+  "child_frame": "camera_color_optical_frame",
+  "measurement_reference_frame": "node9",
+  "translation_m": [0.08, 0.025, -0.025],
+  "quaternion_xyzw": [0.5, -0.5, 0.5, -0.5],
+  "notes": "RealSense optical axes: +X right, +Y down, +Z look. This is not the mesh attachment point; it is the imager/optical origin near one end of the D435 body."
+}

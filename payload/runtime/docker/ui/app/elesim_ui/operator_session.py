@@ -17,6 +17,7 @@ from elesim_protocol import (
     OPERATOR_OPERATIONS,
     OperatorViewSnapshot,
     PeerClient,
+    STATE_VALUES,
     current_trace_context,
     decode_value,
     encode_value,
@@ -39,6 +40,18 @@ _RESET_SERVICE_CALL = "reset_simulation"
 # cycle sends the remaining bounded requests after heartbeat/receive have had
 # a chance to run again.
 _MAX_OUTBOX_FLUSH_PER_CYCLE = 32
+
+# These setters change editable presentation values, never hardware feedback.
+_STATE_INPUT_CALLS = {
+    "set_target": (("x", "target_x"), ("y", "target_y"), ("z", "target_z")),
+    "set_target_dir": (("vx", "target_vx"), ("vy", "target_vy"), ("vz", "target_vz")),
+    "set_mock_object_world_xyz": (
+        ("x", "mock_object_x"), ("y", "mock_object_y"), ("z", "mock_object_z"),
+    ),
+    "set_mock_object_preferred_dir": (
+        ("x", "mock_object_dir_x"), ("y", "mock_object_dir_y"), ("z", "mock_object_dir_z"),
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -63,6 +76,14 @@ class _Request:
     on_error: Optional[ErrorCallback] = None
     sent_at: Optional[float] = None
     message_id: str = ""
+    snapshot_revision: int = -1
+
+
+@dataclass
+class _StateDraft:
+    value: Any
+    request_id: str
+    acknowledged_revision: Optional[int] = None
 
 
 class OperatorSession:
@@ -102,6 +123,9 @@ class OperatorSession:
         self._message_to_request: dict[str, str] = {}
         self._callbacks: deque[tuple[Callable[[Any], None], Any]] = deque()
         self._state: dict[str, Any] = {}
+        self._state_drafts: dict[str, _StateDraft] = {}
+        self._latest_state_edits: dict[str, str] = {}
+        self._state_ack_revision = 0
         self._service: dict[str, Any] = {}
         self._snapshot_request_id = ""
         self._last_snapshot_requested_at: Optional[float] = None
@@ -138,6 +162,19 @@ class OperatorSession:
     def state_value(self, name: str, default: Any = None) -> Any:
         with self._lock:
             return self._state.get(str(name), default)
+
+    def display_state_value(self, name: str, default: Any = None) -> Any:
+        """Keep a local edit visible until a snapshot sent after its ACK arrives."""
+        with self._lock:
+            draft = self._state_drafts.get(str(name))
+            return draft.value if draft is not None else self._state.get(str(name), default)
+
+    def _discard_state_drafts(self, request_id: str) -> None:
+        with self._lock:
+            self._state_drafts = {
+                field: draft for field, draft in self._state_drafts.items()
+                if draft.request_id != request_id
+            }
 
     def service_value(self, name: str, default: Any = None) -> Any:
         with self._lock:
@@ -235,6 +272,9 @@ class OperatorSession:
                     self._enqueue_callback(on_error, message)
                 return request.request_id
             self._requests[request.request_id] = request
+            for field, value in self._state_input_patch(request).items():
+                self._state_drafts[field] = _StateDraft(value, request.request_id)
+                self._latest_state_edits[field] = request.request_id
             if is_reset:
                 self._outbox.appendleft(request.request_id)
             else:
@@ -242,8 +282,25 @@ class OperatorSession:
         return request.request_id
 
     @staticmethod
+    def _state_input_patch(request: _Request) -> dict[str, Any]:
+        if request.operation == "state_set" and request.name in STATE_VALUES:
+            return {request.name: request.kwargs.get("value")}
+        if request.operation != "state_call":
+            return {}
+        fields = _STATE_INPUT_CALLS.get(request.name, ())
+        try:
+            return {
+                field: request.args[index] if index < len(request.args) else request.kwargs[param]
+                for index, (param, field) in enumerate(fields)
+            }
+        except KeyError:
+            return {}
+
+    @staticmethod
     def _coalesce_key(request: _Request) -> tuple[str, str] | None:
         if request.operation == "state_set":
+            return request.operation, request.name
+        if request.operation == "state_call" and request.name in _STATE_INPUT_CALLS:
             return request.operation, request.name
         if (
             request.operation == "service_call"
@@ -322,6 +379,8 @@ class OperatorSession:
                     return
                 request_id = self._outbox.popleft()
                 request = self._requests.get(request_id)
+                if request is not None and request.operation == "view_snapshot":
+                    request.snapshot_revision = self._state_ack_revision
             if request is None or request.sent_at is not None:
                 continue
             payload = {
@@ -407,6 +466,7 @@ class OperatorSession:
             if request_id == self._snapshot_request_id:
                 self._snapshot_request_id = ""
         if not ok:
+            self._discard_state_drafts(request_id)
             message = error or "operator request failed"
             self._record_error(message)
             if request.on_error is not None:
@@ -417,18 +477,32 @@ class OperatorSession:
                 view = OperatorViewSnapshot.from_payload(result)
                 with self._lock:
                     self._state = dict(view.state)
+                    self._state_drafts = {
+                        field: draft for field, draft in self._state_drafts.items()
+                        if draft.acknowledged_revision is None
+                        or request.snapshot_revision < draft.acknowledged_revision
+                    }
                     self._service = dict(view.service)
                     self._last_snapshot_at = now
                     self._last_error = ""
             elif request.operation == "state_set":
                 with self._lock:
-                    self._state[request.name] = decode_value(request.kwargs.get("value"))
+                    if self._latest_state_edits.get(request.name, request_id) == request_id:
+                        self._state[request.name] = decode_value(request.kwargs.get("value"))
             else:
                 with self._lock:
+                    self._last_snapshot_requested_at = None
+            if self._state_input_patch(request):
+                with self._lock:
+                    self._state_ack_revision += 1
+                    for draft in self._state_drafts.values():
+                        if draft.request_id == request_id:
+                            draft.acknowledged_revision = self._state_ack_revision
                     self._last_snapshot_requested_at = None
             if request.on_result is not None:
                 self._enqueue_callback(request.on_result, result)
         except Exception as exc:
+            self._discard_state_drafts(request_id)
             message = f"operator response invalid: {exc}"
             self._record_error(message)
             if request.on_error is not None:

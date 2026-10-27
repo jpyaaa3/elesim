@@ -33,6 +33,9 @@ class Session:
     def state_value(self, name: str, default=None):
         return self.state.get(name, default)
 
+    def display_state_value(self, name: str, default=None):
+        return self.state_value(name, default)
+
     def service_value(self, name: str, default=None):
         return self.service.get(name, default)
 

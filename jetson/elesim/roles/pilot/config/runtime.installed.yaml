@@ -1,0 +1,28 @@
+schema_version: 3
+runtime:
+  role: pilot
+  endpoint_id: pilot-main
+  active_target: robot-go2
+rgbd:
+  schema_version: 1
+  broker_role: pilot
+  source_role: auto
+  local_handoff: source-dds-to-pilot
+  wire:
+    format: encoded-rgbd-v1
+    capability: stream.rgbd.broker.v1
+    topic: /elesim/pilot_main/rgbd/frame
+    right_topic: /elesim/pilot_main/rgbd/right
+    left_preview_topic: /elesim/pilot_main/rgbd/left_preview
+    latest_only: true
+dds:
+  system_id: elesim-arm-20261016
+  domain_id: 68
+  rmw_implementation: rmw_cyclonedds_cpp
+  discovery_mode: multicast
+  static_peers: []
+  network_interface: wlP1p1s0
+  vendor_config: /home/idim/elesim/roles/pilot/config/cyclonedds.xml
+  security_profile: trusted-network
+  keystore: ''
+  enclave: ''

@@ -1,0 +1,28 @@
+[Unit]
+Description=EleSim Pilot control and on-device planning
+Wants=network-online.target
+After=network-online.target elesim-robot.service
+StartLimitIntervalSec=0
+ConditionPathExists=/home/idim/elesim/roles/pilot/config/installed.yaml
+ConditionPathExists=/home/idim/elesim/roles/pilot/config/runtime.installed.yaml
+
+[Service]
+Type=simple
+User=idim
+Environment=HOME=/home/idim
+Environment=PYTHONUNBUFFERED=1
+Environment=ROS_LOG_DIR=/home/idim/elesim/roles/pilot/logs/ros
+WorkingDirectory=/home/idim/elesim/roles/pilot
+ExecStartPre=/home/idim/elesim/roles/pilot/venv/bin/python /home/idim/elesim/local/systemd/wait-network.py /home/idim/elesim/roles/pilot/config/runtime.installed.yaml --timeout 120
+ExecStart=/bin/bash -c 'source /opt/ros/humble/setup.bash && source /home/idim/elesim/ros/install/setup.bash && exec /home/idim/elesim/roles/pilot/venv/bin/python -u -m elesim_pilot.main --config /home/idim/elesim/roles/pilot/config/installed.yaml --runtime-config /home/idim/elesim/roles/pilot/config/runtime.installed.yaml'
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=150
+TimeoutStopSec=30
+KillSignal=SIGINT
+KillMode=control-group
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

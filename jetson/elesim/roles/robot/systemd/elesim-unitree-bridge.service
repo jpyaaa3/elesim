@@ -1,0 +1,33 @@
+[Unit]
+Description=EleSim local Unitree DDS bridge
+After=network-online.target
+Wants=network-online.target
+PartOf=elesim-robot.service
+ConditionPathExists=!/home/idim/elesim/security/provisioning-required
+
+[Service]
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=30
+User=elesim-unitree
+Group=elesim-unitree
+UMask=0007
+RuntimeDirectory=elesim-unitree
+RuntimeDirectoryMode=0750
+WorkingDirectory=/home/idim/elesim/roles/robot
+Environment="ROS_LOG_DIR=/run/elesim-unitree/ros-log"
+ExecStart="/home/idim/elesim/bin/elesim-unitree-bridge"
+Restart=on-failure
+RestartPreventExitStatus=78
+RestartSec=2
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+DevicePolicy=closed
+InaccessiblePaths=-/etc/elesim/keystore -/etc/elesim/security -/home/idim/elesim/security -/dev/ttyUSB0 -/dev/video0
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

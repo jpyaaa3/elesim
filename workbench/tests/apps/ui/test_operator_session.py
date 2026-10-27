@@ -12,6 +12,7 @@ from elesim_protocol import (
     make_envelope,
 )
 from elesim_ui.operator_session import OperatorSession
+from elesim_ui.operator import RemotePanelState
 
 
 class Clock:
@@ -75,6 +76,110 @@ def session(clock: Clock) -> OperatorSession:
         snapshot_period_s=100.0,
         autostart=False,
     )
+
+
+def test_ik_defaults_before_the_first_pilot_snapshot() -> None:
+    state = RemotePanelState(session(Clock()))
+    assert (state.target_x, state.target_y, state.target_z) == (0.3, 0.2, 0.3)
+
+
+def test_editing_another_ik_axis_preserves_the_unacknowledged_first_axis() -> None:
+    value = session(Clock())
+    state = RemotePanelState(value)
+    state.set_target(0.42, state.target_y, state.target_z)
+    state.set_target(state.target_x, -0.15, state.target_z)
+
+    assert (state.target_x, state.target_y, state.target_z) == (0.42, -0.15, 0.3)
+    assert value.state_value("target_x") == 0.3
+    assert value.pending_count == 1
+
+
+def test_old_snapshot_after_edit_ack_cannot_roll_back_the_numeric_input() -> None:
+    clock = Clock()
+    value = session(clock)
+    endpoint = Endpoint()
+    state = RemotePanelState(value)
+    old_snapshot = value.request_snapshot()
+    value.run_cycle(endpoint)
+    edit = state.set_target(x=0.42, y=-0.15, z=0.31)
+    value.run_cycle(endpoint)
+    endpoint.inbox.append(result(edit))
+    value.run_cycle(endpoint)
+    endpoint.inbox.append(result(old_snapshot, {
+        "schema_version": OPERATOR_VIEW_SCHEMA_VERSION,
+        "state": {"target_x": 0.3, "target_y": 0.2, "target_z": 0.3},
+        "service": {},
+    }))
+    value.run_cycle(endpoint)
+    assert (state.target_x, state.target_y, state.target_z) == (0.42, -0.15, 0.31)
+
+    # A snapshot requested after the acknowledgement can apply canonical
+    # remote values, including changes made elsewhere in Pilot.
+    fresh_snapshot = value._snapshot_request_id
+    assert fresh_snapshot and fresh_snapshot != old_snapshot
+    endpoint.inbox.append(result(fresh_snapshot, {
+        "schema_version": OPERATOR_VIEW_SCHEMA_VERSION,
+        "state": {"target_x": 0.41, "target_y": -0.14, "target_z": 0.32},
+        "service": {},
+    }))
+    value.run_cycle(endpoint)
+    assert (state.target_x, state.target_y, state.target_z) == (0.41, -0.14, 0.32)
+
+
+def test_numeric_state_set_keeps_draft_separate_from_confirmed_state() -> None:
+    value = session(Clock())
+    state = RemotePanelState(value)
+    state.visual_target_scale = 0.25
+    assert state.visual_target_scale == 0.25
+    assert value.state_value("visual_target_scale") == 0.16
+
+
+@pytest.mark.parametrize("method,fields", [
+    ("set_target_dir", ("target_vx", "target_vy", "target_vz")),
+    ("set_mock_object_world_xyz", ("mock_object_x", "mock_object_y", "mock_object_z")),
+    ("set_mock_object_preferred_dir", ("mock_object_dir_x", "mock_object_dir_y", "mock_object_dir_z")),
+])
+def test_vector_numeric_inputs_hold_their_values_while_waiting_for_pilot(method, fields) -> None:
+    state = RemotePanelState(session(Clock()))
+    getattr(state, method)(0.12, -0.34, 0.56)
+    assert tuple(getattr(state, field) for field in fields) == (0.12, -0.34, 0.56)
+
+
+def test_late_old_write_ack_cannot_replace_the_latest_numeric_edit() -> None:
+    value = session(Clock())
+    endpoint = Endpoint()
+    state = RemotePanelState(value)
+    old_edit = value.submit("state_set", "visual_target_scale", value=0.20)
+    value.run_cycle(endpoint)
+    new_edit = value.submit("state_set", "visual_target_scale", value=0.25)
+    value.run_cycle(endpoint)
+    endpoint.inbox.extend((result(new_edit), result(old_edit)))
+    value.run_cycle(endpoint)
+    assert state.visual_target_scale == 0.25
+    assert value.state_value("visual_target_scale") == 0.25
+
+
+def test_failed_old_edit_does_not_discard_a_newer_draft() -> None:
+    value = session(Clock())
+    endpoint = Endpoint()
+    state = RemotePanelState(value)
+    old_edit = state.set_target(0.41, 0.2, 0.3)
+    value.run_cycle(endpoint)
+    state.set_target(0.42, 0.2, 0.3)
+    endpoint.inbox.append(result(old_edit, ok=False))
+    value.run_cycle(endpoint)
+    assert state.target_x == 0.42
+
+
+def test_timed_out_numeric_edit_releases_its_draft() -> None:
+    clock = Clock()
+    value = session(clock)
+    state = RemotePanelState(value)
+    state.set_target(0.42, 0.2, 0.3)
+    clock.now = 1.1
+    value._expire_requests(now=clock.now)
+    assert state.target_x == 0.3
+    assert "timed out" in value.status.last_error
 
 
 def test_construction_and_submission_do_not_wait_for_a_pilot() -> None:

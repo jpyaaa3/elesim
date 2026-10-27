@@ -55,16 +55,16 @@ class RemotePanelState:
 
     def mock_object_world_xyz(self) -> tuple[float, float, float]:
         return (
-            float(self._session.state_value("mock_object_x", 0.5)),
-            float(self._session.state_value("mock_object_y", 0.0)),
-            float(self._session.state_value("mock_object_z", 1.2)),
+            float(self._session.display_state_value("mock_object_x", 0.5)),
+            float(self._session.display_state_value("mock_object_y", 0.0)),
+            float(self._session.display_state_value("mock_object_z", 1.2)),
         )
 
     def mock_object_preferred_dir(self) -> tuple[float, float, float]:
         return (
-            float(self._session.state_value("mock_object_dir_x", 1.0)),
-            float(self._session.state_value("mock_object_dir_y", 0.0)),
-            float(self._session.state_value("mock_object_dir_z", 0.0)),
+            float(self._session.display_state_value("mock_object_dir_x", 1.0)),
+            float(self._session.display_state_value("mock_object_dir_y", 0.0)),
+            float(self._session.display_state_value("mock_object_dir_z", 0.0)),
         )
 
     def __getattr__(self, name: str) -> Any:
@@ -72,7 +72,7 @@ class RemotePanelState:
             return lambda *args, **kwargs: self._session.submit(
                 "state_call", name, *args, **kwargs
             )
-        value = self._session.state_value(name, _MISSING)
+        value = self._session.display_state_value(name, _MISSING)
         if value is not _MISSING:
             return value
         raise AttributeError(name)

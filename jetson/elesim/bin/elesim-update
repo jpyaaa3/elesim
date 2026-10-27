@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+expected_update_uid=1000
+actual_update_uid="$(id -u)"
+if [[ "$actual_update_uid" != "$expected_update_uid" ]]; then
+  printf '%s\n' 'EleSim update must run as the user that owns this installation.' >&2
+  printf '  expected UID: %s; current UID: %s\n' "$expected_update_uid" "$actual_update_uid" >&2
+  exit 77
+fi
+recorded_repository=jpyaaa3/elesim
+recorded_ref=wrap-grasp-rl
+repository="${ELESIM_REPOSITORY:-$recorded_repository}"
+ref="${ELESIM_REF:-$recorded_ref}"
+if [[ -z "$repository" || -z "$ref" || "$repository" == *[[:space:]]* || "$ref" == *[[:space:]]* ]]; then
+  printf '%s\n' 'EleSim update refused: repository/ref must be non-empty single-line values.' >&2
+  exit 2
+fi
+printf '[elesim-update] source=%s@%s\n' "$repository" "$ref"
+curl -fsSL "https://raw.githubusercontent.com/${repository}/${ref}/installer/bootstrap/install.sh" | ELESIM_REPOSITORY="$repository" ELESIM_REF="$ref" ELESIM_INVOCATION_DIR=/home/idim/elesim bash -s -- --state /home/idim/elesim/install-state.json update --edition general
+printf '%s\n' '[elesim-update] update completed.'

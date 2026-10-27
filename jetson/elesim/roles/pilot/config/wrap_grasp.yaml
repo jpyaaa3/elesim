@@ -1,0 +1,8 @@
+policy_path: /home/idim/elesim/roles/pilot/data/policies/wrap-grasp/gpu2-20261020-model-best/policy.pt
+manifest_path: /home/idim/elesim/roles/pilot/data/policies/wrap-grasp/gpu2-20261020-model-best/interface.json
+object:
+  radius_m: 0.05
+  height_m: 1.1
+  xyz_m: [0.368, 0.16, 0.55]
+  lean: [0.0, 0.0]
+roll_sign: 1.0
