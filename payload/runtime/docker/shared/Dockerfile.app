@@ -111,6 +111,9 @@ RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -
 # BuildKit has no GPU. Check the CUDA user-space linkage and CPU extension now;
 # an actual Orin CUDA/NMS/YOLO probe remains a separate runtime verification.
 RUN if [ "$PILOT_TORCH_STACK" = jetson-cu126 ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends libnuma1 libatomic1 && \
+      rm -rf /var/lib/apt/lists/* && \
       python -m pip check && \
       python -c 'import numpy as np, torch, torchvision; assert torch.__version__ == "2.11.0"; assert torch.version.cuda == "12.6"; assert torchvision.__version__ == "0.26.0"; assert torch.ops.torchvision._cuda_version() == 12060; torch.from_numpy(np.zeros(1, dtype=np.float32)); assert torchvision.ops.nms(torch.tensor([[0., 0., 1., 1.]]), torch.tensor([1.]), 0.5).tolist() == [0]; assert torchvision.io.encode_jpeg(torch.zeros((3, 8, 8), dtype=torch.uint8)).numel() > 0'; \
     fi
