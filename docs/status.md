@@ -6,6 +6,20 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### AdaPoinTr 도입 시험 (2026-10-27, 진행 중)
+
+- 기존 설치 설정·일반 세션·MPPI 제어값은 유지하고 원격 GPU2의 설치 소유
+  Compose 진단 작업으로 시험한다. 공식 PoinTr source `4603257`과 공식 PCN
+  checkpoint SHA256 `f58a5650…664fa1`을 확보했다. ShapeNet-55 링크는 HTML
+  페이지를 반환해 아직 가중치를 확보하지 못했다.
+- 기존 Torch 2.12.1+cu130 이미지에는 nvcc/PointNet++ 확장이 없다. 원본 forward와
+  checkpoint를 유지하며 필요한 FPS를 기존 Triton으로 실행하는 연구용 backend를
+  만들었다. 학습 loss는 비활성이고 기존 runtime package를 변경하지 않는다.
+  공식 FPS의 near-zero 제외·초기점·tie 규칙을 CPU 참조와 GPU에서 대조할 예정이다.
+- 센서점만으로 정규화하고 metric 좌표로 역변환하는 성질, 입력점 보존과
+  invalid/degenerate 입력 거부의 host TDD는 red 이후 **6 passed**다. 실제 GPU
+  model 추론, 별도 RGB-D 물체의 완성 품질·처리 시간 검증은 남았다.
+
 ### 불완전한 관절로 생긴 시각 기울기 보정 (2026-10-26, 소프트웨어·정적 Genesis 검증)
 
 - 목표는 실제 바닥의 semantic identity나 Z=0 높이를 찾는 것이 아니라 팔의
