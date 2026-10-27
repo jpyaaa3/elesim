@@ -83,6 +83,43 @@ def test_jetson_stack_changes_fingerprint_and_preserves_generic_lock(local_state
     ).read_bytes()
 
 
+@pytest.mark.parametrize("gpu_mode", ("inherit", "specific", "cpu"))
+def test_jetson_runtime_keeps_gpu_reservation_and_cpu_policy(local_state, jetson_host, gpu_mode):
+    state = local_state(roles=("pilot",), compute=ComputeSettings(
+        gpu_mode=gpu_mode, gpu_device="GPU-orin" if gpu_mode == "specific" else "",
+    ))
+    installer = ContainerInstaller(state)
+    installer._image_fingerprints["elesim/pilot:local"] = "b" * 64
+    service = installer._role_service(
+        "pilot", instance_scoped=True,
+        config_root=state.prefix_path / "instances/test/config",
+        cache_root=state.prefix_path / "instances/test/cache",
+        data_root=state.prefix_path / "releases/pinned/data",
+    )
+    if gpu_mode == "cpu":
+        assert "runtime" not in service and "gpus" not in service and "deploy" not in service
+        assert service["environment"]["CUDA_VISIBLE_DEVICES"] == ""
+    else:
+        assert service["runtime"] == "nvidia"
+        if gpu_mode == "specific":
+            devices = service["deploy"]["resources"]["reservations"]["devices"]
+            assert devices[0]["device_ids"] == ("GPU-orin",)
+            assert "CUDA_VISIBLE_DEVICES" not in service["environment"]
+        else:
+            assert service["gpus"] == "all"
+
+
+def test_jetson_tools_preserves_runtime_facts_for_scoped_registration(local_state, jetson_host, monkeypatch):
+    installer = ContainerInstaller(local_state(roles=("pilot",)))
+    installer._image_fingerprints["elesim/tools:local"] = "a" * 64
+    environment = installer._tools_service()["environment"]
+    assert environment["ELESIM_HOST_JETSON"] == "1"
+    monkeypatch.setenv("ELESIM_HOST_L4T_RELEASE", environment["ELESIM_HOST_L4T_RELEASE"])
+    service = {"environment": {}}
+    installer._apply_compute(service)
+    assert service["runtime"] == "nvidia"
+
+
 @pytest.mark.parametrize("failure,expected", (("download", 23), ("checksum", 1)))
 def test_jetson_repository_failure_stops_before_apt(tmp_path, failure, expected):
     script = Path(__file__).resolve().parents[3] / "payload/runtime/docker/shared/install_jetson_cuda.sh"

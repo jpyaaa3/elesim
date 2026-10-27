@@ -37,7 +37,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   metadata를 검증했고 대상 호스트의 기존 wheel과도 동일하다. CUDA12.6·cuDNN은
   NVIDIA의 signed Jetson repo, cuDSS 0.8.0은 hash 고정 aarch64/CUDA12 archive를 쓴다.
   CPU와 일반 host lock은 유지하며 알려지지 않은 Jetson GPU release는 먼저 거부한다.
-- Host setup **1,325 passed**다. source 보존·context fingerprint·outer-host release 전달·
+- Host setup **1,331 passed**다. source 보존·context fingerprint·outer-host release 전달·
   다운로드/서명키 hash 실패 시 중단을 확인한다. 대상 호스트의 기존 Torch 조합은
   실제 Orin SM8.7에서 GPU 행렬 연산과 CUDA NMS를 통과했다. 이는 새 이미지의
   성공 증거와 구분하며 정식 update/build 및 이미지 GPU 검증은 진행 중이다.
@@ -46,6 +46,10 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   host bootstrap과 새 setup subprocess에서 상속 Python 경로를 분리하고
   사전검사 오류에 실제 stderr를 남긴다. bootstrap/lock/update/Jetson 집중 회귀
   **142 passed**이며 lock descriptor와 보유 검사는 변경하지 않았다.
+- JetPack CSV hook은 `--gpus all`만 전달하면 컨테이너 시작을 거부하는 것도
+  실제 호스트에서 재현했다. 같은 이미지의 `/bin/true`가 `--runtime=nvidia`를
+  함께 지정하면 통과했다. GPU Compose와 이후 tools 내부 scoped 등록에도
+  같은 runtime을 사용하며 CPU·device_ids·CUDA index 규약은 유지한다.
 - 원격 Robot 두 service와 Docker container가 모두 정지/없는 상태임을 기록했다.
   모터나 DDS 제어 명령은 보내지 않는다. canonical dev 환경의 기존 공백은 유지한다.
 

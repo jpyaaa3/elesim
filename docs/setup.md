@@ -202,6 +202,10 @@ NVIDIA의 서명된 Jetson APT 저장소에서 CUDA 12.6·cuDNN user-space libra
 NumPy 연동과 CPU NMS를 검사하고 `pip check`를 유지한다. 실제 GPU 연산은
 별도 runtime probe로 확인한다. CPU 선택과 일반 amd64 이미지는 기존 Torch
 규약을 유지하며 지원하지 않는 Jetson GPU/L4T 조합은 파일 생성 전에 거부한다.
+JetPack CSV mode의 GPU 컨테이너는 Compose에 `runtime: nvidia`도 명시한다.
+`gpus: all`이나 특정 GPU의 `device_ids` 예약은 유지하고, CPU 모드는 이
+런타임을 요청하지 않는다. Tools에도 설치 host의 L4T 정보를 기록해 이후
+scoped instance 등록에서 같은 GPU 런타임을 생성한다.
 
 신규 container 설치의 runtime namespace는 `elesim-<install name>`으로
 고정된다. 한 설치의 여러 system instance가 이 project를 공유하지만, 다른

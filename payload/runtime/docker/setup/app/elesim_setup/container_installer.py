@@ -1712,6 +1712,11 @@ class ContainerInstaller:
         if selected.gpu_mode == "cpu":
             environment["CUDA_VISIBLE_DEVICES"] = ""
             return
+        if detect_jetson_l4t() is not None:
+            # JetPack's CSV-mode hook cannot be invoked by --gpus alone.
+            # Retain the reservation (including an exact device_ids policy),
+            # but enter it through the NVIDIA runtime rather than plain runc.
+            service["runtime"] = "nvidia"
         environment["NVIDIA_DRIVER_CAPABILITIES"] = "compute,utility,graphics"
         if selected.gpu_mode == "specific":
             service["deploy"] = {
@@ -1760,6 +1765,15 @@ class ContainerInstaller:
         # this service.  The tools image runs as the numeric host UID and
         # deliberately has no host passwd database to resolve it.
         environment["ELESIM_HOST_USER"] = _resolve_viewer_user()
+        l4t = detect_jetson_l4t()
+        if l4t is not None:
+            # Instance registration runs inside this tools service. Preserve
+            # the install host fact there so its pure renderer keeps the same
+            # GPU runtime when generating endpoint-scoped Compose services.
+            environment["ELESIM_HOST_JETSON"] = "1"
+            environment["ELESIM_HOST_L4T_RELEASE"] = (
+                f"# R{l4t[0]} (release), REVISION: {l4t[1]}.{l4t[2]}"
+            )
         service: dict[str, object] = {
             "image": self._image_name("tools"),
             "build": {
