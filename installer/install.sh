@@ -168,6 +168,10 @@ if [[ -r /etc/os-release ]]; then
   host_os_version="$(sed -n 's/^VERSION_ID=//p' /etc/os-release | head -n 1 | tr -d '"')"
 fi
 host_jetson=0
+host_l4t_release=""
+if [[ -r /etc/nv_tegra_release ]]; then
+  host_l4t_release="$(head -n 1 /etc/nv_tegra_release)"
+fi
 if [[ -r /etc/nv_tegra_release ]] || \
    { [[ -r /proc/device-tree/model ]] && grep -qi jetson /proc/device-tree/model; }; then
   host_jetson=1
@@ -290,6 +294,7 @@ docker_args=(
   --env "ELESIM_HOST_OS_ID=$host_os_id"
   --env "ELESIM_HOST_OS_VERSION=$host_os_version"
   --env "ELESIM_HOST_JETSON=$host_jetson"
+  --env "ELESIM_HOST_L4T_RELEASE=$host_l4t_release"
   --env "ELESIM_HOST_WSL=$host_wsl"
   --env "ELESIM_HOST_WSLG=$host_wslg"
   --env "ELESIM_HOST_DISPLAY=$host_display"
@@ -377,6 +382,7 @@ host_bootstrap_env=(
   "ELESIM_HOST_OS_ID=$host_os_id"
   "ELESIM_HOST_OS_VERSION=$host_os_version"
   "ELESIM_HOST_JETSON=$host_jetson"
+  "ELESIM_HOST_L4T_RELEASE=$host_l4t_release"
   "ELESIM_HOST_WSL=$host_wsl"
   "ELESIM_HOST_WSLG=$host_wslg"
   "ELESIM_HOST_DISPLAY=$host_display"

@@ -27,6 +27,23 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   준비 미완료로 canonical required/extended·real-RMW·isolated-release gate와
   실제 GPU 렌더링·물리 동작은 미실행이다.
 
+### Orin Pilot CUDA 12.6 이미지 분리 (2026-10-27, 이미지 실검증 진행 중)
+
+- AGX Orin / L4T 36.5 / JetPack 6.2.2의 첫 Pilot release가 마지막 `pip check`에서
+  `nvidia-cusparselt-cu13 0.8.1 is not supported on this platform`로 실패했다.
+  기존 Dockerfile이 JetPack 6에도 PyPI Torch 2.12.1/CUDA13을 설치한 것이 원인이다.
+- L4T 36.4/36.5의 GPU Pilot context는 Jetson AI Lab의 CUDA12.6 Torch 2.11.0 /
+  torchvision 0.26.0 wheel을 URL·SHA256으로 고정한다. 두 원본을 직접 받아 hash와
+  metadata를 검증했고 대상 호스트의 기존 wheel과도 동일하다. CUDA12.6·cuDNN은
+  NVIDIA의 signed Jetson repo, cuDSS 0.8.0은 hash 고정 aarch64/CUDA12 archive를 쓴다.
+  CPU와 일반 host lock은 유지하며 알려지지 않은 Jetson GPU release는 먼저 거부한다.
+- Host setup **1,325 passed**다. source 보존·context fingerprint·outer-host release 전달·
+  다운로드/서명키 hash 실패 시 중단을 확인한다. 대상 호스트의 기존 Torch 조합은
+  실제 Orin SM8.7에서 GPU 행렬 연산과 CUDA NMS를 통과했다. 이는 새 이미지의
+  성공 증거와 구분하며 정식 update/build 및 이미지 GPU 검증은 진행 중이다.
+- 원격 Robot 두 service와 Docker container가 모두 정지/없는 상태임을 기록했다.
+  모터나 DDS 제어 명령은 보내지 않는다. canonical dev 환경의 기존 공백은 유지한다.
+
 ### Jetson Robot 설치 source 누락 수정 (2026-10-27)
 
 - Git에 존재하는 `native_arm/`을 bootstrap archive 추출 목록에서 누락해

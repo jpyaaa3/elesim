@@ -17,7 +17,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN set -eux; \
     packages="ca-certificates python3-colcon-common-extensions python3-pip python3-venv python-is-python3 ros-humble-rmw-cyclonedds-cpp ros-humble-rosidl-default-generators ros-humble-sros2"; \
     case "$ROLE" in \
-      pilot) packages="$packages libgl1 libglib2.0-0 libgomp1" ;; \
+      pilot) packages="$packages libgl1 libglib2.0-0 libgomp1 curl xz-utils" ;; \
       ui) packages="$packages libgl1 libgl1-mesa-dri libglx-mesa0 libglu1-mesa libglfw3 libx11-6 libxcursor1 libxi6 libxinerama1 libxrandr2 libxxf86vm1 libfontconfig1" ;; \
       sim) packages="$packages build-essential cmake curl git python3-dev swig python3-pip python-is-python3 libgl1 libegl1 libglx-mesa0 libosmesa6 libglfw3 libglib2.0-0 libx11-6 libxext6 libxrender1" ;; \
       *) echo "unsupported role: $ROLE" >&2; exit 2 ;; \
@@ -76,8 +76,19 @@ RUN set -eu; if [ "$ROLE" = sim ]; then \
 # Image dependencies only distinguish CPU-only Torch from CUDA-capable Torch.
 # Runtime inherit/specific device selection is applied by Compose below.
 ARG COMPUTE_MODE=cuda
+ARG PILOT_TORCH_STACK=generic
+ARG TARGETARCH
+COPY install_jetson_cuda.sh /tmp/elesim/install_jetson_cuda.sh
+RUN set -eu; \
+    case "$PILOT_TORCH_STACK" in \
+      generic) ;; \
+      jetson-cu126) \
+        test "$ROLE" = pilot; test "$TARGETARCH" = arm64; test "$COMPUTE_MODE" = cuda; \
+        sh /tmp/elesim/install_jetson_cuda.sh ;; \
+      *) echo "unsupported Pilot Torch stack: $PILOT_TORCH_STACK" >&2; exit 2 ;; \
+    esac
 RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -m pip install --upgrade "pip<26" "setuptools>=68,<80" wheel && \
-    if [ "$ROLE" = pilot ] || [ "$ROLE" = sim ]; then \
+    if { [ "$ROLE" = pilot ] || [ "$ROLE" = sim ]; } && [ "$PILOT_TORCH_STACK" = generic ]; then \
       if [ "$COMPUTE_MODE" = cpu ]; then \
         torch_index="https://download.pytorch.org/whl/cpu"; \
         torch_version="2.12.1+cpu"; \
@@ -96,6 +107,13 @@ RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -
 
 COPY requirements.lock /opt/elesim/requirements.lock
 RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -m pip install -r /opt/elesim/requirements.lock
+
+# BuildKit has no GPU. Check the CUDA user-space linkage and CPU extension now;
+# an actual Orin CUDA/NMS/YOLO probe remains a separate runtime verification.
+RUN if [ "$PILOT_TORCH_STACK" = jetson-cu126 ]; then \
+      python -m pip check && \
+      python -c 'import numpy as np, torch, torchvision; assert torch.__version__ == "2.11.0"; assert torch.version.cuda == "12.6"; assert torchvision.__version__ == "0.26.0"; assert torch.ops.torchvision._cuda_version() == 12060; torch.from_numpy(np.zeros(1, dtype=np.float32)); assert torchvision.ops.nms(torch.tensor([[0., 0., 1., 1.]]), torch.tensor([1.]), 0.5).tolist() == [0]; assert torchvision.io.encode_jpeg(torch.zeros((3, 8, 8), dtype=torch.uint8)).numel() > 0'; \
+    fi
 
 RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked \
     if [ "$ROLE" = sim ] && [ "$COMPUTE_MODE" != cpu ]; then \

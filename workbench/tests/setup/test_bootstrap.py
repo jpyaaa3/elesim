@@ -114,6 +114,8 @@ def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, b
         "payload/runtime/docker/shared/Dockerfile.app": b"FROM scratch\n",
         "payload/runtime/docker/shared/install_go2_pympc.sh": b"#!/bin/sh\n",
         "payload/runtime/docker/shared/generate_go2_pympc.py": b"#!/usr/bin/env python3\n",
+        "payload/runtime/docker/shared/install_jetson_cuda.sh": b"#!/bin/sh\n",
+        "payload/runtime/docker/pilot/requirements.jetson.lock": b"",
         "payload/runtime/docker/setup/Dockerfile": b"FROM scratch\n",
         "payload/runtime/docker/setup/tools-entrypoint": b"#!/bin/sh\n",
         "payload/runtime/docker/shared/robotpkg.asc": b"public key\n",

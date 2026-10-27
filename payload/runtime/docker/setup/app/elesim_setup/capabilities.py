@@ -17,6 +17,25 @@ _GPU_LINE = re.compile(
 )
 
 
+def detect_jetson_l4t(
+    *, root: Path = Path("/"), environ: Mapping[str, str] | None = None,
+) -> tuple[int, int, int] | None:
+    """Read outer-host L4T facts without querying Docker or initializing CUDA."""
+    environment = os.environ if environ is None else environ
+    flag = environment.get("ELESIM_HOST_JETSON", "").strip().lower()
+    if flag in {"0", "false", "no"}:
+        return None
+    raw = environment.get("ELESIM_HOST_L4T_RELEASE", "").strip()
+    if not raw:
+        raw = _read_text(root / "etc/nv_tegra_release").strip()
+    if not raw and flag not in {"1", "true", "yes"}:
+        return None
+    match = re.search(r"#\s*R(\d+)\s*\(release\),\s*REVISION:\s*(\d+)\.(\d+)", raw)
+    if match is None:
+        raise ValueError("Jetson L4T release is missing or invalid; rerun the current installer bootstrap")
+    return tuple(int(value) for value in match.groups())
+
+
 @dataclass(frozen=True)
 class GpuDevice:
     index: str

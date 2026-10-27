@@ -88,6 +88,8 @@ _BOOTSTRAP_SOURCE_FILES = frozenset(
         PurePosixPath("payload/runtime/docker/shared/Dockerfile.app"),
         PurePosixPath("payload/runtime/docker/shared/install_go2_pympc.sh"),
         PurePosixPath("payload/runtime/docker/shared/generate_go2_pympc.py"),
+        PurePosixPath("payload/runtime/docker/shared/install_jetson_cuda.sh"),
+        PurePosixPath("payload/runtime/docker/pilot/requirements.jetson.lock"),
         PurePosixPath("payload/runtime/docker/setup/Dockerfile"),
         PurePosixPath("payload/runtime/docker/setup/tools-entrypoint"),
         PurePosixPath("payload/runtime/docker/shared/robotpkg.asc"),

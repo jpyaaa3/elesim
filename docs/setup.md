@@ -193,6 +193,16 @@ Robot의 물리 arm 경로는 설치 시 `g++`로 C++ controller와 포함된 Dy
 SDK를 빌드하므로 Jetson에 C++17 컴파일러도 있어야 한다. 보정 placeholder는
 현재 이론 q를 그대로 통과시킨다.
 
+L4T 36.4/36.5의 Pilot GPU 이미지는 Orin용 CUDA 12.6 stack을 사용한다.
+Bootstrap이 바깥 host의 L4T release를 전달하며 생성된 build context는
+Jetson AI Lab의 Torch 2.11.0 / torchvision 0.26.0 wheel URL과 SHA256을 고정한다.
+NVIDIA의 서명된 Jetson APT 저장소에서 CUDA 12.6·cuDNN user-space library를,
+고정 hash의 aarch64/CUDA12 archive에서 cuDSS를 준비한다. 컨테이너가 host
+드라이버나 kernel package를 설치하지 않는다. BuildKit 안에서는 CUDA 버전,
+NumPy 연동과 CPU NMS를 검사하고 `pip check`를 유지한다. 실제 GPU 연산은
+별도 runtime probe로 확인한다. CPU 선택과 일반 amd64 이미지는 기존 Torch
+규약을 유지하며 지원하지 않는 Jetson GPU/L4T 조합은 파일 생성 전에 거부한다.
+
 신규 container 설치의 runtime namespace는 `elesim-<install name>`으로
 고정된다. 한 설치의 여러 system instance가 이 project를 공유하지만, 다른
 설치나 legacy 고정 project를 자동으로 인수하지 않는다.
@@ -667,6 +677,7 @@ legacy generated path가 manifest 없이 남아 있으면 자동 adopt하지 않
 | observer가 깨짐/렉 | `elesim-instance <system> status`의 encoder/backend/streams와 Sim perf fields | NVENC/libx264 fallback, scene render, camera conversion, MPC solve를 각각 측정한다. QoS를 무작정 낮추지 않는다. |
 | Robot 설치에서 `/opt/ros/humble/setup.bash` 없음 | Jetson host의 ROS 2 Humble, `colcon`, `~/ros2_ws/install/setup.bash` | 해당 prerequisites가 있는 Jetson은 bootstrap이 host venv 경로를 선택한다. 파일이 없으면 ROS 2/Unitree workspace를 먼저 준비하고, 컨테이너 로그에서 이 오류가 나면 bootstrap source를 갱신한다. |
 | Robot 설치에서 `Installation source is incomplete`와 `native_arm/…` 누락 | 설치용 archive 추출기가 Robot C++/SDK 디렉터리를 제외한 구버전 bootstrap | 최신 `installer/install.sh`를 다시 받아 `--refresh`로 실행한다. Git에는 있는 파일을 설치 snapshot에서 빠뜨리던 문제이며 SDK를 별도 설치하거나 캐시를 직접 지우지 않는다. |
+| Orin Pilot 첫 이미지에서 `nvidia-cusparselt-cu13 … is not supported on this platform` | JetPack 6의 CUDA 12.6 대신 범용 PyPI CUDA 13 Torch를 설치한 구형 context | 새 `elesim-update`로 Jetson용 context와 release를 갱신한다. 기존 Robot을 제거하거나 `pip check`를 무시하지 않는다. |
 | `canonicalize_version(... strip_trailing_zero ...)`로 `elesim_interfaces` 빌드 실패 | host Python의 `setuptools`/`packaging` 혼합 | bootstrap이 캐시 venv에 호환되는 metadata 패키지를 설치하고 ROSIDL 빌드에만 우선 사용한다. host 전역 `pip`를 업그레이드하지 않는다. |
 | `managed SROS2 pending` | manager에서 generation `provision`/`rotate`/`recover` | generation transaction을 끝내기 전 role을 임의로 up하지 않는다. |
 | `elesim-update` 후 옛 동작 | update는 container나 instance pin을 교체하지 않음 | 새 release를 명시적으로 register/replace한 뒤 `elesim-instance <system> up`한다. |

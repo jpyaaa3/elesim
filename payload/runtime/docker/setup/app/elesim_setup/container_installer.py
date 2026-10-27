@@ -18,6 +18,7 @@ from typing import Callable, Mapping, Sequence
 
 import yaml
 
+from .capabilities import detect_jetson_l4t
 from .configuration import (
     bind_installed_data_paths,
     copy_app_config_tree,
@@ -1098,6 +1099,7 @@ class ContainerInstaller:
             root / "payload/runtime/docker/shared/Dockerfile.app",
             root / "payload/runtime/docker/shared/install_go2_pympc.sh",
             root / "payload/runtime/docker/shared/generate_go2_pympc.py",
+            root / "payload/runtime/docker/shared/install_jetson_cuda.sh",
             root / "payload/runtime/docker/setup/Dockerfile",
             root / "payload/runtime/docker/setup/tools-entrypoint",
             root / "payload/runtime/docker/shared/robotpkg.asc",
@@ -1116,6 +1118,9 @@ class ContainerInstaller:
             required.append(root / "payload/data/models/assemblies/d435/bundle.json")
             required.append(root / "payload/data/models/objects/demo_box.obj")
         if "pilot" in self.state.roles:
+            required.append(root / "payload/runtime/docker/pilot/requirements.jetson.lock")
+            # Reject unsupported Jetson GPU stacks before touching owned files.
+            self._role_build_args("pilot")
             required.append(root / "payload/config/pilot/imu_models/identity.json")
             required.append(root / "payload/data/models/arm/default.json")
             required.append(root / "payload/data/models/perception/yolov8n-seg.pt")
@@ -1194,13 +1199,20 @@ class ContainerInstaller:
             self._copy_role_payload_data(source_root, data_root, role)
 
     def _role_build_args(self, role: str) -> dict[str, str]:
-        return {
+        args = {
             "ROLE": role,
             "BASE_IMAGE": self._ROS_BASE_IMAGE,
             "COMPUTE_MODE": docker_build_compute_mode(self.state.compute.gpu_mode),
             "INSTALL_GO2_MPC": "1" if self.state.install_go2_mpc else "0",
             "INSTALL_GO2_PYMPC": "1" if self.state.install_go2_mpc else "0",
         }
+        if role == "pilot" and args["COMPUTE_MODE"] != "cpu":
+            l4t = detect_jetson_l4t()
+            if l4t is not None:
+                if l4t[:2] not in {(36, 4), (36, 5)}:
+                    raise ValueError("Jetson Pilot GPU requires L4T 36.4/36.5 (JetPack 6.1/6.2, CUDA 12.6)")
+                args["PILOT_TORCH_STACK"] = "jetson-cu126"
+        return args
 
     def _write_role_context(self, role: str) -> None:
         root = self.state.source_path
@@ -1210,8 +1222,10 @@ class ContainerInstaller:
         _copy_source_tree(source, context)
         shutil.copy2(root / "payload/runtime/docker/shared/Dockerfile.app", context / "Dockerfile")
         shutil.copy2(root / "payload/runtime/docker/shared/robotpkg.asc", context / "robotpkg.asc")
-        for name in ("install_go2_pympc.sh", "generate_go2_pympc.py"):
+        for name in ("install_go2_pympc.sh", "generate_go2_pympc.py", "install_jetson_cuda.sh"):
             shutil.copy2(root / "payload/runtime/docker/shared" / name, context / name)
+        if self._role_build_args(role).get("PILOT_TORCH_STACK") == "jetson-cu126":
+            shutil.copy2(source / "requirements.jetson.lock", context / "requirements.lock")
         _copy_source_tree(root / "payload/runtime/common/protocol", context / "protocol")
         _copy_source_tree(
             root / "payload/runtime/common/elesim_interfaces",
