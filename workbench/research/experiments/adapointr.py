@@ -11,6 +11,17 @@ class CloudFrame:
     meters_per_unit: float
 
 
+def pcn_axes(points):
+    """Involutive Z-up/PCN Y-up axis ordering from upstream NormalizeObjectPose.
+
+    This orders coordinates as (x,z,y), exactly as the published KITTI-to-PCN
+    transform. No ground-truth object heading or bounding box is consulted.
+    """
+    points=np.asarray(points)
+    if points.ndim!=2 or points.shape[1]!=3:raise ValueError('invalid point axes')
+    return points[:,[0,2,1]].copy()
+
+
 def normalize_partial(points, *, radius=.5):
     """Declare an observed-centroid frame without consulting complete geometry."""
     points=np.asarray(points,dtype=np.float64)

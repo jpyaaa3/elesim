@@ -61,3 +61,12 @@ def test_independent_box_metrics_distinguish_partial_from_full_surface():
     surface=sample_box(center,size,rotation,count=12000)
     np.testing.assert_allclose(box_distance(surface,center,size,rotation),0,atol=1e-14)
     np.testing.assert_allclose(box_distance(np.array([center,center+[.3,0,0]]),center,size,rotation),[.1,.2])
+
+
+def test_world_up_is_mapped_to_pcn_up_without_oracle_yaw_or_scale():
+    from workbench.research.experiments.adapointr import pcn_axes
+    directions=np.array([[0.,0.,1.],[1.,0.,0.],[0.,1.,0.]])
+    np.testing.assert_array_equal(pcn_axes(directions),[[0,1,0],[1,0,0],[0,0,1]])
+    points=np.random.default_rng(51).normal(size=(300,3))*.02+[.7,-.1,.6]
+    normalized,frame=normalize_partial(points)
+    np.testing.assert_allclose(restore_completion(pcn_axes(pcn_axes(normalized)),frame),points,atol=2e-7)
