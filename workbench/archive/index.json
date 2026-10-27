@@ -1,0 +1,305 @@
+{
+  "schema_version": 1,
+  "created": "2026-10-27",
+  "base_head": "0dbe47456619593fb5403b17dee1c7c6b5e78181",
+  "archives": [
+    {
+      "file": "retired-tools-20261027.zip",
+      "sha256": "c3a4726cb606cc7be9cc350c3e72b05df7b3317f5f1b2439d27f78f7b9191ed5",
+      "bytes": 50787,
+      "entries": [
+        {
+          "original_path": "workbench/research/analysis/adapointr_examples.py",
+          "member": "worktree/workbench/research/analysis/adapointr_examples.py",
+          "sha256": "25e1edbdf367d0e6448d7db0ceee7a6efe3955ce6b25cec9d45611b211bc66e5",
+          "bytes": 6216,
+          "origin": "working-tree",
+          "reason": "One-off example IDs and old AP-PS55 trial layout"
+        },
+        {
+          "original_path": "workbench/research/analysis/adapointr_plot.py",
+          "member": "worktree/workbench/research/analysis/adapointr_plot.py",
+          "sha256": "2f17db4a536b8eaea0ce842acc57e74745bd8aff3b5b0857c0aa64222721a705",
+          "bytes": 5564,
+          "origin": "working-tree",
+          "reason": "Old PCN r05 trial layout"
+        },
+        {
+          "original_path": "workbench/research/analysis/adapointr_preprocessing_plot.py",
+          "member": "worktree/workbench/research/analysis/adapointr_preprocessing_plot.py",
+          "sha256": "9299c27c9cf5033453055d4a0940e8acd3f77c3b1536526a1ecc43c5fe594d5d",
+          "bytes": 4430,
+          "origin": "working-tree",
+          "reason": "Historical preprocessing ablation figures"
+        },
+        {
+          "original_path": "workbench/research/analysis/adapointr_profiles_plot.py",
+          "member": "worktree/workbench/research/analysis/adapointr_profiles_plot.py",
+          "sha256": "852b75e4972212b07905f2cd3d3e592a34c36d6dcf19bad92e684767b37eb0c4",
+          "bytes": 6181,
+          "origin": "working-tree",
+          "reason": "Historical checkpoint/profile comparison figures"
+        },
+        {
+          "original_path": "workbench/research/analysis/analyze_preview_b_pitch_sign.py",
+          "member": "worktree/workbench/research/analysis/analyze_preview_b_pitch_sign.py",
+          "sha256": "ec46c0c718e8a0e2823bdb8f05bba7bac6816b19012fc575fd62c89f8aa33f88",
+          "bytes": 4290,
+          "origin": "working-tree",
+          "reason": "Old run-name convention; current suite is data-driven",
+          "retained_regression_helper": "workbench/tests/research/support/preview_sign_reference.py",
+          "retained_definitions": [
+            "_load_meta",
+            "_mean_preview_term_v",
+            "_collect_runs",
+            "_aggregate_group",
+            "compare_sign_sweep"
+          ],
+          "calculation_asts_unchanged": true,
+          "retained_helper_sha256": "426fca001770f79bd0b428ebe84dc98d0da18bb232419de09eae5df09aa6ee28"
+        },
+        {
+          "original_path": "workbench/research/analysis/make_gait_preview_final_figures.py",
+          "member": "worktree/workbench/research/analysis/make_gait_preview_final_figures.py",
+          "sha256": "8c94d98beac5e274793d1c7219996e3a6eae3a20d1c8ffb90092031bd8822bd9",
+          "bytes": 28895,
+          "origin": "working-tree",
+          "reason": "Old gaze suite-specific report"
+        },
+        {
+          "original_path": "workbench/research/analysis/vision_arm_matrix_plot.py",
+          "member": "worktree/workbench/research/analysis/vision_arm_matrix_plot.py",
+          "sha256": "ff9679ef8028ed6e50b25739f3e6a217bbf8bf85067fc2b16048c900bb1e3a26",
+          "bytes": 3642,
+          "origin": "working-tree",
+          "reason": "Historical height/mount matrix figures"
+        },
+        {
+          "original_path": "workbench/research/analysis/vision_arm_mount_evaluate.py",
+          "member": "worktree/workbench/research/analysis/vision_arm_mount_evaluate.py",
+          "sha256": "08dd08f64072c2525df0ffbaba0027fa78c5b2fc64f3fde4a079aecdec7f189e",
+          "bytes": 2932,
+          "origin": "working-tree",
+          "reason": "Deferred fixed-camera-mount experiment"
+        },
+        {
+          "original_path": "workbench/research/analysis/vision_arm_mount_fit.py",
+          "member": "worktree/workbench/research/analysis/vision_arm_mount_fit.py",
+          "sha256": "18cf1bc7dd80485e494567362171fd278864a9e98de802af3811806bdff240c5",
+          "bytes": 3999,
+          "origin": "working-tree",
+          "reason": "Deferred fixed-camera-mount CLI; regression fit is retained",
+          "retained_regression_helper": "workbench/tests/research/support/mount_fit_reference.py",
+          "retained_definitions": [
+            "fit_candidates"
+          ],
+          "calculation_asts_unchanged": true,
+          "retained_helper_sha256": "9b79519a4fc234b1b8e6a3734bfa0cb80c5911c2d9ecedf099d39b3485912ca7"
+        },
+        {
+          "original_path": "workbench/research/analysis/vision_partial_cloud_plot.py",
+          "member": "worktree/workbench/research/analysis/vision_partial_cloud_plot.py",
+          "sha256": "be1948b3554e40ee5f18d5669b7bf46ba98d87a12a1aa0441ca428851ff1ee89",
+          "bytes": 3299,
+          "origin": "working-tree",
+          "reason": "Historical six-DOF/known-height figures"
+        },
+        {
+          "original_path": "workbench/research/debug/profile_pick_e2e.py",
+          "member": "worktree/workbench/research/debug/profile_pick_e2e.py",
+          "sha256": "fbec466c39608e5ecb424928d51fc4cc10dee1c31776dc20b879b08e23a24953",
+          "bytes": 9419,
+          "origin": "working-tree",
+          "reason": "Historical standalone Pick profiler outside current benchmark catalog"
+        },
+        {
+          "original_path": "workbench/research/debug/profile_sim_startup.py",
+          "member": "worktree/workbench/research/debug/profile_sim_startup.py",
+          "sha256": "97bed836c9f3a8c175f9eac3ab00184baeb579b8af5ce20987f958b5e1bde236",
+          "bytes": 2957,
+          "origin": "working-tree",
+          "reason": "Reduced old startup scene; current Sim probe records startup separately"
+        },
+        {
+          "original_path": "workbench/research/debug/run_grasp_guided_mock.py",
+          "member": "worktree/workbench/research/debug/run_grasp_guided_mock.py",
+          "sha256": "fa1c8723c8bf4f539d980b7e8ebe6f87674fd082666ac1e0e5f33e02b7a005fe",
+          "bytes": 3891,
+          "origin": "working-tree",
+          "reason": "Historical standalone grasp launcher outside current benchmark catalog"
+        },
+        {
+          "original_path": "workbench/research/experiments/adapointr_preprocessing.py",
+          "member": "worktree/workbench/research/experiments/adapointr_preprocessing.py",
+          "sha256": "cd1d8355bac9057310b961d9d3e50e2cdb2db592498a9515806c212741f3653f",
+          "bytes": 8507,
+          "origin": "working-tree",
+          "reason": "Historical ablation runner; tested controls are retained",
+          "retained_regression_helper": "workbench/tests/research/support/completion_controls.py",
+          "retained_definitions": [
+            "prepare_control",
+            "comparison_metrics"
+          ],
+          "calculation_asts_unchanged": true,
+          "retained_helper_sha256": "2f231dd0752cdbcf9f7c903e20f2921b985e8fb94916f6daa6b56dd6c3d6ee2a"
+        },
+        {
+          "original_path": "workbench/research/experiments/demo_gaze_walking.py",
+          "member": "worktree/workbench/research/experiments/demo_gaze_walking.py",
+          "sha256": "1111aa25770f6083004c7b9682fccf5c02c52b04d44f25034e7fd5d26b0b0384",
+          "bytes": 4567,
+          "origin": "working-tree",
+          "reason": "Manual demo superseded by common walking/gaze suite"
+        },
+        {
+          "original_path": "workbench/research/experiments/pitch_trim_sweep.sh",
+          "member": "worktree/workbench/research/experiments/pitch_trim_sweep.sh",
+          "sha256": "7e25f3ba9ccfeda186f5984c59abb1ddfb31152e11c4e8279a30302011c82876",
+          "bytes": 1049,
+          "origin": "working-tree",
+          "reason": "Old manual checklist"
+        },
+        {
+          "original_path": "workbench/research/experiments/vision_arm_evaluate.py",
+          "member": "worktree/workbench/research/experiments/vision_arm_evaluate.py",
+          "sha256": "1f39a64eca17aa8d45d708f4876b1e6f94cc3bd9a378ae1aa280de5bec927aab",
+          "bytes": 7580,
+          "origin": "working-tree",
+          "reason": "Historical known-height evaluator; regression metrics are retained",
+          "retained_regression_helper": "workbench/tests/research/support/arm_matrix_metrics.py",
+          "retained_definitions": [
+            "point_metrics",
+            "evaluate_matrix"
+          ],
+          "calculation_asts_unchanged": true,
+          "retained_helper_sha256": "4e06db6e7940e319d1103ee54cff3a2c7bade2a4325aeb8792b03ac86185873f"
+        },
+        {
+          "original_path": "workbench/research/experiments/vision_evaluate.py",
+          "member": "worktree/workbench/research/experiments/vision_evaluate.py",
+          "sha256": "c791d9ebf3c6b069712c5c9a1a22d58d8e440ea3e365053e09a425fb1b32291a",
+          "bytes": 3392,
+          "origin": "working-tree",
+          "reason": "Historical six-DOF evaluator; observability regression metrics are retained",
+          "retained_regression_helper": "workbench/tests/research/support/vision_reference_metrics.py",
+          "retained_definitions": [
+            "evaluate"
+          ],
+          "calculation_asts_unchanged": true,
+          "retained_helper_sha256": "bd9682a9f2d215901299ad97092b2f4a79c8da6f513474febf2420160e92b36d"
+        },
+        {
+          "original_path": "workbench/research/experiments/vision_scene.py",
+          "member": "worktree/workbench/research/experiments/vision_scene.py",
+          "sha256": "e728727faf7131e0068f60d4304a50a3ba691cff47206e697e125c0e45d9a53a",
+          "bytes": 7594,
+          "origin": "working-tree",
+          "reason": "Historical six-DOF producer; regression scene fixture is retained",
+          "retained_regression_helper": "workbench/tests/research/support/vision_reference_scene.py",
+          "retained_definitions": [
+            "rig_pose",
+            "analytic_image",
+            "produce"
+          ],
+          "calculation_asts_unchanged": true,
+          "retained_helper_sha256": "5505ea4536914d835b14fb129b71dd9cc5537b77e61149c31d40fcc7680ed0fe"
+        },
+        {
+          "original_path": "workbench/research/experiments/run_full_walking_experiment_suite.sh",
+          "member": "head-0dbe474/workbench/research/experiments/run_full_walking_experiment_suite.sh",
+          "sha256": "52c2af637e1d6fa0100b87208317316fef5e9e3f1d7f4e920128f2e2b542c79a",
+          "bytes": 3544,
+          "origin": "HEAD before prior consolidation",
+          "reason": "Already superseded by walking_suites.json; original source recovered before commit"
+        },
+        {
+          "original_path": "workbench/research/experiments/run_full_walking_experiment_suite_resume.sh",
+          "member": "head-0dbe474/workbench/research/experiments/run_full_walking_experiment_suite_resume.sh",
+          "sha256": "8641a2e6d80c5fa83a0ba289adad6ed93c23f2f7b8904e5ff03a773be5714a39",
+          "bytes": 2422,
+          "origin": "HEAD before prior consolidation",
+          "reason": "Already superseded by walking_suites.json; original source recovered before commit"
+        },
+        {
+          "original_path": "workbench/research/experiments/run_gaze_ablation_batch.sh",
+          "member": "head-0dbe474/workbench/research/experiments/run_gaze_ablation_batch.sh",
+          "sha256": "02a3a3db92fdea7cfc8260e4752d85a50bca3cd26882f58506cf9f04f40c3912",
+          "bytes": 2027,
+          "origin": "HEAD before prior consolidation",
+          "reason": "Already superseded by walking_suites.json; original source recovered before commit"
+        },
+        {
+          "original_path": "workbench/research/experiments/run_preview_b_pitch_sign.sh",
+          "member": "head-0dbe474/workbench/research/experiments/run_preview_b_pitch_sign.sh",
+          "sha256": "edaf326cb12113614de9215319b73ab3984595bf09bc76835315956cf7984813",
+          "bytes": 1802,
+          "origin": "HEAD before prior consolidation",
+          "reason": "Already superseded by walking_suites.json; original source recovered before commit"
+        },
+        {
+          "original_path": "workbench/research/experiments/run_preview_validation.py",
+          "member": "head-0dbe474/workbench/research/experiments/run_preview_validation.py",
+          "sha256": "4e3a7ac82368b01aaf58e66a2b4b8296630e822ab5d2559e68e787e85ab746c0",
+          "bytes": 4774,
+          "origin": "HEAD before prior consolidation",
+          "reason": "Already superseded by walking_suites.json; original source recovered before commit"
+        }
+      ]
+    }
+  ],
+  "policy": "ZIP contents are local and ignored by Git. This inventory is tracked. Active code must not import from archives.",
+  "regression_assertions_removed": 0,
+  "tests_repointed": [
+    "workbench/tests/research/experiments/test_adapointr_preprocessing.py",
+    "workbench/tests/research/experiments/test_vision_partial_cloud.py",
+    "workbench/tests/research/experiments/test_vision_arm_matrix.py",
+    "workbench/tests/research/analysis/test_preview_pitch_sign.py"
+  ],
+  "verification": {
+    "date": "2026-10-27",
+    "archive_temporarily_absent_during_checks": true,
+    "archive_restored_identically": true,
+    "all_members_sha256_verified": true,
+    "active_research_sources_and_scenarios": 35,
+    "active_catalog_recipes": 9,
+    "host_checks": {
+      "analysis-tools": {
+        "passed": 33,
+        "failed": 0,
+        "skipped": 0
+      },
+      "experiment-tools": {
+        "passed": 92,
+        "failed": 0,
+        "skipped": 0
+      },
+      "debug-tools": {
+        "passed": 7,
+        "failed": 0,
+        "skipped": 1
+      },
+      "quality-tools": {
+        "passed": 42,
+        "failed": 1,
+        "skipped": 0
+      }
+    },
+    "host_totals": {
+      "passed": 174,
+      "failed": 1,
+      "skipped": 1
+    },
+    "log": "workbench/evidence/generated/archive-cleanup-20261027/checks-without-archive.log",
+    "log_sha256": "c72d8bc07ed3f6d08a0d3080f4429c74a98460b9a8bf70d09388a093e8e64f4d",
+    "existing_failure": "quality/test_readability.py: three existing runtime classes exceed the unchanged 1000-line class limit",
+    "comparison_replay": {
+      "manifest": "workbench/evidence/generated/archive-cleanup-20261027/scan-comparison/manifest.json",
+      "complete": true,
+      "accepted": false,
+      "paired_quality_passes": 5,
+      "paired_quality_episodes": 6
+    },
+    "regression_fixtures": "Six calculation definition sets match the archived originals by AST; no CLI retained",
+    "runtime_or_gpu_runs": "Not needed for source archiving; existing live gate limitations remain unchanged"
+  }
+}

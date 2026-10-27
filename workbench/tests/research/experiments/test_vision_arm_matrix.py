@@ -103,7 +103,7 @@ def test_low_table_and_camera_height_error_can_supply_identical_measurements():
 
 
 def test_multipose_mount_fit_excludes_every_object_pose_from_training(tmp_path):
-    from workbench.research.analysis.vision_arm_mount_fit import fit_candidates
+    from workbench.tests.research.support.mount_fit_reference import fit_candidates
     pilot, producer = models()
     delta = np.eye(4)
     delta[:3,:3] = Rotation.from_rotvec([.04,-.03,.05]).as_matrix()
@@ -129,7 +129,7 @@ def test_multipose_mount_fit_excludes_every_object_pose_from_training(tmp_path):
 
 def test_arm_rgbd_matrix_keeps_absent_targets_and_reports_failures(tmp_path):
     from workbench.research.experiments.vision_reconstruct import reconstruct
-    from workbench.research.experiments.vision_arm_evaluate import evaluate_matrix
+    from workbench.tests.research.support.arm_matrix_metrics import evaluate_matrix
 
     produced = tmp_path / "produced"
     generated = produce_matrix(produced, data_root=DATA,

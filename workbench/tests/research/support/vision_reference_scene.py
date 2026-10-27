@@ -1,15 +1,21 @@
-"""Produce RGB-D on a virtual encoder rig; truth stays in a separate directory.
+"""Regression fixture extracted from a retired experiment; no standalone CLI."""
 
-This is a static geometry/calibration experiment, not an arm or grasp success
-test. The analytic backend is a CPU fixture; acceptance uses Genesis rendering.
-"""
+
 from __future__ import annotations
-import argparse
+
+
 import json
+
+
 from pathlib import Path
+
+
 import uuid
 
+
 import numpy as np
+
+
 from scipy.spatial.transform import Rotation
 
 
@@ -130,16 +136,3 @@ def produce(output, *, backend="analytic", seeds=3, width=640, height=480):
         "scope":"static plane and visible object surfaces; no grasp/contact acceptance",
         "frames":frames},indent=2)+"\n")
     return {"frames":index,"backend":backend,"sensors":str(sensors),"truth":str(truth)}
-
-
-def main():
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("output",type=Path)
-    parser.add_argument("--backend",choices=("analytic","genesis"),default="analytic")
-    parser.add_argument("--seeds",type=int,default=3)
-    args=parser.parse_args()
-    if not 1<=args.seeds<=10: parser.error("seeds must be within 1..10")
-    print(json.dumps(produce(args.output,backend=args.backend,seeds=args.seeds)))
-
-
-if __name__=="__main__": main()

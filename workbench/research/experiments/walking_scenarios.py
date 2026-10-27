@@ -30,12 +30,26 @@ _ARM_PRESETS: dict[ArmPosePreset, ArmPoseValues] = {
 
 
 def get_arm_pose(preset: ArmPosePreset | str) -> ArmPoseValues:
-    return _ARM_PRESETS[ArmPosePreset(str(preset).strip().lower())]
+    key = preset if isinstance(preset, ArmPosePreset) else ArmPosePreset(str(preset).strip().lower())
+    return _ARM_PRESETS[key]
 
 
 def arm_pose_as_q(preset: ArmPosePreset | str) -> tuple[float, float, float, float]:
     pose = get_arm_pose(preset)
     return pose.linear_m, pose.roll_rad, pose.theta1_rad, pose.theta2_rad
+
+
+def validate_arm_pose(preset, mapping) -> None:
+    """Reject historical out-of-range presets rather than silently clamping them."""
+    import math
+    q = arm_pose_as_q(preset)
+    bounds = ((mapping.linear_q_min_m, mapping.linear_q_max_m),
+              (mapping.roll_q_min_rad, mapping.roll_q_max_rad),
+              (mapping.seg1_q_min_rad, mapping.seg1_q_max_rad),
+              (mapping.seg2_q_min_rad, mapping.seg2_q_max_rad))
+    if any(not math.isfinite(value) or not lower <= value <= upper
+           for value, (lower, upper) in zip(q, bounds)):
+        raise ValueError(f"historical preset {preset!r} exceeds the configured joint limits: {q}")
 
 
 BASELINE_SCENARIOS: tuple[tuple[ArmPosePreset, str, tuple[float, float, float], str], ...] = (

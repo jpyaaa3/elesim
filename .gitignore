@@ -66,3 +66,9 @@ deploy/
 
 # Regenerable workbench output. Curated evidence remains versioned separately.
 /workbench/evidence/generated/
+
+# Retired workbench sources are kept locally as verified archives.
+# Keep only the archive inventory and usage note in Git.
+/workbench/archive/*
+!/workbench/archive/README.md
+!/workbench/archive/index.json

@@ -6,6 +6,11 @@ This is a research trial, separate from the live Pilot workflow, motor commands,
 and plane-calibration application. No production configuration or dependency was
 changed. Completion results are not automatically consumed by Pick/Grasp or Sim.
 
+For current runs use the `completion-adapointr`/`completion-replay` recipes in
+[`benchmarks.md`](benchmarks.md), plus the maintained input/GPU smoke helpers in
+the [Workbench tool list](../workbench/README.md). Old ablation and trial-specific
+figure CLIs are kept in the ignored local [archive](../workbench/archive/README.md).
+
 ## Pinned assets and environment
 
 - Official source: <https://github.com/yuxumin/PoinTr>, revision
@@ -211,16 +216,11 @@ CPU-only with no network or GPU reservation. Canonical required/extended,
 real-RMW and isolated-release gates remain unrun for the development-attachment
 reason stated above.
 
-```bash
-python3 -m workbench.research.experiments.adapointr_preprocessing \
-  --vendor /vendor --config /vendor/cfgs/PCN_models/AdaPoinTr.yaml \
-  --checkpoint /checkpoint.pth \
-  --checkpoint-sha256 f58a5650b348ca3d68fc8e01e3e88f57d5a889bbad5521fec7a2760eda664fa1 \
-  --output /output/results --seeds 5
-
-python3 -m workbench.research.analysis.adapointr_preprocessing_plot \
-  /results /output
-```
+The historical `adapointr_preprocessing.py` ablation runner and
+`adapointr_preprocessing_plot.py` figure command are archived with their original
+arguments. The unchanged `prepare_control`/`comparison_metrics` calculations
+remain in `workbench/tests/research/support/completion_controls.py`, with all
+existing round-trip and fidelity assertions.
 
 [Metrics/provenance](../workbench/evidence/curated/experiments/adapointr_preprocessing_20261027.json),
 [fidelity and output sensitivity](../workbench/evidence/curated/experiments/adapointr_preprocessing_metrics_20261027.png),

@@ -2,10 +2,13 @@
 
 이 문서는 repository-only 실험 규칙과 현재 유지하는 연구 기능을 소유한다.
 연구 코드는 runtime role, Compose service, DDS broker 또는 release input이 아니다.
+현재 유지하는 도구는 [Workbench 목록](../workbench/README.md)에서 확인한다.
+옛 실행기·결과 전용 그림은 [로컬 archive](../workbench/archive/README.md)에 보관한다.
 
 ## 실행 경계
 
-- runner: `workbench/research/experiments/`
+- runner/catalog: `workbench/tools/bench/` ([명령·판정·측정 범위](benchmarks.md))
+- calculation worker: `workbench/research/experiments/`
 - offline analysis: `workbench/research/analysis/`
 - curated evidence: `workbench/evidence/curated/`
 - generated evidence: `workbench/evidence/generated/` (Git 제외)
@@ -13,8 +16,7 @@
 - canonical environment: setup-generated persistent `elesim-dev`
 
 ```bash
-elesim-up
-elesim-dev python3 workbench/research/experiments/<runner>.py
+elesim-dev python3 -m workbench.tools.bench list
 ```
 
 각 결과는 source revision, effective config, role topology, endpoint/boot,
@@ -52,7 +54,8 @@ regularized solve이며 gait-phase model이나 multi-step horizon이 아니다.
 
 현재 convex MPC를 교체하기 전에 controller, plant, contact 오차를 분리한다.
 
-Production baseline:
+아래는 2026-09-29 contact 진단 당시의 baseline이다. 현재 실제 설정은
+공통 bench의 configuration/manifest로 확인한다.
 
 - Genesis 1.2.0 Newton rigid solver, 50 iterations
 - surface friction 0.8, rectangular MPC constraint 0.55

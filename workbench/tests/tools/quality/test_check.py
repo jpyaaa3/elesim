@@ -21,6 +21,7 @@ class QualityMatrixTests(unittest.TestCase):
                 "setup-tools",
                 "topology",
                 "dds-sim-motor",
+                "arm-operating-range",
                 "dds-rgbd",
                 "webrtc-media",
             },
@@ -61,6 +62,17 @@ class QualityMatrixTests(unittest.TestCase):
     def test_unknown_check_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown checks"):
             select_checks(group="required", names=("missing",))
+
+    def test_research_gates_declare_their_sim_dependency(self) -> None:
+        for check in CHECKS:
+            if check.name in ("analysis-tools", "experiment-tools"):
+                self.assertIn("payload/runtime/docker/sim/app", check.python_paths)
+
+    def test_outer_python_path_cannot_grant_a_sibling_role(self) -> None:
+        from workbench.tools.quality.check import ROOT
+        check = next(c for c in CHECKS if c.name == "pilot")
+        inherited = str(ROOT / "payload/runtime/docker/sim/app")
+        self.assertNotIn(inherited, python_path(check, inherited).split(os.pathsep))
 
     def test_extended_matrix_includes_the_quality_gate_itself(self) -> None:
         names = {check.name for check in select_checks(group="extended", names=())}

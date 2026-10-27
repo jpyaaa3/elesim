@@ -1,8 +1,14 @@
-"""Independent evaluator; only this process gets both truth and predictions."""
+"""Regression fixture extracted from a retired experiment; no standalone CLI."""
+
+
 from __future__ import annotations
-import argparse
+
+
 import json
+
+
 from pathlib import Path
+
 
 import numpy as np
 
@@ -47,16 +53,3 @@ def evaluate(truth_directory,prediction_directory):
         "metrics":metrics,"negative_control_detected":negative["after_p95_m"]>0.025,
         "scope":truth["scope"],"rig":truth["rig"],"frames":frames,
         "evaluation_alignment":"none; fixed shared encoder/world coordinates"}
-
-
-def main():
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("truth",type=Path);parser.add_argument("predictions",type=Path)
-    parser.add_argument("--output",type=Path,required=True)
-    args=parser.parse_args();result=evaluate(args.truth,args.predictions)
-    args.output.write_text(json.dumps(result,indent=2,allow_nan=False)+"\n")
-    print(json.dumps({k:v for k,v in result.items() if k!="frames"},allow_nan=False))
-    if not result["accepted"]: raise SystemExit(1)
-
-
-if __name__=="__main__": main()

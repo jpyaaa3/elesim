@@ -23,6 +23,7 @@ def object_mask(observation):
 
 
 def scan_episode(capture, model, planner, output, *, episode=0, max_views=12, start_q=None):
+    episode_started=time.monotonic()
     if type(max_views) is not int or not 4<=max_views<=24:
         raise ValueError('scan view budget must be 4..24')
     safety=planner.collision_checker
@@ -42,7 +43,9 @@ def scan_episode(capture, model, planner, output, *, episode=0, max_views=12, st
         certificate=safety.certify_segment(current,q)
         if not certificate['accepted']:
             stop='unsafe_path_rejected';break
+        capture_started=time.monotonic()
         observation=capture(episode,view_index,q)
+        capture_wall_s=time.monotonic()-capture_started
         if not np.allclose(observation.encoder_q,q,atol=1e-9,rtol=0) or observation.seq<=last_sequence:
             raise ValueError('capture identity/encoder sequence mismatch')
         last_sequence=observation.seq;current=np.asarray(observation.encoder_q).copy()
@@ -60,6 +63,7 @@ def scan_episode(capture, model, planner, output, *, episode=0, max_views=12, st
             raw_union.append(transform(partial.points_camera,np.linalg.inv(mapper.reference_pose)@nominal))
             accepted_poses.append(mapper.reference_pose@result['camera_in_reference'])
         row={'view':view_index,'seq':observation.seq,'q':current.tolist(),'accepted':accepted,
+             'capture_wall_s':capture_wall_s,
              'object_points':len(partial.points_camera),'path_certificate':certificate,
              **{k:v for k,v in result.items() if k not in ('aligned_points','camera_in_reference','transform','accepted')}}
         rows.append(row);tried.append(q.copy())
@@ -124,7 +128,9 @@ def scan_episode(capture, model, planner, output, *, episode=0, max_views=12, st
         'joint_fit':None if joint_fit is None else {k:v for k,v in joint_fit.items() if k not in ('points','camera_in_reference')},
         'self_collision':{'sphere_count':safety.sphere_count,'margin_m':safety.margin_m,'joint_uncertainty':safety.uncertainty.tolist(),
                           'all_motion_certified':all(r['path_certificate']['accepted'] for r in rows)},
-        'fusion_voxel_m':.003,'source_identity':mapper.identity,'truth_access':False}
+        'fusion_voxel_m':.003,'source_identity':mapper.identity,'truth_access':False,
+        'wall_s':time.monotonic()-episode_started,'capture_wall_s':sum(r['capture_wall_s'] for r in rows),
+        'timing_scope':'monotonic episode elapsed, includes capture waits/planning/fusion/NPZ writes; excludes final JSON write'}
     (output/'result.json').write_text(json.dumps(summary,indent=2)+'\n')
     return summary
 
@@ -137,7 +143,8 @@ def main():
     parser.add_argument('--collision-model',type=Path,required=True)
     parser.add_argument('--view-policy',choices=['information','angular'],default='information')
     parser.add_argument('--candidates',type=int,default=12000)
-    args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=False)
+    from workbench.research.support.output import fresh_directory
+    args=parser.parse_args();fresh_directory(args.output)
     base=np.eye(4);base[2,3]=.8
     model=ArmCameraModel(args.arm_model,args.hand_eye,base_world_transform=base)
     from elesim_pilot.robot.arm.self_collision import ArmSelfCollision

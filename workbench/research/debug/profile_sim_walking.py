@@ -237,6 +237,7 @@ def main() -> None:
                 print(json.dumps(record), flush=True)
 
         failed_trials = 0
+        startup_began = time.perf_counter()
         try:
             urdf = AssetProcessor(app).prepare_assets()
             runtime = RuntimePrep(app)
@@ -348,6 +349,9 @@ def main() -> None:
             )
             dt = float(params.dt)
             emit(dict(kind="configuration", dt=dt, substeps=params.substeps, command=args.command,
+                      startup_wall_s=time.perf_counter()-startup_began,
+                      timing_clock="simulation duration; monotonic wall timing",
+                      dds=False, webrtc=False,
                       solver_dt=controller._solver.dt, solver_stride=controller._solve_stride,
                       gait_hz=controller._config.gait_hz, gait_duty=controller._config.gait_duty,
                       duration=args.duration, settle=args.settle, stop=args.stop, cycles=args.cycles,
@@ -374,6 +378,7 @@ def main() -> None:
                 scene.reset_environment(mapping_cfg=app._proto_cfg)
                 latest_control.clear()
                 began = time.perf_counter()
+                first_motion_wall = None
                 samples = []
                 solve_times.clear()
                 step_times = []
@@ -390,6 +395,8 @@ def main() -> None:
                     t = step * dt
                     phase_s = (t - args.settle) % (args.duration + args.stop)
                     moving = t >= args.settle and phase_s < args.duration
+                    if moving and first_motion_wall is None:
+                        first_motion_wall = time.perf_counter()
                     arm_q = arm_start
                     if args.arm_motion:
                         arm_q = replace(arm_start,
@@ -487,12 +494,20 @@ def main() -> None:
                 )
                 completed = completed and all(row['completed'] for row in cycle_stops)
                 wall_s = time.perf_counter() - began
+                sim_elapsed_s = len(step_times) * dt
                 if hub is not None:
                     completed = (completed and all(frame_counts[name] > 0 for name in streams)
                                  and not scene.camera_render_worker.failure)
                 failed_trials += int(not completed)
                 emit(dict(kind="summary", trial=trial, samples=len(samples),
                           completed=completed,
+                          sim_elapsed_s=sim_elapsed_s, real_time_factor=sim_elapsed_s/wall_s,
+                          whole_loop_step_ms=1000*wall_s/len(step_times) if step_times else None,
+                          warmup_wall_s=(first_motion_wall-began) if first_motion_wall else wall_s,
+                          steady_wall_s=(began+wall_s-first_motion_wall) if first_motion_wall else None,
+                          warmup_sim_s=min(args.settle, sim_elapsed_s),
+                          steady_sim_s=max(0., sim_elapsed_s-args.settle),
+                          whole_loop_scope="includes diagnostic state reads and JSON writes; excludes scene startup/reset",
                           commanded_progress_ok=progress_ok,
                           cycle_stops=cycle_stops,
                           wall_s=wall_s, displacement=displacement,

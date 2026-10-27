@@ -1,18 +1,20 @@
-#!/usr/bin/env python3
-"""Compare preview b_pitch sign sweep runs (+0.05 vs -0.05)."""
+"""Regression fixture extracted from a retired experiment; no standalone CLI."""
+
 
 from __future__ import annotations
 
-import argparse
+
 import json
+
+
 import re
-import sys
+
+
 from pathlib import Path
+
+
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[3]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 from workbench.research.analysis.analyze_walking_metrics import summarize_run
 
@@ -99,24 +101,3 @@ def compare_sign_sweep(log_dir: Path) -> dict[str, Any]:
         "b_pitch_negative": neg,
         "recommendation": recommendation,
     }
-
-
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Analyze preview b_pitch sign sweep")
-    ap.add_argument("--log-dir", default="logs/walking_baseline")
-    ap.add_argument("--out", default=None, help="output json path (default: log_dir/preview_b_pitch_sign_compare.json)")
-    args = ap.parse_args()
-    log_dir = Path(args.log_dir)
-    result = compare_sign_sweep(log_dir)
-    out = Path(args.out) if args.out else log_dir / "preview_b_pitch_sign_compare.json"
-    out.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    print(json.dumps(result, indent=2))
-    if not result["b_pitch_positive"]["count"] or not result["b_pitch_negative"]["count"]:
-        print(
-            "\nNo complete sweep yet. Run workbench/research/experiments/run_preview_b_pitch_sign.sh after enabling gaze_preview_enable=true.",
-            file=sys.stderr,
-        )
-
-
-if __name__ == "__main__":
-    main()

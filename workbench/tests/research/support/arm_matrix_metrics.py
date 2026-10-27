@@ -1,15 +1,17 @@
-"""Evaluate every arm pose/error case, including unavailable and false floors.
+"""Regression fixture extracted from a retired experiment; no standalone CLI."""
 
-This process alone reads hidden geometry. Point metrics use the fixed bench
-world coordinates, without registration or alignment. A completed test matrix
-can report failed safety/accuracy criteria without losing its diagnostic data.
-"""
+
 from __future__ import annotations
 
-import argparse
+
 import collections
+
+
 import json
+
+
 from pathlib import Path
+
 
 import numpy as np
 
@@ -109,18 +111,3 @@ def evaluate_matrix(truth_directory, predictions):
         "genesis_reference_fk_max_abs":manifest["genesis_reference_fk_max_abs"],
         "scope":manifest["scope"],"sampling":manifest["sampling"],"rows":rows,
         "evaluation_alignment":"none; fixed declared bench coordinates"}
-
-
-def main():
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("truth",type=Path);parser.add_argument("predictions",type=Path)
-    parser.add_argument("--output",type=Path,required=True)
-    parser.add_argument("--report-only",action="store_true")
-    args=parser.parse_args()
-    result=evaluate_matrix(args.truth,args.predictions)
-    args.output.write_text(json.dumps(result,indent=2,allow_nan=False)+"\n")
-    print(json.dumps({k:v for k,v in result.items() if k!="rows"},allow_nan=False))
-    if not args.report_only and not result["accepted"]:raise SystemExit(1)
-
-
-if __name__=="__main__":main()

@@ -15,10 +15,11 @@ from scipy.spatial.transform import Rotation
 from elesim_pilot.vision.floor_calibration import FloorEstimator, depth_points, detect_planes
 from elesim_pilot.vision.partial_cloud import ArmCameraModel, SensorObservation, reconstruct_view, VoxelCloud
 from elesim_pilot.vision.perception.detector import HsvDetector
+from workbench.research.support.output import fresh_directory
 
 
 def reconstruct(sensor_directory, output, *, arm_model=None, hand_eye=None, base_height=.8, correct_distance=False):
-    output=Path(output); output.mkdir(parents=True,exist_ok=False)
+    output=fresh_directory(output)
     camera_model = None
     if arm_model is not None:
         if hand_eye is None: raise ValueError("arm replay requires an explicit nominal hand-eye file")

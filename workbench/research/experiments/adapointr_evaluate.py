@@ -87,6 +87,8 @@ def evaluate(truth_root,predictions,output):
             'alignment':'none','scope':'small independent box fixtures; declared sensor-derived frame; not general-object or grasp acceptance',
             'model_profile':recording.get('model_profile',{'name':'legacy-pcn'}),
             'normalization':recording.get('normalization','observed-radius')}
+    result['accepted']=bool(result['geometry_accepted'] and result['initial_latency_accepted']
+                            and result['original_observations_preserved'])
     output.write_text(json.dumps(result,indent=2)+'\n')
     return result
 
@@ -94,8 +96,10 @@ def evaluate(truth_root,predictions,output):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('truth',type=Path);parser.add_argument('predictions',type=Path);parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--report-only',action='store_true')
     args=parser.parse_args();result=evaluate(args.truth,args.predictions,args.output)
     print(json.dumps({k:v for k,v in result.items() if k!='objects'}))
+    if not args.report_only and not result['accepted']:raise SystemExit(1)
 
 
 if __name__=='__main__':main()

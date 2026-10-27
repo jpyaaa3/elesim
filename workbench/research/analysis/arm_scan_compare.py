@@ -70,10 +70,12 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('baseline',type=Path);parser.add_argument('candidate',type=Path)
     parser.add_argument('--output',type=Path,required=True);parser.add_argument('--figure',type=Path)
+    parser.add_argument('--report-only',action='store_true')
     args=parser.parse_args();a=json.loads(args.baseline.read_text());b=json.loads(args.candidate.read_text())
     result=compare(a,b);args.output.write_text(json.dumps(result,indent=2)+'\n')
     if args.figure:plot_comparison(a,b,result,args.figure)
     print(json.dumps(result))
+    if not args.report_only and not result['accepted']:raise SystemExit(1)
 
 
 if __name__=='__main__':main()

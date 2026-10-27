@@ -12,6 +12,8 @@
 | [`dds_contracts.md`](dds_contracts.md) | protocol v6 message registry, QoS, RGB-D wire, fencing |
 | [`status.md`](status.md) | R0–R5 운영 마일스톤, 완료 조건, 검증 공백, 환경별 acceptance gate |
 | [`research.md`](research.md) | repository-only experiments와 진단 절차 |
+| [`../workbench/README.md`](../workbench/README.md) | 유지하는 검증·벤치·보조 도구 목록과 아카이브 위치 |
+| [`benchmarks.md`](benchmarks.md) | 공통 벤치 명령, 입력, 격리, 측정 범위와 판정 |
 
 판정 순서:
 

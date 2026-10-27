@@ -75,7 +75,8 @@ def analytic_rgbd(pose, intrinsics, shape):
 def serve(requests, output, *, data_root, backend='genesis', width=480, height=360, seed=835, timeout=900):
     requests, output, data_root = map(Path,(requests,output,data_root))
     sensors, truth = output/'sensors', output/'truth'
-    sensors.mkdir(parents=True,exist_ok=False);truth.mkdir()
+    from workbench.research.support.output import fresh_directory
+    fresh_directory(sensors);truth.mkdir()
     arm = ArmUrdf(data_root/'models/assemblies/zed-mini/arm.urdf', data_root/'calibration/cameras/zed_mini.hand_eye.json',base_height_m=.8)
     shapes = fixtures(seed)
     context=json.loads((data_root/'models/arm/default.json').read_text())['context']

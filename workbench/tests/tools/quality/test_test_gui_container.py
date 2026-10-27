@@ -6,26 +6,30 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[4]
 
 
-def test_test_gui_uses_the_generated_persistent_developer_container() -> None:
-    source = (ROOT / "workbench/tools/quality/test_gui.py").read_text(encoding="utf-8")
-    external_compose_root = "/home/user" + "/docker"
-    legacy_runner = "u" + "rop"
+def test_test_gui_uses_the_same_catalog_and_current_install_wrapper(tmp_path) -> None:
+    from workbench.tools.quality.selections import SELECTIONS, selection_checks
+    from workbench.tools.quality.test_gui import TestGui
+    from workbench.tools.quality.check import select_checks
+    required = next(s for s in SELECTIONS if s.key == "required")
+    assert selection_checks("required") == select_checks(group="required", names=())
+    assert len({s.key for s in SELECTIONS}) == len(SELECTIONS)
+    assert "안정" not in {s.label for s in SELECTIONS}
+    local = TestGui()._command_for(required)
+    assert local[1:] == ["-m", "workbench.tools.quality.check", "--selection", "required"]
+    wrapper = tmp_path / "bin/elesim-dev"
+    wrapper.parent.mkdir()
+    wrapper.touch()
+    command = TestGui(runner="dev", dev_wrapper=str(wrapper))._command_for(required)
+    assert command == [str(wrapper), "python3", *local[1:]]
 
-    assert external_compose_root not in source
-    assert legacy_runner not in source
-    assert '~/.local/share/elesim/containers/compose.yaml' in source
-    assert 'DEVELOPER_PROJECT = "elesim-runtime"' in source
-    assert '"--profile",' in source
-    assert '"developer",' in source
-    assert '"exec",' in source
-    assert '"dev",' in source
-    assert '"/usr/local/bin/elesim-dev-env",' in source
-    assert '"run",' not in source
-    assert '"up",' in source
-    assert '"--build",' in source
-    assert '"com.docker.compose.project"' in source
-    assert '"com.docker.compose.project.config_files"' in source
-    assert "code = 73" in source
+
+def test_workflow_selections_keep_role_boundaries_and_complete_path_coverage():
+    from workbench.tools.quality.selections import SELECTIONS, selection_checks
+    for selection in SELECTIONS:
+        checks = selection_checks(selection.key)
+        assert checks
+        if selection.key.startswith("workflow-"):
+            assert {p for c in checks for p in c.paths} == set(selection.paths)
 
 
 def test_developer_tooling_has_no_standalone_compose_project() -> None:

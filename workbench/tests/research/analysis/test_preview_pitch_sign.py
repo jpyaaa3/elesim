@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workbench.research.analysis.analyze_preview_b_pitch_sign import compare_sign_sweep
+from workbench.tests.research.support.preview_sign_reference import compare_sign_sweep
 
 
 class AnalyzePreviewBPitchSignTests(unittest.TestCase):

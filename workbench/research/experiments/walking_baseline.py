@@ -20,6 +20,7 @@ from workbench.research.experiments.walking_scenarios import (
     BASELINE_SCENARIOS,
     ArmPosePreset,
     arm_pose_as_q,
+    validate_arm_pose,
 )
 
 
@@ -51,19 +52,20 @@ def _trial_run_id(
     return f"{run_prefix}_{preset}_{motion}_{trial:03d}"
 
 
-def _connect_service(config_path: str) -> Any:
+def _connect_service(config_path: str, *, runtime_config_path=None) -> Any:
     from workbench.research.support.pilot_runtime import start_tool_pilot
 
     try:
         return start_tool_pilot(
             config_path,
-            runtime_config_path=ROOT / "payload/config/pilot/runtime.yaml",
+            runtime_config_path=runtime_config_path or ROOT / "payload/config/pilot/runtime.yaml",
         )
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
 
 
 def _apply_preset(service: Any, preset: ArmPosePreset | str) -> None:
+    validate_arm_pose(preset, service.bundle.mapping_config)
     q = arm_pose_as_q(preset)
     service.state.set_q(*q)
     service.send_current_target(source="experiment", force=True)
@@ -83,7 +85,7 @@ def _run_trial(
     log_dir: str,
     notes: str,
     strict_run_id: bool,
-) -> None:
+) -> dict:
     ctx = RunContext.from_cli(
         run_id=run_id,
         arm_preset=preset,
@@ -106,17 +108,29 @@ def _run_trial(
     else:
         service.start_gaze_stabilizer_standing(run_id=run_id)
 
-    t_end = time.time() + float(duration)
-    while time.time() < t_end:
-        service.send_go2_velocity(vx=float(vx), vy=float(vy), wz=float(wz))
-        time.sleep(0.05)
-
-    service.stop_gaze_stabilizer()
-    service.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+    began = time.monotonic()
+    before = service.client.refresh_state()
+    try:
+        while time.monotonic() - began < float(duration):
+            host = service.client.refresh_state()
+            if (not host.connected or host.host_state_age_s > .5 or
+                    host.safety_fault or host.go2_controller_fault):
+                raise RuntimeError("walking telemetry lost or target faulted")
+            service.send_go2_velocity(vx=float(vx), vy=float(vy), wz=float(wz))
+            time.sleep(0.05)
+    finally:
+        try:
+            service.stop_gaze_stabilizer()
+        finally:
+            service.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+    after = service.client.refresh_state()
     print(f"[baseline] done run_id={run_id}")
     print(f"  walking: {Path(log_dir) / f'{run_id}_walking.csv'}")
     print(f"  camera:  {Path(log_dir) / f'{run_id}_camera.csv'}")
     print(f"  meta:    {Path(log_dir) / f'{run_id}_meta.json'}")
+    return {"clock": "wall", "command_wall_s": time.monotonic()-began,
+            "command_sim_s": after.sim_time_s-before.sim_time_s,
+            "sim_start_s": before.sim_time_s, "sim_end_s": after.sim_time_s}
 
 
 def main() -> None:
@@ -154,67 +168,67 @@ def main() -> None:
         return
 
     service = _connect_service(args.config)
-    _validate_gaze_config(args.gaze, service._gaze_cfg)
+    try:
+        _validate_gaze_config(args.gaze, service._gaze_cfg)
 
-    if args.scenario >= 0:
-        preset, motion, vel, turn = BASELINE_SCENARIOS[args.scenario]
-        vx = float(vel[0]) if args.vx is None else float(args.vx)
-        vy = float(vel[1]) if args.vy is None else float(args.vy)
-        wz = float(vel[2]) if args.wz is None else float(args.wz)
-        run_id = args.run_id or _trial_run_id(args.run_prefix, preset.value, motion, 1)
-        _run_trial(
-            service=service,
-            run_id=run_id,
-            preset=preset.value,
-            motion=motion,
-            vx=vx,
-            vy=vy,
-            wz=wz,
-            duration=args.duration,
-            gaze=args.gaze,
-            log_dir=args.log_dir,
-            notes=args.notes or f"scenario={args.scenario} turn={turn}",
-            strict_run_id=bool(args.strict_run_id),
-        )
-        service.close()
-        return
-
-    vx = 0.35 if args.vx is None and args.motion == "forward" else (-0.35 if args.vx is None and args.motion == "backward" else float(args.vx or 0.0))
-    vy = float(args.vy)
-    wz = 0.5 if args.wz is None and args.motion == "turn" else float(args.wz or 0.0)
-
-    repeat = max(1, int(args.repeat))
-    for trial in range(1, repeat + 1):
-        if args.trial_index > 0 and trial != int(args.trial_index):
-            continue
-        run_id = args.run_id or _trial_run_id(args.run_prefix, args.preset, args.motion, trial)
-        env_rid = os.environ.get("ELESIM_RUN_ID", "").strip()
-        if env_rid and env_rid != run_id:
-            print(
-                f"[baseline] trial {trial}/{repeat}: set ELESIM_RUN_ID={run_id!r} and restart elesim-sim, then re-run with "
-                f"--run-id {run_id!r} --trial-index {trial}"
+        if args.scenario >= 0:
+            preset, motion, vel, turn = BASELINE_SCENARIOS[args.scenario]
+            vx = float(vel[0]) if args.vx is None else float(args.vx)
+            vy = float(vel[1]) if args.vy is None else float(args.vy)
+            wz = float(vel[2]) if args.wz is None else float(args.wz)
+            run_id = args.run_id or _trial_run_id(args.run_prefix, preset.value, motion, 1)
+            _run_trial(
+                service=service,
+                run_id=run_id,
+                preset=preset.value,
+                motion=motion,
+                vx=vx,
+                vy=vy,
+                wz=wz,
+                duration=args.duration,
+                gaze=args.gaze,
+                log_dir=args.log_dir,
+                notes=args.notes or f"scenario={args.scenario} turn={turn}",
+                strict_run_id=bool(args.strict_run_id),
             )
-            if args.strict_run_id:
-                raise SystemExit(1)
-        _run_trial(
-            service=service,
-            run_id=run_id,
-            preset=args.preset,
-            motion=args.motion,
-            vx=vx,
-            vy=vy,
-            wz=wz,
-            duration=args.duration,
-            gaze=args.gaze,
-            log_dir=args.log_dir,
-            notes=args.notes,
-            strict_run_id=bool(args.strict_run_id),
-        )
-        if trial < repeat:
-            print(f"[baseline] completed trial {trial}/{repeat}; restart sim with next ELESIM_RUN_ID before continuing")
-            break
+            return
 
-    service.close()
+        vx = 0.35 if args.vx is None and args.motion == "forward" else (-0.35 if args.vx is None and args.motion == "backward" else float(args.vx or 0.0))
+        vy = float(args.vy)
+        wz = 0.5 if args.wz is None and args.motion == "turn" else float(args.wz or 0.0)
+
+        repeat = max(1, int(args.repeat))
+        for trial in range(1, repeat + 1):
+            if args.trial_index > 0 and trial != int(args.trial_index):
+                continue
+            run_id = args.run_id or _trial_run_id(args.run_prefix, args.preset, args.motion, trial)
+            env_rid = os.environ.get("ELESIM_RUN_ID", "").strip()
+            if env_rid and env_rid != run_id:
+                print(
+                    f"[baseline] trial {trial}/{repeat}: set ELESIM_RUN_ID={run_id!r} and restart elesim-sim, then re-run with "
+                    f"--run-id {run_id!r} --trial-index {trial}"
+                )
+                if args.strict_run_id:
+                    raise SystemExit(1)
+            _run_trial(
+                service=service,
+                run_id=run_id,
+                preset=args.preset,
+                motion=args.motion,
+                vx=vx,
+                vy=vy,
+                wz=wz,
+                duration=args.duration,
+                gaze=args.gaze,
+                log_dir=args.log_dir,
+                notes=args.notes,
+                strict_run_id=bool(args.strict_run_id),
+            )
+            if trial < repeat:
+                print(f"[baseline] completed trial {trial}/{repeat}; restart sim with next ELESIM_RUN_ID before continuing")
+                break
+    finally:
+        service.close()
 
 
 if __name__ == "__main__":

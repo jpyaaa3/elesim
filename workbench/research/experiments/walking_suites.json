@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "clock": "wall",
+  "motion": "forward",
+  "preset": "neutral",
+  "suites": {
+    "full": [
+      {"name": "uv", "gaze": "uv"},
+      {"name": "off", "gaze": "off"},
+      {"name": "uv_ff", "gaze": "uv_ff"},
+      {"name": "preview_pos", "gaze": "pitch_preview", "b_pitch": 0.05}
+    ],
+    "resume": [
+      {"name": "uv_ff", "gaze": "uv_ff"},
+      {"name": "preview_pos", "gaze": "pitch_preview", "b_pitch": 0.05}
+    ],
+    "ablation": [
+      {"name": "off", "gaze": "off"},
+      {"name": "uv_ff", "gaze": "uv_ff"}
+    ],
+    "preview-sign": [
+      {"name": "preview_pos", "gaze": "pitch_preview", "b_pitch": 0.05},
+      {"name": "preview_neg", "gaze": "pitch_preview", "b_pitch": -0.05}
+    ]
+  },
+  "migration": {
+    "retired": [
+      "run_full_walking_experiment_suite.sh",
+      "run_full_walking_experiment_suite_resume.sh",
+      "run_gaze_ablation_batch.sh",
+      "run_preview_b_pitch_sign.sh",
+      "run_preview_validation.py"
+    ],
+    "trials": "Explicit --trials and --trial-start replace machine-specific resume scripts.",
+    "unimplemented_flags_removed": ["--restart-host", "--no-restart-host", "--stop-at-standoff", "--no-eye-video", "--pose-settle-s", "--video-preroll-s"],
+    "raw_evidence": "Historical copies and measurements remain in evidence/generated and Git history."
+  }
+}

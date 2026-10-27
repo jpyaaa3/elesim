@@ -5,6 +5,12 @@ with the camera pose predicted by arm/body measurements, and optionally corrects
 the camera's tilt. The camera origin remains the FK estimate. Robot owns actuation and safety. This
 observer never changes motor commands, the selected IMU model, or a hand-eye file.
 
+Current benchmark entrypoints are `visual-tilt` and `visual-tilt-replay` in
+[`benchmarks.md`](benchmarks.md). Historical height/mount/six-DOF trial CLIs and
+their figure generators are now in the ignored local
+[workbench archive](../workbench/archive/README.md); their results below remain
+historical evidence, not additional current commands.
+
 ## Operator workflow
 
 1. Start perception with the normal Pilot RGB-D input. Observation defaults to
@@ -190,13 +196,11 @@ Points are deprojected through the original pixels and transformed using the
 declared encoder model plus an optional floor correction. Bounded voxel means
 combine views without ICP or any other alignment that could hide pose errors.
 
-Three independent research processes implement the baseline:
-
-```bash
-python3 -m workbench.research.experiments.vision_scene data --backend genesis --seeds 3
-python3 -m workbench.research.experiments.vision_reconstruct data/sensors predictions --legacy-height
-python3 -m workbench.research.experiments.vision_evaluate data/truth predictions --output evaluation.json
-```
+The historical baseline used three independent research processes. Its
+`vision_scene.py` producer and `vision_evaluate.py` evaluator are archived;
+`vision_reconstruct.py` remains the current reconstruction worker. CPU-only
+reference calculations remain under `workbench/tests/research/support/` so the
+observability regressions still run without the archive.
 
 The producer randomizes a box and hidden camera mount error, writing sensor and
 private truth directories separately. The consumer receives only its script,
@@ -230,12 +234,9 @@ physical-camera accuracy measurements.
 See the [curated record](../workbench/evidence/curated/experiments/vision_partial_cloud_20261026.json)
 for image IDs, module/script SHA256, mount audits, thresholds and bundle hashes.
 The original bundle, representative sensor frames and `partial-cloud.ply` are
-under `workbench/evidence/generated/vision-baseline-20261026/`. To plot a collected
-bundle in an environment with NumPy and Matplotlib already installed, use:
-
-```bash
-python3 -m workbench.research.analysis.vision_partial_cloud_plot collected baseline.png
-```
+under `workbench/evidence/generated/vision-baseline-20261026/`. The historical
+`vision_partial_cloud_plot.py` figure generator is archived with its original
+arguments; the curated figures remain available without rerunning it.
 
 Sim RGB-D intrinsics now follow the renderer's vertical FOV and integer pixel
 centre convention, verified against the actual camera during this run. The
@@ -263,15 +264,10 @@ Absent targets and unsupported floors remain in the denominator. The evaluator
 counts false plane selections separately from point accuracy; an experiment may
 complete while its overall acceptance result is false.
 
-```bash
-python3 -m workbench.research.experiments.vision_arm_scene data --backend genesis --poses 24 --error-seeds 2 \
-  --data-root payload/data --config payload/config/sim/config.yaml
-python3 -m workbench.research.experiments.vision_reconstruct data/sensors predictions \
-  --legacy-height \
-  --arm-model payload/data/models/arm/default.json \
-  --hand-eye payload/data/calibration/cameras/zed_mini.hand_eye.json
-python3 -m workbench.research.experiments.vision_arm_evaluate data/truth predictions --output evaluation.json
-```
+This historical matrix used `vision_arm_scene.py` without `--joint-errors`,
+`vision_reconstruct.py --legacy-height` and the now archived
+`vision_arm_evaluate.py`. Its metrics and no-dropped-cases assertions remain in
+the test suite; current direction-only trials use the `visual-tilt` recipe.
 
 `--report-only` on the evaluator preserves a failed acceptance report with a zero
 process exit status; `accepted` in that report remains false. A nearby tabletop
@@ -301,12 +297,9 @@ registration. The local-mount condition improved from 56.87 to 2.66 mm p95 over
 calibration under trusted FK, a trusted bench base and a genuine known floor.
 It does not establish physical accuracy or an automatic model selector.
 
-```bash
-python3 -m workbench.research.analysis.vision_arm_mount_fit predictions/result.json \
-  payload/data/calibration/cameras/zed_mini.hand_eye.json --output candidates.json
-python3 -m workbench.research.analysis.vision_arm_mount_evaluate candidates.json \
-  object-validation --output object-validation.json
-```
+The exploratory `vision_arm_mount_fit.py` and `vision_arm_mount_evaluate.py`
+commands are archived. The unchanged fit calculation and its held-out-training
+regression remain in `workbench/tests/research/support/mount_fit_reference.py`.
 
 `object-validation/` is a private evaluator bundle of held-out predicted points,
 corresponding ideal depth and true poses. It is not an input to fitting. The

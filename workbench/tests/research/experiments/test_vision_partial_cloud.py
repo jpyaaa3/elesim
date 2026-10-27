@@ -8,8 +8,8 @@ import sys
 
 import numpy as np
 
-from workbench.research.experiments.vision_scene import produce
-from workbench.research.experiments.vision_evaluate import evaluate
+from workbench.tests.research.support.vision_reference_scene import produce
+from workbench.tests.research.support.vision_reference_metrics import evaluate
 
 
 def test_blind_replay_corrects_observable_error_and_retains_xy_yaw_error(tmp_path):
@@ -21,6 +21,11 @@ def test_blind_replay_corrects_observable_error_and_retains_xy_yaw_error(tmp_pat
     shutil.move(data / "sensors", blind / "sensors")
     script = repository / "workbench/research/experiments/vision_reconstruct.py"
     shutil.copyfile(script, blind / "reconstruct.py")
+    # Copy only the declared stdlib output helper, keeping the producer/truth
+    # and the rest of the checkout out of the consumer's import roots.
+    helper = Path("workbench/research/support/output.py")
+    (blind / helper).parent.mkdir(parents=True)
+    shutil.copyfile(repository / helper, blind / helper)
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(str(repository / path) for path in (
         "payload/runtime/docker/pilot/app", "payload/runtime/common/protocol"))

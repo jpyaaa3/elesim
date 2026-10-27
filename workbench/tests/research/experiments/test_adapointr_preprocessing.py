@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from workbench.research.experiments.adapointr import restore_completion,sample_input
-from workbench.research.experiments.adapointr_preprocessing import prepare_control,comparison_metrics
+from workbench.tests.research.support.completion_controls import prepare_control,comparison_metrics
 
 
 @pytest.mark.parametrize('variant',['native','center_only','scale_only_r05','center_scale_r05','center_scale_r10'])

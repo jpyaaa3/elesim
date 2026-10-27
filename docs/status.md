@@ -6,6 +6,57 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Workbench 미사용 도구 보관 (2026-10-27)
+
+- 구형 실행기·결과 전용 그림·height/mount 실험 CLI **24개**를 로컬 ZIP으로
+  보관했다. 앞선 통합에서 제거한 다섯 파일도 기록된 HEAD에서 원문을 회수했다.
+  모든 원문/ZIP의 SHA256을 확인하고 원래 연구 경로에서 제거했다. ZIP은
+  `.gitignore` 대상이며 [목록·이유·hash](../workbench/archive/index.json)만 Git에 남긴다.
+- 현재 연구 source/시나리오는 **35개**, 공통 recipe는 **9개**다. 품질·release와
+  유지하는 수동 진단까지 [Workbench 목록](../workbench/README.md)에 정리했다.
+  문서에서 archived CLI를 현재 실행 명령으로 안내하던 부분도 수정했다.
+- 회귀에 필요한 옛 계산부 여섯 개는 `tests/research/support/`에 CLI 없이 유지한다.
+  함수/클래스 AST가 원문과 같고 기존 assertion은 그대로다. source/runtime/
+  테스트 어디에서도 archive를 import하지 않는다. raw evidence는 옮기지 않았다.
+- ZIP을 임시로 없앤 상태의 연구·품질 검사에서 **174 passed, 1 skipped,
+  기존 readability 1 failed**다. 같은 원자료의 scan 비교도 paired 품질 **5/6**으로
+  같은 실패를 유지한다. 검사 후 ZIP을 동일 hash로 복구했다. GPU/실기동 및
+  canonical 환경의 기존 검증 공백은 아래 개편 기록과 같다.
+
+### Workbench 벤치 실행·판정 개편 (2026-10-27)
+
+- 소프트웨어 검사는 기존 quality 매트릭스를 유지하고 GUI도 같은 목록/명령을
+  사용한다. 연구 analysis/experiment의 빠진 Sim source root를 보완했다.
+  protocol 안의 cross-role/model/RL assertion 세 개는 내용 그대로 시스템
+  `arm-operating-range` 게이트로 옮겨 protocol의 sibling import를 제거했다.
+- 무거운 실험은 보행/gaze·Sim 성능·시각 보정·다중 시점·형상 완성의 다섯 분야와
+  `python3 -m workbench.tools.bench` 실행기로 묶었다. JSON plan, 실행 환경과
+  source/image/config/model/checkpoint hash, 각 stage/episode 시간, raw artifact
+  checksum, 검증·보고·archive 수집을 기록한다. YAML extends도 추적하고 실행 중
+  입력 변경을 거부한다. `complete`와 `accepted`를 분리해 실패를 exit 0으로
+  숨기지 않는다. 중단/timeout/고아 child와 자기 작업만 정리하는 회귀가 있다.
+- 깨진 shell/preview entrypoint 다섯 개를 scenario JSON과 하나의 suite worker로
+  통합했다. 실제 동작이 없던 host-restart/standoff/video/preroll 옵션은 제거했다.
+  보행 판정은 contact CSV 존재만으로 통과하지 않고 이동·넘어짐·기록 구간을
+  확인한다. Sim/Pilot 원본 metadata와 기존 안전 회귀를 보존했다. 정상 서비스에
+  접속하는 대신 연구용 gaze는 별도 loopback DDS identity/topic을 사용한다.
+- Host 검사는 **336 passed, 6 skipped, 1 failed**다. 남은 실패는 HEAD에도 동일한
+  `PyMpcGenesisController` 1,068줄, `ControlPanel` 1,040줄, `UiSimSession` 1,015줄이
+  기존 class 1,000줄 기준을 넘는 readability 검사다. production 세 파일과 검사
+  기준의 HEAD/current hash가 같음을 기록했다. 기준을 바꾸거나 xfail하지 않았다.
+- CPU 해석 시각 보정 전체 pipeline은 통과했고 원자료 재평가 JSON은 정확히 같다.
+  새 동시 producer/consumer scan도 **39회 획득·39구간 충돌 감사**까지 완료했으며
+  형상 기준 미달은 실패로 남겼다. 이전 GPU 결과의 비교도 **112→39회, paired 품질
+  5/6**으로 같은 실패를 반환한다. 이 실패 archive의 pack/수집/hash 검증을 통과했다.
+  CPU analytic scan을 기존 Genesis GPU의 형상 수치로 대체하지 않는다.
+- 과거 generated code **1,988파일/731개 내용**을 삭제 없이 색인했다. 원자료 경로와
+  기존 증거 링크를 유지한다. 새 executor의 원격 GPU2/Genesis·실제 DDS gaze·
+  AdaPoinTr GPU·manager SSH 수집·GUI 표시 자체는 live 미검증이다. 기존 생성 dev
+  준비 미완료로 canonical required/extended·real-RMW·isolated release 전체
+  게이트도 미실행이며, 보행/시각 모델 개선이나 Sim 속도 개선을 주장하지 않는다.
+  [명령·범위·이전 경로 정리](benchmarks.md),
+  [검사·실패 보존·hash 근거](../workbench/evidence/curated/experiments/workbench_cleanup_20261027.json).
+
 ### 다중 시야 scan 추가 제약 (2026-10-27, 충돌 감사 통과 / 시야 변경 69% 감소)
 
 - `e98b07b` push와 양쪽 정식 update 후 원격 GPU2 A6000에서 비교했다.
@@ -3151,9 +3202,10 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   명시적 GPU opt-in을 제공한다. 정밀도/충돌/solver 설정은 유지한다.
 - 카메라 worker는 이미 dynamic arrays였다. 각 worker의 init/model/build 시간과
   별도 GO2 controller 초기화 시간을 추가해 전체 startup에서 구분한다.
-- 재현: `workbench/research/debug/profile_sim_startup.py <robot.urdf>`를 설치된
-  Sim/dev 환경에서 실행한다. `--performance-mode`는 static, `--profile`은
-  비용 분석용이다. 캐시를 유지한 채 별도 프로세스로 반복한다.
+- 당시 재현에 사용한 축소 scene `profile_sim_startup.py`는 현재
+  [workbench archive](../workbench/archive/README.md)에 보관했다.
+  `--performance-mode`는 static, `--profile`은 비용 분석용이었다.
+  현재 Sim probe의 startup 기록과 측정 범위는 `benchmarks.md`를 따른다.
 - 원본: `workbench/evidence/generated/readiness/20261005-startup/`.
   이 축소 scene 결과를 실제 전체 Sim의 94초와 직접 비교하지 않는다.
   아래 최종 전체 application 결과를 별도로 기록한다.

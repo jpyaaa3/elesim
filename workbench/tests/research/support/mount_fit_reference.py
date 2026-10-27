@@ -1,20 +1,30 @@
-"""Explore fixed-mount fitting using only the blind consumer's observations.
+"""Regression fixture extracted from a retired experiment; no standalone CLI."""
 
-Every pose with object points is held out of fitting. No condition labels or
-Sim truth are read; outputs are offline candidates and never installed.
-"""
+
 from __future__ import annotations
 
-import argparse
+
 from collections import defaultdict
+
+
 import hashlib
+
+
 import json
+
+
 from pathlib import Path
+
 
 import numpy as np
 
+
 from elesim_pilot.vision.floor_calibration import Plane, plane_in_world
+
+
 from elesim_pilot.vision.hand_eye_calibration import fit_hand_eye
+
+
 from elesim_pilot.vision.perception_bridge.hand_eye import load_hand_eye_transform
 
 
@@ -62,17 +72,3 @@ def fit_candidates(recording, nominal_hand_eye):
             "nominal_hand_eye_sha256":hashlib.sha256(nominal_hand_eye.read_bytes()).hexdigest(),
             "training_policy":"all poses with object points are held out; no condition labels or truth",
             "scope":"offline fixed-mount candidate with trusted FK, bench base and known Z=0 floor; not applied"}
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("recording",type=Path)
-    parser.add_argument("nominal_hand_eye",type=Path)
-    parser.add_argument("--output",type=Path,required=True)
-    args = parser.parse_args()
-    result = fit_candidates(args.recording,args.nominal_hand_eye)
-    with args.output.open("x") as stream:stream.write(json.dumps(result,indent=2,allow_nan=False)+"\n")
-    print(json.dumps({"groups":len(result["groups"]),"available":sum("candidate_mount" in row for row in result["groups"])}))
-
-
-if __name__=="__main__":main()

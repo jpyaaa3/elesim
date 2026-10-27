@@ -18,6 +18,8 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[3]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 PROTOCOL_SRC = "payload/runtime/common/protocol"
 
 
@@ -88,6 +90,13 @@ CHECKS: tuple[Check, ...] = (
         description="Real DDS Sim arm, Go2 velocity, gripper and stop command delivery",
     ),
     Check(
+        "arm-operating-range",
+        ("workbench/tests/system/test_arm_operating_range.py",),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "payload/runtime/docker/sim/app",
+         "payload/runtime/native/robot/app"),
+        description="Cross-role calibration/model/RL operating-range integration",
+    ),
+    Check(
         "dds-rgbd",
         ("workbench/tests/system/test_dds_rgbd.py",),
         (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "payload/runtime/docker/sim/app"),
@@ -123,7 +132,7 @@ CHECKS: tuple[Check, ...] = (
     Check(
         "analysis-tools",
         ("workbench/tests/research/analysis",),
-        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "model"),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "payload/runtime/docker/sim/app", "model"),
         group="extended",
         description="Offline analysis helpers",
     ),
@@ -137,7 +146,7 @@ CHECKS: tuple[Check, ...] = (
     Check(
         "experiment-tools",
         ("workbench/tests/research/experiments",),
-        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "model"),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "payload/runtime/docker/sim/app", "model"),
         group="extended",
         description="Repeatable experiment orchestration",
     ),
@@ -166,7 +175,10 @@ def select_checks(*, group: str, names: Sequence[str]) -> tuple[Check, ...]:
 
 def python_path(check: Check, inherited: str = "") -> str:
     entries = [str((ROOT / relative).resolve()) for relative in check.python_paths]
-    entries.extend(part for part in inherited.split(os.pathsep) if part)
+    managed = {str((ROOT / root).resolve()) for c in CHECKS for root in c.python_paths}
+    # A broad outer PYTHONPATH must not grant a role its sibling deployments.
+    entries.extend(part for part in inherited.split(os.pathsep)
+                   if part and str(Path(part).resolve()) not in managed)
     return os.pathsep.join(dict.fromkeys(entries))
 
 
@@ -198,6 +210,7 @@ def _parser() -> argparse.ArgumentParser:
         help="required is the documented release gate; all also runs tooling tests",
     )
     parser.add_argument("--check", action="append", default=[], help="run one named check; repeatable")
+    parser.add_argument("--selection", help="GUI/workflow catalog selection; mutually exclusive with --check")
     parser.add_argument("--list", action="store_true", help="list checks without running them")
     parser.add_argument("--fail-fast", action="store_true")
     return parser
@@ -206,7 +219,13 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        selected = select_checks(group=args.group, names=args.check)
+        if args.selection:
+            from workbench.tools.quality.selections import selection_checks
+            if args.check:
+                raise ValueError("--selection and --check cannot be combined")
+            selected = selection_checks(args.selection)
+        else:
+            selected = select_checks(group=args.group, names=args.check)
     except ValueError as exc:
         _parser().error(str(exc))
     if args.list:

@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-27",
+  "source_head": "0dbe47456619593fb5403b17dee1c7c6b5e78181",
+  "source_worktree_dirty": true,
+  "scope": "Workbench orchestration and verification cleanup; no locomotion/calibration model change or speed improvement claim",
+  "retired_entrypoints": [
+    "run_full_walking_experiment_suite.sh",
+    "run_full_walking_experiment_suite_resume.sh",
+    "run_gaze_ablation_batch.sh",
+    "run_preview_b_pitch_sign.sh",
+    "run_preview_validation.py"
+  ],
+  "removed_unimplemented_options": [
+    "--restart-host",
+    "--no-restart-host",
+    "--stop-at-standoff",
+    "--no-eye-video",
+    "--pose-settle-s",
+    "--video-preroll-s"
+  ],
+  "cross_role_assertions_moved_without_relaxation": 3,
+  "host_checks": {
+    "protocol": {
+      "passed": 159,
+      "failed": 0,
+      "skipped": 5
+    },
+    "arm-operating-range": {
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    "analysis-tools": {
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0
+    },
+    "debug-tools": {
+      "passed": 7,
+      "failed": 0,
+      "skipped": 1
+    },
+    "experiment-tools": {
+      "passed": 92,
+      "failed": 0,
+      "skipped": 0
+    },
+    "quality-tools": {
+      "passed": 42,
+      "failed": 1,
+      "skipped": 0
+    }
+  },
+  "host_totals": {
+    "passed": 336,
+    "failed": 1,
+    "skipped": 6
+  },
+  "known_preexisting_failure": {
+    "check": "quality-tools/test_readability.py",
+    "reason": "Three production classes exceed the existing 1000-line class budget",
+    "classes": {
+      "PyMpcGenesisController": 1068,
+      "ControlPanel": 1040,
+      "UiSimSession": 1015
+    },
+    "head_proof": {
+      "payload/runtime/docker/sim/app/elesim_sim/robot/go2/pympc_controller.py": {
+        "sha256": "a465429f3833dae4da39714979c07cffb618495f6351e98881bffee0d10560e7",
+        "unchanged_from_head": true
+      },
+      "payload/runtime/docker/ui/app/elesim_ui/control_panel.py": {
+        "sha256": "516eabc982f7486d2826d9aba895ac1ee39be79ecadc93b9609bd2c7deccef08",
+        "unchanged_from_head": true
+      },
+      "payload/runtime/docker/ui/app/elesim_ui/sim_session.py": {
+        "sha256": "73b09c3690f9faab38b1383c14f35148fe99312c4c725cb7307f78ffdca0c04d",
+        "unchanged_from_head": true
+      },
+      "workbench/tests/tools/quality/test_readability.py": {
+        "sha256": "0aff81ad6ff171a190dba57c7d6bce6f64d00c60d1c771e6c261e26508b5e4fa",
+        "unchanged_from_head": true
+      }
+    },
+    "threshold_changed": false
+  },
+  "runs": {
+    "visual-tilt": {
+      "manifest": "workbench/evidence/generated/bench-cleanup-20261027/visual-tilt/manifest.json",
+      "manifest_sha256": "096b117b0ed6ec39eda27adb64ee04a8d64ede24633beb5856cab438c48cf1ee",
+      "complete": true,
+      "accepted": true,
+      "scope": {
+        "clock": "stages",
+        "dds": false,
+        "webrtc": false,
+        "hardware": false,
+        "truth": "producer/evaluator only",
+        "height_constraint": false,
+        "backend": "analytic"
+      },
+      "wall_s": 48.96895970299374,
+      "worker_source_hashes_recorded": false,
+      "cases": 288,
+      "frames": 864,
+      "unique_poses": 24,
+      "all_camera_origins_unchanged": true
+    },
+    "visual-tilt-replay": {
+      "manifest": "workbench/evidence/generated/bench-cleanup-20261027/visual-tilt-replay/manifest.json",
+      "manifest_sha256": "70c5ce7e7904c3633954257d4bb2aaf3af802ab1467a5ebc286e1f623dd25180",
+      "complete": true,
+      "accepted": true,
+      "scope": {
+        "clock": "wall",
+        "replay": true,
+        "hardware": false
+      },
+      "wall_s": 0.8953919429332018,
+      "worker_source_hashes_recorded": true,
+      "cases": 288,
+      "frames": 864,
+      "unique_poses": 24,
+      "all_camera_origins_unchanged": true
+    },
+    "scan-analytic": {
+      "manifest": "workbench/evidence/generated/bench-cleanup-20261027/scan-analytic/manifest.json",
+      "manifest_sha256": "5b9c409b9dbb35a05b7661f64b73b0e89f8f2c4ccd013b96dbca0707c4ec3abd",
+      "complete": true,
+      "accepted": false,
+      "scope": {
+        "clock": "stages",
+        "dds": false,
+        "webrtc": false,
+        "hardware": false,
+        "truth": "producer/evaluator only",
+        "motion": "kinematic; fixed base; six fixtures",
+        "backend": "analytic"
+      },
+      "wall_s": 31.461088590091094,
+      "worker_source_hashes_recorded": true,
+      "views": [
+        4,
+        5,
+        4,
+        7,
+        12,
+        7
+      ],
+      "full_shape_passes": 1,
+      "collision_accepted": true,
+      "collision_segments": 39
+    },
+    "scan-comparison-v1": {
+      "manifest": "workbench/evidence/generated/bench-cleanup-20261027/scan-comparison-v1/manifest.json",
+      "manifest_sha256": "241472183d9cbf2e62cd6fcc5ab08a44fe950f42f7b04c145b44a304313630f0",
+      "complete": true,
+      "accepted": false,
+      "scope": {
+        "clock": "wall",
+        "replay": true,
+        "hardware": false
+      },
+      "wall_s": 0.22621206298936158,
+      "worker_source_hashes_recorded": true,
+      "before_views": 112,
+      "after_views": 39,
+      "paired_quality_passes": 5
+    },
+    "visual-tilt-small-v1": {
+      "manifest": "workbench/evidence/generated/bench-cleanup-20261027/visual-tilt-small-v1/manifest.json",
+      "manifest_sha256": "1659f5b731c5082ea4933c9c750b4f96d80e8579937ce9c2388dd3c12bdde3c6",
+      "complete": true,
+      "accepted": false,
+      "scope": {
+        "clock": "stages",
+        "dds": false,
+        "webrtc": false,
+        "hardware": false,
+        "truth": "producer/evaluator only",
+        "height_constraint": false,
+        "cameras": true,
+        "backend": "analytic"
+      },
+      "wall_s": 6.632628713967279,
+      "worker_source_hashes_recorded": true,
+      "cases": 24,
+      "frames": 72,
+      "unique_poses": 4,
+      "all_camera_origins_unchanged": true
+    }
+  },
+  "calibration_replay_exact_json_match": true,
+  "archive_round_trip": {
+    "run": "scan-comparison-v1",
+    "archive_sha256": "92914b5a82efc7f21330038413b8c9b201c71fecdb5a4f4fcc32208619e7293a",
+    "collected_manifest": "workbench/evidence/generated/bench-cleanup-20261027/scan-comparison-collected/manifest.json",
+    "complete": true,
+    "accepted": false
+  },
+  "legacy_index": {
+    "path": "workbench/evidence/generated/index.json",
+    "top_level_collections": 34,
+    "code_files": 1988,
+    "distinct_code_contents": 731,
+    "bytes": 5212450628,
+    "raw_files_deleted": 0,
+    "raw_paths_moved": 0
+  },
+  "unrun": [
+    "Canonical required/extended through generated dev wrapper: existing environment preparation incomplete",
+    "Real RMW topology, DDS motor/RGBD, WebRTC media and isolated release gates",
+    "New executor on remote GPU2/Genesis, real DDS walking-gaze and AdaPoinTr GPU inference",
+    "Live manager/Tailscale SSH archive collection and GUI display"
+  ],
+  "notes": [
+    "Earlier full visual-tilt run used the initial runner instrumentation; final instrumentation also ran the valid 4-pose/1-error-seed pipeline.",
+    "The small matrix is deliberately below acceptance coverage and remains a failed experiment.",
+    "The invalid 2-pose attempt is preserved separately as INCOMPLETE; catalog now rejects this worker budget before launch.",
+    "CPU analytic scan metrics are not substituted for prior Genesis GPU scan acceptance.",
+    "Existing Python tests and safety assertions were preserved; historical generated source copies are indexed, not executable entrypoints."
+  ]
+}

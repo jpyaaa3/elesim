@@ -49,6 +49,12 @@ class WalkingBatchLaunchTests(unittest.TestCase):
             argv = launch.call_args.args[0]
             self.assertIn("--no-viewer", argv)
             self.assertEqual(argv[argv.index("--config") + 1], "sim.yaml")
+            log = Path(directory) / "sim.log"
+            log.write_text("previous evidence")
+            with self.assertRaises(FileExistsError):
+                batch._start_sim("sim.yaml", "test_001", log)
+            self.assertEqual(log.read_text(), "previous evidence")
+            self.assertEqual(launch.call_count, 1)
 
     def test_child_exit_reports_traceback_without_waiting(self):
         from workbench.research.experiments import run_walking_baseline_batch as batch
@@ -66,6 +72,8 @@ class WalkingBatchLaunchTests(unittest.TestCase):
         from workbench.research.experiments import run_walking_baseline_batch as batch
         config = types.ModuleType("elesim_pilot.config")
         config.load_app_config = Mock()
+        from elesim_protocol import SimMappingConfig
+        config.load_app_config.return_value.mapping_config = SimMappingConfig()
         walking = types.ModuleType("workbench.research.experiments.walking_baseline")
         walking._run_trial = Mock()
         walking._trial_run_id = Mock(return_value="test_001")
@@ -74,12 +82,13 @@ class WalkingBatchLaunchTests(unittest.TestCase):
             "elesim_pilot.config": config,
             "workbench.research.experiments.walking_baseline": walking,
         }), patch.object(sys, "argv", ["batch", "--trials", "1", "--gaze", "off",
-                                     "--batch-log-dir", directory]), \
+                                     "--batch-log-dir", directory, "--log-dir", str(Path(directory) / "metrics")]), \
                 patch.object(batch, "_start_sim") as start, \
                 patch.object(batch, "_wait_sim_ready", return_value=True), \
                 patch.object(batch, "_connect_service"), \
                 patch.object(batch, "_wait_perception") as perception, \
-                patch.object(batch, "_stop_proc"), patch.object(batch, "_require_contact_rows"), patch.dict(batch.os.environ):
+                patch.object(batch, "_stop_proc"), patch.object(batch, "_require_contact_rows"), \
+                patch.object(batch, "assess_trial", return_value={"accepted": True}), patch.dict(batch.os.environ):
             batch.main()
             self.assertEqual(start.call_args.args[0], str(batch.ROOT / "payload/config/sim/config.yaml"))
             config.load_app_config.assert_called_once_with(str(batch.ROOT / "payload/config/pilot/config.yaml"))

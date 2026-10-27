@@ -134,7 +134,11 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('truth',type=Path);parser.add_argument('scans',type=Path);parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--data-root',type=Path)
-    args=parser.parse_args();print(json.dumps(evaluate(args.truth,args.scans,args.output,data_root=args.data_root)))
+    parser.add_argument('--report-only',action='store_true')
+    args=parser.parse_args()
+    result=evaluate(args.truth,args.scans,args.output,data_root=args.data_root)
+    print(json.dumps(result))
+    if not args.report_only and not result['accepted']:raise SystemExit(1)
 
 
 if __name__=='__main__':main()

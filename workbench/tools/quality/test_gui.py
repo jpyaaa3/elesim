@@ -12,9 +12,8 @@ import subprocess
 import sys
 import threading
 import time
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
@@ -29,18 +28,9 @@ except ModuleNotFoundError:
     imgui = None  # type: ignore[assignment]
     GlfwRenderer = None  # type: ignore[assignment]
 
-from elesim_ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_font_with_korean_ranges
+from workbench.tools.quality.selections import SELECTIONS as TEST_GROUPS, Selection as TestCaseGroup
 
 
-TEST_ROOTS = (ROOT / "workbench/tests",)
-SOURCE_ROOTS = (
-    ROOT / "payload/runtime/common/protocol",
-    ROOT / "payload/runtime/docker/pilot/app",
-    ROOT / "payload/runtime/native/robot/app",
-    ROOT / "payload/runtime/docker/sim/app",
-    ROOT / "payload/runtime/docker/ui/app",
-    ROOT / "model",
-)
 WINDOW_W = 1280
 WINDOW_H = 760
 LEFT_W = 350.0
@@ -50,187 +40,12 @@ MAX_LOG_LINES = 4000
 PYTEST_LOCATION_RE = re.compile(
     r"^(?:payload|model|workbench|installer)/.+\.py:\d+(?::|$)"
 )
-DEVELOPER_PROJECT = "elesim-runtime"
-DEVELOPER_CONTAINER = "elesim-dev"
-
-
-class DockerOwnerConflict(RuntimeError):
-    """A fixed EleSim container name belongs to another Compose context."""
-
-
-@dataclass(frozen=True)
-class TestCaseGroup:
-    label: str
-    paths: tuple[str, ...]
-    description: str
-
-
-def _existing(paths: Sequence[str]) -> tuple[str, ...]:
-    return tuple(path for path in paths if (ROOT / path).exists())
-
-
-def _all_tests() -> tuple[str, ...]:
-    return tuple(
-        str(p.relative_to(ROOT))
-        for test_root in TEST_ROOTS
-        for p in sorted(test_root.rglob("test_*.py"))
-        if p.is_file()
-    )
-
-
-_ALL_TESTS = _all_tests()
-
-
-def _under(prefix: str) -> tuple[str, ...]:
-    return tuple(p for p in _ALL_TESTS if p.startswith(prefix))
-
-
-TEST_GROUPS = (
-    TestCaseGroup(
-        "안정",
-        _ALL_TESTS,
-        "현재 engine 계약 기준으로 통과가 확인된 테스트 묶음입니다. 큰 리팩터 중 새 회귀가 생겼는지 빠르게 확인할 때 씁니다.",
-    ),
-    TestCaseGroup(
-        "전체",
-        _ALL_TESTS,
-        "workbench의 자동 테스트 전체를 실행합니다. 현재 코드 상태에서 전체 회귀가 없는지 확인합니다.",
-    ),
-    TestCaseGroup(
-        "픽 전체",
-        _under("workbench/tests/apps/pilot/scenarios/pick/"),
-        "Pick 디버그 흐름 전체입니다. 설정, Look, Aim, 명목 운동학, Grasp/LJI, extend-ready, 수렴, E2E, 타이밍 순서로 실행합니다.",
-    ),
-    TestCaseGroup(
-        "00 준비",
-        _existing(
-            (
-                "workbench/tests/apps/pilot/scenarios/pick/test_00_config.py",
-            )
-        ),
-        "움직이기 전 사전 점검입니다. 실제 적용 설정, 컨트롤러 소유권, lease 아래에서 허용되는 명령 source를 확인합니다.",
-    ),
-    TestCaseGroup(
-        "10 룩",
-        _existing(
-            (
-                "workbench/tests/apps/pilot/scenarios/pick/test_10_look.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_11_look_recover.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_12_auto_ready_dir.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_13_ready_align.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_14_feasible_ready.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_15_view_pregrasp.py",
-            )
-        ),
-        "Look/Ready 기하 점검입니다. view pose, 복구, 선호 방향, ready 정렬, feasible ready, pregrasp view를 확인합니다.",
-    ),
-    TestCaseGroup(
-        "20 에임",
-        _existing(
-            (
-                "workbench/tests/apps/pilot/scenarios/pick/test_20_aim.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_21_aim_drift.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_22_uv.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_23_uv_sign.py",
-            )
-        ),
-        "Aim과 이미지 공간 조향 점검입니다. aim 수렴, drift 처리, UV Jacobian 방향, 부호 규약을 확인합니다.",
-    ),
-    TestCaseGroup(
-        "30 명목 운동학",
-        _existing(
-            (
-                "workbench/tests/apps/pilot/scenarios/pick/test_30_nominal_kinematics.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_32_ready_pose.py",
-            )
-        ),
-        "명목 운동학과 ready pose 계산을 확인합니다.",
-    ),
-    TestCaseGroup(
-        "40 그래스프",
-        _existing(
-            (
-                "workbench/tests/apps/pilot/scenarios/pick/test_40_guided_grasp.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_41_grasp_after_aim.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_42_grasp_trajectory.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_43_lji.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_50_extend_ready.py",
-            )
-        ),
-        "guided grasp와 LJI 점검입니다. 그래스프 단계에서 LJI가 어떤 gate를 통과해야 하는지 확인합니다.",
-    ),
-    TestCaseGroup(
-        "60 세션",
-        _existing(
-            (
-                "workbench/tests/apps/pilot/scenarios/pick/test_60_convergence.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_70_e2e.py",
-                "workbench/tests/apps/pilot/scenarios/pick/test_80_timing.py",
-            )
-        ),
-        "Pick 세션 단위 점검입니다. 수렴, mock 기반 E2E 흐름, 타이밍 동작을 확인합니다.",
-    ),
-    TestCaseGroup(
-        "비전 체인",
-        _under("workbench/tests/apps/pilot/scenarios/vision/"),
-        "화면을 띄우지 않는 비전 점검입니다. 설정, hand-eye, mock world, remote config, lifecycle, detector/tracker, sim-camera 계약 순서로 봅니다.",
-    ),
-    TestCaseGroup(
-        "게이즈 체인",
-        _under("workbench/tests/apps/pilot/scenarios/gaze/"),
-        "정지 안정화부터 preview, baseline 비교, 보행 trial까지 gaze 동작을 시간 순서로 확인합니다.",
-    ),
-    TestCaseGroup(
-        "GO2 체인",
-        _under("workbench/tests/apps/robot/scenarios/go2/")
-        + _under("workbench/tests/apps/sim/scenarios/go2/"),
-        "GO2 bring-up 점검입니다. 환경, lowstate, bridge, mirror mode, locomotion, payload, MPC import guard 순서로 확인합니다.",
-    ),
-    TestCaseGroup(
-        "회귀",
-        _under("workbench/tests/apps/pilot/regressions/"),
-        "실제 로그나 디버깅 과정에서 이미 한 번 잡은 증상을 고정합니다. 시간 순서보다는 특정 사고 재발 방지용입니다.",
-    ),
-    TestCaseGroup(
-        "계약",
-        _under("workbench/tests/apps/pilot/contracts/")
-        + _under("workbench/tests/apps/sim/contracts/"),
-        "리팩터 중 유용한 subsystem 계약 테스트입니다. 시간 순서의 로봇 디버그 시나리오는 아니고 부품별 불변식을 확인합니다.",
-    ),
-    TestCaseGroup(
-        "Visual-servo 회귀",
-        _under("workbench/tests/apps/pilot/regressions/visual_servo/"),
-        "과거 visual-servo 동작과 feasible-look 조건이 다시 깨지지 않는지 확인합니다.",
-    ),
-    TestCaseGroup(
-        "LJI",
-        _existing(
-            (
-                "workbench/tests/apps/pilot/scenarios/pick/test_43_lji.py",
-                "workbench/tests/apps/pilot/contracts/vision/test_lji_invariants.py",
-                "workbench/tests/apps/pilot/regressions/pick/test_lji_sign_flip_case.py",
-            )
-        ),
-        "Local Image Jacobian 묶음입니다. 그래스프 gate, 수학 불변식, 과거 sign-flip 회귀를 함께 확인합니다.",
-    ),
-)
-
-TEST_GROUPS += (
-    TestCaseGroup("프로토콜", _under("workbench/tests/protocol/"), "v6 DDS 계약, peer discovery와 target-owned authority를 확인합니다."),
-    TestCaseGroup("로봇", _under("workbench/tests/apps/robot/"), "Jetson I/O 경계, q 명령과 local safety를 확인합니다."),
-    TestCaseGroup("시뮬레이터", _under("workbench/tests/apps/sim/"), "Genesis adapter, model bundle과 virtual endpoint 계약을 확인합니다."),
-    TestCaseGroup("UI", _under("workbench/tests/apps/ui/"), "UI가 pilot 구현 없이 operator protocol만 사용하는지 확인합니다."),
-    TestCaseGroup("설치", _under("workbench/tests/setup/"), "설치, lifecycle, ownership와 connection manager 계약을 확인합니다."),
-    TestCaseGroup("시스템", _under("workbench/tests/system/"), "별도 프로세스 DDS, RGB-D와 WebRTC 경계를 확인합니다."),
-    TestCaseGroup("모델 빌더", _under("workbench/tests/model_builder/"), "blueprint와 URDF 생성 계약을 확인합니다."),
-    TestCaseGroup("개발 도구", _under("workbench/tests/tools/") + _under("workbench/tests/research/"), "품질, release, 분석기, 로그뷰어와 실험 CLI의 helper를 확인합니다."),
-)
 
 
 class TestGui:
-    def __init__(self, *, runner: str, docker_compose: str):
+    def __init__(self, *, runner: str = "local", dev_wrapper: str = ""):
         self.runner = str(runner)
-        self.docker_compose = str(docker_compose)
+        self.dev_wrapper = str(dev_wrapper)
         self.selected: Optional[TestCaseGroup] = None
         self.hovered: Optional[TestCaseGroup] = None
         self.log_lines: list[str] = ["준비됨. 테스트 버튼에 커서를 올리면 설명이 나오고, 클릭하면 실행합니다."]
@@ -243,6 +58,7 @@ class TestGui:
         self._log_dirty = False
 
     def _install_font(self) -> None:
+        from elesim_ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_font_with_korean_ranges
         assert imgui is not None
         io = imgui.get_io()
         fonts = getattr(io, "fonts", None)
@@ -403,108 +219,31 @@ class TestGui:
             self._append_log(item)
 
     def _command_for(self, group: TestCaseGroup) -> list[str]:
-        paths = list(group.paths)
-        if self.runner == "docker":
-            source_path = ":".join(str(path.relative_to(ROOT)) for path in SOURCE_ROOTS)
-            inner = (
-                f"cd {shlex.quote(str(ROOT))} && "
-                f"PYTHONPATH={shlex.quote(source_path)} "
-                f"python3 -m pytest {shlex.join(paths)}"
-            )
-            return [
-                "docker",
-                "compose",
-                "-f",
-                self.docker_compose,
-                "exec",
-                "-T",
-                "dev",
-                "/usr/local/bin/elesim-dev-env",
-                "bash",
-                "-lc",
-                inner,
-            ]
-        return [sys.executable, "-m", "pytest", *paths]
-
-    def _docker_up_command(self) -> list[str]:
-        return [
-            "docker",
-            "compose",
-            "--profile",
-            "developer",
-            "-f",
-            self.docker_compose,
-            "up",
-            "-d",
-            "--build",
-            "dev",
-        ]
-
-    def _require_docker_owner(self) -> None:
-        expected_compose = str(Path(self.docker_compose).expanduser().resolve())
-        result = subprocess.run(
-            [
-                "docker",
-                "container",
-                "inspect",
-                "--format",
-                (
-                    '{{ index .Config.Labels "com.docker.compose.project" }}|'
-                    '{{ index .Config.Labels "com.docker.compose.project.config_files" }}'
-                ),
-                DEVELOPER_CONTAINER,
-            ],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            return
-        actual_project, separator, actual_compose = result.stdout.strip().partition("|")
-        if (
-            separator
-            and actual_project == DEVELOPER_PROJECT
-            and actual_compose == expected_compose
-        ):
-            return
-        raise DockerOwnerConflict(
-            "EleSim fixed container name conflict: "
-            f"{DEVELOPER_CONTAINER}\n"
-            f"  Existing owner: project={actual_project} compose={actual_compose}\n"
-            f"  Current installation: project={DEVELOPER_PROJECT} "
-            f"compose={expected_compose}\n"
-            "Stop and remove the existing installation with its elesim-down "
-            "command, then try again."
-        )
+        command = ["python3", "-m", "workbench.tools.quality.check", "--selection", group.key]
+        if self.runner == "dev":
+            wrapper = Path(self.dev_wrapper).expanduser()
+            if not wrapper.is_absolute() or wrapper.name != "elesim-dev" or not wrapper.is_file():
+                raise ValueError("Supply the current installation's absolute bin/elesim-dev path")
+            return [str(wrapper), *command]
+        return [sys.executable, *command[1:]]
 
     def _run_group(self, group: TestCaseGroup) -> None:
         if self._proc is not None:
             self._append_log("[runner] A test run is already active. Stop it first.")
             return
-        if not group.paths:
+        if not group.paths and not group.checks:
             self._append_log(f"[runner] No test files belong to {group.label}.")
             return
         self.selected = group
         self.exit_code = None
         self.status = f"{group.label} 실행 중"
-        command = self._command_for(group)
-        commands = (
-            (self._docker_up_command(), command)
-            if self.runner == "docker"
-            else (command,)
-        )
         self._append_log("")
         env = os.environ.copy()
-        source_path = os.pathsep.join(str(path) for path in SOURCE_ROOTS)
-        env["PYTHONPATH"] = source_path + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
 
         def worker() -> None:
             code = -1
             try:
-                if self.runner == "docker":
-                    self._require_docker_owner()
-                for current in commands:
+                for current in (self._command_for(group),):
                     self._queue.put(f"$ {shlex.join(current)}")
                     self._proc = subprocess.Popen(
                         current,
@@ -521,9 +260,6 @@ class TestGui:
                     code = int(self._proc.wait())
                     if code != 0:
                         break
-            except DockerOwnerConflict as exc:
-                self._queue.put(f"[runner] {exc}")
-                code = 73
             except Exception as exc:
                 self._queue.put(f"[runner] Failed to start the test run: {exc}")
                 code = -1
@@ -731,17 +467,16 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="repo pytest 묶음을 실행하는 GUI 러너입니다.")
     ap.add_argument(
         "--runner",
-        choices=("local", "docker"),
+        choices=("local", "dev"),
         default="local",
-        help="pytest를 로컬 또는 EleSim Developer 컨테이너로 실행합니다",
+        help="Run the quality matrix locally or through the installed development wrapper",
     )
     ap.add_argument(
-        "--docker-compose",
-        default=str(Path("~/.local/share/elesim/containers/compose.yaml").expanduser()),
-        help="--runner=docker일 때 사용할 developer attachment 포함 Compose 파일",
+        "--dev-wrapper", default="",
+        help="Absolute current-installation bin/elesim-dev path; required for --runner=dev",
     )
     args = ap.parse_args()
-    TestGui(runner=args.runner, docker_compose=args.docker_compose).run()
+    TestGui(runner=args.runner, dev_wrapper=args.dev_wrapper).run()
     return 0
 
 

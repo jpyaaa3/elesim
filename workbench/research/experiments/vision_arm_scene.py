@@ -184,7 +184,8 @@ def produce_matrix(output, *, data_root, config_path, backend="analytic", poses=
 
     output, data_root = Path(output), Path(data_root)
     sensors, truth = output/"sensors", output/"truth"
-    sensors.mkdir(parents=True, exist_ok=False)
+    from workbench.research.support.output import fresh_directory
+    fresh_directory(sensors)
     truth.mkdir()
     arm = ArmUrdf(data_root/"models/assemblies/zed-mini/arm.urdf",
                   data_root/"calibration/cameras/zed_mini.hand_eye.json", base_height_m=base_height)

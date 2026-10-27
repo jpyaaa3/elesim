@@ -14,9 +14,6 @@ from workbench.research.support.adapointr_profiles import prepare_cloud,validate
 
 
 def main():
-    import torch
-    import yaml
-    from workbench.research.support.adapointr_backend import load_model
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('inputs',type=Path);parser.add_argument('output',type=Path)
     parser.add_argument('--vendor',type=Path,required=True);parser.add_argument('--checkpoint',type=Path,required=True)
@@ -26,7 +23,11 @@ def main():
     parser.add_argument('--normalization',choices=['observed-radius','center-only','native'],default='observed-radius')
     parser.add_argument('--seed',type=int,default=0)
     parser.add_argument('--axis-order',choices=['world-z-up','model-native'],default='world-z-up')
-    args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=False)
+    from workbench.research.support.output import fresh_directory
+    args=parser.parse_args();fresh_directory(args.output)
+    import torch
+    import yaml
+    from workbench.research.support.adapointr_backend import load_model
     assert torch.cuda.is_available() and torch.cuda.device_count()==1
     torch.set_num_threads(2);torch.manual_seed(17)
     torch.backends.cuda.matmul.allow_tf32=False;torch.backends.cudnn.allow_tf32=False
