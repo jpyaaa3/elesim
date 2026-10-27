@@ -18,8 +18,11 @@ mkdir -p /etc/apt/keyrings
 cp "$temporary/jetson.asc" /etc/apt/keyrings/elesim-jetson.asc
 printf '%s\n' 'deb [arch=arm64 signed-by=/etc/apt/keyrings/elesim-jetson.asc] https://repo.download.nvidia.com/jetson/common r36.5 main' \
   > /etc/apt/sources.list.d/elesim-jetson-cuda.list
-apt-get update
-apt-get install -y --no-install-recommends \
+# The Dockerfile supplies a locked external archive cache. Keep successful
+# downloads there when a later package or linkage check fails.
+rm -f /etc/apt/apt.conf.d/docker-clean
+apt-get -o Acquire::Retries=5 update
+apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
   cuda-libraries-12-6=12.6.11-1 cuda-cupti-12-6=12.6.68-1 \
   libcudnn9-cuda-12=9.3.0.75-1 libopenblas0-pthread libjpeg-turbo8 libpng16-16
 rm -rf /var/lib/apt/lists/*
