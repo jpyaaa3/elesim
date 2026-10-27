@@ -1,24 +1,50 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-26. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-27. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### AdaPoinTr 도입 시험 (2026-10-27, 진행 중)
+### AdaPoinTr 도입 시험 (2026-10-27, 실행 통과·형상 품질 미달)
 
-- 기존 설치 설정·일반 세션·MPPI 제어값은 유지하고 원격 GPU2의 설치 소유
-  Compose 진단 작업으로 시험한다. 공식 PoinTr source `4603257`과 공식 PCN
-  checkpoint SHA256 `f58a5650…664fa1`을 확보했다. ShapeNet-55 링크는 HTML
-  페이지를 반환해 아직 가중치를 확보하지 못했다.
-- 기존 Torch 2.12.1+cu130 이미지에는 nvcc/PointNet++ 확장이 없다. 원본 forward와
-  checkpoint를 유지하며 필요한 FPS를 기존 Triton으로 실행하는 연구용 backend를
-  만들었다. 학습 loss는 비활성이고 기존 runtime package를 변경하지 않는다.
-  공식 FPS의 near-zero 제외·초기점·tie 규칙을 CPU 참조와 GPU에서 대조할 예정이다.
-- 센서점만으로 정규화하고 metric 좌표로 역변환하는 성질, 입력점 보존과
-  invalid/degenerate 입력 거부의 host TDD는 red 이후 **6 passed**다. 실제 GPU
-  model 추론, 별도 RGB-D 물체의 완성 품질·처리 시간 검증은 남았다.
+- 기존 설치 설정·일반 세션·MPPI 제어값을 유지한 채 원격 GPU2 A6000의 설치
+  소유 Compose 진단 작업에서 시험했다. 공식 PoinTr source `4603257`과 공식
+  PCN checkpoint SHA256 `f58a5650…664fa1`을 고정했다. ShapeNet-55 공식 링크는
+  HTML을 반환해 확보하지 못했으며 이번 결과는 PCN용 가중치에 한정된다.
+- 원본 forward와 32,494,657개 parameter를 strict load했다(missing/unexpected=0).
+  기존 Torch 2.12.1+cu130에 nvcc/PointNet++ 확장이 없어 FPS는 기존 Triton,
+  gather는 Torch로 실행한다. FPS 8사례는 초기점·near-zero 제외·tie를 포함해
+  CPU 참조와 인덱스가 같았고 gather도 일치했다. 실제 upstream CUDA 바이너리와
+  직접 대조한 결과는 아니다. Loss/training은 비활성이며 namespace 격리를 전제로
+  한 연구 worker다. Runtime Pilot package의 의존성·설정은 바꾸지 않았다.
+- 공개 airplane/sofa 샘플의 출력은 모두 16,384점이고 반복 차이는 0이었다.
+  배치1 FP32 단독 추론 중앙값은 **14.30 / 13.92 ms**, PyTorch peak allocated는
+  **171 MiB**였다. 첫 forward의 kernel 준비는 **1.27초**였다. 이 수치는
+  공유 GPU에서 Sim/MPPI와 동시 실행한 step/RTF나 전체 acquisition 지연이 아니다.
+- 센서만 읽는 전처리와 독립 evaluator를 분리했다. 정답은 evaluator에만
+  마운트한다. 24자세×2 seed의 **48 capture 중 10 capture에서 8개 box의 부분
+  점군 20건**을 얻었다. 나머지도 capture 분모에 남긴다. 320×240 Genesis의
+  정적 RGB-D replay, red connected-component segmentation 기준선이다.
+- TDD에서 world Z-up과 공식 PCN Y-up 축 순서 차이를 수정했다. 같은 입력의
+  축 대조군, 반경 .5와 1.0 정규화 모두 사전에 고정한 형상 기준에 미달했다.
+  PCN 축·반경 .5에서 물체별 표면 p95의 중앙값은 **27.10 mm**, 관측점의
+  대응 수치는 **1.06 mm**였다. Median F1@10mm는 **관측만 .595 → 모델 .432**,
+  hidden-surface recall 중앙값은 **.065**였다. 원본 관측점은 별도 array에
+  완전히 보존한다. ICP·정답 중심·정답 크기 정규화는 사용하지 않았다.
+- 기록 점군의 배치1 단독 forward 중앙값은 약 **13.04 ms**로 초기 속도 기준을
+  통과했지만 geometry acceptance는 FAIL이다. 관측을 대체하거나 Pick/Grasp의
+  collision shape로 자동 적용하지 않는다. 정확도 원인을 가중치의 학습 분포나
+  partial-frame 중심·크기 가정으로 확정한 실험은 아니며 후속 비교가 필요하다.
+- 연구 TDD **9 passed**, 관련 재생 회귀를 포함해 host **13 passed**다. 초기
+  EasyDict 누락과 축 규약 수정 전 결과도 원자료에 남겼다. Canonical dev 최초
+  이미지 준비가 미완료인 기존 사유로 required/extended·real-RMW·isolated release
+  gate는 실행하지 않았으며 host/실제 GPU 시험과 구분한다. 진단 컨테이너는
+  모두 제거됐고 기존 test Sim/Pilot ID·이미지·stopped 상태는 보존했다.
+  [실험 절차·한계](shape_completion.md),
+  [수치·버전·격리 증거](../workbench/evidence/curated/experiments/adapointr_20261027.json),
+  [관측/추정/정답](../workbench/evidence/curated/experiments/adapointr_objects_20261027.png),
+  [수치 비교](../workbench/evidence/curated/experiments/adapointr_metrics_20261027.png).
 
 ### 불완전한 관절로 생긴 시각 기울기 보정 (2026-10-26, 소프트웨어·정적 Genesis 검증)
 

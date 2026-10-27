@@ -1,0 +1,1299 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-27",
+  "complete": true,
+  "inference_accepted": true,
+  "geometry_accepted": false,
+  "production_enabled": false,
+  "tested_research_revision": "48fd68f2a4d3e06247020bb5ec7c64ce452a5b2e",
+  "research_source_sha256": {
+    "workbench/research/experiments/adapointr.py": "189ea3ea0f8059db22e819199c4e5952ceb8ef861e9b16e0d69f082d440619f3",
+    "workbench/research/experiments/adapointr_inputs.py": "057728771974dde7548b057f464dc504851a85504f3b8d392e6ae4e7af9d2a9a",
+    "workbench/research/experiments/adapointr_infer.py": "b7fb4e165c46c1a953fabea4fc7552621a048e918e6f64a4b58d397f41959457",
+    "workbench/research/experiments/adapointr_evaluate.py": "1dde7ca8a48290e44da5ce42cceef8bc3ee003a9cadf7fed61891526dcc03671",
+    "workbench/research/support/adapointr_backend.py": "77615a62e109e3bc079c14ec45034c70be451768118b7719f2957a2f507b4f9b",
+    "workbench/research/support/adapointr_ops.py": "42b823caa64d4a247f9e03e6ceb8731aa1f502c35b0c0f395b6e0c733bf2d2ef"
+  },
+  "upstream": {
+    "repository": "https://github.com/yuxumin/PoinTr",
+    "revision": "4603257ed3db9e7dad349b712e1b2fe0da207015",
+    "source_url": "https://codeload.github.com/yuxumin/PoinTr/tar.gz/4603257ed3db9e7dad349b712e1b2fe0da207015",
+    "source_sha256": "ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e",
+    "source_bytes": 26846627,
+    "vendor_root": "workbench/evidence/generated/adapointr-20261026/vendor/PoinTr-4603257ed3db9e7dad349b712e1b2fe0da207015"
+  },
+  "checkpoint": {
+    "url": "https://drive.usercontent.google.com/download?id=17pE2U2T2k4w1KfmDbL6U-GkEwD-duTaF&export=download&confirm=t",
+    "path": "/home/hckang/ws/newsim/logs/diagnostics/adapointr-20261027-c18ff631/assets/adapointr-pcn.pth",
+    "sha256": "f58a5650b348ca3d68fc8e01e3e88f57d5a889bbad5521fec7a2760eda664fa1",
+    "bytes": 389745620,
+    "wall_s": 25.339286089874804
+  },
+  "unavailable_checkpoint": [
+    {
+      "url": "https://cloud.tsinghua.edu.cn/f/e73573ca08574e51a714/?dl=1",
+      "error": "download returned HTML: \n\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<title>\u6e05\u534e\u5927\u5b66\u4e91\u76d8</title>\n<meta http-equiv=\"Content-type\" content=\"text/html; charset=utf-8\" />\n<meta name=\"keywords\" content=\"File, Collaboration, Team, Organization\" />\n\n\n<meta name=\"viewport\" conte"
+    }
+  ],
+  "dependencies": {
+    "einops": {
+      "version": "0.8.1",
+      "url": "https://files.pythonhosted.org/packages/87/62/9773de14fe6c45c23649e98b83231fffd7b9892b6cf863251dc2afa73643/einops-0.8.1-py3-none-any.whl",
+      "sha256": "919387eb55330f5757c6bea9165c5ff5cfe63a642682ea788a6d472576d81737",
+      "bytes": 64359
+    },
+    "easydict": {
+      "version": "1.13",
+      "url": "https://files.pythonhosted.org/packages/05/ec/fa6963f1198172c2b75c9ab6ecefb3045991f92f75f5eb41b6621b198123/easydict-1.13-py3-none-any.whl",
+      "sha256": "6b787daf4dcaf6377b4ad9403a5cee5a86adbc0ca9a5bcf5410e9902002aeac2",
+      "bytes": 6804
+    }
+  },
+  "gpu": {
+    "host": "hckang@100.74.222.24",
+    "index": 2,
+    "uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "name": "NVIDIA RTX A6000",
+    "visible_count": 1,
+    "base_image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+    "torch": "2.12.1+cu130",
+    "cuda": "13.0",
+    "concurrent_gpu_activity_controlled": false
+  },
+  "model": {
+    "parameters": 32494657,
+    "checkpoint_sha256": "f58a5650b348ca3d68fc8e01e3e88f57d5a889bbad5521fec7a2760eda664fa1",
+    "missing_keys": [],
+    "unexpected_keys": [],
+    "input_points": 2048,
+    "output_points": 16384,
+    "batch": 1,
+    "tf32": false,
+    "training": false,
+    "backend": "original upstream forward; Triton FPS and Torch gather; inference-only imports",
+    "peak_torch_allocated_bytes": 179311616
+  },
+  "operator_tests": {
+    "fps_cases": [
+      {
+        "seed": 1,
+        "n": 32,
+        "m": 16,
+        "indices_equal": true
+      },
+      {
+        "seed": 1,
+        "n": 513,
+        "m": 128,
+        "indices_equal": true
+      },
+      {
+        "seed": 1,
+        "n": 2048,
+        "m": 512,
+        "indices_equal": true
+      },
+      {
+        "seed": 7,
+        "n": 32,
+        "m": 16,
+        "indices_equal": true
+      },
+      {
+        "seed": 7,
+        "n": 513,
+        "m": 128,
+        "indices_equal": true
+      },
+      {
+        "seed": 7,
+        "n": 2048,
+        "m": 512,
+        "indices_equal": true
+      },
+      {
+        "degenerate_or_ties": true,
+        "indices_equal": true
+      },
+      {
+        "degenerate_or_ties": true,
+        "indices_equal": true
+      }
+    ],
+    "gather_equal": true
+  },
+  "public_demo_tests": [
+    {
+      "name": "airplane",
+      "input_points": 796,
+      "model_input_points": 2048,
+      "output_points": 16384,
+      "first_forward_s": 1.2723264768719673,
+      "repeat_max_abs": 0.0,
+      "forward_wall_ms": {
+        "median": 14.301348477602005,
+        "p95": 15.797802875749765
+      }
+    },
+    {
+      "name": "sofa",
+      "input_points": 1100,
+      "model_input_points": 2048,
+      "output_points": 16384,
+      "first_forward_s": 0.016485879197716713,
+      "repeat_max_abs": 0.0,
+      "forward_wall_ms": {
+        "median": 13.915715273469687,
+        "p95": 14.632044034078717
+      }
+    }
+  ],
+  "dataset": {
+    "producer": "previous independent GPU2 Genesis RGB-D replay",
+    "capture_resolution": [
+      320,
+      240
+    ],
+    "requested_captures": 48,
+    "captures_with_eligible_objects": 10,
+    "object_observations": 20,
+    "distinct_box_indices": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      7,
+      8
+    ],
+    "arm_poses": 24,
+    "seeds": 2,
+    "selection": "first 48 capture IDs, third stability frame; red image components with at least 128 observed depth points",
+    "input_truth_access": false,
+    "inference_truth_access": false,
+    "alignment": "none",
+    "observations_identical_across_controls": true,
+    "captures": [
+      {
+        "capture": "view-0000-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0001-2.npz",
+        "floor_valid": true,
+        "objects": 1
+      },
+      {
+        "capture": "view-0002-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0003-2.npz",
+        "floor_valid": true,
+        "objects": 1
+      },
+      {
+        "capture": "view-0004-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0005-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0006-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0007-2.npz",
+        "floor_valid": true,
+        "objects": 3
+      },
+      {
+        "capture": "view-0008-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0009-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0010-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0011-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0012-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0013-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0014-2.npz",
+        "floor_valid": true,
+        "objects": 1
+      },
+      {
+        "capture": "view-0015-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0016-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0017-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0018-2.npz",
+        "floor_valid": true,
+        "objects": 4
+      },
+      {
+        "capture": "view-0019-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0020-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0021-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0022-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0023-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0024-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0025-2.npz",
+        "floor_valid": true,
+        "objects": 1
+      },
+      {
+        "capture": "view-0026-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0027-2.npz",
+        "floor_valid": true,
+        "objects": 1
+      },
+      {
+        "capture": "view-0028-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0029-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0030-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0031-2.npz",
+        "floor_valid": true,
+        "objects": 3
+      },
+      {
+        "capture": "view-0032-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0033-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0034-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0035-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0036-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0037-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0038-2.npz",
+        "floor_valid": true,
+        "objects": 1
+      },
+      {
+        "capture": "view-0039-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0040-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0041-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0042-2.npz",
+        "floor_valid": true,
+        "objects": 4
+      },
+      {
+        "capture": "view-0043-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0044-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0045-2.npz",
+        "floor_valid": false,
+        "objects": 0
+      },
+      {
+        "capture": "view-0046-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      },
+      {
+        "capture": "view-0047-2.npz",
+        "floor_valid": true,
+        "objects": 0
+      }
+    ]
+  },
+  "evaluations": {
+    "native05": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 31.891024138880713,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 12.328834236672058,
+        "precision_10mm": 0.7308349609375,
+        "recall_10mm": 0.35158333333333336,
+        "f1_10mm": 0.36212229353449277,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.02089861647076422,
+        "forward_wall_ms_median": 13.34592467173934
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": false,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; partial centroid normalization; PCN checkpoint; not general-object or grasp acceptance"
+    },
+    "r05": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 27.102242268891246,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 11.836771557441118,
+        "precision_10mm": 0.82330322265625,
+        "recall_10mm": 0.3255,
+        "f1_10mm": 0.43229561023197044,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.06531654738713909,
+        "forward_wall_ms_median": 13.0406036041677
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": false,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; partial centroid normalization; PCN checkpoint; not general-object or grasp acceptance"
+    },
+    "r10": {
+      "schema_version": 1,
+      "complete": true,
+      "metrics": {
+        "surface_p95_mm": 28.255330406846213,
+        "observed_surface_p95_mm": 1.0621089566971171,
+        "observed_to_prediction_p95_mm": 37.662999730359225,
+        "precision_10mm": 0.243499755859375,
+        "recall_10mm": 0.09920833333333334,
+        "f1_10mm": 0.12976921177449427,
+        "partial_f1_10mm": 0.5953488738691028,
+        "hidden_recall_10mm": 0.0,
+        "forward_wall_ms_median": 13.223142130300403
+      },
+      "criteria": {
+        "median_surface_p95_mm_max": 20.0,
+        "median_observed_to_prediction_p95_mm_max": 10.0,
+        "median_precision_10mm_min": 0.8,
+        "median_hidden_recall_10mm_min": 0.5,
+        "median_f1_improves_over_partial": true,
+        "initial_forward_wall_ms_median_max": 100.0
+      },
+      "geometry_accepted": false,
+      "initial_latency_accepted": true,
+      "original_observations_preserved": true,
+      "mixed_or_misaligned_components": 0,
+      "alignment": "none",
+      "scope": "small independent box fixtures; partial centroid normalization; PCN checkpoint; not general-object or grasp acceptance"
+    }
+  },
+  "primary_per_object_metrics": [
+    {
+      "id": "view-0001-2-component-01",
+      "capture": "view-0001-2.npz",
+      "observed_points": 978,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.135035056620836,
+      "assigned_box": 8,
+      "surface_p95_mm": 33.662858382220165,
+      "observed_surface_p95_mm": 1.9259129159355448,
+      "observed_to_prediction_p95_mm": 12.252218599162815,
+      "precision_10mm": 0.66302490234375,
+      "recall_10mm": 0.397,
+      "f1_10mm": 0.4966315143134443,
+      "partial_f1_10mm": 0.6743261157755193,
+      "hidden_recall_10mm": 0.0028833107191316145
+    },
+    {
+      "id": "view-0003-2-component-01",
+      "capture": "view-0003-2.npz",
+      "observed_points": 506,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.163072988390923,
+      "assigned_box": 3,
+      "surface_p95_mm": 27.12868426384723,
+      "observed_surface_p95_mm": 0.8035897338873731,
+      "observed_to_prediction_p95_mm": 11.421324515719423,
+      "precision_10mm": 0.77508544921875,
+      "recall_10mm": 0.231,
+      "f1_10mm": 0.35592352301400215,
+      "partial_f1_10mm": 0.3594230637774284,
+      "hidden_recall_10mm": 0.06157293778678903
+    },
+    {
+      "id": "view-0007-2-component-01",
+      "capture": "view-0007-2.npz",
+      "observed_points": 3091,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.024399057030678,
+      "assigned_box": 2,
+      "surface_p95_mm": 28.6332973307981,
+      "observed_surface_p95_mm": 1.3329636264512514,
+      "observed_to_prediction_p95_mm": 24.167829041170965,
+      "precision_10mm": 0.553955078125,
+      "recall_10mm": 0.28708333333333336,
+      "f1_10mm": 0.378178376108404,
+      "partial_f1_10mm": 0.6749116607773852,
+      "hidden_recall_10mm": 0.056216032608695655
+    },
+    {
+      "id": "view-0007-2-component-02",
+      "capture": "view-0007-2.npz",
+      "observed_points": 1163,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.016391079872847,
+      "assigned_box": 1,
+      "surface_p95_mm": 20.541163539740104,
+      "observed_surface_p95_mm": 1.2401609588939362,
+      "observed_to_prediction_p95_mm": 10.242665418614767,
+      "precision_10mm": 0.8900146484375,
+      "recall_10mm": 0.14808333333333334,
+      "f1_10mm": 0.25391887503970634,
+      "partial_f1_10mm": 0.2946066936687273,
+      "hidden_recall_10mm": 0.007454417245895034
+    },
+    {
+      "id": "view-0007-2-component-03",
+      "capture": "view-0007-2.npz",
+      "observed_points": 1433,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 12.932367157191038,
+      "assigned_box": 5,
+      "surface_p95_mm": 10.509234343578534,
+      "observed_surface_p95_mm": 2.020231350747015,
+      "observed_to_prediction_p95_mm": 1.8989160121022228,
+      "precision_10mm": 0.9468994140625,
+      "recall_10mm": 0.617,
+      "f1_10mm": 0.747154111349023,
+      "partial_f1_10mm": 0.5857030704545929,
+      "hidden_recall_10mm": 0.3475601081234884
+    },
+    {
+      "id": "view-0014-2-component-01",
+      "capture": "view-0014-2.npz",
+      "observed_points": 5079,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 12.93700560927391,
+      "assigned_box": 7,
+      "surface_p95_mm": 15.089420991853322,
+      "observed_surface_p95_mm": 1.045412962351494,
+      "observed_to_prediction_p95_mm": 2.0350092901596986,
+      "precision_10mm": 0.93365478515625,
+      "recall_10mm": 0.5838333333333333,
+      "f1_10mm": 0.7184224756144375,
+      "partial_f1_10mm": 0.6267666075413401,
+      "hidden_recall_10mm": 0.24497930400122642
+    },
+    {
+      "id": "view-0018-2-component-01",
+      "capture": "view-0018-2.npz",
+      "observed_points": 2311,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 12.789362575858831,
+      "assigned_box": 0,
+      "surface_p95_mm": 33.46465338313352,
+      "observed_surface_p95_mm": 1.0901928508988066,
+      "observed_to_prediction_p95_mm": 22.713538943838625,
+      "precision_10mm": 0.76239013671875,
+      "recall_10mm": 0.3309166666666667,
+      "f1_10mm": 0.4615129110352305,
+      "partial_f1_10mm": 0.6043265875785067,
+      "hidden_recall_10mm": 0.09318048206937096
+    },
+    {
+      "id": "view-0018-2-component-02",
+      "capture": "view-0018-2.npz",
+      "observed_points": 879,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.64892115816474,
+      "assigned_box": 3,
+      "surface_p95_mm": 27.07580027393526,
+      "observed_surface_p95_mm": 0.9874338171953021,
+      "observed_to_prediction_p95_mm": 17.747943794573278,
+      "precision_10mm": 0.56732177734375,
+      "recall_10mm": 0.3125833333333333,
+      "f1_10mm": 0.40307830942871037,
+      "partial_f1_10mm": 0.5372097275553117,
+      "hidden_recall_10mm": 0.06611352561569867
+    },
+    {
+      "id": "view-0018-2-component-03",
+      "capture": "view-0018-2.npz",
+      "observed_points": 1027,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.079766184091568,
+      "assigned_box": 1,
+      "surface_p95_mm": 28.59514576097858,
+      "observed_surface_p95_mm": 0.7896436324576246,
+      "observed_to_prediction_p95_mm": 15.817201164173042,
+      "precision_10mm": 0.867919921875,
+      "recall_10mm": 0.18658333333333332,
+      "f1_10mm": 0.3071387239252289,
+      "partial_f1_10mm": 0.35390946502057613,
+      "hidden_recall_10mm": 0.03503184713375796
+    },
+    {
+      "id": "view-0018-2-component-04",
+      "capture": "view-0018-2.npz",
+      "observed_points": 1707,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.107563834637403,
+      "assigned_box": 4,
+      "surface_p95_mm": 26.864237563147675,
+      "observed_surface_p95_mm": 0.9330362652931807,
+      "observed_to_prediction_p95_mm": 2.3701178228507036,
+      "precision_10mm": 0.8651123046875,
+      "recall_10mm": 0.5693333333333334,
+      "f1_10mm": 0.6867283905090913,
+      "partial_f1_10mm": 0.6309965204494895,
+      "hidden_recall_10mm": 0.22847426186427577
+    },
+    {
+      "id": "view-0025-2-component-01",
+      "capture": "view-0025-2.npz",
+      "observed_points": 978,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.077120762318373,
+      "assigned_box": 8,
+      "surface_p95_mm": 33.430642274645265,
+      "observed_surface_p95_mm": 1.887665966761904,
+      "observed_to_prediction_p95_mm": 12.511268396819473,
+      "precision_10mm": 0.672119140625,
+      "recall_10mm": 0.399,
+      "f1_10mm": 0.5007389503895787,
+      "partial_f1_10mm": 0.6734468273269953,
+      "hidden_recall_10mm": 0.003215978334461747
+    },
+    {
+      "id": "view-0027-2-component-01",
+      "capture": "view-0027-2.npz",
+      "observed_points": 506,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.00446828827262,
+      "assigned_box": 3,
+      "surface_p95_mm": 26.629449005304295,
+      "observed_surface_p95_mm": 0.8563024270184464,
+      "observed_to_prediction_p95_mm": 10.620879449605994,
+      "precision_10mm": 0.781494140625,
+      "recall_10mm": 0.2345,
+      "f1_10mm": 0.3607508520941427,
+      "partial_f1_10mm": 0.3587499145182247,
+      "hidden_recall_10mm": 0.06451956915857951
+    },
+    {
+      "id": "view-0031-2-component-01",
+      "capture": "view-0031-2.npz",
+      "observed_points": 3091,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.020018115639687,
+      "assigned_box": 2,
+      "surface_p95_mm": 28.08942581894636,
+      "observed_surface_p95_mm": 1.3274854293449934,
+      "observed_to_prediction_p95_mm": 23.886341547959518,
+      "precision_10mm": 0.55560302734375,
+      "recall_10mm": 0.2950833333333333,
+      "f1_10mm": 0.385451562167268,
+      "partial_f1_10mm": 0.675277363801954,
+      "hidden_recall_10mm": 0.05473397926228115
+    },
+    {
+      "id": "view-0031-2-component-02",
+      "capture": "view-0031-2.npz",
+      "observed_points": 1163,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 12.946187984198332,
+      "assigned_box": 1,
+      "surface_p95_mm": 20.45241997552033,
+      "observed_surface_p95_mm": 1.2904527571408977,
+      "observed_to_prediction_p95_mm": 8.301337660884515,
+      "precision_10mm": 0.90069580078125,
+      "recall_10mm": 0.15533333333333332,
+      "f1_10mm": 0.26497011594664377,
+      "partial_f1_10mm": 0.2956966340008521,
+      "hidden_recall_10mm": 0.007864488808227465
+    },
+    {
+      "id": "view-0031-2-component-03",
+      "capture": "view-0031-2.npz",
+      "observed_points": 1433,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.13869608566165,
+      "assigned_box": 5,
+      "surface_p95_mm": 10.878373370811051,
+      "observed_surface_p95_mm": 1.9937794046709503,
+      "observed_to_prediction_p95_mm": 1.935695115776928,
+      "precision_10mm": 0.9443359375,
+      "recall_10mm": 0.6254166666666666,
+      "f1_10mm": 0.7524796361886908,
+      "partial_f1_10mm": 0.5864523275579206,
+      "hidden_recall_10mm": 0.3611111111111111
+    },
+    {
+      "id": "view-0038-2-component-01",
+      "capture": "view-0038-2.npz",
+      "observed_points": 5079,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.056808151304722,
+      "assigned_box": 7,
+      "surface_p95_mm": 18.203430701505365,
+      "observed_surface_p95_mm": 1.0287035462995793,
+      "observed_to_prediction_p95_mm": 1.9739466011324323,
+      "precision_10mm": 0.92816162109375,
+      "recall_10mm": 0.5895,
+      "f1_10mm": 0.7210451500255294,
+      "partial_f1_10mm": 0.625665693179866,
+      "hidden_recall_10mm": 0.2554688695120086
+    },
+    {
+      "id": "view-0042-2-component-01",
+      "capture": "view-0042-2.npz",
+      "observed_points": 2311,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.077986892312765,
+      "assigned_box": 0,
+      "surface_p95_mm": 33.87380779408931,
+      "observed_surface_p95_mm": 1.0788049510427402,
+      "observed_to_prediction_p95_mm": 22.24604012407462,
+      "precision_10mm": 0.762939453125,
+      "recall_10mm": 0.3441666666666667,
+      "f1_10mm": 0.4743507849092774,
+      "partial_f1_10mm": 0.604245420180285,
+      "hidden_recall_10mm": 0.10022042615723732
+    },
+    {
+      "id": "view-0042-2-component-02",
+      "capture": "view-0042-2.npz",
+      "observed_points": 879,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.088830281049013,
+      "assigned_box": 3,
+      "surface_p95_mm": 28.83715847198604,
+      "observed_surface_p95_mm": 0.9351325501472489,
+      "observed_to_prediction_p95_mm": 18.27195402000925,
+      "precision_10mm": 0.53753662109375,
+      "recall_10mm": 0.32008333333333333,
+      "f1_10mm": 0.4012418614568351,
+      "partial_f1_10mm": 0.5368530146924344,
+      "hidden_recall_10mm": 0.07634592602343031
+    },
+    {
+      "id": "view-0042-2-component-03",
+      "capture": "view-0042-2.npz",
+      "observed_points": 1027,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 13.004899024963379,
+      "assigned_box": 1,
+      "surface_p95_mm": 28.473302919089935,
+      "observed_surface_p95_mm": 0.8388224459660194,
+      "observed_to_prediction_p95_mm": 15.974384166849442,
+      "precision_10mm": 0.8651123046875,
+      "recall_10mm": 0.18391666666666667,
+      "f1_10mm": 0.3033444751579229,
+      "partial_f1_10mm": 0.354924943450545,
+      "hidden_recall_10mm": 0.03357772819041547
+    },
+    {
+      "id": "view-0042-2-component-04",
+      "capture": "view-0042-2.npz",
+      "observed_points": 1707,
+      "observed_unchanged": true,
+      "forward_wall_ms_median": 12.849263846874237,
+      "assigned_box": 4,
+      "surface_p95_mm": 25.848254346719287,
+      "observed_surface_p95_mm": 0.8881081129714359,
+      "observed_to_prediction_p95_mm": 2.4212114761283567,
+      "precision_10mm": 0.87176513671875,
+      "recall_10mm": 0.5589166666666666,
+      "f1_10mm": 0.681135474258624,
+      "partial_f1_10mm": 0.6306840874079991,
+      "hidden_recall_10mm": 0.2135022400741542
+    }
+  ],
+  "isolation": {
+    "prepare": {
+      "exit_code": 0,
+      "wall_s": 1.427034467458725,
+      "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+      "network_mode": "none",
+      "device_requests": [],
+      "mounts": [
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_ops.py",
+          "read_only": true
+        },
+        {
+          "destination": "/sensors",
+          "read_only": true
+        },
+        {
+          "destination": "/recorded-predictions",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_inputs.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_backend.py",
+          "read_only": true
+        }
+      ]
+    },
+    "infer-native05": {
+      "exit_code": 0,
+      "wall_s": 10.410468553658575,
+      "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+      "network_mode": "none",
+      "device_requests": [
+        {
+          "Driver": "nvidia",
+          "Count": 0,
+          "DeviceIDs": [
+            "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+          ],
+          "Capabilities": [
+            [
+              "gpu"
+            ]
+          ],
+          "Options": null
+        }
+      ],
+      "mounts": [
+        {
+          "destination": "/deps",
+          "read_only": true
+        },
+        {
+          "destination": "/cache",
+          "read_only": false
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_backend.py",
+          "read_only": true
+        },
+        {
+          "destination": "/vendor",
+          "read_only": true
+        },
+        {
+          "destination": "/inputs",
+          "read_only": true
+        },
+        {
+          "destination": "/checkpoint.pth",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_inputs.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_ops.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+          "read_only": true
+        }
+      ]
+    },
+    "evaluate-native05": {
+      "exit_code": 0,
+      "wall_s": 3.130882694851607,
+      "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+      "network_mode": "none",
+      "device_requests": [],
+      "mounts": [
+        {
+          "destination": "/trial/workbench/research/support/adapointr_backend.py",
+          "read_only": true
+        },
+        {
+          "destination": "/predictions",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+          "read_only": true
+        },
+        {
+          "destination": "/truth",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_ops.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_inputs.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+          "read_only": true
+        }
+      ]
+    },
+    "infer-r05": {
+      "exit_code": 0,
+      "wall_s": 10.5457747830078,
+      "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+      "network_mode": "none",
+      "device_requests": [
+        {
+          "Driver": "nvidia",
+          "Count": 0,
+          "DeviceIDs": [
+            "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+          ],
+          "Capabilities": [
+            [
+              "gpu"
+            ]
+          ],
+          "Options": null
+        }
+      ],
+      "mounts": [
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_inputs.py",
+          "read_only": true
+        },
+        {
+          "destination": "/vendor",
+          "read_only": true
+        },
+        {
+          "destination": "/checkpoint.pth",
+          "read_only": true
+        },
+        {
+          "destination": "/cache",
+          "read_only": false
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+          "read_only": true
+        },
+        {
+          "destination": "/inputs",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_backend.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_ops.py",
+          "read_only": true
+        },
+        {
+          "destination": "/deps",
+          "read_only": true
+        }
+      ]
+    },
+    "evaluate-r05": {
+      "exit_code": 0,
+      "wall_s": 2.71551418537274,
+      "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+      "network_mode": "none",
+      "device_requests": [],
+      "mounts": [
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_inputs.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_ops.py",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_backend.py",
+          "read_only": true
+        },
+        {
+          "destination": "/truth",
+          "read_only": true
+        },
+        {
+          "destination": "/predictions",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+          "read_only": true
+        }
+      ]
+    },
+    "infer-r10": {
+      "exit_code": 0,
+      "wall_s": 10.51806141808629,
+      "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+      "network_mode": "none",
+      "device_requests": [
+        {
+          "Driver": "nvidia",
+          "Count": 0,
+          "DeviceIDs": [
+            "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+          ],
+          "Capabilities": [
+            [
+              "gpu"
+            ]
+          ],
+          "Options": null
+        }
+      ],
+      "mounts": [
+        {
+          "destination": "/vendor",
+          "read_only": true
+        },
+        {
+          "destination": "/cache",
+          "read_only": false
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_inputs.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_backend.py",
+          "read_only": true
+        },
+        {
+          "destination": "/inputs",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_ops.py",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        },
+        {
+          "destination": "/checkpoint.pth",
+          "read_only": true
+        },
+        {
+          "destination": "/deps",
+          "read_only": true
+        }
+      ]
+    },
+    "evaluate-r10": {
+      "exit_code": 0,
+      "wall_s": 3.154374089092016,
+      "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+      "network_mode": "none",
+      "device_requests": [],
+      "mounts": [
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_inputs.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_backend.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/support/adapointr_ops.py",
+          "read_only": true
+        },
+        {
+          "destination": "/predictions",
+          "read_only": true
+        },
+        {
+          "destination": "/output",
+          "read_only": false
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_infer.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr.py",
+          "read_only": true
+        },
+        {
+          "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+          "read_only": true
+        },
+        {
+          "destination": "/truth",
+          "read_only": true
+        }
+      ]
+    }
+  },
+  "normal_services_before": {
+    "sim": {
+      "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+      "image": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+      "running": false
+    },
+    "pilot": {
+      "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+      "image": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+      "running": false
+    }
+  },
+  "normal_services_after": {
+    "sim": {
+      "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+      "image": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+      "running": false
+    },
+    "pilot": {
+      "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+      "image": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+      "running": false
+    }
+  },
+  "normal_services_unchanged": true,
+  "diagnostic_containers_remaining": [],
+  "verification": {
+    "focused_host_passed": 9,
+    "related_host_batch_passed": 13,
+    "gpu_fps_cases_passed": 8,
+    "gpu_gather_passed": true,
+    "canonical_run": false,
+    "canonical_reason": "Known optional dev image preparation remains incomplete; required/extended, real-RMW and isolated-release gates were not run. No host scientific package or separate dev image was installed."
+  },
+  "evidence": {
+    "remote_root": "/home/hckang/ws/newsim/logs/diagnostics/adapointr-20261027-c18ff631",
+    "local_root": "workbench/evidence/generated/adapointr-20261027",
+    "bundle": "evidence.zip",
+    "bytes": 37579847,
+    "sha256": "0b23fb5250685492c882c4df8d4aa00d6a4d7bb1bf83380da97a7b392e31f68f",
+    "verified_files": 245,
+    "file_manifest_sha256": "d3caf44ca70a7d12c8e6c70b925ae9e61e14cbb057ea13cdc26d75ee33ab81a1"
+  },
+  "figures": [
+    {
+      "path": "workbench/evidence/curated/experiments/adapointr_objects_20261027.png",
+      "sha256": "47f31d6111ec0cd6264375b8f345d663383696b1e67a280af3474e6e1299441e",
+      "bytes": 1032791
+    },
+    {
+      "path": "workbench/evidence/curated/experiments/adapointr_demos_20261027.png",
+      "sha256": "839286b94f9c2ab814de46de7bc8d4cfb8dbeef4eda403af6c7a16c6600cb317",
+      "bytes": 254382
+    },
+    {
+      "path": "workbench/evidence/curated/experiments/adapointr_metrics_20261027.png",
+      "sha256": "a50abc3350483f4195400ac61687ba947433cf02f2d7b046f467cd4ff48c930c",
+      "bytes": 91128
+    }
+  ],
+  "figure_generator": {
+    "path": "workbench/research/analysis/adapointr_plot.py",
+    "sha256": "2f17db4a536b8eaea0ce842acc57e74745bd8aff3b5b0857c0aa64222721a705"
+  },
+  "limitations": [
+    "PCN pretrained weights only; the official ShapeNet-55 checkpoint URL returned HTML, so architecture-wide conclusions are not established.",
+    "Static box fixtures and red component segmentation, not arbitrary objects, real sensor timing, live IMU/plane integration or grasp validation.",
+    "No native upstream CUDA extension was available. Triton FPS indices matched eight CPU-reference cases; this is not direct binary equivalence against the compiled extension.",
+    "Partial-centroid/radius normalization and object heading assumptions remain potential sources of error; this experiment does not isolate a single cause.",
+    "Metrics concern the raw model output. Preserved observations are stored separately, and no observed-plus-predicted fusion or visibility filtering policy was evaluated.",
+    "Forward wall time excludes acquisition, segmentation and GPU contention with a live Sim/MPPI loop; driver/context memory is not included in the Torch allocated peak.",
+    "No runtime production integration or automatic collision/grasp use was enabled."
+  ]
+}
