@@ -1,0 +1,2950 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-27",
+  "source_revision": "e98b07bad42ab34cf0e0ad4d5b344a1f1c95c25b",
+  "implementation_complete": true,
+  "paired_acceptance_passed": false,
+  "comparison": {
+    "complete": true,
+    "accepted": false,
+    "collision_pass": true,
+    "baseline_total_views": 112,
+    "candidate_total_views": 39,
+    "capture_reduction_fraction": 0.6517857142857143,
+    "episodes": [
+      {
+        "episode": 0,
+        "kind": "box",
+        "baseline_views": 18,
+        "candidate_views": 4,
+        "fewer_views": true,
+        "baseline_coverage": 0.45866666666666667,
+        "candidate_coverage": 0.45795833333333336,
+        "coverage_loss_pp": 0.07083333333333108,
+        "surface_p95_increase_mm": -0.22972609137550482,
+        "max_dimension_error_increase_mm": 4.763291464583499,
+        "paired_quality_preserved": false,
+        "baseline_full_shape_pass": false,
+        "candidate_full_shape_pass": false
+      },
+      {
+        "episode": 1,
+        "kind": "box",
+        "baseline_views": 20,
+        "candidate_views": 5,
+        "fewer_views": true,
+        "baseline_coverage": 0.7627083333333333,
+        "candidate_coverage": 0.761125,
+        "coverage_loss_pp": 0.158333333333327,
+        "surface_p95_increase_mm": -0.14384739514220102,
+        "max_dimension_error_increase_mm": 0.2027453679577249,
+        "paired_quality_preserved": true,
+        "baseline_full_shape_pass": true,
+        "candidate_full_shape_pass": true
+      },
+      {
+        "episode": 2,
+        "kind": "cylinder",
+        "baseline_views": 18,
+        "candidate_views": 4,
+        "fewer_views": true,
+        "baseline_coverage": 0.6187083333333333,
+        "candidate_coverage": 0.6175,
+        "coverage_loss_pp": 0.12083333333332558,
+        "surface_p95_increase_mm": -0.08661381893802522,
+        "max_dimension_error_increase_mm": 1.5356163537069296,
+        "paired_quality_preserved": true,
+        "baseline_full_shape_pass": true,
+        "candidate_full_shape_pass": true
+      },
+      {
+        "episode": 3,
+        "kind": "box",
+        "baseline_views": 18,
+        "candidate_views": 7,
+        "fewer_views": true,
+        "baseline_coverage": 0.6075833333333334,
+        "candidate_coverage": 0.6042916666666667,
+        "coverage_loss_pp": 0.32916666666666927,
+        "surface_p95_increase_mm": -0.39792489066750125,
+        "max_dimension_error_increase_mm": 0.41414382119697724,
+        "paired_quality_preserved": true,
+        "baseline_full_shape_pass": true,
+        "candidate_full_shape_pass": true
+      },
+      {
+        "episode": 4,
+        "kind": "box",
+        "baseline_views": 20,
+        "candidate_views": 12,
+        "fewer_views": true,
+        "baseline_coverage": 0.477,
+        "candidate_coverage": 0.451625,
+        "coverage_loss_pp": 2.537499999999998,
+        "surface_p95_increase_mm": -0.4714584493688263,
+        "max_dimension_error_increase_mm": 1.1636154815209672,
+        "paired_quality_preserved": true,
+        "baseline_full_shape_pass": false,
+        "candidate_full_shape_pass": false
+      },
+      {
+        "episode": 5,
+        "kind": "cylinder",
+        "baseline_views": 18,
+        "candidate_views": 7,
+        "fewer_views": true,
+        "baseline_coverage": 0.523875,
+        "candidate_coverage": 0.5226666666666666,
+        "coverage_loss_pp": 0.12083333333333668,
+        "surface_p95_increase_mm": -0.4102982812723792,
+        "max_dimension_error_increase_mm": 0.6145492477117047,
+        "paired_quality_preserved": true,
+        "baseline_full_shape_pass": false,
+        "candidate_full_shape_pass": false
+      }
+    ],
+    "criteria": {
+      "each_episode_fewer_views": true,
+      "coverage_loss_max_pp": 5.0,
+      "surface_p95_increase_max_mm": 1.0,
+      "each_dimension_error_increase_max_mm": 3.0
+    },
+    "full_shape_pass_baseline": 3,
+    "full_shape_pass_candidate": 3,
+    "full_shape_complete_claimed": false
+  },
+  "gpu_host_index": 2,
+  "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+  "renderer": "NVIDIA Corporation / NVIDIA RTX A6000/PCIe/SSE2 / software=false",
+  "capture_reduction_fraction": 0.6517857142857143,
+  "additional_view_changes": {
+    "baseline": 106,
+    "candidate": 33,
+    "reduction_fraction": 0.6886792452830188
+  },
+  "self_collision_scope": "Existing conservative 1005-sphere arm, plate and open-claw model with shipped connected/separated pair exclusions. Continuous straight joint segments and stated joint uncertainty. Does not cover GO2, cables, external obstacles, tracking dynamics or physical certification.",
+  "nominal_guard": {
+    "margin_m": 0.002,
+    "joint_uncertainty": [
+      0.004,
+      0.06,
+      0.018,
+      0.018
+    ]
+  },
+  "results": {
+    "candidate": {
+      "complete": true,
+      "full_shape_accepted": false,
+      "criteria": {
+        "accepted_views_min": 4,
+        "full_surface_recall_5mm_min": 0.6,
+        "coverage_gain_min": 0.12,
+        "surface_p95_mm_max_clean": 4.0,
+        "surface_p95_mm_max_joint_error": 7.0,
+        "precision_5mm_min": 0.9,
+        "max_dimension_error_mm": 12.0
+      },
+      "episodes": [
+        {
+          "episode": 0,
+          "kind": "box",
+          "views_attempted": 4,
+          "views_accepted": 4,
+          "stop_reason": "marginal_information_saturated",
+          "additional_view_changes": 3,
+          "first": {
+            "surface_p95_mm": 1.1721706747770246,
+            "recall_5mm": 0.3485416666666667,
+            "precision_5mm": 1.0,
+            "points": 8375,
+            "extent_mm": [
+              121.18598074770902,
+              119.27391534921755,
+              94.95777448683177
+            ],
+            "dimension_error_mm": [
+              3.034218759870852,
+              5.635595532782991,
+              21.06778363823135
+            ]
+          },
+          "fused": {
+            "surface_p95_mm": 1.174823011158738,
+            "recall_5mm": 0.45795833333333336,
+            "precision_5mm": 1.0,
+            "points": 5139,
+            "extent_mm": [
+              122.59924048148342,
+              122.99622139709356,
+              101.27734828575076
+            ],
+            "dimension_error_mm": [
+              1.6209590260964495,
+              1.9132894849069744,
+              14.748209839312354
+            ]
+          },
+          "fk_only": {
+            "surface_p95_mm": 1.1992200914873445,
+            "recall_5mm": 0.45816666666666667,
+            "precision_5mm": 1.0,
+            "points": 5157,
+            "extent_mm": [
+              122.84197564904689,
+              123.1580400364424,
+              101.40267172516845
+            ],
+            "dimension_error_mm": [
+              1.3782238585329787,
+              1.7514708455581425,
+              14.62288639989466
+            ]
+          },
+          "coverage_gain": 0.10941666666666666,
+          "nominal_anchor_translation_error_mm": 0.0002545133834164493,
+          "nominal_anchor_angle_error_deg": 5.2517697511790065e-05,
+          "camera_direction_span_deg": 32.717545384272256,
+          "accepted": false,
+          "joint_fit": {
+            "accepted": true,
+            "reason": "shared_bend_offset_fit",
+            "bend_offsets_rad": [
+              0.00043900718678017574,
+              -0.0004600604528975203
+            ],
+            "iterations": 5,
+            "surface_mse_before": 4.075351118303452e-07,
+            "surface_mse_after": 3.7897415059996924e-07,
+            "jacobian_singular_values": [
+              38.29446619782769,
+              4.8936537047208555
+            ],
+            "absolute_world_placement_observed": false
+          },
+          "self_collision": {
+            "sphere_count": 1005,
+            "margin_m": 0.002,
+            "joint_uncertainty": [
+              0.004,
+              0.06,
+              0.018,
+              0.018
+            ],
+            "all_motion_certified": true
+          },
+          "start_q": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "last_q": [
+            -0.1672410031328338,
+            -0.17679415102387863,
+            -0.32639200232115123,
+            0.5994224626548297
+          ]
+        },
+        {
+          "episode": 1,
+          "kind": "box",
+          "views_attempted": 5,
+          "views_accepted": 5,
+          "stop_reason": "marginal_information_saturated",
+          "additional_view_changes": 4,
+          "first": {
+            "surface_p95_mm": 1.0252589721500838,
+            "recall_5mm": 0.46729166666666666,
+            "precision_5mm": 1.0,
+            "points": 5076,
+            "extent_mm": [
+              59.370682884576524,
+              111.26006575971788,
+              122.37357653249256
+            ],
+            "dimension_error_mm": [
+              1.5666208780755684,
+              3.5622427894950874,
+              20.220041302126816
+            ]
+          },
+          "fused": {
+            "surface_p95_mm": 0.9733259240943091,
+            "recall_5mm": 0.761125,
+            "precision_5mm": 1.0,
+            "points": 5757,
+            "extent_mm": [
+              61.40283174647883,
+              112.64070013002281,
+              135.26709884786058
+            ],
+            "dimension_error_mm": [
+              0.46552798382673566,
+              2.181608419190156,
+              7.32651898675879
+            ]
+          },
+          "fk_only": {
+            "surface_p95_mm": 0.9514313640564404,
+            "recall_5mm": 0.7598333333333334,
+            "precision_5mm": 1.0,
+            "points": 5796,
+            "extent_mm": [
+              61.529722925399476,
+              112.31624457920203,
+              135.1964029643798
+            ],
+            "dimension_error_mm": [
+              0.5924191627473818,
+              2.5060639700109357,
+              7.39721487023956
+            ]
+          },
+          "coverage_gain": 0.2938333333333334,
+          "nominal_anchor_translation_error_mm": 0.0002545133834164493,
+          "nominal_anchor_angle_error_deg": 5.2517697511790065e-05,
+          "camera_direction_span_deg": 35.81213594172052,
+          "accepted": true,
+          "joint_fit": {
+            "accepted": true,
+            "reason": "shared_bend_offset_fit",
+            "bend_offsets_rad": [
+              -6.152138396097755e-05,
+              -0.0001998606114719748
+            ],
+            "iterations": 5,
+            "surface_mse_before": 4.2941703284774384e-07,
+            "surface_mse_after": 4.09840182416816e-07,
+            "jacobian_singular_values": [
+              40.465286291276044,
+              7.660602273942333
+            ],
+            "absolute_world_placement_observed": false
+          },
+          "self_collision": {
+            "sphere_count": 1005,
+            "margin_m": 0.002,
+            "joint_uncertainty": [
+              0.004,
+              0.06,
+              0.018,
+              0.018
+            ],
+            "all_motion_certified": true
+          },
+          "start_q": [
+            -0.1672410031328338,
+            -0.17679415102387863,
+            -0.32639200232115123,
+            0.5994224626548297
+          ],
+          "last_q": [
+            -0.09213142468231297,
+            0.2661220514712528,
+            -0.08463513789386357,
+            0.3949301461779311
+          ]
+        },
+        {
+          "episode": 2,
+          "kind": "cylinder",
+          "views_attempted": 4,
+          "views_accepted": 4,
+          "stop_reason": "marginal_information_saturated",
+          "additional_view_changes": 3,
+          "first": {
+            "surface_p95_mm": 1.1434992940794684,
+            "recall_5mm": 0.3892083333333333,
+            "precision_5mm": 1.0,
+            "points": 3526,
+            "extent_mm": [
+              86.11631238933329,
+              84.53813224013085,
+              89.3417605781807
+            ],
+            "dimension_error_mm": [
+              5.56439772367788,
+              7.142577872880321,
+              15.848178197098703
+            ]
+          },
+          "fused": {
+            "surface_p95_mm": 1.215307999643898,
+            "recall_5mm": 0.6175,
+            "precision_5mm": 1.0,
+            "points": 2929,
+            "extent_mm": [
+              89.28755543257923,
+              89.17041134656996,
+              93.73969744619627
+            ],
+            "dimension_error_mm": [
+              2.3931546804319415,
+              2.51029876644121,
+              11.450241329083136
+            ]
+          },
+          "fk_only": {
+            "surface_p95_mm": 1.1981931493569948,
+            "recall_5mm": 0.6169166666666667,
+            "precision_5mm": 1.0,
+            "points": 2937,
+            "extent_mm": [
+              89.28834322510801,
+              89.21423726968634,
+              93.9673944097582
+            ],
+            "dimension_error_mm": [
+              2.3923668879031608,
+              2.466472843324838,
+              11.22254436552121
+            ]
+          },
+          "coverage_gain": 0.22829166666666673,
+          "nominal_anchor_translation_error_mm": 0.0002545133834164493,
+          "nominal_anchor_angle_error_deg": 5.2517697511790065e-05,
+          "camera_direction_span_deg": 33.213695667696214,
+          "accepted": true,
+          "joint_fit": {
+            "accepted": true,
+            "reason": "shared_bend_offset_fit",
+            "bend_offsets_rad": [
+              0.00038683139033662524,
+              -0.00041365947802090826
+            ],
+            "iterations": 5,
+            "surface_mse_before": 7.57141422559424e-07,
+            "surface_mse_after": 7.292125599612712e-07,
+            "jacobian_singular_values": [
+              34.76057217676785,
+              4.300816126138631
+            ],
+            "absolute_world_placement_observed": false
+          },
+          "self_collision": {
+            "sphere_count": 1005,
+            "margin_m": 0.002,
+            "joint_uncertainty": [
+              0.004,
+              0.06,
+              0.018,
+              0.018
+            ],
+            "all_motion_certified": true
+          },
+          "start_q": [
+            -0.09213142468231297,
+            0.2661220514712528,
+            -0.08463513789386357,
+            0.3949301461779311
+          ],
+          "last_q": [
+            -0.09213142468231297,
+            0.2661220514712528,
+            -0.08463513789386357,
+            0.3949301461779311
+          ]
+        },
+        {
+          "episode": 3,
+          "kind": "box",
+          "views_attempted": 7,
+          "views_accepted": 7,
+          "stop_reason": "marginal_information_saturated",
+          "additional_view_changes": 6,
+          "first": {
+            "surface_p95_mm": 2.7063275720810296,
+            "recall_5mm": 0.34658333333333335,
+            "precision_5mm": 0.999841822208162,
+            "points": 6322,
+            "extent_mm": [
+              110.6305243902917,
+              99.66806239964448,
+              97.83403511909317
+            ],
+            "dimension_error_mm": [
+              3.0085723433663363,
+              5.551861814922149,
+              17.05954000670469
+            ]
+          },
+          "fused": {
+            "surface_p95_mm": 3.5699890906153375,
+            "recall_5mm": 0.6042916666666667,
+            "precision_5mm": 0.9951650780494543,
+            "points": 7239,
+            "extent_mm": [
+              114.12281599370189,
+              105.8073935890975,
+              108.29188789086643
+            ],
+            "dimension_error_mm": [
+              0.483719260043855,
+              0.5874693745308718,
+              6.601687234931431
+            ]
+          },
+          "fk_only": {
+            "surface_p95_mm": 9.47273807863063,
+            "recall_5mm": 0.4660416666666667,
+            "precision_5mm": 0.670407351771671,
+            "points": 11317,
+            "extent_mm": [
+              123.10508815885882,
+              116.93695830366929,
+              112.82190411019128
+            ],
+            "dimension_error_mm": [
+              9.465991425200784,
+              11.717034089102658,
+              2.0716710156065825
+            ]
+          },
+          "coverage_gain": 0.2577083333333333,
+          "nominal_anchor_translation_error_mm": 19.51518850306139,
+          "nominal_anchor_angle_error_deg": 3.162236928755393,
+          "camera_direction_span_deg": 35.73707761601303,
+          "accepted": true,
+          "joint_fit": {
+            "accepted": true,
+            "reason": "shared_bend_offset_fit",
+            "bend_offsets_rad": [
+              0.014145275678617095,
+              -0.010752121465185586
+            ],
+            "iterations": 5,
+            "surface_mse_before": 1.41749959802168e-05,
+            "surface_mse_after": 1.7716089288750849e-06,
+            "jacobian_singular_values": [
+              64.66447961459441,
+              11.439076626325786
+            ],
+            "absolute_world_placement_observed": false
+          },
+          "self_collision": {
+            "sphere_count": 1005,
+            "margin_m": 0.002,
+            "joint_uncertainty": [
+              0.004,
+              0.06,
+              0.018,
+              0.018
+            ],
+            "all_motion_certified": true
+          },
+          "start_q": [
+            -0.09213142468231297,
+            0.2661220514712528,
+            -0.08463513789386357,
+            0.3949301461779311
+          ],
+          "last_q": [
+            -0.1672410031328338,
+            -0.17679415102387863,
+            -0.32639200232115123,
+            0.5994224626548297
+          ]
+        },
+        {
+          "episode": 4,
+          "kind": "box",
+          "views_attempted": 12,
+          "views_accepted": 1,
+          "stop_reason": "view_budget",
+          "additional_view_changes": 11,
+          "first": {
+            "surface_p95_mm": 2.684539339391993,
+            "recall_5mm": 0.453,
+            "precision_5mm": 1.0,
+            "points": 4101,
+            "extent_mm": [
+              52.45235868868748,
+              129.46636920510858,
+              90.26859742166681
+            ],
+            "dimension_error_mm": [
+              1.3390435549595763,
+              4.278308731007985,
+              10.405240292855265
+            ]
+          },
+          "fused": {
+            "surface_p95_mm": 2.7682259052669282,
+            "recall_5mm": 0.451625,
+            "precision_5mm": 1.0,
+            "points": 2434,
+            "extent_mm": [
+              52.61367911859227,
+              129.8632208335197,
+              91.34378398717199
+            ],
+            "dimension_error_mm": [
+              1.1777231250547846,
+              3.8814571025968525,
+              9.330053727350073
+            ]
+          },
+          "fk_only": {
+            "surface_p95_mm": 2.7682259052669673,
+            "recall_5mm": 0.451625,
+            "precision_5mm": 1.0,
+            "points": 2434,
+            "extent_mm": [
+              52.613679118592316,
+              129.8632208335197,
+              91.34378398717205
+            ],
+            "dimension_error_mm": [
+              1.1777231250547429,
+              3.8814571025968525,
+              9.330053727350018
+            ]
+          },
+          "coverage_gain": -0.001375000000000015,
+          "nominal_anchor_translation_error_mm": 19.51518850306139,
+          "nominal_anchor_angle_error_deg": 3.162236928755393,
+          "camera_direction_span_deg": 0.0,
+          "accepted": false,
+          "joint_fit": {
+            "accepted": false,
+            "reason": "joint_fit_disconnected"
+          },
+          "self_collision": {
+            "sphere_count": 1005,
+            "margin_m": 0.002,
+            "joint_uncertainty": [
+              0.004,
+              0.06,
+              0.018,
+              0.018
+            ],
+            "all_motion_certified": true
+          },
+          "start_q": [
+            -0.1672410031328338,
+            -0.17679415102387863,
+            -0.32639200232115123,
+            0.5994224626548297
+          ],
+          "last_q": [
+            -0.009339106973979633,
+            0.5524613910302674,
+            -0.24628892947697995,
+            0.5242051791536377
+          ]
+        },
+        {
+          "episode": 5,
+          "kind": "cylinder",
+          "views_attempted": 7,
+          "views_accepted": 7,
+          "stop_reason": "marginal_information_saturated",
+          "additional_view_changes": 6,
+          "first": {
+            "surface_p95_mm": 2.694044520663724,
+            "recall_5mm": 0.375125,
+            "precision_5mm": 0.9997415352804342,
+            "points": 7738,
+            "extent_mm": [
+              121.08983674983835,
+              121.81013318880343,
+              124.19930389163122
+            ],
+            "dimension_error_mm": [
+              8.884601380624954,
+              8.164304941659871,
+              21.53479638182673
+            ]
+          },
+          "fused": {
+            "surface_p95_mm": 3.575383669134007,
+            "recall_5mm": 0.5226666666666666,
+            "precision_5mm": 0.9952765692977005,
+            "points": 8045,
+            "extent_mm": [
+              126.46753368900518,
+              124.33152800510898,
+              137.58971864765948
+            ],
+            "dimension_error_mm": [
+              3.506904441458125,
+              5.642910125354325,
+              8.144381625798475
+            ]
+          },
+          "fk_only": {
+            "surface_p95_mm": 8.647348373742306,
+            "recall_5mm": 0.45058333333333334,
+            "precision_5mm": 0.6936676309868209,
+            "points": 12444,
+            "extent_mm": [
+              135.9392553755092,
+              131.70093367390672,
+              141.70311582412327
+            ],
+            "dimension_error_mm": [
+              5.964817245045884,
+              1.7264955434434237,
+              4.030984449334696
+            ]
+          },
+          "coverage_gain": 0.14754166666666663,
+          "nominal_anchor_translation_error_mm": 19.51518850306139,
+          "nominal_anchor_angle_error_deg": 3.162236928755393,
+          "camera_direction_span_deg": 37.074059417369554,
+          "accepted": false,
+          "joint_fit": {
+            "accepted": true,
+            "reason": "shared_bend_offset_fit",
+            "bend_offsets_rad": [
+              0.013855426482162649,
+              -0.010547757377245002
+            ],
+            "iterations": 5,
+            "surface_mse_before": 1.3445444800538725e-05,
+            "surface_mse_after": 2.002459812687483e-06,
+            "jacobian_singular_values": [
+              62.50850921245114,
+              9.895823273726446
+            ],
+            "absolute_world_placement_observed": false
+          },
+          "self_collision": {
+            "sphere_count": 1005,
+            "margin_m": 0.002,
+            "joint_uncertainty": [
+              0.004,
+              0.06,
+              0.018,
+              0.018
+            ],
+            "all_motion_certified": true
+          },
+          "start_q": [
+            -0.009339106973979633,
+            0.5524613910302674,
+            -0.24628892947697995,
+            0.5242051791536377
+          ],
+          "last_q": [
+            -0.1672410031328338,
+            -0.17679415102387863,
+            -0.32639200232115123,
+            0.5994224626548297
+          ]
+        }
+      ],
+      "collision_audit": {
+        "accepted": true,
+        "segments": 39,
+        "rejected": 0,
+        "sphere_count": 1005,
+        "minimum_certified_margin_m": 0.0003602677545429117,
+        "independent_fk_max_abs": 0.0,
+        "records": [
+          {
+            "file": "view-00000.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 10,
+            "minimum_margin_m": 0.003288892342969592
+          },
+          {
+            "file": "view-00001.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.0030064026900607638
+          },
+          {
+            "file": "view-00002.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 9,
+            "minimum_margin_m": 0.0038793809544636695
+          },
+          {
+            "file": "view-00003.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.001135790993837399
+          },
+          {
+            "file": "view-00004.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.0022890499676529313
+          },
+          {
+            "file": "view-00005.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 7,
+            "minimum_margin_m": 0.0037446969499953936
+          },
+          {
+            "file": "view-00006.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 12,
+            "minimum_margin_m": 0.0038059753918170403
+          },
+          {
+            "file": "view-00007.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 12,
+            "minimum_margin_m": 0.002478439502279939
+          },
+          {
+            "file": "view-00008.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 9,
+            "minimum_margin_m": 0.0037587041893621734
+          },
+          {
+            "file": "view-00009.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 6,
+            "minimum_margin_m": 0.004459732460196944
+          },
+          {
+            "file": "view-00010.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 7,
+            "minimum_margin_m": 0.0037446969499953936
+          },
+          {
+            "file": "view-00011.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 12,
+            "minimum_margin_m": 0.0038059753918170403
+          },
+          {
+            "file": "view-00012.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 12,
+            "minimum_margin_m": 0.004234826465553655
+          },
+          {
+            "file": "view-00013.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 6,
+            "minimum_margin_m": 0.006142563080957605
+          },
+          {
+            "file": "view-00014.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.009036824118234747
+          },
+          {
+            "file": "view-00015.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.007886719922877015
+          },
+          {
+            "file": "view-00016.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.007724478720194012
+          },
+          {
+            "file": "view-00017.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 11,
+            "minimum_margin_m": 0.00581279975770934
+          },
+          {
+            "file": "view-00018.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 11,
+            "minimum_margin_m": 0.002533228060169465
+          },
+          {
+            "file": "view-00019.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.0026293307126652454
+          },
+          {
+            "file": "view-00020.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.0003602677545429117
+          },
+          {
+            "file": "view-00021.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.006206078007859092
+          },
+          {
+            "file": "view-00022.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.024808013474641073
+          },
+          {
+            "file": "view-00023.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.014976302796170064
+          },
+          {
+            "file": "view-00024.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.005834770309504751
+          },
+          {
+            "file": "view-00025.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.009764684979784381
+          },
+          {
+            "file": "view-00026.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.007724478720194012
+          },
+          {
+            "file": "view-00027.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.010669409680087442
+          },
+          {
+            "file": "view-00028.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.01817245026054077
+          },
+          {
+            "file": "view-00029.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.020721117494316592
+          },
+          {
+            "file": "view-00030.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.00856457802442473
+          },
+          {
+            "file": "view-00031.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 6,
+            "minimum_margin_m": 0.011061746798970123
+          },
+          {
+            "file": "view-00032.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.00256640861157572
+          },
+          {
+            "file": "view-00033.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.009036824118234747
+          },
+          {
+            "file": "view-00034.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.007886719922877015
+          },
+          {
+            "file": "view-00035.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.007724478720194012
+          },
+          {
+            "file": "view-00036.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 11,
+            "minimum_margin_m": 0.00581279975770934
+          },
+          {
+            "file": "view-00037.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 11,
+            "minimum_margin_m": 0.002533228060169465
+          },
+          {
+            "file": "view-00038.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.0026293307126652454
+          }
+        ],
+        "scope": "continuous actual joint segments against shipped arm/open-claw sphere model; excludes external objects"
+      },
+      "stages": {
+        "consumer": {
+          "exit_code": 0,
+          "wall_s": 108.41731220064685,
+          "audit": {
+            "image_id": "sha256:70273188490d9d2f080b9847d5f2e4d7e71e83df32147397ba1515fb803f24e7",
+            "network_mode": "none",
+            "device_requests": [],
+            "mounts": [
+              {
+                "destination": "/nominal/hand-eye.json",
+                "read_only": true
+              },
+              {
+                "destination": "/nominal/planning",
+                "read_only": true
+              },
+              {
+                "destination": "/sensors",
+                "read_only": true
+              },
+              {
+                "destination": "/requests",
+                "read_only": false
+              },
+              {
+                "destination": "/output",
+                "read_only": false
+              },
+              {
+                "destination": "/trial/workbench/research/experiments/arm_scan.py",
+                "read_only": true
+              },
+              {
+                "destination": "/nominal/arm.json",
+                "read_only": true
+              }
+            ]
+          }
+        },
+        "producer": {
+          "exit_code": 0,
+          "wall_s": 114.59680457925424,
+          "audit": {
+            "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+            "network_mode": "none",
+            "device_requests": [
+              {
+                "Driver": "nvidia",
+                "Count": 0,
+                "DeviceIDs": [
+                  "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+                ],
+                "Capabilities": [
+                  [
+                    "gpu"
+                  ]
+                ],
+                "Options": null
+              }
+            ],
+            "mounts": [
+              {
+                "destination": "/requests",
+                "read_only": true
+              },
+              {
+                "destination": "/output",
+                "read_only": false
+              },
+              {
+                "destination": "/trial/workbench/research/experiments/arm_scan_scene.py",
+                "read_only": true
+              },
+              {
+                "destination": "/trial/workbench/research/experiments/vision_arm_scene.py",
+                "read_only": true
+              },
+              {
+                "destination": "/nominal-data",
+                "read_only": true
+              }
+            ]
+          }
+        },
+        "evaluator": {
+          "exit_code": 0,
+          "wall_s": 3.823669246863574,
+          "audit": {
+            "image_id": "sha256:70273188490d9d2f080b9847d5f2e4d7e71e83df32147397ba1515fb803f24e7",
+            "network_mode": "none",
+            "device_requests": [],
+            "mounts": [
+              {
+                "destination": "/output",
+                "read_only": false
+              },
+              {
+                "destination": "/trial/workbench/research/experiments/arm_scan_evaluate.py",
+                "read_only": true
+              },
+              {
+                "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+                "read_only": true
+              },
+              {
+                "destination": "/trial/workbench/research/experiments/vision_arm_scene.py",
+                "read_only": true
+              },
+              {
+                "destination": "/nominal-data",
+                "read_only": true
+              },
+              {
+                "destination": "/truth",
+                "read_only": true
+              },
+              {
+                "destination": "/scans",
+                "read_only": true
+              }
+            ]
+          }
+        }
+      },
+      "release": {
+        "build_fingerprints": {
+          "pilot": "62ddecef1145e6041fe5fd74cb00b4259ffa884170a870c44b8bbabafee9aa3a",
+          "sim": "715f73cf6c30a37a7977779775a386f25eeb4ca013800b0d79f0e6bbfe4fd4d2"
+        },
+        "image_ids": {
+          "pilot": "sha256:70273188490d9d2f080b9847d5f2e4d7e71e83df32147397ba1515fb803f24e7",
+          "sim": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57"
+        },
+        "install_uuid": "3fc3487e-0788-4a76-a152-e485144b0d0b",
+        "platform": "linux/amd64",
+        "release_key": "03d2f6c138c132cc41ed0ed63d183b4f9df9cbffba6f6485a9a042fa3bb34ae9",
+        "role_images": {
+          "pilot": "elesim/pilot:merry-beaver",
+          "sim": "elesim/sim:merry-penguin"
+        },
+        "runtime_data_digest": "dcb47d839b0c79df19b81a7a70dad9e7f6cab768ac6e245fa5952d92983306ca",
+        "schema_version": 1,
+        "source_revision": "git-e98b07bad42ab34cf0e0ad4d5b344a1f1c95c25b"
+      },
+      "normal_before": {
+        "sim": {
+          "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+          "image": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+          "running": false
+        },
+        "pilot": {
+          "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+          "image": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+          "running": false
+        }
+      },
+      "normal_after": {
+        "sim": {
+          "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+          "image": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+          "running": false
+        },
+        "pilot": {
+          "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+          "image": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+          "running": false
+        }
+      },
+      "genesis_fk_max_abs": 3.370624158824387e-06
+    },
+    "baseline": {
+      "complete": true,
+      "full_shape_accepted": false,
+      "criteria": {
+        "accepted_views_min": 4,
+        "full_surface_recall_5mm_min": 0.6,
+        "coverage_gain_min": 0.12,
+        "surface_p95_mm_max_clean": 4.0,
+        "surface_p95_mm_max_joint_error": 7.0,
+        "precision_5mm_min": 0.9,
+        "max_dimension_error_mm": 12.0
+      },
+      "episodes": [
+        {
+          "episode": 0,
+          "kind": "box",
+          "views_attempted": 18,
+          "views_accepted": 18,
+          "stop_reason": "no_safe_distinct_view",
+          "additional_view_changes": 17,
+          "first": {
+            "surface_p95_mm": 1.1721706747770246,
+            "recall_5mm": 0.3485416666666667,
+            "precision_5mm": 1.0,
+            "points": 8375,
+            "extent_mm": [
+              121.18598074770902,
+              119.27391534921755,
+              94.95777448683177
+            ],
+            "dimension_error_mm": [
+              3.034218759870852,
+              5.635595532782991,
+              21.06778363823135
+            ]
+          },
+          "fused": {
+            "surface_p95_mm": 1.404549102534243,
+            "recall_5mm": 0.45866666666666667,
+            "precision_5mm": 1.0,
+            "points": 6074,
+            "extent_mm": [
+              122.64963360718343,
+              123.5520616067545,
+              106.04063975033426
+            ],
+            "dimension_error_mm": [
+              1.570565900396434,
+              1.357449275246031,
+              9.984918374728855
+            ]
+          },
+          "fk_only": {
+            "surface_p95_mm": 1.4035616241391307,
+            "recall_5mm": 0.45825,
+            "precision_5mm": 1.0,
+            "points": 6087,
+            "extent_mm": [
+              122.91460693208327,
+              123.49521920395767,
+              105.94476775670445
+            ],
+            "dimension_error_mm": [
+              1.3055925754966031,
+              1.4142916780428698,
+              10.080790368358668
+            ]
+          },
+          "coverage_gain": 0.11012499999999997,
+          "nominal_anchor_translation_error_mm": 0.0002545133834164493,
+          "nominal_anchor_angle_error_deg": 5.2517697511790065e-05,
+          "camera_direction_span_deg": 31.73754159429808,
+          "accepted": false,
+          "joint_fit": {
+            "accepted": true,
+            "reason": "shared_bend_offset_fit",
+            "bend_offsets_rad": [
+              7.736957899944162e-05,
+              -0.00024095296100188702
+            ],
+            "iterations": 5,
+            "surface_mse_before": 4.596783414963554e-07,
+            "surface_mse_after": 4.461738319786336e-07,
+            "jacobian_singular_values": [
+              126.76136587745124,
+              30.080250911771902
+            ],
+            "absolute_world_placement_observed": false
+          },
+          "self_collision": {
+            "sphere_count": 1005,
+            "margin_m": 0.002,
+            "joint_uncertainty": [
+              0.004,
+              0.06,
+              0.018,
+              0.018
+            ],
+            "all_motion_certified": true
+          },
+          "start_q": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "last_q": [
+            -0.17222582572397965,
+            0.6645072195533608,
+            -0.3005756505310116,
+            0.5357195545603808
+          ]
+        },
+        {
+          "episode": 1,
+          "kind": "box",
+          "views_attempted": 20,
+          "views_accepted": 20,
+          "stop_reason": "view_budget",
+          "additional_view_changes": 19,
+          "first": {
+            "surface_p95_mm": 1.0502417616403137,
+            "recall_5mm": 0.46779166666666666,
+            "precision_5mm": 1.0,
+            "points": 5076,
+            "extent_mm": [
+              59.33999082624947,
+              111.17096577746796,
+              122.41719974921716
+            ],
+            "dimension_error_mm": [
+              1.5973129364026257,
+              3.651342771745003,
+              20.176418085402215
+            ]
+          },
+          "fused": {
+            "surface_p95_mm": 1.11717331923651,
+            "recall_5mm": 0.7627083333333333,
+            "precision_5mm": 1.0,
+            "points": 6378,
+            "extent_mm": [
+              61.349128749931914,
+              112.55867895586377,
+              135.4698442158183
+            ],
+            "dimension_error_mm": [
+              0.41182498727981853,
+              2.2636295933491923,
+              7.123773618801065
+            ]
+          },
+          "fk_only": {
+            "surface_p95_mm": 1.1389324241813104,
+            "recall_5mm": 0.7617083333333333,
+            "precision_5mm": 1.0,
+            "points": 6421,
+            "extent_mm": [
+              61.506239990510245,
+              112.40434745296915,
+              135.43434872151545
+            ],
+            "dimension_error_mm": [
+              0.568936227858155,
+              2.4179610962438147,
+              7.159269113103939
+            ]
+          },
+          "coverage_gain": 0.29491666666666666,
+          "nominal_anchor_translation_error_mm": 0.0002545133834164493,
+          "nominal_anchor_angle_error_deg": 5.2517697511790065e-05,
+          "camera_direction_span_deg": 34.903827882727626,
+          "accepted": true,
+          "joint_fit": {
+            "accepted": true,
+            "reason": "shared_bend_offset_fit",
+            "bend_offsets_rad": [
+              1.6753663544696833e-05,
+              -0.00020410613902349613
+            ],
+            "iterations": 5,
+            "surface_mse_before": 3.800749862901684e-07,
+            "surface_mse_after": 3.705232915056057e-07,
+            "jacobian_singular_values": [
+              121.19277505884389,
+              41.50891240793636
+            ],
+            "absolute_world_placement_observed": false
+          },
+          "self_collision": {
+            "sphere_count": 1005,
+            "margin_m": 0.002,
+            "joint_uncertainty": [
+              0.004,
+              0.06,
+              0.018,
+              0.018
+            ],
+            "all_motion_certified": true
+          },
+          "start_q": [
+            -0.17222582572397965,
+            0.6645072195533608,
+            -0.3005756505310116,
+            0.5357195545603808
+          ],
+          "last_q": [
+            -0.132063,
+            0.382158,
+            -0.33934,
+            0.558898
+          ]
+        },
+        {
+          "episode": 2,
+          "kind": "cylinder",
+          "views_attempted": 18,
+          "views_accepted": 18,
+          "stop_reason": "no_safe_distinct_view",
+          "additional_view_changes": 17,
+          "first": {
+            "surface_p95_mm": 1.1613904485235846,
+            "recall_5mm": 0.38875,
+            "precision_5mm": 1.0,
+            "points": 3526,
+            "extent_mm": [
+              86.1782411711146,
+              84.40571595280835,
+              89.35589188548217
+            ],
+            "dimension_error_mm": [
+              5.5024689418965576,
+              7.274994160202816,
+              15.834046889797241
+            ]
+          },
+          "fused": {
+            "surface_p95_mm": 1.3019218185819232,
+            "recall_5mm": 0.6187083333333333,
+            "precision_5mm": 1.0,
+            "points": 3672,
+            "extent_mm": [
+              89.08334515735507,
+              89.43829090994682,
+              95.2753137999032
+            ],
+            "dimension_error_mm": [
+              2.5973649556561007,
+              2.2424192030643524,
+              9.914624975376206
+            ]
+          },
+          "fk_only": {
+            "surface_p95_mm": 1.2807560658468289,
+            "recall_5mm": 0.6185833333333334,
+            "precision_5mm": 1.0,
+            "points": 3704,
+            "extent_mm": [
+              89.25312613678666,
+              89.25546255715162,
+              95.35717328539953
+            ],
+            "dimension_error_mm": [
+              2.427583976224501,
+              2.425247555859558,
+              9.832765489879879
+            ]
+          },
+          "coverage_gain": 0.22995833333333332,
+          "nominal_anchor_translation_error_mm": 0.0002545133834164493,
+          "nominal_anchor_angle_error_deg": 5.2517697511790065e-05,
+          "camera_direction_span_deg": 32.627908781761455,
+          "accepted": true,
+          "joint_fit": {
+            "accepted": true,
+            "reason": "shared_bend_offset_fit",
+            "bend_offsets_rad": [
+              -9.729293463797897e-05,
+              -0.0001858787132581094
+            ],
+            "iterations": 5,
+            "surface_mse_before": 6.658705708420262e-07,
+            "surface_mse_after": 6.490989703085867e-07,
+            "jacobian_singular_values": [
+              120.07813613766713,
+              33.53160711597648
+            ],
+            "absolute_world_placement_observed": false
+          },
+          "self_collision": {
+            "sphere_count": 1005,
+            "margin_m": 0.002,
+            "joint_uncertainty": [
+              0.004,
+              0.06,
+              0.018,
+              0.018
+            ],
+            "all_motion_certified": true
+          },
+          "start_q": [
+            -0.132063,
+            0.382158,
+            -0.33934,
+            0.558898
+          ],
+          "last_q": [
+            -0.17222582572397965,
+            0.6645072195533608,
+            -0.3005756505310116,
+            0.5357195545603808
+          ]
+        },
+        {
+          "episode": 3,
+          "kind": "box",
+          "views_attempted": 18,
+          "views_accepted": 17,
+          "stop_reason": "no_safe_distinct_view",
+          "additional_view_changes": 17,
+          "first": {
+            "surface_p95_mm": 2.80248938300322,
+            "recall_5mm": 0.34629166666666666,
+            "precision_5mm": 0.9998424700693131,
+            "points": 6348,
+            "extent_mm": [
+              110.86307247267534,
+              99.8554558939862,
+              98.13905240210707
+            ],
+            "dimension_error_mm": [
+              2.7760242609826955,
+              5.364468320580435,
+              16.754522723690794
+            ]
+          },
+          "fused": {
+            "surface_p95_mm": 3.967913981282839,
+            "recall_5mm": 0.6075833333333334,
+            "precision_5mm": 0.9901635312922661,
+            "points": 8133,
+            "extent_mm": [
+              113.56952129481115,
+              105.7277332137188,
+              108.36279648737357
+            ],
+            "dimension_error_mm": [
+              0.06957543884687778,
+              0.5078089991521761,
+              6.530778638424301
+            ]
+          },
+          "fk_only": {
+            "surface_p95_mm": 9.555004327271448,
+            "recall_5mm": 0.46991666666666665,
+            "precision_5mm": 0.5708496164423216,
+            "points": 13818,
+            "extent_mm": [
+              122.5174058267421,
+              116.76808064061275,
+              113.70749458483203
+            ],
+            "dimension_error_mm": [
+              8.87830909308407,
+              11.54815642604612,
+              1.1860805409658337
+            ]
+          },
+          "coverage_gain": 0.2612916666666667,
+          "nominal_anchor_translation_error_mm": 19.51518850306139,
+          "nominal_anchor_angle_error_deg": 3.162236928755393,
+          "camera_direction_span_deg": 35.73707761601303,
+          "accepted": true,
+          "joint_fit": {
+            "accepted": true,
+            "reason": "shared_bend_offset_fit",
+            "bend_offsets_rad": [
+              0.01405249043290505,
+              -0.010651971359991587
+            ],
+            "iterations": 5,
+            "surface_mse_before": 1.4328563357612417e-05,
+            "surface_mse_after": 1.997352862153916e-06,
+            "jacobian_singular_values": [
+              119.34858093689638,
+              31.340864421792293
+            ],
+            "absolute_world_placement_observed": false
+          },
+          "self_collision": {
+            "sphere_count": 1005,
+            "margin_m": 0.002,
+            "joint_uncertainty": [
+              0.004,
+              0.06,
+              0.018,
+              0.018
+            ],
+            "all_motion_certified": true
+          },
+          "start_q": [
+            -0.17222582572397965,
+            0.6645072195533608,
+            -0.3005756505310116,
+            0.5357195545603808
+          ],
+          "last_q": [
+            -0.15495283581512548,
+            -0.5075049155535774,
+            -0.4130094816918062,
+            0.5929923569082067
+          ]
+        },
+        {
+          "episode": 4,
+          "kind": "box",
+          "views_attempted": 20,
+          "views_accepted": 4,
+          "stop_reason": "view_budget",
+          "additional_view_changes": 19,
+          "first": {
+            "surface_p95_mm": 2.594900887826666,
+            "recall_5mm": 0.45325,
+            "precision_5mm": 0.9997563352826511,
+            "points": 4104,
+            "extent_mm": [
+              52.55127915906355,
+              129.64222861491655,
+              89.62568090887379
+            ],
+            "dimension_error_mm": [
+              1.2401230845835096,
+              4.102449321199991,
+              11.048156805648274
+            ]
+          },
+          "fused": {
+            "surface_p95_mm": 3.2396843546357545,
+            "recall_5mm": 0.477,
+            "precision_5mm": 0.9969325153374233,
+            "points": 3586,
+            "extent_mm": [
+              54.410067905954364,
+              130.32104054359334,
+              92.50739946869297
+            ],
+            "dimension_error_mm": [
+              0.6186656623073106,
+              3.4236373925232155,
+              8.166438245829106
+            ]
+          },
+          "fk_only": {
+            "surface_p95_mm": 3.338188074300398,
+            "recall_5mm": 0.481,
+            "precision_5mm": 0.9973016729627631,
+            "points": 3706,
+            "extent_mm": [
+              57.06434889477474,
+              135.14382836759293,
+              92.23391711576373
+            ],
+            "dimension_error_mm": [
+              3.2729466511276852,
+              1.3991504314763703,
+              8.439920598758338
+            ]
+          },
+          "coverage_gain": 0.023749999999999993,
+          "nominal_anchor_translation_error_mm": 19.51518850306139,
+          "nominal_anchor_angle_error_deg": 3.162236928755393,
+          "camera_direction_span_deg": 15.121150723028009,
+          "accepted": false,
+          "joint_fit": {
+            "accepted": true,
+            "reason": "shared_bend_offset_fit",
+            "bend_offsets_rad": [
+              0.013934753900018831,
+              -0.010549563571632918
+            ],
+            "iterations": 5,
+            "surface_mse_before": 4.2055187084879514e-06,
+            "surface_mse_after": 1.006088655969126e-06,
+            "jacobian_singular_values": [
+              43.778078007661655,
+              5.795183704040553
+            ],
+            "absolute_world_placement_observed": false
+          },
+          "self_collision": {
+            "sphere_count": 1005,
+            "margin_m": 0.002,
+            "joint_uncertainty": [
+              0.004,
+              0.06,
+              0.018,
+              0.018
+            ],
+            "all_motion_certified": true
+          },
+          "start_q": [
+            -0.15495283581512548,
+            -0.5075049155535774,
+            -0.4130094816918062,
+            0.5929923569082067
+          ],
+          "last_q": [
+            -0.132063,
+            0.382158,
+            -0.33934,
+            0.558898
+          ]
+        },
+        {
+          "episode": 5,
+          "kind": "cylinder",
+          "views_attempted": 18,
+          "views_accepted": 18,
+          "stop_reason": "no_safe_distinct_view",
+          "additional_view_changes": 17,
+          "first": {
+            "surface_p95_mm": 2.7262697708585573,
+            "recall_5mm": 0.37395833333333334,
+            "precision_5mm": 0.9997415686781238,
+            "points": 7739,
+            "extent_mm": [
+              121.20456584448769,
+              122.3426913806993,
+              125.54491831176858
+            ],
+            "dimension_error_mm": [
+              8.769872285975616,
+              7.6317467497639955,
+              20.189181961689368
+            ]
+          },
+          "fused": {
+            "surface_p95_mm": 3.985681950406386,
+            "recall_5mm": 0.523875,
+            "precision_5mm": 0.9899814875313079,
+            "points": 9183,
+            "extent_mm": [
+              125.87828181033817,
+              124.49613594012179,
+              138.20426789537117
+            ],
+            "dimension_error_mm": [
+              4.0961563201251385,
+              5.478302190341511,
+              7.529832378086771
+            ]
+          },
+          "fk_only": {
+            "surface_p95_mm": 8.520901222711364,
+            "recall_5mm": 0.4564166666666667,
+            "precision_5mm": 0.6875,
+            "points": 15440,
+            "extent_mm": [
+              134.68609034478106,
+              135.12099880229303,
+              143.28156245161284
+            ],
+            "dimension_error_mm": [
+              4.711652214317769,
+              5.146560671829725,
+              2.4525378218451244
+            ]
+          },
+          "coverage_gain": 0.14991666666666664,
+          "nominal_anchor_translation_error_mm": 19.51518850306139,
+          "nominal_anchor_angle_error_deg": 3.162236928755393,
+          "camera_direction_span_deg": 37.074059417369554,
+          "accepted": false,
+          "joint_fit": {
+            "accepted": true,
+            "reason": "shared_bend_offset_fit",
+            "bend_offsets_rad": [
+              0.013722896272650857,
+              -0.010528109044583215
+            ],
+            "iterations": 5,
+            "surface_mse_before": 1.0821546185280621e-05,
+            "surface_mse_after": 2.1493700666741575e-06,
+            "jacobian_singular_values": [
+              118.07861741853087,
+              28.463140532553453
+            ],
+            "absolute_world_placement_observed": false
+          },
+          "self_collision": {
+            "sphere_count": 1005,
+            "margin_m": 0.002,
+            "joint_uncertainty": [
+              0.004,
+              0.06,
+              0.018,
+              0.018
+            ],
+            "all_motion_certified": true
+          },
+          "start_q": [
+            -0.132063,
+            0.382158,
+            -0.33934,
+            0.558898
+          ],
+          "last_q": [
+            -0.048848831908875484,
+            0.31033386699959564,
+            -0.20302040217761846,
+            0.5044662498849353
+          ]
+        }
+      ],
+      "collision_audit": {
+        "accepted": true,
+        "segments": 112,
+        "rejected": 0,
+        "sphere_count": 1005,
+        "minimum_certified_margin_m": 9.698545755445348e-05,
+        "independent_fk_max_abs": 0.0,
+        "records": [
+          {
+            "file": "view-00000.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 10,
+            "minimum_margin_m": 0.003288892342969592
+          },
+          {
+            "file": "view-00001.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.0030064026900607638
+          },
+          {
+            "file": "view-00002.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.005497355130341573
+          },
+          {
+            "file": "view-00003.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 7,
+            "minimum_margin_m": 0.003579455340879681
+          },
+          {
+            "file": "view-00004.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.0026444082586491655
+          },
+          {
+            "file": "view-00005.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 7,
+            "minimum_margin_m": 0.009341788225062916
+          },
+          {
+            "file": "view-00006.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.004081813531535042
+          },
+          {
+            "file": "view-00007.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 9.698545755445348e-05
+          },
+          {
+            "file": "view-00008.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.008062804931593587
+          },
+          {
+            "file": "view-00009.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.00895345455577612
+          },
+          {
+            "file": "view-00010.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.0024694010226643734
+          },
+          {
+            "file": "view-00011.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 9,
+            "minimum_margin_m": 0.0011323779030979614
+          },
+          {
+            "file": "view-00012.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.014520962163950563
+          },
+          {
+            "file": "view-00013.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 4,
+            "minimum_margin_m": 0.011060529907031547
+          },
+          {
+            "file": "view-00014.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.013564097165451768
+          },
+          {
+            "file": "view-00015.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 4,
+            "minimum_margin_m": 0.008344511574910549
+          },
+          {
+            "file": "view-00016.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.011782629263170821
+          },
+          {
+            "file": "view-00017.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 7,
+            "minimum_margin_m": 0.0029657788715369802
+          },
+          {
+            "file": "view-00018.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 4,
+            "minimum_margin_m": 0.005692322721108235
+          },
+          {
+            "file": "view-00019.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 7,
+            "minimum_margin_m": 0.0037446969499953936
+          },
+          {
+            "file": "view-00020.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.0019571556496999695
+          },
+          {
+            "file": "view-00021.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 7,
+            "minimum_margin_m": 0.003579455340879681
+          },
+          {
+            "file": "view-00022.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.0026444082586491655
+          },
+          {
+            "file": "view-00023.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 9,
+            "minimum_margin_m": 0.008273456761816025
+          },
+          {
+            "file": "view-00024.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 9,
+            "minimum_margin_m": 0.0038651421068105277
+          },
+          {
+            "file": "view-00025.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 6,
+            "minimum_margin_m": 0.004379226808247441
+          },
+          {
+            "file": "view-00026.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.01362537940685983
+          },
+          {
+            "file": "view-00027.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.008062804931593587
+          },
+          {
+            "file": "view-00028.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 4,
+            "minimum_margin_m": 0.00024629623011718227
+          },
+          {
+            "file": "view-00029.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.006331492517204093
+          },
+          {
+            "file": "view-00030.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.0037211555830696658
+          },
+          {
+            "file": "view-00031.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.013750868129248209
+          },
+          {
+            "file": "view-00032.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.010865345518683636
+          },
+          {
+            "file": "view-00033.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.004670748603831945
+          },
+          {
+            "file": "view-00034.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.009489760543621842
+          },
+          {
+            "file": "view-00035.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.007605297558422
+          },
+          {
+            "file": "view-00036.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 9,
+            "minimum_margin_m": 0.0051339096155080186
+          },
+          {
+            "file": "view-00037.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 4,
+            "minimum_margin_m": 0.010345045791282703
+          },
+          {
+            "file": "view-00038.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 1,
+            "minimum_margin_m": 0.031579574924515186
+          },
+          {
+            "file": "view-00039.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 7,
+            "minimum_margin_m": 0.0037446969499953936
+          },
+          {
+            "file": "view-00040.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.005253457604959662
+          },
+          {
+            "file": "view-00041.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 7,
+            "minimum_margin_m": 0.005039738904535143
+          },
+          {
+            "file": "view-00042.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.005292276695609253
+          },
+          {
+            "file": "view-00043.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.009930633976665125
+          },
+          {
+            "file": "view-00044.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 4,
+            "minimum_margin_m": 0.009503921490351792
+          },
+          {
+            "file": "view-00045.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 4,
+            "minimum_margin_m": 0.008473760627962318
+          },
+          {
+            "file": "view-00046.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 4,
+            "minimum_margin_m": 0.01136105917220219
+          },
+          {
+            "file": "view-00047.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.012632147794954848
+          },
+          {
+            "file": "view-00048.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.004836722528696269
+          },
+          {
+            "file": "view-00049.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.007530890359917969
+          },
+          {
+            "file": "view-00050.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.00895345455577612
+          },
+          {
+            "file": "view-00051.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.0024694010226643734
+          },
+          {
+            "file": "view-00052.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 9,
+            "minimum_margin_m": 0.0025416512717495524
+          },
+          {
+            "file": "view-00053.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.008683751716614188
+          },
+          {
+            "file": "view-00054.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 7,
+            "minimum_margin_m": 0.005623523405036884
+          },
+          {
+            "file": "view-00055.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 11,
+            "minimum_margin_m": 0.0038484179474647523
+          },
+          {
+            "file": "view-00056.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.003657748957867052
+          },
+          {
+            "file": "view-00057.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.009036824118234747
+          },
+          {
+            "file": "view-00058.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.007886719922877015
+          },
+          {
+            "file": "view-00059.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.007724478720194012
+          },
+          {
+            "file": "view-00060.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 11,
+            "minimum_margin_m": 0.00581279975770934
+          },
+          {
+            "file": "view-00061.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 7,
+            "minimum_margin_m": 0.008653898027371997
+          },
+          {
+            "file": "view-00062.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.004708342518432898
+          },
+          {
+            "file": "view-00063.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.0012195421175635601
+          },
+          {
+            "file": "view-00064.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.004744188426999113
+          },
+          {
+            "file": "view-00065.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.0026293307126652454
+          },
+          {
+            "file": "view-00066.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.012432649956964595
+          },
+          {
+            "file": "view-00067.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.013062126850117688
+          },
+          {
+            "file": "view-00068.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.0015341104532339833
+          },
+          {
+            "file": "view-00069.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.006542971688023383
+          },
+          {
+            "file": "view-00070.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.0057652991880251594
+          },
+          {
+            "file": "view-00071.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.01369023426570213
+          },
+          {
+            "file": "view-00072.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 4,
+            "minimum_margin_m": 0.009689524456766765
+          },
+          {
+            "file": "view-00073.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.004675187729168709
+          },
+          {
+            "file": "view-00074.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.0002979666131398412
+          },
+          {
+            "file": "view-00075.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.006206078007859092
+          },
+          {
+            "file": "view-00076.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.024808013474641073
+          },
+          {
+            "file": "view-00077.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.014976302796170064
+          },
+          {
+            "file": "view-00078.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.005834770309504751
+          },
+          {
+            "file": "view-00079.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.009764684979784381
+          },
+          {
+            "file": "view-00080.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.007724478720194012
+          },
+          {
+            "file": "view-00081.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.010669409680087442
+          },
+          {
+            "file": "view-00082.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.01817245026054077
+          },
+          {
+            "file": "view-00083.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.020721117494316592
+          },
+          {
+            "file": "view-00084.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.00856457802442473
+          },
+          {
+            "file": "view-00085.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.004677921227360913
+          },
+          {
+            "file": "view-00086.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.005661905873227971
+          },
+          {
+            "file": "view-00087.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.0073727050371859
+          },
+          {
+            "file": "view-00088.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.007965719558134625
+          },
+          {
+            "file": "view-00089.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.005622885402087115
+          },
+          {
+            "file": "view-00090.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.016634234686548493
+          },
+          {
+            "file": "view-00091.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.002773012770487915
+          },
+          {
+            "file": "view-00092.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.008396610494352981
+          },
+          {
+            "file": "view-00093.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 6,
+            "minimum_margin_m": 0.0037999981851414982
+          },
+          {
+            "file": "view-00094.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 1,
+            "minimum_margin_m": 0.0313652011959223
+          },
+          {
+            "file": "view-00095.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.009036824118234747
+          },
+          {
+            "file": "view-00096.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.007886719922877015
+          },
+          {
+            "file": "view-00097.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.007724478720194012
+          },
+          {
+            "file": "view-00098.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 11,
+            "minimum_margin_m": 0.00581279975770934
+          },
+          {
+            "file": "view-00099.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 7,
+            "minimum_margin_m": 0.008653898027371997
+          },
+          {
+            "file": "view-00100.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.0054799926628197465
+          },
+          {
+            "file": "view-00101.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.012981467168011872
+          },
+          {
+            "file": "view-00102.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.0026293307126652454
+          },
+          {
+            "file": "view-00103.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 8,
+            "minimum_margin_m": 0.008162960899105468
+          },
+          {
+            "file": "view-00104.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.003984990074430886
+          },
+          {
+            "file": "view-00105.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.0025721529581855807
+          },
+          {
+            "file": "view-00106.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.01369023426570213
+          },
+          {
+            "file": "view-00107.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 4,
+            "minimum_margin_m": 0.009689524456766765
+          },
+          {
+            "file": "view-00108.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 5,
+            "minimum_margin_m": 0.004675187729168709
+          },
+          {
+            "file": "view-00109.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 9,
+            "minimum_margin_m": 0.003521919254771605
+          },
+          {
+            "file": "view-00110.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.004835193503771609
+          },
+          {
+            "file": "view-00111.npz",
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 4,
+            "minimum_margin_m": 0.007062578883722255
+          }
+        ],
+        "scope": "continuous actual joint segments against shipped arm/open-claw sphere model; excludes external objects"
+      },
+      "stages": {
+        "consumer": {
+          "exit_code": 0,
+          "wall_s": 292.7414614413865,
+          "audit": {
+            "image_id": "sha256:70273188490d9d2f080b9847d5f2e4d7e71e83df32147397ba1515fb803f24e7",
+            "network_mode": "none",
+            "device_requests": [],
+            "mounts": [
+              {
+                "destination": "/trial/workbench/research/experiments/arm_scan.py",
+                "read_only": true
+              },
+              {
+                "destination": "/nominal/arm.json",
+                "read_only": true
+              },
+              {
+                "destination": "/nominal/hand-eye.json",
+                "read_only": true
+              },
+              {
+                "destination": "/nominal/planning",
+                "read_only": true
+              },
+              {
+                "destination": "/sensors",
+                "read_only": true
+              },
+              {
+                "destination": "/requests",
+                "read_only": false
+              },
+              {
+                "destination": "/output",
+                "read_only": false
+              }
+            ]
+          }
+        },
+        "producer": {
+          "exit_code": 0,
+          "wall_s": 299.10077612800524,
+          "audit": {
+            "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+            "network_mode": "none",
+            "device_requests": [
+              {
+                "Driver": "nvidia",
+                "Count": 0,
+                "DeviceIDs": [
+                  "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+                ],
+                "Capabilities": [
+                  [
+                    "gpu"
+                  ]
+                ],
+                "Options": null
+              }
+            ],
+            "mounts": [
+              {
+                "destination": "/requests",
+                "read_only": true
+              },
+              {
+                "destination": "/output",
+                "read_only": false
+              },
+              {
+                "destination": "/trial/workbench/research/experiments/arm_scan_scene.py",
+                "read_only": true
+              },
+              {
+                "destination": "/trial/workbench/research/experiments/vision_arm_scene.py",
+                "read_only": true
+              },
+              {
+                "destination": "/nominal-data",
+                "read_only": true
+              }
+            ]
+          }
+        },
+        "evaluator": {
+          "exit_code": 0,
+          "wall_s": 4.433184219989926,
+          "audit": {
+            "image_id": "sha256:70273188490d9d2f080b9847d5f2e4d7e71e83df32147397ba1515fb803f24e7",
+            "network_mode": "none",
+            "device_requests": [],
+            "mounts": [
+              {
+                "destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+                "read_only": true
+              },
+              {
+                "destination": "/trial/workbench/research/experiments/vision_arm_scene.py",
+                "read_only": true
+              },
+              {
+                "destination": "/nominal-data",
+                "read_only": true
+              },
+              {
+                "destination": "/truth",
+                "read_only": true
+              },
+              {
+                "destination": "/scans",
+                "read_only": true
+              },
+              {
+                "destination": "/output",
+                "read_only": false
+              },
+              {
+                "destination": "/trial/workbench/research/experiments/arm_scan_evaluate.py",
+                "read_only": true
+              }
+            ]
+          }
+        }
+      },
+      "release": {
+        "build_fingerprints": {
+          "pilot": "62ddecef1145e6041fe5fd74cb00b4259ffa884170a870c44b8bbabafee9aa3a",
+          "sim": "715f73cf6c30a37a7977779775a386f25eeb4ca013800b0d79f0e6bbfe4fd4d2"
+        },
+        "image_ids": {
+          "pilot": "sha256:70273188490d9d2f080b9847d5f2e4d7e71e83df32147397ba1515fb803f24e7",
+          "sim": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57"
+        },
+        "install_uuid": "3fc3487e-0788-4a76-a152-e485144b0d0b",
+        "platform": "linux/amd64",
+        "release_key": "03d2f6c138c132cc41ed0ed63d183b4f9df9cbffba6f6485a9a042fa3bb34ae9",
+        "role_images": {
+          "pilot": "elesim/pilot:merry-beaver",
+          "sim": "elesim/sim:merry-penguin"
+        },
+        "runtime_data_digest": "dcb47d839b0c79df19b81a7a70dad9e7f6cab768ac6e245fa5952d92983306ca",
+        "schema_version": 1,
+        "source_revision": "git-e98b07bad42ab34cf0e0ad4d5b344a1f1c95c25b"
+      },
+      "normal_before": {
+        "sim": {
+          "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+          "image": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+          "running": false
+        },
+        "pilot": {
+          "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+          "image": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+          "running": false
+        }
+      },
+      "normal_after": {
+        "sim": {
+          "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+          "image": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+          "running": false
+        },
+        "pilot": {
+          "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+          "image": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+          "running": false
+        }
+      },
+      "genesis_fk_max_abs": 3.370624158824387e-06
+    }
+  },
+  "normal_unchanged": true,
+  "diagnostic_containers_remaining": [],
+  "artifact_verification": {
+    "complete": true,
+    "files_verified": 731,
+    "bundle_sha256": "92ca241f7cbccf9b73246d3851655e936b7fa93c127dafee4b22083c4a7efed6",
+    "bytes": 154170133
+  },
+  "raw_local_path": "workbench/evidence/generated/arm-scan-safe-20261027/remote-e98b07b/data",
+  "remote_paths": {
+    "candidate": "/home/hckang/ws/newsim/logs/diagnostics/arm-scan-20261027-e98b07b-536b033f",
+    "baseline": "/home/hckang/ws/newsim/logs/diagnostics/arm-scan-20261027-e98b07b-8de9b13d"
+  },
+  "source_manifest": {
+    "source_revision": "e98b07bad42ab34cf0e0ad4d5b344a1f1c95c25b",
+    "sha256": {
+      "workbench/research/experiments/arm_scan_scene.py": "24e9d51fa2050ce4d476763ca818322b06f0e0eb3dee5b3b709da671ec8ae48f",
+      "workbench/research/experiments/arm_scan.py": "9c8fee90b6d420603fd7302881c769b8841774e9bb26e16fec7c5f3f00688e4e",
+      "workbench/research/experiments/arm_scan_evaluate.py": "9cd99fb5069829193cbebf125724103d3f2b707f61e90ab6dc2b521360ffd435",
+      "workbench/research/experiments/vision_arm_scene.py": "5cc28141dec2b7524582c70681b0c20da9d495ba5acd4e147ba625fae9c6e293",
+      "workbench/research/experiments/adapointr_evaluate.py": "4ba2d311c3adad83f2472a27c302324fc2c35ecbaaaa425b8e93f5aeafda3e35",
+      "payload/data/models/planning/zed-mini/arm.urdf": "5eef2df8c97a3cd45e790e59378882c651ebc9985a6de0a3746e8cb8e6846ea0",
+      "payload/data/models/planning/zed-mini/robot.yml": "922089a24713c3e53d829a0bcd4b1b7b0706cebf57fd1b237a4a23d4ece24948",
+      "payload/data/models/planning/zed-mini/metadata.json": "92d07ecca38660a668c70cecf1c25513631f79a27ca5006217a9b357cfcf690c"
+    },
+    "settings": {
+      "policy": "information",
+      "max_views": 12
+    }
+  },
+  "analysis": {
+    "exit_code": 0,
+    "audit": {
+      "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57",
+      "network_mode": "none",
+      "device_requests": [],
+      "mounts": [
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/newsim/logs/diagnostics/arm-scan-20261027-e98b07b-536b033f/source/workbench/research/experiments/adapointr_evaluate.py",
+          "Destination": "/trial/workbench/research/experiments/adapointr_evaluate.py",
+          "Mode": "ro",
+          "RW": false,
+          "Propagation": "rprivate"
+        },
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/newsim/logs/diagnostics/arm-scan-20261027-e98b07b-536b033f",
+          "Destination": "/candidate",
+          "Mode": "ro",
+          "RW": false,
+          "Propagation": "rprivate"
+        },
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/newsim/logs/diagnostics/arm-scan-20261027-e98b07b-8de9b13d/evaluation/evaluation.json",
+          "Destination": "/baseline.json",
+          "Mode": "ro",
+          "RW": false,
+          "Propagation": "rprivate"
+        },
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/newsim/logs/diagnostics/arm-scan-20261027-e98b07b-536b033f/analysis",
+          "Destination": "/analysis",
+          "Mode": "rw",
+          "RW": true,
+          "Propagation": "rprivate"
+        },
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/newsim/logs/diagnostics/arm-scan-20261027-e98b07b-536b033f/arm_scan_compare.py",
+          "Destination": "/trial/workbench/research/analysis/arm_scan_compare.py",
+          "Mode": "ro",
+          "RW": false,
+          "Propagation": "rprivate"
+        },
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/newsim/logs/diagnostics/arm-scan-20261027-e98b07b-536b033f/arm_scan_plot.py",
+          "Destination": "/trial/workbench/research/analysis/arm_scan_plot.py",
+          "Mode": "ro",
+          "RW": false,
+          "Propagation": "rprivate"
+        },
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/newsim/logs/diagnostics/arm-scan-20261027-e98b07b-536b033f/source/workbench/research/experiments/arm_scan_evaluate.py",
+          "Destination": "/trial/workbench/research/experiments/arm_scan_evaluate.py",
+          "Mode": "ro",
+          "RW": false,
+          "Propagation": "rprivate"
+        }
+      ]
+    },
+    "source_sha256": {
+      "arm_scan_compare.py": "f83c48d4a906859cec48f2ef74d9e1dfbea8382b99011b360e65d6f8118fd7e2",
+      "arm_scan_plot.py": "6f4b3fc0d8efdb1a3298db6351e46e853ce1bcb0a2e54b171227d406fcae0127"
+    },
+    "figures": [
+      {
+        "name": "arm_scan_arm_05.png",
+        "bytes": 76761,
+        "sha256": "5abcf12a2c9f3a7826477cc94912bf84576c1631f181ef5d1e335f809c3db50e"
+      },
+      {
+        "name": "arm_scan_views_05.png",
+        "bytes": 230850,
+        "sha256": "95bded6eed5c07a22ee91f075bd15ec77be41ea2ac0736a7d8d21704d0d56bbf"
+      },
+      {
+        "name": "arm_scan_metrics.png",
+        "bytes": 110599,
+        "sha256": "d523e4cd7e753e2940aa47b07bd4d3695f81308c008d11af0361cc78c7551393"
+      },
+      {
+        "name": "arm_scan_views_01.png",
+        "bytes": 167584,
+        "sha256": "1cdf54f85719b3eedf453a0f709042e79ce69df529ca0d05bb0b3177286d066d"
+      },
+      {
+        "name": "arm_scan_clouds.png",
+        "bytes": 2154506,
+        "sha256": "92c517301572dfe7f821aa970d3bf7383e56d9a46232e656c6828a46b5af4d28"
+      },
+      {
+        "name": "arm_scan_arm_01.png",
+        "bytes": 76357,
+        "sha256": "e9682011d5f453ba728c41408b57ebaf0adf5a05d733ff0b9c1569b730c39a19"
+      },
+      {
+        "name": "scan_comparison.png",
+        "bytes": 123237,
+        "sha256": "a3467fcfddd4aa63cda65fe85af7567985ec7e34467707025283a16a67bb8814"
+      }
+    ]
+  },
+  "verification": {
+    "host_passed": 94,
+    "host_skipped": 4,
+    "canonical_ran": false,
+    "canonical_reason": "Existing optional development image preparation remains incomplete; required/extended, real-RMW and isolated-release gates were not run. No new host scientific/ROS dependencies or alternate development image was installed."
+  },
+  "limitations": [
+    "Paired quality preservation passes 5/6. Box height error grows 9.98 to 14.75 mm, exceeding the fixed 3 mm increase allowance.",
+    "Full shape thresholds pass 3/6 for both policies, rather than certifying full reconstruction.",
+    "Joint-error thin box fit is disconnected; candidate retains the initial valid cloud and marks failure rather than claiming all frames fused.",
+    "Static red box/cylinder fixtures and fixed base. No runtime automatic scan UI or physical Robot motion wiring."
+  ],
+  "figures": [
+    {
+      "file": "arm_multiview_safe_comparison_20261027.png",
+      "bytes": 123237,
+      "sha256": "a3467fcfddd4aa63cda65fe85af7567985ec7e34467707025283a16a67bb8814"
+    },
+    {
+      "file": "arm_multiview_safe_views_20261027.png",
+      "bytes": 167584,
+      "sha256": "1cdf54f85719b3eedf453a0f709042e79ce69df529ca0d05bb0b3177286d066d"
+    },
+    {
+      "file": "arm_multiview_safe_arm_20261027.png",
+      "bytes": 76357,
+      "sha256": "e9682011d5f453ba728c41408b57ebaf0adf5a05d733ff0b9c1569b730c39a19"
+    },
+    {
+      "file": "arm_multiview_safe_clouds_20261027.png",
+      "bytes": 2154506,
+      "sha256": "92c517301572dfe7f821aa970d3bf7383e56d9a46232e656c6828a46b5af4d28"
+    },
+    {
+      "file": "arm_multiview_safe_cylinder_views_20261027.png",
+      "bytes": 230850,
+      "sha256": "95bded6eed5c07a22ee91f075bd15ec77be41ea2ac0736a7d8d21704d0d56bbf"
+    }
+  ]
+}

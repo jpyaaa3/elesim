@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 from scipy.spatial import cKDTree
 
 from workbench.research.experiments.arm_scan_evaluate import sample_shape, surface_distance, cloud_metrics
@@ -73,3 +74,36 @@ def test_observation_request_capture_and_coherent_fusion_end_to_end(tmp_path):
         baseline=cloud_metrics(transform(cloud['first'],records[0]),shape)
         assert stats['recall_5mm']>baseline['recall_5mm']+.12
         assert stats['surface_p95_mm']<3.
+
+
+def test_unsafe_start_never_calls_the_capture_motion_boundary(tmp_path):
+    from types import SimpleNamespace
+    from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
+    from workbench.research.experiments.arm_scan import scan_episode
+    root=Path(__file__).resolve().parents[4]/'payload/data'
+    planner=SimpleNamespace(collision_checker=ArmSelfCollision(root/'models/planning/zed-mini'))
+    def forbidden(*args):pytest.fail('unsafe motion reached capture')
+    with pytest.raises(ValueError,match='unsafe initial'):
+        scan_episode(forbidden,None,planner,tmp_path/'unsafe',start_q=[-.1,0,.628,.628])
+
+
+def test_scan_rechecks_a_bad_planner_result_before_moving(tmp_path):
+    from types import SimpleNamespace
+    from elesim_pilot.vision.partial_cloud import ArmCameraModel,SensorObservation
+    from elesim_pilot.vision.perception.depth_pose import CameraIntrinsics
+    from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
+    from workbench.research.experiments.arm_scan import scan_episode
+    root=Path(__file__).resolve().parents[4]/'payload/data'
+    base=np.eye(4);base[2,3]=.8
+    model=ArmCameraModel(root/'models/arm/default.json',root/'calibration/cameras/zed_mini.hand_eye.json',base_world_transform=base)
+    safety=ArmSelfCollision(root/'models/planning/zed-mini')
+    planner=SimpleNamespace(collision_checker=safety,policy='information',
+        choose=lambda *args:{'q':np.array([-.1,0,.628,.628]),'expected_visibility_gain':.2})
+    calls=[];intr=np.array([120/np.tan(np.pi/6)]*2+[159.5,119.5,320,240])
+    def capture(episode,view,q):
+        calls.append(q.copy());color,depth=analytic_rgbd(model.camera_pose(q),intr,fixtures()[1])
+        return SensorObservation(color,depth,1.,CameraIntrinsics(*intr[:4],320,240),view,1000.+view,'cam','boot','cal',tuple(q))
+    result=scan_episode(capture,model,planner,tmp_path/'bad-proposal')
+    assert len(calls)==1
+    assert result['stop_reason']=='unsafe_path_rejected'
+    assert result['self_collision']['all_motion_certified']

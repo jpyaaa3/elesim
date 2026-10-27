@@ -6,17 +6,39 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 다중 시야 scan 추가 제약 (2026-10-27, 원격 비교 준비)
+### 다중 시야 scan 추가 제약 (2026-10-27, 충돌 감사 통과 / 시야 변경 69% 감소)
 
-- 기존 1,005 sphere arm 모델의 digest·FK를 검증하는 CPU self-collision guard를
-  추가했다. 후보 끝점과 이동 구간 전체를 separation/Lipschitz bound로 확인하고
-  2 mm 여유와 Linear ±4 mm/Roll ±0.06 rad/Bend 각각 ±0.018 rad의 오차 구간을
-  포함한다. 안전 확인에 실패하면 이동을 보내지 않는다. 실제 URDF의 독립 FK와
-  충돌 모델 FK 일치 및 안전한 두 끝점 사이의 충돌도 회귀로 검사한다.
-- 시야는 각도 차이보다 예상 추가 visibility를 우선하고, 점군 변화가 작고
-  관절 fit이 유효하면 일찍 종료한다. 기본 최대 12 frame이며 첫 자세의
-  재촬영은 생략한다. 같은 충돌 제약의 각도 기반 최대 20 frame 대조군과
-  촬영 횟수·형상 품질을 원격 GPU2에서 비교할 예정이다.
+- `e98b07b` push와 양쪽 정식 update 후 원격 GPU2 A6000에서 비교했다.
+  같은 1,005 sphere·2 mm 여유·Linear ±4 mm/Roll ±0.06 rad/Bend 각각
+  ±0.018 rad 오차 구간을 두 정책에 적용했다. 후보 끝점과 이동 구간 전체를
+  joint-motion Lipschitz bound로 확인하고, 전송 직전에도 재검사한다.
+  Digest가 다른 모델, 위험한 시작점, 안전한 끝점 사이의 충돌, 검증 예산
+  초과를 모두 거부하는 회귀가 있다. 실제 URDF의 독립 FK와 계획 FK도 일치한다.
+- 최대 20회 각도 대조군은 **18/20/18/18/20/18회, 합계 112회**,
+  정보량·조기 종료 정책은 **4/5/4/7/12/7회, 합계 39회** 촬영했다.
+  최초 관측 후 시야 변경은 **106→33회(68.9% 감소)**다. 첫 자세의 재촬영은
+  기본 정책에서 생략한다. 모든 조건의 촬영 수가 줄었으며, 정답 형상은
+  시야 선택·통합 소비자에게 주지 않았다.
+- 실제 joint offset을 적용한 **151구간**의 연속 sphere 분리 감사는 두 실행
+  모두 통과했다. 정상 test Sim/Pilot의 ID·이미지·정지 상태를 보존했고 이번
+  진단 컨테이너는 모두 제거했다. 보수적 arm/받침대/열린 claw 모델의 결과이며
+  모델 밖 GO2/케이블/환경이나 동역학 추종 오차까지 인증한 것은 아니다.
+- 표면 p95는 새 정책이 여섯 조건 모두 작고 수집률 감소는 최대 **2.54%p**다.
+  그러나 사전 paired 품질 기준은 **5/6 통과**다. 일반 box의 높이 오차가
+  **9.98→14.75 mm(+4.76 mm)**로 증가해 축별 증가 ≤3 mm 기준을 넘었다.
+  기준을 완화해 통과로 바꾸지 않았다. 전체 형상 기준은 두 정책 모두
+  **3/6 통과**이며, 관절 오차가 있는 얇은 box에서는 새 관측의 연결성 부족으로
+  통합 fit을 거부하고 첫 유효 점군을 보존했다. 형상 확보 완료를 주장하지 않는다.
+- 관련 host 회귀 **94 passed, 4 skipped**다. 선택적 GPU adapter 의존성 검사와
+  기존 dev image 준비 미완료로 실행하지 못한 canonical required/extended,
+  real-RMW·isolated release gate를 구분한다. 비교 원자료와 사진 **731파일**을
+  내려받아 SHA256을 검증했다. 실행용 스냅샷에서 빠진 planning 자료 세 개는
+  같은 Git 해시로 별도 stage하고 artifact/source digest를 확인했다. 두 초기
+  진단 실행의 입력 누락·실행기 변수 오류는 촬영 분모에 넣지 않는다.
+  [절차·품질 예외](multiview_scan.md#추가-조건-self-collision과-촬영-횟수),
+  [비교·충돌·SHA 증거](../workbench/evidence/curated/experiments/arm_multiview_safe_20261027.json),
+  [횟수·수집률·표면 오차](../workbench/evidence/curated/experiments/arm_multiview_safe_comparison_20261027.png),
+  [새 시야의 실제 RGB](../workbench/evidence/curated/experiments/arm_multiview_safe_views_20261027.png).
 
 ### 4DOF 다중 시야 점군 scan (2026-10-27, 획득·통합 검증 / 전체 형상 4/6 통과)
 

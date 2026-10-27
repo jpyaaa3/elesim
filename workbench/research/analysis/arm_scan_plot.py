@@ -20,8 +20,9 @@ COLORS={'first':'#f4a261','fk_only':'#dc5263','fused':'#159fbc','truth':'#7a8590
 def plot_views(scans, truth, output, episode):
     result=json.loads((scans/f'episode-{episode:02d}/result.json').read_text())
     accepted=[v for v in result['rows'] if v['accepted']]
-    selected=[accepted[i] for i in np.linspace(0,len(accepted)-1,6,dtype=int)]
+    selected=[accepted[i] for i in np.linspace(0,len(accepted)-1,min(6,len(accepted)),dtype=int)]
     fig,axes=plt.subplots(2,3,figsize=(13,8),layout='constrained')
+    for ax in axes.ravel():ax.axis('off')
     for ax,row in zip(axes.ravel(),selected):
         with np.load(scans/f'episode-{episode:02d}'/f"view-{row['view']:03d}.npz",allow_pickle=False) as packet:
             image=packet['color_bgr'][...,:3][...,::-1].copy();mask=packet['mask'].astype(np.uint8)
