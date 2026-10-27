@@ -84,7 +84,9 @@ def evaluate(truth_root,predictions,output):
             'geometry_accepted':bool(geometry),'initial_latency_accepted':bool(metrics['forward_wall_ms_median']<=100),
             'original_observations_preserved':all(r['observed_unchanged'] for r in rows),
             'mixed_or_misaligned_components':sum(r['observed_single_box_fraction_10mm']<.9 for r in rows),
-            'alignment':'none','scope':'small independent box fixtures; partial centroid normalization; PCN checkpoint; not general-object or grasp acceptance'}
+            'alignment':'none','scope':'small independent box fixtures; declared sensor-derived frame; not general-object or grasp acceptance',
+            'model_profile':recording.get('model_profile',{'name':'legacy-pcn'}),
+            'normalization':recording.get('normalization','observed-radius')}
     output.write_text(json.dumps(result,indent=2)+'\n')
     return result
 

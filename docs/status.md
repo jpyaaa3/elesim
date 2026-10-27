@@ -6,6 +6,23 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### AdaPoinTr 체크포인트·입력 규약 재시험 (2026-10-27, 진행 중)
+
+- 공식 cropped ShapeNet-55 URL과 저자가 이슈 #88/#132에서 안내한 URL은 같은
+  만료된 링크다. 현재 원본 체크포인트를 확보한 것으로 취급하지 않는다.
+  공식 Projected-ShapeNet55 URL도 만료됐으나 공개 SGA-GSN의 AP-PS55
+  inference-only 재배포본(130,024,020 bytes, SHA256 `66e22112…781b7`)을
+  확보해 별도의 탐색 비교에 사용한다. 원본 저자 배포와 동일한 파일이거나
+  논문 최고 성능 가중치임을 증명한 것은 아니다.
+- PCN 16,384점, cropped ShapeNet55 8,192점, Projected55 8,192점의 config와
+  입력 affine 규칙을 명시적으로 구분한다. 새 host 회귀 7개와 기존 관련
+  회귀를 합쳐 **23 passed**다. 기본 PCN 연구 경로는 유지한다.
+- 고정 RGB-D 48 capture/20 object 입력·독립 truth evaluator·GPU2를 유지하고
+  PCN 현재 기본값과 AP-PS55의 반경 .5/1.0/metric center-only 및 축 대조군을
+  비교한다. 공개 SGA-GSN의 center-only world-coordinate 사용 사례는 가설의
+  근거이며 pretrained 모델의 전체 학습 규약 일치를 증명하지 않는다.
+  관측 보존·표면 오차·hidden recall·F1의 기존 수용 기준은 유지한다.
+
 ### AdaPoinTr 전처리 원인 분리 (2026-10-27, GPU 대조 실험 완료)
 
 - `56a717b` push 및 원격 정식 updater 완료 후 GPU2 A6000에서 공개
