@@ -6,6 +6,27 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### oct27 정책 기준 4DOF Linear 범위 적용 (2026-10-27)
+
+- 사용자 지정으로 공통 Linear 좌표를 `[-0.230, 0]` m로 변경했다. 모터·UI
+  표시각은 0–259도를 유지하고 q=0..-230 mm에 선형 대응시킨다. 이전
+  1.5도/mm 환산과 -172.666667 mm 끝점은 이번 기본값으로 대체된다.
+- Pilot·Sim의 매핑과 RL mechanism은 공통 값을 읽으며 Robot의 명시적 YAML도
+  같은 범위로 맞췄다. ZED Mini·D435의 blueprint/URDF/bundle hash, Pilot IK
+  모델과 cuRobo artifact를 재생성했다. cuRobo는 기존 원격 CPU 환경에서
+  동일 CAD 자산의 hash를 확인하고 전체 builder를 실행했으며 1005 spheres와
+  22개 기하 분리 조건을 유지했다. 호스트에 의존성을 추가하지 않았다.
+- `oct27@1a89138`의 실제 정책 manifest가 세 역할의 새 설정으로 범위 검사를
+  통과하고 259도 ↔ -230 mm가 왕복됨을 확인했다. 정책 파일·기존 설치·release
+  pin·실행 프로세스는 변경하지 않았다. DDS wire shape/version도 그대로다.
+- 호스트 Protocol·model-builder·Pilot arm/config·Robot/UI config 검사
+  **262 passed, 10 skipped, 8 subtests passed**. 별도 범위·wrap·native 제어
+  집중 검사는 **86 passed, 22 skipped, 5 subtests passed**이며 일부 중복된다.
+  `git diff --check` 통과. 호스트 Torch/Genesis 부재로 RL arm-limit 및 Sim
+  runtime config 시험은 수집할 수 없어 위 검사에서 제외했다. 기존 개발 이미지
+  준비 미완료로 canonical required/extended·real-RMW·isolated-release gate와
+  실제 GPU 렌더링·물리 동작은 미실행이다.
+
 ### Jetson Robot 설치 source 누락 수정 (2026-10-27)
 
 - Git에 존재하는 `native_arm/`을 bootstrap archive 추출 목록에서 누락해

@@ -9,7 +9,7 @@
   ],
   "q_bounds": [
     [
-      -0.17266666666666666,
+      -0.23,
       0.0
     ],
     [
@@ -26,9 +26,9 @@
     ]
   ],
   "sources": {
-    "arm.urdf": "d21ae4ff4917306d55450de1c30f3d8eb4c841588684733cce62ba729ce4a8f6",
-    "robot_config.yaml": "a0ed8376a90c89f3a70dc11c4d79844176bcb35e8eeab766277f18c6a9e5dd91",
-    "arm_model.json": "ad00122b9ba19c77cd4d817634fba310e5e3e758e21688c52db400f2f570cbe7",
+    "arm.urdf": "84a8e9955ddd0d2dda292304c2ba1d457036dfd81c62698e24c471ce82175a29",
+    "robot_config.yaml": "d651e44dc55dc85995ef69916fc3ba0555b7f81de1afdb02548e1985b099388d",
+    "arm_model.json": "033f7fbec380d705d82b34f6ef9a419dcb05ea5b0bdaf927de9460da2482a1f3",
     "assets/plate/plate_mesh.obj": "77cdc669b8c35c235db6edb951a12a01ce706f379ed5a73ad97ae687a4acea67",
     "assets/housing/housing_mesh.obj": "7bd8aec718f9b3541f403bd457448a29d60de193f5e29e14c56e05ac70df8e21",
     "assets/wedge/wedge_mesh.obj": "b466e42154e2ae890b41094e5738412187fbcf352fb634706418286f7f09889d",
@@ -183,7 +183,7 @@
     0.020919999999999994
   ],
   "artifacts": {
-    "arm.urdf": "5eef2df8c97a3cd45e790e59378882c651ebc9985a6de0a3746e8cb8e6846ea0",
+    "arm.urdf": "4669046461635af60c61c5f35bc38caa855f4ef7b9a9b1e263fa3636db659349",
     "robot.yml": "922089a24713c3e53d829a0bcd4b1b7b0706cebf57fd1b237a4a23d4ece24948"
   }
 }

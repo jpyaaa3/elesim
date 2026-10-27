@@ -463,23 +463,18 @@ CAD pose를 사용하고 parent rotation의 역변환을 적용한다. 이 구�
 gripper/camera의 고정 오프셋이 사라진다. 생성 모델은 active chain뿐 아니라
 모든 고정 branch의 위치·회전을 URDF와 비교한다.
 
-Linear rack calibration (2026-09-11): motor/display 0–250 degrees maps to
-q=0 to approximately -0.166666667 m along the plate's +X joint axis. The
-confirmed design ratio is 1.5 motor degrees per millimetre: zero is fully
-forward, and 15 degrees retracts 10 mm. The previous -0.230 m endpoint overstated
-retraction by 63.333333 mm. This replaces the provisional 84 mm outer-diameter
-estimate; travel = angle / 1.5 / 1000 metres. The 295.31 mm rack length does not
-establish usable stroke. The operating endpoint was 213 degrees (142 mm travel)
-until the operator confirmed a farther physical endpoint on 2026-10-19. The current
-endpoint is 259 degrees (172.666667 mm), preserving the 1.5 degree/mm ratio. Protocol,
-Pilot, Sim and Robot defaults, generated URDF/IK models and RL action bounds
-share this endpoint. Home/startup remains 213 degrees. RL uses the effective configured bounds, including custom caps.
-The measured zero gap was 183 mm versus 182 mm in the mesh; the new endpoint
-leaves approximately 9.333 mm in the model. This is a geometry prediction, not a
-measured gap or dynamics validation. This is a default calibration correction,
-not a wire format change. Existing installed configuration, release pins and
-exported RL policy interfaces retain their old calibration and require explicit
-review/rebuild; trained policy compatibility is not established by this change.
+Linear calibration (2026-10-27): the operator selected the `oct27` policy's
+four-DOF coordinate range, `q in [-0.230, 0]` m along the plate's +X joint axis.
+Motor/display 0–259 degrees maps linearly to q=0..-0.230 m; this supersedes the
+earlier 1.5 degree/mm conversion and -0.172666667 m endpoint. The motor-angle
+endpoint and display-angle presets remain the same; their q values follow the
+new mapping. Protocol, Pilot, Sim and Robot defaults, both generated camera
+URDF bundles, IK/cuRobo models and RL mechanism bounds share the 230 mm range.
+Custom motor-angle operating caps still narrow the effective q range.
+This changes calibration, not the DDS wire format. Existing installations,
+release pins and policy artifacts are not rewritten automatically: deploy
+matching configuration and regenerated models together. This software range
+change does not establish physical clearance or grasp success.
 
 GO2/plate attachment (2026-09-11): checked against `062222.stp` (Inventor
 assembly, `Go2_Main` and `Go2_plate_new`). CAD +Y points rearward, +Z upward;

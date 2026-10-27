@@ -83,7 +83,7 @@ def test_artifact_is_portable_and_sources_are_current():
                    if joint.get("type") != "fixed" and joint.find("mimic") is None]
     assert independent == metadata["joint_names"]
     assert len(root.findall(".//mimic")) == 8
-    assert metadata["q_bounds"][0] == pytest.approx([-259/1.5/1000, 0.0])
+    assert metadata["q_bounds"][0] == pytest.approx([-0.230, 0.0])
     config = yaml.safe_load((MODEL / "robot.yml").read_text())["robot_cfg"]["kinematics"]
     assert config["urdf_path"] == "arm.urdf"
     assert set(config["collision_link_names"]) == set(config["collision_spheres"])

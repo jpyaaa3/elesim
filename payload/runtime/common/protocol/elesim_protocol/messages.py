@@ -40,17 +40,17 @@ DEFAULT_START_CONTROL_U = ControlU(
 PERCEPTION_READY_CONTROL_U = DEFAULT_START_CONTROL_U
 
 
-# Design calibration: 1.5 motor degrees per mm of rack travel.
-# Zero is fully forward; 15 degrees retracts 10 mm. Rack length is not stroke.
-LINEAR_TRAVEL_M = 259.0 / 1.5 / 1000.0
-# Operator-confirmed physical endpoint: raw 2946 ~= 258.99 motor degrees.
-LINEAR_OPERATING_TRAVEL_M = 259.0 / 1.5 / 1000.0
+# Operator-selected oct27 four-DOF/policy calibration: q spans -230..0 mm.
+# Motor/display endpoints remain 0..259 degrees; the mapping below pairs those
+# endpoints with this stroke. The earlier 1.5 degree/mm calibration is superseded.
+LINEAR_TRAVEL_M = 0.230
+LINEAR_OPERATING_TRAVEL_M = LINEAR_TRAVEL_M
 
 
 @dataclass(frozen=True)
 class SimMappingConfig:
     linear_u_min: float = 0.0
-    # Calibration and operating endpoint; preserve 1.5 motor degrees per mm.
+    # Motor/display endpoints for the operator-selected 230 mm stroke.
     linear_u_max: float = 259.0
     linear_u_limit: float = 259.0
     roll_u_min: float = 0.0

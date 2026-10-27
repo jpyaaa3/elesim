@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from elesim_protocol import SimMappingConfig
 from elesim_pilot.pick.wrap_policy import DeployedPolicy, Interface, LiftScript
 
 
@@ -68,7 +69,7 @@ def test_manifest_accepts_only_the_two_defined_legacy_layouts(tmp_path: Path) ->
 
 def test_manifest_mapping_is_checked_against_actual_configured_bounds(tmp_path: Path) -> None:
     interface = Interface.from_manifest(_manifest(tmp_path))
-    # A calibrated instance can legitimately expose the older 230 mm travel.
+    # Explicit instance bounds remain authoritative over application defaults.
     mapping = SimpleNamespace(
         linear_q_min_m=-0.23, linear_q_max_m=0.0,
         roll_q_min_rad=-1.5708, roll_q_max_rad=1.5708,
@@ -79,6 +80,16 @@ def test_manifest_mapping_is_checked_against_actual_configured_bounds(tmp_path: 
     mapping.linear_q_min_m = -0.16
     with pytest.raises(ValueError, match="channel 0"):
         interface.validate_mapping(mapping)
+
+
+def test_oct27_policy_stroke_is_accepted_by_default_mapping(tmp_path: Path) -> None:
+    path = _manifest(tmp_path)
+    raw = json.loads(path.read_text())
+    raw["waypoint"]["limits"]["roll_rad"] = [-math.pi/2, math.pi/2]
+    path.write_text(json.dumps(raw))
+    interface = Interface.from_manifest(path)
+    interface.validate_mapping(SimMappingConfig())
+    assert interface.lower[0] == -0.230
 
 
 def test_observation_rejects_non_finite_inputs_without_torch(tmp_path: Path) -> None:

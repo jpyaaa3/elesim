@@ -56,7 +56,7 @@ does not create DDS identity ambiguity.
 - A mesh-independent URDF with exactly four independent axes. The remaining
   eight bend joints mimic their section's master with multiplier 1. Per-node
   angle is preserved, rather than dividing it by five again.
-- The same Linear operating bounds `[-0.172666667, 0]` m, roll and bend limits as the
+- The same Linear operating bounds `[-0.230, 0]` m, roll and bend limits as the
   generated Pilot IK model. Velocity caps come from Robot's shipped YAML.
 - Collision spheres generated from the collision meshes and origins in the
   existing Genesis arm URDF. Body meshes use filled 30 mm voxels enclosed by
@@ -307,12 +307,13 @@ all original waypoints. Previewing does not change collision geometry, measured
 Robot/Sim posture, hand-eye images, or verify a live obstacle map.
 
 
-Linear endpoint update (2026-10-19): the operator identified the current physical
-position (raw 2946, 258.989°) as the upper endpoint. Robot/Pilot/Sim/UI defaults,
-ZED Mini and D435 bundles, IK/cuRobo artifacts and RL now use 259° / 172.666667 mm.
-The 1.5°/mm scale and 213° Home/start pose remain unchanged. Existing deployments
-need both matching configuration and regenerated model artifacts; current Jetson
-and Mac staging installations were updated together, with Torque OFF.
+Linear calibration update (2026-10-27): the operator selected the `oct27`
+policy's 230 mm stroke. Robot/Pilot/Sim/UI defaults, ZED Mini and D435 bundles,
+IK/cuRobo artifacts and RL use q in `[-0.230, 0]` m. Motor/display endpoints stay
+at 0–259°, paired linearly with that stroke; the earlier 1.5°/mm scale is
+superseded. Display-angle presets are preserved. Existing deployments need
+matching configuration and regenerated model artifacts together; changing the
+repository does not update an installed or running role.
 
 
 ### Measured feedback during execution

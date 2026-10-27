@@ -50,8 +50,8 @@ arm:
 mapping:
   linear_u_max: 259.0
   linear_u_limit: 259.0
-  # Design ratio: 1.5 motor degrees per mm; 259 degrees retracts 172.667 mm.
-  linear_q_min_m: -0.17266666666666666
+  # oct27 calibration: motor/display 0..259 degrees maps to q=0..-230 mm.
+  linear_q_min_m: -0.230
   linear_q_max_m: 0.0
   roll_q_min_rad: -1.5707963267948966
   roll_q_max_rad: 1.5707963267948966
