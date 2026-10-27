@@ -41,6 +41,11 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   다운로드/서명키 hash 실패 시 중단을 확인한다. 대상 호스트의 기존 Torch 조합은
   실제 Orin SM8.7에서 GPU 행렬 연산과 CUDA NMS를 통과했다. 이는 새 이미지의
   성공 증거와 구분하며 정식 update/build 및 이미지 GPU 검증은 진행 중이다.
+- 정식 update의 host bootstrap에서 operation-lock helper의 maintenance
+  `PYTHONPATH`가 새 setup을 가려 `elesim_setup.cli` import를 막는 문제도 재현했다.
+  host bootstrap과 새 setup subprocess에서 상속 Python 경로를 분리하고
+  사전검사 오류에 실제 stderr를 남긴다. bootstrap/lock/update/Jetson 집중 회귀
+  **142 passed**이며 lock descriptor와 보유 검사는 변경하지 않았다.
 - 원격 Robot 두 service와 Docker container가 모두 정지/없는 상태임을 기록했다.
   모터나 DDS 제어 명령은 보내지 않는다. canonical dev 환경의 기존 공백은 유지한다.
 

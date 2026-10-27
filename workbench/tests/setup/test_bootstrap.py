@@ -1418,6 +1418,27 @@ def test_gui_and_automation_do_not_require_a_controlling_terminal() -> None:
     assert needs_controlling_terminal(("wizard",)) is True
 
 
+def test_setup_preflight_ignores_inherited_maintenance_pythonpath(tmp_path, monkeypatch):
+    shadow = tmp_path / "old-maintenance"
+    shadow.mkdir()
+    (shadow / "json.py").write_text("raise RuntimeError('old maintenance import')\n")
+    executable = tmp_path / "elesim-setup"
+    executable.write_text(f"#!{sys.executable}\nimport json\nprint(json.dumps({{'gui': True}}))\n")
+    executable.chmod(0o755)
+    monkeypatch.setenv("PYTHONPATH", str(shadow))
+
+    bootstrap_module.preflight_setup(executable)
+    assert "PYTHONPATH" not in bootstrap_module._setup_environment()
+
+
+def test_setup_preflight_preserves_actual_startup_error(tmp_path):
+    executable = tmp_path / "elesim-setup"
+    executable.write_text(f"#!{sys.executable}\nraise RuntimeError('specific setup failure')\n")
+    executable.chmod(0o755)
+    with pytest.raises(BootstrapError, match="specific setup failure"):
+        bootstrap_module.preflight_setup(executable)
+
+
 def test_gui_setup_arguments_preserve_trusted_repository_and_ref() -> None:
     assert setup_arguments((), repository="owner/fork", ref="feature") == [
         "gui",

@@ -373,6 +373,10 @@ host_bootstrap_env=(
   "COLCON_HOME=$cache_dir/colcon"
   "ROS_HOME=$cache_dir/ros"
   "PYTHONNOUSERSITE=1"
+  # The operation-lock wrapper uses its installed maintenance package only
+  # to acquire the lock. Do not let that old package shadow the new setup.
+  "PYTHONPATH="
+  "PYTHONHOME="
   "ELESIM_INVOCATION_DIR=$invocation_dir"
   "ELESIM_GUI_HOST=127.0.0.1"
   "ELESIM_GUI_PORT=$gui_port"

@@ -1051,6 +1051,14 @@ def validate_bootstrap_generation(
         )
 
 
+def _setup_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    for name in ("PYTHONPATH", "PYTHONHOME"):
+        environment.pop(name, None)
+    environment["PYTHONNOUSERSITE"] = "1"
+    return environment
+
+
 def preflight_setup(executable: Path) -> None:
     completed = subprocess.run(
         (str(executable), "gui", "--help"),
@@ -1059,10 +1067,12 @@ def preflight_setup(executable: Path) -> None:
         stderr=subprocess.PIPE,
         text=True,
         check=False,
+        env=_setup_environment(),
     )
     if completed.returncode != 0:
         raise BootstrapError(
-            "Installed setup does not provide the required 'gui' command"
+            "Installed setup does not provide the required 'gui' command: "
+            + (completed.stderr or "no diagnostic output").strip()[-1200:]
         )
 
 
@@ -1341,7 +1351,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if _setup_command(wizard_args) in {"install", "update"}:
             command = _progress_command(source_root, cache_root, "Generate installation artifacts",
                                         command, hide_setup_output=True)
-        setup_environment = os.environ.copy()
+        setup_environment = _setup_environment()
         # Bootstrap owns this value.  Do not forward a potentially stale or
         # forged ELESIM_SOURCE_REVISION from the outer shell/environment.
         setup_environment["ELESIM_SOURCE_REVISION"] = source_revision
