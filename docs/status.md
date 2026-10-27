@@ -6,17 +6,37 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 4DOF 다중 시야 점군 scan (2026-10-27, 검증 진행 중)
+### 4DOF 다중 시야 점군 scan (2026-10-27, 획득·통합 검증 / 전체 형상 4/6 통과)
 
-- 관측만으로 FK 후보를 선택하는 제한된 view planner, 첫 optical frame 기준
-  voxel map, local surface-normal ICP와 공통 bend 영점 batch fit을 추가했다.
-  관절 오차 조건에서 독립 ICP만으로는 표면이 두꺼워지는 실패를 재현했으며,
-  공통 관절 오차를 이용해 촬영별 기하를 일관되게 다시 계산한다.
-- RGB-D/encoder consumer에 scene/catalog/true pose를 주지 않는 연구용
-  request/reply 실험을 준비했다. Actual URDF의 kinematic 움직임과 장착
-  camera RGB-D를 원격 GPU2에서 검증할 예정이며 아직 live 통과를 주장하지
-  않는다. 원본 센서는 보존하고 절대 world 위치·미관측 뒷면·동역학/충돌 안전을
-  보장하지 않는다. Runtime UI·motion/DDS 경로는 연결하지 않았다.
+- 관측 중심·범위와 명목 FK로 합법적인 다음 시야를 고른다. 첫 optical frame을
+  기준으로 하고 원본 RGB-D는 보존한다. 독립 ICP만으로 면이 두꺼워지는 실패를
+  재현해, 최종 통합은 여러 관측의 **공통 bend 영점 두 축**을 추정하고 상대 FK를
+  재계산한 뒤 3 mm voxel로 묶는다. 같은 자세만 반복한 관측성 부족도 거부한다.
+- `d6e33b6` push와 양쪽 정식 update 후 원격 GPU2 A6000에서 actual arm URDF와
+  장착 camera로 **6 episode·120 RGB-D**를 촬영했다. Box/얇은 box/cylinder의
+  정상·관절 오차 조건이며 depth 잡음과 dropout도 포함한다. 실제 GPU UUID
+  하나만 보였고 OpenGL도 A6000/software=false였다. Consumer는 센서/encoder와
+  명목 model만 읽고 scene/catalog/true pose는 마운트하지 않았다.
+- 전체 정답 표면의 수집률은 첫 시야 **34.6~46.8% → 통합 53.1~79.0%**다.
+  관절 오차 세 조건의 표면 p95는 명목 FK 누적 **15.50/19.39/17.47 mm →
+  3.80/4.00/3.95 mm**이며 precision@5mm는 약 99%다. 최대 치수 오차는
+  **1.37/1.67/2.46/1.92/1.37/7.08 mm**였다. 주입한 Bend +0.8/−0.6도는
+  약 +0.78~0.81/−0.60~−0.61도로 추정했다.
+- 사전 기준은 **4/6 통과**다. 두 실패는 수집률 53.1/54.4%로 60%에 미달한
+  경우이며 기준을 완화하지 않았다. 추가 시야 선택과 미관측 면 확보가 남는다.
+  명목 world anchor는 관절 오차 조건에서 약 19.5 mm/3.16도 틀리므로 절대
+  위치 4 mm 정확도라는 뜻이 아니다. 정적 물체·고정 base·일정한 관절 오차의
+  kinematic 시험이며 일반 segmentation·동역학·연속 충돌 안전·runtime
+  자동 스캔 UI·motion/DDS 연결은 검증 범위 밖이다.
+- 관련 host 회귀 **71 passed**다. Canonical dev 준비 미완료인 기존 사유로
+  required/extended·real-RMW·isolated release gate는 실행하지 않았다. 원자료
+  **550파일**을 노트북으로 가져와 SHA256을 모두 검증했다. 기존 test Sim/Pilot의
+  ID·이미지·정지 상태는 유지했고 진단 컨테이너는 제거했다.
+  [로직·재현·평가 한계](multiview_scan.md),
+  [수치·격리·SHA 증거](../workbench/evidence/curated/experiments/arm_multiview_scan_20261027.json),
+  [실제 팔 자세](../workbench/evidence/curated/experiments/arm_multiview_arm_20261027.png),
+  [장착 카메라 시야](../workbench/evidence/curated/experiments/arm_multiview_views_20261027.png),
+  [처음·명목 FK·보정 누적·정답](../workbench/evidence/curated/experiments/arm_multiview_clouds_20261027.png).
 
 ### AdaPoinTr 체크포인트·입력 규약 재시험 (2026-10-27, 기존 box replay 중앙값 기준 통과)
 
