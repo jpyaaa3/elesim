@@ -59,14 +59,18 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const assert = require("node:assert/strict");
 const source = fs.readFileSync(process.argv[1], "utf8");
-const names = ["installationLookupReady", "updateInstallationLookup", "installationOptionLabel", "probeSsh"];
+const names = ["installationLookupReady", "installationLookupReadyFor", "updateInstallationLookup",
+  "updateInstallationLookupFor", "updateInstallationLookupButtons", "installationOptionLabel", "probeSsh",
+  "bindHostCardEvents"];
 let local = "other", active = true, host = "old", port = 22, resolve;
 const fields = {"ssh-fingerprint": {value: ""}, "ssh-tailscale": {checked: false},
   "ssh-user": {value: "operator"}};
 const button = {dataset: {}, setAttribute(k, v) {this[k] = v;}};
-let hostCard = {querySelector: () => button};
+const robotButton = {dataset: {}, setAttribute(k, v) {this[k] = v;}};
+let hostCard = {querySelector: selector => selector === ".robot-lookup-installation" ? robotButton : button};
 let confirmations = 0;
 const context = vm.createContext({
+  slots: ["com1"], isRobotHost: () => true,
   document: {querySelector: () => ({value: local})},
   field: (_, name) => fields[name], card: () => hostCard,
   isActive: () => active, t: x => x, showNotice: () => {},
@@ -81,14 +85,16 @@ for (const name of names) {
   vm.runInContext(match[0], context);
 }
 (async () => {
-  context.updateInstallationLookup("com1");
+  context.updateInstallationLookupButtons();
   assert.equal(button.disabled, true);
+  assert.equal(robotButton.disabled, true);
   assert.equal(button.textContent, "install.lookup.blocked");
   assert.equal(context.installationOptionLabel({install_mode: "native", name: "Robot (/opt/robot)"}),
     "install.native - Robot (/opt/robot)");
   local = "com1";
-  context.updateInstallationLookup("com1");
+  context.updateInstallationLookupButtons();
   assert.equal(button.disabled, false);
+  assert.equal(robotButton.disabled, false);
   button.dataset.lookupBusy = "true";
   context.updateInstallationLookup("com1");
   assert.equal(button["aria-disabled"], "true");
@@ -101,7 +107,7 @@ for (const name of names) {
   for (const change of [() => host = "new", () => port = 23,
       () => fields["ssh-user"].value = "different",
       () => fields["ssh-tailscale"].checked = true,
-      () => hostCard = {querySelector: () => button},
+      () => hostCard = {...hostCard},
       () => local = "com1", () => active = false, () => host = ""]) {
     host = "old"; port = 22; local = "other"; active = true;
     fields["ssh-tailscale"].checked = false;
@@ -112,10 +118,50 @@ for (const name of names) {
     assert.equal(confirmations, 0);
   }
   host = "old"; active = true;
+  context.updateInstallationLookupButtons();
+  assert.equal(robotButton.disabled, true);
   const pending = context.probeSsh("com1");
   resolve({fingerprint: "verified"}); await pending;
   assert.equal(fields["ssh-fingerprint"].value, "verified");
   assert.equal(confirmations, 1);
   assert.equal(button.disabled, false);
+  assert.equal(robotButton.disabled, false, "confirmed SSH must unlock the native Robot lookup");
+  robotButton.dataset.lookupBusy = "true";
+  context.updateInstallationLookupButtons();
+  assert.equal(button.disabled, false);
+  assert.equal(robotButton.disabled, true, "a Robot lookup keeps its own busy state");
+  delete robotButton.dataset.lookupBusy;
+
+  // Dispatch the shipped field handlers in their registered order: clearing
+  // cached choices runs before host/port/mode edits invalidate the fingerprint.
+  const listeners = new Map();
+  const controls = new Map();
+  function control(key) {
+    if (!controls.has(key)) controls.set(key, {addEventListener(event, handler) {
+      const handlers = listeners.get(`${key}:${event}`) || [];
+      handlers.push(handler);
+      listeners.set(`${key}:${event}`, handlers);
+    }});
+    return controls.get(key);
+  }
+  hostCard = {querySelector: control, querySelectorAll: () => []};
+  context.field = (_, name) => Object.assign(control(name), fields[name]);
+  context.clearAllInstallationLookups = () => context.updateInstallationLookupButtons();
+  context.bindDropZone = () => {};
+  context.updateSshVisibility = () => {};
+  context.updateSshMode = () => {};
+  context.bindHostCardEvents("com1");
+  for (const [name, event] of [["ssh-host", "input"], ["ssh-port", "input"],
+      ["ssh-tailscale", "change"]]) {
+    fields["ssh-fingerprint"].value = "verified";
+    hostCard.querySelector = selector => selector === ".robot-lookup-installation" ? robotButton : button;
+    context.field = (_, name) => fields[name];
+    context.updateInstallationLookupButtons();
+    assert.equal(robotButton.disabled, false);
+    for (const handler of listeners.get(`${name}:${event}`)) handler();
+    assert.equal(fields["ssh-fingerprint"].value, "");
+    assert.equal(button.disabled, true);
+    assert.equal(robotButton.disabled, true, `${name} must relock the Robot lookup`);
+  }
 })().catch(error => {console.error(error); process.exitCode = 1;});
 ''', str(script)], check=True)

@@ -1350,7 +1350,7 @@ async function probeSsh(slot) {
   if (window.confirm(prompt)) {
     field(slot, "ssh-fingerprint").value = result.fingerprint;
     showNotice("notice.fingerprint");
-    updateInstallationLookup(slot);
+    updateInstallationLookupButtons();
   }
 }
 
@@ -1729,13 +1729,13 @@ function bindHostCardEvents(slot) {
   ["ssh-host", "ssh-port"].forEach((name) => {
     field(slot, name).addEventListener("input", () => {
       field(slot, "ssh-fingerprint").value = "";
-      updateInstallationLookup(slot);
+      updateInstallationLookupButtons();
     });
   });
   field(slot, "ssh-tailscale").addEventListener("change", () => {
     updateSshMode(slot);
     field(slot, "ssh-fingerprint").value = "";
-    updateInstallationLookup(slot);
+    updateInstallationLookupButtons();
   });
   hostCard.querySelectorAll("input, select").forEach((control) => {
     control.addEventListener("input", markWorkflowDirty);
