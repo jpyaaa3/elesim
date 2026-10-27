@@ -1,8 +1,8 @@
 # AdaPoinTr adoption trial
 
-The isolated inference path works on remote GPU 2, but the original PCN-trained
-checkpoint did not pass the metric-scale box completion criteria. This is a
-research trial, separate from the live Pilot workflow, motor commands, IMU model
+The isolated inference path works on remote GPU 2, but our pipeline using the
+PCN-trained checkpoint did not pass the metric-scale box completion criteria.
+This is a research trial, separate from the live Pilot workflow, motor commands, IMU model
 and plane-calibration application. No production configuration or dependency was
 changed. Completion results are not automatically consumed by Pick/Grasp or Sim.
 
@@ -148,3 +148,80 @@ development image or host scientific dependencies were installed.
 [observed/predicted/truth](../workbench/evidence/curated/experiments/adapointr_objects_20261027.png),
 [metric comparison](../workbench/evidence/curated/experiments/adapointr_metrics_20261027.png),
 [public demo sanity check](../workbench/evidence/curated/experiments/adapointr_demos_20261027.png).
+
+## Same-sample preprocessing control, 2026-10-27
+
+Research revision `56a717b83cac4c3eb9e652c96c65ed99716867ed` was pushed and
+installed through the official remote updater before inference. The same
+checkpoint, upstream forward, FP32 backend and sole remote GPU 2 were reused.
+Five transforms crossed with five sampling seeds and two public demo clouds
+produced **50 inferences**. For each seed, every transform receives the same
+physical input point indices and order, checked by inverse-transforming the
+model input. All variants keep the original PCN Y-up axes. Outputs are restored
+to the original demo coordinates before measurement; no ICP or truth alignment
+is used. This controls our affine preprocessing, including any resulting
+interaction with the model's internal sampling, rather than changing weights.
+
+| Input transform | Airplane fidelity p95, % diagonal | Sofa fidelity p95, % diagonal |
+| --- | ---: | ---: |
+| Original demo coordinates | 0.448 | 0.665 |
+| Subtract partial centroid only | 0.507 | 5.020 |
+| Scale only to centered observed radius .5 | 8.936 | 0.682 |
+| Partial centroid + radius .5 (our default) | 6.785 | 0.737 |
+| Partial centroid + radius 1.0 | 20.753 | 14.550 |
+
+Fidelity is the distance from each **original observed point** to its nearest
+predicted point; p95 is divided by the original observed AABB diagonal. Values
+are medians over five seeds. This is not the full-surface metric from the box
+trial, and the percentages are not millimeters. The public demos have no complete
+ground truth, so neither absolute completion accuracy nor correctness of unseen
+geometry can be claimed from these numbers.
+
+The same-seed p95 ratio for our default transform is **15.23×** native for the
+airplane and **1.09×** for the sofa. Centering alone gives **7.51×** on the sofa;
+scaling alone gives **19.93×** on the airplane. The large effects appear in all
+five seeds. Our predeclared strong-degradation criterion was a paired median
+ratio above 1.25 and a worse result in at least 80% of seeds. It is met by airplane
+scale-only and both center+scale variants, and by sofa center-only and radius
+1.0. The sofa default does not meet that criterion: the effects of centering and
+scaling cannot be assumed to add independently.
+
+Default-transform output changes against same-seed native outputs are 2.044%
+and 1.047% diagonal (symmetric mean nearest-neighbor distance). Native output
+variation from resampling alone is 0.259% and 0.410%, measured against seed zero
+over the other four seeds. These quantify output sensitivity, not accuracy.
+Counts near the FPS zero-exclusion threshold also change, but that interaction
+was not separately isolated from coordinate/scale distribution sensitivity.
+
+**Finding:** our partial-centroid/radius preprocessing can itself damage observed
+surface fidelity on the public inputs. The earlier box failure measures the
+combined checkpoint **and preprocessing** pipeline; attributing it solely to poor
+weights or to simulated objects is unsupported. This control does not prove that
+preprocessing explains the entire box failure, nor that these two classes
+represent general objects. Removing normalization from raw world-meter inputs
+would not reproduce the demo's original canonical frame. A replacement must
+first define how canonical center, scale and heading are obtained without full
+object truth, then pass the existing independent box evaluator. No production
+preprocessing or automatic grasp/collision behavior was changed.
+
+The coordinate and metric TDD passed seven new tests, **16 passed** with the
+related tests. GPU inference exited zero; normal test Sim/Pilot IDs, images and
+stopped state were preserved, and no diagnostic containers remain. Plotting was
+CPU-only with no network or GPU reservation. Canonical required/extended,
+real-RMW and isolated-release gates remain unrun for the development-attachment
+reason stated above.
+
+```bash
+python3 -m workbench.research.experiments.adapointr_preprocessing \
+  --vendor /vendor --config /vendor/cfgs/PCN_models/AdaPoinTr.yaml \
+  --checkpoint /checkpoint.pth \
+  --checkpoint-sha256 f58a5650b348ca3d68fc8e01e3e88f57d5a889bbad5521fec7a2760eda664fa1 \
+  --output /output/results --seeds 5
+
+python3 -m workbench.research.analysis.adapointr_preprocessing_plot \
+  /results /output
+```
+
+[Metrics/provenance](../workbench/evidence/curated/experiments/adapointr_preprocessing_20261027.json),
+[fidelity and output sensitivity](../workbench/evidence/curated/experiments/adapointr_preprocessing_metrics_20261027.png),
+[same-frame output comparison](../workbench/evidence/curated/experiments/adapointr_preprocessing_clouds_20261027.png).

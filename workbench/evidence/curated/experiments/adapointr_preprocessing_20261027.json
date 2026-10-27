@@ -1,0 +1,1143 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-27",
+  "experiment": "same-public-sample AdaPoinTr preprocessing control",
+  "status": "completed; preprocessing can degrade observed-surface fidelity; production adapter unresolved",
+  "tested_revision": "56a717b83cac4c3eb9e652c96c65ed99716867ed",
+  "research_source_sha256": {
+    "workbench/research/experiments/adapointr.py": "189ea3ea0f8059db22e819199c4e5952ceb8ef861e9b16e0d69f082d440619f3",
+    "workbench/research/experiments/adapointr_gpu_smoke.py": "05c76d51658532cddd9b4f6225fbefb7e188779286e8cf9489f1298bc1c68bb1",
+    "workbench/research/experiments/adapointr_preprocessing.py": "cd1d8355bac9057310b961d9d3e50e2cdb2db592498a9515806c212741f3653f",
+    "workbench/research/support/adapointr_backend.py": "77615a62e109e3bc079c14ec45034c70be451768118b7719f2957a2f507b4f9b",
+    "workbench/research/support/adapointr_ops.py": "42b823caa64d4a247f9e03e6ceb8731aa1f502c35b0c0f395b6e0c733bf2d2ef"
+  },
+  "upstream_revision": "4603257ed3db9e7dad349b712e1b2fe0da207015",
+  "model": {
+    "checkpoint_sha256": "f58a5650b348ca3d68fc8e01e3e88f57d5a889bbad5521fec7a2760eda664fa1",
+    "parameters": 32494657,
+    "missing_keys": [],
+    "unexpected_keys": [],
+    "config": {
+      "NAME": "AdaPoinTr",
+      "num_query": 512,
+      "num_points": 16384,
+      "center_num": [
+        512,
+        256
+      ],
+      "global_feature_dim": 1024,
+      "encoder_type": "graph",
+      "decoder_type": "fc",
+      "encoder_config": {
+        "embed_dim": 384,
+        "depth": 6,
+        "num_heads": 6,
+        "k": 8,
+        "n_group": 2,
+        "mlp_ratio": 2.0,
+        "block_style_list": [
+          "attn-graph",
+          "attn",
+          "attn",
+          "attn",
+          "attn",
+          "attn"
+        ],
+        "combine_style": "concat"
+      },
+      "decoder_config": {
+        "embed_dim": 384,
+        "depth": 8,
+        "num_heads": 6,
+        "k": 8,
+        "n_group": 2,
+        "mlp_ratio": 2.0,
+        "self_attn_block_style_list": [
+          "attn-graph",
+          "attn",
+          "attn",
+          "attn",
+          "attn",
+          "attn",
+          "attn",
+          "attn"
+        ],
+        "self_attn_combine_style": "concat",
+        "cross_attn_block_style_list": [
+          "attn-graph",
+          "attn",
+          "attn",
+          "attn",
+          "attn",
+          "attn",
+          "attn",
+          "attn"
+        ],
+        "cross_attn_combine_style": "concat"
+      }
+    },
+    "backend": "original upstream forward; Triton FPS and Torch gather; inference-only imports"
+  },
+  "environment": {
+    "gpu": "NVIDIA RTX A6000",
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "host_gpu_index": 2,
+    "visible_gpu_count": 1,
+    "torch": "2.12.1+cu130",
+    "cuda": "13.0",
+    "tf32": false,
+    "image_id": "sha256:eb87c7edba2420371080008afea7626867884bf3c58a35061e152a03737c4c57"
+  },
+  "design": {
+    "samples": [
+      "airplane",
+      "sofa"
+    ],
+    "seeds": 5,
+    "inferences": 50,
+    "same_physical_sample_indices": true,
+    "point_order_preserved_within_seed": true,
+    "axis_order": "unchanged original PCN Y-up in every variant",
+    "weights_unchanged": true,
+    "no_alignment": true,
+    "complete_ground_truth_available": false,
+    "units": "original dataset coordinate units; percentages use original observed AABB diagonal",
+    "fidelity_definition": "p95 of nearest predicted point distance from each original observed point, divided by original observed AABB diagonal, times 100",
+    "output_change_definition": "mean of both directed mean nearest-neighbor distances versus same-seed native prediction, divided by original observed diagonal, times 100",
+    "comparison_criterion": "paired observation-fidelity p95 median ratio >1.25 and worse in >=80% of seeds (4/5 by default)"
+  },
+  "summary": {
+    "airplane": {
+      "native": {
+        "fidelity_p95_pct_diag_median": 0.4484419600566678,
+        "fidelity_p95_pct_diag_range": [
+          0.42817574519341145,
+          0.49645684468601803
+        ],
+        "paired_fidelity_ratio_median": 1.0,
+        "seeds_worse_than_native": 0,
+        "output_chamfer_pct_diag_median": 0.0,
+        "near_zero_points_median": 28.0,
+        "strong_fidelity_degradation": false
+      },
+      "center_only": {
+        "fidelity_p95_pct_diag_median": 0.5066438735202538,
+        "fidelity_p95_pct_diag_range": [
+          0.4836876793559554,
+          0.529094237559179
+        ],
+        "paired_fidelity_ratio_median": 1.1297869482512992,
+        "seeds_worse_than_native": 5,
+        "output_chamfer_pct_diag_median": 0.45408577344858625,
+        "near_zero_points_median": 42.0,
+        "strong_fidelity_degradation": false
+      },
+      "scale_only_r05": {
+        "fidelity_p95_pct_diag_median": 8.936056942992739,
+        "fidelity_p95_pct_diag_range": [
+          8.903125032322707,
+          9.044414919042012
+        ],
+        "paired_fidelity_ratio_median": 19.926897433646765,
+        "seeds_worse_than_native": 5,
+        "output_chamfer_pct_diag_median": 2.5171346237615033,
+        "near_zero_points_median": 8.0,
+        "strong_fidelity_degradation": true
+      },
+      "center_scale_r05": {
+        "fidelity_p95_pct_diag_median": 6.78537587499952,
+        "fidelity_p95_pct_diag_range": [
+          6.688140122797847,
+          6.9459129584249
+        ],
+        "paired_fidelity_ratio_median": 15.23261705747166,
+        "seeds_worse_than_native": 5,
+        "output_chamfer_pct_diag_median": 2.0438927369339015,
+        "near_zero_points_median": 10.0,
+        "strong_fidelity_degradation": true
+      },
+      "center_scale_r10": {
+        "fidelity_p95_pct_diag_median": 20.75268317828546,
+        "fidelity_p95_pct_diag_range": [
+          20.651997907931843,
+          20.86911370387814
+        ],
+        "paired_fidelity_ratio_median": 46.27730013414228,
+        "seeds_worse_than_native": 5,
+        "output_chamfer_pct_diag_median": 4.566091408470956,
+        "near_zero_points_median": 0.0,
+        "strong_fidelity_degradation": true
+      }
+    },
+    "sofa": {
+      "native": {
+        "fidelity_p95_pct_diag_median": 0.6653456369439783,
+        "fidelity_p95_pct_diag_range": [
+          0.6508610213827549,
+          0.6946997420451928
+        ],
+        "paired_fidelity_ratio_median": 1.0,
+        "seeds_worse_than_native": 0,
+        "output_chamfer_pct_diag_median": 0.0,
+        "near_zero_points_median": 0.0,
+        "strong_fidelity_degradation": false
+      },
+      "center_only": {
+        "fidelity_p95_pct_diag_median": 5.019666541806111,
+        "fidelity_p95_pct_diag_range": [
+          4.965545855379169,
+          5.523434420964718
+        ],
+        "paired_fidelity_ratio_median": 7.511981728828754,
+        "seeds_worse_than_native": 5,
+        "output_chamfer_pct_diag_median": 2.441043359727861,
+        "near_zero_points_median": 3.0,
+        "strong_fidelity_degradation": true
+      },
+      "scale_only_r05": {
+        "fidelity_p95_pct_diag_median": 0.6817143657003316,
+        "fidelity_p95_pct_diag_range": [
+          0.6796245345785679,
+          0.7219463573088799
+        ],
+        "paired_fidelity_ratio_median": 1.0392207073281376,
+        "seeds_worse_than_native": 4,
+        "output_chamfer_pct_diag_median": 0.6886186261113773,
+        "near_zero_points_median": 0.0,
+        "strong_fidelity_degradation": false
+      },
+      "center_scale_r05": {
+        "fidelity_p95_pct_diag_median": 0.736522017864518,
+        "fidelity_p95_pct_diag_range": [
+          0.7064255860634084,
+          0.7448705905893208
+        ],
+        "paired_fidelity_ratio_median": 1.0853708593005102,
+        "seeds_worse_than_native": 5,
+        "output_chamfer_pct_diag_median": 1.0473908072045666,
+        "near_zero_points_median": 3.0,
+        "strong_fidelity_degradation": false
+      },
+      "center_scale_r10": {
+        "fidelity_p95_pct_diag_median": 14.550168346736173,
+        "fidelity_p95_pct_diag_range": [
+          14.449755210872555,
+          14.678642720934706
+        ],
+        "paired_fidelity_ratio_median": 21.717667342409,
+        "seeds_worse_than_native": 5,
+        "output_chamfer_pct_diag_median": 6.013610058896684,
+        "near_zero_points_median": 0.0,
+        "strong_fidelity_degradation": true
+      }
+    }
+  },
+  "controls": {
+    "airplane": {
+      "native_sampling_chamfer_pct_diag_median": 0.2591548916593634,
+      "partial_centroid": [
+        -0.01409846916794777,
+        -0.022476190701127052,
+        0.05225773900747299
+      ]
+    },
+    "sofa": {
+      "native_sampling_chamfer_pct_diag_median": 0.410021719157648,
+      "partial_centroid": [
+        -0.014872979372739792,
+        -0.00955992378294468,
+        -0.10125795751810074
+      ]
+    }
+  },
+  "per_seed_metrics": [
+    {
+      "sample": "airplane",
+      "seed": 0,
+      "variant": "native",
+      "forward_wall_ms": 29.00478709489107,
+      "observed_to_prediction_p95_pct_diag": 0.42817574519341145,
+      "reference_chamfer_mean_pct_diag": 0.0,
+      "model_input_near_zero_points": 28,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "airplane",
+      "seed": 0,
+      "variant": "center_only",
+      "forward_wall_ms": 15.307629946619272,
+      "observed_to_prediction_p95_pct_diag": 0.529094237559179,
+      "reference_chamfer_mean_pct_diag": 0.4539348920977101,
+      "model_input_near_zero_points": 42,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "airplane",
+      "seed": 0,
+      "variant": "scale_only_r05",
+      "forward_wall_ms": 15.98926680162549,
+      "observed_to_prediction_p95_pct_diag": 8.911638546201655,
+      "reference_chamfer_mean_pct_diag": 2.514217906612703,
+      "model_input_near_zero_points": 8,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 0.6420598791035659
+    },
+    {
+      "sample": "airplane",
+      "seed": 0,
+      "variant": "center_scale_r05",
+      "forward_wall_ms": 15.536306891590357,
+      "observed_to_prediction_p95_pct_diag": 6.9459129584249,
+      "reference_chamfer_mean_pct_diag": 2.0271782728470393,
+      "model_input_near_zero_points": 8,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 0.6420598791035659
+    },
+    {
+      "sample": "airplane",
+      "seed": 0,
+      "variant": "center_scale_r10",
+      "forward_wall_ms": 14.834181871265173,
+      "observed_to_prediction_p95_pct_diag": 20.768973578200548,
+      "reference_chamfer_mean_pct_diag": 4.488644960495754,
+      "model_input_near_zero_points": 0,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 0.32102993955178294
+    },
+    {
+      "sample": "airplane",
+      "seed": 1,
+      "variant": "native",
+      "forward_wall_ms": 14.883017167448997,
+      "observed_to_prediction_p95_pct_diag": 0.49645684468601803,
+      "reference_chamfer_mean_pct_diag": 0.0,
+      "model_input_near_zero_points": 29,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "airplane",
+      "seed": 1,
+      "variant": "center_only",
+      "forward_wall_ms": 14.65938612818718,
+      "observed_to_prediction_p95_pct_diag": 0.5002938545006453,
+      "reference_chamfer_mean_pct_diag": 0.45321401751611,
+      "model_input_near_zero_points": 43,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "airplane",
+      "seed": 1,
+      "variant": "scale_only_r05",
+      "forward_wall_ms": 14.613515697419643,
+      "observed_to_prediction_p95_pct_diag": 8.903125032322707,
+      "reference_chamfer_mean_pct_diag": 2.5139086034837255,
+      "model_input_near_zero_points": 4,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 0.6420598791035659
+    },
+    {
+      "sample": "airplane",
+      "seed": 1,
+      "variant": "center_scale_r05",
+      "forward_wall_ms": 15.400473959743977,
+      "observed_to_prediction_p95_pct_diag": 6.750021473999076,
+      "reference_chamfer_mean_pct_diag": 2.041152256964159,
+      "model_input_near_zero_points": 9,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 0.6420598791035659
+    },
+    {
+      "sample": "airplane",
+      "seed": 1,
+      "variant": "center_scale_r10",
+      "forward_wall_ms": 13.952720910310745,
+      "observed_to_prediction_p95_pct_diag": 20.86911370387814,
+      "reference_chamfer_mean_pct_diag": 4.566091408470956,
+      "model_input_near_zero_points": 0,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 0.32102993955178294
+    },
+    {
+      "sample": "airplane",
+      "seed": 2,
+      "variant": "native",
+      "forward_wall_ms": 13.68986489251256,
+      "observed_to_prediction_p95_pct_diag": 0.4347581740929966,
+      "reference_chamfer_mean_pct_diag": 0.0,
+      "model_input_near_zero_points": 27,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "airplane",
+      "seed": 2,
+      "variant": "center_only",
+      "forward_wall_ms": 13.394012115895748,
+      "observed_to_prediction_p95_pct_diag": 0.4836876793559554,
+      "reference_chamfer_mean_pct_diag": 0.4564368342943092,
+      "model_input_near_zero_points": 35,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "airplane",
+      "seed": 2,
+      "variant": "scale_only_r05",
+      "forward_wall_ms": 14.688194263726473,
+      "observed_to_prediction_p95_pct_diag": 9.044414919042012,
+      "reference_chamfer_mean_pct_diag": 2.570920506749255,
+      "model_input_near_zero_points": 8,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 0.6420598791035659
+    },
+    {
+      "sample": "airplane",
+      "seed": 2,
+      "variant": "center_scale_r05",
+      "forward_wall_ms": 14.854512643069029,
+      "observed_to_prediction_p95_pct_diag": 6.78537587499952,
+      "reference_chamfer_mean_pct_diag": 2.1499139843476978,
+      "model_input_near_zero_points": 11,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 0.6420598791035659
+    },
+    {
+      "sample": "airplane",
+      "seed": 2,
+      "variant": "center_scale_r10",
+      "forward_wall_ms": 13.744291849434376,
+      "observed_to_prediction_p95_pct_diag": 20.736711470166444,
+      "reference_chamfer_mean_pct_diag": 4.60645199376378,
+      "model_input_near_zero_points": 0,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 0.32102993955178294
+    },
+    {
+      "sample": "airplane",
+      "seed": 3,
+      "variant": "native",
+      "forward_wall_ms": 14.730406925082207,
+      "observed_to_prediction_p95_pct_diag": 0.4545259923557186,
+      "reference_chamfer_mean_pct_diag": 0.0,
+      "model_input_near_zero_points": 31,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "airplane",
+      "seed": 3,
+      "variant": "center_only",
+      "forward_wall_ms": 14.424220193177462,
+      "observed_to_prediction_p95_pct_diag": 0.5281605768622897,
+      "reference_chamfer_mean_pct_diag": 0.4568242757747512,
+      "model_input_near_zero_points": 47,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "airplane",
+      "seed": 3,
+      "variant": "scale_only_r05",
+      "forward_wall_ms": 13.917610980570316,
+      "observed_to_prediction_p95_pct_diag": 8.978893379998835,
+      "reference_chamfer_mean_pct_diag": 2.5171346237615033,
+      "model_input_near_zero_points": 8,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 0.6420598791035659
+    },
+    {
+      "sample": "airplane",
+      "seed": 3,
+      "variant": "center_scale_r05",
+      "forward_wall_ms": 14.329681638628244,
+      "observed_to_prediction_p95_pct_diag": 6.923620384221953,
+      "reference_chamfer_mean_pct_diag": 2.0586048980688862,
+      "model_input_near_zero_points": 14,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 0.6420598791035659
+    },
+    {
+      "sample": "airplane",
+      "seed": 3,
+      "variant": "center_scale_r10",
+      "forward_wall_ms": 14.133132994174957,
+      "observed_to_prediction_p95_pct_diag": 20.651997907931843,
+      "reference_chamfer_mean_pct_diag": 4.51492651797031,
+      "model_input_near_zero_points": 0,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 0.32102993955178294
+    },
+    {
+      "sample": "airplane",
+      "seed": 4,
+      "variant": "native",
+      "forward_wall_ms": 15.596758108586073,
+      "observed_to_prediction_p95_pct_diag": 0.4484419600566678,
+      "reference_chamfer_mean_pct_diag": 0.0,
+      "model_input_near_zero_points": 24,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "airplane",
+      "seed": 4,
+      "variant": "center_only",
+      "forward_wall_ms": 14.679268933832645,
+      "observed_to_prediction_p95_pct_diag": 0.5066438735202538,
+      "reference_chamfer_mean_pct_diag": 0.45408577344858625,
+      "model_input_near_zero_points": 41,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "airplane",
+      "seed": 4,
+      "variant": "scale_only_r05",
+      "forward_wall_ms": 14.092192985117435,
+      "observed_to_prediction_p95_pct_diag": 8.936056942992739,
+      "reference_chamfer_mean_pct_diag": 2.52369482387413,
+      "model_input_near_zero_points": 7,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 0.6420598791035659
+    },
+    {
+      "sample": "airplane",
+      "seed": 4,
+      "variant": "center_scale_r05",
+      "forward_wall_ms": 14.772331342101097,
+      "observed_to_prediction_p95_pct_diag": 6.688140122797847,
+      "reference_chamfer_mean_pct_diag": 2.0438927369339015,
+      "model_input_near_zero_points": 10,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 0.6420598791035659
+    },
+    {
+      "sample": "airplane",
+      "seed": 4,
+      "variant": "center_scale_r10",
+      "forward_wall_ms": 13.685432262718678,
+      "observed_to_prediction_p95_pct_diag": 20.75268317828546,
+      "reference_chamfer_mean_pct_diag": 4.576183088537494,
+      "model_input_near_zero_points": 0,
+      "center": [
+        -0.014098458010806066,
+        -0.022476189616524915,
+        0.05225773073789013
+      ],
+      "scale": 0.32102993955178294
+    },
+    {
+      "sample": "sofa",
+      "seed": 0,
+      "variant": "native",
+      "forward_wall_ms": 13.287190813571215,
+      "observed_to_prediction_p95_pct_diag": 0.6946997420451928,
+      "reference_chamfer_mean_pct_diag": 0.0,
+      "model_input_near_zero_points": 0,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "sofa",
+      "seed": 0,
+      "variant": "center_only",
+      "forward_wall_ms": 13.959364965558052,
+      "observed_to_prediction_p95_pct_diag": 5.019666541806111,
+      "reference_chamfer_mean_pct_diag": 2.441043359727861,
+      "model_input_near_zero_points": 2,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "sofa",
+      "seed": 0,
+      "variant": "scale_only_r05",
+      "forward_wall_ms": 13.5803809389472,
+      "observed_to_prediction_p95_pct_diag": 0.7219463573088799,
+      "reference_chamfer_mean_pct_diag": 0.7329193760474204,
+      "model_input_near_zero_points": 0,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.1129090791222145
+    },
+    {
+      "sample": "sofa",
+      "seed": 0,
+      "variant": "center_scale_r05",
+      "forward_wall_ms": 13.55126965790987,
+      "observed_to_prediction_p95_pct_diag": 0.7448195573545118,
+      "reference_chamfer_mean_pct_diag": 1.0939496963710627,
+      "model_input_near_zero_points": 2,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 1.1129090791222145
+    },
+    {
+      "sample": "sofa",
+      "seed": 0,
+      "variant": "center_scale_r10",
+      "forward_wall_ms": 14.67439578846097,
+      "observed_to_prediction_p95_pct_diag": 14.451955487979255,
+      "reference_chamfer_mean_pct_diag": 5.9883167025593735,
+      "model_input_near_zero_points": 0,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 0.5564545395611072
+    },
+    {
+      "sample": "sofa",
+      "seed": 1,
+      "variant": "native",
+      "forward_wall_ms": 14.521991834044456,
+      "observed_to_prediction_p95_pct_diag": 0.6637460580384962,
+      "reference_chamfer_mean_pct_diag": 0.0,
+      "model_input_near_zero_points": 0,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "sofa",
+      "seed": 1,
+      "variant": "center_only",
+      "forward_wall_ms": 14.27943678572774,
+      "observed_to_prediction_p95_pct_diag": 4.986048260567293,
+      "reference_chamfer_mean_pct_diag": 2.4559030633740577,
+      "model_input_near_zero_points": 2,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "sofa",
+      "seed": 1,
+      "variant": "scale_only_r05",
+      "forward_wall_ms": 13.703713193535805,
+      "observed_to_prediction_p95_pct_diag": 0.6796245345785679,
+      "reference_chamfer_mean_pct_diag": 0.6886186261113773,
+      "model_input_near_zero_points": 0,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.1129090791222145
+    },
+    {
+      "sample": "sofa",
+      "seed": 1,
+      "variant": "center_scale_r05",
+      "forward_wall_ms": 14.118304010480642,
+      "observed_to_prediction_p95_pct_diag": 0.736522017864518,
+      "reference_chamfer_mean_pct_diag": 1.0116535362073074,
+      "model_input_near_zero_points": 2,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 1.1129090791222145
+    },
+    {
+      "sample": "sofa",
+      "seed": 1,
+      "variant": "center_scale_r10",
+      "forward_wall_ms": 14.186996966600418,
+      "observed_to_prediction_p95_pct_diag": 14.550168346736173,
+      "reference_chamfer_mean_pct_diag": 6.013610058896684,
+      "model_input_near_zero_points": 0,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 0.5564545395611072
+    },
+    {
+      "sample": "sofa",
+      "seed": 2,
+      "variant": "native",
+      "forward_wall_ms": 14.80423379689455,
+      "observed_to_prediction_p95_pct_diag": 0.6508610213827549,
+      "reference_chamfer_mean_pct_diag": 0.0,
+      "model_input_near_zero_points": 0,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "sofa",
+      "seed": 2,
+      "variant": "center_only",
+      "forward_wall_ms": 16.267563216388226,
+      "observed_to_prediction_p95_pct_diag": 5.067097379277292,
+      "reference_chamfer_mean_pct_diag": 2.394090956546402,
+      "model_input_near_zero_points": 4,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "sofa",
+      "seed": 2,
+      "variant": "scale_only_r05",
+      "forward_wall_ms": 14.209469314664602,
+      "observed_to_prediction_p95_pct_diag": 0.680373905305959,
+      "reference_chamfer_mean_pct_diag": 0.6609768525981792,
+      "model_input_near_zero_points": 0,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.1129090791222145
+    },
+    {
+      "sample": "sofa",
+      "seed": 2,
+      "variant": "center_scale_r05",
+      "forward_wall_ms": 15.690079890191555,
+      "observed_to_prediction_p95_pct_diag": 0.7064255860634084,
+      "reference_chamfer_mean_pct_diag": 1.0704010749650428,
+      "model_input_near_zero_points": 4,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 1.1129090791222145
+    },
+    {
+      "sample": "sofa",
+      "seed": 2,
+      "variant": "center_scale_r10",
+      "forward_wall_ms": 14.363563153892756,
+      "observed_to_prediction_p95_pct_diag": 14.678642720934706,
+      "reference_chamfer_mean_pct_diag": 6.013696124076069,
+      "model_input_near_zero_points": 0,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 0.5564545395611072
+    },
+    {
+      "sample": "sofa",
+      "seed": 3,
+      "variant": "native",
+      "forward_wall_ms": 14.60515009239316,
+      "observed_to_prediction_p95_pct_diag": 0.6653456369439783,
+      "reference_chamfer_mean_pct_diag": 0.0,
+      "model_input_near_zero_points": 0,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "sofa",
+      "seed": 3,
+      "variant": "center_only",
+      "forward_wall_ms": 14.208994340151548,
+      "observed_to_prediction_p95_pct_diag": 4.965545855379169,
+      "reference_chamfer_mean_pct_diag": 2.404963452277809,
+      "model_input_near_zero_points": 4,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "sofa",
+      "seed": 3,
+      "variant": "scale_only_r05",
+      "forward_wall_ms": 14.95468895882368,
+      "observed_to_prediction_p95_pct_diag": 0.7011052961396855,
+      "reference_chamfer_mean_pct_diag": 0.6689289250939383,
+      "model_input_near_zero_points": 0,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.1129090791222145
+    },
+    {
+      "sample": "sofa",
+      "seed": 3,
+      "variant": "center_scale_r05",
+      "forward_wall_ms": 14.398830942809582,
+      "observed_to_prediction_p95_pct_diag": 0.717559100018092,
+      "reference_chamfer_mean_pct_diag": 1.0411545320578015,
+      "model_input_near_zero_points": 4,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 1.1129090791222145
+    },
+    {
+      "sample": "sofa",
+      "seed": 3,
+      "variant": "center_scale_r10",
+      "forward_wall_ms": 14.21105396002531,
+      "observed_to_prediction_p95_pct_diag": 14.449755210872555,
+      "reference_chamfer_mean_pct_diag": 5.997776204319922,
+      "model_input_near_zero_points": 0,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 0.5564545395611072
+    },
+    {
+      "sample": "sofa",
+      "seed": 4,
+      "variant": "native",
+      "forward_wall_ms": 15.020210295915604,
+      "observed_to_prediction_p95_pct_diag": 0.683237801446888,
+      "reference_chamfer_mean_pct_diag": 0.0,
+      "model_input_near_zero_points": 0,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "sofa",
+      "seed": 4,
+      "variant": "center_only",
+      "forward_wall_ms": 20.404140930622816,
+      "observed_to_prediction_p95_pct_diag": 5.523434420964718,
+      "reference_chamfer_mean_pct_diag": 2.5332657501255067,
+      "model_input_near_zero_points": 3,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 1.0
+    },
+    {
+      "sample": "sofa",
+      "seed": 4,
+      "variant": "scale_only_r05",
+      "forward_wall_ms": 14.593867119401693,
+      "observed_to_prediction_p95_pct_diag": 0.6817143657003316,
+      "reference_chamfer_mean_pct_diag": 0.6932353509204677,
+      "model_input_near_zero_points": 0,
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": 1.1129090791222145
+    },
+    {
+      "sample": "sofa",
+      "seed": 4,
+      "variant": "center_scale_r05",
+      "forward_wall_ms": 13.606198132038116,
+      "observed_to_prediction_p95_pct_diag": 0.7448705905893208,
+      "reference_chamfer_mean_pct_diag": 1.0473908072045666,
+      "model_input_near_zero_points": 3,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 1.1129090791222145
+    },
+    {
+      "sample": "sofa",
+      "seed": 4,
+      "variant": "center_scale_r10",
+      "forward_wall_ms": 14.506887178868055,
+      "observed_to_prediction_p95_pct_diag": 14.621331982323996,
+      "reference_chamfer_mean_pct_diag": 6.053949490300641,
+      "model_input_near_zero_points": 0,
+      "center": [
+        -0.014872996299950914,
+        -0.009559918868948114,
+        -0.10125793320126832
+      ],
+      "scale": 0.5564545395611072
+    }
+  ],
+  "interpretation": [
+    "Default partial-centroid/radius .5 preprocessing degrades airplane fidelity in all five seeds, with median paired p95 ratio 15.23.",
+    "Centering alone degrades sofa fidelity in all five seeds, with median paired p95 ratio 7.51. Default combined centering/scaling has a much smaller effect (paired ratio 1.09).",
+    "Scaling alone strongly degrades airplane fidelity (paired ratio 19.93). Centering and scale effects depend on the input and cannot be assumed additive.",
+    "Our preprocessing is a demonstrated contributor to poor fidelity on public demos. The previous box result measures checkpoint plus preprocessing, not weights in isolation.",
+    "This is not proof of absolute completion accuracy, general-object behavior, or a complete explanation of the box-trial failure.",
+    "No production normalization fix has been validated: raw world-meter points do not share the canonical demo coordinates."
+  ],
+  "limitations": [
+    "Two public demo samples only; five resampling seeds do not provide object-level population statistics.",
+    "No complete public demo truth. Native predictions are a transformation reference, not an absolute accuracy oracle.",
+    "Coordinates affect both learned inference and internal FPS, including its near-zero exclusion. These mechanisms were not separately isolated.",
+    "Original upstream forward uses the previously validated Triton FPS/Torch gather adapter, not a compiled upstream CUDA binary.",
+    "No new live Genesis, IMU, real sensor, grasp, or production Pilot integration was exercised."
+  ],
+  "verification": {
+    "focused_new_host_passed": 7,
+    "related_host_batch_passed": 16,
+    "host_command": "python3 -m pytest -q workbench/tests/research/experiments/test_adapointr_preprocessing.py workbench/tests/research/experiments/test_adapointr.py",
+    "gpu_exit_code": 0,
+    "gpu_complete": true,
+    "gpu_job_wall_s": 13.311813582666218,
+    "canonical_run": false,
+    "canonical_reason": "Known optional development image preparation remains incomplete; required/extended, real-RMW and isolated-release gates were not run."
+  },
+  "isolation": {
+    "network_mode": "none",
+    "device_requests": [
+      {
+        "Driver": "nvidia",
+        "Count": 0,
+        "DeviceIDs": [
+          "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+        ],
+        "Capabilities": [
+          [
+            "gpu"
+          ]
+        ],
+        "Options": null
+      }
+    ],
+    "mounts": [
+      {
+        "destination": "/vendor",
+        "read_only": true
+      },
+      {
+        "destination": "/output",
+        "read_only": false
+      },
+      {
+        "destination": "/trial/workbench/research/experiments/adapointr_preprocessing.py",
+        "read_only": true
+      },
+      {
+        "destination": "/trial/workbench/research/support/adapointr_ops.py",
+        "read_only": true
+      },
+      {
+        "destination": "/checkpoint.pth",
+        "read_only": true
+      },
+      {
+        "destination": "/trial/workbench/research/experiments/adapointr_gpu_smoke.py",
+        "read_only": true
+      },
+      {
+        "destination": "/trial/workbench/research/support/adapointr_backend.py",
+        "read_only": true
+      },
+      {
+        "destination": "/deps",
+        "read_only": true
+      },
+      {
+        "destination": "/cache",
+        "read_only": false
+      },
+      {
+        "destination": "/trial/workbench/research/experiments/adapointr.py",
+        "read_only": true
+      }
+    ],
+    "normal_before": {
+      "sim": {
+        "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+        "image": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+        "running": false
+      },
+      "pilot": {
+        "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+        "image": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+        "running": false
+      }
+    },
+    "normal_after": {
+      "sim": {
+        "id": "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef",
+        "image": "sha256:cfc4bc91565284a31d2d44572c0bae3c6d5dbd84dffc1284b1d6c2cfc8e0e7e8",
+        "running": false
+      },
+      "pilot": {
+        "id": "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+        "image": "sha256:ac1f3b62f32bdaa9cb4f9206c661a6f5ca413f72f0fd3aa16d0409b226f6a9a1",
+        "running": false
+      }
+    },
+    "normal_unchanged": true,
+    "diagnostic_containers_remaining": [],
+    "plot_cpu_only": true,
+    "plot_exit_code": 0
+  },
+  "evidence": {
+    "remote_root": "/home/hckang/ws/newsim/logs/diagnostics/adapointr-20261027-c18ff631/preprocessing-56a717b-05c36b51",
+    "local_root": "workbench/evidence/generated/adapointr-preprocessing-20261027",
+    "bundle": "evidence.zip",
+    "sha256": "fc319278522c85cdbe9e045bf62bd1578031662471b7f8d0d0c00a653f9a0ae6",
+    "bytes": 17316577,
+    "verified_files": 69,
+    "manifest_sha256": "9898b510ec05283bbdf3f9de758fd45f004719a296d5fe060e6c589e9d0e536f"
+  },
+  "figures": [
+    {
+      "path": "workbench/evidence/curated/experiments/adapointr_preprocessing_metrics_20261027.png",
+      "sha256": "0da53c3b5bc69ef6c7e40484e808713e5c817abb8a8142a0981e883a3db49ba5",
+      "bytes": 189393
+    },
+    {
+      "path": "workbench/evidence/curated/experiments/adapointr_preprocessing_clouds_20261027.png",
+      "sha256": "c8c927470fac06b6d2fbc0d25d1c4628f2aa84d50c59113efdc01cf78b880bd2",
+      "bytes": 350714
+    }
+  ],
+  "figure_generator": {
+    "path": "workbench/research/analysis/adapointr_preprocessing_plot.py",
+    "sha256": "9299c27c9cf5033453055d4a0940e8acd3f77c3b1536526a1ecc43c5fe594d5d"
+  }
+}

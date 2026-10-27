@@ -6,16 +6,33 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### AdaPoinTr 전처리 원인 분리 (2026-10-27, 진행 중)
+### AdaPoinTr 전처리 원인 분리 (2026-10-27, GPU 대조 실험 완료)
 
-- 공개 airplane/sofa 입력을 고정하고 native, 중심 이동만, 크기 변경만,
-  중심+반경 .5, 중심+반경 1.0의 다섯 조건을 5개 sampling seed로 비교한다.
-  모든 조건은 같은 물리 점 인덱스를 사용하고 결과를 원본 좌표로 역변환한다.
-  원래 PCN Y-up 축을 유지해 축 규약을 혼입시키지 않는다.
+- `56a717b` push 및 원격 정식 updater 완료 후 GPU2 A6000에서 공개
+  airplane/sofa의 native, 중심 이동만, 크기 변경만, 중심+반경 .5,
+  중심+반경 1.0을 5개 sampling seed로 비교했다(**50 inference**).
+  같은 seed의 모든 조건은 같은 물리 점 인덱스·순서를 사용하고 결과를 원본
+  좌표로 역변환한다. 원래 PCN Y-up 축을 유지해 축 규약을 혼입시키지 않았다.
+- 관측점→출력 거리 p95 / 원본 관측 AABB 대각선의 중앙값은 비행기 native
+  **0.448% → 현재 기본 정규화 6.785%**이며 paired ratio는 **15.23배**다.
+  소파는 **0.665% → 0.737%**로 기본 조합의 영향은 작았으나 중심 이동만
+  하면 **5.020% / 7.51배**였다. 크기 변경만은 비행기에서 **19.93배**였다.
+  큰 효과는 5/5 seed에서 나타났다. 변환 효과는 물체별로 달라 단순 합산이나
+  정규화 제거를 검증된 해결책으로 취급하지 않는다.
 - 공개 샘플에는 완전한 정답이 없으므로 관측 표면 보존과 native 출력과의
-  차이를 평가한다. 절대 completion 정확도나 box 실패의 단일 원인으로
-  해석하지 않는다. 동일 점 인덱스·역변환·원본 좌표 단위 거리의 host TDD는
-  red 이후 새 7개, 기존 관련 시험 포함 **16 passed**다. GPU2 실험은 남았다.
+  차이를 평가했다. 우리 partial 중심·크기 전처리 자체가 관측 보존을 악화시킬
+  수 있음은 확인됐으나 전체 형상 정확도나 기존 box 실패의 단일 원인은 아니다.
+  이전 결과는 가중치+전처리의 결합 결과다. World meter를 그대로 넣는 것도
+  원본 demo canonical frame과 다르므로 대체 입력 규약과 box 재검증이 남는다.
+- 동일 점 인덱스·역변환·원본 좌표 단위 거리의 host TDD는 red 이후 새 7개,
+  관련 시험 포함 **16 passed**다. GPU inference는 정상 종료했으며 기존 test
+  Sim/Pilot ID·이미지·stopped 상태를 보존했고 진단 컨테이너는 제거했다.
+  Runtime 설정과 production 전처리는 바꾸지 않았다. Canonical gate 미실행
+  사유는 아래 도입 시험과 같다.
+  [해석·재현](shape_completion.md#same-sample-preprocessing-control-2026-10-27),
+  [수치·격리 증거](../workbench/evidence/curated/experiments/adapointr_preprocessing_20261027.json),
+  [수치 비교](../workbench/evidence/curated/experiments/adapointr_preprocessing_metrics_20261027.png),
+  [출력 비교](../workbench/evidence/curated/experiments/adapointr_preprocessing_clouds_20261027.png).
 
 ### AdaPoinTr 도입 시험 (2026-10-27, 실행 통과·형상 품질 미달)
 
