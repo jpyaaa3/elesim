@@ -6,6 +6,18 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 4DOF 다중 시야 점군 scan (2026-10-27, 검증 진행 중)
+
+- 관측만으로 FK 후보를 선택하는 제한된 view planner, 첫 optical frame 기준
+  voxel map, local surface-normal ICP와 공통 bend 영점 batch fit을 추가했다.
+  관절 오차 조건에서 독립 ICP만으로는 표면이 두꺼워지는 실패를 재현했으며,
+  공통 관절 오차를 이용해 촬영별 기하를 일관되게 다시 계산한다.
+- RGB-D/encoder consumer에 scene/catalog/true pose를 주지 않는 연구용
+  request/reply 실험을 준비했다. Actual URDF의 kinematic 움직임과 장착
+  camera RGB-D를 원격 GPU2에서 검증할 예정이며 아직 live 통과를 주장하지
+  않는다. 원본 센서는 보존하고 절대 world 위치·미관측 뒷면·동역학/충돌 안전을
+  보장하지 않는다. Runtime UI·motion/DDS 경로는 연결하지 않았다.
+
 ### AdaPoinTr 체크포인트·입력 규약 재시험 (2026-10-27, 기존 box replay 중앙값 기준 통과)
 
 - 공식 cropped ShapeNet-55 URL과 저자가 이슈 #88/#132에서 안내한 URL은 같은

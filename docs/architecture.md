@@ -413,6 +413,17 @@ camera/object truth, mesh/catalog와 생성용 script는 consumer 입력에 포�
 않는다. 별도 evaluator만 private truth를 읽고 정렬 없이 오차를 측정한다.
 이 연구 파일 경계는 새 DDS 계약이나 runtime Pick/Gaze 경로를 추가하지 않는다.
 
+다중 시야 scan의 순수 기하 helper는 `vision/multiview.py`에 있다. 관측 중심과
+범위를 보고 4DOF FK로 도달 가능한 다음 시야를 고르며, local point-to-plane
+정렬은 미리보기용이다. 정적 물체·고정 base·scan 동안 일정한 bend 영점 오차를
+가정한 batch 단계는 여러 시야의 표면 겹침으로 공통 bend 두 축 오차를 맞춘 뒤
+원본 점군을 한 번씩 다시 변환해 voxel 통합한다. 독립적인 촬영별 ICP 보정을
+누적하지 않는다. 기준은 첫 유효 optical frame이며 linear/roll 영점의 공통
+gauge와 절대 world 위치는 관측했다고 취급하지 않는다. 같은 자세 반복, 부족한
+겹침·관측성·한도 초과는 fit을 거부한다. 연구용 filesystem request/reply로만
+실제 URDF와 hand-eye 카메라를 움직이며 runtime motion/ROS 계약은 추가하지
+않는다. 보이지 않은 표면과 관절 동역학·연속 충돌 안전은 이 시험의 보장이 아니다.
+
 Pilot의 선택적 `robot.arm.ik.backend=curobo`는 Jetson CUDA에서 position IK를
 계산한다. 기본값은 `native`이며 새 DDS participant나 Robot 의존성을 만들지
 않는다. 별도 `CuRoboPlanner.plan_joint` API와 `elesim-plan` CLI는 시간 간격을
