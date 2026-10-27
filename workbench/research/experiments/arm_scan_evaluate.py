@@ -54,7 +54,31 @@ def cloud_metrics(points, shape):
         'extent_mm':(extent*1000).tolist(),'dimension_error_mm':(np.abs(extent-expected)*1000).tolist()}
 
 
-def evaluate(truth_root, scans, output):
+def collision_audit(truth_root, data_root):
+    """Check true motion against spheres, with independent actual-URDF FK parity."""
+    import hashlib
+    from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
+    from .vision_arm_scene import ArmUrdf
+    data_root=Path(data_root);truth_root=Path(truth_root)
+    guard=ArmSelfCollision(data_root/'models/planning/zed-mini')
+    assert hashlib.sha256((data_root/'models/assemblies/zed-mini/arm.urdf').read_bytes()).hexdigest()==guard.source_hashes['arm.urdf']
+    reference=ArmUrdf(data_root/'models/assemblies/zed-mini/arm.urdf',data_root/'calibration/cameras/zed_mini.hand_eye.json',base_height_m=0)
+    result=[];fk_error=0.
+    for record in json.loads((truth_root/'manifest.json').read_text())['records']:
+        with np.load(truth_root/record['file'],allow_pickle=False) as packet:
+            start,end=packet['actual_path_start_q'],packet['actual_q']
+        planned=guard.link_poses(end);actual=reference.link_poses(end)
+        for name in guard.names:fk_error=max(fk_error,float(np.abs(planned[name]-actual[name]).max()))
+        certificate=guard.certify_segment(start,end)
+        result.append({'file':record['file'],**certificate})
+    return {'accepted':bool(result and fk_error<1e-9 and all(r['accepted'] for r in result)),
+            'segments':len(result),'rejected':sum(not r['accepted'] for r in result),'sphere_count':guard.sphere_count,
+            'minimum_certified_margin_m':min((r['minimum_margin_m'] for r in result),default=0),
+            'independent_fk_max_abs':fk_error,'records':result,
+            'scope':'continuous actual joint segments against shipped arm/open-claw sphere model; excludes external objects'}
+
+
+def evaluate(truth_root, scans, output, *, data_root=None):
     truth_root,scans,output=map(Path,(truth_root,scans,output))
     private=json.loads((truth_root/'manifest.json').read_text())
     recording=json.loads((scans/'result.json').read_text())
@@ -65,6 +89,7 @@ def evaluate(truth_root, scans, output):
         accepted=[v for v in result['rows'] if v['accepted']]
         row={'episode':episode,'kind':shape['kind'],'views_attempted':result['views_attempted'],
              'views_accepted':result['views_accepted'],'stop_reason':result['stop_reason']}
+        row['additional_view_changes']=result.get('additional_view_changes',max(result['views_attempted']-1,0))
         if not accepted:
             episodes.append({**row,'accepted':False,'reason':'no_observation'});continue
         first_seq=accepted[0]['seq']
@@ -99,6 +124,8 @@ def evaluate(truth_root, scans, output):
         'evaluation_alignment':'none; use true first optical frame to express independent truth in the declared scan frame',
         'world_placement_accuracy_claimed':False,
         'scope':'six static box/cylinder fixtures, fixed arm base, red segmentation; unobservable backsides remain unknown'}
+    final['collision_audit']=None if data_root is None else collision_audit(truth_root,data_root)
+    if final['collision_audit'] is not None:final['accepted'] &= final['collision_audit']['accepted']
     output.write_text(json.dumps(final,indent=2)+'\n')
     return final
 
@@ -106,7 +133,8 @@ def evaluate(truth_root, scans, output):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('truth',type=Path);parser.add_argument('scans',type=Path);parser.add_argument('--output',type=Path,required=True)
-    args=parser.parse_args();print(json.dumps(evaluate(args.truth,args.scans,args.output)))
+    parser.add_argument('--data-root',type=Path)
+    args=parser.parse_args();print(json.dumps(evaluate(args.truth,args.scans,args.output,data_root=args.data_root)))
 
 
 if __name__=='__main__':main()

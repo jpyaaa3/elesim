@@ -6,6 +6,18 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 다중 시야 scan 추가 제약 (2026-10-27, 원격 비교 준비)
+
+- 기존 1,005 sphere arm 모델의 digest·FK를 검증하는 CPU self-collision guard를
+  추가했다. 후보 끝점과 이동 구간 전체를 separation/Lipschitz bound로 확인하고
+  2 mm 여유와 Linear ±4 mm/Roll ±0.06 rad/Bend 각각 ±0.018 rad의 오차 구간을
+  포함한다. 안전 확인에 실패하면 이동을 보내지 않는다. 실제 URDF의 독립 FK와
+  충돌 모델 FK 일치 및 안전한 두 끝점 사이의 충돌도 회귀로 검사한다.
+- 시야는 각도 차이보다 예상 추가 visibility를 우선하고, 점군 변화가 작고
+  관절 fit이 유효하면 일찍 종료한다. 기본 최대 12 frame이며 첫 자세의
+  재촬영은 생략한다. 같은 충돌 제약의 각도 기반 최대 20 frame 대조군과
+  촬영 횟수·형상 품질을 원격 GPU2에서 비교할 예정이다.
+
 ### 4DOF 다중 시야 점군 scan (2026-10-27, 획득·통합 검증 / 전체 형상 4/6 통과)
 
 - 관측 중심·범위와 명목 FK로 합법적인 다음 시야를 고른다. 첫 optical frame을

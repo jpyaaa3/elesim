@@ -46,14 +46,10 @@ def test_observation_request_capture_and_coherent_fusion_end_to_end(tmp_path):
     base=np.eye(4);base[2,3]=.8
     model=ArmCameraModel(root/'models/arm/default.json',root/'calibration/cameras/zed_mini.hand_eye.json',base_world_transform=base)
     arm=ArmUrdf(root/'models/assemblies/zed-mini/arm.urdf',root/'calibration/cameras/zed_mini.hand_eye.json')
-    # Fixed legal poses exercise the acquisition/fusion path; view ranking has
-    # its own geometry test. Truth is confined to the capture and evaluator.
-    proposed=[[-.111196,-.109599,-.604340,-.540127],[-.144751,.275379,.587957,-.570483],
-              [-.154131,-.285329,.610798,-.606222],[-.016474,.077623,-.102489,.427529]]
-    class Waypoints:
-        def choose(self,observed,current,accepted,tried):
-            assert len(observed)>60
-            return {'q':np.array(proposed[min(len(tried)-1,3)])}
+    from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
+    from elesim_pilot.vision.multiview import ViewPlanner
+    safety=ArmSelfCollision(root/'models/planning/zed-mini',joint_uncertainty=[.004,.06,.018,.018])
+    planner=ViewPlanner(model,collision_checker=safety,candidates=3000)
     shape=fixtures()[1]
     width,height=240,180;f=height/2/np.tan(np.pi/6)
     intr=np.array([f,f,(width-1)/2,(height-1)/2,width,height]);records=[]
@@ -64,9 +60,12 @@ def test_observation_request_capture_and_coherent_fusion_end_to_end(tmp_path):
         color,depth=analytic_rgbd(pose,intr,shape)
         return SensorObservation(color,depth,1.,CameraIntrinsics(*intr[:4],width,height),view,
                                  1000.+view,'cam','boot','cal',tuple(q))
-    result=scan_episode(capture,model,Waypoints(),tmp_path/'scan',max_views=6)
+    result=scan_episode(capture,model,planner,tmp_path/'scan',max_views=8)
     assert result['joint_fit']['accepted'],result
-    assert result['views_accepted']==6
+    assert 4<=result['views_accepted']<=8
+    assert result['views_attempted']<8
+    assert result['stop_reason'] in ('marginal_information_saturated','no_safe_distinct_view')
+    assert result['self_collision']['all_motion_certified']
     assert not result['truth_access'] and not result['geometry_complete_claimed']
     with np.load(tmp_path/'scan/cloud.npz') as cloud:
         assert len(cloud['fused'])>len(cloud['first'])*1.4

@@ -111,7 +111,7 @@ def serve(requests, output, *, data_root, backend='genesis', width=480, height=3
         intr[:4] = [k.fx,k.fy,k.cx,k.cy]
         names = list(arm.joint_values([0,0,0,0]))
         indices = [int(np.asarray(entity.get_joint(name).dofs_idx_local).reshape(-1)[0]) for name in names]
-    first_poses = {};boots={};records=[];last_q=np.zeros(4);last_episode=None;fk_error=0.
+    first_poses = {};boots={};records=[];last_q=np.zeros(4);last_command=np.zeros(4);last_episode=None;fk_error=0.
     began=time.monotonic();sequence=0
     try:
         while time.monotonic()-began < timeout:
@@ -170,11 +170,13 @@ def serve(requests, output, *, data_root, backend='genesis', width=480, height=3
                 source_id=np.array('arm-scan-camera'),source_boot_id=np.array(boots[episode]),
                 calibration_id=np.array('arm4-zed-v1'),encoder_q=q)
             np.savez_compressed(truth/filename,true_camera_pose=actual,nominal_camera_pose=arm.camera_pose(q),
-                actual_q=actual_q,object_center=shape['center'],object_size=shape['size'],object_rotation=shape['rotation'])
+                actual_q=actual_q,actual_path_start_q=last_q,command_path_start_q=last_command,
+                object_center=shape['center'],object_size=shape['size'],object_rotation=shape['rotation'])
             part.replace(sensors/filename)
             records.append({'file':filename,'episode':episode,'view':int(req['view']),'q':q.tolist(),
                             'kind':shape['kind'],'noise_m':shape['noise_m'],'joint_error':shape['joint_error'].tolist()})
             last_q,last_episode=actual_q,episode
+            last_command=q.copy()
             sequence+=1
             (truth/'progress.json').write_text(json.dumps({'frames':sequence,'episode':episode,'view':req['view']})+'\n')
     finally:

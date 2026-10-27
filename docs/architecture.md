@@ -422,7 +422,16 @@ camera/object truth, mesh/catalog와 생성용 script는 consumer 입력에 포�
 gauge와 절대 world 위치는 관측했다고 취급하지 않는다. 같은 자세 반복, 부족한
 겹침·관측성·한도 초과는 fit을 거부한다. 연구용 filesystem request/reply로만
 실제 URDF와 hand-eye 카메라를 움직이며 runtime motion/ROS 계약은 추가하지
-않는다. 보이지 않은 표면과 관절 동역학·연속 충돌 안전은 이 시험의 보장이 아니다.
+않는다. Scan planner는 digest가 맞는 기존 arm collision sphere 모델을 필수로
+받는다. 후보 자세와 이동 구간을 모두 검사하고, shared ancestor를 제외한
+joint-motion Lipschitz bound로 구간 전체의 sphere separation을 보수적으로
+확인한다. 관절 오차 구간도 separation 여유에 포함하고, 검증 예산 초과는
+거부한다. Camera FK와 collision model의 source digest/bounds도 일치해야 한다.
+다음 시야는 미관측 방향의 예상 visibility gain을 우선하고, 관측 점군 변화가
+작으며 공통 관절 fit이 유효하면 추가 촬영을 중단한다. 이 방향 probe는
+완성 형상을 뜻하지 않으며 결과 점군에 추가하지 않는다. 첫 자세의 재촬영은
+기본 scan에서 생략한다. Sphere 모델에 없는 GO2/환경 물체, 관절 동역학과
+실물 clearance는 별도 검증이며, 보이지 않은 표면의 완성을 주장하지 않는다.
 
 Pilot의 선택적 `robot.arm.ik.backend=curobo`는 Jetson CUDA에서 position IK를
 계산한다. 기본값은 `native`이며 새 DDS participant나 Robot 의존성을 만들지

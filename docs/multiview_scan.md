@@ -1,6 +1,9 @@
 # 4DOF arm multi-view scan
 
-2026-10-27. 이 실험은 팔을 움직여 **실제로 보이는 표면을 더 확보하고 하나의
+2026-10-27. 현재 scan에는 self-collision 회피와 촬영 횟수 절약 조건이 추가됐다.
+아래 최초 120-frame 표는 이 조건을 적용하기 전의 역사적 결과다.
+
+이 실험은 팔을 움직여 **실제로 보이는 표면을 더 확보하고 하나의
 점군으로 합치는** 단계다. AdaPoinTr의 추측으로 미관측 면을 채우는 단계는
 포함하지 않는다. 현재 runtime UI의 자동 스캔 기능과 연결한 상태는 아니다.
 
@@ -11,9 +14,11 @@
    frame을 scan 좌표계로 고정하고 원본 센서는 그대로 보관한다.
 2. 명목 4DOF FK와 관절 한도에서 Halton 후보 12,000개를 만든다. 관측 점군의
    중심·범위가 화각 안에 있고, 기존 시야와 방향이 다른 후보를 고른다.
-   현재 최소 방향 차이는 4도, 인접 관측과의 최대 차이는 42도다. 실제 URDF
-   관절을 보간해 움직인 뒤 장착 camera에서 다시 찍는다. 최대 20회이며 마지막에
-   첫 자세를 재방문한다. 물체의 정답 중심·종류·크기는 후보 평가에 주지 않는다.
+   현재 기본 정책은 미관측 법선 방향의 예상 visibility gain을 우선하며 최소
+   방향 차이 8도, 인접 관측과의 최대 차이 42도를 사용한다. 후보와 이동 경로가
+   collision guard를 통과하면 실제 URDF 관절을 보간해 움직여 촬영한다. 최대
+   12회이며 관측 변화가 작고 관절 fit이 유효하면 더 일찍 끝낸다. 첫 자세의
+   불필요한 재촬영은 생략한다. 물체의 정답 중심·종류·크기는 후보 평가에 주지 않는다.
 3. local point-to-plane ICP는 진행 중 미리보기와 겹침 확인에 사용한다.
    평면이나 원기둥에서 독립적인 촬영별 ICP 오차를 누적하면 면이 두꺼워질 수
    있으므로 최종 결과는 다른 방법으로 재계산한다. 여러 관측이 **같은 bend
@@ -115,7 +120,7 @@ python3 -m workbench.research.experiments.arm_scan_scene \
 
 python3 -m workbench.research.experiments.arm_scan \
   /requests /sensors /scans --arm-model /nominal/arm.json \
-  --hand-eye /nominal/hand-eye.json --max-views 20
+  --hand-eye /nominal/hand-eye.json --collision-model /nominal/planning --max-views 12
 
 python3 -m workbench.research.experiments.arm_scan_evaluate \
   /truth /scans --output /evaluation/evaluation.json
@@ -130,3 +135,31 @@ GPU를 예약하지 않는다. 실제 mount·이미지·DeviceRequests도 inspec
 원시 부분 점군, `fk_only`는 같은 수용 관측의 명목 FK 대조군이고 `icp_control`은
 진행 중의 독립 정렬 대조군이다. 각 view의 원본 RGB-D와 encoder는 별도 파일에
 남는다. 미관측 면을 추측할 모델은 이 관측 점군을 보존한 채 후속으로 붙인다.
+
+## 추가 조건: self-collision과 촬영 횟수
+
+`ArmSelfCollision`은 기존 계획 artifact의 1,005개 sphere와 검증된 pair
+exclusion을 그대로 읽는다. Camera FK 원본과 artifact source digest·관절
+bounds가 맞아야 한다. 현재 guard는 2 mm separation에 Linear ±4 mm,
+Roll ±0.06 rad, Bend 각각 ±0.018 rad의 오차 상자를 추가한다. 이 범위는
+새 관측으로 영점을 fit했다고 즉시 줄이지 않는다.
+
+끝점이 안전해도 중간은 충돌할 수 있다. 따라서 sphere 중심 이동량의
+보수적인 joint별 Lipschitz bound를 계산하고, 두 검사점 사이 최대 이동의
+절반보다 separation 여유가 클 때만 그 연속 구간을 수용한다. 부족하면
+중점을 검사해 분할하고, 검증 예산 초과나 충돌은 거부한다. 모든 waypoint를
+보내기 직전에 같은 검사를 반복한다. 실제 오차가 주어진 상자 안에 있고
+모델과 같은 joint 보간을 따르는 경우, 모델 내부의 미검사 중간도 포함한다.
+이것은 모델 밖 케이블·GO2·주변 물체나 동역학 추종 오차의 인증은 아니다.
+보수적 sphere 때문에 실제 mesh가 비접촉인 좁은 자세도 탈락할 수 있다.
+
+시야 선택에는 균일한 96개 법선 방향을 정보량 probe로 쓴다. 기존 촬영에서
+이미 잘 보였을 방향을 다시 보는 것보다 새로운 방향을 잘 볼 후보를 우선한다.
+이 probe를 복원 점군에 넣거나 전체 형상의 정답으로 쓰지 않는다. 4개 이상의
+관측에 대한 공통 관절 fit이 성공하고, 점군/범위 변화와 다음 예상 이득이
+작으면 멈춘다. 절대 최적의 최소 촬영 횟수라는 주장은 하지 않는다.
+
+같은 collision guard와 geometry 기준 아래 `--view-policy angular --max-views 20`
+대조군을 비교한다. 횟수 개선만을 위해 품질 저하를 숨기지 않도록, paired
+수집률 감소 ≤5%p, 표면 p95 증가 ≤1 mm, 각 축 치수 오차 증가 ≤3 mm를
+추가 비교 기준으로 정했다. 최초의 전체 형상 기준도 그대로 보고한다.

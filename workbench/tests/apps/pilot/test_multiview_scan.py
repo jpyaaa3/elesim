@@ -8,6 +8,7 @@ from scipy.spatial.transform import Rotation
 
 from elesim_pilot.vision.multiview import ScanMap, register_overlap, voxel_points, ViewPlanner, refine_joint_scan, transform
 from elesim_pilot.vision.partial_cloud import ArmCameraModel
+from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
 
 
 def corner(seed=9):
@@ -126,7 +127,8 @@ def test_view_planner_uses_legal_four_dof_poses_and_rejects_repeated_viewpoints(
     base = np.eye(4)
     base[2, 3] = .8
     model = ArmCameraModel(root/'models/arm/default.json', root/'calibration/cameras/zed_mini.hand_eye.json', base_world_transform=base)
-    planner = ViewPlanner(model, candidates=3000)
+    safety=ArmSelfCollision(root/'models/planning/zed-mini')
+    planner = ViewPlanner(model, collision_checker=safety, candidates=3000)
     current = np.array([-.12, 0, -.1, .38])
     pose = model.camera_pose(current)
     target = np.array([.31, 0, .60])
@@ -136,6 +138,21 @@ def test_view_planner_uses_legal_four_dof_poses_and_rejects_repeated_viewpoints(
     assert np.all(choice['q'] >= model.lower) and np.all(choice['q'] <= model.upper)
     assert choice['novelty_deg'] >= 8.
     assert choice['nearest_accepted_view_deg'] <= 42.
+    assert safety.certify_segment(current,choice['q'])['accepted']
+    assert choice['expected_visibility_gain']>0
+
+
+def test_view_planner_cannot_fall_back_to_an_unchecked_path():
+    root=Path(__file__).resolve().parents[4]/'payload/data'
+    base=np.eye(4);base[2,3]=.8
+    model=ArmCameraModel(root/'models/arm/default.json',root/'calibration/cameras/zed_mini.hand_eye.json',base_world_transform=base)
+    class RejectPaths(ArmSelfCollision):
+        def certify_segment(self,*args,**kwargs):return {'accepted':False,'reason':'blocked'}
+    planner=ViewPlanner(model,collision_checker=RejectPaths(root/'models/planning/zed-mini'),candidates=3000)
+    q=np.array([-.12,0,-.1,.38]);pose=model.camera_pose(q)
+    points=np.array([.31,0,.6])+np.array([[x,y,z] for x in (-.04,.04) for y in (-.04,.04) for z in (-.04,.04)])
+    assert planner.choose(points,q,[pose],[q]) is None
+    assert planner.last_search['unsafe_paths']>0
 
 
 def test_shared_bend_offsets_preserve_one_shape_across_different_joint_poses():

@@ -181,12 +181,23 @@ class ScanMap:
 
 class ViewPlanner:
     """Reachable FK view proposals from observations, without mesh/truth access."""
-    def __init__(self, camera_model, *, candidates=12000, seed=41):
+    def __init__(self, camera_model, *, collision_checker, candidates=12000, seed=41, policy='information'):
         if not 100 <= candidates <= 30_000:
             raise ValueError('invalid view candidate budget')
         self.model = camera_model
+        if (collision_checker.source_hashes['arm_model.json'] != camera_model.model_digest
+                or not np.allclose(collision_checker.bounds,np.column_stack([camera_model.lower,camera_model.upper]))):
+            raise ValueError('camera and collision model disagree')
+        if policy not in ('information','angular'):
+            raise ValueError('invalid scan view policy')
+        self.collision_checker=collision_checker
+        self.policy=policy
+        self.last_search={}
         self.q = qmc.scale(qmc.Halton(d=4, scramble=True, seed=seed).random(candidates), camera_model.lower, camera_model.upper)
         self.poses = np.array([camera_model.camera_pose(q) for q in self.q])
+        z=1-2*(np.arange(96)+.5)/96
+        azimuth=np.arange(96)*np.pi*(3-np.sqrt(5))
+        self.surface_directions=np.column_stack([np.sqrt(1-z*z)*np.cos(azimuth),np.sqrt(1-z*z)*np.sin(azimuth),z])
 
     def choose(self, observed_base, current_q, accepted_poses, attempted_q):
         points = _points(observed_base)
@@ -204,7 +215,7 @@ class ViewPlanner:
         seen /= np.linalg.norm(seen, axis=1)[:, None]
         angle = np.degrees(np.arccos(np.clip(direction @ seen.T, -1, 1)))
         novelty = angle.min(axis=1)
-        usable &= (novelty >= 4.) & (novelty <= 42.)
+        usable &= (novelty >= (8. if self.policy=='information' else 4.)) & (novelty <= 42.)
         span = self.model.upper-self.model.lower
         tried = np.asarray(attempted_q)
         for q in tried:
@@ -221,14 +232,32 @@ class ViewPlanner:
             if np.any(p[:, 2] < .10) or np.any(uv[:, 0] > .73) or np.any(uv[:, 1] > .54):
                 usable[j] = False
         ids = np.nonzero(usable)[0]
+        self.last_search={'geometric_candidates':len(ids),'unsafe_endpoints':0,'unsafe_paths':0,'policy':self.policy}
         if not len(ids):
             return None
         motion = np.linalg.norm((self.q-np.asarray(current_q))/span, axis=1)
-        score = novelty - 8*motion - 5*np.linalg.norm(normalized, axis=1)
-        chosen = ids[np.argmax(score[ids])]
-        return {'q': self.q[chosen].copy(), 'pose': self.poses[chosen].copy(),
-                'novelty_deg': float(novelty[chosen]), 'nearest_accepted_view_deg': float(novelty[chosen]),
-                'feasible_candidates': len(ids), 'score': float(score[chosen])}
+        # Uniform normal directions are planning probes, not invented object
+        # surfaces. The marginal visibility gain favours complementary views
+        # over many nearby viewpoints. It is not a completeness measurement.
+        visible=np.clip((direction@self.surface_directions.T-.15)/.5,0,1)
+        covered=np.clip((seen@self.surface_directions.T-.15)/.5,0,1).max(axis=0)
+        gain=np.maximum(visible-covered,0).mean(axis=1)
+        if self.policy=='information':
+            score=100*gain+.15*novelty-3*motion-2*np.linalg.norm(normalized,axis=1)
+        else:
+            score=novelty-8*motion-5*np.linalg.norm(normalized,axis=1)
+        for chosen in ids[np.argsort(-score[ids])]:
+            if not self.collision_checker.configuration_free(self.q[chosen]):
+                self.last_search['unsafe_endpoints']+=1;continue
+            certificate=self.collision_checker.certify_segment(current_q,self.q[chosen])
+            if not certificate['accepted']:
+                self.last_search['unsafe_paths']+=1;continue
+            self.last_search['chosen_gain']=float(gain[chosen])
+            return {'q': self.q[chosen].copy(), 'pose': self.poses[chosen].copy(),
+                    'novelty_deg': float(novelty[chosen]), 'nearest_accepted_view_deg': float(novelty[chosen]),
+                    'expected_visibility_gain':float(gain[chosen]),'path_certificate':certificate,
+                    'feasible_candidates': len(ids), 'score': float(score[chosen])}
+        return None
 
 
 def refine_joint_scan(model, frames, *, max_frames=24):

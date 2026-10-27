@@ -7,6 +7,7 @@ camera-truth fields. A caller supplies a pose derived from its robot model.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -32,7 +33,9 @@ class ArmCameraModel:
     def __init__(self, model_path, hand_eye_path, *, base_world_transform=None):
         from .perception_bridge.hand_eye import load_hand_eye_transform
 
-        raw = json.loads(Path(model_path).read_text())
+        model_bytes = Path(model_path).read_bytes()
+        self.model_digest = hashlib.sha256(model_bytes).hexdigest()
+        raw = json.loads(model_bytes)
         if raw.get("schema_version") != 1:
             raise ValueError("unsupported arm model schema")
         self.context = dict(raw["context"])
