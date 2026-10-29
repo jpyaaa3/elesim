@@ -273,13 +273,13 @@ queue에 넣는다. 카메라 프로세스는 그 snapshot을 자체 visual repl
 오래된 snapshot/frame은 새 데이터로 덮어쓴다. `sync_legacy`는 비교 측정과
 장치 진단을 위한 명시적 fallback일 뿐이다.
 
-Physics scene만 정상상태 step 처리량을 위해 Genesis `performance_mode`의 정적
-커널을 사용한다. Visual replica는 physics를 step하거나 IK/Jacobian을 계산하지
-않으므로 dynamic-array 모드로 시작해, 같은 GPU에서 physics scene의 cold build와
-두 번째 정적 커널 컴파일이 경쟁하지 않게 한다. 두 Genesis process의 cold build는
+Physics scene과 visual replica는 기본적으로 Genesis의 dynamic-array 모드를 사용한다.
+Physics의 정적 배열은 `simulation.runtime.genesis_performance_mode`로 GPU에서만
+명시적으로 선택한다. 이 모드에서는 Genesis의 interactive scene rebuild를 사용할 수 없다.
+Visual replica는 physics를 step하거나 IK/Jacobian을 계산하지 않는다. 두 Genesis process의 cold build는
 겹치지 않으며 physics scene을 먼저 완성한 뒤 visual replica를 만든다. Convex MPC는 Pinocchio가
 kinematics를 소유한다. GO2 physics URDF는 arm mount, feedback, collision policy가 사용하는
-이름 있는 link를 보존하기 위해 fixed-link 병합을 끈다. Genesis 1.4.1의 URDF morph
+이름 있는 link를 보존하기 위해 fixed-link 병합을 끈다. Genesis 1.4.5의 URDF morph
 `requires_jac_and_IK` 옵션은 deprecated no-op이므로 전달하지 않으며, 이 옵션으로 Genesis
 내부의 IK/Jacobian 준비를 끈다고 가정하지 않는다. Visual replica는 애플리케이션 코드에서
 IK/Jacobian을 호출하지 않고 이름 있는 관절 자세만 적용한다.
@@ -624,7 +624,7 @@ rollout을 분산하지는 않는다. 시작 로그에 선택 장치와 노출 G
 고정 sample/iteration budget은 wall-clock deadline 보장을 의미하지 않는다.
 
 GO2 초기 자세는 `scene.build()` 후 `set_dofs_position`으로 적용한다. 빌드 전
-검증은 URDF의 `desc.init_qpos`를 변경하지 않는다. Genesis 1.4.1은 해당 값을
+검증은 URDF의 `desc.init_qpos`를 변경하지 않는다. Genesis 1.4.5는 해당 값을
 `qpos0` 기준으로 사용하고, FK/DOF 위치는 `qpos - qpos0`, 관절 한계는 raw
 `qpos`로 계산한다. stand 각도를 기준점에 쓰면 calf ready -1.8 rad가 한계
 검사에는 -3.3 rad가 되어 잘못된 제한 반력이 생긴다. 기본 zero-neutral calf

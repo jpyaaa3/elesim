@@ -258,7 +258,7 @@ geometry로 추가한다. 물리 scene은 collision을 켜고 observer/hand-eye�
 replica는 물리 scene과 같은 manifest revision의 OBJ를 collision 없이 읽는다.
 Build 전후에도 hash를 검사한다. Mesh의 Z-up/metre 좌표를 유지하고 자동 align,
 decimation, convexification, watertight wrapping을 끈다. 설정 근거는 고정 버전의
-[Genesis 1.4.1 Mesh options](https://github.com/Genesis-Embodied-AI/Genesis/blob/v1.4.1/genesis/options/morphs.py#L663)다.
+[Genesis 1.4.5 Mesh options](https://github.com/Genesis-Embodied-AI/genesis-world/blob/v1.4.5/genesis/options/morphs.py)다.
 닫힌 표면·법선·self-intersection 등 실제 충돌에 필요한 mesh 품질은 mesher가
 검증해야 하며 파일 validator가 물리 적합성을 보증하지 않는다. 실행 중인 scene의 mesh
 교체, 물체의 동적 attach/들기, 계획 실행은 이 경로에서 제공하지 않는다.

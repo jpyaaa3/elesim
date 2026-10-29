@@ -6,6 +6,19 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Genesis 1.4.5 업그레이드 (2026-10-29, 원격 검증 진행)
+
+Sim package, Sim/development dependency lock과 이미지의 실제 import/version 검사를
+Genesis 1.4.5 / Quadrants 1.3.3으로 맞췄다. NumPy 1.26.4, 물리 solver/충돌 설정과
+로봇 geometry는 유지한다. 현재 문서의 정적 배열 설명을 실제 기본값인 dynamic으로
+바로잡았다. 과거 1.4.1 측정 기록은 비교 근거로 그대로 보존한다.
+
+Host release tool **71 passed**, scene artifact **5 passed**, diff 검사가 통과했다.
+Host의 Genesis 미설치로 runtime을 import하는 Sim 다섯 모듈은 collection 단계에서
+중단됐다. 서버의 실제 1.4.5 이미지 회귀와 빈 캐시 startup 실측은 아직 진행 전이다.
+이번 원격 작업은 사용자가 명시적으로 승인했다. 기존 컨테이너를 삭제하지 않으며,
+발행 후 자동 image/container collector와 진단 container 자동 삭제를 사용하지 않는다.
+
 ### 코드 리뷰 후속 (2026-10-29)
 
 자동 scan과 모델 framework, 제어/표시 경계 및 설치/release 변경을 이 세션에서

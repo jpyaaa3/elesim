@@ -3128,7 +3128,7 @@ class RuntimePrep:
                     go2_euler,
                     fixed=False,
                     # Preserve named links used by arm mounts, feedback and
-                    # collision policy. Genesis 1.4.1's deprecated
+                    # collision policy. Genesis 1.4.5's deprecated
                     # requires_jac_and_IK option has no effect.
                     merge_fixed_links=False,
                 )

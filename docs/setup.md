@@ -426,7 +426,7 @@ Legacy update도 확인된 이전 non-dev 이미지 ID만 정리하며, 전체 d
 
 ### Build cache
 
-Sim and development images pin Genesis World 1.4.1 and NumPy 1.26.4.
+Sim and development images pin Genesis World 1.4.5, Quadrants 1.3.3 and NumPy 1.26.4.
 The GO2 Sim profile now selects `pympc`: image builds with GO2 MPC enabled
 install pinned Quadruped-PyMPC/acados and generate the nominal 12-step solver
 before the container starts. This uses no learned policy or training step.

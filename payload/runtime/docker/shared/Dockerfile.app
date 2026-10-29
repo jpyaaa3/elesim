@@ -151,7 +151,7 @@ RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked if [ "$R
     fi && \
     if [ "$ROLE" = sim ]; then \
       python -m pip install "setuptools>=68,<80" && \
-      python -c 'import importlib.metadata as m; import numpy as np, cv2, torch, pinocchio, genesis; assert np.__version__ == "1.26.4"; assert m.version("genesis-world") == "1.4.1"; assert cv2.__version__ == "4.11.0"; torch.from_numpy(np.zeros(1, dtype=np.float32))'; \
+      python -c 'import importlib.metadata as m; import numpy as np, cv2, torch, pinocchio, genesis; assert np.__version__ == "1.26.4"; assert m.version("genesis-world") == "1.4.5"; assert m.version("quadrants") == "1.3.3"; assert cv2.__version__ == "4.11.0"; torch.from_numpy(np.zeros(1, dtype=np.float32))'; \
     fi
 
 COPY interfaces/elesim_interfaces/ /tmp/elesim/ros_ws/src/elesim_interfaces/

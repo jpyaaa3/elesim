@@ -240,7 +240,7 @@ arguments; the curated figures remain available without rerunning it.
 
 Sim RGB-D intrinsics now follow the renderer's vertical FOV and integer pixel
 centre convention, verified against the actual camera during this run. The
-[pinned Genesis camera implementation](https://raw.githubusercontent.com/Genesis-Embodied-AI/genesis-world/v1.4.1/genesis/vis/camera.py)
+[pinned Genesis camera implementation](https://raw.githubusercontent.com/Genesis-Embodied-AI/genesis-world/v1.4.5/genesis/vis/camera.py)
 defines both the vertical focal length and half-pixel raster sampling.
 
 ## Historical four-DOF extrinsic-error matrix

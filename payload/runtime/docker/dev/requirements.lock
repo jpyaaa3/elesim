@@ -4,7 +4,8 @@ shapely==2.1.2
 PyYAML==6.0.2
 pyserial==3.5
 dynamixel-sdk==4.0.5
-genesis-world==1.4.1
+genesis-world==1.4.5
+quadrants==1.3.3
 imgui==2.0.0
 glfw==2.10.0
 PyOpenGL==3.1.10
