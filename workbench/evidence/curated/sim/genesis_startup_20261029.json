@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "runtime_revision": "92eb0cd636f87df4918786a32cc3b63a3b487548",
+  "measurement_revision": "70757e6",
+  "candidate_image_id": "sha256:fe30fd0a76fd721f36ded1e5d26457cf132cf87f41913591bd27166832e910e6",
+  "release_key": "b0df94d9510e8ceaeb703cab3b19c7114e18e1e4e6c5b9963c165ea9a44aa4f9",
+  "hardware": {"gpu": "NVIDIA RTX A6000", "selected_gpus": 1, "cpu": "Intel Xeon Gold 5218R"},
+  "scope": "GO2+arm, fixed perception target, physics and two 1280x720 camera workers; no DDS or WebRTC viewer",
+  "configuration": {"dt_s": 0.01, "substeps": 2, "genesis_performance_mode": false, "numpy": "1.26.4", "torch": "2.12.1", "jax": "0.4.38"},
+  "cold_cache_policy": "Separate empty Genesis, Quadrants, Numba and CUDA cache paths for every cold process; existing application caches and containers preserved",
+  "startup_scope": "Assets through both first camera frames; excludes Python imports and container startup",
+  "runs": [
+    {"genesis": "1.4.5", "quadrants": "1.3.3", "cache": "empty", "physics_build_s": 150.07, "hand_eye_build_s": 34.09, "observer_build_s": 32.61, "first_frames_wait_s": 26.152, "startup_s": 257.539, "completed": true},
+    {"genesis": "1.4.5", "quadrants": "1.3.3", "cache": "empty", "physics_build_s": 146.52, "hand_eye_build_s": 31.02, "observer_build_s": 30.36, "first_frames_wait_s": 25.658, "startup_s": 249.943, "completed": true},
+    {"genesis": "1.4.5", "quadrants": "1.3.3", "cache": "empty", "physics_build_s": 144.16, "hand_eye_build_s": 31.41, "observer_build_s": 30.31, "first_frames_wait_s": 25.532, "startup_s": 248.423, "completed": true},
+    {"genesis": "1.4.5", "quadrants": "1.3.3", "cache": "reused_first_run", "physics_build_s": 4.97, "hand_eye_build_s": 1.66, "observer_build_s": 1.74, "first_frames_wait_s": 0.694, "startup_s": 24.813, "completed": true},
+    {"genesis": "1.4.1", "cache": "empty", "physics_build_s": 130.59, "hand_eye_build_s": 28.48, "observer_build_s": 28.47, "first_frames_wait_s": 29.911, "startup_s": 240.657, "completed": true}
+  ],
+  "candidate_cold_physics_median_s": 146.52,
+  "cold_profile": {
+    "scope": "Separate fresh-cache cProfile around physical Scene.build only; camera workers omitted; same physical configuration",
+    "scene_build_cumulative_s": 185.617660489,
+    "profiler_total_internal_s": 185.603607021,
+    "total_function_calls": 124722620,
+    "first_step_cumulative_s": 145.833164377,
+    "build_path_breakdown": [
+      {"function": "genesis.engine.solvers.rigid.collider.collider.Collider.detection", "seconds": 80.436643487},
+      {"function": "genesis.engine.solvers.rigid.constraint.solver_breakdown.func_solve_decomposed", "seconds": 39.101532961},
+      {"function": "Other direct rigid-substep kernel calls: dynamics, inequality and post-step integration", "seconds": 26.285318331},
+      {"function": "genesis.engine.simulator.Simulator.build", "seconds": 26.232883071},
+      {"function": "genesis.vis.visualizer.Visualizer.build", "seconds": 10.181285219},
+      {"function": "genesis.engine.scene.Scene._reset", "seconds": 3.367460963}
+    ],
+    "overlapping_kernel_view": {
+      "kernel_call_count": 72,
+      "kernel_call_cumulative_s": 160.964189883,
+      "materialize_cumulative_s": 73.113438014,
+      "ast_transform_cumulative_s": 72.155139244,
+      "launch_kernel_cumulative_s": 87.798915356,
+      "launch_kernel_self_s": 87.573536937
+    },
+    "interpretation": "Scene.build performs an initial physics step to compile simulation kernels; collision detection and constraint solving dominate that step",
+    "limitations": [
+      "Profiler overhead is included; these values do not partition the unprofiled 150.07-second run",
+      "The kernel view overlaps the build-path breakdown; AST transformation is included in materialize",
+      "Native compilation and execution inside launch_kernel are not separately resolved by Python cProfile"
+    ],
+    "preservation": {"original_containers": 23, "missing": 0, "changed": 0}
+  },
+  "first_cold_other_stages": {"model_loading_s": 7.22, "go2_controller_initialization_s": 16.21, "mpc_jit_included_in_controller_s": 9.0},
+  "verification": {"sim_runtime_tests_passed": 909, "sim_runtime_tests_skipped": 3, "optional_rl_suite_excluded": true, "cross_role_and_matrix_tests_passed": 9, "probe_regressions_passed": 6},
+  "preservation": {"original_containers": 23, "missing": 0, "changed": 0},
+  "limitations": [
+    "Cameras build in parallel; their times must not be summed",
+    "The 1.4.1 baseline uses the same current application source and resolved settings, with its older installed Genesis stack; unused RL source is absent from the candidate runtime image",
+    "One preliminary short trial ended before first camera frames; it was retained as failed and is excluded from these completed runs",
+    "Quadrants cache-lock warnings occurred during cold camera shutdown; the subsequent warm run completed",
+    "No physical Robot, live multi-host DDS or connected WebRTC viewer was exercised"
+  ]
+}

@@ -6,18 +6,77 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### Genesis 1.4.5 업그레이드 (2026-10-29, 원격 검증 진행)
+### Genesis 1.4.5 업그레이드와 첫 시작 실측 (2026-10-29)
 
 Sim package, Sim/development dependency lock과 이미지의 실제 import/version 검사를
 Genesis 1.4.5 / Quadrants 1.3.3으로 맞췄다. NumPy 1.26.4, 물리 solver/충돌 설정과
 로봇 geometry는 유지한다. 현재 문서의 정적 배열 설명을 실제 기본값인 dynamic으로
 바로잡았다. 과거 1.4.1 측정 기록은 비교 근거로 그대로 보존한다.
 
-Host release tool **71 passed**, scene artifact **5 passed**, diff 검사가 통과했다.
-Host의 Genesis 미설치로 runtime을 import하는 Sim 다섯 모듈은 collection 단계에서
-중단됐다. 서버의 실제 1.4.5 이미지 회귀와 빈 캐시 startup 실측은 아직 진행 전이다.
-이번 원격 작업은 사용자가 명시적으로 승인했다. 기존 컨테이너를 삭제하지 않으며,
-발행 후 자동 image/container collector와 진단 container 자동 삭제를 사용하지 않는다.
+업그레이드 소스 `92eb0cd`를 푸시하고 서버의 기존 `newsim` 설치를 갱신해 release
+`b0df94d9510e8ceaeb703cab3b19c7114e18e1e4e6c5b9963c165ea9a44aa4f9`를 발행했다.
+Sim 이미지는 `elesim/sim:merry-cat` / `sha256:fe30fd0a76fd721f36ded1e5d26457cf132cf87f41913591bd27166832e910e6`다.
+별도 측정 컨테이너에서 실제 Genesis/Quadrants 버전과 캐시 경로를 확인했다.
+기존 runtime의 release pin과 컨테이너를 교체하지 않고 새 이미지를 검사했다.
+
+서버의 단일 RTX A6000에서 같은 GO2+arm/고정 대상, dt 0.01/2 substeps,
+1280×720 카메라 둘로 측정했다. 매 cold 실행마다 Genesis/Quadrants/Numba/CUDA
+캐시를 별도의 빈 경로로 지정했다. Python import/컨테이너 시작은 startup 타이머
+밖이며, startup은 assets부터 두 카메라 첫 프레임 확인까지다.
+
+| 실행 | 물리 build | Hand-eye / observer build | Startup |
+| --- | --- | --- | --- |
+| 1.4.5 cold 1 | 150.07초 | 34.09 / 32.61초 | 257.54초 |
+| cold 2 | 146.52초 | 31.02 / 30.36초 | 249.94초 |
+| cold 3 | 144.16초 | 31.41 / 30.31초 | 248.42초 |
+| 1.4.5 cache 재사용 | 4.97초 | 1.66 / 1.74초 | 24.81초 |
+| 1.4.1 cold 기준 | 130.59초 | 28.48 / 28.47초 | 240.66초 |
+
+카메라는 병렬 build이므로 합산하지 않는다. 1.4.5 cold 물리 build 중앙값은
+146.52초로, 이 환경에서 버전업만으로 첫 시작 지연이 개선됐다는 근거는 없다.
+구버전 기준도 같은 현재 앱 소스·설정을 사용했으며 protocol 해시는 일치한다.
+Sim의 해시 차이는 후보 runtime에서 제외된 미사용 `rl/` source뿐이었다.
+
+별도의 빈 캐시에서 물리 `Scene.build()`에만 cProfile을 적용했다. 카메라 worker는
+제외했고 물리 설정은 유지했다. 프로파일 오버헤드가 포함된 build는 **185.62초**다.
+아래 값은 이 별도 실행의 호출 경로별 시간이며 일반 실측 150.07초의 분할값이 아니다.
+
+| 호출 경로 | 시간 |
+| --- | --- |
+| 최초 step → 충돌 판정 `Collider.detection` | 80.44초 |
+| 최초 step → 제약조건 풀이 `func_solve_decomposed` | 39.10초 |
+| 최초 step → 나머지 동역학/적분 커널 | 26.29초 |
+| Simulator/rigid solver 구성 `Simulator.build` | 26.23초 |
+| Visualizer 구성 `Visualizer.build` | 10.18초 |
+| 상태 저장/복구 `Scene._reset` | 3.37초 |
+
+최초 step 전체는 145.83초다. 설치된 Genesis 소스도 `Scene.build`가
+`Compiling simulation kernels` 단계에서 `_sim.step()`을 실행함을 확인했다.
+다른 분류로 보면 전체 build 중 Quadrants kernel 경로가 160.96초이며, 그 안에서
+`materialize`가 73.11초(AST 변환 72.16초 포함), `launch_kernel`이 87.80초다.
+이 수치는 위 호출 경로와 중첩되므로 합산하지 않는다. Python cProfile만으로는
+`launch_kernel`의 native 컴파일/실행 내부를 더 나눌 수 없다. 따라서 라이브러리
+import가 아니라 충돌/제약 커널의 최초 컴파일 경로가 다음 최적화 대상이다.
+GO2 controller 초기화 16.21초(MPC JIT 9.00초 포함)와 모델 로딩 7.22초는
+일반 cold 1 실행의 별도 단계이며 위 물리 build 시간 밖이다.
+
+새 이미지 Sim runtime **909 passed / 3 skipped**. 기본 이미지에 선택적 학습
+의존성이 없어 RL suite는 제외했다. 기존 버전에서도 실패한 cross-role FK 비교는
+두 앱 source root가 명시된 system gate로 옮겼고, DDS fake client의 discovery
+fixture와 진단 사용자 환경을 보완했다. 해당 system/matrix **9 passed**다.
+짧은 trial이 첫 EGL frame 전에 끝나던 측정기를 수정하고 대기/실패/timeout 및
+step-cost 회귀 **6 passed**를 확인했다. 최초 실패 원자료는 서버에 보존한다.
+Host release **71 passed**, scene artifact **5 passed**이며 host의 Genesis 미설치로
+runtime import를 요구하는 다섯 모듈은 collection에서 중단됐었다.
+
+초기 image build는 여유 공간 2 GiB guard에서 중단했다. 사용자가 builder prune으로
+공간을 확보한 뒤 같은 정식 발행 경로를 재개해 완료했다. 자동 image/container
+collector와 진단 container 자동 삭제를 제외했다. 시작 전 기존 23개 컨테이너의
+ID/image/name/status가 모두 보존됐다. 일부 camera 종료에서 Quadrants cache-lock
+warning이 있었으나 cache 재사용 실행도 완료됐다. 실제 Robot, 다중 호스트 DDS와
+연결된 WebRTC viewer 검증으로 확대하지 않는다. 요약은
+[`genesis_startup_20261029.json`](../workbench/evidence/curated/sim/genesis_startup_20261029.json)에
+있으며 원자료는 서버 `/home/hckang/ws/elesim-genesis145-20261029/`에 보존한다.
 
 ### 코드 리뷰 후속 (2026-10-29)
 
