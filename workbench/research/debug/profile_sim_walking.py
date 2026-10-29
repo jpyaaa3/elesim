@@ -18,6 +18,22 @@ import time
 from unittest.mock import patch
 
 
+def wait_for_camera_frames(scene, hub, cfg, *, clock=time.monotonic, sleep=time.sleep):
+    """Account for the first EGL render before timing a short simulation trial."""
+    started = clock()
+    streams = ("hand_eye_preview", "observer")
+    while any(hub.version(name) == 0 for name in streams):
+        if scene.camera_render_worker.failure:
+            raise RuntimeError("camera startup failed: " + scene.camera_render_worker.failure)
+        if clock() - started >= cfg.camera_first_frame_timeout_s:
+            raise TimeoutError("camera startup timed out before both first frames")
+        scene.maybe_publish_camera(arm_q=None, max_hz=cfg.sim_camera_max_hz,
+            sim_time_s=0., rgb_enabled=cfg.sim_camera_rgb, depth_enabled=cfg.sim_camera_depth)
+        scene.maybe_publish_observer_camera(max_hz=cfg.sim_observer_camera_max_hz, sim_time_s=0.)
+        sleep(.01)
+    return clock() - started
+
+
 def trailing_crouch_reference(sample, *, command_vx, crouch_m):
     """Diagnostic intervention: lower trailing hips, retain leading height.
 
@@ -247,6 +263,7 @@ def main() -> None:
                 runtime.init_genesis(urdf, attach_scene_cameras=False)
             scene = app.sim_scene
             streams = ("hand_eye_preview", "observer")
+            first_frames_wall_s = None
             if args.cameras:
                 scene.configure_camera_render_worker(runtime.camera_render_spec(urdf), {
                     streams[0]: (cfg.sim_camera_width, cfg.sim_camera_height),
@@ -254,6 +271,7 @@ def main() -> None:
                 }, timeout_s=cfg.camera_worker_start_timeout_s, wait=True)
                 scene.configure_frame_dispatchers()
                 scene.start_frame_dispatchers()
+                first_frames_wall_s = wait_for_camera_frames(scene, hub, cfg)
             entity = scene.go2_entity
             controller = scene.go2._controller
             # Explicit research intervention, recorded with the trial. This
@@ -350,6 +368,7 @@ def main() -> None:
             dt = float(params.dt)
             emit(dict(kind="configuration", dt=dt, substeps=params.substeps, command=args.command,
                       startup_wall_s=time.perf_counter()-startup_began,
+                      camera_first_frames_wall_s=first_frames_wall_s,
                       timing_clock="simulation duration; monotonic wall timing",
                       dds=False, webrtc=False,
                       solver_dt=controller._solver.dt, solver_stride=controller._solve_stride,
