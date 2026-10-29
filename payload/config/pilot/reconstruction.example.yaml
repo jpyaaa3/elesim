@@ -1,0 +1,25 @@
+# Model API 1. Explicit observed-only baseline; no learned completion or planner.
+schema_version: 1
+models:
+  segmenter:
+    factory: elesim_pilot.reconstruction.providers:DetectorSegmenter
+    assets:
+      detector:
+        path: perception/detector.real_green_hsv.json
+        sha256: 1650eb340210aadb8cec0a0400554512fb85aa13d3cc3748e09129f380f0725a
+  pose:
+    factory: elesim_pilot.reconstruction.providers:ArmPose
+    assets:
+      arm:
+        path: ../../data/models/arm/default.json
+        sha256: 02a440f7ad8a0037d18c8cfd306d32af081fdb645ee3fb90250bdc5f9d6bd13a
+      hand_eye:
+        path: ../../data/calibration/cameras/zed_mini.hand_eye.json
+        sha256: 4cfba6124c6ab1287932ffc75f057ab2f1f1f3c808ab0b0b2b05a4dbbaf5579d
+  pose_corrections: []
+  completion:
+    factory: elesim_pilot.reconstruction.providers:ObservedOnly
+  mesher:
+    factory: elesim_pilot.reconstruction.providers:VoxelSurface
+    options:
+      voxel_m: 0.02

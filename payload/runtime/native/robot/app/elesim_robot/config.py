@@ -9,7 +9,7 @@ from typing import Any, Mapping
 
 import yaml
 
-from elesim_protocol import DdsRuntimeSettings, SimMappingConfig
+from elesim_protocol import DdsRuntimeSettings, SimMappingConfig, LINEAR_U_MAX_DEG
 from elesim_robot.go2.config import Go2HardwareConfig
 
 
@@ -19,10 +19,10 @@ SCHEMA_VERSION = 5
 @dataclass(frozen=True)
 class HardwareConfig:
     command_direction: tuple[int, int, int, int] = (1, 1, 1, -1)
-    motor_direction: tuple[int, int, int, int] = (1, -1, 1, -1)
+    motor_direction: tuple[int, int, int, int] = (1, 1, 1, -1)
     baudrate: int = 1_000_000
-    linear_u_max_deg: float = 259.0
-    linear_u_limit_deg: float = 259.0
+    linear_u_max_deg: float = LINEAR_U_MAX_DEG
+    linear_u_limit_deg: float = LINEAR_U_MAX_DEG
     current_limit_ma: int = 2500
     claw_contact_load_permille: int = 250
     claw_contact_stall_s: float = 0.05

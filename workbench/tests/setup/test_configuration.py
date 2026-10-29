@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from elesim_setup.configuration import (
+    bind_installed_data_paths,
     copy_app_config_tree,
     dds_enclave,
     dds_node_key,
@@ -26,6 +27,23 @@ from conftest import copy_role_configs
 
 def _load(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize('filename', ['reconstruction.example.yaml', 'scan.example.yaml'])
+def test_installed_reconstruction_example_retains_hashes_and_rebinds_data(tmp_path, filename):
+    root = next(p for p in Path(__file__).resolve().parents if (p / "payload").is_dir())
+    source = root / "payload/config/pilot"
+    config = tmp_path / "config"
+    copy_app_config_tree(source, config, "pilot")
+    original = _load(source / filename)
+    bind_installed_data_paths(config, "pilot", runtime_data_root=Path("/opt/elesim/data"))
+    result = _load(config / filename)
+    for name in ("arm", "hand_eye"):
+        before = original["models"]["pose"]["assets"][name]
+        after = result["models"]["pose"]["assets"][name]
+        assert after["path"] == "/opt/elesim/data/" + before["path"][11:]
+        assert after["sha256"] == before["sha256"]
+    assert result["models"]["segmenter"] == original["models"]["segmenter"]
 
 
 def test_runtime_config_copy_excludes_only_public_templates(tmp_path: Path) -> None:
@@ -86,7 +104,7 @@ def test_generated_configs_use_dds_and_remove_router_tcp_fields(local_state) -> 
     sim = _load(written["sim"])
     ui = _load(written["ui"])
     for payload in (pilot, sim, ui):
-        assert payload["dds"]["domain_id"] == 0
+        assert payload["dds"]["domain_id"] == 1
         assert payload["dds"]["rmw_implementation"] == "rmw_cyclonedds_cpp"
         assert payload["dds"]["network_interface"] == ""
         assert payload["dds"]["vendor_config"].endswith("cyclonedds.xml")

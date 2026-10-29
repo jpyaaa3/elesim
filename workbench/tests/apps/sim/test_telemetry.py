@@ -32,6 +32,9 @@ def test_runtime_telemetry_uses_canonical_q_and_normalized_direction() -> None:
     )
 
     assert emitted[-1]["q"] == [-0.1, 0.2, 0.3, -0.3]
+    assert emitted[-1]['q_source'] == 'simulated'
+    assert emitted[-1]['measurement_time_s'] > 0
+    assert emitted[-1]['measurement_monotonic_s'] > 0
     assert emitted[-1]["actual_tip"] == [0.7, 0.0, 0.2]
     assert emitted[-1]["actual_tip_dir"] == [1.0, 0.0, 0.0]
     assert emitted[-1]["sim_step_count"] == 75

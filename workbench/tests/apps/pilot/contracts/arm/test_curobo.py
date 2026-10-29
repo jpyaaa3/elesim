@@ -80,7 +80,7 @@ def test_unknown_backend_and_implicit_world_are_rejected(tmp_path, monkeypatch):
     path.write_text(f"schema_version: 1\nextends: {base}\nrobot:\n  arm:\n    ik:\n      backend: typo\n")
     with pytest.raises(ValueError, match="backend"):
         solver.load_solver_context(str(path))
-    path.write_text(path.read_text().replace("backend: typo", "backend: curobo"))
+    path.write_text(path.read_text().replace("backend: typo", "backend: curobo\n      curobo_world: ''"))
     with pytest.raises(ValueError, match="explicit"):
         solver.load_solver_context(str(path))
 

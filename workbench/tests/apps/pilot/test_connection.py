@@ -47,6 +47,10 @@ class StateSink:
         self.targets: list[str] = []
         self.connected: list[bool] = []
         self.errors: list[str] = []
+        self.commanded: list[list[float]] = []
+
+    def remember_trajectory_q(self, q):
+        self.commanded.append(list(q))
 
     def accept_telemetry(self, payload: dict[str, object]) -> None:
         self.telemetry.append(payload)
@@ -89,6 +93,45 @@ def connection() -> tuple[PilotConnection, StateSink, Endpoint]:
     return value, sink, endpoint
 
 
+def test_robot_discovery_stays_selected_after_loss_and_never_falls_back_to_sim():
+    value, sink, endpoint = connection()
+    sim = EndpointDescriptor("sim-a", "sim").to_dict()
+    robot = EndpointDescriptor("robot-a", "robot", instance_id="boot-a").to_dict()
+    value.handle_envelope(endpoint, envelope("endpoint_list", {"endpoints": [sim]}))
+    assert [peer["endpoint_id"] for peer in value.motion_targets] == ["sim-a"]
+    value.handle_envelope(endpoint, envelope("endpoint_list", {"endpoints": [sim, robot]}))
+    assert [peer["endpoint_id"] for peer in value.motion_targets] == ["robot-a"]
+    value.handle_envelope(endpoint, envelope("endpoint_list", {"endpoints": [sim]}))
+    assert value.desired_target == "robot-a"
+    assert [peer["endpoint_id"] for peer in value.motion_targets] == ["robot-a"]
+    with pytest.raises(ValueError, match="Robot endpoints"):
+        value.select_target("sim-a")
+
+
+def test_presentation_route_is_sent_only_to_sims_advertising_new_contract():
+    from elesim_protocol import CAPABILITY_PRESENTATION_TARGET, CAPABILITY_ROBOT_STATE_MIRROR
+
+    value, sink, endpoint = connection()
+    robot = EndpointDescriptor("robot-a", "robot", instance_id="boot-a").to_dict()
+    old = EndpointDescriptor("sim-old", "sim", (CAPABILITY_ROBOT_STATE_MIRROR,)).to_dict()
+    new = EndpointDescriptor("sim-new", "sim", (CAPABILITY_ROBOT_STATE_MIRROR, CAPABILITY_PRESENTATION_TARGET)).to_dict()
+    value.handle_envelope(endpoint, envelope("endpoint_list", {"endpoints": [robot, old, new]}))
+    routes = [entry for entry in endpoint.sent if entry[0] == "presentation_target"]
+    assert routes == [("presentation_target", {"target_id": "sim-new", "payload": {
+        "robot_id": "robot-a", "robot_boot_id": "boot-a",
+    }})]
+
+
+@pytest.mark.parametrize("command", ["torque_off", "estop"])
+def test_stop_commands_remain_deliverable_while_control_target_changes(command):
+    value, sink, endpoint = connection()
+    value.active_target, value.lease_id = "sim-a", "old-lease"
+    value.desired_target = "robot-a"
+    value._send_motion(endpoint, {"command": command}, allow_without_lease=command == "estop")
+    assert endpoint.sent[-1][1]["target_id"] == "sim-a"
+    assert endpoint.sent[-1][1]["payload"]["command"] == command
+
+
 def test_reader_diagnostics_require_selected_target_and_recent_telemetry(monkeypatch):
     import elesim_pilot.connection as module
     now = [10.0]
@@ -107,7 +150,8 @@ def test_reader_diagnostics_require_selected_target_and_recent_telemetry(monkeyp
 def test_trajectory_send_is_fenced_at_send_and_never_queued():
     value, sink, endpoint = connection()
     value.active_target, value.lease_id = "robot-a", "lease-a"
-    value.endpoints = [{"endpoint_id": "robot-a", "instance_id": "boot-a"}]
+    value.endpoints = [{"endpoint_id": "robot-a", "instance_id": "boot-a", "role": "robot"}]
+    value._known_robots["robot-a"] = value.endpoints[0]
     value._active_endpoint = endpoint
     value._connection_thread_ident = threading.get_ident()
     route = ("robot-a", "boot-a", "lease-a")
@@ -145,6 +189,7 @@ def test_measurement_freshness_requires_advancing_measured_sample_not_ack(monkey
 def test_motion_interlock_drops_pending_target_but_preserves_torque_off():
     value, sink, endpoint = connection()
     value.active_target, value.lease_id = "robot-a", "lease-a"
+    value._known_robots["robot-a"] = {"endpoint_id": "robot-a", "role": "robot"}
     value.submit({"t": "target", "q": [-.1, 0., 0., 0.]})
     value.submit({"t": "torque_off"}, force=True)
     value.clear_pending_motion()
@@ -323,6 +368,7 @@ def test_simulation_status_is_typed_and_delivered_only_from_the_active_target() 
 @pytest.mark.parametrize('failure', [ValueError, RuntimeError, OSError])
 def test_invalid_target_stream_configuration_does_not_escape_connection_thread(failure) -> None:
     value, sink, endpoint = connection()
+    value.desired_target = "sim-a"
     value.endpoints = [
         EndpointDescriptor(
             "sim-a", "sim", ("motion.arm",), instance_id="sim-instance"
@@ -356,6 +402,7 @@ def test_invalid_target_stream_configuration_does_not_escape_connection_thread(f
 def test_target_submission_is_canonical_and_latest_rate_limited_value_is_retained() -> None:
     value, _sink, endpoint = connection()
     value.active_target = "robot-a"
+    value._known_robots["robot-a"] = {"endpoint_id": "robot-a", "role": "robot"}
     value.lease_id = "lease-a"
 
     value.submit({"t": "target", "source": "slider", "q": [-0.1, 0.0, 0.1, -0.1]})
@@ -378,6 +425,8 @@ def test_target_submission_is_canonical_and_latest_rate_limited_value_is_retaine
 def test_sim_reset_overtakes_and_discards_queued_motion_targets() -> None:
     value, sink, endpoint = connection()
     value.active_target = "sim-a"
+    value.desired_target = "sim-a"
+    value.endpoints = [{"endpoint_id": "sim-a", "role": "sim"}]
     value.lease_id = "lease-a"
 
     # One latest-only velocity is already pending and another forced target is
@@ -401,6 +450,8 @@ def test_sim_reset_overtakes_and_discards_queued_motion_targets() -> None:
 def test_queued_sim_reset_is_sent_before_later_motion() -> None:
     value, _sink, endpoint = connection()
     value.active_target = "sim-a"
+    value.desired_target = "sim-a"
+    value.endpoints = [{"endpoint_id": "sim-a", "role": "sim"}]
     value.lease_id = "lease-a"
 
     value.submit({"t": "target", "go2_vel": [0.4, 0.0, 0.0]})
@@ -429,6 +480,7 @@ def test_estop_bypasses_lease_but_requires_a_known_target() -> None:
 def test_queued_mock_hug_cannot_be_retargeted_after_submission() -> None:
     value, sink, endpoint = connection()
     value.active_target = "sim-a"
+    value.desired_target = "sim-a"
     value.lease_id = "lease-b"
     value.endpoints = [
         {

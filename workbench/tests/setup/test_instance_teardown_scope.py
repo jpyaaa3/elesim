@@ -172,7 +172,9 @@ def _run_locked(wrapper: Path, lock: Path, env: dict[str, str], *args: str) -> s
             os.close(fd)
 
 
-def test_two_robot_free_instances_have_independent_teardown_scope(local_state, tmp_path: Path):
+def test_two_robot_free_instances_have_independent_teardown_scope(local_state, tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("elesim_setup.instance_runtime._viewer_xhost_function", lambda *args, **kwargs:
+        "viewer_xhost_cleanup_on_failure=0\nviewer_xhost_enable() { :; }\nviewer_xhost_cleanup() { :; }\n")
     state = local_state(
         roles=("pilot", "sim", "ui"),
         dds=DdsSettings(security_profile="sros2", security_provisioning="managed"),

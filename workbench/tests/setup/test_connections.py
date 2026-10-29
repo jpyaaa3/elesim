@@ -536,6 +536,35 @@ def test_runtime_readiness_keeps_exception_type_for_terse_context_errors() -> No
     )
 
 
+@pytest.mark.parametrize("first", [TimeoutError("SSH channel timed out"), {"ok": False}])
+def test_runtime_readiness_uses_fresh_probe_before_rollback(tmp_path, first):
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    calls = []
+
+    class Operations:
+        def __init__(self):
+            self.attempts = 0
+
+        def runtime_doctor(self, host, expected, *, timeout_s):
+            self.attempts += 1
+            calls.append((host.host_id, timeout_s))
+            if self.attempts == 1:
+                if isinstance(first, Exception):
+                    raise first
+                return first
+            return {"ok": True}
+
+    operations = {host.host_id: Operations() for host in topology.hosts}
+    logs = []
+    ConnectionDeploymentRunner._report_runtime_readiness(topology, operations, topology.hosts, logs.append)
+    assert all(operation.attempts == 2 for operation in operations.values())
+    if isinstance(first, Exception):
+        assert any("probe transport unavailable" in message for message in logs)
+    else:
+        assert [budget for _, budget in calls].count(5.0) == len(topology.hosts)
+        assert any("latest endpoint state before rollback" in message for message in logs)
+
+
 def test_runtime_readiness_distinguishes_probe_exception_from_missing_peers(
     tmp_path: Path,
 ) -> None:
@@ -632,7 +661,7 @@ def test_runtime_readiness_fails_on_malformed_results_payload(
             return None
 
         def runtime_doctor(self, _host, _expected_peer_ids, *, timeout_s):
-            assert timeout_s == 300
+            assert timeout_s in {300, 5.0}
             return {"ok": False, "results": None}
 
         def stop(self, _host) -> None:

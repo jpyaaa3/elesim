@@ -9,13 +9,13 @@ import re
 import shutil
 import tempfile
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
 
-from .state import DdsSettings, InstallState
+from .state import DdsSettings, InstallState, RobotHostSettings
 from .instances import InstanceState
 
 
@@ -30,46 +30,6 @@ PUBLIC_CONFIG_TEMPLATES = {
     "ui": "public.example.yaml",
     "robot": "public.example.yaml",
 }
-
-
-@dataclass(frozen=True)
-class RobotHostSettings:
-    """Host-owned values that cannot be inferred from a portable Robot config."""
-
-    robot_user: str
-    bridge_user: str
-    ros_workspace: Path
-    unitree_interface: str = "eth0"
-    unitree_domain_id: int = 1
-
-    def validate(self) -> "RobotHostSettings":
-        for name, value in (
-            ("robot_user", self.robot_user),
-            ("bridge_user", self.bridge_user),
-        ):
-            text = str(value).strip()
-            if (
-                not text
-                or len(text) > 64
-                or any(character.isspace() or character in ":/" for character in text)
-            ):
-                raise ValueError(f"{name} cannot form a safe local account name")
-        workspace = self.ros_workspace.expanduser()
-        if not workspace.is_absolute():
-            raise ValueError("Unitree ROS 2 workspace must be an absolute path")
-        interface = str(self.unitree_interface).strip()
-        if (
-            not interface
-            or len(interface) > 128
-            or any(character.isspace() or character == "/" for character in interface)
-        ):
-            raise ValueError("Unitree network interface must be one interface name")
-        if (
-            isinstance(self.unitree_domain_id, bool)
-            or not 0 <= int(self.unitree_domain_id) <= 232
-        ):
-            raise ValueError("Unitree ROS domain ID must be in 0..232")
-        return self
 
 
 def app_directory(state: InstallState, role: str) -> Path:
@@ -132,10 +92,35 @@ def bind_installed_data_paths(
         simulation.setdefault("assembly", {})["build_dir"] = str(
             runtime_data_root / "models/assemblies/zed-mini"
         )
+    if role == "pilot":
+        ik = raw.setdefault("robot", {}).setdefault("arm", {}).setdefault("ik", {})
+        if ik.get("curobo_model") in {
+            "../../data/models/planning/zed-mini", "../data/models/planning/zed-mini",
+        }:
+            ik["curobo_model"] = str(runtime_data_root / "models/planning/zed-mini")
     config_path.write_text(
         yaml.safe_dump(raw, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
+
+    wrap = config_root / "wrap_grasp.yaml"
+    if role == "pilot" and wrap.is_file():
+        policy = _read_yaml(wrap)
+        for key, filename in (("policy_path", "policy.pt"), ("manifest_path", "interface.json")):
+            if policy.get(key) in {f"../../data/policies/wrap-grasp/{filename}", f"../data/policies/wrap-grasp/{filename}"}:
+                policy[key] = str(runtime_data_root / "policies/wrap-grasp" / filename)
+        _write_yaml(wrap, policy)
+
+    for filename in ("reconstruction.example.yaml", "scan.example.yaml"):
+        reconstruction = config_root / filename
+        if role == "pilot" and reconstruction.is_file():
+            pipeline = _read_yaml(reconstruction)
+            for spec in pipeline["models"].values():
+                for model in (spec if isinstance(spec, list) else [spec]):
+                    for asset in model.get("assets", {}).values():
+                        if str(asset["path"]).startswith("../../data/"):
+                            asset["path"] = str(runtime_data_root / asset["path"][11:])
+            _write_yaml(reconstruction, pipeline)
 
     detector = config_root / "perception/detector.yolo.example.json"
     if role == "pilot" and detector.is_file():
@@ -493,6 +478,21 @@ def _write_yaml(path: Path, payload: Mapping[str, Any]) -> None:
     _atomic_text(path, rendered)
 
 
+def preserve_config_metadata(source: Path, destination: Path) -> None:
+    """Preserve access ACLs, failing before replacement if copying loses them."""
+    acls = {
+        name: os.getxattr(source, name)
+        for name in os.listxattr(source)
+        if name.startswith("system.posix_acl_")
+    } if hasattr(os, "listxattr") else {}
+    shutil.copystat(source, destination)
+    for name, expected in acls.items():
+        # copystat deliberately ignores some xattr permission errors. A Robot
+        # service must not lose its read ACL after a successful-looking write.
+        if os.getxattr(destination, name) != expected:
+            raise PermissionError(f"could not preserve config ACL {name}: {source}")
+
+
 def _atomic_text(path: Path, rendered: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -504,7 +504,13 @@ def _atomic_text(path: Path, rendered: str) -> None:
     ) as handle:
         handle.write(rendered)
         temporary = Path(handle.name)
-    temporary.replace(path)
+    try:
+        if path.exists():
+            preserve_config_metadata(path, temporary)
+            os.utime(temporary, None)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _dds_payload(
@@ -595,6 +601,9 @@ def _ui_config(
         source_role="pilot",
         local_handoff="none",
     )
+    presentation = raw.setdefault("presentation", {})
+    presentation.setdefault("robot_camera_topic", rgbd_topic(state, "robot"))
+    presentation.setdefault("robot_camera_right_topic", rgbd_right_topic(state, "robot"))
     raw.pop("security", None)
     return raw
 
@@ -698,6 +707,21 @@ def _sim_app_config(state: InstallState) -> dict[str, Any]:
     }
 
 
+def installed_robot_host_settings(state: InstallState) -> RobotHostSettings | None:
+    if state.robot_host is not None:
+        return state.robot_host.validate()
+    installed = generated_config_path(state, "robot")
+    if not installed.is_file():
+        return None
+    _reject_symlink_ancestors(installed, name="existing Robot configuration")
+    existing = _read_yaml(installed).get("go2") or {}
+    return RobotHostSettings(
+        robot_user=existing["ipc_robot_user"], bridge_user=existing["ipc_bridge_user"],
+        ros_workspace=Path(existing["ros_workspace"]),
+        unitree_interface=existing["network_interface"], unitree_domain_id=existing["ros_domain_id"],
+    ).validate()
+
+
 def _robot_config(
     state: InstallState,
     source: Path,
@@ -724,6 +748,23 @@ def _robot_config(
         source_role="robot",
         local_handoff="source-dds-to-pilot",
     )
+    robot_host = robot_host or installed_robot_host_settings(state)
+    installed = source.parent / GENERATED_CONFIG
+    if installed.is_file():
+        _reject_symlink_ancestors(installed, name="existing Robot configuration")
+        existing = _read_yaml(installed)
+        for section in ("arm", "mapping", "safety"):
+            if isinstance(existing.get(section), Mapping):
+                raw[section].update(existing[section])
+        raw["camera"].update({key: value for key, value in (existing.get("camera") or {}).items()
+                              if key not in {"topic", "right_topic"}})
+        if raw["camera"].get("backend") == "zed":
+            raw["camera"]["right_topic"] = rgbd_right_topic(state, "robot")
+        else:
+            raw["camera"].pop("right_topic", None)
+        for key in ("device", "imu_device", "use_go2"):
+            if key in (existing.get("runtime") or {}):
+                raw["runtime"][key] = existing["runtime"][key]
     if robot_host is not None:
         host = robot_host.validate()
         go2 = dict(raw.get("go2") or {})

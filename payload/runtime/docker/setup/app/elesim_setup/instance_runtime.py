@@ -822,7 +822,7 @@ class InstanceRuntime:
         guard = backend_guard + owner_guard
         viewer_state = (
             self.prefix / "instances" / instance.system_id / "cache" / "viewer-xhost"
-            if any(endpoint.role == "sim" for endpoint in instance.endpoints) else None
+            if any(endpoint.role in {"sim", "ui"} for endpoint in instance.endpoints) else None
         )
         viewer_user = _resolve_viewer_user()
         down = _runtime_down_wrapper(
@@ -849,21 +849,51 @@ class InstanceRuntime:
         rendered = " ".join(shlex.quote(service) for service in services)
         compose_command = f"docker compose -p {shlex.quote(self.project)} -f {shlex.quote(str(self.compose))}"
         viewer_setup = ""
+        has_ui = any(endpoint.role == "ui" for endpoint in instance.endpoints)
+        if instance.viewer or has_ui:
+            viewer_setup = (
+                _viewer_xhost_function(viewer_state, xhost_user=viewer_user)
+                + "viewer_xhost_enable\n"
+            )
         if instance.viewer:
             sim_endpoint = next(endpoint for endpoint in instance.endpoints if endpoint.role == "sim")
             sim_service = shlex.quote(service_key(instance.system_id, sim_endpoint.endpoint_id))
             viewer_setup = (
-                _viewer_xhost_function(viewer_state, xhost_user=viewer_user)
-                + "viewer_xhost_enable\n"
-                + "viewer_result=0\n"
+                viewer_setup + "viewer_result=0\n"
                 # ``docker compose run`` has no ``--no-build`` option.  The
                 # instance release is immutable and the following ``up`` also
                 # uses ``--no-build``, so this preflight must simply omit the
                 # unsupported run flag.
                 + f"{compose_command} run --rm -T --no-deps {sim_service} --elesim-viewer-preflight || viewer_result=$?\n"
-                + "if (( viewer_result != 0 || preflight_only )); then\n"
+                + "if (( viewer_result != 0 )); then\n"
                 + "  if (( viewer_xhost_cleanup_on_failure )); then viewer_xhost_cleanup || viewer_result=$?; fi\n"
                 + "  exit \"$viewer_result\"\nfi\n"
+            )
+        if has_ui:
+            ui_endpoint = next(endpoint for endpoint in instance.endpoints if endpoint.role == "ui")
+            ui_service = shlex.quote(service_key(instance.system_id, ui_endpoint.endpoint_id))
+            # Registered instances keep immutable image pins across setup
+            # updates. Older UI entrypoints cannot parse the new preflight
+            # flag; check for the helper directly without entering ROS/DDS.
+            ui_probe = (
+                "import importlib.util, runpy; module = 'elesim_ui.graphics'; "
+                "runpy.run_module(module, run_name='__main__') "
+                "if importlib.util.find_spec(module) is not None else "
+                "print('[ui-graphics] pinned legacy image has no graphics preflight; "
+                "continuing with its existing startup', flush=True)"
+            )
+            viewer_setup += (
+                "viewer_result=0\n"
+                + f"{compose_command} run --rm -T --no-deps --entrypoint python3 {ui_service} -c {shlex.quote(ui_probe)} || viewer_result=$?\n"
+                + "if (( viewer_result != 0 )); then\n"
+                + "  if (( viewer_xhost_cleanup_on_failure )); then viewer_xhost_cleanup || viewer_result=$?; fi\n"
+                + "  exit \"$viewer_result\"\nfi\n"
+            )
+        if instance.viewer or has_ui:
+            viewer_setup += (
+                "if (( preflight_only )); then\n"
+                "  if (( viewer_xhost_cleanup_on_failure )); then viewer_xhost_cleanup; fi\n"
+                "  exit 0\nfi\n"
             )
         up = (
             "#!/usr/bin/env bash\nset -euo pipefail\n"
@@ -876,7 +906,7 @@ class InstanceRuntime:
             + "if (( preflight_only )); then exit 0; fi\n"
             + (f"compose_status=0\n{compose_command} up -d --no-build {rendered} || compose_status=$?\n"
                "if (( compose_status != 0 && viewer_xhost_cleanup_on_failure )); then viewer_xhost_cleanup || compose_status=$?; fi\n"
-               "exit \"$compose_status\"\n" if instance.viewer else
+               "exit \"$compose_status\"\n" if instance.viewer or has_ui else
                f"exec {compose_command} up -d --no-build {rendered}\n")
         )
         operation_lock = self.prefix / "instances" / ".locks" / f"{instance.system_id}.lock"

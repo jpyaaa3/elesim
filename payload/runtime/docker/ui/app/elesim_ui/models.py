@@ -134,9 +134,9 @@ class PanelStateDefaults:
     pick_phase: str = "idle"
     pick_status_msg: str = ""
 
-    target_x: float = 0.5
-    target_y: float = 0.0
-    target_z: float = 1.0
+    target_x: float = 0.2976
+    target_y: float = 0.1682
+    target_z: float = 0.2901
     target_vx: float = 1.0
     target_vy: float = 0.0
     target_vz: float = 0.0

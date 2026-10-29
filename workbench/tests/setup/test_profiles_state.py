@@ -81,7 +81,7 @@ def test_state_round_trip_persists_dds_v10_logs_and_developer_attachment(
     path = state.save()
     loaded = InstallState.load(path)
 
-    assert loaded.schema_version == STATE_SCHEMA_VERSION == 11
+    assert loaded.schema_version == STATE_SCHEMA_VERSION == 12
     assert loaded.dds == state.dds
     assert loaded.runtime_text_logs == RuntimeTextLogSettings(enabled=True)
     assert loaded.developer_attachment == state.developer_attachment

@@ -78,3 +78,75 @@ test('runtime stop completion refreshes status and enables another start', async
   assert.equal(context.workflowStarted, false);
   assert.equal(refreshes, 1);
 });
+
+test('a completed host is shown while another host is still pending', async () => {
+  const pending = new Map(), renders = [];
+  const context = vm.createContext({
+    runtimeRevision: 0, runtimeReady: false, runtimePollInFlight: false,
+    workflowApplied: true, byId: () => ({dataset: {status: 'completed'}}),
+    api: url => url === '/api/runtime/hosts'
+      ? Promise.resolve({hosts: [{host_id: 'fast', state: 'checking'}, {host_id: 'slow', state: 'checking'}]})
+      : new Promise(resolve => pending.set(url, resolve)),
+    renderRuntimeStatus: value => renders.push(JSON.parse(JSON.stringify(value))),
+    updateWorkflow() {}, encodeURIComponent,
+  });
+  vm.runInContext(source.match(/async function pollRuntimeStatus\([^]*?\n}/)[0], context);
+  const polling = context.pollRuntimeStatus();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(pending.size, 2);
+  pending.get('/api/runtime?host=fast')({hosts: [{host_id: 'fast', state: 'running'}]});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(renders.at(-1).hosts.map(host => host.state), ['running', 'checking']);
+  pending.get('/api/runtime?host=slow')({hosts: [{host_id: 'slow', state: 'stopped'}]});
+  await polling;
+  assert.deepEqual(renders.at(-1).hosts.map(host => host.state), ['running', 'stopped']);
+});
+
+test('UI GPU selection survives status refreshes independently of Pilot compute', () => {
+  const controls = Object.fromEntries(['pilot', 'sim', 'ui'].flatMap(role => [
+    [`${role}-gpu-inherit`, {checked: false}], [`${role}-gpu-device`, {value: ''}],
+  ]));
+  const context = vm.createContext({
+    gpuPolicies: {pilot: {mode: 'unknown'}, sim: {mode: 'unknown'}, ui: {mode: 'unknown'}},
+    gpuDevices: {}, byId: id => controls[id], updateRuntimeOptions() {}, updateGpuDeviceOptions() {},
+  });
+  vm.runInContext(source.match(/function applyRuntimeGpuPolicies\([^]*?\n}/)[0], context);
+  const host = {roles: ['pilot', 'ui'], gpu_policy: {
+    pilot: {mode: 'cpu'}, ui: {mode: 'inherit', selected_mode: 'specific', selected_device: '0'},
+  }, gpu_devices: [{index: '0', uuid: 'GPU-display'}]};
+  context.applyRuntimeGpuPolicies([host]);
+  assert.equal(controls['ui-gpu-inherit'].checked, true);
+  assert.equal(controls['ui-gpu-device'].value, '0');
+  assert.equal(controls['pilot-gpu-inherit'].checked, false);
+  controls['ui-gpu-inherit'].checked = false;
+  context.applyRuntimeGpuPolicies([host]);
+  assert.equal(controls['ui-gpu-inherit'].checked, false);
+});
+
+test('pending host polls preserve draft GPU choices and device inventory', () => {
+  const controls = Object.fromEntries(['pilot', 'sim', 'ui'].flatMap(role => [
+    [`${role}-gpu-inherit`, {checked: false}], [`${role}-gpu-device`, {value: ''}],
+  ]));
+  const context = vm.createContext({
+    gpuPolicies: {pilot: {mode: 'unknown'}, sim: {mode: 'unknown'}, ui: {mode: 'unknown'}},
+    gpuDevices: {}, byId: id => controls[id], updateRuntimeOptions() {}, updateGpuDeviceOptions() {},
+  });
+  vm.runInContext(source.match(/function applyRuntimeGpuPolicies\([^]*?\n}/)[0], context);
+  const host = {roles: ['pilot', 'ui'], gpu_policy: {
+    pilot: {mode: 'inherit'}, ui: {mode: 'inherit', selected_mode: 'cpu'},
+  }, gpu_devices: [{index: '0', uuid: 'GPU-compute'}, {index: '1', uuid: 'GPU-display'}]};
+  context.applyRuntimeGpuPolicies([host]);
+  controls['pilot-gpu-inherit'].checked = false;
+  controls['ui-gpu-inherit'].checked = true;
+  controls['ui-gpu-device'].value = '1';
+  context.applyRuntimeGpuPolicies([{roles: host.roles, state: 'checking'}]);
+  assert.equal(context.gpuPolicies.pilot.mode, 'inherit');
+  assert.equal(context.gpuDevices.ui.length, 2);
+  context.applyRuntimeGpuPolicies([host]);
+  assert.equal(controls['pilot-gpu-inherit'].checked, false);
+  assert.equal(controls['ui-gpu-inherit'].checked, true);
+  assert.equal(controls['ui-gpu-device'].value, '1');
+  context.applyRuntimeGpuPolicies([{roles: host.roles, state: 'unreachable'}]);
+  assert.equal(context.gpuPolicies.pilot.mode, 'unknown');
+  assert.equal(context.gpuDevices.ui.length, 0);
+});

@@ -564,6 +564,13 @@ class WrapActions:
 
                 raw = yaml.safe_load(path.read_text(encoding="utf-8"))
                 cfg = wrap_grasp_config_from_mapping(raw, base=cfg)
+                from dataclasses import replace
+                cfg = replace(cfg, **{
+                    key: str((path.parent / value).resolve())
+                    for key in ("policy_path", "manifest_path")
+                    for value in (getattr(cfg, key),)
+                    if not Path(value).is_absolute()
+                })
                 _say(f"Loaded configuration: {path}")
             except Exception as exc:        # a bad file must not be silent
                 _say(f"Could not read {path}; using defaults: {exc}")
@@ -744,6 +751,7 @@ class WrapActions:
             overloaded=overloaded,
             currents=currents,
             loaded=loaded,
+            sleep=time.sleep,
             mapping=self.control_mapping() if hasattr(self, "control_mapping") else None,
         )
         outcome = runner.run()

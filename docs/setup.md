@@ -207,6 +207,25 @@ JetPack CSV mode의 GPU 컨테이너는 Compose에 `runtime: nvidia`도 명시�
 런타임을 요청하지 않는다. Tools에도 설치 host의 L4T 정보를 기록해 이후
 scoped instance 등록에서 같은 GPU 런타임을 생성한다.
 
+Jetson GPU Pilot의 정식 context에는 commit 고정 cuRobo
+`d64c4b005459db10c5dd867d8b30a87d5bda9bdb`와 hash 검사한 EleSim 패치도 포함한다.
+CUDA 12.6 compiler/dev libraries로 Orin SM8.7 extension을 빌드하며 기존 Torch는
+교체하지 않는다. cuSolver 11.7.1.2 호환 DSO는 NVIDIA archive의 SHA256으로
+검사해 private loader 경로에 둔다. planning 모델, world, Wrap 정책과 manifest는
+bootstrap·설치·release에 함께 포함한다. 실제 Jetson 이미지 build/GPU 시험은
+별도 검증이며 다른 실행 이미지에서 패키지를 복사할 필요가 없다.
+
+Native Robot venv는 bootstrap cache의 private Python symlink 대신 실제 base
+interpreter로 만든다. 서비스 계정이 읽도록 설정한 YAML ACL과 Robot 호스트
+설정은 네트워크 재생성 때 보존한다. image cleanup은 비활성 Compose profile의
+현재 tools/dev 이미지도 보호한다. 설치·release 준비는 대상 파일시스템의 여유
+공간을 먼저 검사하며 부족하면 위치와 필요량을 보고한다. Docker daemon의
+전체 build 공간을 보장하거나 전역 prune을 수행하는 검사는 아니다.
+
+새 설치는 EleSim domain 1 / Unitree domain 0을 사용한다. Unitree NIC·workspace와
+서비스 사용자 값은 호스트 설정이며 기록에 나온 특정 NIC/사용자를 전역으로
+고정하지 않는다. 기존 설치의 domain은 자동 변경하지 않는다.
+
 신규 container 설치의 runtime namespace는 `elesim-<install name>`으로
 고정된다. 한 설치의 여러 system instance가 이 project를 공유하지만, 다른
 설치나 legacy 고정 project를 자동으로 인수하지 않는다.
@@ -315,7 +334,7 @@ Tailscale admin record, 외부 keystore/TURN credential은 EleSim이 생성했�
 | `specific` | `device_ids` 한 개 reservation | 한 index/UUID만 노출하며 container 안에서 host index를 다시 적용하지 않음 |
 | `cpu` | GPU reservation 없음 | Sim Genesis backend와 encoder를 CPU로 고정 |
 
-Pilot과 Sim은 독립적으로 policy를 가질 수 있다. GUI에서 GPU가 고정되었거나
+Pilot·Sim·UI는 독립적으로 policy를 가질 수 있다. UI는 software GL 또는 NVIDIA GL을 선택하며 실제 renderer를 시작 전 확인한다. GUI에서 GPU가 고정되었거나
 CPU-only로 감지된 role은 상속 checkbox를 미리 선택/해제한 상태로 보여주며
 사용자가 설치 뒤 임의로 바꾸지 못한다. `specific`은 UUID/index를 예약할
 뿐이며, `CUDA_VISIBLE_DEVICES`만 바꿔서 container runtime이 차단한 장치를
@@ -721,3 +740,18 @@ Jetson safety를 증명하지 않는다. 그 항목은 [`status.md`](status.md)�
 실행·중지는 `elesim-instance <system> up|down` 또는 `elesim up|down <system>`을
 사용한다. 업데이트는 소유권·해시가 확인된 이전 wrapper를 제거한다.
 인스턴스가 없는 legacy 고정 프로젝트 설치에는 기존 lifecycle 경로를 유지한다.
+
+### Jetson Wi-Fi 현장 점검
+
+현장에서는 2.4 GHz와 절전 설정을 조사했고 절전 해제 뒤에도 단절이 재발했다.
+절전이 확정 원인이라고 취급하지 않는다. 읽기 전용으로 `iw dev`, 해당 NIC의
+`iw dev <NIC> link`, `iw dev <NIC> get power_save`, `nmcli connection show`,
+`journalctl -u NetworkManager`와 커널/OOM 로그를 수집한다. LAN과 VPN 도달성,
+프로세스 uptime 및 재시작 횟수를 함께 비교한다.
+
+운영자가 호스트별 변경을 선택할 때만 기존 NetworkManager profile의
+`802-11-wireless.powersave`와 autoconnect 값을 먼저 기록하고, 5 GHz profile을
+선택하거나 powersave=2로 변경한다. 이는 연결을 끊을 수 있으므로 복구 가능한
+로컬 세션에서 적용한다. 원복은 기록한 profile·powersave·autoconnect 값으로
+되돌리고 현장 임시 oneshot unit이 있다면 그 정확한 unit도 해제한다.
+EleSim 설치/시작은 NetworkManager나 Wi-Fi 설정을 자동 변경하지 않는다.

@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping, Optional
 
 from elesim_protocol import (
     CAPABILITY_OPERATOR_CONTROL,
+    CAPABILITY_PRESENTATION_TARGET,
     CAPABILITY_SIM_MOCK_HUG,
     CAPABILITY_STREAM_RGBD,
     CAPABILITY_STREAM_RGBD_BROKER,
@@ -103,6 +104,7 @@ class PilotConnection:
         self.active_target = ""
         self.lease_id = ""
         self.endpoints: list[dict[str, Any]] = []
+        self._known_robots: dict[str, dict[str, Any]] = {}
         self.operator_handler: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
         self.telemetry_observer = None
         self.on_target_selected: Optional[Callable[[dict[str, Any]], None]] = None
@@ -198,11 +200,35 @@ class PilotConnection:
             self._outbox.put(_Submission("motion", payload, bool(force)))
 
     def select_target(self, target_id: str) -> None:
+        if str(target_id) not in {d['endpoint_id'] for d in self.motion_targets}:
+            raise ValueError("Robot endpoints are the only control targets while a Robot is present")
+        self.clear_pending_motion()
         self.desired_target = str(target_id)
         self._selection_requested = ""
         self._selection_requested_at = None
         with self._outbox_lock:
             self._outbox.put(_Submission("select", {"target_id": self.desired_target}, True))
+
+    @property
+    def motion_targets(self) -> list[dict[str, Any]]:
+        # Retain discovered Robots across network loss. Losing hardware must
+        # not silently redirect the operator's controls to a virtual robot.
+        if self._known_robots:
+            return list(self._known_robots.values())
+        return [d for d in self.endpoints if d.get('role') == 'sim']
+
+    def _sync_sim_presentation(self, endpoint: Any) -> None:
+        descriptor = next((d for d in self.motion_targets
+                           if d.get('endpoint_id') == self.desired_target and d.get('role') == 'robot'), None)
+        if descriptor is None:
+            return
+        for sim in self.endpoints:
+            if sim.get('role') != 'sim' or CAPABILITY_PRESENTATION_TARGET not in sim.get('capabilities', ()):
+                continue
+            endpoint.send('presentation_target', target_id=sim['endpoint_id'], payload={
+                'robot_id': descriptor['endpoint_id'],
+                'robot_boot_id': descriptor.get('instance_id', ''),
+            })
 
     def motion_route(self) -> tuple[str, str, str]:
         descriptor = next((d for d in self.endpoints if d.get("endpoint_id") == self.active_target), {})
@@ -222,13 +248,20 @@ class PilotConnection:
                 self._outbox.put(item)
             self._pending_target = None
 
-    def send_trajectory_q(self, q: list[float], route: tuple[str, str, str]) -> None:
+    def send_trajectory_q(self, q: list[float], route: tuple[str, str, str], *, source="curobo") -> None:
         if threading.get_ident() != self._connection_thread_ident or self._active_endpoint is None:
             raise RuntimeError("trajectory samples must be sent on the DDS thread")
+        if self.active_target != self.desired_target or self.active_target not in {
+            str(d['endpoint_id']) for d in self.motion_targets
+        }:
+            raise RuntimeError("trajectory control target is no longer selectable")
         if self.motion_route() != route or not all(route):
             raise RuntimeError("trajectory route fence changed")
+        if source not in {"curobo", "object_scan"}:
+            raise ValueError("invalid trajectory source")
         self._active_endpoint.send("motion_command", target_id=route[0], lease_id=route[2],
-                                   payload={"command": "target", "source": "curobo", "q": q})
+                                   payload={"command": "target", "source": source, "q": q})
+        self.state_sink.remember_trajectory_q(q)
 
     def release_trajectory_route(self, route: tuple[str, str, str]) -> None:
         if self._active_endpoint is not None and self.motion_route() == route:
@@ -386,6 +419,8 @@ class PilotConnection:
         if message_type == "endpoint_list":
             raw_endpoints = payload.get("endpoints", [])
             self.endpoints = [dict(value) for value in raw_endpoints if isinstance(value, Mapping)]
+            self._known_robots.update({str(d['endpoint_id']): d for d in self.endpoints
+                                       if d.get('role') == 'robot' and d.get('endpoint_id')})
             endpoint_ids = ",".join(
                 sorted(str(value.get("endpoint_id", "")) for value in self.endpoints)
             )
@@ -397,6 +432,7 @@ class PilotConnection:
                 peers=endpoint_ids or "none",
             )
             self._request_desired_target(endpoint)
+            self._sync_sim_presentation(endpoint)
             return
         if message_type == "target_selected":
             self.telemetry_received_at = None
@@ -586,6 +622,11 @@ class PilotConnection:
         *,
         now: Optional[float] = None,
     ) -> None:
+        candidates = self.motion_targets
+        candidate_ids = {str(d['endpoint_id']) for d in candidates}
+        if self.desired_target not in candidate_ids and candidates:
+            self.clear_pending_motion()
+            self.desired_target = str(candidates[0]['endpoint_id'])
         if not self.desired_target or self.active_target == self.desired_target:
             return
         if not any(value.get("endpoint_id") == self.desired_target for value in self.endpoints):
@@ -714,6 +755,11 @@ class PilotConnection:
         *,
         allow_without_lease: bool = False,
     ) -> None:
+        if payload.get("command") not in {"estop", "torque_off"} and (self.active_target != self.desired_target or self.active_target not in {
+            str(d['endpoint_id']) for d in self.motion_targets
+        }):
+            self.state_sink.accept_error('control_target_changing_or_unavailable')
+            return
         if self.motion_guard is not None and not self.motion_guard(payload):
             self._diagnostic("motion", dedupe="trajectory-owns-motion", state="blocked",
                              reason="cuRobo workflow owns motion")

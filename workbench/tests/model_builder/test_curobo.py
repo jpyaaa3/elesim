@@ -2,6 +2,7 @@
 import hashlib
 import itertools
 import json
+import shutil
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -12,10 +13,71 @@ from scipy.spatial.distance import cdist
 import yaml
 
 from elesim_pilot.robot.arm.iklib.kinematics import _forward_grasp_world, _forward_link_tf
-from elesim_model_builder.curobo import _min_projection
+from elesim_model_builder.curobo import _min_projection, narrow_curobo_model
 
 ROOT = Path(__file__).resolve().parents[3]
 MODEL = ROOT / "payload/data/models/planning/zed-mini"
+
+
+@pytest.fixture
+def range_update(tmp_path):
+    assembly = tmp_path / "assembly"
+    shutil.copytree(ROOT / "payload/data/models/assemblies/zed-mini", assembly)
+    output = tmp_path / "planning"
+    shutil.copytree(MODEL, output)
+    previous_assembly = tmp_path / "previous.urdf"
+    shutil.copyfile(assembly / "arm.urdf", previous_assembly)
+    previous_arm = tmp_path / "previous.json"
+    shutil.copyfile(ROOT / "payload/data/models/arm/default.json", previous_arm)
+    arm_model = tmp_path / "arm.json"
+    raw = json.loads(previous_arm.read_text())
+    raw["context"]["linear_min_m"] += 0.01
+    arm_model.write_text(json.dumps(raw))
+    tree = ET.parse(assembly / "arm.urdf")
+    tree.find(f"joint[@name='{raw['context']['linear_joint_name']}']/limit").set("lower", str(raw["context"]["linear_min_m"]))
+    tree.write(assembly / "arm.urdf")
+    robot_config = tmp_path / "robot.yaml"
+    shutil.copyfile(ROOT / "payload/config/robot/default.yaml", robot_config)
+    return dict(assembly=assembly, arm_model=arm_model, output=output,
+                previous_assembly=previous_assembly, previous_arm_model=previous_arm,
+                robot_config=robot_config)
+
+
+def test_linear_narrowing_reuses_only_verified_geometry(range_update):
+    output = range_update["output"]
+    before = (output / "robot.yml").read_bytes()
+    narrow_curobo_model(**range_update)
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert (output / "robot.yml").read_bytes() == before
+    assert metadata["q_bounds"][0] == pytest.approx([-260 / 1500 + .01, 0])
+    assert metadata["bounds_update"]["collision_geometry_reused"] is True
+    assert metadata["artifacts"]["arm.urdf"] == hashlib.sha256((output / "arm.urdf").read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize("change", ["expansion", "geometry", "velocity", "artifact"])
+def test_linear_narrowing_refuses_unproven_reuse(range_update, change):
+    output = range_update["output"]
+    if change == "expansion":
+        raw = json.loads(range_update["arm_model"].read_text())
+        raw["context"]["linear_min_m"] = -.25
+        range_update["arm_model"].write_text(json.dumps(raw))
+    elif change == "geometry":
+        tree = ET.parse(range_update["assembly"] / "arm.urdf")
+        tree.find("joint/origin").set("xyz", "0 0 1")
+        tree.write(range_update["assembly"] / "arm.urdf")
+    elif change == "velocity":
+        raw = yaml.safe_load(range_update["robot_config"].read_text())
+        raw["arm"]["max_linear_m_s"] *= 2
+        range_update["robot_config"].write_text(yaml.safe_dump(raw))
+    else:
+        with (output / "robot.yml").open("a") as handle:
+            handle.write("# altered\n")
+    previous_urdf = (output / "arm.urdf").read_bytes()
+    previous_metadata = (output / "metadata.json").read_bytes()
+    with pytest.raises(ValueError):
+        narrow_curobo_model(**range_update)
+    assert (output / "arm.urdf").read_bytes() == previous_urdf
+    assert (output / "metadata.json").read_bytes() == previous_metadata
 
 
 def urdf_transforms(q):
@@ -83,7 +145,7 @@ def test_artifact_is_portable_and_sources_are_current():
                    if joint.get("type") != "fixed" and joint.find("mimic") is None]
     assert independent == metadata["joint_names"]
     assert len(root.findall(".//mimic")) == 8
-    assert metadata["q_bounds"][0] == pytest.approx([-0.230, 0.0])
+    assert metadata["q_bounds"][0] == pytest.approx([-260/1500, 0.0])
     config = yaml.safe_load((MODEL / "robot.yml").read_text())["robot_cfg"]["kinematics"]
     assert config["urdf_path"] == "arm.urdf"
     assert set(config["collision_link_names"]) == set(config["collision_spheres"])

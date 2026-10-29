@@ -101,6 +101,7 @@ _register(
         "floor",
         "use_hardware",
         "use_go2",
+        "scene_manifest",
     },
 )
 _register(
@@ -332,7 +333,7 @@ def build_bundle_from_yaml(data: Mapping[str, Any], *, config_dir: str) -> AppCo
     )
     sim_config = components["sim_config"]
     resolved: dict[str, str] = {}
-    for name in ("build_dir", "hand_eye_config"):
+    for name in ("build_dir", "hand_eye_config", "scene_manifest"):
         value = getattr(sim_config, name)
         if value and not os.path.isabs(value):
             resolved[name] = os.path.abspath(os.path.join(config_dir, value))
@@ -373,7 +374,7 @@ def bundle_to_yaml_data(
         if (
             config_dir is not None
             and leaf.component == "sim_config"
-            and leaf.field in {"build_dir", "hand_eye_config"}
+            and leaf.field in {"build_dir", "hand_eye_config", "scene_manifest"}
             and isinstance(value, str)
             and value
             and os.path.isabs(value)

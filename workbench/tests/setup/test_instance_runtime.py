@@ -7,6 +7,7 @@ import threading
 import tempfile
 import time
 import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -78,10 +79,12 @@ def _instance(system: str, release: ReleaseManifest, domain: int) -> InstanceSta
 
 @pytest.mark.parametrize("preflight", [True, False])
 @pytest.mark.parametrize("probe_result", [0, 7])
-def test_scoped_viewer_checks_before_up_and_cleans_failed_or_probe_grant(local_state, tmp_path, monkeypatch, preflight, probe_result):
-    state = _state(local_state, roles=("sim",))
+@pytest.mark.parametrize("with_ui", [True, False])
+def test_scoped_viewer_checks_before_up_and_cleans_failed_or_probe_grant(local_state, tmp_path, monkeypatch, preflight, probe_result, with_ui):
+    state = _state(local_state, roles=("sim", "ui") if with_ui else ("sim",))
     runtime = InstanceRuntime(state, INSTALL)
-    instance = InstanceState("viewer", "a" * 64, (InstanceEndpoint("sim", "sim-one"),), 0, viewer=True)
+    endpoints = (InstanceEndpoint("sim", "sim-one"),) + ((InstanceEndpoint("ui", "ui-one"),) if with_ui else ())
+    instance = InstanceState("viewer", "a" * 64, endpoints, 0, viewer=True)
     target = tmp_path / "wrappers"
     events = tmp_path / "events"
     fake_bin = tmp_path / "fake-bin"
@@ -100,7 +103,7 @@ def test_scoped_viewer_checks_before_up_and_cleans_failed_or_probe_grant(local_s
     monkeypatch.setattr("elesim_setup.instance_runtime._viewer_xhost_function", lambda *args, **kwargs:
         'viewer_xhost_cleanup_on_failure=1\nviewer_xhost_enable() { echo enable >> "$TEST_EVENTS"; }\n'
         'viewer_xhost_cleanup() { echo cleanup >> "$TEST_EVENTS"; }\n')
-    runtime._write_wrappers(target, instance, (service_key("viewer", "sim-one"),))
+    runtime._write_wrappers(target, instance, tuple(service_key("viewer", endpoint.endpoint_id) for endpoint in endpoints))
     script = target / "bin/up"
     subprocess.run(["bash", "-n", str(script)], check=True)
     result = subprocess.run(["bash", str(script), "--preflight" if preflight else "--no-build"], check=False)
@@ -110,11 +113,70 @@ def test_scoped_viewer_checks_before_up_and_cleans_failed_or_probe_grant(local_s
     assert "--elesim-viewer-preflight" in lines[1]
     assert " run --rm -T --no-deps " in lines[1]
     assert " run --rm -T --no-deps --no-build " not in lines[1]
+    if with_ui and probe_result == 0:
+        assert "--entrypoint python3" in lines[2]
+        assert "elesim_ui.graphics" in lines[2]
     if preflight or probe_result:
         assert lines[-1] == "cleanup"
         assert not any(" up -d " in line for line in lines)
     else:
         assert " up -d --no-build " in lines[-1]
+
+
+@pytest.mark.parametrize('image,expected', [('legacy', 0), ('current', 0), ('broken-graphics', 23)])
+def test_ui_preflight_preserves_pinned_legacy_images_and_checks_supported_images(
+    local_state, tmp_path, monkeypatch, image, expected,
+):
+    state = _state(local_state, roles=('ui',))
+    runtime = InstanceRuntime(state, INSTALL)
+    instance = InstanceState('pinned', 'a'*64, (InstanceEndpoint('ui', 'ui-one'),), 0)
+    package_root = tmp_path/'ui-modules'
+    package = package_root/'elesim_ui'
+    package.mkdir(parents=True)
+    (package/'__init__.py').write_text('')
+    if image != 'legacy':
+        (package/'graphics.py').write_text(
+            'print("graphics probe executed")\n'+('raise SystemExit(23)\n' if expected else ''))
+    events = tmp_path/'events'
+    fake_bin = tmp_path/'fake-bin'
+    fake_bin.mkdir()
+    docker = fake_bin/'docker'
+    docker.write_text(f'#!{sys.executable}\n'+'''
+import os, subprocess, sys
+args = sys.argv[1:]
+with open(os.environ['TEST_EVENTS'], 'a') as handle:
+    handle.write(' '.join(args)+'\\n')
+if '--elesim-ui-preflight' in args:
+    if os.environ['TEST_UI_IMAGE'] == 'legacy':
+        print('unrecognized arguments: --elesim-ui-preflight', file=sys.stderr)
+        sys.exit(2)
+    sys.exit(subprocess.run([sys.executable, '-m', 'elesim_ui.graphics']).returncode)
+if '--entrypoint' in args:
+    index = args.index('--entrypoint')
+    assert args[index+1] == 'python3'
+    sys.exit(subprocess.run([sys.executable, *args[index+3:]]).returncode)
+''')
+    docker.chmod(0o755)
+    monkeypatch.setenv('PATH', str(fake_bin)+':/usr/bin:/bin')
+    monkeypatch.setenv('TEST_EVENTS', str(events))
+    monkeypatch.setenv('TEST_UI_IMAGE', image)
+    monkeypatch.setenv('PYTHONPATH', str(package_root))
+    monkeypatch.setattr('elesim_setup.instance_runtime._docker_backend_guard', lambda *args: '')
+    monkeypatch.setattr('elesim_setup.instance_runtime.compose_owner_guard', lambda *args, **kwargs: '')
+    monkeypatch.setattr(runtime, '_with_operation_lock', lambda script, *args: script)
+    monkeypatch.setattr('elesim_setup.instance_runtime._viewer_xhost_function', lambda *args, **kwargs:
+        'viewer_xhost_cleanup_on_failure=1\nviewer_xhost_enable() { echo enable >> "$TEST_EVENTS"; }\n'
+        'viewer_xhost_cleanup() { echo cleanup >> "$TEST_EVENTS"; }\n')
+    target = tmp_path/'wrappers'
+    runtime._write_wrappers(target, instance, (service_key('pinned', 'ui-one'),))
+    result = subprocess.run(['bash', str(target/'bin/up'), '--no-build'], capture_output=True, text=True)
+    assert result.returncode == expected, result.stderr
+    lines = events.read_text().splitlines()
+    assert any(' up -d --no-build ' in line for line in lines) == (expected == 0)
+    if image != 'legacy':
+        assert 'graphics probe executed' in result.stdout
+    if expected:
+        assert lines[-1] == 'cleanup'
 
 
 def _write_sidecar_base_compose(state) -> None:

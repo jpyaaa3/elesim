@@ -136,6 +136,22 @@ def bind_release_data_paths(release: Path, role: str) -> None:
     config_path.write_text(
         yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
+    wrap = release / "config/wrap_grasp.yaml"
+    if role == "pilot" and wrap.is_file():
+        policy = yaml.safe_load(wrap.read_text(encoding="utf-8"))
+        policy["policy_path"] = "../data/policies/wrap-grasp/policy.pt"
+        policy["manifest_path"] = "../data/policies/wrap-grasp/interface.json"
+        wrap.write_text(yaml.safe_dump(policy, sort_keys=False), encoding="utf-8")
+    for filename in ("reconstruction.example.yaml", "scan.example.yaml"):
+        reconstruction = release / "config" / filename
+        if role == "pilot" and reconstruction.is_file():
+            pipeline = yaml.safe_load(reconstruction.read_text(encoding="utf-8"))
+            for spec in pipeline["models"].values():
+                for model in (spec if isinstance(spec, list) else [spec]):
+                    for asset in model.get("assets", {}).values():
+                        if str(asset["path"]).startswith("../../data/"):
+                            asset["path"] = "../data/" + asset["path"][11:]
+            reconstruction.write_text(yaml.safe_dump(pipeline, sort_keys=False), encoding="utf-8")
     detector = release / "config/perception/detector.yolo.example.json"
     if role == "pilot" and detector.is_file():
         payload = json.loads(detector.read_text(encoding="utf-8"))
@@ -232,7 +248,7 @@ def copy_infrastructure(repository: Path, release_root: Path) -> None:
     containers.mkdir(parents=True, exist_ok=True)
     shutil.copy2(docker_payload / "shared/Dockerfile.app", containers / "Dockerfile.app")
     shutil.copy2(docker_payload / "shared/robotpkg.asc", containers / "robotpkg.asc")
-    for name in ("install_go2_pympc.sh", "generate_go2_pympc.py"):
+    for name in ("install_go2_pympc.sh", "generate_go2_pympc.py", "install_jetson_cuda.sh", "install_curobo.sh", "patch_curobo.py"):
         shutil.copy2(docker_payload / "shared" / name, containers / name)
         shutil.copy2(docker_payload / "shared" / name, destination / "development" / name)
     shutil.copy2(docker_payload / "setup/Dockerfile", containers / "Dockerfile.tools")

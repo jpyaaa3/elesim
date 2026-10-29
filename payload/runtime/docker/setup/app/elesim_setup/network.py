@@ -24,6 +24,8 @@ import yaml
 from .configuration import (
     dds_enclave,
     generate_role_configs,
+    installed_robot_host_settings,
+    preserve_config_metadata,
     generated_app_config_path,
     generated_config_path,
     generated_dds_config_path,
@@ -1448,6 +1450,8 @@ def _apply_configuration_transaction(
     """Regenerate runtime files and state as one locally recoverable update."""
 
     current = InstallState.load(state_path)
+    if updated.install_mode == "native" and updated.robot_host is None:
+        updated = replace(updated, robot_host=installed_robot_host_settings(current))
     if updated.dds.security_profile == "sros2" and (
         updated.dds.security_provisioning == "external"
     ):
@@ -1533,6 +1537,8 @@ def _restore_snapshot(path: Path, snapshot: tuple[bytes, int] | None) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+        if path.is_file():
+            preserve_config_metadata(path, temporary)
         os.replace(temporary, path)
     finally:
         if temporary.exists():

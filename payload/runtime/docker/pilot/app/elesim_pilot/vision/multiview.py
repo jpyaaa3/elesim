@@ -181,7 +181,8 @@ class ScanMap:
 
 class ViewPlanner:
     """Reachable FK view proposals from observations, without mesh/truth access."""
-    def __init__(self, camera_model, *, collision_checker, candidates=12000, seed=41, policy='information'):
+    def __init__(self, camera_model, *, collision_checker, candidates=12000, seed=41, policy='information', cancelled=lambda: False,
+                 operating_bounds=None):
         if not 100 <= candidates <= 30_000:
             raise ValueError('invalid view candidate budget')
         self.model = camera_model
@@ -193,13 +194,24 @@ class ViewPlanner:
         self.collision_checker=collision_checker
         self.policy=policy
         self.last_search={}
-        self.q = qmc.scale(qmc.Halton(d=4, scramble=True, seed=seed).random(candidates), camera_model.lower, camera_model.upper)
-        self.poses = np.array([camera_model.camera_pose(q) for q in self.q])
+        bounds = np.column_stack([camera_model.lower, camera_model.upper]) if operating_bounds is None else np.asarray(operating_bounds, float)
+        if (bounds.shape != (4, 2) or not np.isfinite(bounds).all() or np.any(bounds[:, 0] > bounds[:, 1])
+                or np.any(bounds[:, 0] < camera_model.lower-1e-9) or np.any(bounds[:, 1] > camera_model.upper+1e-9)):
+            raise ValueError('operating bounds exceed the calibrated camera model')
+        self.operating_bounds = bounds.copy()
+        samples = qmc.Halton(d=4, scramble=True, seed=seed).random(candidates)
+        self.q = samples*(bounds[:, 1]-bounds[:, 0])+bounds[:, 0]
+        poses = []
+        for q in self.q:
+            if cancelled():
+                raise InterruptedError('view planning cancelled')
+            poses.append(camera_model.camera_pose(q))
+        self.poses = np.array(poses)
         z=1-2*(np.arange(96)+.5)/96
         azimuth=np.arange(96)*np.pi*(3-np.sqrt(5))
         self.surface_directions=np.column_stack([np.sqrt(1-z*z)*np.cos(azimuth),np.sqrt(1-z*z)*np.sin(azimuth),z])
 
-    def choose(self, observed_base, current_q, accepted_poses, attempted_q):
+    def choose(self, observed_base, current_q, accepted_poses, attempted_q, *, cancelled=lambda: False):
         points = _points(observed_base)
         if len(points) < 3 or not accepted_poses:
             return None
@@ -216,7 +228,7 @@ class ViewPlanner:
         angle = np.degrees(np.arccos(np.clip(direction @ seen.T, -1, 1)))
         novelty = angle.min(axis=1)
         usable &= (novelty >= (8. if self.policy=='information' else 4.)) & (novelty <= 42.)
-        span = self.model.upper-self.model.lower
+        span = np.maximum(self.operating_bounds[:, 1]-self.operating_bounds[:, 0], 1e-9)
         tried = np.asarray(attempted_q)
         for q in tried:
             usable &= np.linalg.norm((self.q-q)/span, axis=1) > .025
@@ -247,6 +259,8 @@ class ViewPlanner:
         else:
             score=novelty-8*motion-5*np.linalg.norm(normalized,axis=1)
         for chosen in ids[np.argsort(-score[ids])]:
+            if cancelled():
+                raise InterruptedError('view planning cancelled')
             if not self.collision_checker.configuration_free(self.q[chosen]):
                 self.last_search['unsafe_endpoints']+=1;continue
             certificate=self.collision_checker.certify_segment(current_q,self.q[chosen])
@@ -258,6 +272,17 @@ class ViewPlanner:
                     'expected_visibility_gain':float(gain[chosen]),'path_certificate':certificate,
                     'feasible_candidates': len(ids), 'score': float(score[chosen])}
         return None
+
+    def coverage(self, points, poses):
+        """Directional probes describe viewpoint diversity, never unseen surface area."""
+        center = np.mean(np.percentile(_points(points), [5, 95], axis=0), axis=0)
+        seen = np.array([pose[:3, 3]-center for pose in poses])
+        seen /= np.maximum(np.linalg.norm(seen, axis=1)[:, None], 1e-9)
+        covered = np.clip((seen@self.surface_directions.T-.15)/.5, 0, 1).max(axis=0)
+        unseen = self.surface_directions[covered < .5]
+        return {'kind': 'view_direction_proxy', 'fraction': float(np.mean(covered >= .5)),
+                'unobserved_directions': unseen.tolist(), 'probe_count': len(covered),
+                'geometry_complete_claimed': False}
 
 
 def refine_joint_scan(model, frames, *, max_frames=24):

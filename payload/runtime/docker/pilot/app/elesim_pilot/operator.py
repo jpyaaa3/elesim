@@ -78,6 +78,7 @@ class OperatorDispatcher:
     def _view_snapshot(self) -> dict[str, Any]:
         host_state = self.service.refresh_host_state()
         service = {
+            "object_scan": getattr(self.service, "object_scan", {}),
             "arm_trajectory": getattr(self.service, "arm_trajectory", {}),
             "current_host_state": host_state,
             "has_client": self.service.has_client(),

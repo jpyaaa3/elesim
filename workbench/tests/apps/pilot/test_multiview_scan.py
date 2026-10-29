@@ -11,6 +11,17 @@ from elesim_pilot.vision.partial_cloud import ArmCameraModel
 from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
 
 
+def test_view_candidates_respect_operating_cap_and_a_locked_joint():
+    root = Path(__file__).resolve().parents[4]/'payload/data'
+    model = ArmCameraModel(root/'models/arm/default.json',
+        root/'calibration/cameras/zed_mini.hand_eye.json')
+    bounds = np.array([[-.10, -.05], [0., 0.], [-.2, .2], [-.2, .2]])
+    planner = ViewPlanner(model, collision_checker=ArmSelfCollision(root/'models/planning/zed-mini'),
+        candidates=100, operating_bounds=bounds)
+    assert np.all(planner.q >= bounds[:, 0]) and np.all(planner.q <= bounds[:, 1])
+    assert np.all(planner.q[:, 1] == 0.)
+
+
 def corner(seed=9):
     rng = np.random.default_rng(seed)
     faces = []

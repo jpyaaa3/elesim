@@ -1017,6 +1017,9 @@ def _validate_registered_payload(message_type: str, payload: object) -> dict[str
             _identifier(raw.get("lease_id"), name=f"{message_type} lease_id")
         if "reason" in raw:
             _text(raw.get("reason"), name=f"{message_type} reason", maximum=512)
+    if message_type == "presentation_target":
+        _identifier(raw.get("robot_id"), name="presentation Robot ID")
+        _identifier(raw.get("robot_boot_id"), name="presentation Robot boot ID")
     if message_type == "lease_granted":
         _identifier(raw.get("pilot_id"), name="lease_granted pilot_id")
     if message_type in {"lease_revoked", "error"} and "reason" in raw:

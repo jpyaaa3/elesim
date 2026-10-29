@@ -318,6 +318,8 @@ class ConnectionManagerApplication:
                     "mode": self.gpu_mode,
                     "device": self.gpu_device if self.gpu_mode == "specific" else "",
                 }
+        if topology is not None and "ui" in set(topology.local_host.roles):
+            local_policies["ui"] = {"mode": "inherit", "device": ""}
         return {
             "schema_version": CONNECTION_SCHEMA_VERSION,
             "topology_exists": topology is not None,
@@ -614,8 +616,13 @@ class ConnectionManagerApplication:
                             "pilot_gpu_device": runtime_options.pilot_gpu_device,
                             "sim_gpu_inherit": runtime_options.sim_gpu_inherit,
                             "sim_gpu_device": runtime_options.sim_gpu_device,
+                            "ui_gpu_inherit": runtime_options.ui_gpu_inherit,
+                            "ui_gpu_device": runtime_options.ui_gpu_device,
                         }
                     )
+            if runtime_payload is not None and runtime_options.ui_gpu_inherit is None:
+                runtime_payload.pop("ui_gpu_inherit", None)
+                runtime_payload.pop("ui_gpu_device", None)
             self.job = ConnectionJob(
                 status="running",
                 action=action,
@@ -644,7 +651,18 @@ class ConnectionManagerApplication:
         with self._job_lock:
             return self.job.snapshot()
 
-    def runtime_status(self) -> dict[str, object]:
+    def runtime_hosts(self) -> dict[str, object]:
+        topology = self.load_topology(required=False)
+        return {
+            "available": topology is not None,
+            "hosts": [] if topology is None else [
+                {"host_id": host.host_id, "roles": list(host.roles),
+                 "state": "checking", "reachable": False, "inventory_ready": False}
+                for host in topology.hosts
+            ],
+        }
+
+    def runtime_status(self, host_id: str | None = None) -> dict[str, object]:
         """Read-only lifecycle status, kept separate from DDS discovery state."""
 
         topology = self.load_topology(required=False)
@@ -656,7 +674,13 @@ class ConnectionManagerApplication:
                 "reason": "runtime status provider is not configured",
                 "hosts": [],
             }
-        result = dict(self.status_provider(topology))
+        if host_id is not None and host_id not in {host.host_id for host in topology.hosts}:
+            raise ValueError("runtime status host is not in the saved topology")
+        per_host = getattr(getattr(self.status_provider, "__self__", None), "runtime_status_host", None)
+        result = dict(per_host(topology, host_id) if host_id is not None and callable(per_host)
+                      else self.status_provider(topology))
+        if host_id is not None:
+            result["hosts"] = [host for host in result.get("hosts", []) if host.get("host_id") == host_id]
         result.setdefault("available", True)
         return result
 
@@ -899,8 +923,13 @@ class ConnectionManagerRequestHandler(BaseHTTPRequestHandler):
                 "/api/job": self.server.application.job_snapshot,
                 "/api/runtime": self.server.application.runtime_status,
                 "/api/status": self.server.application.runtime_status,
+                "/api/runtime/hosts": self.server.application.runtime_hosts,
             }
             function = routes.get(parsed.path)
+            if parsed.path in {"/api/runtime", "/api/status"}:
+                host = urllib.parse.parse_qs(parsed.query).get("host", [None])[0]
+                if host is not None:
+                    function = lambda: self.server.application.runtime_status(host_id=host)
             if function is None:
                 self._json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
                 return

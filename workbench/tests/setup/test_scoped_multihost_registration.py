@@ -392,6 +392,37 @@ def test_prepare_defers_registration_and_start_persists_selected_options(tmp_pat
         assert sum(event == "launch" for event, host in events) == len(topology.hosts)
 
 
+@pytest.mark.parametrize('with_options', [True, False])
+def test_start_drops_saved_gpu_and_viewer_policies_for_a_role_moved_off_host(tmp_path, monkeypatch, with_options):
+    from elesim_connections.secure_deployment import RuntimeLaunchOptions
+    from elesim_setup.state import ComputeSettings
+    topology = _registration_topology(tmp_path, 'trusted-network')
+    release = _release(LOCAL_UUID, ('pilot', 'sim', 'ui'))
+    plans = _registration_plans(topology, release)
+    host, unit, instance, manifest, _, _ = plans[0]
+    previous = replace(instance,
+        endpoints=(*instance.endpoints, InstanceEndpoint('sim', 'sim-formerly-local')),
+        sim_id='sim-formerly-local',
+        role_compute={'pilot': ComputeSettings('cpu'), 'sim': ComputeSettings('specific', '1')},
+        viewer=True)
+    plans[0] = (host, unit, instance, manifest, previous, manifest)
+    events = []
+    operations = {host.host_id: _BootOperations(events) for host in topology.hosts}
+    runner = ConnectionDeploymentRunner(tmp_path/'authority', local_install_root=tmp_path/'local')
+    _patch_scoped_runner(runner, topology, plans, operations, monkeypatch)
+    monkeypatch.setattr(runner, '_report_runtime_readiness', lambda *args: None)
+    if with_options:
+        runner.set_runtime_launch_options(RuntimeLaunchOptions.from_payload({
+            'pilot_gpu_inherit': False, 'sim_gpu_inherit': True, 'viewer': False,
+        }))
+    runner(topology, 'start', lambda message: None)
+    registered = operations['local'].registered[-1]
+    assert set(registered.role_compute) == {'pilot'}
+    assert registered.role_compute['pilot'].gpu_mode == 'cpu'
+    assert not registered.viewer
+    assert ('launch', 'local') in events and ('launch', 'remote') in events
+
+
 def test_gpu_inventory_is_available_before_instance_registration(tmp_path, monkeypatch):
     topology = _registration_topology(tmp_path, "trusted-network")
     runner = ConnectionDeploymentRunner(tmp_path / "authority")

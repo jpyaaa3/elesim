@@ -48,6 +48,20 @@ Sim에는 ZED Mini `zed-mini`와 D435 `d435` immutable model bundle을 모두 �
 일반 사용자는 release context를 수동으로 조합하기보다 설치기가 생성한
 prefix/build context를 사용한다. 수동 build는 진단·릴리스 개발용이다.
 
+Pilot release는 `elesim-reconstruct`, `config/reconstruction.example.yaml`과
+Sim 자동 scan용 `config/scan.example.yaml`을 포함한다. 설치/release 생성은 두
+example의 arm/hand-eye asset 경로를 해당 data
+tree로 바꾸고 hash를 유지한다. 외부 model adapter와 checkpoint의 설치는
+명시적이다. 산출 scene bundle을 Sim host/container에서 읽을 수 있게 staging한 뒤
+`simulation.runtime.scene_manifest` 또는 `--scene-manifest`로 시작한다.
+이미 실행 중인 scene의 자동 교체와 multi-host 전송은 제공하지 않는다.
+자세한 계약과 실행 예시는 [`model_integration.md`](model_integration.md)를 따른다.
+
+Setup 갱신 후에도 등록된 instance의 immutable image pin은 유지한다. UI 기동 전
+graphics 점검은 해당 이미지가 지원하는 경우 실행한다. 구버전 UI 이미지에 점검
+기능이 없으면 미지원 로그를 남기고 기존 기동을 유지하며, 점검 기능이 있는
+이미지의 graphics 오류는 기동을 차단한다. 실제 GPU/display 수용시험은 별도다.
+
 ## 2. General Compose
 
 신규 General 설치는 install UUID에 예약된 읽기 쉬운 이름의 전용
@@ -282,7 +296,7 @@ and failed probes are not registration absence. Status is collected per unit:
 a mixed host with a missing container instance and a running native Robot is
 `degraded`, preserves the running Robot role, and reports the missing unit.
 
-Step 3 (`start`) captures the selected Pilot/Sim GPU policies and Sim Viewer
+Step 3 (`start`) captures the selected Pilot/Sim/UI GPU policies and Sim Viewer
 setting, then completes the existing all-host registration/security transaction
 before launch preflights or runtime startup. Unchanged stopped registrations are
 reused; changed settings use the explicit replacement transaction. Registration
@@ -290,13 +304,28 @@ failure cannot leave another host already booted. Explicit provision/rotation
 commands retain their existing transaction behavior. The UI keeps Start disabled
 until preparation and the subsequent inventory refresh complete.
 
-Instance schema v3 accepts optional `role_compute` (assigned Pilot/Sim policies)
+Instance schema v3 accepts optional `role_compute` (assigned Pilot/Sim/UI policies)
 and `viewer` (Sim only) fields. Older records retain their instance-wide compute
 policy and headless default. Registration wrappers accept per-role GPU flags and
 `--viewer`; generated services persist exact device reservations and Viewer mode.
 Viewer X11/GL preflight runs for every selected Sim before any host is launched;
 its temporary ACL is cleaned after preflight, on launch failure and on down.
 Both operator and runtime installations must be updated for these fields.
+
+UI rendering is independent of Pilot/Sim CUDA policy. Registration accepts
+`--ui-gpu-mode` / `--ui-gpu-device` and persists the choice in `role_compute.ui`.
+An existing field `ui-rendering.json` choice is imported without rewriting that
+file; an explicit instance choice wins. UI runs as the host UID/GID. Every UI
+launch performs X11/GL preflight before DDS startup, including actual vendor
+selection for NVIDIA. ACL cleanup removes only grants owned by that session.
+
+Status polling requests each host separately and presents completed hosts while
+others are pending. Recent preparation inventory is reused for 30 seconds;
+status commands have a 20-second SSH budget. A DDS readiness probe retries
+transient transport failures up to three times within its five-minute budget.
+A negative report gets one fresh five-second check before rollback. A probe
+transport exception is reported separately from missing DDS heartbeats. A
+successful launch transaction does not claim Sim scene/media readiness.
 
 Runtime `start`/`check` validate installed security material without requiring
 the manager session to write the security root. Its local scoped-instance view

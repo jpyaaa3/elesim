@@ -89,11 +89,19 @@ def load_config(path: str | Path) -> UiConfig:
         )
     preview_left_topic = rgbd_left_preview_topic or rgbd_topic
     preview_right_topic = rgbd_right_topic
+    # An independent Robot view must not subscribe to the Pilot broker,
+    # whose RGB-D source follows the selected motion target.
+    robot_camera_topic = str(presentation.get("robot_camera_topic", "")).strip()
+    if robot_camera_topic:
+        robot_right_topic = str(presentation.get("robot_camera_right_topic", "")).strip()
+        if not robot_camera_topic.startswith("/") or (robot_right_topic and not robot_right_topic.startswith("/")):
+            raise ValueError(f"{source}: Robot camera topics must be absolute DDS topics")
+        preview_left_topic, preview_right_topic = robot_camera_topic, robot_right_topic
     if swap_zed_left_right:
-        if not rgbd_right_topic or not rgbd_left_preview_topic:
+        if not preview_right_topic or not preview_left_topic:
             raise ValueError(
                 f"{source}: presentation.zed_swap_left_right requires both "
-                "rgbd.wire.right_topic and rgbd.wire.left_preview_topic"
+                "left and right preview topics"
             )
         preview_left_topic, preview_right_topic = (
             preview_right_topic,

@@ -30,6 +30,7 @@ from .readable_names import (
 from .ownership import OwnershipManifest, append_docker_image_ownership
 from .releases import ReleaseManifest, publish_release, release_key, runtime_data_digest
 from .state import InstallState
+from .capabilities import require_payload_space
 
 
 _SOURCE_REVISION = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})\Z")
@@ -373,6 +374,7 @@ def publish_from_evidence(
         source_revision=source_revision,
     )
     install = ownership.install_uuid
+    require_payload_space(state.prefix_path, snapshot, purpose="immutable release publication")
     images = {role: values["image_reference"] for role, values in evidence.items()}
     image_ids = {role: values["image_id"] for role, values in evidence.items()}
     fingerprints = {role: values["build_fingerprint"] for role, values in evidence.items()}

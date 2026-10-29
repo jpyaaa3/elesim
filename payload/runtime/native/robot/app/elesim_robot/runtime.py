@@ -615,6 +615,10 @@ class RobotRuntime:
                 }
                 if sample.leg_q is not None:
                     result["go2"]["leg_q"] = list(sample.leg_q)
+                if sample.leg_dq is not None:
+                    result["go2"]["leg_dq"] = list(sample.leg_dq)
+                if sample.leg_torque_nm is not None:
+                    result["go2"]["leg_torque_nm"] = list(sample.leg_torque_nm)
         return result
 
 

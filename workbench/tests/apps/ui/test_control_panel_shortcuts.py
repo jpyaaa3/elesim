@@ -23,6 +23,8 @@ def keyboard(monkeypatch):
     monkeypatch.setattr(glfw, "get_window_attrib", lambda *_: glfw.TRUE)
     monkeypatch.setattr(glfw, "set_key_callback", lambda window, callback: callbacks.update({window: callback}))
     monkeypatch.setattr(glfw, "set_window_focus_callback", lambda window, callback: focus_callbacks.update({window: callback}))
+    for name in ("char", "scroll", "cursor_pos", "window_size"):
+        monkeypatch.setattr(glfw, f"set_{name}_callback", lambda *_: None)
     for window in ("main", "camera"):
         renderer = SimpleNamespace(io=SimpleNamespace(want_text_input=False),
                                    keyboard_callback=lambda *event: forwarded.append(event))
@@ -137,3 +139,51 @@ def test_respawn_button_uses_the_same_reset_and_motion_block(keyboard, monkeypat
     assert keyboard.resets == ["reset"]
     assert keyboard.panel._go2_respawn_blocked is True
     assert keyboard.panel._go2_was_active is False
+
+
+@pytest.mark.parametrize("kind", ["key", "char", "scroll", "cursor_pos", "window_size"])
+@pytest.mark.parametrize("failure", [False, True])
+def test_input_callback_selects_owner_context_and_restores_previous(monkeypatch, kind, failure):
+    panel = object.__new__(control_panel.ControlPanel)
+    current, callbacks, observed = ["camera"], {}, []
+    monkeypatch.setattr(control_panel.imgui, "get_current_context", lambda: current[0])
+    panel._set_imgui_context = lambda context: current.__setitem__(0, context)
+    panel._handle_respawn_key = lambda *args, **kwargs: None
+
+    def receive(*args):
+        observed.append(current[0])
+        if failure:
+            raise RuntimeError("input failed")
+
+    renderer = SimpleNamespace(io=SimpleNamespace(want_text_input=False),
+        keyboard_callback=receive, char_callback=receive, scroll_callback=receive,
+        mouse_callback=receive, resize_callback=receive)
+    for name in ("key", "char", "scroll", "cursor_pos", "window_size", "window_focus"):
+        monkeypatch.setattr(glfw, f"set_{name}_callback",
+            lambda window, callback, name=name: callbacks.__setitem__(name, callback))
+    panel._install_respawn_shortcut("camera-window", renderer)
+    current[0] = "main"
+    args = ("camera-window", glfw.KEY_A, 0, glfw.PRESS, 0) if kind == "key" else ("camera-window", 1)
+    if failure:
+        with pytest.raises(RuntimeError, match="input failed"):
+            callbacks[kind](*args)
+    else:
+        callbacks[kind](*args)
+    assert observed == ["camera"]
+    assert current[0] == "main"
+
+
+def test_camera_source_selection_preserves_control_target(monkeypatch):
+    panel = object.__new__(control_panel.ControlPanel)
+    control_changes, camera_changes = [], []
+    panel.service = SimpleNamespace(select_endpoint=control_changes.append)
+    panel._refresh_endpoints = lambda: None
+    panel._endpoint_cache = [{"endpoint_id": "sim-one", "role": "sim"}]
+    panel._sim_view = SimpleNamespace(zed_preview=object(), zed_right_preview=None,
+        state=SimpleNamespace(camera_source="zed"),
+        session=SimpleNamespace(snapshot=SimpleNamespace(requested_sim_id="sim-one"), switch_target=camera_changes.append))
+    monkeypatch.setattr(control_panel.imgui, "combo", lambda *args: (True, 1))
+    panel._draw_camera_selector()
+    assert camera_changes == ["sim-one"]
+    assert control_changes == []
+    assert panel._sim_view.state.camera_source == "sim"

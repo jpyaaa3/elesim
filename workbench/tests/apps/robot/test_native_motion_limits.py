@@ -66,8 +66,8 @@ extern "C" double probe_stalled_step(double elapsed) {
     return library
 
 
-def make_arm(path, *, safety=None):
-    arm = NativeArm("test-only-no-hardware", hardware=HardwareConfig(), mapping=SimMappingConfig(),
+def make_arm(path, *, safety=None, hardware=None):
+    arm = NativeArm("test-only-no-hardware", hardware=hardware or HardwareConfig(), mapping=SimMappingConfig(),
                     safety=safety or SafetyConfig(), library_path=path)
     lib = arm._library
     lib.fake_reset()
@@ -89,14 +89,16 @@ def test_torque_on_preloads_measured_hold_before_enabling_any_motor(controller_l
 
 
 @pytest.mark.parametrize("roll", [-0.3, 0.3])
-def test_roll_motor_polarity_matches_command_and_measured_feedback(controller_library, roll):
-    """Canonical positive Roll decreases raw ticks; feedback must invert it too."""
+@pytest.mark.parametrize("direction", [-1, 1])
+def test_roll_motor_polarity_matches_command_and_measured_feedback(controller_library, roll, direction):
+    """Configured Roll polarity must match native command and readback."""
     from types import SimpleNamespace
     from elesim_robot.runtime import RobotRuntime
 
-    arm, lib = make_arm(controller_library)
+    hardware = HardwareConfig(motor_direction=(1, direction, 1, -1))
+    arm, lib = make_arm(controller_library, hardware=hardware)
     try:
-        assert arm.direction[2] == -1
+        assert arm.direction[2] == direction
         arm.torque_on_all()
         start = lib.fake_read(2, 116)
         arm.command_q((-0.1, roll, 0.0, 0.0))
@@ -105,7 +107,7 @@ def test_roll_motor_polarity_matches_command_and_measured_feedback(controller_li
         while goal == start and time.monotonic() < deadline:
             time.sleep(0.01)
             goal = lib.fake_read(2, 116)
-        assert (goal - start) * roll < 0
+        assert (goal - start) * roll * direction > 0
 
         # Feed back the SDK goal as a measured encoder sample through the
         # production telemetry conversion, without moving a physical motor.
@@ -117,7 +119,8 @@ def test_roll_motor_polarity_matches_command_and_measured_feedback(controller_li
         runtime = SimpleNamespace(hw=arm, mapping=SimMappingConfig())
         snapshot = RobotRuntime._arm_snapshot_from_native(runtime, sample)
         assert snapshot.q.roll_rad * roll > 0
-        expected = ((4095 - goal) / 4095.0 - 0.5) * math.pi
+        canonical_ticks = goal if direction > 0 else 4095 - goal
+        expected = (canonical_ticks / 4095.0 - 0.5) * math.pi
         assert snapshot.q.roll_rad == pytest.approx(expected)
     finally:
         arm.close()

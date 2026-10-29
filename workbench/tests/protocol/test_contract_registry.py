@@ -21,6 +21,17 @@ def test_robot_presentation_extends_telemetry_without_a_new_wire_shape() -> None
     }).raw["q_source"] == "measured"
 
 
+def test_presentation_route_has_no_motion_authority_and_requires_exact_boot():
+    contract = DDS_CONTRACTS["presentation_target"]
+    assert contract.sender_roles == ("pilot",)
+    assert contract.receiver_roles == ("sim",)
+    assert validate_routed_payload("presentation_target", {"robot_id": "robot-a", "robot_boot_id": "boot-a"})
+    for invalid in ({"robot_id": "robot-a"}, {"robot_id": "robot-a", "robot_boot_id": ""},
+                    {"robot_id": "robot-a", "robot_boot_id": "boot-a", "q": [0] * 4}):
+        with pytest.raises(ProtocolError):
+            validate_routed_payload("presentation_target", invalid)
+
+
 @pytest.mark.parametrize("message_type", ("release_target", "renew_target", "renew_simulation_session"))
 def test_empty_authority_renewals_reject_accidental_fields(message_type: str) -> None:
     with pytest.raises(ProtocolError):

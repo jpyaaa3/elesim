@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import platform
 import re
+import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -12,6 +13,28 @@ from typing import Callable, Mapping, Sequence
 
 
 CommandOutput = Callable[[tuple[str, ...]], str]
+
+
+def require_free_space(destination: Path, *, required_bytes: int, purpose: str) -> None:
+    """Check the destination filesystem before creating a copy or backup."""
+    parent = destination.absolute()
+    while not parent.exists() and parent != parent.parent:
+        parent = parent.parent
+    available = shutil.disk_usage(parent).free
+    if available < required_bytes:
+        raise OSError(
+            f"Insufficient free space for {purpose} at {destination}: "
+            f"{available / 2**20:.0f} MiB available, {required_bytes / 2**20:.0f} MiB required. "
+            "Free space on this filesystem and retry."
+        )
+
+
+def require_payload_space(destination: Path, source: Path, *, purpose: str) -> None:
+    size = sum(path.stat().st_size for path in source.rglob("*")
+               if path.is_file() and not path.is_symlink())
+    require_free_space(destination, required_bytes=512 * 2**20 + 2 * size, purpose=purpose)
+
+
 _GPU_LINE = re.compile(
     r"^GPU\s+(?P<index>\d+):\s+(?P<name>.+?)\s+\(UUID:\s*(?P<uuid>[^)]+)\)\s*$"
 )

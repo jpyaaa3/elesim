@@ -10,6 +10,7 @@ _EXPORTS = {
     "draw_resolution_panel": "live_visual_status",
     "draw_imu_model_panel": "imu_models",
     "draw_floor_calibration_panel": "floor_calibration",
+    "draw_object_scan_panel": "object_scan",
     "draw_status_panel": "live_visual_status",
 }
 
@@ -21,6 +22,7 @@ __all__ = [
     "draw_mock_object_panel",
     "draw_perception_panel",
     "draw_imu_model_panel",
+    "draw_object_scan_panel",
     "draw_resolution_panel",
     "draw_status_panel",
 ]

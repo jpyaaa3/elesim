@@ -4,4 +4,8 @@ set +u
 source /opt/ros/humble/setup.bash
 source /opt/elesim/ros/install/setup.bash
 set -u
+if [[ ${1:-} == --elesim-ui-preflight ]]; then
+  (( $# == 1 )) || { printf 'UI preflight accepts no arguments.\n' >&2; exit 64; }
+  exec python3 -m elesim_ui.graphics
+fi
 exec elesim-ui --config /opt/elesim/config/installed.yaml "$@"

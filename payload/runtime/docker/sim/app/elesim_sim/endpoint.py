@@ -12,6 +12,7 @@ from elesim_protocol import (
     CAPABILITY_MOTION_ARM,
     CAPABILITY_MOTION_GO2,
     CAPABILITY_ROBOT_STATE_MIRROR,
+    CAPABILITY_PRESENTATION_TARGET,
     CAPABILITY_SIM_MOCK_HUG,
     CAPABILITY_STREAM_HAND_EYE_PREVIEW,
     CAPABILITY_STREAM_OBSERVER,
@@ -103,8 +104,12 @@ class SimEndpoint:
         self.streams = dict(streams)
         self.settings = settings
         self.mirror_robot_id = str(mirror_robot_id).strip()
+        self._configured_mirror_robot_id = self.mirror_robot_id
         self._mirror_boot_id = ""
         self._mirror_seq = -1
+        self._mirror_expected_boot = ""
+        self._mirror_pilot = None
+        self._mirror_route_seq = -1
         self.operator_mailbox = operator_mailbox or SimulationOperatorMailbox()
         self.webrtc_offer_handler = webrtc_offer_handler
         self.webrtc_session_close_handler = webrtc_session_close_handler
@@ -306,6 +311,29 @@ class SimEndpoint:
 
     def _handle_envelope(self, client: Any, message: Envelope) -> None:
         message_type = message.message_type
+        if message_type == 'presentation_target':
+            pilot = client.node.resolve(message.source_id)
+            payload = message.payload or {}
+            robot_id = str(payload.get('robot_id', ''))
+            robot = client.node.resolve(robot_id) if robot_id else None
+            if (message.target_id != self.endpoint_id
+                    or (self._configured_mirror_robot_id and robot_id != self._configured_mirror_robot_id)
+                    or pilot is None or pilot.descriptor.role != 'pilot'
+                    or pilot.identity.boot_id != message.source_boot_id
+                    or robot is None or robot.descriptor.role != 'robot'
+                    or robot.identity.boot_id != payload.get('robot_boot_id')):
+                return
+            if self._mirror_pilot == pilot.identity and message.seq <= self._mirror_route_seq:
+                return
+            changed = (self.mirror_robot_id, self._mirror_expected_boot) != (robot_id, robot.identity.boot_id)
+            self._mirror_pilot = pilot.identity
+            self._mirror_route_seq = message.seq
+            self.mirror_robot_id = robot_id
+            self._mirror_expected_boot = robot.identity.boot_id
+            if changed:
+                self._mirror_boot_id = ''
+                self._mirror_seq = -1
+            return
         if message_type == "telemetry":
             self._mirror_robot_state(client, message)
             return
@@ -351,6 +379,7 @@ class SimEndpoint:
                 self.revoke_simulation_session()
             return
         if message_type == "motion_command":
+            self._select_discovered_robot(client)
             ok, reason = self._apply_motion(message)
             self._diagnostic(
                 "motion",
@@ -375,12 +404,18 @@ class SimEndpoint:
         if message_type == "webrtc_signal":
             self._handle_webrtc_offer(client, message)
 
+    def _select_discovered_robot(self, client: Any) -> None:
+        if not self.mirror_robot_id:
+            robots = sorted(client.node.discover(role='robot'), key=lambda p: p.identity.endpoint_id)
+            if robots:
+                self.mirror_robot_id = robots[0].identity.endpoint_id
+
     def _mirror_robot_state(self, client: Any, message: Envelope) -> None:
+        self._select_discovered_robot(client)
         if (
             not self.mirror_robot_id
             or message.source_id != self.mirror_robot_id
             or message.target_id != self.endpoint_id
-            or self.active_lease
         ):
             return
         peer = client.node.resolve(self.mirror_robot_id)
@@ -389,6 +424,7 @@ class SimEndpoint:
             or peer.descriptor.role != "robot"
             or not message.source_boot_id
             or message.source_boot_id != peer.identity.boot_id
+            or (self._mirror_expected_boot and message.source_boot_id != self._mirror_expected_boot)
         ):
             return
         if message.source_boot_id == self._mirror_boot_id and message.seq <= self._mirror_seq:
@@ -473,6 +509,8 @@ class SimEndpoint:
         return True, "accepted"
 
     def _apply_motion(self, message: Envelope) -> tuple[bool, str]:
+        if self.mirror_robot_id:
+            return False, 'robot_present_sim_is_presentation_only'
         payload = dict(message.payload or {})
         command = str(payload.get("command", ""))
         ok, reason = self._validate_motion(message, allow_estop=command == "estop")
@@ -817,8 +855,8 @@ class SimEndpoint:
             CAPABILITY_MOTION_GO2,
             CAPABILITY_SIM_MOCK_HUG,
         ]
-        if self.mirror_robot_id:
-            capabilities.append(CAPABILITY_ROBOT_STATE_MIRROR)
+        capabilities.append(CAPABILITY_ROBOT_STATE_MIRROR)
+        capabilities.append(CAPABILITY_PRESENTATION_TARGET)
         if "rgbd" in self.streams:
             capabilities.append(CAPABILITY_STREAM_RGBD)
         if "observer" in self.streams:

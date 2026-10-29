@@ -4,7 +4,7 @@
     "source_assets_sha256": "f56fb5911392e8a7ae4f19b0b6df4fc924586b690d145d970b1e97d26ae1cb02",
     "use_go2": true
   },
-  "bundle_id": "8e3b2da77acbe514e24cfafadaa986d710e001c7b18fc3a7554cd29865d262d8",
+  "bundle_id": "a70454b636709f1641889dc3af9d83c70a8fb125dea90df399a4a2d411d7069d",
   "bundle_type": "elesim.sim-model",
   "entrypoints": {
     "arm_urdf": "arm.urdf",
@@ -13,8 +13,8 @@
   },
   "files": {
     "arm.urdf": {
-      "sha256": "d0ac25d7b2045adf03bef594d3b7e1c48f6de97ce39c95d1365799c1b424b62c",
-      "size": 14239
+      "sha256": "e314b8b31ef3415fa5f93b3b324ae1a295393929a89e5770927db47ad93c66a4",
+      "size": 14246
     },
     "assets/camera/camera_frame.json": {
       "sha256": "7d347b795114e87af2ee4cbe7217a19e032554c70e7ce65dd2cfba9a3045ff10",
@@ -161,12 +161,12 @@
       "size": 272
     },
     "blueprint.json": {
-      "sha256": "173610731dfb494cc5f6e6c28f92e29449036d784f34ea7412af34ab531e99d3",
-      "size": 14400
+      "sha256": "2a508ef9e7f1642b1b83f804ed63fbf649987500ef844a263d80b0f0f4457b0e",
+      "size": 14415
     },
     "robot.urdf": {
-      "sha256": "b302912aea96f42287071f882f571e713c4a9e0aa92e06fc0545bed1c3e5c941",
-      "size": 34606
+      "sha256": "ba8cb3d8eeea9f38d11735b13f0d2d715c9de399cce1100d7913a03df759257e",
+      "size": 34613
     }
   },
   "schema_version": 1

@@ -26,11 +26,36 @@ installed prefix
   └─ secrets/ and logs/runs/
 ```
 
-설치 상태 schema v11은 `roles`와 `assigned_roles`를 구분한다. `roles`는 이
+설치 상태 schema v12는 `roles`와 `assigned_roles`를 구분한다. `roles`는 이
 prefix에 설치되어 언제든 실행할 수 있는 역할 목록이다. `assigned_roles`는 현재
 connection topology가 이 host에 배정한 부분집합이며, 값이 `null`이면 독립 설치의
 기존 동작대로 설치된 역할 전체를 사용한다. 토폴로지를 다시 배치해도 role image,
 config source와 설치 ownership은 삭제하거나 다시 만들지 않는다.
+
+v12의 `robot_host`는 native Robot의 서비스 사용자, bridge 사용자, Unitree
+workspace·NIC·domain을 저장한다. 구형 설치는 installed Robot YAML에서 이관하며
+`elesim-net configure`는 arm/mapping/safety 및 장치 보정을 보존한다. 원자적 YAML
+교체는 기존 mode와 POSIX ACL을 함께 보존한다. `ui_compute`는 UI 렌더링 선택이며
+기존 `maintenance/ui-rendering.json`의 software/nvidia 값을 읽어 이관한다.
+
+새 설치의 EleSim DDS domain은 1, stock Unitree link domain은 0이다. Unitree
+NIC는 호스트가 선택한 private 유선 인터페이스여야 하며 EleSim interface와
+분리한다. 기존 저장 domain은 자동 전환하지 않는다. 변경 시 모든 EleSim 역할을
+같은 domain으로 재구성하고 Unitree domain과 분리해야 한다.
+
+리니어 기본값은 **1.5°/mm, 최대 260° = 173.333333 mm**다.
+`linear_u_max`와 `linear_u_limit`는 모두 260이며 canonical q 범위는
+`[-0.17333333333333334, 0]` m다. 더 작은 운용 상한은 환산비를 유지하며
+q 범위를 줄인다. 모델과 설정은 같은 release에서 함께 배포한다.
+
+재구성 모델은 Pilot의 `reconstruction.example.yaml`을 복사해 별도로 구성한다.
+Sim 자동 scan은 `scan.example.yaml`을 사용하며 Pilot의 `--scan-models`로 바꾼다.
+시작·취소·진행 상태는 UI의 `Object Scan (Sim)`에서 제공한다.
+Schema 1의 각 stage는 `factory: module:callable`, `options`, SHA-256이 있는
+`assets`를 갖는다. Sim의 `simulation.runtime.scene_manifest`는 기본 빈 문자열이며
+선택한 `scene.json`을 scene build 전에 읽는다. 상대 경로는 Sim YAML 기준이다.
+이 필드는 DDS의 원격 파일 업로드 경로가 아니다. 계약과 교체 방법은
+[`model_integration.md`](model_integration.md)를 참조한다.
 
 Source config는 설치 중 복사되며 installed config를 수정해도 source default로
 되돌아가지 않는다. generated files를 직접 편집한 뒤 `elesim-update`하면
@@ -156,16 +181,18 @@ canonical q 목표 변화율 상한이다. 기본값은 각각 0.02 m/s, 0.35 ra
 340°/230°다. 두 값은 서로 달라야 하며 230–340° 범위 안이어야 한다.
 UI Gripper 표시는 연결된 Robot의 측정 상태가 있으면 그 값을 사용한다.
 
-Sim의 runtime YAML에서 `runtime.mirror_robot_id: robot-go2`처럼 실제 Robot
-endpoint ID를 지정한다. 기본값 `""`는 동기화를 끈다. 같은 DDS graph의
-Robot이 측정 telemetry를 직접 보내며, Sim은 해당 Robot의 살아 있는 boot와
-증가하는 sequence만 받아 마지막 자세를 교체한다. 연결이 끊기면 마지막
-자세를 유지하고, Sim 자체의 motion lease가 활성일 때는 그 제어가 우선한다.
-`simulation.runtime.use_hardware`를 켜거나 Robot 토크를 켤 필요는 없다.
-이 설정은 GO2 보행 controller를 켜지 않는다. GO2 측정 자세도 표시하려면
-별도로 `mirror_from_host`와 GO2 렌더링 구성을 사용한다.
-기존 SROS2 설치에는 Robot → Sim control topic publish 권한을 포함한
-정책 generation을 정상 rotation 절차로 적용해야 한다.
+Sim은 Robot discovery 뒤 실측 표시 전용으로 동작하며 Pilot이 선택한 Robot
+ID/boot를 capability 협상으로 전달한다. `runtime.mirror_robot_id`는 명시적
+고정값이고 빈 값은 discovery 기반 선택이다. Robot 상실 시 마지막 자세를
+유지하며 Sim motion으로 대체하지 않는다. GO2의 q/dq/추정 토크도 실측 필드로
+전달한다. SROS2 사용 시 Robot → Sim control/RGB-D 권한을 포함한 generation을
+정상 rotation 절차로 적용한다.
+
+UI generated config의 `presentation.robot_camera_topic`와
+`robot_camera_right_topic`은 해당 system/Robot endpoint의 source topic이다.
+Control Target과 Camera View는 따로 선택한다. `zed_swap_left_right`와 hand-eye 180° 보상은 표시 변환이며 Robot 원본이나 Pilot 관측을 바꾸지 않는다.
+Hardware 표는 모터 ID 1–5를 축에 대응시키며 Gripper mA는 실제 전류 필드가 있을
+때만 표시한다. Gripper load는 별도 단위/필드로 유지한다.
 
 ## 3. Topology 필드
 
@@ -216,7 +243,10 @@ viewer:
   host index를 다시 CVD로 재적용하지 않는다.
 - `cpu`: GPU request를 만들지 않고 Sim Genesis backend/encoder를 CPU로 한다.
 
-Pilot과 Sim policy는 독립적이다. Viewer는 기본 headless이며 `--view`와 검증된
+Pilot·Sim·UI policy는 독립적이다. UI의 `cpu`는 software GL, `inherit`와
+`specific`은 NVIDIA GL이며 Connections의 UI GPU 선택으로 instance에 저장한다.
+UI는 host UID/GID로 실행하고 X11 ACL과 hidden GL context/renderer를 시작 전에
+확인한다. NVIDIA 선택 시 다른 GL vendor로 조용히 대체하지 않는다. Viewer는 기본 headless이며 `--view`와 검증된
 X11 display/user가 있어야 한다. 원격 SSH username과 X11 session owner가 다르면
 manager가 시작을 거부한다.
 

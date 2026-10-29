@@ -231,8 +231,8 @@ class InstanceState:
                 raise ValueError("instance gpu_device is valid only in specific mode")
         if type(self.compute_is_explicit) is not bool:
             raise ValueError("compute_is_explicit must be boolean")
-        if not isinstance(self.role_compute, Mapping) or set(self.role_compute) - ({e.role for e in self.endpoints} & {"pilot", "sim"}):
-            raise ValueError("role_compute must contain only assigned Pilot/Sim roles")
+        if not isinstance(self.role_compute, Mapping) or set(self.role_compute) - ({e.role for e in self.endpoints} & {"pilot", "sim", "ui"}):
+            raise ValueError("role_compute must contain only assigned Pilot/Sim/UI roles")
         for policy in self.role_compute.values():
             if not isinstance(policy, ComputeSettings):
                 raise ValueError("role_compute values must be ComputeSettings")

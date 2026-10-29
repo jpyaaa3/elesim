@@ -22,7 +22,14 @@ It preserves all collision pairs; it does not disable collision checks. The
 adapter rejects the unpatched version or serial fallback. CUDA graphs use fixed
 solver shapes; variable-size path validation uses separate buffers.
 
-From the source checkout on Jetson:
+Normal Jetson GPU Pilot releases now build this pinned backend in the generated
+Docker context, including the checked EleSim patch, CUDA 12.6 compiler/development
+libraries and cuSolver 11.7.1.2 compatibility DSO. BuildKit checks imports and
+linkage without a GPU; a runtime CUDA SVD probe fails early on a cuSolver ABI
+mismatch. Live planning/rendering still needs an Orin runtime check.
+
+For a separate offline development venv, from the source checkout on Jetson:
+
 
 ```bash
 bash workbench/tools/setup_curobo_jetson.sh "$HOME/elesim/roles/pilot"
@@ -36,18 +43,9 @@ venv before starting a runtime. Existing ROS/DDS setup is still required for a
 live Pilot; the offline planner does not initialize DDS. The optional positional
 argument selects another Pilot role root for nonstandard installations.
 
-For the Jetson installation rooted at `/home/idim/elesim`, launch Pilot with its
-role-local interpreter and configs after sourcing the installed ROS interfaces:
-
-```bash
-source /home/idim/elesim/ros/install/setup.bash
-/home/idim/elesim/roles/pilot/venv/bin/python -u -m elesim_pilot.main \
-  --config /home/idim/elesim/roles/pilot/config/installed.yaml \
-  --runtime-config /home/idim/elesim/roles/pilot/config/runtime.installed.yaml
-```
-
-Stop an older Pilot process before launching this one so the duplicate endpoint
-does not create DDS identity ambiguity.
+Live Pilot uses the generated Docker release and registered instance lifecycle.
+The offline venv above is a development tool; it does not replace that runtime
+installation or its DDS/security setup.
 
 ## Shared model
 
@@ -56,7 +54,7 @@ does not create DDS identity ambiguity.
 - A mesh-independent URDF with exactly four independent axes. The remaining
   eight bend joints mimic their section's master with multiplier 1. Per-node
   angle is preserved, rather than dividing it by five again.
-- The same Linear operating bounds `[-0.230, 0]` m, roll and bend limits as the
+- The same Linear operating bounds `[-0.17333333333333334, 0]` m, roll and bend limits as the
   generated Pilot IK model. Velocity caps come from Robot's shipped YAML.
 - Collision spheres generated from the collision meshes and origins in the
   existing Genesis arm URDF. Body meshes use filled 30 mm voxels enclosed by
@@ -282,7 +280,7 @@ After operator Torque-OFF confirmation, mode 4→3 changed raw 6139→2043 while
 Homing Offset remained 0 and Torque remained OFF. No encoder zero/EEPROM offset
 or motion command was written. The original posture discrepancy remains
 unproven; mode restoration is not acceptance of physical pose/FK calibration.
-Linear 259°, its model artifacts, Ghost, gripper and speed changes are retained.
+That historical mode correction retained the then-current Linear mapping. The current mapping is the October 28 decision below; Ghost, gripper and speed behavior are retained.
 
 
 Planning from measured endpoints allows only a small seed projection at the
@@ -307,13 +305,22 @@ all original waypoints. Previewing does not change collision geometry, measured
 Robot/Sim posture, hand-eye images, or verify a live obstacle map.
 
 
-Linear calibration update (2026-10-27): the operator selected the `oct27`
-policy's 230 mm stroke. Robot/Pilot/Sim/UI defaults, ZED Mini and D435 bundles,
-IK/cuRobo artifacts and RL use q in `[-0.230, 0]` m. Motor/display endpoints stay
-at 0–259°, paired linearly with that stroke; the earlier 1.5°/mm scale is
-superseded. Display-angle presets are preserved. Existing deployments need
-matching configuration and regenerated model artifacts together; changing the
-repository does not update an installed or running role.
+Linear calibration update (2026-10-28): **1.5° = 1 mm, max 260°**, or
+`q in [-260/1500, 0]` m. This replaces the previous 259°/230 mm mapping and field
+199° cap. Configuration, IK and planning artifacts must be deployed together.
+The exported oct27 policy/manifest remain byte-identical; the Pilot runner
+intersects its output limits with deployment limits without coordinate scaling.
+
+World objects, including target spheres, are converted with
+`WorldConfig.get_collision_check_world()` for initial, IK and path queries so
+the selected collision checker receives them. Trajectory optimization adds a
+2 mm soft self-collision margin per sphere; hard and independent interpolated
+path validators retain the original geometry. A plan has up to 12 attempts,
+120 seconds, graph fallback from attempt 2 and an external 180-second stage
+watchdog. `[curobo-path]` reports attempts, graph/trajopt/finetune time, query
+validity and result. The default object target is `(0.2976, 0.1682, 0.2901)` m;
+the Wrap tree center `(0.368, 0.16, 0.55)` m is separate. The historical
+141-waypoint success used a different target and is not proof of this query.
 
 
 ### Measured feedback during execution

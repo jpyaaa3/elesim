@@ -161,7 +161,7 @@ class DdsRuntimeSettings:
     """
 
     system_id: str = "elesim"
-    domain_id: int = 0
+    domain_id: int = 1
     rmw_implementation: str = "rmw_cyclonedds_cpp"
     discovery_mode: str = "multicast"
     static_peers: tuple[str, ...] = ()
@@ -244,7 +244,7 @@ class DdsRuntimeSettings:
             )
         return cls(
             system_id=os.environ.get("ELESIM_SYSTEM_ID", "elesim"),
-            domain_id=os.environ.get("ROS_DOMAIN_ID", "0"),
+            domain_id=os.environ.get("ROS_DOMAIN_ID", "1"),
             rmw_implementation=os.environ.get(
                 "RMW_IMPLEMENTATION", "rmw_cyclonedds_cpp"
             ),
@@ -289,7 +289,7 @@ class DdsRuntimeSettings:
             raise ValueError("DDS static_peers must be a list")
         return cls(
             system_id=str(raw.get("system_id", "elesim")),
-            domain_id=raw.get("domain_id", 0),
+            domain_id=raw.get("domain_id", 1),
             rmw_implementation=str(
                 raw.get("rmw_implementation", "rmw_cyclonedds_cpp")
             ),

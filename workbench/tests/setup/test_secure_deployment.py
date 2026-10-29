@@ -1342,6 +1342,10 @@ def test_managed_command_timeout_keeps_build_and_lifecycle_limits_separate() -> 
         == 2
     )
     assert _command_timeout(("elesim-net", "show"), 2) == 2
+    assert _command_timeout(("elesim-net", "show"), 120) == 20
+    assert _command_timeout(("elesim-status",), 120) == 20
+    assert _command_timeout(("elesim-instance", "lab", "status"), 120) == 20
+    assert _command_timeout(("elesim-net", "doctor", "--timeout", "300", "--expect-peer", "status"), 120) == 360
 
 
 def test_local_runtime_launcher_is_forwarded_to_the_host_helper(
@@ -2883,7 +2887,7 @@ def test_scoped_verify_uses_instance_turn_mode_for_coturn_readiness(
         lambda *args, **kwargs: {
             "dds": {
                 "system_id": "lab",
-                "domain_id": 0,
+                "domain_id": topology.dds_graph.domain_id,
                 "rmw_implementation": "rmw_cyclonedds_cpp",
                 "discovery_mode": "static",
                 "static_peers": ["100.64.0.2", "100.64.0.1"],

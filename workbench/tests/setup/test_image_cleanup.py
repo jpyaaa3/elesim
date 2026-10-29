@@ -124,6 +124,33 @@ def collect(state):
     return image_cleanup.collect(state["prefix"], docker=state["docker"])
 
 
+def test_current_tools_image_in_inactive_profile_is_protected(scenario):
+    tag = f"elesim/tools:{INSTALL.replace('-', '')}-{'e' * 64}"
+    image = "sha256:" + "f" * 64
+    scenario["images"][image] = {"Id": image, "RepoTags": [tag], "Config": {"Labels": {
+        "io.elesim.install_uuid": INSTALL,
+        "com.docker.compose.project": project_name(INSTALL),
+        "io.elesim.build_fingerprint": "e" * 64,
+    }}}
+    path = scenario["prefix"] / "install-ownership.json"
+    owner = OwnershipManifest.load(path)
+    path.write_text(json.dumps(replace(owner, docker=replace(
+        owner.docker, local_images=(*owner.docker.local_images, tag),
+    )).to_dict()))
+    original = scenario["docker"]
+
+    def docker(context, *args):
+        value = original(context, *args)
+        if args[0] == "compose" and args[-2:] == ("config", "--images") and "--profile" in args:
+            return value + "\n" + tag
+        return value
+
+    scenario["docker"] = docker
+    collect(scenario)
+    assert image in scenario["images"]
+    assert tag not in scenario["removed"]
+
+
 def register_system(state, release, *, system="experiment", endpoints=None):
     directory = state["prefix"] / "instances" / system
     directory.mkdir()

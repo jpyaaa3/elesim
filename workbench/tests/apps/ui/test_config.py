@@ -20,7 +20,7 @@ def test_default_ui_config_binds_dds_to_loopback_trust_domain() -> None:
     assert config.dds.security_profile == "trusted-network"
     assert config.rgbd_topic == "/elesim/pilot_main/rgbd/left_preview"
     assert config.rgbd_right_topic == "/elesim/pilot_main/rgbd/right"
-    assert config.show_zed_preview is False
+    assert config.show_zed_preview is True
 
 
 def test_public_ui_config_uses_static_sros2_profile() -> None:
@@ -42,3 +42,14 @@ def test_ui_can_swap_zed_preview_eyes_without_changing_source_topics(tmp_path) -
 
     assert config.rgbd_topic == "/elesim/pilot_main/rgbd/right"
     assert config.rgbd_right_topic == "/elesim/pilot_main/rgbd/left_preview"
+
+
+def test_robot_camera_source_is_independent_of_pilot_broker_and_still_swappable(tmp_path):
+    raw = yaml.safe_load((CONFIG_DIR / "default.yaml").read_text())
+    raw["presentation"].update(robot_camera_topic="/lab/robot_one/rgbd/frame",
+        robot_camera_right_topic="/lab/robot_one/rgbd/right", zed_swap_left_right=True)
+    path = tmp_path / "ui.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    config = load_config(path)
+    assert config.rgbd_topic == "/lab/robot_one/rgbd/right"
+    assert config.rgbd_right_topic == "/lab/robot_one/rgbd/frame"

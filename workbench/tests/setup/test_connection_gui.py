@@ -959,7 +959,7 @@ def test_application_validates_and_atomically_saves_mode_0600(tmp_path: Path) ->
     assert context["manager_transport"]["container_network_mode"] == "direct-host"
     assert context["runtime_options"] == {
         "gpu_inherit_available": True,
-        "gpu_policies": {"pilot": {"mode": "inherit", "device": ""}},
+        "gpu_policies": {"pilot": {"mode": "inherit", "device": ""}, "ui": {"mode": "inherit", "device": ""}},
     }
     assert context["derived_static_peers"]["compute"] == [
         "100.64.0.20",
@@ -992,7 +992,7 @@ def test_non_inherit_install_disables_and_rejects_gpu_override(
 
     assert app.context()["runtime_options"] == {
         "gpu_inherit_available": False,
-        "gpu_policies": {"pilot": {"mode": gpu_mode, "device": "GPU-test" if gpu_mode == "specific" else ""}},
+        "gpu_policies": {"pilot": {"mode": gpu_mode, "device": "GPU-test" if gpu_mode == "specific" else ""}, "ui": {"mode": "inherit", "device": ""}},
     }
     with pytest.raises(ValueError, match="inherit-mode installation"):
         app.start_job(

@@ -217,11 +217,12 @@ class YoloDetector:
             if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
                 continue
             mask = _extract_seg_mask(result, i, h, w, mask_threshold=float(self._mask_threshold))
+            mask_kind = "instance" if mask is not None else "bbox"
             if mask is None:
                 mask = _bbox_mask(h, w, bbox)
             if int(np.count_nonzero(mask)) < self._min_area:
                 continue
-            out.append(DetectionResult(mask=mask, bbox_xyxy=bbox, label=label, confidence=conf))
+            out.append(DetectionResult(mask=mask, bbox_xyxy=bbox, label=label, confidence=conf, mask_kind=mask_kind))
         out.sort(key=lambda d: float(d.confidence), reverse=True)
         return out
 

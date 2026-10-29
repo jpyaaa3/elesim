@@ -44,21 +44,29 @@ Robot과 Sim은 자기 motion lease의 유일한 authority다. Sim은 UI
 simulation session의 유일한 authority다. discovery, `ROS_DOMAIN_ID`, static
 peer는 이 권한을 부여하지 않는다.
 
-Sim의 선택적 `runtime.mirror_robot_id`는 지정 Robot의 측정 telemetry를
-직접 받아 팔 자세를 표시한다. 이 표시 경로는 motion lease를 만들거나
-Robot 명령을 보내지 않는다. Sim 자신의 motion lease가 있으면 그 제어가
-우선하며, Robot 연결이 끊기면 마지막 수신 자세를 유지한다.
-Robot mirror는 물리 step 뒤 실측 팔 자세와 GO2 몸통·다리 자세를 복원한 다음
-native viewer를 갱신한다. 팔 복원은 claw 보간을 한 번 더 진행하지 않는다.
-일반 Sim 제어로 전환하거나 reset하면 팔 mirror 복원을 해제한다.
-매 step 갱신과 주기 제한 갱신 모두 이 순서를 지켜, 물리 접촉·중력으로
-일시 변위된 본체나 팔이 렌더러에 남아 Ghost·현재 FK 목표와 어긋나 보이지 않도록 한다.
+Pilot은 발견한 Robot을 제어 대상으로 우선하며 네트워크 단절 뒤에도 그
+Robot을 기억한다. Robot을 잃었다고 Sim으로 자동 전환하지 않는다. Robot 없는
+graph에서는 Sim 제어가 가능하다. 측정 HostState와 마지막 명령 q는 별도로
+보관해 한 축을 조작할 때 다른 축의 목표가 측정 처짐으로 바뀌지 않게 한다.
+Target/boot/lease 변경, 토크 전환과 명령 거절은 명령 캐시를 폐기한다.
 
-Robot은 GO2 측정값을 `go2.position`, `go2.rpy`, `go2.leg_q`가 든 중첩
-telemetry object로 보낸다. Pilot은 이를 `HostState`의 GO2 필드로 정규화해
-사용한다. GO2 장착 팔의 IK와 계획 경로는 측정된 몸통 위치·방향으로 arm-base
-변환을 갱신하며, 다리 관절값은 Sim 자세 미러링과 계획 시 상태 확인에 사용한다.
-다리 각도만으로 arm-base의 월드 위치를 추정하지 않는다.
+Sim은 발견된 Robot의 측정 telemetry를 직접 표시한다. Pilot은
+`presentation.target.v1`을 광고한 Sim에 선택한 Robot ID와 boot를 전달하며,
+Sim은 정확한 Pilot/Robot boot와 증가하는 sequence를 검사한다. 설정의
+`runtime.mirror_robot_id`로 Robot을 고정할 수도 있다. Robot 미러가 선택되면
+기존 Sim motion lease도 가상 동작을 허용하지 않으며 연결 상실 시 마지막
+수신 자세를 유지한다. 실측이 없는 몸통·다리 값을 만들어 보내지 않는다.
+물리 step 뒤 실측 팔·몸통·다리 자세를 복원하고 GO2를 kinematic 표시로
+전환한 뒤 렌더링한다. 표시 경로는 Robot 명령이나 motion authority를 만들지 않는다.
+
+Robot은 GO2 `position`, `rpy`, `leg_q`, `leg_dq`, `leg_torque_nm`을 telemetry로
+보낸다. Pilot은 이를 HostState로 정규화한다. IK와 계획은 측정 몸통 위치·방향으로
+arm-base 변환을 갱신하며 다리 각도만으로 월드 위치를 추정하지 않는다.
+
+UI의 Control Target과 Camera View는 독립이다. Robot 원본 좌우 RGB-D 구독은
+Pilot broker의 제어 대상 변경을 따르지 않으며 Sim 영상은 기존 WebRTC session을
+사용한다. 두 GLFW 창의 입력은 각 창의 ImGui context에서 처리한다. 카메라는
+30 Hz, 제어 창은 입력 중 60 Hz·유휴 20 Hz로 제한하고 이벤트 대기로 깨어난다.
 
 IK 목표 XYZ/방향의 표시 intent는 UI simulation-session의 `set_ik_target`
 명령으로 Sim에 직접 전달한다. Pilot의 motion target이 Robot이어도 초록
@@ -377,9 +385,10 @@ Pilot은 Sim status의 content hash, lifecycle revision, world-oriented XZ conve
 계산한다. 모든 motion waypoint에 동일 identity와 최종 자세를 첨부하며 Sim은
 적용 전에 이를 다시 검증한다. 최종 자세가 연속 sample에서 정착한 경우에만 mock object를 arm tip에
 논리적으로 attach한다. 이 결과는 물리 파지 성공이나 collision-free RRT의
-증명이 아니다. 향후 scan/reconstruction producer는 같은 bounded artifact
-descriptor를 만들고, environment-aware planner와 motor-load verifier는 Pilot의
-local planner 및 Sim mock verifier 경계에서 교체한다.
+증명이 아니다. 아래 reconstruction framework는 별도 파일 계약으로 새 mesh를
+Sim 시작 시 넣는다. 이 imported scene과 기존 mock lifecycle/attachment는 아직
+연결되지 않았다. Environment-aware planner와 motor-load verifier는 Pilot의
+local planner 및 Sim mock verifier 경계에서 후속으로 연결한다.
 
 Mock hug 기능은 protocol major 6의 capability-gated additive extension이다. Sim은
 `simulation.mock_hug.v1` capability가 없는 v6 peer에는 기존 status shape만
@@ -392,6 +401,22 @@ Mock hug 기능은 protocol major 6의 capability-gated additive extension이다
 상태는 Pilot이 소유하며, Pilot 배포는 Sim의 RL·Genesis 구현을 import하지 않는다.
 
 ## 6. 모델과 설정 lifecycle
+
+Pilot의 `reconstruction`은 model API 1을 따르는 외부 Python adapter를 명시적
+factory와 SHA-256으로 고정한 asset에서 로드한다. 관측 iterable → nominal pose →
+순서 있는 pose correction → instance segmentation → 물체별 voxel fusion →
+completion → mesher → 선택적 planner를 실행한다. 물체 ID, metre/radian, frame,
+source boot/calibration을 검사하며 관측 점과 모델 생성 점을 따로 보존한다.
+Planner는 실측 시작 q와 역할별 scene geometry를 받고 계획안만 출력한다.
+Robot 모터 루프의 IMU JSON/C++ 계산 계약과 카메라 pose 보정은 별개다.
+
+Pilot → Sim 재구성 결과는 DDS가 아닌 immutable scene artifact schema 1이다.
+공통 protocol package는 이 파일 계약의 검증만 소유한다. Sim은 manifest와
+OBJ digest를 검사하고 scene build 전에 고정 geometry를 물리 scene과 두
+camera replica에 넣는다. 프로세스 간 Python import, 임의 host path 전송,
+실시간 mesh upload나 자동 motion execution은 추가하지 않는다. 다른 host에는
+bundle 전체를 명시적으로 전달하고 Sim에서 읽을 수 있게 해야 한다. 제공자
+계약, baseline과 미완료 경계는 [`model_integration.md`](model_integration.md)를 따른다.
 
 Pilot의 depth-plane calibration은 기존 perception RGB-D를 관측하며 원본
 optical frame에서 평면을 추정한다. 기준면 선택과 bounded latest-only worker는
@@ -420,9 +445,10 @@ camera/object truth, mesh/catalog와 생성용 script는 consumer 입력에 포�
 원본 점군을 한 번씩 다시 변환해 voxel 통합한다. 독립적인 촬영별 ICP 보정을
 누적하지 않는다. 기준은 첫 유효 optical frame이며 linear/roll 영점의 공통
 gauge와 절대 world 위치는 관측했다고 취급하지 않는다. 같은 자세 반복, 부족한
-겹침·관측성·한도 초과는 fit을 거부한다. 연구용 filesystem request/reply로만
-실제 URDF와 hand-eye 카메라를 움직이며 runtime motion/ROS 계약은 추가하지
-않는다. Scan planner는 digest가 맞는 기존 arm collision sphere 모델을 필수로
+겹침·관측성·한도 초과는 fit을 거부한다. 연구용 filesystem request/reply 외에
+`reconstruction/live_scan.py`가 UI 시작/취소와 Sim의 실시간 수집을 연결한다.
+기존 leased q 명령과 encoded RGB-D를 사용하며 Robot 대상은 거부한다.
+Scan planner는 digest가 맞는 기존 arm collision sphere 모델을 필수로
 받는다. 후보 자세와 이동 구간을 모두 검사하고, shared ancestor를 제외한
 joint-motion Lipschitz bound로 구간 전체의 sphere separation을 보수적으로
 확인한다. 관절 오차 구간도 separation 여유에 포함하고, 검증 예산 초과는
@@ -430,8 +456,15 @@ joint-motion Lipschitz bound로 구간 전체의 sphere separation을 보수적�
 다음 시야는 미관측 방향의 예상 visibility gain을 우선하고, 관측 점군 변화가
 작으며 공통 관절 fit이 유효하면 추가 촬영을 중단한다. 이 방향 probe는
 완성 형상을 뜻하지 않으며 결과 점군에 추가하지 않는다. 첫 자세의 재촬영은
-기본 scan에서 생략한다. Sphere 모델에 없는 GO2/환경 물체, 관절 동역학과
-실물 clearance는 별도 검증이며, 보이지 않은 표면의 완성을 주장하지 않는다.
+기본 scan에서 생략한다. Live scan은 추가로 관측한 전체 RGB-D에서 모델 팔을
+제외한 주변 표면까지 연속 구간과 추종 오차를 검사한다. 무거운 탐색/모델/파일
+작업은 worker가 소유하고 DDS tick만 기존 lease로 motion을 전송한다. 새 관절
+피드백 세 번의 정착 뒤 같은 boot/calibration의 새 RGB-D만 받아 원본·mask·점군을
+기록한다. Target/lease/epoch와 고정 base를 묶고 취소·stale feedback·추종 실패 시
+원래 route를 해제한다. Scene은 기존 model API 1과 immutable bundle로 마무리한다.
+Sphere 모델에 없는 GO2/미관측 공간, 관절 동역학과 실물 clearance는 별도 검증이다.
+방향 probe의 포화와 촬영 예산 소진은 보이지 않은 표면의 완성을 뜻하지 않는다.
+실행 절차와 출력은 [`model_integration.md`](model_integration.md)를 따른다.
 
 Pilot의 선택적 `robot.arm.ik.backend=curobo`는 Jetson CUDA에서 position IK를
 계산한다. 기본값은 `native`이며 새 DDS participant나 Robot 의존성을 만들지
@@ -463,18 +496,19 @@ CAD pose를 사용하고 parent rotation의 역변환을 적용한다. 이 구�
 gripper/camera의 고정 오프셋이 사라진다. 생성 모델은 active chain뿐 아니라
 모든 고정 branch의 위치·회전을 URDF와 비교한다.
 
-Linear calibration (2026-10-27): the operator selected the `oct27` policy's
-four-DOF coordinate range, `q in [-0.230, 0]` m along the plate's +X joint axis.
-Motor/display 0–259 degrees maps linearly to q=0..-0.230 m; this supersedes the
-earlier 1.5 degree/mm conversion and -0.172666667 m endpoint. The motor-angle
-endpoint and display-angle presets remain the same; their q values follow the
-new mapping. Protocol, Pilot, Sim and Robot defaults, both generated camera
-URDF bundles, IK/cuRobo models and RL mechanism bounds share the 230 mm range.
-Custom motor-angle operating caps still narrow the effective q range.
-This changes calibration, not the DDS wire format. Existing installations,
-release pins and policy artifacts are not rewritten automatically: deploy
-matching configuration and regenerated models together. This software range
-change does not establish physical clearance or grasp success.
+Linear calibration (2026-10-28, user decision): **1.5 motor degrees = 1 mm**,
+with both the full-scale and operating cap at **260 degrees**. Canonical q is
+`q = -u / 1500` m, giving `[-0.17333333333333334, 0]` m. This supersedes the
+October 27 mapping of 259 degrees to 230 mm and the field cap of 199 on that
+mapping. Robot/Pilot/Sim defaults, ZED Mini and D435 bundles, IK/planning models
+and RL mechanism bounds agree. The oct27 policy keeps its original trained
+coordinates and manifest; Pilot intersects its action bounds with deployment
+limits and rejects an out-of-range home. It does not rescale the policy.
+Planning collision spheres remain unchanged because only the linear interval
+narrows; the builder checks source/artifact hashes, unchanged geometry/FK and
+velocity, and the interval-subset condition before reusing separation proofs.
+Existing installs retain explicit calibration. Deploy matching configuration
+and models together through a new release; source edits do not restart a role.
 
 GO2/plate attachment (2026-09-11): checked against `062222.stp` (Inventor
 assembly, `Go2_Main` and `Go2_plate_new`). CAD +Y points rearward, +Z upward;

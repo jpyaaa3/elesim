@@ -592,11 +592,11 @@ def _draw_hardware_brief(panel) -> None:
     )
 
     current_values = (
-        _motor_current(host, "linear"),
-        _motor_current(host, "roll"),
-        _motor_current(host, "seg1", "s1"),
-        _motor_current(host, "seg2", "s2"),
-        None,
+        _motor_current(host, "linear", "1"),
+        _motor_current(host, "roll", "2"),
+        _motor_current(host, "seg1", "s1", "3"),
+        _motor_current(host, "seg2", "s2", "4"),
+        _motor_current(host, "claw", "gripper", "5"),
     )
     _draw_columns_table(
         panel,

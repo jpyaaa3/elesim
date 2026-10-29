@@ -219,6 +219,78 @@ def build_curobo_model(*, assembly: Path, arm_model: Path, output: Path,
     return output / "robot.yml"
 
 
+def narrow_curobo_model(*, assembly: Path, arm_model: Path, output: Path,
+                        previous_assembly: Path, previous_arm_model: Path,
+                        robot_config: Path) -> Path:
+    """Reuse verified collision geometry when only the linear range shrinks.
+
+    Separation proofs over the old interval remain valid on its subset. A
+    changed mesh, FK context, non-linear joint, velocity or expanded interval
+    requires the full mesh exporter instead.
+    """
+    digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    metadata = json.loads((output / "metadata.json").read_text())
+    for name, expected in metadata["artifacts"].items():
+        if digest(output / name) != expected:
+            raise ValueError(f"planning artifact changed: {name}")
+    for key, path in (("arm.urdf", previous_assembly), ("arm_model.json", previous_arm_model)):
+        if digest(path) != metadata["sources"][key]:
+            raise ValueError(f"previous planning source changed: {key}")
+    for name, expected in metadata["sources"].items():
+        if name.startswith("assets/") and digest(assembly / name) != expected:
+            raise ValueError(f"collision geometry changed: {name}")
+    old_context = json.loads(previous_arm_model.read_text())["context"]
+    new_context = json.loads(arm_model.read_text())["context"]
+    context = dict(new_context)
+    for values in (old_context, new_context):
+        for key in ("linear_min_m", "linear_max_m"):
+            values.pop(key)
+    if old_context != new_context:
+        raise ValueError("FK context changed; rebuild collision geometry")
+    before = ET.parse(previous_assembly).getroot()
+    after = ET.parse(assembly / "arm.urdf").getroot()
+    actual_limit = after.find(f"joint[@name='{context['linear_joint_name']}']/limit")
+    if [float(actual_limit.get(key)) for key in ("lower", "upper")] != [
+        float(context["linear_min_m"]), float(context["linear_max_m"]),
+    ]:
+        raise ValueError("assembly and IK linear limits differ")
+    for tree in (before, after):
+        limit = tree.find(f"joint[@name='{context['linear_joint_name']}']/limit")
+        limit.attrib.pop("lower")
+        limit.attrib.pop("upper")
+    if ET.tostring(before) != ET.tostring(after):
+        raise ValueError("assembly geometry changed; rebuild collision geometry")
+    bounds = [float(context["linear_min_m"]), float(context["linear_max_m"])]
+    previous = metadata["q_bounds"][0]
+    if not previous[0] <= bounds[0] < bounds[1] <= previous[1]:
+        raise ValueError("linear limits must narrow the verified interval")
+    hardware = yaml.safe_load(robot_config.read_text())["arm"]
+    velocities = [hardware["max_linear_m_s"], hardware["max_roll_rad_s"],
+                  hardware["max_bend_rad_s"], hardware["max_bend_rad_s"]]
+    if velocities != metadata["max_velocity"]:
+        raise ValueError("planning velocities changed; rebuild the model")
+    tree = ET.parse(output / "arm.urdf")
+    limit = tree.getroot().find(f"joint[@name='{context['linear_joint_name']}']/limit")
+    limit.set("lower", str(bounds[0]))
+    limit.set("upper", str(bounds[1]))
+    if bounds != previous:
+        metadata["bounds_update"] = {
+            "previous_linear_bounds": previous,
+            "previous_sources": {key: metadata["sources"][key]
+                                 for key in ("arm.urdf", "arm_model.json", "robot_config.yaml")},
+            "collision_geometry_reused": True,
+            "proof": "unchanged geometry/FK/velocity; linear interval subset",
+        }
+    metadata["q_bounds"][0] = bounds
+    for key, path in (("arm.urdf", assembly / "arm.urdf"), ("arm_model.json", arm_model),
+                      ("robot_config.yaml", robot_config)):
+        metadata["sources"][key] = digest(path)
+    tree.write(output / "arm.urdf", encoding="unicode", xml_declaration=True)
+    metadata["artifacts"]["arm.urdf"] = digest(output / "arm.urdf")
+    (output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    return output / "robot.yml"
+
+
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
@@ -227,7 +299,17 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("payload/data/models/planning/zed-mini"))
     parser.add_argument("--robot-config", type=Path, default=Path("payload/config/robot/default.yaml"))
     parser.add_argument("--voxel-m", type=float, default=0.03)
+    parser.add_argument("--previous-assembly", type=Path)
+    parser.add_argument("--previous-arm-model", type=Path)
     args = parser.parse_args()
+    if args.previous_assembly or args.previous_arm_model:
+        if not (args.previous_assembly and args.previous_arm_model):
+            parser.error("both previous source files are required to narrow verified limits")
+        print(narrow_curobo_model(assembly=args.assembly, arm_model=args.arm_model,
+                                 output=args.output, previous_assembly=args.previous_assembly,
+                                 previous_arm_model=args.previous_arm_model,
+                                 robot_config=args.robot_config))
+        return
     print(build_curobo_model(assembly=args.assembly, arm_model=args.arm_model, output=args.output,
                             robot_config=args.robot_config, voxel_m=args.voxel_m))
 

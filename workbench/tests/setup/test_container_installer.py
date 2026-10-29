@@ -835,7 +835,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
             "options": {"max-size": "10m", "max-file": "4"},
         }
         assert service["build"]["args"]["BASE_IMAGE"] == "ros:humble-ros-base-jammy"
-        assert service["environment"]["ROS_DOMAIN_ID"] == "0"
+        assert service["environment"]["ROS_DOMAIN_ID"] == "1"
         assert service["environment"]["RMW_IMPLEMENTATION"] == "rmw_cyclonedds_cpp"
         assert service["environment"]["CYCLONEDDS_URI"] == (
             "file:///opt/elesim/config/cyclonedds.xml"
@@ -928,13 +928,10 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
                 "exec elesim-sim"
             )
         if role == "ui":
-            assert service["environment"]["XAUTHORITY"] == str(
-                install_time_authority
-            )
-            assert (
-                f"{install_time_authority}:{install_time_authority}:ro"
-                in service["volumes"]
-            )
+            assert "XAUTHORITY" not in service["environment"]
+            assert not any(str(install_time_authority) in volume for volume in service["volumes"])
+            assert service["user"] == f"{os.getuid()}:{os.getgid()}"
+            assert "--elesim-ui-preflight" in entrypoint
     tools = state.prefix_path / "containers/build/tools"
     assert (tools / "interfaces/elesim_interfaces/msg/RgbdFrame.msg").is_file()
     assert not (tools / "protocol/tests").exists()
@@ -1245,7 +1242,11 @@ def test_sidecar_only_runtime_is_preserved_by_ordinary_down(local_state, tmp_pat
 def test_sidecar_down_then_up_starts_persisted_identity_before_namespace_check(
     local_state,
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
+    # This regression exercises sidecar ordering, independently of display.
+    monkeypatch.setattr("elesim_setup.container_installer._viewer_xhost_function", lambda *args, **kwargs:
+        "viewer_xhost_cleanup_on_failure=0\nviewer_xhost_enable() { :; }\nviewer_xhost_cleanup() { :; }\n")
     prefix = local_state().prefix_path
     state = local_state(
         roles=("ui",),
@@ -1973,8 +1974,9 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     )
     assert normal.returncode == 0
     assert Path(environment["VIEWER_MARKER"]).read_text(encoding="utf-8") == ""
-    assert not (tmp_path / "viewer-xhost").exists()
-    assert not (tmp_path / "xhost.permission").exists()
+    # UI is selected by this full start and still needs the host-user grant.
+    assert (tmp_path / "viewer-xhost").is_file()
+    assert (tmp_path / "xhost.permission").is_file()
 
     uuid_launch = subprocess.run(
         (wrapper, "--no-build", "--cuda-visible-devices", "GPU-fixed-123", "sim"),

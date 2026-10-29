@@ -28,6 +28,7 @@ from elesim_pilot.pick.mock_hug import MockHugCoordinator
 from elesim_protocol.tracing import configure_tracing, shutdown_tracing, span
 from elesim_pilot.simulation_sync import SimulationWorkflowSync
 from elesim_pilot.vision.rgbd import DdsRgbdRelay
+from elesim_pilot.reconstruction.live_scan import LiveScan
 
 
 def _default_config_root() -> Path:
@@ -65,12 +66,27 @@ class _ControlFacade:
         self._rgbd_left_preview_relay: DdsRgbdRelay | None = None
         self._mock_hug: MockHugCoordinator | None = None
         self._arm_trajectory: ArmTrajectory | None = None
+        self._object_scan: LiveScan | None = None
+
+    @property
+    def object_scan(self):
+        return {} if self._object_scan is None else self._object_scan.status()
+
+    def start_object_scan(self, target_id='target', max_views=12):
+        if self._object_scan is None:
+            raise RuntimeError('object scan is not initialized')
+        return self._object_scan.start(target_id, max_views)
+
+    def cancel_object_scan(self):
+        return self._object_scan.cancel()
 
     @property
     def arm_trajectory(self):
         return {} if self._arm_trajectory is None else self._arm_trajectory.status()
 
     def guard_operator_intent(self, operation, name):
+        if self._object_scan is not None:
+            self._object_scan.guard_operator(operation, name)
         if self._arm_trajectory is not None:
             self._arm_trajectory.guard_operator(operation, name)
 
@@ -250,7 +266,12 @@ class _ControlFacade:
 
     @property
     def available_endpoints(self):
-        return list(self._connection.endpoints)
+        candidates = {d['endpoint_id']: d for d in self._connection.motion_targets}
+        peers = {d['endpoint_id']: d for d in self._connection.endpoints}
+        for endpoint_id, descriptor in candidates.items():
+            peers.setdefault(endpoint_id, descriptor)
+        return [{**d, 'control_selectable': endpoint_id in candidates}
+                for endpoint_id, d in peers.items()]
 
     @property
     def active_endpoint(self) -> str:
@@ -264,6 +285,7 @@ def _run() -> None:
     parser.add_argument("--runtime-config", default=str(_CONFIG_ROOT / "runtime.yaml"))
     parser.add_argument("--id", default="")
     parser.add_argument("--target", default="")
+    parser.add_argument("--scan-models", default="", help="Pilot-local scan model API 1 YAML")
     args = parser.parse_args()
     bundle = load_app_config(args.config, mode=args.mode)
     role = load_runtime_role_config(args.runtime_config)
@@ -303,15 +325,11 @@ def _run() -> None:
         ),
     )
     simulation_sync = SimulationWorkflowSync(runtime.service)
-    connection.telemetry_observer = runtime.service.accept_floor_telemetry
     directory = Path(args.config).resolve().parent
     trajectory = ArmTrajectory(connection, runtime.service, runtime.state,
         model_dir=directory / bundle.ik_config.curobo_model,
         world_path=(directory / bundle.ik_config.curobo_world) if bundle.ik_config.curobo_world else None)
     facade._arm_trajectory = trajectory
-    connection.control_tick = trajectory.tick
-    connection.motion_guard = trajectory.allow_motion
-    connection.on_closing = trajectory.cancel_arm_trajectory
     mock_hug = MockHugCoordinator(
         link,
         lambda: simulation_sync.latest,
@@ -325,6 +343,35 @@ def _run() -> None:
         execution_context=facade.mock_hug_execution_context,
     )
     facade.attach_mock_hug(mock_hug)
+    from elesim_pilot.vision.perception.capture import default_perception_capture_dir
+    object_scan = LiveScan(connection, runtime.service, runtime.state,
+        simulation_status=lambda: simulation_sync.latest,
+        models_path=(Path(args.scan_models).expanduser().absolute() if args.scan_models
+                     else directory/'scan.example.yaml'),
+        model_dir=(directory/bundle.ik_config.curobo_model).resolve(),
+        hand_eye=bundle.sim_config.hand_eye_config,
+        output_root=default_perception_capture_dir()/'object_scans',
+        other_busy=lambda: trajectory.active or mock_hug.running)
+    facade._object_scan = object_scan
+
+    def _telemetry(payload, **source):
+        runtime.service.accept_floor_telemetry(payload, **source)
+        object_scan.accept_telemetry(payload, **source)
+
+    def _control_tick():
+        trajectory.tick()
+        object_scan.tick()
+
+    def _closing():
+        trajectory.cancel_arm_trajectory()
+        object_scan.request_cancel('Pilot stopping')
+        object_scan.tick()
+
+    connection.telemetry_observer = _telemetry
+    connection.control_tick = _control_tick
+    connection.motion_guard = lambda payload: trajectory.allow_motion(payload) and object_scan.allow_motion(payload)
+    connection.on_closing = _closing
+    simulation_sync.add_cancel_callback(object_scan.request_cancel)
     simulation_sync.add_cancel_callback(mock_hug.cancel)
     def _target_changed(target: str) -> None:
         simulation_sync.clear("simulation target changed")
@@ -347,6 +394,7 @@ def _run() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        object_scan.close()
         trajectory.request_cancel()
         mock_hug.close()
         simulation_sync.close()

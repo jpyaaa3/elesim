@@ -4,6 +4,7 @@ import concurrent.futures
 import threading
 import time
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,6 +23,7 @@ from elesim_sim.endpoint import SimEndpoint
 class Client:
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, object]]] = []
+        self.node = SimpleNamespace(discover=lambda **kwargs: [])
 
     def send(self, message_type: str, **kwargs: object) -> None:
         self.sent.append((message_type, kwargs))

@@ -186,7 +186,7 @@ def _instance_from_args(
             gpu_device="" if requested_gpu_device is None else requested_gpu_device,
         ).validate()
     turn_mode = getattr(args, "turn_mode", None) or "none"
-    for role in ("pilot", "sim"):
+    for role in ("pilot", "sim", "ui"):
         if getattr(args, f"{role}_gpu_device", None) is not None and getattr(args, f"{role}_gpu_mode", None) is None:
             raise ValueError(f"--{role}-gpu-device requires --{role}-gpu-mode specific")
     turn_urls = tuple(getattr(args, "turn_url", None) or ())
@@ -247,7 +247,7 @@ def _instance_from_args(
                 gpu_mode=getattr(args, f"{role}_gpu_mode"),
                 gpu_device=getattr(args, f"{role}_gpu_device", None) or "",
             ).validate()
-            for role in ("pilot", "sim")
+            for role in ("pilot", "sim", "ui")
             if getattr(args, f"{role}_gpu_mode", None) is not None
         },
         viewer=getattr(args, "viewer", False),
@@ -472,7 +472,7 @@ def run_wizard(
         )
         compute = ComputeSettings(gpu_mode=gpu_mode, gpu_device=gpu_device).validate()
 
-    domain_id = int(_ask("ROS_DOMAIN_ID (same on all hosts)", "0", input_fn=input_fn))
+    domain_id = int(_ask("ROS_DOMAIN_ID (same on all hosts)", "1", input_fn=input_fn))
     discovery_mode = _menu(
         "DDS discovery",
         (
@@ -852,7 +852,7 @@ def _parser() -> argparse.ArgumentParser:
     install.add_argument("--ui-id", default="ui-main")
     install.add_argument("--robot-id", default="robot-go2")
     install.add_argument("--dds-system-id", default="elesim")
-    install.add_argument("--dds-domain-id", type=int, default=0)
+    install.add_argument("--dds-domain-id", type=int, default=1)
     install.add_argument(
         "--dds-rmw-implementation",
         choices=("rmw_cyclonedds_cpp",),
@@ -1005,7 +1005,7 @@ def _parser() -> argparse.ArgumentParser:
             "--turn-mode", choices=("none", "managed", "external"), default=None,
             help="Sim WebRTC TURN policy for this instance",
         )
-        for role in ("pilot", "sim"):
+        for role in ("pilot", "sim", "ui"):
             command.add_argument(f"--{role}-gpu-mode", choices=("inherit", "specific", "cpu"))
             command.add_argument(f"--{role}-gpu-device")
         command.add_argument("--viewer", action="store_true", help="Enable the scoped Sim viewer")

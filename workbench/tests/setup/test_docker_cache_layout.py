@@ -13,7 +13,7 @@ FILES = ("shared/Dockerfile.app", "setup/Dockerfile", "dev/Dockerfile",
 
 
 def run_commands(text):
-    return [re.sub(r"^RUN (?:--mount=\S+ )?", "", line)
+    return [re.sub(r"^RUN\s+(?:--mount=\S+\s+)*", "", line)
             for line in text.replace("\\\n", " ").splitlines()
             if line.startswith("RUN ")]
 
@@ -30,7 +30,7 @@ def test_pip_runs_use_external_cache_and_valid_shell(name):
         if "pip install" in instruction:
             target = "/var/lib/elesim" if name.startswith("shared/") else "/root"
             assert f"--mount=type=cache,target={target}/.cache/pip,sharing=locked" in instruction
-        shell = re.sub(r"^RUN (?:--mount=\S+ )?", "", instruction)
+        shell = re.sub(r"^RUN\s+(?:--mount=\S+\s+)*", "", instruction)
         result = subprocess.run(["sh", "-n"], input=shell, text=True, capture_output=True)
         assert result.returncode == 0, result.stderr
 

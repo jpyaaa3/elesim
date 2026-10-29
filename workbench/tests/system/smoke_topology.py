@@ -23,6 +23,7 @@ from elesim_protocol import (
     CAPABILITY_MOTION_ARM,
     CAPABILITY_OPERATOR_CONTROL,
     CAPABILITY_ROBOT_STATE_MIRROR,
+    CAPABILITY_PRESENTATION_TARGET,
     DdsRuntimeSettings,
     EndpointDescriptor,
     MotionCommandRequest,
@@ -51,6 +52,7 @@ EXPECTED = {
     "sim:command",
     "sim:ik-target", "sim:arm-ghost",
     "sim:robot-mirror",
+    "sim:presentation-route",
     "sim:session",
     "sim:webrtc",
     "ui:answer",
@@ -177,10 +179,20 @@ def _controller_process(barrier: Any, stop: Any, results: Any) -> None:
         model_requested = False
         model_confirmed = False
         last_model_at = 0.0
+        last_presentation_at = 0.0
         try:
             while not stop.is_set():
                 peer.heartbeat()
                 now = time.monotonic()
+                robot_peer = peer.node.resolve("robot-smoke")
+                sim_peer = peer.node.resolve("sim-smoke")
+                if (robot_peer is not None and sim_peer is not None
+                        and CAPABILITY_PRESENTATION_TARGET in sim_peer.descriptor.capabilities
+                        and now - last_presentation_at >= 1.0):
+                    peer.send("presentation_target", target_id="sim-smoke", payload={
+                        "robot_id": "robot-smoke", "robot_boot_id": robot_peer.identity.boot_id,
+                    })
+                    last_presentation_at = now
                 if not selected and now - last_selection_at >= 1.0:
                     discovery = peer.send(
                         "discover",
@@ -280,7 +292,7 @@ def _sim_process(barrier: Any, stop: Any, results: Any) -> None:
         mirror = SimEndpoint(endpoint_id="sim-smoke", state=state, streams={},
                              mirror_robot_id="robot-smoke")
         peer = PeerClient(
-            EndpointDescriptor("sim-smoke", "sim", (CAPABILITY_ROBOT_STATE_MIRROR,)),
+            EndpointDescriptor("sim-smoke", "sim", (CAPABILITY_ROBOT_STATE_MIRROR, CAPABILITY_PRESENTATION_TARGET)),
             settings=_settings(),
         )
         _wait_barrier(barrier)
@@ -291,7 +303,11 @@ def _sim_process(barrier: Any, stop: Any, results: Any) -> None:
             while not stop.is_set():
                 peer.heartbeat()
                 for message in peer.receive(timeout_ms=20):
-                    if message.message_type == "telemetry":
+                    if message.message_type == "presentation_target":
+                        mirror.handle_envelope(peer, message)
+                        if mirror._mirror_expected_boot == (message.payload or {}).get("robot_boot_id"):
+                            _report(results, "sim:presentation-route")
+                    elif message.message_type == "telemetry":
                         mirror.handle_envelope(peer, message)
                         if state.estimate_q().roll_rad == 0.2:
                             _report(results, "sim:robot-mirror")

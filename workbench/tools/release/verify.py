@@ -65,6 +65,9 @@ EXPECTED_INFRA_FILES = {
             "README.md",
             "generate_go2_pympc.py",
             "install_go2_pympc.sh",
+            "install_jetson_cuda.sh",
+            "install_curobo.sh",
+            "patch_curobo.py",
             "robotpkg.asc",
             "tools-entrypoint",
         )
@@ -75,6 +78,9 @@ EXPECTED_INFRA_FILES = {
             "README.md",
             "generate_go2_pympc.py",
             "install_go2_pympc.sh",
+            "install_jetson_cuda.sh",
+            "install_curobo.sh",
+            "patch_curobo.py",
             "requirements.lock",
             "entrypoint.sh",
             "dev-env.sh",
@@ -470,6 +476,12 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
         _require_path(release / "config/runtime.yaml")
     if role == "pilot":
         _require_path(release / "data/models/arm/default.json")
+        _require_path(release / "config/reconstruction.example.yaml")
+        _require_path(release / "config/scan.example.yaml")
+        _require_path(release / "config/world.yaml")
+        _require_path(release / "config/wrap_grasp.yaml")
+        _require_path(release / "data/policies/wrap-grasp/policy.pt")
+        _require_path(release / "data/policies/wrap-grasp/interface.json")
         _require_path(release / "data/models/planning/zed-mini/robot.yml")
         _require_path(release / "data/models/planning/zed-mini/arm.urdf")
         _require_path(release / "data/models/planning/zed-mini/metadata.json")
@@ -654,10 +666,13 @@ config_name = "config.yaml" if role in ("pilot", "sim") else "default.yaml"
 config = release / "config" / config_name
 if role == "pilot":
     from elesim_pilot.config import load_app_config, load_runtime_role_config
+    from elesim_pilot.reconstruction import Pipeline
     from elesim_pilot.vision.perception.detector import load_detector_config
     from elesim_pilot.vision.perception.yolo_detector import resolve_model_path
     from elesim_pilot.robot.arm.iklib.solver import load_solver_context
     app_config = load_app_config(str(config))
+    Pipeline.from_config(release / "config/reconstruction.example.yaml")
+    Pipeline.from_config(release / "config/scan.example.yaml")
     load_runtime_role_config(str(release / "config/runtime.yaml"))
     _model_config, model_context = load_solver_context(str(config))
     if "limit" not in model_context:

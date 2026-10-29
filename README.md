@@ -49,6 +49,11 @@ For future sessions, simply use `./elesim up <system-id>` to start it.
 
 DDS is used by default, while video is sent via WebRTC.
 
+Control Target and Camera View are independent. When Robot is present, Sim
+mirrors its measured state and Pilot retains the Robot target across connection
+loss. The default linear calibration is **1.5°/mm, max 260° (173.333 mm)**.
+
+
 ### ⌨️ Commands
 
 ```bash
@@ -78,3 +83,5 @@ DDS is used by default, while video is sent via WebRTC.
 [DDS Contracts](docs/dds_contracts.md)  
 [Dev Status](docs/status.md)  
 [Research](docs/research.md)
+
+[외부 모델 연결 계약과 실행 예제](docs/model_integration.md)

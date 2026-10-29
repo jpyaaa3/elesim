@@ -208,6 +208,25 @@ def test_arm_sample_wall_time_retains_measurement_age_for_rgbd_pairing(monkeypat
     assert state["q_source"] == "measured"
 
 
+@pytest.mark.parametrize("measured_legs", [False, True])
+def test_go2_measurement_carries_leg_velocity_and_torque_without_synthesis(measured_legs):
+    bridge = FakeGo2()
+    sample = SimpleNamespace(pos=(1., 2., 3.), rpy=(.1, .2, .3),
+        lin_vel_body=(.4, .5, .6), ang_vel_body=(.7, .8, .9), timestamp_s=100.,
+        leg_q=tuple(range(12)) if measured_legs else None,
+        leg_dq=(.25,) * 12 if measured_legs else None,
+        leg_torque_nm=(1.5,) * 12 if measured_legs else None)
+    bridge.latest_state = lambda: sample
+    value, _ = runtime(go2=bridge)
+    telemetry = value.state()["go2"]
+    if measured_legs:
+        assert telemetry["leg_q"] == list(range(12))
+        assert telemetry["leg_dq"] == [.25] * 12
+        assert telemetry["leg_torque_nm"] == [1.5] * 12
+    else:
+        assert not {"leg_q", "leg_dq", "leg_torque_nm"}.intersection(telemetry)
+
+
 @pytest.mark.parametrize("closed,degrees", [(False, 340.0), (True, 230.0)])
 def test_logical_gripper_state_uses_physical_open_and_closed_positions(closed, degrees):
     value, arm = runtime()

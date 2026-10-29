@@ -168,6 +168,10 @@ class MockHugCoordinator:
         self._stop = threading.Event()
         self._error = ""
 
+    @property
+    def running(self):
+        return self._thread is not None and self._thread.is_alive()
+
     def compute(self) -> dict[str, object]:
         status = self.latest_status()
         if status is None:

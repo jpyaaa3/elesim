@@ -37,8 +37,8 @@ let pollTimer = null;
 let runtimePollTimer = null;
 let runtimeOptionsLocked = false;
 let gpuInheritAvailable = null;
-let gpuPolicies = {pilot: null, sim: null};
-let gpuDevices = {pilot: [], sim: []};
+let gpuPolicies = {pilot: null, sim: null, ui: null};
+let gpuDevices = {pilot: [], sim: [], ui: []};
 let jobSubmissionPending = false;
 let runtimeStopRevision = 0;
 let workflowSaved = false;
@@ -1118,6 +1118,7 @@ function runtimeLaunchOptions() {
   return {
     ...roleOptions("pilot"),
     ...roleOptions("sim"),
+    ...roleOptions("ui"),
     viewer: Boolean(byId("use-viewer")?.checked),
   };
 }
@@ -1139,6 +1140,12 @@ function updateGpuDeviceOptions(role) {
   if (policy?.mode === "specific") {
     const fixed = String(policy.device || "");
     if (fixed && !seen.has(fixed)) values.push({value: fixed, label: fixed, title: fixed});
+  }
+  if (role === "ui" && policy?.selected_mode === "specific") {
+    const selected = String(policy.selected_device || "");
+    if (selected && !values.some(entry => entry.value === selected)) {
+      values.push({value: selected, label: selected, title: selected});
+    }
   }
   device.replaceChildren(...values.map((entry) => {
     const option = document.createElement("option");
@@ -1162,7 +1169,7 @@ function updateRuntimeOptions() {
     bootOptions.classList.toggle("runtime-options-locked", optionsLocked);
     bootOptions.setAttribute("aria-disabled", String(optionsLocked));
   }
-  ["pilot", "sim"].forEach((role) => {
+  ["pilot", "sim", "ui"].forEach((role) => {
     const inherit = byId(`${role}-gpu-inherit`);
     const device = byId(`${role}-gpu-device`);
     if (!inherit || !device) return;
@@ -1190,12 +1197,12 @@ function applyRuntimeCapabilities(context) {
   // read-only runtime status is fetched, keep the role fail-closed instead of
   // reusing the local install's GPU policy for it.
   gpuPolicies = context?.topology
-    ? {pilot: {mode: "unknown", device: ""}, sim: {mode: "unknown", device: ""}}
-    : {pilot: null, sim: null};
-  gpuDevices = {pilot: [], sim: []};
+    ? {pilot: {mode: "unknown", device: ""}, sim: {mode: "unknown", device: ""}, ui: {mode: "unknown", device: ""}}
+    : {pilot: null, sim: null, ui: null};
+  gpuDevices = {pilot: [], sim: [], ui: []};
   const policies = context?.runtime_options?.gpu_policies;
   if (policies && typeof policies === "object") {
-    ["pilot", "sim"].forEach((role) => {
+    ["pilot", "sim", "ui"].forEach((role) => {
       const policy = policies[role];
       if (policy && ["inherit", "specific", "cpu"].includes(policy.mode)) {
         gpuPolicies[role] = {
@@ -1215,14 +1222,22 @@ function applyRuntimeGpuPolicies(hosts) {
   const next = {
     pilot: {mode: "unknown", device: ""},
     sim: {mode: "unknown", device: ""},
+    ui: {mode: "unknown", device: ""},
   };
-  const nextDevices = {pilot: [], sim: []};
+  const nextDevices = {pilot: [], sim: [], ui: []};
   (Array.isArray(hosts) ? hosts : []).forEach((host) => {
     const policies = host?.gpu_policy && typeof host.gpu_policy === "object"
       ? host.gpu_policy
       : {};
-    ["pilot", "sim"].forEach((role) => {
+    ["pilot", "sim", "ui"].forEach((role) => {
       if (!(host?.roles || []).includes(role)) return;
+      if (host.state === "checking") {
+        // Pending probes are not an authoritative policy change. Keep the
+        // operator's draft while runtimeReady disables launch and editing.
+        next[role] = gpuPolicies[role] || next[role];
+        nextDevices[role] = gpuDevices[role] || [];
+        return;
+      }
       const policy = policies[role];
       if (!policy || !["inherit", "specific", "cpu"].includes(policy.mode)) {
         return;
@@ -1230,24 +1245,30 @@ function applyRuntimeGpuPolicies(hosts) {
       next[role] = {
         mode: policy.mode,
         device: policy.mode === "specific" ? String(policy.device || "") : "",
+        selected_mode: policy.selected_mode,
+        selected_device: policy.selected_device,
       };
     });
-    ["pilot", "sim"].forEach((role) => {
+    ["pilot", "sim", "ui"].forEach((role) => {
       if (!(host?.roles || []).includes(role)) return;
       if (Array.isArray(host?.gpu_devices)) nextDevices[role] = host.gpu_devices;
     });
   });
-  ["pilot", "sim"].forEach((role) => {
+  ["pilot", "sim", "ui"].forEach((role) => {
     const previous = gpuPolicies[role];
-    // Unknown/CPU policy disables and clears the checkbox. Restore the
-    // installed inherit default when its policy arrives, but preserve the
-    // operator's choice across subsequent status polls.
-    if (next[role].mode === "inherit" && previous?.mode !== "inherit") {
-      const inherit = byId(`${role}-gpu-inherit`);
-      if (inherit) inherit.checked = true;
-    }
+    const firstSelection = next[role].mode === "inherit" && previous?.mode !== "inherit";
     gpuPolicies[role] = next[role];
     gpuDevices[role] = nextDevices[role];
+    if (firstSelection) {
+      updateGpuDeviceOptions(role);
+      const inherit = byId(`${role}-gpu-inherit`);
+      if (inherit) inherit.checked = role === "ui"
+        ? next[role].selected_mode != null && next[role].selected_mode !== "cpu" : true;
+      if (role === "ui") {
+        const device = byId(`${role}-gpu-device`);
+        if (device) device.value = next[role].selected_device || "";
+      }
+    }
   });
   updateRuntimeOptions();
 }
@@ -1261,7 +1282,7 @@ function restoreRuntimeOptions(job) {
   if (!job || job.action !== "start" || !job.runtime_options) return;
   const options = job.runtime_options;
   const viewer = byId("use-viewer");
-  ["pilot", "sim"].forEach((role) => {
+  ["pilot", "sim", "ui"].forEach((role) => {
     const inherit = byId(`${role}-gpu-inherit`);
     const device = byId(`${role}-gpu-device`);
     if (!inherit || !device) return;
@@ -1450,18 +1471,18 @@ function renderRuntimeStatus(result) {
   const hosts = Array.isArray(result.hosts) ? result.hosts : [];
   applyRuntimeGpuPolicies(hosts);
   runtimeReady = workflowApplied && hosts.length > 0 && hosts.every((host) =>
-    (host.inventory_ready ?? host.reachable) && (host.roles || []).every((role) =>
-      !["pilot", "sim"].includes(role)
+    host.reachable && (host.inventory_ready ?? host.reachable) && (host.roles || []).every((role) =>
+      !["pilot", "sim", "ui"].includes(role)
       || ["inherit", "specific", "cpu"].includes(host.gpu_policy?.[role]?.mode)));
   const rows = hosts.map((host) => {
     const roles = (host.roles || []).join(", ");
-    const state = !host.reachable
+    const state = host.state === "checking" ? t("runtime.updating") : !host.reachable
       ? t("runtime.unreachable")
       : host.state === "unregistered"
         ? t("runtime.unregistered")
         : (host.state || "unknown");
     const policies = host.gpu_policy && typeof host.gpu_policy === "object"
-      ? ["pilot", "sim"].filter((role) => host.gpu_policy[role]).map((role) => {
+      ? ["pilot", "sim", "ui"].filter((role) => host.gpu_policy[role]).map((role) => {
         const policy = host.gpu_policy[role];
         const value = policy.mode === "specific" ? `:${policy.device}` : "";
         return `${role}-gpu=${policy.mode}${value}`;
@@ -1491,8 +1512,20 @@ async function pollRuntimeStatus() {
   const revision = runtimeRevision;
   const applied = workflowApplied;
   try {
-    const result = await api("/api/runtime");
-    if (revision === runtimeRevision && applied === workflowApplied) renderRuntimeStatus(result);
+    const result = await api("/api/runtime/hosts");
+    if (revision !== runtimeRevision || applied !== workflowApplied) return;
+    renderRuntimeStatus(result);
+    await Promise.all((result.hosts || []).map(async (host, index) => {
+      let report;
+      try {
+        report = await api(`/api/runtime?host=${encodeURIComponent(host.host_id)}`);
+      } catch (error) {
+        report = {hosts: [{...host, state: "unreachable", detail: String(error), reachable: false, inventory_ready: false}]};
+      }
+      if (revision !== runtimeRevision || applied !== workflowApplied) return;
+      result.hosts[index] = report.hosts?.[0] || {...host, state: "unreachable", reachable: false, inventory_ready: false};
+      renderRuntimeStatus(result);
+    }));
   } catch (error) {
     if (revision !== runtimeRevision || applied !== workflowApplied) return;
     runtimeReady = false;
@@ -1822,7 +1855,7 @@ function bindEvents() {
     control.addEventListener("input", markWorkflowDirty);
     control.addEventListener("change", markWorkflowDirty);
   });
-  ["pilot", "sim"].forEach((role) => {
+  ["pilot", "sim", "ui"].forEach((role) => {
     byId(`${role}-gpu-inherit`)?.addEventListener("change", updateRuntimeOptions);
     byId(`${role}-gpu-device`)?.addEventListener("change", updateRuntimeOptions);
   });

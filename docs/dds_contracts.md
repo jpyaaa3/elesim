@@ -6,6 +6,11 @@
 registry다. 새 메시지·field·QoS는 구현보다 먼저 protocol/schema 결정을
 기록하고 registry, validator, contract test, process smoke를 함께 바꾼다.
 
+재구성 모델 framework의 scene artifact schema 1은 로컬 파일 계약이다.
+`scene_artifact.py`가 JSON/OBJ를 검증하며 scene bundle은 별도로 staging한다.
+DDS wire major 6, registry, QoS와 motion authority에는 변경이 없다.
+파일 경계는 [`model_integration.md`](model_integration.md)를 참조한다.
+
 ## 1. Carrier와 identity
 
 control/signaling은 bounded `PeerEnvelope` DDS carrier를 사용한다.
@@ -32,6 +37,18 @@ observer와 hand-eye 픽셀은 DDS payload가 아니며 WebRTC DTLS/SRTP track�
 있지만 새 inter-host deployment는 encoded broker contract를 사용한다.
 
 ## 2. Control registry
+
+Active object scan is an additive protocol-v6 / operator-view-schema-1 extension:
+`start_object_scan(target_id, max_views)` and `cancel_object_scan()` operate on a
+Pilot-owned, Sim-only session. Optional `view_snapshot.service.object_scan` reports
+phase, observation counts, directional coverage proxy, stop reason and local
+artifact paths. No pixels, mesh files or executable model paths are sent in an
+operator intent. Older Pilots reject the unknown calls. Existing leased canonical
+`target.q` commands drive the Sim arm; target endpoint/boot/lease and Sim epoch are
+pinned, and Robot targets are rejected. Scan cancellation never redirects motion.
+Sim joint feedback adds source `measurement_time_s` and
+`measurement_monotonic_s` to the existing open telemetry object while retaining
+`q_source=simulated`; Robot measured-feedback semantics are unchanged.
 
 Motion renewal recovery retains protocol major 6 and the existing wire fields.
 Pilot correlates `error.reply_to` with a bounded history of renewal requests,
@@ -89,10 +106,20 @@ checking remains active for both claws and every other modeled arm link.
 | `target_lost` | Robot/Sim → Pilot | peer/TTL loss | reliable control | target + reason |
 | `lease_granted` | Robot/Sim → relevant peers | authority 관찰 | reliable control | Pilot identity |
 | `lease_revoked` | Robot/Sim → relevant peers | authority 종료 | reliable control | reason |
+| `presentation_target` | Pilot → capable Sim | read-only selected Robot route; no motion authority | reliable control | exactly `robot_id`, `robot_boot_id` |
 | `motion_command` | Pilot → Robot/Sim | lease-bound motion | best-effort, depth 1 | validated `MotionCommandRequest` |
 | `telemetry` | Robot/Sim → Pilot/UI; Robot → opt-in Sim | bounded snapshot, no motion authority | reliable control | additive bounded state map |
 | `ack` | all → all | legacy-compatible ack | reliable control | `reply_to`, `ok`, optional reason |
 | `error` | all → request source | bounded failure | reliable control | `reply_to`, reason |
+
+`presentation_target`은 protocol major 6의 capability 협상 확장이다. 새 Sim만
+`presentation.target.v1`을 광고하며 Pilot은 그 capability를 확인한 뒤에만
+새 메시지를 보낸다. 기존 v6 parser가 모르는 메시지를 받지 않으므로 major를
+올리지 않는다. `presentation.robot-state.v1`만 있는 구형 Sim에는 보내지 않는다.
+수신 Sim은 addressed target, 발신 Pilot role/boot, Robot role/boot와 route sequence를
+검사한다. 이후 telemetry도 지정 Robot의 정확한 boot와 sequence를 검사하며,
+Robot 미러 중 Sim motion을 거부한다. 계약 registry, payload 검사와 four-process
+smoke의 `sim:presentation-route`가 같은 surface를 다룬다.
 
 `motion_command`는 latest command 성격의 depth-1 best effort다. Estop과 local
 deadman은 이 carrier나 DDS discovery callback에 의존하지 않는다.
@@ -133,13 +160,17 @@ Robot presentation mirror restores the former hardware-state display path.
 Protocol major 6 is unchanged; the mirror capability adds no message type or
 payload field. The open telemetry state map also carries the additive
 `claw_load_permille` hardware reading described below.
-A Sim configured with `runtime.mirror_robot_id` advertises
-`presentation.robot-state.v1`. Robot sends its existing measured telemetry to
+Current Sim peers advertise `presentation.robot-state.v1` and select a discovered
+Robot or the explicit `runtime.mirror_robot_id` pin. Robot sends its existing measured telemetry to
 these live Sim peers even without a Pilot lease. Each send is independent of
 motion authority and a disappearing viewer cannot revoke the Robot's lease.
-Sim accepts only its configured Robot endpoint's exact live boot, increasing
+Sim accepts only its selected Robot endpoint's exact live boot, increasing
 envelope sequence, and finite measured `q`. It stores only the latest pose and
-freezes it on telemetry loss. A Sim motion lease takes precedence over mirroring.
+freezes it on telemetry loss. Robot presentation blocks Sim motion even when a
+previous Sim motion lease exists. `presentation_target` may change a discovery-based
+selection but cannot override an explicit `runtime.mirror_robot_id` pin. An update
+for the pinned ID can still select its exact new live boot. This preserves the v6
+wire fields and the configured host policy.
 This path never emits commands to Robot, enables torque, or grants a lease.
 It also carries available GO2 base/leg state for `mirror_from_host` rendering.
 Old Sim peers do not advertise the capability and receive no new traffic.

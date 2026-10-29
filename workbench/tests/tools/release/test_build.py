@@ -8,6 +8,7 @@ import pytest
 
 from workbench.tools.release.build import (
     copy_interfaces,
+    bind_release_data_paths,
     copy_robot_runtime,
     copy_role_data,
     copy_role_config,
@@ -17,6 +18,22 @@ from workbench.tools.release.verify import ReleaseVerificationError
 
 
 ROOT = Path(__file__).resolve().parents[4]
+
+
+@pytest.mark.parametrize('filename', ['reconstruction.example.yaml', 'scan.example.yaml'])
+def test_reconstruction_example_uses_release_data_without_changing_hashes(tmp_path, filename):
+    import yaml
+    copy_role_config(ROOT / "payload/config/pilot", tmp_path, "pilot")
+    path = tmp_path / 'config' / filename
+    original = yaml.safe_load(path.read_text())
+    bind_release_data_paths(tmp_path, "pilot")
+    result = yaml.safe_load(path.read_text())
+    for name in ("arm", "hand_eye"):
+        before = original["models"]["pose"]["assets"][name]
+        after = result["models"]["pose"]["assets"][name]
+        assert after["path"] == "../data/" + before["path"][11:]
+        assert after["sha256"] == before["sha256"]
+    assert result["models"]["segmenter"] == original["models"]["segmenter"]
 
 
 @pytest.mark.parametrize(

@@ -699,6 +699,7 @@ class ArmTrajectory:
             if isinstance(result[1], str):
                 self._phase, self._reason = "failed", result[1]
                 self._stage = "failed"
+                print(f"[curobo-plan] failed: {self._reason}", flush=True)
             else:
                 if len(result[1]) == 3:
                     positions, dt, self._planned_xyz = result[1]

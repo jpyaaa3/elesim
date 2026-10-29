@@ -63,7 +63,7 @@ def test_trusted_network_clears_ros_security_switches(
     settings = DdsRuntimeSettings()
 
     assert settings.apply_environment() == ()
-    assert os.environ["ROS_DOMAIN_ID"] == "0"
+    assert os.environ["ROS_DOMAIN_ID"] == "1"
     assert "ROS_SECURITY_ENABLE" not in os.environ
     assert "ROS_SECURITY_STRATEGY" not in os.environ
     assert "ROS_SECURITY_KEYSTORE" not in os.environ

@@ -6,7 +6,7 @@ import json
 import os
 import re
 import tempfile
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -17,10 +17,11 @@ from .profiles import normalize_roles
 # ``sim``.  v9 pins the Docker daemon.  v10 makes development tooling an
 # optional attachment to the one runtime installation instead of a separate
 # installation edition and Compose project. v11 separates the installed role
-# inventory from the roles assigned to the current connection topology.
-STATE_SCHEMA_VERSION = 11
+# inventory from the roles assigned to the current connection topology. v12
+# persists native Robot host facts and the independent UI rendering policy.
+STATE_SCHEMA_VERSION = 12
 SUPPORTED_STATE_SCHEMAS = frozenset(
-    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, STATE_SCHEMA_VERSION}
+    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, STATE_SCHEMA_VERSION}
 )
 GPU_MODES = frozenset({"inherit", "specific", "cpu"})
 INSTALL_MODES = frozenset({"native", "container"})
@@ -55,6 +56,46 @@ def docker_build_compute_mode(gpu_mode: str) -> str:
 
 
 @dataclass(frozen=True)
+class RobotHostSettings:
+    """Host-owned values that cannot be inferred from a portable Robot config."""
+
+    robot_user: str
+    bridge_user: str
+    ros_workspace: Path
+    unitree_interface: str = "eth0"
+    unitree_domain_id: int = 0
+
+    def validate(self) -> "RobotHostSettings":
+        for name, value in (
+            ("robot_user", self.robot_user),
+            ("bridge_user", self.bridge_user),
+        ):
+            text = str(value).strip()
+            if (
+                not text
+                or len(text) > 64
+                or any(character.isspace() or character in ":/" for character in text)
+            ):
+                raise ValueError(f"{name} cannot form a safe local account name")
+        workspace = self.ros_workspace.expanduser()
+        if not workspace.is_absolute():
+            raise ValueError("Unitree ROS 2 workspace must be an absolute path")
+        interface = str(self.unitree_interface).strip()
+        if (
+            not interface
+            or len(interface) > 128
+            or any(character.isspace() or character == "/" for character in interface)
+        ):
+            raise ValueError("Unitree network interface must be one interface name")
+        if (
+            isinstance(self.unitree_domain_id, bool)
+            or not 0 <= int(self.unitree_domain_id) <= 232
+        ):
+            raise ValueError("Unitree ROS domain ID must be in 0..232")
+        return self
+
+
+@dataclass(frozen=True)
 class NetworkSettings:
     """Application identities and WebRTC relay endpoints, not DDS locators."""
 
@@ -85,7 +126,7 @@ class DdsSettings:
     """Shared ROS 2/DDS runtime settings for all hosts in one EleSim system."""
 
     system_id: str = "elesim"
-    domain_id: int = 0
+    domain_id: int = 1
     rmw_implementation: str = "rmw_cyclonedds_cpp"
     discovery_mode: str = "multicast"
     static_peers: tuple[str, ...] = ()
@@ -490,6 +531,8 @@ class InstallState:
     # None preserves the standalone install's all-role launch behavior.
     # A manager assignment selects from installed roles without removing them.
     assigned_roles: tuple[str, ...] | None = None
+    robot_host: RobotHostSettings | None = None
+    ui_compute: ComputeSettings | None = None
 
     @property
     def runtime_roles(self) -> tuple[str, ...]:
@@ -535,6 +578,14 @@ class InstallState:
         self.network.validate()
         self.dds.validate()
         self.compute.validate()
+        if self.ui_compute is not None:
+            if self.install_mode != "container" or "ui" not in roles:
+                raise ValueError("ui_compute is only valid for container UI")
+            self.ui_compute.validate()
+        if self.robot_host is not None:
+            if self.install_mode != "native" or "robot" not in roles:
+                raise ValueError("robot_host is only valid for native Robot")
+            self.robot_host.validate()
         self.turn.validate()
         self.runtime_text_logs.validate()
         self.container_network.validate()
@@ -661,6 +712,8 @@ class InstallState:
         raw["assigned_roles"] = (
             None if self.assigned_roles is None else list(self.assigned_roles)
         )
+        if self.robot_host is not None:
+            raw["robot_host"]["ros_workspace"] = str(self.robot_host.ros_workspace)
         raw["network"]["turn_urls"] = list(self.network.turn_urls)
         raw["dds"]["static_peers"] = list(self.dds.static_peers)
         return raw
@@ -724,6 +777,7 @@ class InstallState:
                 raise ValueError("legacy security in installation state must be an object")
             legacy_security = str(security_raw.get("mode", "loopback"))
             dds = DdsSettings(
+                domain_id=0,
                 # The old Router/advertise addresses are deliberately not peers.
                 discovery_mode="multicast",
                 static_peers=(),
@@ -736,6 +790,8 @@ class InstallState:
             )
         else:
             dds_values = dict(dds_raw)
+            if source_schema < 12:
+                dds_values.setdefault("domain_id", 0)
             dds_values["static_peers"] = tuple(dds_values.get("static_peers", ()))
             if source_schema < 6:
                 dds_values.setdefault(
@@ -783,6 +839,15 @@ class InstallState:
                 "native" if normalize_roles(roles) == ("robot",) else "container",
             )
         )
+        host_raw = raw.get("robot_host")
+        if host_raw is not None and not isinstance(host_raw, Mapping):
+            raise ValueError("robot_host must be an object or null")
+        host = None if host_raw is None else RobotHostSettings(**{
+            **dict(host_raw), "ros_workspace": Path(host_raw["ros_workspace"]),
+        }).validate()
+        ui_raw = raw.get("ui_compute")
+        if ui_raw is not None and not isinstance(ui_raw, Mapping):
+            raise ValueError("ui_compute must be an object or null")
         assigned_raw = raw.get("assigned_roles") if source_schema >= 11 else None
         if assigned_raw is not None and not isinstance(assigned_raw, (list, tuple)):
             raise ValueError("assigned_roles must be an array or null")
@@ -798,6 +863,8 @@ class InstallState:
             ),
             source_ref=str(raw.get("source_ref", DEFAULT_SOURCE_REF)),
             network=network,
+            robot_host=host,
+            ui_compute=None if ui_raw is None else ComputeSettings(**dict(ui_raw)),
             dds=dds,
             compute=ComputeSettings(**dict(compute_raw)),
             turn=TurnSettings(**turn_values),
@@ -829,7 +896,25 @@ class InstallState:
         raw = json.loads(source.read_text(encoding="utf-8"))
         if not isinstance(raw, Mapping):
             raise ValueError(f"{source}: installation state must be a JSON object")
-        return cls.from_dict(raw)
+        return cls.from_dict(raw).with_legacy_ui_policy()
+
+    def with_legacy_ui_policy(self) -> "InstallState":
+        """Import the bounded field rendering choice without changing its file."""
+        if self.ui_compute is not None or self.install_mode != "container" or "ui" not in self.roles:
+            return self
+        source = self.prefix_path / "maintenance/ui-rendering.json"
+        if not os.path.lexists(source):
+            return self
+        if any(path.is_symlink() for path in (source, *source.parents)) or not source.is_file():
+            raise ValueError(f"UI rendering policy must be a regular, non-symlinked file: {source}")
+        if source.stat().st_size > 4096:
+            raise ValueError("UI rendering policy exceeds 4096 bytes")
+        raw = json.loads(source.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or set(raw) != {"backend"} or raw["backend"] not in {"software", "nvidia"}:
+            raise ValueError("UI rendering policy requires software or nvidia backend")
+        return replace(self, ui_compute=ComputeSettings(
+            "cpu" if raw["backend"] == "software" else "inherit",
+        )).validate()
 
     def save(self, path: str | os.PathLike[str] | None = None) -> Path:
         self.validate()

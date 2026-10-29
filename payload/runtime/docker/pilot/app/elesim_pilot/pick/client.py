@@ -33,12 +33,17 @@ class ControlClient:
         self._sender: Optional[CommandSender] = None
         self._lock = threading.RLock()
         self.tx_seq = 0
+        self._last_commanded_q: Optional[SimQ] = None
+        self._command_route_generation = 0
 
     def attach_sender(self, sender: CommandSender) -> None:
         with self._lock:
             self._sender = sender
 
     def close(self) -> None:
+        with self._lock:
+            self._last_commanded_q = None
+            self._command_route_generation += 1
         self._state.peer_connected(False)
 
     @property
@@ -50,18 +55,51 @@ class ControlClient:
         return self._state.object_world_xyz
 
     def peer_connected(self, connected: bool) -> None:
+        if not connected:
+            with self._lock:
+                self._last_commanded_q = None
+                self._command_route_generation += 1
         self._state.peer_connected(connected)
 
     def target_changed(self, target_id: str) -> None:
+        # Every lease grant/loss fences the old target, including a new lease
+        # for the same endpoint after a disconnect.
+        with self._lock:
+            self._last_commanded_q = None
+            self._command_route_generation += 1
         self._state.target_changed(target_id)
 
+    @property
+    def last_commanded_q(self) -> Optional[SimQ]:
+        with self._lock:
+            return self._last_commanded_q
+
+    def remember_trajectory_q(self, q: list[float]) -> None:
+        with self._lock:
+            self._last_commanded_q = SimQ(*map(float, q))
+
+    def _clear_hold_if_torque_off(self, payload: Mapping[str, Any]) -> None:
+        if payload.get("torque_enabled") is False:
+            with self._lock:
+                self._last_commanded_q = None
+                self._command_route_generation += 1
+
     def accept_telemetry(self, payload: Mapping[str, Any]) -> None:
+        self._clear_hold_if_torque_off(payload)
         self._state.accept_telemetry(payload)
 
     def accept_ack(self, payload: Mapping[str, Any]) -> None:
+        self._clear_hold_if_torque_off(payload)
+        if payload.get("ok") is False:
+            with self._lock:
+                self._last_commanded_q = None
+                self._command_route_generation += 1
         self._state.accept_ack(payload)
 
     def accept_error(self, reason: str) -> None:
+        with self._lock:
+            self._last_commanded_q = None
+            self._command_route_generation += 1
         self._state.accept_error(reason)
 
     def rx_age_s(self) -> float:
@@ -82,10 +120,19 @@ class ControlClient:
         with self._lock:
             self.tx_seq += 1
             sender = self._sender
+            generation = self._command_route_generation
         if sender is None:
             self._state.accept_error("pilot transport is not started")
             return
         sender(dict(message), force=bool(force))
+        with self._lock:
+            if generation != self._command_route_generation:
+                return
+            if message.get("t") in {"torque_on", "torque_off", "estop"}:
+                self._last_commanded_q = None
+                self._command_route_generation += 1
+            elif message.get("t") == "target" and "q" in message:
+                self._last_commanded_q = SimQ(*map(float, message["q"]))
 
     def estop(self) -> None:
         self._send({"t": "estop"}, force=True)

@@ -22,6 +22,8 @@ class QualityMatrixTests(unittest.TestCase):
                 "topology",
                 "dds-sim-motor",
                 "arm-operating-range",
+                "reconstruction-pipeline",
+                "active-scan",
                 "dds-rgbd",
                 "webrtc-media",
             },

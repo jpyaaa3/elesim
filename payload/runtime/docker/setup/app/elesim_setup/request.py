@@ -136,7 +136,7 @@ class SetupRequest:
             ),
             dds=DdsSettings(
                 system_id=str(raw.get("dds_system_id", "elesim")),
-                domain_id=int(raw.get("dds_domain_id", 0)),
+                domain_id=int(raw.get("dds_domain_id", 1)),
                 rmw_implementation=str(
                     raw.get("dds_rmw_implementation", "rmw_cyclonedds_cpp")
                 ),

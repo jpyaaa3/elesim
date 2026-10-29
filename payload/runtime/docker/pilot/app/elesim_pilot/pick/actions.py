@@ -745,12 +745,17 @@ class _PilotContextActions(_ControlServiceCore):
         if self.client is None:
             return None
         host_state = self.client.refresh_state()
-        if host_state.q is not None:
+        # Telemetry is feedback, not a new commanded position. Replacing the
+        # goal with measured sag on every UI snapshot makes the next one-axis
+        # change ratchet all untouched axes down to their measured positions.
+        commanded_q = getattr(self.client, "last_commanded_q", None)
+        state_q = commanded_q if commanded_q is not None else host_state.q
+        if state_q is not None:
             self.state.set_q(
-                float(host_state.q.linear_m),
-                float(host_state.q.roll_rad),
-                float(host_state.q.theta1_rad),
-                float(host_state.q.theta2_rad),
+                float(state_q.linear_m),
+                float(state_q.roll_rad),
+                float(state_q.theta1_rad),
+                float(state_q.theta2_rad),
             )
         return host_state
 
@@ -2140,7 +2145,7 @@ class ControlService(_MotionFeedbackActions):
 
     def extend_arm_controls(self) -> None:
         self.state.clear_ik_status()
-        self.apply_control_u(u_linear=15.0, u_roll=180.0, u_s1=180.0, u_s2=180.0, apply_offset=False)
+        self.apply_control_u(u_linear=15.0, u_roll=180.0, u_s1=180.0, u_s2=180.0, apply_offset=True)
         self.send_current_target(source="slider")
 
     def send_current_target(

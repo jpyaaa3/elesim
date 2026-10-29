@@ -27,6 +27,19 @@ apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
   libcudnn9-cuda-12=9.3.0.75-1 libopenblas0-pthread libjpeg-turbo8 libpng16-16
 rm -rf /var/lib/apt/lists/*
 
+# Torch's graph fallback needs the CUDA 12.6 Update 2 Jetson cuSolver ABI.
+curl -fL --retry 3 \
+  https://developer.download.nvidia.com/compute/cuda/redist/libcusolver/linux-aarch64/libcusolver-linux-aarch64-11.7.1.2-archive.tar.xz \
+  -o "$temporary/cusolver.tar.xz"
+printf '%s  %s\n' d7e578143ebd90582873cb4c84f0f29ae1b3f086104a7660f5a63a28a115b9e6 \
+  "$temporary/cusolver.tar.xz" | sha256sum -c -
+mkdir -p /opt/elesim/cuda-compat/lib
+tar -xJf "$temporary/cusolver.tar.xz" --strip-components=2 \
+  -C /opt/elesim/cuda-compat/lib \
+  libcusolver-linux-aarch64-11.7.1.2-archive/lib/libcusolver.so.11.7.1.2
+ln -sf libcusolver.so.11.7.1.2 /opt/elesim/cuda-compat/lib/libcusolver.so.11
+printf '%s\n' /opt/elesim/cuda-compat/lib > /etc/ld.so.conf.d/00-elesim-cusolver.conf
+
 # This Jetson PyTorch build links cuDSS. Use NVIDIA's aarch64/CUDA12 archive,
 # not the separately published SBSA or CUDA13 binaries.
 curl -fL --retry 3 \

@@ -39,6 +39,8 @@ class RuntimeTelemetry:
                 float(arm_q.theta2_rad),
             ]
             payload["q_source"] = "simulated"
+            payload["measurement_time_s"] = float(time.time())
+            payload["measurement_monotonic_s"] = float(time.monotonic())
         if actual_tip_xyz is not None:
             payload["actual_tip"] = self._vec3(actual_tip_xyz)
         if actual_tip_dir is not None:

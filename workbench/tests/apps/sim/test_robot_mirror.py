@@ -67,20 +67,97 @@ def test_sequence_replay_old_boot_and_new_robot_boot():
     assert state.estimate_q().roll_rad == 0.5
 
 
-def test_disabled_mirror_lost_peer_wrong_role_and_sim_control_take_precedence():
-    for blocked in ("disabled", "lost", "wrong-role", "lease"):
+def test_no_discovered_robot_lost_peer_and_wrong_role_leave_pose_unchanged():
+    for blocked in ("disabled", "lost", "wrong-role"):
         endpoint, state, peer, client, message = setup_mirror()
         before = state.estimate_q()
         if blocked == "disabled":
             endpoint.mirror_robot_id = ""
+            client.node.discover = lambda **_: []
         elif blocked == "lost":
             client.node.resolve = lambda _: None
         elif blocked == "wrong-role":
             peer.descriptor = EndpointDescriptor("robot-a", "pilot")
-        else:
-            endpoint.grant_lease("pilot-a", "lease-a")
         endpoint.handle_envelope(client, message)
         assert state.estimate_q() == before
+
+
+def test_robot_mirror_takes_display_ownership_even_with_a_previous_sim_lease():
+    endpoint, state, peer, client, message = setup_mirror()
+    endpoint.grant_lease("pilot-a", "lease-a")
+    endpoint.handle_envelope(client, message)
+    assert state.estimate_q().roll_rad == 0.2
+    assert endpoint._apply_motion(Envelope(
+        "motion_command", "pilot-a", "sim-a", lease_id="lease-a", payload={"command": "target", "q": [0] * 4},
+    )) == (False, "robot_present_sim_is_presentation_only")
+
+
+def test_discovered_robot_blocks_sim_motion_before_first_telemetry_and_after_loss():
+    endpoint, state, robot, client, telemetry = setup_mirror()
+    endpoint.mirror_robot_id = ""
+    endpoint.grant_lease("pilot-a", "lease-a")
+    client.node.discover = lambda **kwargs: [robot]
+    replies = []
+    client.send = lambda *args, **kwargs: replies.append(kwargs["payload"])
+    motion = Envelope("motion_command", "pilot-a", "sim-a", lease_id="lease-a",
+        payload={"command": "target", "q": [-.1, .3, .1, -.1]}, seq=1)
+    before = state.estimate_q()
+    endpoint.handle_envelope(client, motion)
+    assert replies[-1]["reason"] == "robot_present_sim_is_presentation_only"
+    client.node.discover = lambda **kwargs: []
+    client.node.resolve = lambda identity: None
+    endpoint.handle_envelope(client, replace(motion, seq=2))
+    assert replies[-1]["ok"] is False
+    assert state.estimate_q() == before
+
+
+def test_selected_robot_route_rejects_wrong_pilot_boot_and_reordered_updates():
+    endpoint, state, robot, client, telemetry = setup_mirror()
+    endpoint = SimEndpoint(endpoint_id='sim-a', state=state, streams={})
+    client.node.discover = lambda **kwargs: [robot]
+    endpoint._select_discovered_robot(client)
+    pilot = SimpleNamespace(descriptor=EndpointDescriptor("pilot-a", "pilot"),
+                            identity=PeerIdentity("pilot-a", "pilot-boot"))
+    other = SimpleNamespace(descriptor=EndpointDescriptor("robot-b", "robot"),
+                            identity=PeerIdentity("robot-b", "boot-b"))
+    directory = {"pilot-a": pilot, "robot-a": robot, "robot-b": other}
+    client.node.resolve = directory.get
+    route = Envelope("presentation_target", "pilot-a", "sim-a", seq=2, source_boot_id="pilot-boot",
+                     payload={"robot_id": "robot-b", "robot_boot_id": "boot-b"})
+    endpoint.handle_envelope(client, replace(route, source_boot_id="old-pilot"))
+    assert endpoint.mirror_robot_id == "robot-a"
+    endpoint.handle_envelope(client, route)
+    assert endpoint.mirror_robot_id == "robot-b"
+    endpoint.handle_envelope(client, replace(route, seq=1, payload={"robot_id": "robot-a", "robot_boot_id": "boot-a"}))
+    endpoint.handle_envelope(client, telemetry)
+    assert endpoint.mirror_robot_id == "robot-b"
+    assert state.estimate_q().roll_rad != 0.2
+    endpoint.handle_envelope(client, replace(telemetry, source_id="robot-b", source_boot_id="boot-b"))
+    assert state.estimate_q().roll_rad == 0.2
+
+
+def test_explicit_mirror_robot_pin_cannot_be_replaced_by_pilot_selection():
+    endpoint, state, robot, client, telemetry = setup_mirror()
+    pilot = SimpleNamespace(descriptor=EndpointDescriptor('pilot-a', 'pilot'),
+                            identity=PeerIdentity('pilot-a', 'pilot-boot'))
+    other = SimpleNamespace(descriptor=EndpointDescriptor('robot-b', 'robot'),
+                            identity=PeerIdentity('robot-b', 'boot-b'))
+    client.node.resolve = {'pilot-a': pilot, 'robot-a': robot, 'robot-b': other}.get
+    route = Envelope('presentation_target', 'pilot-a', 'sim-a', seq=2, source_boot_id='pilot-boot',
+        payload={'robot_id': 'robot-b', 'robot_boot_id': 'boot-b'})
+    endpoint.handle_envelope(client, route)
+    assert endpoint.mirror_robot_id == 'robot-a'
+    endpoint.handle_envelope(client, replace(telemetry, source_id='robot-b', source_boot_id='boot-b'))
+    assert state.estimate_q().roll_rad != .2
+    endpoint.handle_envelope(client, telemetry)
+    assert state.estimate_q().roll_rad == .2
+    robot.identity = PeerIdentity('robot-a', 'boot-new')
+    endpoint.handle_envelope(client, replace(route, seq=3,
+        payload={'robot_id': 'robot-a', 'robot_boot_id': 'boot-new'}))
+    assert endpoint._mirror_expected_boot == 'boot-new'
+    endpoint.handle_envelope(client, replace(telemetry, seq=1, source_boot_id='boot-new',
+        payload={**telemetry.payload, 'q': [-.1, .4, .3, -.3]}))
+    assert state.estimate_q().roll_rad == .4
 
 
 def test_latest_snapshot_clears_missing_go2_data_and_rejects_partial_invalid_updates():

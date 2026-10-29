@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/var/lib/elesim \
     PATH=/opt/openrobots/bin:$PATH \
     PKG_CONFIG_PATH=/opt/openrobots/lib/pkgconfig \
-    LD_LIBRARY_PATH=/opt/acados/lib:/opt/openrobots/lib \
+    LD_LIBRARY_PATH=/opt/elesim/cuda-compat/lib:/opt/acados/lib:/opt/openrobots/lib \
     ACADOS_SOURCE_DIR=/opt/acados \
     PYTHONPATH=/opt/openrobots/lib/python3.10/site-packages \
     CMAKE_PREFIX_PATH=/opt/openrobots
@@ -17,7 +17,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN set -eux; \
     packages="ca-certificates python3-colcon-common-extensions python3-pip python3-venv python-is-python3 ros-humble-rmw-cyclonedds-cpp ros-humble-rosidl-default-generators ros-humble-sros2"; \
     case "$ROLE" in \
-      pilot) packages="$packages libgl1 libglib2.0-0 libgomp1 curl xz-utils" ;; \
+      pilot) packages="$packages libgl1 libglib2.0-0 libgomp1 curl xz-utils git build-essential python3-dev" ;; \
       ui) packages="$packages libgl1 libgl1-mesa-dri libglx-mesa0 libglu1-mesa libglfw3 libx11-6 libxcursor1 libxi6 libxinerama1 libxrandr2 libxxf86vm1 libfontconfig1" ;; \
       sim) packages="$packages build-essential cmake curl git python3-dev swig python3-pip python-is-python3 libgl1 libegl1 libglx-mesa0 libosmesa6 libglfw3 libglib2.0-0 libx11-6 libxext6 libxrender1" ;; \
       *) echo "unsupported role: $ROLE" >&2; exit 2 ;; \
@@ -107,6 +107,17 @@ RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -
 
 COPY requirements.lock /opt/elesim/requirements.lock
 RUN --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked python -m pip install -r /opt/elesim/requirements.lock
+
+COPY install_curobo.sh patch_curobo.py /tmp/elesim/
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/elesim/.cache/pip,sharing=locked \
+    if [ "$PILOT_TORCH_STACK" = jetson-cu126 ]; then \
+      apt-get -o Acquire::Retries=5 update && \
+      apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+        cuda-nvcc-12-6=12.6.68-1 cuda-libraries-dev-12-6=12.6.11-1 && \
+      /bin/sh /tmp/elesim/install_curobo.sh && \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # BuildKit has no GPU. Check the CUDA user-space linkage and CPU extension now;
 # an actual Orin CUDA/NMS/YOLO probe remains a separate runtime verification.

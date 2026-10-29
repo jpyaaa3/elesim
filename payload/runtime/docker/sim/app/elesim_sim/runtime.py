@@ -740,6 +740,17 @@ class Go2Locomotion:
     def mirror_mode(self) -> bool:
         return bool(self._mirror)
 
+    def enable_robot_mirror(self) -> None:
+        if self._mirror:
+            return
+        self._mirror = True
+        self._last_mirror_pos = None
+        self._last_mirror_rpy = None
+        self._last_mirror_leg_q = None
+        self._init_mirror_kinematic()
+        # Hold the existing visual base until the Robot supplies a pose.
+        self.apply_mirror_pose(tuple(self._camera_root_pos), (0.0, 0.0, 0.0))
+
     def _init_mirror_kinematic(self) -> None:
         """Mirror puppet: no PD actuation; pose is overwritten each frame."""
         n = len(self._leg_dof_idxs)
@@ -2940,6 +2951,8 @@ class RuntimePrep:
             observer_pos=tuple(float(x) for x in a.cfg.sim_observer_camera_pos),
             observer_lookat=tuple(float(x) for x in a.cfg.sim_observer_camera_lookat),
             mock_assets=assets,
+            scene_manifest=str(a.cfg.scene_manifest),
+            scene_revision=getattr(getattr(a, "imported_scene", None), "revision", ""),
             target_enable=bool(a.spawn.sim_target_enable),
             target_xyz=tuple(float(x) for x in a.spawn.sim_target_xyz),
             target_radius=float(a.spawn.sim_target_radius),
@@ -3153,6 +3166,11 @@ class RuntimePrep:
             )
             a.sim_scene.mock_object_entities[artifact.asset_id] = a.sim_scene.scene.add_entity(morph)
 
+        if a.cfg.scene_manifest:
+            from elesim_sim.simulation.scene_artifact import add_scene_artifact, verify_scene_revision
+            a.imported_scene, a.imported_scene_entities = add_scene_artifact(
+                a.sim_scene.scene, gs, a.cfg.scene_manifest)
+
         hand_eye_enabled = bool(a.cfg.sim_camera_enable) and bool(
             str(a.cfg.hand_eye_config).strip()
         )
@@ -3188,6 +3206,8 @@ class RuntimePrep:
         t_build = time.perf_counter()
         print("[runtime] building scene: solver, collision filtering and kernel compilation", flush=True)
         a.sim_scene.scene.build()
+        if a.cfg.scene_manifest:
+            verify_scene_revision(a.cfg.scene_manifest, a.imported_scene.revision)
         if attach_scene_cameras and (eye_camera is not None or observer_camera is not None):
             from elesim_sim.vision.render_device import check_camera_renderer
 
@@ -3825,6 +3845,8 @@ class SimRuntime:
                 perf.section("poll", t_sec)
                 t_sec = time.perf_counter()
                 if a.sim_scene.go2 is not None:
+                    if bool(getattr(a.state_source, 'robot_mirror_active', False)):
+                        a.sim_scene.go2.enable_robot_mirror()
                     posture_applied = self._apply_go2_feature_commands()
                     go2_mirror = bool(a.sim_scene.go2.mirror_mode)
                     if go2_mirror and a.state_source is not None:
@@ -4137,6 +4159,8 @@ class GenesisApp:
             MockObjectCatalog(resolve_mock_object_catalog_root(_REPO_ROOT))
         )
         self.mock_object_catalog = self.mock_object_state.catalog
+        self.imported_scene = None
+        self.imported_scene_entities = {}
         self.state_source = state_source
         self.feedback_pub = feedback_publisher
         self.operator_mailbox = operator_mailbox
@@ -4331,6 +4355,7 @@ def run_runtime(
         help="path to YAML config file",
     )
     ap.add_argument("--mode", default=config_mode, help="select a profile from the application YAML")
+    ap.add_argument("--scene-manifest", default="", help="immutable reconstructed scene.json, loaded before scene build")
     ap.add_argument("--perf-log", action="store_true", help="print periodic sim loop timing")
     ap.add_argument("--perf-interval", type=float, default=None, help="perf log interval in seconds")
     ap.add_argument("--perf-log-file", default=None, help="write perf CSV to this path or directory")
@@ -4371,6 +4396,12 @@ def run_runtime(
 
     bundle = load_app_config(args.config, mode=args.mode)
     sim_cfg = _select_compute_backend(bundle.sim_config, force_cpu=bool(args.cpu))
+    if args.scene_manifest:
+        manifest = Path(args.scene_manifest).expanduser().absolute()
+        sim_cfg = replace(sim_cfg, scene_manifest=str(manifest))
+    if sim_cfg.scene_manifest:
+        from elesim_protocol.scene_artifact import SceneArtifact
+        SceneArtifact.load(sim_cfg.scene_manifest)
     spawn_cfg = bundle.spawn_config
     if str(model_bundle).strip():
         sim_cfg = replace(

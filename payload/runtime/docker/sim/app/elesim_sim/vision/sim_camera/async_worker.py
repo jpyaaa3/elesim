@@ -52,6 +52,8 @@ class CameraRenderSpec:
     observer_pos: tuple[float, float, float] = (3.5, 0.5, 2.5)
     observer_lookat: tuple[float, float, float] = (0.0, 0.0, 0.5)
     mock_assets: tuple[str, ...] = ()
+    scene_manifest: str = ""
+    scene_revision: str = ""
     target_enable: bool = False
     target_xyz: tuple[float, float, float] = (0.8, 0.0, 0.2)
     target_radius: float = 0.025
@@ -505,6 +507,11 @@ def _camera_render_process_main(
                 )
             )
 
+        if spec.scene_manifest:
+            from elesim_sim.simulation.scene_artifact import add_scene_artifact, verify_scene_revision
+            imported_scene, _ = add_scene_artifact(scene, gs, spec.scene_manifest,
+                collision=False, expected_revision=spec.scene_revision)
+
         eye = None
         if "hand_eye_preview" in streams and str(spec.hand_eye_config).strip():
             eye = Node9EyeInHandCamera.create(
@@ -523,6 +530,8 @@ def _camera_render_process_main(
             )
         t_build = time.perf_counter()
         scene.build()
+        if spec.scene_manifest:
+            verify_scene_revision(spec.scene_manifest, imported_scene.revision)
         from elesim_sim.vision.render_device import check_camera_renderer
 
         check_camera_renderer(

@@ -90,6 +90,7 @@ class SimConfig:
     perf_log_enable: bool = False
     perf_log_interval_s: float = 2.0
     perf_log_path: str = ""
+    scene_manifest: str = ""
 
 
 @dataclass(frozen=True)
@@ -97,8 +98,8 @@ class ArmMappingConfig:
     """Only the display-to-canonical mapping needed for reset compatibility."""
 
     command_direction: tuple[int, int, int, int] = (1, 1, 1, -1)
-    linear_u_max_deg: float = 259.0
-    linear_u_limit_deg: float = 259.0
+    linear_u_max_deg: float = proto.LINEAR_U_MAX_DEG
+    linear_u_limit_deg: float = proto.LINEAR_U_MAX_DEG
 
 
 @dataclass(frozen=True)

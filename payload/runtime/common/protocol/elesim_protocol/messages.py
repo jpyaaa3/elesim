@@ -40,19 +40,19 @@ DEFAULT_START_CONTROL_U = ControlU(
 PERCEPTION_READY_CONTROL_U = DEFAULT_START_CONTROL_U
 
 
-# Operator-selected oct27 four-DOF/policy calibration: q spans -230..0 mm.
-# Motor/display endpoints remain 0..259 degrees; the mapping below pairs those
-# endpoints with this stroke. The earlier 1.5 degree/mm calibration is superseded.
-LINEAR_TRAVEL_M = 0.230
+# Physical calibration and motor-angle operating limit are independent inputs.
+# 1.5 motor degrees move the stage 1 mm; 260 degrees allow 173 1/3 mm travel.
+LINEAR_DEGREES_PER_MM = 1.5
+LINEAR_U_MAX_DEG = 260.0
+LINEAR_TRAVEL_M = LINEAR_U_MAX_DEG / LINEAR_DEGREES_PER_MM / 1000.0
 LINEAR_OPERATING_TRAVEL_M = LINEAR_TRAVEL_M
 
 
 @dataclass(frozen=True)
 class SimMappingConfig:
     linear_u_min: float = 0.0
-    # Motor/display endpoints for the operator-selected 230 mm stroke.
-    linear_u_max: float = 259.0
-    linear_u_limit: float = 259.0
+    linear_u_max: float = LINEAR_U_MAX_DEG
+    linear_u_limit: float = LINEAR_U_MAX_DEG
     roll_u_min: float = 0.0
     roll_u_max: float = 360.0
     seg_u_min: float = 0.0
@@ -259,6 +259,7 @@ CAPABILITY_MOTION_ARM = "motion.arm"
 CAPABILITY_MOTION_GO2 = "motion.go2"
 CAPABILITY_SIM_MOCK_HUG = "simulation.mock_hug.v1"
 CAPABILITY_ROBOT_STATE_MIRROR = "presentation.robot-state.v1"
+CAPABILITY_PRESENTATION_TARGET = "presentation.target.v1"
 CAPABILITY_STREAM_RGBD = "stream.rgbd"
 CAPABILITY_STREAM_RGBD_BROKER = "stream.rgbd.broker.v1"
 CAPABILITY_STREAM_OBSERVER = "stream.observer"
@@ -300,6 +301,7 @@ MESSAGE_TYPES = frozenset(
         "lease_revoked",
         "motion_command",
         "telemetry",
+        "presentation_target",
         "ack",
         "open_simulation_session",
         "simulation_session_opened",

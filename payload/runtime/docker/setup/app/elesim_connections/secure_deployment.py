@@ -95,6 +95,8 @@ class RuntimeLaunchOptions:
     pilot_gpu_device: str = ""
     sim_gpu_inherit: bool | None = None
     sim_gpu_device: str = ""
+    ui_gpu_inherit: bool | None = None
+    ui_gpu_device: str = ""
 
     @classmethod
     def from_payload(
@@ -109,6 +111,8 @@ class RuntimeLaunchOptions:
             "pilot_gpu_device",
             "sim_gpu_inherit",
             "sim_gpu_device",
+            "ui_gpu_inherit",
+            "ui_gpu_device",
             "viewer",
         }
         unknown = set(payload) - allowed
@@ -133,6 +137,8 @@ class RuntimeLaunchOptions:
                 "pilot_gpu_device",
                 "sim_gpu_inherit",
                 "sim_gpu_device",
+                "ui_gpu_inherit",
+                "ui_gpu_device",
             )
         )
 
@@ -154,6 +160,7 @@ class RuntimeLaunchOptions:
 
         pilot_inherit, pilot_device = role_values("pilot")
         sim_inherit, sim_device = role_values("sim")
+        ui_inherit, ui_device = role_values("ui")
         return cls(
             legacy[0] if not role_fields_present else pilot_inherit,
             legacy[1] if not role_fields_present else pilot_device,
@@ -162,6 +169,8 @@ class RuntimeLaunchOptions:
             pilot_device if role_fields_present else "",
             sim_inherit if role_fields_present else None,
             sim_device if role_fields_present else "",
+            ui_inherit if "ui_gpu_inherit" in payload or "ui_gpu_device" in payload else None,
+            ui_device if "ui_gpu_inherit" in payload or "ui_gpu_device" in payload else "",
         )
 
     def role_values(self, role: str) -> tuple[bool, str]:
@@ -171,6 +180,8 @@ class RuntimeLaunchOptions:
             return self.pilot_gpu_inherit, self.pilot_gpu_device if self.pilot_gpu_inherit else ""
         if role == "sim" and self.sim_gpu_inherit is not None:
             return self.sim_gpu_inherit, self.sim_gpu_device if self.sim_gpu_inherit else ""
+        if role == "ui" and self.ui_gpu_inherit is not None:
+            return self.ui_gpu_inherit, self.ui_gpu_device if self.ui_gpu_inherit else ""
         return self.gpu_inherit, self.gpu_device if self.gpu_inherit else ""
 
     def launcher_flags(self, roles: Sequence[str] | None = None) -> tuple[str, ...]:
@@ -218,6 +229,13 @@ def _command_timeout(argv: Sequence[str], base: float) -> float:
     """Return a bounded timeout appropriate for one managed command."""
 
     values = tuple(str(value) for value in argv)
+    command_name = PurePosixPath(values[0]).name if values else ""
+    if (
+        (command_name == "elesim-net" and values[1:] == ("show",))
+        or command_name == "elesim-status"
+        or (command_name == "elesim-instance" and len(values) >= 3 and values[2] == "status")
+    ):
+        return min(float(base), 20.0)
     if (
         len(values) >= 4
         and PurePosixPath(values[0]).name == "elesim-net"
@@ -1627,6 +1645,13 @@ class SshHostOperations:
         result.setdefault("host_id", host.host_id)
         result.setdefault("roles", list(host.roles))
         return result
+
+    def status_without_inventory(self, host: ManagedHost) -> Mapping[str, Any]:
+        """Recheck lifecycle ownership/state while a recent inventory is reused."""
+        with self._connect(host) as session:
+            return (self._lifecycle.status(session, host, include_gpu_inventory=False)
+                    if isinstance(self._lifecycle, InstalledElesimLifecycle)
+                    else self._lifecycle.status(session, host))
 
     def runtime_inventory(self, host: ManagedHost) -> Mapping[str, Any]:
         with self._connect(host) as session:
@@ -3603,7 +3628,7 @@ class InstalledElesimLifecycle:
                     # The GUI sends graph-wide options even to UI-only hosts.
                     # Accept matching selections as a request to use the saved
                     # policy, without forwarding legacy flags to instance up.
-                    gpu_roles = set(unit.roles) & {"pilot", "sim"}
+                    gpu_roles = set(unit.roles) & ({"pilot", "sim", "ui"} if runtime_options.ui_gpu_inherit is not None else {"pilot", "sim"})
                     instance_state = self._scoped_instance_state(session, unit)
                     if "sim" in unit.roles and runtime_options.viewer != instance_state.get("viewer", False):
                         raise ValueError("selected Viewer policy differs from the registered instance")
@@ -3668,6 +3693,8 @@ class InstalledElesimLifecycle:
                         pilot_gpu_device=runtime_options.pilot_gpu_device,
                         sim_gpu_inherit=runtime_options.sim_gpu_inherit,
                         sim_gpu_device=runtime_options.sim_gpu_device,
+                        ui_gpu_inherit=runtime_options.ui_gpu_inherit,
+                        ui_gpu_device=runtime_options.ui_gpu_device,
                     )
                 session.run(
                     _lifecycle_command(
@@ -3791,7 +3818,7 @@ class InstalledElesimLifecycle:
         policies: dict[str, dict[str, str]] = {}
         errors: list[str] = []
         for unit in host.units:
-            roles = tuple(role for role in unit.roles if role in {"pilot", "sim"})
+            roles = tuple(role for role in unit.roles if role in {"pilot", "sim", "ui"})
             if not roles:
                 continue
             command = (str(_net_command(unit)), "show")
@@ -3825,7 +3852,16 @@ class InstalledElesimLifecycle:
                 continue
             policy = {"mode": mode, "device": device}
             for role in roles:
-                policies[role] = dict(policy)
+                policies[role] = dict(policy) if role != "ui" else {"mode": "inherit", "device": ""}
+                if role == "ui":
+                    saved = raw.get("ui_compute") or {}
+                    if self._scoped:
+                        try:
+                            saved = self._scoped_instance_state(session, unit).get("role_compute", {}).get("ui", saved)
+                        except ScopedInstanceNotRegisteredError:
+                            pass
+                    policies[role]["selected_mode"] = saved.get("gpu_mode", "cpu")
+                    policies[role]["selected_device"] = saved.get("gpu_device", "")
         return policies, errors
 
     def status_after_runtime_preflight(

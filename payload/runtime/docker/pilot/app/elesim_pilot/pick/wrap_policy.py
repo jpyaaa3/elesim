@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -57,6 +57,29 @@ class Interface:
                 raise ValueError(
                     f"exported waypoint limits are incompatible with Pilot mapping channel {index}"
                 )
+
+    def restricted_to_mapping(self, mapping: Any) -> "Interface":
+        """Intersect deployment limits without rescaling the trained q coordinates."""
+        if mapping is None:
+            return self
+        from elesim_protocol import linear_effective_q_bounds
+
+        limits = (
+            linear_effective_q_bounds(mapping),
+            (mapping.roll_q_min_rad, mapping.roll_q_max_rad),
+            (mapping.seg1_q_min_rad, mapping.seg1_q_max_rad),
+            (mapping.seg2_q_min_rad, mapping.seg2_q_max_rad),
+        )
+        lower, upper = [], []
+        for index, (lo, hi) in enumerate(limits):
+            if not all(math.isfinite(float(v)) for v in (lo, hi)) or lo >= hi:
+                raise ValueError(f"Pilot mapping has invalid bounds for waypoint channel {index}")
+            left, right = max(self.lower[index], lo), min(self.upper[index], hi)
+            if left >= right or not left <= self.home[index] <= right:
+                raise ValueError(f"policy home is outside deployment limits for channel {index}")
+            lower.append(left)
+            upper.append(right)
+        return replace(self, lower=tuple(lower), upper=tuple(upper))
 
     @staticmethod
     def from_manifest(path: Path) -> "Interface":
@@ -253,7 +276,7 @@ class DeployedPolicy:
         import torch
 
         self._torch = torch
-        self.iface = Interface.from_manifest(Path(manifest_path))
+        self.iface = Interface.from_manifest(Path(manifest_path)).restricted_to_mapping(mapping)
         self.iface.validate_mapping(mapping)
         if self.iface.action_dim not in (4, 5):
             raise ValueError("exported wrap policy action.dim must be 4 or 5")

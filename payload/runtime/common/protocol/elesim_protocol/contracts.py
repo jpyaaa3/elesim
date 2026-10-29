@@ -7,8 +7,10 @@ class and a payload policy.  The values are documentation data as well as a
 small runtime guard used by :mod:`elesim_protocol.payloads`.
 
 The registry is deliberately kept independent of the payload DTO module to
-avoid an import cycle.  A protocol major bump is required before adding a new
-message type or changing one of the listed field sets.
+avoid an import cycle. Incompatible changes to existing messages require a
+major bump. The optional v6 presentation_target addition is capability-gated:
+only Sims advertising presentation.target.v1 receive it, so older v6 parsers
+never receive the new message type.
 """
 
 from __future__ import annotations
@@ -87,7 +89,8 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
         authority="pilot workflow",
         notes=("view_snapshot reads; allowlisted service_call/state_call/state_set writes; "
                "additive v6 arm trajectory prepare/execute/cancel and Pilot floor reference confirm/reset/export; "
-               "floor status is an optional service snapshot value; no Robot motion is issued by calibration"),
+               "floor status is an optional service snapshot value; no Robot motion is issued by calibration; "
+               "additive Sim-only start_object_scan/cancel_object_scan with optional object_scan status"),
     ),
     "operator_result": _contract(
         "operator_result", ("pilot",), ("ui",),
@@ -138,6 +141,11 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
             "reboot_faulted_motor is an explicit lease-bound recovery command requiring "
             "Robot torque-off and a latched DYNAMIXEL Hardware Error"
         ),
+    ),
+    "presentation_target": _contract(
+        "presentation_target", ("pilot",), ("sim",),
+        payload_fields=("robot_id", "robot_boot_id"), strict_fields=True,
+        notes="Read-only selected Robot presentation route; explicit Sim Robot pin takes precedence; grants no motion authority",
     ),
     "telemetry": _contract(
         "telemetry", ("robot", "sim"), ("pilot", "ui", "sim"),

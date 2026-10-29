@@ -82,14 +82,37 @@ def test_manifest_mapping_is_checked_against_actual_configured_bounds(tmp_path: 
         interface.validate_mapping(mapping)
 
 
-def test_oct27_policy_stroke_is_accepted_by_default_mapping(tmp_path: Path) -> None:
+def test_oct27_policy_is_restricted_to_physical_mapping_without_rescaling(tmp_path: Path) -> None:
     path = _manifest(tmp_path)
     raw = json.loads(path.read_text())
     raw["waypoint"]["limits"]["roll_rad"] = [-math.pi/2, math.pi/2]
     path.write_text(json.dumps(raw))
     interface = Interface.from_manifest(path)
-    interface.validate_mapping(SimMappingConfig())
+    restricted = interface.restricted_to_mapping(SimMappingConfig())
+    restricted.validate_mapping(SimMappingConfig())
     assert interface.lower[0] == -0.230
+    assert restricted.lower[0] == pytest.approx(-260 / 1500)
+    assert restricted.home == interface.home
+    assert restricted.rate_limit == interface.rate_limit
+
+
+def test_shipped_policy_keeps_export_hash_and_accepts_only_reachable_home():
+    import hashlib
+    from dataclasses import replace
+    root = Path(__file__).resolve().parents[4] / "payload/data/policies/wrap-grasp"
+    provenance = json.loads((root / "provenance.json").read_text())
+    for name, expected in provenance["artifacts"].items():
+        data = (root / name).read_bytes()
+        assert len(data) == expected["bytes"]
+        assert hashlib.sha256(data).hexdigest() == expected["sha256"]
+    trained = Interface.from_manifest(root / "interface.json")
+    mapping = SimMappingConfig()
+    deployed = trained.restricted_to_mapping(mapping)
+    assert deployed.lower[0] == pytest.approx(-260 / 1500)
+    assert deployed.obs_dim == 16 and deployed.expects_load
+    assert deployed.home == trained.home
+    with pytest.raises(ValueError, match="home is outside deployment limits"):
+        trained.restricted_to_mapping(replace(mapping, linear_u_limit=200))
 
 
 def test_observation_rejects_non_finite_inputs_without_torch(tmp_path: Path) -> None:

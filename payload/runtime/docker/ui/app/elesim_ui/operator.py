@@ -151,6 +151,16 @@ class RemoteControlService:
     def floor_calibration_status(self) -> dict[str, Any]:
         return dict(self.session.service_value("floor_calibration_status", {}))
 
+    @property
+    def object_scan(self):
+        return dict(self.session.service_value('object_scan', {}))
+
+    def object_scan_async(self, name, *args, on_result, on_error):
+        if name not in {'start_object_scan', 'cancel_object_scan'}:
+            raise ValueError('unsupported object scan operation')
+        return self.session.submit('service_call', name, *args,
+            on_result=on_result, on_error=on_error, request_timeout_s=5.)
+
     def floor_calibration_async(self, name, *args, on_result, on_error):
         if name not in {"confirm_floor_calibration", "reset_floor_calibration", "export_floor_calibration"}:
             raise ValueError("unsupported floor calibration operation")

@@ -110,7 +110,7 @@ class WizardApplication:
                 "bin_dir": str(self.invocation_dir / "bin"),
                 "developer_workspace": str(self.invocation_dir),
                 "dds_system_id": "elesim",
-                "dds_domain_id": 0,
+                "dds_domain_id": 1,
                 "dds_rmw_implementation": "rmw_cyclonedds_cpp",
                 "dds_discovery_mode": "multicast",
                 "dds_static_peers": "",

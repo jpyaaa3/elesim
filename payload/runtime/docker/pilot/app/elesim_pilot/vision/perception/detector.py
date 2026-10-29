@@ -17,6 +17,7 @@ class DetectionResult:
     bbox_xyxy: tuple[int, int, int, int]
     label: str
     confidence: float
+    mask_kind: str = "unknown"
 
 
 class ObjectDetector(Protocol):
@@ -96,7 +97,7 @@ class HsvDetector:
         bbox = _bbox_from_mask(mask)
         if bbox is None:
             return None
-        return DetectionResult(mask=mask, bbox_xyxy=bbox, label=self._label, confidence=1.0)
+        return DetectionResult(mask=mask, bbox_xyxy=bbox, label=self._label, confidence=1.0, mask_kind="instance")
 
 
 class RoiDetector:
@@ -115,7 +116,7 @@ class RoiDetector:
             return None
         mask = np.zeros((h, w), dtype=np.uint8)
         mask[y0 : y1 + 1, x0 : x1 + 1] = 255
-        return DetectionResult(mask=mask, bbox_xyxy=(x0, y0, x1, y1), label=self._label, confidence=1.0)
+        return DetectionResult(mask=mask, bbox_xyxy=(x0, y0, x1, y1), label=self._label, confidence=1.0, mask_kind="bbox")
 
 
 def load_detector_config(path: str | Path) -> dict[str, Any]:

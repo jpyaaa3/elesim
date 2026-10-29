@@ -25,10 +25,10 @@ def test_shipped_models_and_robot_agree_on_linear_limits():
     model = json.loads((ROOT / "payload/data/models/arm/default.json").read_text())
     assert model["context"]["linear_min_m"] == pytest.approx(expected)
     robot = yaml.safe_load((ROOT / "payload/config/robot/default.yaml").read_text())
-    assert expected == pytest.approx(-0.230)
-    assert robot["mapping"]["linear_q_min_m"] == pytest.approx(-0.230)
-    assert robot["mapping"]["linear_u_max"] == 259.0
-    assert robot["mapping"]["linear_u_limit"] == 259.0
+    assert expected == pytest.approx(-260/1500)
+    assert robot["mapping"]["linear_q_min_m"] == pytest.approx(-260/1500)
+    assert robot["mapping"]["linear_u_max"] == 260.0
+    assert robot["mapping"]["linear_u_limit"] == 260.0
 
 
 def test_role_defaults_and_rl_share_operating_range():
@@ -44,11 +44,11 @@ def test_role_defaults_and_rl_share_operating_range():
         robot_config(ROOT / "payload/config/robot/default.yaml").mapping,
     ]
     for mapping in mappings:
-        assert mapping.linear_u_max == 259.0
-        assert mapping.linear_u_limit == 259.0
-        assert linear_effective_q_bounds(mapping) == pytest.approx((-0.230, 0.0))
-        assert control_u_to_sim_q(ControlU(259, 180, 180, 180), mapping).linear_m == pytest.approx(-0.230)
-    assert load_mechanism().linear_m == pytest.approx((-0.230, 0.0))
+        assert mapping.linear_u_max == 260.0
+        assert mapping.linear_u_limit == 260.0
+        assert linear_effective_q_bounds(mapping) == pytest.approx((-260/1500, 0.0))
+        assert control_u_to_sim_q(ControlU(260, 180, 180, 180), mapping).linear_m == pytest.approx(-260/1500)
+    assert load_mechanism().linear_m == pytest.approx((-260/1500, 0.0))
 
 
 def test_rl_respects_a_custom_operating_cap(tmp_path):
@@ -57,4 +57,4 @@ def test_rl_respects_a_custom_operating_cap(tmp_path):
     config["robot"]["arm"]["mapping"]["linear_u_limit_deg"] = 150.0
     path = tmp_path / "sim.yaml"
     path.write_text(yaml.safe_dump(config))
-    assert load_mechanism(path).linear_m == pytest.approx((-0.230 * 150/259, 0.0))
+    assert load_mechanism(path).linear_m == pytest.approx((-150/1500, 0.0))

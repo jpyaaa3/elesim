@@ -8,12 +8,13 @@ import shlex
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
 from .configuration import (
     RobotHostSettings,
+    installed_robot_host_settings,
     bind_installed_data_paths,
     copy_app_config_tree,
     dds_enclave,
@@ -22,6 +23,7 @@ from .configuration import (
     app_directory,
 )
 from .credentials import validate_external_turn_credentials
+from .capabilities import require_payload_space
 from .ownership import (
     HostUninstallerBundle,
     OwnershipManifest,
@@ -137,6 +139,32 @@ class Installer:
             else Path(os.path.abspath(os.fspath(shell_bashrc.expanduser())))
         )
         self.robot_host = _resolve_native_robot_host()
+        saved_host = installed_robot_host_settings(self.state)
+        if saved_host is not None:
+            # Explicit host overrides can intentionally change a persisted
+            # installation. Unset values retain its detected field settings.
+            host = replace(
+                saved_host,
+                ros_workspace=(self.robot_host.unitree_ros_workspace
+                    if os.environ.get("ELESIM_UNITREE_ROS2_WS", "").strip()
+                    or os.environ.get("UNITREE_ROS2_WS", "").strip()
+                    else saved_host.ros_workspace),
+                unitree_interface=(self.robot_host.unitree_interface
+                    if "ELESIM_UNITREE_INTERFACE" in os.environ
+                    else saved_host.unitree_interface),
+                unitree_domain_id=(self.robot_host.unitree_domain_id
+                    if "ELESIM_UNITREE_DOMAIN_ID" in os.environ
+                    else saved_host.unitree_domain_id),
+            ).validate()
+            try:
+                robot_home = Path(pwd.getpwnam(host.robot_user).pw_dir)
+            except KeyError:
+                robot_home = self.robot_host.robot_home
+            self.robot_host = NativeRobotHost(
+                host.robot_user, robot_home, host.bridge_user, host.ros_workspace,
+                host.unitree_interface, host.unitree_domain_id,
+            )
+        self.state = replace(self.state, robot_host=self.robot_host.config_settings)
 
     def run(self) -> None:
         self._validate_source()
@@ -167,6 +195,7 @@ class Installer:
             self.log("[DRY-RUN] No files or packages were changed.")
             return
 
+        require_payload_space(self.state.prefix_path, self.state.source_path / "payload", purpose="native installation and backup")
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
         prepare_app_keystore_views(self.state)
@@ -450,6 +479,7 @@ class Installer:
                 root / "payload/data/models/arm",
                 data_root / "models/arm",
             )
+            _copy_tree(root / "payload/data/models/planning", data_root / "models/planning")
             _copy_tree(
                 root / "payload/data/models/perception",
                 data_root / "models/perception",
@@ -558,7 +588,7 @@ class Installer:
         python = path / "bin/python"
         if not python.is_file():
             self.log(f"[venv] {path}")
-            arguments = [sys.executable, "-m", "venv"]
+            arguments = [str(Path(getattr(sys, "_base_executable", sys.executable)).resolve()), "-m", "venv"]
             if system_site_packages:
                 arguments.append("--system-site-packages")
             arguments.append(str(path))
@@ -979,7 +1009,7 @@ def _resolve_native_robot_host() -> NativeRobotHost:
         else robot_home / "ros2_ws"
     )
     unitree_interface = os.environ.get("ELESIM_UNITREE_INTERFACE", "eth0").strip()
-    domain_value = os.environ.get("ELESIM_UNITREE_DOMAIN_ID", "1").strip()
+    domain_value = os.environ.get("ELESIM_UNITREE_DOMAIN_ID", "0").strip()
     try:
         unitree_domain_id = int(domain_value)
     except ValueError as exc:

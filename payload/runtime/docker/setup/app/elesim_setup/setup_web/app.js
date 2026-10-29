@@ -164,7 +164,7 @@ function payload() {
     gpu_mode: checkedValue("gpu-mode") || "inherit",
     gpu_device: checkedValue("gpu-mode") === "specific" ? byId("gpu-device").value : "",
     dds_system_id: defaults.dds_system_id || "elesim",
-    dds_domain_id: Number(defaults.dds_domain_id || 0),
+    dds_domain_id: Number(defaults.dds_domain_id ?? 1),
     dds_rmw_implementation: defaults.dds_rmw_implementation || "rmw_cyclonedds_cpp",
     dds_discovery_mode: defaults.dds_discovery_mode || "multicast",
     dds_static_peers: "",

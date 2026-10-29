@@ -341,7 +341,7 @@ def test_robot_generated_config_pins_host_ipc_identity_and_workspace(
     assert payload["go2"]["ipc_bridge_user"] == "elesim-unitree"
     assert payload["go2"]["ros_workspace"] == str(unitree_workspace)
     assert payload["go2"]["network_interface"] == "eth0"
-    assert payload["go2"]["ros_domain_id"] == 1
+    assert payload["go2"]["ros_domain_id"] == 0
 
 
 def test_robot_install_rejects_overlapping_elesim_and_unitree_networks(

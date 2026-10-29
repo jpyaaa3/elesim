@@ -307,7 +307,7 @@ def collect(prefix: Path, *, docker=_docker) -> tuple[str, ...]:
 
     releases = {release_key(item): item for item in list_releases(prefix, install_uuid=owner.install_uuid)}
     _reject_symlinked_ancestors(Path(boundary.compose_file))
-    current_tags = set(call("compose", "-p", project, "-f", boundary.compose_file,
+    current_tags = set(call("compose", "--profile", "*", "-p", project, "-f", boundary.compose_file,
                             "config", "--images").splitlines())
     current_ids = {}
     runtime_tags = {tag for item in releases.values() for tag in item.role_images.values()}

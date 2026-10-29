@@ -5,13 +5,14 @@ World geometry and Cartesian targets are expressed in the arm's plate frame.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 import copy
 import importlib.metadata
 import hashlib
 import json
 from pathlib import Path
 import threading
+import time
 
 import numpy as np
 import yaml
@@ -87,6 +88,15 @@ class CuRoboPlanner:
         import torch
         if not torch.cuda.is_available():
             raise CuRoboError("cuRobo requires an NVIDIA CUDA GPU")
+        # Graph fallback lazily loads libtorch_cuda_linalg. Detect a mismatched
+        # cuSolver before spending minutes initializing collision/IK models.
+        try:
+            torch.svd(torch.eye(4, device="cuda"), compute_uv=True, some=False)
+        except (RuntimeError, OSError) as exc:
+            raise CuRoboError(
+                "cuRobo CUDA linear algebra unavailable; check PyTorch/cuSolver "
+                f"compatibility: {exc}"
+            ) from exc
         from curobo.types.base import TensorDeviceType
         from curobo.geom.types import WorldConfig
         from curobo.wrap.reacher.motion_gen import MotionGen, MotionGenConfig
@@ -101,16 +111,30 @@ class CuRoboPlanner:
         if not 0 < sphere_count < 1024:
             raise CuRoboError("cuRobo v0.7.8 requires 1..1023 collision spheres")
         self.world = world
-        self._world_config = WorldConfig.from_dict(world)
+        self._world_config = WorldConfig.from_dict(world).get_collision_check_world()
         self._ik_tolerance = None
         self.use_cuda_graph = bool(use_cuda_graph)
         self._lock = threading.Lock()
         self.motion = MotionGen(MotionGenConfig.load_from_robot_config(
-            raw, world, tensor_args=self.tensor_args, use_cuda_graph=self.use_cuda_graph,
+            raw, self._world_config, tensor_args=self.tensor_args, use_cuda_graph=self.use_cuda_graph,
             collision_cache={"obb": 32, "mesh": 16},
             cspace_threshold=0.0001,
             interpolation_dt=float(interpolation_dt),
         ))
+        # The optimizer samples 32 knots; a zero-clearance self-collision
+        # optimum can collide between knots. Give its soft cost 2 mm extra
+        # radius per sphere. Keep the model and hard validators unchanged.
+        seen_costs = set()
+        for solver in (self.motion.js_trajopt_solver,
+                       self.motion.finetune_js_trajopt_solver):
+            for rollout in solver.get_all_rollout_instances():
+                cost = getattr(rollout, "robot_self_collision_cost", None)
+                if cost is None or id(cost) in seen_costs:
+                    continue
+                seen_costs.add(id(cost))
+                config = cost.self_collision_kin_config
+                cost.self_collision_kin_config = replace(
+                    config, offset=config.offset.clone() + 0.002)
         self._order = self._joint_order(self.motion.kinematics.joint_names)
         if not self.motion.kinematics.get_self_collision_config().experimental_kernel:
             raise CuRoboError("parallel self-collision kernel required; reinstall the pinned patched cuRobo")
@@ -218,21 +242,45 @@ class CuRoboPlanner:
             if target_sphere_center is not None:
                 target_world = WorldConfig.from_dict(
                     _world_with_target_sphere(self.world, target_sphere_center)
-                )
+                ).get_collision_check_world()
             try:
                 if target_world is not None:
                     self.motion.update_world(target_world)
                 # Both endpoints were independently checked above. The legacy
                 # duplicate check can include optimizer state/derivative costs.
-                result = self.motion.plan_single_js(start_state, goal_state,
-                                                   MotionGenPlanConfig(max_attempts=4, check_start_validity=False))
+                # v0.7.8 otherwise defaults to a 10 s query budget, which
+                # includes first-query CUDA setup and can expire before the
+                # graph-seeded retries. Leave room inside the worker's 180 s
+                # stage watchdog for the independent path checks below.
+                started = time.monotonic()
+                result = self.motion.plan_single_js(
+                    start_state, goal_state,
+                    MotionGenPlanConfig(max_attempts=12, timeout=120.0,
+                                        enable_graph_attempt=2,
+                                        check_start_validity=False),
+                )
+                elapsed = time.monotonic() - started
             finally:
                 self.motion.rollout_fn.primitive_collision_constraint.enable_cost()
                 self.motion.rollout_fn.robot_self_collision_constraint.enable_cost()
                 if target_world is not None:
                     self.motion.update_world(self._world_config)
-        if not bool(result.success.item()):
-            raise CuRoboError(f"cuRobo planning failed: {result.status}")
+        details = {
+            "status": str(result.status),
+            "success": bool(result.success.item()),
+            # v0.7.8 records the zero-based last attempt index.
+            "attempts": int(result.attempts) + 1,
+            "valid_query": bool(result.valid_query),
+            "used_graph": bool(result.used_graph),
+            "wall_s": round(elapsed, 3),
+            "graph_s": round(float(result.graph_time), 3),
+            "trajopt_s": round(float(result.trajopt_time), 3),
+            "finetune_s": round(float(result.finetune_time), 3),
+            "budget_s": 120.0,
+        }
+        print("[curobo-path] " + json.dumps(details, sort_keys=True), flush=True)
+        if not details["success"]:
+            raise CuRoboError("cuRobo planning failed: " + json.dumps(details, sort_keys=True))
         plan = result.get_interpolated_plan()
         actual_names = list(plan.joint_names)
         if set(actual_names) != set(self.joint_names):
@@ -296,7 +344,7 @@ class CuRoboPlanner:
                 if progress is not None:
                     progress("Initializing CUDA position IK solver")
                 self._ik = IKSolver(IKSolverConfig.load_from_robot_config(
-                    self.robot_config, self.world, tensor_args=self.tensor_args,
+                    self.robot_config, self._world_config, tensor_args=self.tensor_args,
                     use_cuda_graph=self.use_cuda_graph, num_seeds=32, position_threshold=tolerance_m,
                     collision_cache={"obb": 32, "mesh": 16},
                     high_precision=tolerance_m < 0.001,
@@ -310,7 +358,7 @@ class CuRoboPlanner:
             if progress is not None:
                 progress("Solving position IK")
             target_world = None if target_sphere_center is None else WorldConfig.from_dict(
-                _world_with_target_sphere(self.world, target_sphere_center))
+                _world_with_target_sphere(self.world, target_sphere_center)).get_collision_check_world()
             try:
                 if target_world is not None:
                     self._ik.update_world(target_world)

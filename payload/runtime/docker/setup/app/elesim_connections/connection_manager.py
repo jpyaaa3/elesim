@@ -109,7 +109,7 @@ class DdsEndpoint:
 
 @dataclass(frozen=True)
 class DdsGraphSettings:
-    domain_id: int = 0
+    domain_id: int = 1
     rmw_implementation: str = "rmw_cyclonedds_cpp"
     discovery_mode: str = "multicast"
 

@@ -97,6 +97,18 @@ CHECKS: tuple[Check, ...] = (
         description="Cross-role calibration/model/RL operating-range integration",
     ),
     Check(
+        "active-scan",
+        ("workbench/tests/system/test_active_scan.py", "workbench/tests/system/test_scan_operator_process.py"),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "payload/runtime/docker/ui/app"),
+        description="Sensor-only active scan with actual FK, view selection and scene artifact export",
+    ),
+    Check(
+        "reconstruction-pipeline",
+        ("workbench/tests/system/test_reconstruction_pipeline.py",),
+        (PROTOCOL_SRC,),
+        description="External Pilot model factories to an independent Sim scene artifact consumer",
+    ),
+    Check(
         "dds-rgbd",
         ("workbench/tests/system/test_dds_rgbd.py",),
         (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "payload/runtime/docker/sim/app"),

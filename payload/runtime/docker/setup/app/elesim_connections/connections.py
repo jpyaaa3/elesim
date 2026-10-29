@@ -275,6 +275,24 @@ class _BuildLogForwarder:
                 self._pending[stream] = ""
 
 
+def _transient_probe_transport_error(error: BaseException) -> bool:
+    """Retry read-only probes only for bounded transport failures."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, (TimeoutError, ConnectionError, OSError)):
+            return True
+        kind = type(error)
+        if kind.__name__ == "SshConnectionError" or (
+            kind.__module__.startswith("paramiko") and kind.__name__ in {
+                "SSHException", "ChannelException", "NoValidConnectionsError",
+            }
+        ):
+            return True
+        error = error.__cause__
+    return False
+
+
 class ConnectionDeploymentRunner:
     """Apply one saved topology from the operator-owned management host."""
 
@@ -315,6 +333,7 @@ class ConnectionDeploymentRunner:
         self.instance_turn_urls = tuple(str(value) for value in instance_turn_urls)
         NetworkSettings(turn_urls=self.instance_turn_urls).validate()
         self._runtime_launch_options: RuntimeLaunchOptions | None = None
+        self._runtime_inventory_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 
     def set_runtime_launch_options(
         self, options: RuntimeLaunchOptions | None
@@ -341,6 +360,7 @@ class ConnectionDeploymentRunner:
 
         runtime_options = self._runtime_launch_options
         self._runtime_launch_options = None
+        self._runtime_inventory_cache.clear()
         topology.validate()
         self._validate_management_host(topology)
         scoped_install = (
@@ -571,6 +591,9 @@ class ConnectionDeploymentRunner:
                     operation = operations[host.host_id]
                     operation.runtime_network_check(host)
                     inventory = operation.runtime_inventory(host)
+                    self._runtime_inventory_cache[(json.dumps(topology.to_dict(), sort_keys=True), host.host_id)] = (
+                        time.monotonic(), dict(inventory),
+                    )
                     if inventory.get("gpu_policy_error"):
                         raise RuntimeError(f"{host.host_id}: {inventory['gpu_policy_error']}")
                     log(f"validated: {host.host_id}")
@@ -1863,20 +1886,25 @@ class ConnectionDeploymentRunner:
             # retain the existing instance's explicitly selected GPU and viewer.
             plans = [
                 (host, unit, replace(instance, compute=previous.compute, compute_is_explicit=previous.compute_is_explicit,
-                                     role_compute=previous.role_compute, viewer=previous.viewer) if previous else instance,
+                                     role_compute={role: policy for role, policy in previous.role_compute.items()
+                                                   if role in unit.roles},
+                                     viewer=previous.viewer and "sim" in unit.roles) if previous else instance,
                  release, previous, previous_release)
                 for host, unit, instance, release, previous, previous_release in plans
             ]
         if runtime_options is not None:
             selected_plans = []
             for host, unit, instance, release, previous, previous_release in plans:
-                policies = {}
-                for role in set(unit.roles) & {"pilot", "sim"}:
+                policies = {role: policy for role, policy in previous.role_compute.items()
+                            if role in unit.roles} if previous else {}
+                for role in set(unit.roles) & {"pilot", "sim", "ui"}:
+                    if role == "ui" and runtime_options.ui_gpu_inherit is None:
+                        continue
                     inherit, device = runtime_options.role_values(role)
                     policies[role] = (
                         ComputeSettings("specific" if device else "inherit", device)
                         if inherit else ComputeSettings("cpu", "")
-                    ) if instance.compute.gpu_mode == "inherit" else instance.compute
+                    ) if role == "ui" or instance.compute.gpu_mode == "inherit" else instance.compute
                 instance = replace(instance, role_compute=policies, viewer=runtime_options.viewer and "sim" in unit.roles)
                 selected_plans.append((host, unit, instance, release, previous, previous_release))
             plans = selected_plans
@@ -2695,7 +2723,22 @@ class ConnectionDeploymentRunner:
                 raise RuntimeError(
                     "no checker is available; inspect the actual state in container logs"
                 )
-            return checker(host, expected, timeout_s=_DDS_READINESS_TIMEOUT_S)
+            deadline = time.monotonic() + _DDS_READINESS_TIMEOUT_S
+            for attempt in range(3):
+                try:
+                    budget = _DDS_READINESS_TIMEOUT_S if attempt == 0 else max(0.1, deadline - time.monotonic())
+                    report = checker(host, expected, timeout_s=budget)
+                    if isinstance(report, Mapping) and not ConnectionDeploymentRunner._runtime_report_ok(report):
+                        log(f"DDS readiness: {host.host_id} - checking latest endpoint state before rollback (5 seconds).")
+                        report = checker(host, expected, timeout_s=5.0)
+                    return report
+                except ConnectionJobCancelled:
+                    raise
+                except Exception as exc:
+                    if attempt == 2 or not _transient_probe_transport_error(exc) or time.monotonic() >= deadline:
+                        raise
+                    log(f"DDS readiness probe transport unavailable: {host.host_id}; reconnecting and checking fresh state ({attempt + 2}/3): {_exception_detail(exc)[:256]}")
+            raise AssertionError("unreachable readiness retry")
 
         reports: dict[str, object] = {}
         with concurrent.futures.ThreadPoolExecutor(
@@ -2747,8 +2790,8 @@ class ConnectionDeploymentRunner:
             )
         if failures:
             raise RuntimeError(
-                "DDS readiness failed; expected co-located and remote peer "
-                "heartbeats were not observed: "
+                "DDS readiness failed; endpoint liveness was not confirmed. "
+                "Probe transport errors do not prove missing DDS heartbeats: "
                 + "; ".join(failures)[:4096]
             )
 
@@ -2981,20 +3024,33 @@ class ConnectionDeploymentRunner:
                 f"for {name}: {actual!r} != {value!r}"
             )
 
-    def runtime_status(self, topology: ConnectionTopology) -> dict[str, object]:
+    def runtime_status_host(self, topology: ConnectionTopology, host_id: str) -> dict[str, object]:
+        return self.runtime_status(topology, host_id=host_id)
+
+    def runtime_status(self, topology: ConnectionTopology, *, host_id: str | None = None) -> dict[str, object]:
         """Collect host lifecycle state without using DDS discovery as a proxy."""
 
         topology.validate()
+        if host_id is not None and host_id not in {host.host_id for host in topology.hosts}:
+            raise ValueError("runtime status host is not in the saved topology")
         self._validate_management_host(topology)
         operations = self._operations(topology)
+        cache_identity = json.dumps(topology.to_dict(), sort_keys=True)
 
         def collect_host(host: ManagedHost) -> dict[str, object]:
             operation = operations[host.host_id]
             inventory: dict[str, object] = {}
+            cache_key = (cache_identity, host.host_id)
+            cached = self._runtime_inventory_cache.get(cache_key)
+            using_cached_inventory = cached is not None and time.monotonic() - cached[0] < 30.0
+            if using_cached_inventory:
+                inventory = dict(cached[1])
             value: dict[str, Any] | None = None
             status_error: Exception | None = None
             try:
-                value = dict(operation.status(host))
+                without_inventory = getattr(operation, "status_without_inventory", None)
+                value = dict(without_inventory(host) if inventory and callable(without_inventory)
+                             else operation.status(host))
             except Exception as exc:
                 status_error = exc
 
@@ -3007,12 +3063,13 @@ class ConnectionDeploymentRunner:
                 or "gpu_policy" not in value
                 or "gpu_devices" not in value
             )
-            if needs_inventory and callable(inventory_probe):
+            if needs_inventory and not inventory and callable(inventory_probe):
                 try:
                     inventory = dict(inventory_probe(host))
                     inventory["inventory_ready"] = not bool(
                         inventory.get("gpu_policy_error")
                     )
+                    self._runtime_inventory_cache[cache_key] = (time.monotonic(), dict(inventory))
                 except Exception as exc:
                     status_error = exc
 
@@ -3020,6 +3077,11 @@ class ConnectionDeploymentRunner:
                 value = {}
             if inventory:
                 value.update(inventory)
+            if not using_cached_inventory and "gpu_policy" in value and "gpu_devices" in value:
+                self._runtime_inventory_cache[cache_key] = (time.monotonic(), {
+                    key: value[key] for key in ("gpu_policy", "gpu_devices", "gpu_policy_error", "inventory_ready")
+                    if key in value
+                })
             if "inventory_ready" not in value and (
                 "gpu_policy" in value or "gpu_devices" in value
             ):
@@ -3057,7 +3119,9 @@ class ConnectionDeploymentRunner:
                 # executor.map preserves topology order while remote polls run
                 # concurrently. collect_host contains each host's failures so
                 # one unavailable machine does not hide the others' status.
-                hosts = list(executor.map(collect_host, topology.hosts))
+                hosts = list(executor.map(collect_host, tuple(
+                    host for host in topology.hosts if host_id is None or host.host_id == host_id
+                )))
         finally:
             self._close_operations(operations)
         return {

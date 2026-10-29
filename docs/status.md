@@ -1,10 +1,254 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-27. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-29. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### 코드 리뷰 후속 (2026-10-29)
+
+자동 scan과 모델 framework, 제어/표시 경계 및 설치/release 변경을 이 세션에서
+검토하고 재현 가능한 결함 두 개를 수정했다. 최초 외부 CLI 실행은 전송 승인
+부족으로 거부됐으나 사용자의 명시적 승인 후 `codex review --uncommitted`를
+읽기 전용으로 실행했다. 검토 중 대상 170개 파일의 해시가 유지됨을 확인했다.
+
+- **P2, scan 취소 경쟁 조건:** tick의 초기 취소 검사 뒤 다른 thread가 취소하면
+  해당 tick에서 q 명령이 한 번 더 전송될 수 있었다. 전송 직전에 취소 상태와
+  session 활성 여부를 condition lock 안에서 확인하고 취소 phase로 종료한다.
+- **P2, Sim 표시 대상의 명시적 고정값 덮어쓰기:** `presentation_target`이
+  `runtime.mirror_robot_id`를 다른 Robot으로 바꿀 수 있었다. 설정된 ID는 유지하고
+  discovery 기반 선택만 Pilot이 바꿀 수 있게 했다. 같은 고정 ID의 새 live boot는
+  기존 identity/sequence 검사를 거쳐 갱신할 수 있다. Wire major/field는 유지한다.
+
+두 문제 모두 수정 전 실패를 기록하고 회귀를 추가했다. 수정 후 Pilot **619 passed,
+27 skipped, 3 subtests**(Shapely 세 모듈 제외, 기존 warning 1개), Sim mirror/endpoint/
+distributed config와 계약 **48 passed**, 앱 배포 경계/layout/matrix **20 passed**다.
+변경된 Python **123개**의 AST 구문 검사와 `git diff --check`도 통과했다. 실제 RMW,
+GPU/Genesis와 Robot 검증 범위는 아래 scan 단계의 미실행 gate와 같다.
+
+외부 리뷰의 추가 지적 세 개도 수정 전 실패를 재현하고 수정했다.
+
+- **P1, 기존 UI release pin의 기동 불가:** 새 점검 flag를 모르는 구버전 UI에
+  이를 강제로 전달했다. Python entrypoint에서 이미지의 graphics helper 유무를
+  확인한다. 구버전은 점검 미지원 로그와 함께 원래 기동을 유지하며, 지원되는
+  helper가 실패하면 기동을 차단하고 임시 X11 grant를 정리한다. Image pin은 유지한다.
+- **P2, 상태 조회 중 GPU 선택 초기화:** `checking` placeholder를 새 정책으로
+  처리해 10초마다 선택값이 기본값으로 돌아갔다. 점검 중에는 마지막 정책·기기
+  목록·입력 초안을 유지하고 launch/edit는 `runtimeReady`로 막는다. 실제 unreachable
+  응답은 기존처럼 stale 정책을 폐기한다.
+- **P2, 역할 이동 뒤 GPU/Viewer 설정 잔존:** 호스트에서 빠진 역할의 정책을
+  새 instance에 복사해 validation이 실패했다. 명시적 launch option 유무와 관계없이
+  현재 역할의 GPU 정책만 남기고 Sim이 없는 호스트에서는 Viewer도 해제한다.
+
+추가 회귀를 포함한 관련 Python 설치/배포 검사 **277 passed**, JavaScript **8 passed**,
+변경된 Python **124개**의 구문 검사와 `git diff --check`가 통과했다. 실제 Docker 실행과 UI/OpenGL 구동은
+이 host fake-process 결과로 입증하지 않는다. 세 수정과 해당 회귀만 대상으로 한
+외부 재리뷰에서 추가로 조치할 회귀는 발견되지 않았다. 재리뷰는 읽기 전용 소스
+검토이며 테스트를 재실행하지 않았고, 위 277/8개는 이 작업 환경에서 실행한 결과다.
+
+재현·수정 후 로그와 구조화된 결과는
+`workbench/evidence/generated/auto-review/`에 보관한다.
+
+### Sim 자동 다중 시야 scan (2026-10-29)
+
+기존 연구용 시점 계획기와 점군 통합을 Pilot 실행 경로에 연결했다. UI의
+`Object Scan (Sim)` 시작/취소 → Sim의 leased 4축 이동 → 새 피드백 세 번으로
+정착 확인 → 새 coherent DDS RGB-D → instance mask/다중 시야 통합 → 모델 API 1의
+completion/mesh/선택적 계획 → immutable scene bundle과 `scan.json` 저장까지
+구현했다. 원본 NPZ와 시점별 silhouette PNG/NPZ도 남긴다. 설정은 Pilot의
+`scan.example.yaml` 또는 `--scan-models`이며 설치/release에 포함한다.
+
+실제 운용 관절 범위와 고정 base를 지키고 arm self-collision 및 관측된 주변
+표면을 이동 구간 전체에서 검사한다. 관절 추종 오차도 separation 여유에 포함한다.
+모델/탐색 worker와 DDS motion tick을 분리하고 boot/lease/Sim epoch 변경,
+500 ms 피드백 지연·제어 지연, 추종 실패·취소 시 후속 명령을 차단한다.
+다른 팔 작업과 동시 실행하지 않으며 Robot 대상은 거부한다.
+
+`view_budget`/`no_safe_distinct_view`/`information_saturated`를 구분하고 UI에
+관측 수, 점 수, 시야 방향 proxy와 미관측 방향을 표시한다. 숨겨진 표면의
+완성을 주장하지 않는다. 처음 대상이 보이도록 조준해야 하며 물체/base는 고정이다.
+물체 뒤집기·집기·base 이동, 학습 completion의 정확도, 동적 mesh 교체·자동
+multi-host 전달·계획 실행은 이 작업에 포함되지 않는다. 실사용 순서와 artifact는
+[`model_integration.md`](model_integration.md#sim-자동-다중-시야-수집)를 따른다.
+
+Host 검증은 실제 FK/시점 계획기/충돌 모델과 analytic RGB-D 센서 fixture,
+fake DDS/카메라의 live session, UI→Pilot 별도 프로세스 계약을 사용한다.
+실제 RMW/GPU/Genesis 동작을 입증하지 않는다. 현재 설치의 generated dev
+wrapper/container가 없고 host에는 ROS 2/Genesis/Torch가 없어 canonical
+required/extended, release build/isolated verify 및 real-RMW topology smoke를
+실행하지 못했다. Robot은 사용할 수 없다는 합의에 따라 시험하지 않는다.
+원시 로그는 `workbench/evidence/generated/active-scan/`에 보관한다.
+
+현재 변경의 host 결과:
+
+- Pilot **618 passed, 27 skipped, 3 subtests**. Shapely가 필요한 세 모듈은 제외했고,
+  기존 nonfinite preview 시험의 NumPy warning 1개가 있다. Scan의 취소·정착·freshness,
+  운용 상한과 여러 물체의 일관된 재정렬 회귀를 포함한다.
+- UI **152 passed**. AV가 필요한 `test_zed_preview.py`는 제외했다.
+- Protocol **177 passed, 5 skipped, 5 subtests**.
+- Sim telemetry/artifact·별도 프로세스·실제 FK scan·quality matrix **19 passed**,
+  layout **4 passed**. Analytic sphere fixture의 0.4 m 배치에서 3개 시점/3개 채택,
+  관측점의 구 표면 오차 p95 **0.333 mm**였다. 0.3 m 배치는 추종 오차 envelope과
+  겹쳐 다음 이동을 거부하고 1개 시점만 보존했다. 실제 렌더/mesh 품질 수치는 아니다.
+- Configuration/bootstrap **129 passed**, release tool self-tests **71 passed**.
+  실제 image/release build 결과는 아니다.
+- Shipped scan model factory/hash preflight, compileall과 `git diff --check` 통과.
+
+### 외부 모델 연결 framework (2026-10-28)
+
+다른 작업자가 개발하는 모델을 core workflow 수정 없이 연결하기 위한 첫 실행
+경계를 구현했다. Pilot model API 1의 pose, ordered pose correction, instance
+segmentation, completion, mesher, optional planner를 YAML factory/asset SHA-256으로
+선택한다. 기록 관측 iterable에서 물체별 점군·mesh와 미실행 계획안을 생성하는
+Python API 및 `elesim-reconstruct` CLI가 있다. 물체 ID/frame/단위, 관측과 추정,
+source boot/calibration, plan 시작 q/limits/contact 역할을 검사한다.
+
+Scene artifact schema 1(JSON/OBJ/NPZ)은 immutable 파일 bundle이다. Sim은 선택한
+bundle을 build 전에 고정 geometry로 읽고 물리 scene과 두 camera replica의
+revision을 일치시킨다. 설치/release에 adapter runner와 경로를 보정한 baseline
+예제를 포함한다. 외부 모델 제공 형식과 실행 방법은
+[`model_integration.md`](model_integration.md)를 따른다.
+
+이 범위는 trained IMU residual/AdaPoinTr/일반 instance tracker/접촉 planner의
+완성 선언이 아니다. Shipped reconstruction baseline은 HSV/FK, 명시적
+ObservedOnly, voxel surface다. 실시간 DDS 수집 연결, 자동 scan과 UI 실행 경로는
+위 10-29 후속에서 구현했다. Multi-host bundle 전송, 실행 중 mesh 교체·동적
+attachment·계획 실행은 남는다.
+Robot raw IMU 보정/native 입력 연결도 별도 미완료다. Robot IMU 슬롯은 기존
+JSON/C++ graph 계약을 유지한다. 저장 공간/고급 cache 정책은 보류한 그대로다.
+
+Host 검증은 외부 모델 fixture와 fake Genesis를 사용한다. 별도 Pilot CLI →
+Pilot을 import할 수 없는 Sim 소비 프로세스까지 검증하되 실제 GPU scene build,
+렌더·충돌 접촉, 모델 정확도, Robot 동작과 canonical isolated release gate는
+입증하지 않는다. 현재 설치의 생성된 개발 wrapper/container가 없고 host에는
+Genesis/Torch/ROS 2가 없어 canonical required/extended, release build/isolated verify,
+실제 RMW topology smoke는 실행하지 않았다. 기존 readability baseline 초과도
+이 작업으로 해결했다고 선언하지 않는다.
+
+10-28 framework 단계의 host 결과(최신 scan 검증과 구분):
+
+- Pilot **590 passed, 27 skipped, 3 subtests**. Shapely가 필요한 세 모듈은 제외했다.
+  기존 nonfinite preview 입력 시험의 NumPy warning 1개가 있다.
+- Protocol **177 passed, 5 skipped, 5 subtests**. 새 scene artifact 계약 시험 포함.
+- 재구성 Sim helper/config + 독립 소비 프로세스 **6 passed**; contract/matrix **26 passed**.
+- Configuration/bootstrap/container installer **218개 통과**. 처음 sandbox의 Unix
+  socket bind로 막힌 5개는 로컬 socket 허용 후 별도로 통과했다.
+- Release tool self-tests **70 passed**; example model preflight, compileall과
+  `git diff --check` 통과. 실제 release image build/격리 설치 결과는 아니다.
+
+원시 로그는 `workbench/evidence/generated/model-framework/`에 보관한다.
+
+### plzread 현장 수정의 저장소 적용 (2026-10-28)
+
+현장에서 원격 설치 후 실제 작동한 EleSim과 `plzread.md`의 수정 근거를 정식
+소스·설정·설치 생성물·release 입력에 반영했다. 현장 디렉터리의 최종 코드와
+후속 미완료 요구사항을 적용하되, 아래 사용자 확정값이 과거 매핑/상한보다
+우선한다. 이 기록은 R0–R5의 실기기·실네트워크 수용 완료 선언이 아니다.
+
+**완료 범위 재대조: 전체 목표 달성은 아직 아님**
+
+핵심 현장 diff의 소스 이식과 host 회귀 통과를 모든 현장 문제의 해결 완료로
+확대해서는 안 된다. Robot을 사용할 수 없다는 합의된 제약 외에도 다음이 남는다.
+
+- `_ensure_venv()`는 새 venv를 base interpreter로 생성하지만 이미 존재하는
+  venv의 private-cache 경유 링크와 `pyvenv.cfg`를 자동 수리하지 않는다.
+  현장에서 수행한 기존 venv 수리까지 일반 update가 재현하는 것은 아니다.
+- 용량 검사는 prefix의 payload 파일 복사 공간을 추정한다. Docker daemon의
+  CUDA 이미지 빌드 공간·빌드 캐시 예산 확인/안내까지 완성한 것은 아니다.
+- 기존 Robot의 명시적 calibration/domain을 보존하므로 새 소스 기본값만으로
+  기존 설치가 1.5°/mm·260° 및 EleSim 1 / Unitree 0으로 일괄 전환되지 않는다.
+  설정과 모델을 함께 적용하는 실제 upgrade 절차는 아직 검증하지 않았다.
+- 새 Jetson 이미지 build, 격리 release 설치 및 실제 DDS/두 영상 경로는
+  미검증이다. Wi-Fi/SSH 간헐 장애의 근본 원인을 해결했다는 근거도 없다.
+
+아래 표의 “정식 반영”은 각 코드 변경의 적용 위치와 동작을 뜻하며 위 미완료
+범위의 완료 증거는 아니다. 전체 완료 판단은 이 항목과 검증 경계를 함께 따른다.
+
+**확정한 리니어 기준**
+
+- **1.5 motor degrees = 1 mm, max = 260 degrees.**
+  `q=-u/1500` m, q 범위 `[-0.17333333333333334, 0]` m다.
+- Pilot·Robot·Sim 기본값, 공통 변환, ZED Mini/D435 blueprint·URDF·bundle,
+  IK 모델과 planning artifact를 맞췄다. 기존 259°=230 mm 및 그 위의 199°
+  상한은 이번 기준으로 대체한다. 별도 사용자 상한은 같은 환산비로 q를 제한한다.
+- Planning의 충돌 구·속도·다른 관절은 유지했다. 재사용 경로는 기존 artifact와
+  source/mesh hash, 동일 geometry/FK/속도 및 linear 구간 축소를 검사한다.
+  변형·확대·손상은 거부하며 provenance를 metadata에 기록한다.
+- oct27 policy와 manifest는 원본 그대로 복구했다. Pilot은 학습 좌표를
+  재환산하지 않고 출력 범위를 설치 한계와 교집합으로 제한한다. Home이 그
+  밖이면 시작을 거부한다. 이 제한에서 실제 정책 성능은 장비 확인 대상이다.
+
+**반영 위치와 동작**
+
+| 현장 항목 | 정식 반영 |
+| --- | --- |
+| private bootstrap Python으로 인한 native venv 접근 실패 | native installer가 실제 base interpreter 사용 |
+| YAML 교체 후 서비스 ACL 소실 | 원자적 설정 교체와 network/refresh rollback의 mode·POSIX ACL 보존; ACL 복사 실패 시 기존 파일 유지 |
+| net configure 후 Robot 호스트 설정 유실 | state v12 `robot_host`, installed YAML 이관, 사용자/NIC/workspace/domain 및 arm/mapping/safety·장치 보정 보존 |
+| tools profile 이미지 삭제·재빌드 | cleanup이 모든 Compose profile의 현재 이미지 보호; dev/foreign 소유권 경계 유지 |
+| Jetson 디스크 부족 | 설치/release 파일시스템의 payload 복사 여유 공간 선검사와 위치·필요량 보고; 자동 prune 없음 |
+| cuRobo/모델·정책 설치 누락 | bootstrap·context·설치·release에 planning/world/Wrap 입력 포함; 고정 commit cuRobo와 hash 확인 패치를 Orin 이미지에서 빌드 |
+| Torch/cuSolver graph fallback 실패 | cuSolver 11.7.1.2 DSO를 hash 확인해 private loader 경로에 배치; planner 초기 CUDA SVD 확인 |
+| sphere world/경로 최적화 | 초기·IK·경로 world 변환, soft self-collision sphere당 2 mm 여유, hard/독립 보간 검사 유지; 12회/120 s/graph attempt 2, 외부 180 s watchdog과 결과 로그 |
+| 측정 처짐이 다음 명령 목표를 덮어씀 | 측정 HostState와 마지막 명령 q 분리; target/lease/boot·토크·거절 시 캐시 폐기 |
+| Robot 상실 후 Sim 자동 제어 | Robot 우선 및 단절 중 기억; Sim-only graph는 유지. Robot discovery 뒤 Sim motion 거부 |
+| Robot 실측을 Sim에 표시 | capability 협상 `presentation_target`으로 선택 Robot ID/boot 전달, 정확한 source boot/sequence 검사, GO2 kinematic 표시와 마지막 실측 유지 |
+| GO2 domain/다리 측정 누락 | 신규 EleSim domain 1 / Unitree domain 0; 호스트 NIC는 별도 저장; leg dq/추정 토크 전달, 미수신 값 생성 안 함 |
+| 두 UI 창 입력·CPU 사용 | 창별 ImGui callback context와 복원; 카메라 30 Hz, 제어 60/20 Hz와 event wait, opt-in 통계 |
+| 제어 대상과 영상 선택 결합 | Control Target / Camera View 분리, system/Robot별 좌우 원본 RGB-D 직접 구독 및 기존 SROS2 read 권한 확인 |
+| UI X11/renderer | host UID/GID, 설치 시 cookie 고정 대신 session ACL, DDS 전 GL/vendor 사전 검사, 소유한 ACL만 복구/회수 |
+| UI GPU 선택·보존 | Connections·CLI·instance `role_compute.ui`에 software/NVIDIA 및 장치 선택; 기존 ui-rendering.json 읽기 이관 |
+| Hardware 전류 표 | 이름/숫자 ID 1–5 대응; 실제 Gripper mA가 있을 때만 표시, load 별도 유지 |
+| Wrap·보정·기본 목표 | Roll motor +1, Wrap sign +1, Pilot offset -9, Extend Arm offset 적용, lift sleep 연결; 공 XYZ=(.2976,.1682,.2901), Wrap 중심=(.368,.16,.55), radius=.05, height=1.1 |
+| Connections 준비 뒤 지연·잘못된 롤백 | 준비 inventory 30 s 재사용, 상태 SSH 20 s 예산, 호스트별 병렬 후속 표시, transient probe 최대 3회 재접속, 음성 결과는 롤백 전 최신 5 s 검사 |
+| Wi-Fi 운영 | 절전 off 뒤 재발한 현장 근거 보존; NIC/profile별 진단·명시적 변경·원복 안내. 설치가 네트워크 설정을 자동 변경하지 않음 |
+| release 동물 이름/catalog/활성 버전 | 기존 immutable 발행·등록 및 ownership 경로 유지; 현장 release/state/Compose를 다른 설치로 복사하지 않음 |
+
+Protocol major 6을 유지한다. 새 메시지는 `presentation.target.v1`을 광고한
+Sim에만 보내 구형 v6 parser에 전달되지 않는다. Registry/payload/문서와
+four-process smoke에 같은 계약을 추가했다. 선택 표시 경로는 motion authority를
+만들지 않는다. Robot local limit/deadman·bridge 상실 시 arm cleanup은 유지한다.
+
+정책 파일은 commit `1a8913825c45112fe9c50a9bca63da8e7cdb2655`에서 복구했다.
+`policy.pt` 198996 bytes / SHA256
+`9712131dbe7fa474af7dd36c2fd01dc1830b0b14ce5dac91dfbf70d5bf109683`,
+`interface.json` 5606 bytes / SHA256
+`55e1807b9af0d36c7a4058b32589921f30594980d8500edfe8755ef482e10442`이며
+`payload/data/policies/wrap-grasp/provenance.json`에 원본 URL을 기록했다.
+
+**검증과 적용 경계**
+
+- Host setup 전체 **1,349 passed**. 이후 필수 payload 입력 검증의
+  bootstrap/container 집중 재검사 **202 passed**, 상태 timeout 수정의
+  secure-deployment 집중 재검사 **124 passed**. 이 집중 검사는 전체 결과와 중복된다.
+- Host Pilot **570 passed, 27 skipped, 3 subtests passed**; Robot
+  **166 passed, 10 subtests passed**; UI **149 passed**; Sim endpoint/미러/
+  telemetry/operator/rate 집중 **44 passed**. Pilot은 Shapely가 필요한
+  hug_geometry/mock_hug/stereo_rgbd 3개 파일, UI는 AV가 필요한 zed_preview
+  파일을 수집에서 제외했다. Pilot의 NaN 입력 회귀에서 기존 RuntimeWarning 1건이 있다.
+- Protocol **159 passed, 5 skipped, 5 subtests passed**; 모델/FK/범위/계약 집중
+  **26 passed, 1 skipped**(Protocol과 일부 중복); release 도구 **69 passed**.
+  Node host별 응답/선택 보존 행동 검사와 Python·JS·shell 문법,
+  `git diff --check` 통과. 원본 출력은
+  `workbench/evidence/generated/field-20261028/`에 둔다.
+- 추가 정적 검사 **9 passed, 1 failed**. 실패는 클래스 길이 예산 검사다.
+  기존 HEAD도 ControlPanel 1040, UiSimSession 1015, PyMpcGenesisController
+  1068행으로 1000행 제한을 초과했다. 이번 ControlPanel은 1128행이며 다른
+  두 클래스는 그대로다. 이 가독성 정리는 남겨 두며 extended gate 통과로
+  기록하지 않는다. Layout 경계·고정 cuRobo 패치·smoke 누락 의존성 검사는 통과했다.
+- 사용할 수 있는 현재 설치의 generated dev wrapper/고정 Docker daemon이 없다.
+  canonical required/extended, release build/isolated verify, real-RMW DDS
+  topology·RGB-D·encoded WebRTC 및 Genesis/GPU/Jetson 이미지 build는 미실행이다.
+  Host Torch/Pinocchio/Shapely/AV/ROS 부재로 해당 owning suite의 일부를
+  제외/skip했다. host Python에는 의존성을 설치하지 않았다.
+- Robot을 사용할 수 없다는 사용자 조건을 반영한다. native 제어기는 장치 없는
+  SDK double로 확인하며 실제 모터/하중/정지 시간·GO2 수신·두 영상·무선 안정성은
+  새 검증 결과로 주장하지 않는다. 현장 원격 설치·작동 기록은 그대로 근거로 남긴다.
+- 이번 작업은 소스 적용이며 원격 접속·배포·서비스 재시작·모터 명령은 하지 않았다.
+  기존 설치의 명시적 보정/domain은 보존한다. 실제 적용에는 동일한 260° 기준의
+  Robot/Pilot/Sim 설정과 모델을 새 release/정상 등록 경로에서 함께 선택해야 한다.
+  저장소 수정만으로 실행 중 설치의 보정값이 자동 전환되지는 않는다.
 
 ### Robot native 설치 조회 버튼 갱신 수정 (2026-10-27)
 
@@ -17,7 +261,7 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   서버는 샌드박스 밖에서 실행했다. 기존 개발 이미지 준비 미완료로 canonical
   gate는 미실행이며, 실제 설치본 갱신·원격 SSH 접속·서비스 재시작은 하지 않았다.
 
-### oct27 정책 기준 4DOF Linear 범위 적용 (2026-10-27)
+### oct27 정책 기준 4DOF Linear 범위 적용 (2026-10-27, 아래 범위는 10-28 결정으로 대체됨)
 
 - 사용자 지정으로 공통 Linear 좌표를 `[-0.230, 0]` m로 변경했다. 모터·UI
   표시각은 0–259도를 유지하고 q=0..-230 mm에 선형 대응시킨다. 이전

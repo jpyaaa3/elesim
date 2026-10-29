@@ -31,7 +31,7 @@ const source = fs.readFileSync(process.argv[1], "utf8");
 const controls = {"pilot-gpu-inherit": {checked: false}, "sim-gpu-inherit": {checked: false}};
 const context = vm.createContext({
   gpuPolicies: {pilot: {mode: "unknown"}, sim: {mode: "cpu"}},
-  gpuDevices: {}, byId: id => controls[id], updateRuntimeOptions() {}
+  gpuDevices: {}, byId: id => controls[id], updateRuntimeOptions() {}, updateGpuDeviceOptions() {}
 });
 vm.runInContext(source.match(/function applyRuntimeGpuPolicies\([^]*?\n}/)[0], context);
 const hosts = [{roles: ["pilot", "sim"], gpu_policy: {

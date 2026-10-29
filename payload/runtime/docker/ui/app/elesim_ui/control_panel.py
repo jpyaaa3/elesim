@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import time
 import sys
 from typing import Callable, Optional
@@ -34,6 +35,7 @@ from .panels import (
     draw_resolution_panel,
     draw_imu_model_panel,
     draw_floor_calibration_panel,
+    draw_object_scan_panel,
     draw_status_panel,
 )
 
@@ -199,11 +201,12 @@ class ControlPanel:
         # Sample pointer gestures at the display cadence.  The session and
         # Sim endpoint coalesce camera deltas, so this does not create an
         # unbounded DDS backlog while removing a visible 30 Hz input cap.
-        self._camera_draw_period_s = 1.0 / 60.0
+        self._camera_draw_period_s = 1.0 / 30.0
         self._main_imgui_context = None
         self._camera_imgui_context = None
         self._main_imgui_impl = None
         self._camera_imgui_impl = None
+        self._last_input_at = time.monotonic()
         self._ui_resolution_requested_scale = 1.0
         self._ui_resolution_scale = 1.0
         self._ui_resolution_base_w = _INITIAL_WINDOW_W
@@ -246,37 +249,97 @@ class ControlPanel:
             self._respawn_shortcut_window = window
 
     def _install_respawn_shortcut(self, window, renderer) -> None:
+        # GLFW dispatches both windows' events in a single poll.  The camera
+        # context may still be current from the previous frame.  pyimgui's
+        # char_callback uses get_io(), so every callback must select the
+        # owning window's ImGui context before touching input state.
+        context = imgui.get_current_context()
+
+        def in_context(callback, *args):
+            self._last_input_at = time.monotonic()
+            previous = imgui.get_current_context()
+            self._set_imgui_context(context)
+            try:
+                return callback(*args)
+            finally:
+                self._set_imgui_context(previous)
+
         def key_callback(callback_window, key, scancode, action, mods):
-            renderer.keyboard_callback(callback_window, key, scancode, action, mods)
-            self._handle_respawn_key(
-                window, key, action, mods,
-                want_text_input=bool(renderer.io.want_text_input),
-            )
+            def handle_key():
+                if key < 0:
+                    return
+                renderer.keyboard_callback(callback_window, key, scancode, action, mods)
+                self._handle_respawn_key(
+                    window, key, action, mods,
+                    want_text_input=bool(renderer.io.want_text_input),
+                )
+            in_context(handle_key)
 
         def focus_callback(_window, focused):
+            self._last_input_at = time.monotonic()
             if not focused:
                 self._clear_respawn_shortcut()
 
         glfw.set_key_callback(window, key_callback)
+        glfw.set_char_callback(window, lambda *args: in_context(renderer.char_callback, *args))
+        glfw.set_scroll_callback(window, lambda *args: in_context(renderer.scroll_callback, *args))
+        glfw.set_cursor_pos_callback(window, lambda *args: in_context(renderer.mouse_callback, *args))
+        glfw.set_window_size_callback(window, lambda *args: in_context(renderer.resize_callback, *args))
         glfw.set_window_focus_callback(window, focus_callback)
 
-    def _draw_endpoint_selector(self, *, dropdown: bool = False) -> None:
+    def _refresh_endpoints(self) -> None:
         now = time.monotonic()
-        if now - self._endpoint_cache_at >= 0.5:
-            try:
-                self._endpoint_cache = list(self.service.available_endpoints)
-                self._active_endpoint_cache = str(self.service.active_endpoint)
-                self._endpoint_cache_at = now
-            except Exception:
-                pass
+        if now - self._endpoint_cache_at < 0.5:
+            return
+        try:
+            self._endpoint_cache = list(self.service.available_endpoints)
+            self._active_endpoint_cache = str(self.service.active_endpoint)
+            self._endpoint_cache_at = now
+        except Exception:
+            return
+
+    def _draw_camera_selector(self) -> None:
+        """Choose a video source without changing Pilot's motion target."""
+        self._refresh_endpoints()
+        view = self._sim_view
+        if view is None:
+            return
+        entries = []
+        if view.zed_preview is not None or view.zed_right_preview is not None:
+            entries.append(("zed", "Robot camera"))
+        if view.session is not None:
+            entries.extend(
+                (str(e.get("endpoint_id", "")), f"Sim view: {e.get('endpoint_id', '')}")
+                for e in self._endpoint_cache
+                if isinstance(e, dict) and e.get("role") == "sim" and e.get("endpoint_id")
+            )
+            requested = view.session.snapshot.requested_sim_id
+            if requested and not any(eid == requested for eid, _ in entries):
+                entries.append((requested, f"Sim view: {requested}"))
+        if not entries:
+            imgui.text_disabled("View: waiting for camera")
+            return
+        current = "zed" if view.state.camera_source == "zed" else (
+            view.session.snapshot.requested_sim_id if view.session is not None else ""
+        )
+        index = next((i for i, (eid, _) in enumerate(entries) if eid == current), 0)
+        changed, selected = imgui.combo("View##camera-source", index, [label for _, label in entries])
+        if changed:
+            target = entries[selected][0]
+            if target == "zed":
+                view.state.camera_source = "zed"
+            else:
+                view.state.camera_source = "sim"
+                view.session.switch_target(target)
+
+    def _draw_endpoint_selector(self, *, dropdown: bool = False) -> None:
+        self._refresh_endpoints()
         # The operator endpoint list also contains this UI and Pilot.  They
         # are discovery/control peers, not targets; exposing them here lets a
         # click switch the control plane to the wrong participant.
         #
-        # A Robot belongs here beside the Sim.  Listing only Sim endpoints left
-        # the hardware operator with nothing to click, so `active_endpoint`
-        # stayed empty and the panel read as never connected -- while only the
-        # Sim's selection also moves the camera session (see elesim_ui.main).
+        # Robot discovery makes Sim presentation-only. The camera selector
+        # keeps the complete peer list and never changes this motion route.
         endpoints = []
         for endpoint in self._endpoint_cache:
             role = (
@@ -285,7 +348,13 @@ class ControlPanel:
                 else str(getattr(endpoint, "role", ""))
             )
             if role.strip().lower() in {"sim", "robot"}:
+                if isinstance(endpoint, dict) and endpoint.get('control_selectable') is False:
+                    continue
                 endpoints.append(endpoint)
+        robots = [e for e in endpoints if (e.get('role') if isinstance(e, dict)
+                                          else getattr(e, 'role', '')) == 'robot']
+        if robots:
+            endpoints = robots
         active = self._active_endpoint_cache
         if dropdown:
             entries = [
@@ -308,7 +377,7 @@ class ControlPanel:
         if not endpoints:
             imgui.text_disabled("TARGET: waiting for endpoint")
             return
-        imgui.text("TARGET")
+        imgui.text("CONTROL TARGET")
         for index, endpoint in enumerate(endpoints):
             if isinstance(endpoint, dict):
                 endpoint_id = str(endpoint.get("endpoint_id", ""))
@@ -371,7 +440,7 @@ class ControlPanel:
         button_width = button_size * 2.0
         imgui.push_item_width(max(80.0, imgui.get_content_region_available_width()
                                   - button_width - spacing * 2.0))
-        self._draw_endpoint_selector(dropdown=True)
+        self._draw_camera_selector()
         imgui.pop_item_width()
         imgui.same_line()
         maximized = self._camera_window is not None and bool(
@@ -475,6 +544,8 @@ class ControlPanel:
         imgui.render()
         impl.render(imgui.get_draw_data())
         glfw.swap_buffers(window)
+        glfw.make_context_current(self._glfw_window)
+        self._set_imgui_context(self._main_imgui_context)
         if isinstance(opened, tuple) and len(opened) > 1 and not opened[1]:
             self._hide_camera_window()
 
@@ -888,6 +959,7 @@ class ControlPanel:
                         draw_ik_panel,
                         draw_imu_model_panel,
                         draw_floor_calibration_panel,
+                        draw_object_scan_panel,
                     ),
                     item_width=first_item_w,
                 )
@@ -930,6 +1002,7 @@ class ControlPanel:
                     draw_ik_panel,
                     draw_imu_model_panel,
                     draw_floor_calibration_panel,
+                    draw_object_scan_panel,
                 ),
                 item_width=max(scaled(self, 120.0), left_w * 0.45),
             )
@@ -957,6 +1030,7 @@ class ControlPanel:
                     draw_ik_panel,
                     draw_imu_model_panel,
                     draw_floor_calibration_panel,
+                    draw_object_scan_panel,
                     draw_sim_video_panel,
                     draw_status_panel,
                     draw_resolution_panel,
@@ -1072,7 +1146,12 @@ class ControlPanel:
                 self._set_imgui_context(self._main_imgui_context)
 
         try:
+            report_frames = os.environ.get("ELESIM_UI_FRAME_STATS") == "1"
+            report_started = time.monotonic()
+            report_count = 0
+            report_work_s = 0.0
             while not glfw.window_should_close(window) and not self._stop:
+                frame_started = time.monotonic()
                 self.service.poll()
                 self._host_state = self.service.current_host_state()
                 self.sync_offset_drafts()
@@ -1092,9 +1171,23 @@ class ControlPanel:
                 main_impl.render(imgui.get_draw_data())
                 glfw.swap_buffers(window)
                 self._draw_camera_window()
-                # Keep a tiny fallback yield for drivers that ignore the swap
-                # interval; normal composited paths block in swap_buffers.
-                time.sleep(0.001)
+                if report_frames:
+                    report_count += 1
+                    report_work_s += time.monotonic() - frame_started
+                    elapsed = time.monotonic() - report_started
+                    if elapsed >= 5.0:
+                        print(f"[ui-frame] fps={report_count / elapsed:.1f} work_ms={1000.0 * report_work_s / report_count:.1f}", flush=True)
+                        report_started = time.monotonic()
+                        report_count = 0
+                        report_work_s = 0.0
+                # Software GL and remote desktops can ignore swap_interval.
+                # Bound redraws instead of saturating CPU with duplicate frames;
+                # input events wake this wait immediately.
+                interactive = time.monotonic() - self._last_input_at < 0.25 or any(imgui.get_io().mouse_down)
+                target_hz = 60.0 if interactive else 20.0
+                remaining = 1.0 / target_hz - (time.monotonic() - frame_started)
+                if remaining > 0.0:
+                    glfw.wait_events_timeout(remaining)
         finally:
             if self._camera_window is not None:
                 try:

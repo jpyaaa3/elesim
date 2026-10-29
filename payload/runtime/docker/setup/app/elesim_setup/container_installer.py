@@ -342,7 +342,7 @@ class ContainerInstaller:
         log: Callable[[str], None] = print,
         on_commit: Callable[[], None] | None = None,
     ) -> None:
-        self.state = state.validate()
+        self.state = state.validate().with_legacy_ui_policy()
         if self.state.install_mode != "container":
             raise ValueError("ContainerInstaller requires install_mode=container")
         self.state_path = (
@@ -431,6 +431,8 @@ class ContainerInstaller:
             self.log("[DRY-RUN] The host and Docker daemon were not changed.")
             return
 
+        from .capabilities import require_payload_space
+        require_payload_space(self.state.prefix_path, self.state.source_path / "payload", purpose="installation/update and backup")
         if ownership_refresh is None:
             transaction = FreshInstallRollback(
                 prefix=self.state.prefix_path, bin_dir=self.state.bin_path,
@@ -1100,6 +1102,8 @@ class ContainerInstaller:
             root / "payload/runtime/docker/shared/install_go2_pympc.sh",
             root / "payload/runtime/docker/shared/generate_go2_pympc.py",
             root / "payload/runtime/docker/shared/install_jetson_cuda.sh",
+            root / "payload/runtime/docker/shared/install_curobo.sh",
+            root / "payload/runtime/docker/shared/patch_curobo.py",
             root / "payload/runtime/docker/setup/Dockerfile",
             root / "payload/runtime/docker/setup/tools-entrypoint",
             root / "payload/runtime/docker/shared/robotpkg.asc",
@@ -1119,6 +1123,15 @@ class ContainerInstaller:
             required.append(root / "payload/data/models/objects/demo_box.obj")
         if "pilot" in self.state.roles:
             required.append(root / "payload/runtime/docker/pilot/requirements.jetson.lock")
+            required.extend(root / relative for relative in (
+                "payload/config/pilot/world.yaml",
+                "payload/config/pilot/wrap_grasp.yaml",
+                "payload/data/models/planning/zed-mini/arm.urdf",
+                "payload/data/models/planning/zed-mini/robot.yml",
+                "payload/data/models/planning/zed-mini/metadata.json",
+                "payload/data/policies/wrap-grasp/policy.pt",
+                "payload/data/policies/wrap-grasp/interface.json",
+            ))
             # Reject unsupported Jetson GPU stacks before touching owned files.
             self._role_build_args("pilot")
             required.append(root / "payload/config/pilot/imu_models/identity.json")
@@ -1162,6 +1175,7 @@ class ContainerInstaller:
             _copy_tree(root / "payload/data/calibration", data_root / "calibration")
         if role == "pilot":
             _copy_tree(root / "payload/data/models/arm", data_root / "models/arm")
+            _copy_tree(root / "payload/data/models/planning", data_root / "models/planning")
             _copy_tree(
                 root / "payload/data/models/perception",
                 data_root / "models/perception",
@@ -1222,7 +1236,7 @@ class ContainerInstaller:
         _copy_source_tree(source, context)
         shutil.copy2(root / "payload/runtime/docker/shared/Dockerfile.app", context / "Dockerfile")
         shutil.copy2(root / "payload/runtime/docker/shared/robotpkg.asc", context / "robotpkg.asc")
-        for name in ("install_go2_pympc.sh", "generate_go2_pympc.py", "install_jetson_cuda.sh"):
+        for name in ("install_go2_pympc.sh", "generate_go2_pympc.py", "install_jetson_cuda.sh", "install_curobo.sh", "patch_curobo.py"):
             shutil.copy2(root / "payload/runtime/docker/shared" / name, context / name)
         if self._role_build_args(role).get("PILOT_TORCH_STACK") == "jetson-cu126":
             shutil.copy2(source / "requirements.jetson.lock", context / "requirements.lock")
@@ -1505,15 +1519,27 @@ class ContainerInstaller:
                 # local-user ACL established at launch.  Baking an authority
                 # path discovered during installation into Compose can become
                 # stale before a later non-interactive manager launch and make
-                # Xlib send the wrong cookie despite the valid ACL.  UI keeps
-                # its existing cookie mount because it is not governed by the
-                # opt-in Viewer wrapper.
-                include_xauthority=role == "ui",
+                # Xlib send the wrong cookie despite the valid ACL. UI uses the
+                # same host-user session/ACL preflight as the optional Viewer.
+                include_xauthority=False,
             )
         if role == "ui":
             service["environment"]["LIBGL_ALWAYS_SOFTWARE"] = (  # type: ignore[index]
                 "${ELESIM_UI_SOFTWARE_GL:-1}"
             )
+            selected = compute or self.state.ui_compute
+            service["user"] = f"{os.getuid()}:{os.getgid()}"
+            service["environment"]["HOME"] = "/tmp"
+            if selected is not None:
+                selected.validate()
+                self._apply_compute(service, compute=selected)
+                service["environment"]["LIBGL_ALWAYS_SOFTWARE"] = "1" if selected.gpu_mode == "cpu" else "0"
+                if selected.gpu_mode != "cpu":
+                    service["environment"].update({
+                        "NVIDIA_DRIVER_CAPABILITIES": "graphics,display,utility",
+                        "__GLX_VENDOR_LIBRARY_NAME": "nvidia",
+                        "__NV_PRIME_RENDER_OFFLOAD": "1",
+                    })
         if role in {"pilot", "sim"}:
             self._apply_compute(service, compute=compute)
             if role == "sim" and "NVIDIA_DRIVER_CAPABILITIES" in service["environment"]:
@@ -1886,7 +1912,7 @@ class ContainerInstaller:
         viewer_user = _resolve_viewer_user()
         viewer_state = (
             self.state.prefix_path / "cache/viewer-xhost"
-            if "sim" in self.state.roles
+            if {"sim", "ui"}.intersection(self.state.roles)
             else None
         )
         backend_guard = _docker_backend_guard(self.state.container_network)
@@ -2190,9 +2216,9 @@ class ContainerInstaller:
                         (self._image_name(role), self._image_fingerprints[role])
                         for role in self.state.roles
                     ),
-                    # Fingerprint inspection/removal uses the Docker CLI directly;
-                    # keep those reads on the same pinned daemon as Compose.
-                    guard=backend_guard,
+                    # Validate ownership before changing X11 ACLs as well as
+                    # before fingerprint inspection and Compose operations.
+                    guard=guard,
                 ),
             )
         if self.state.developer_attachment.enabled:
@@ -2605,7 +2631,7 @@ class ContainerInstaller:
         ]
         if self.state.container_network.uses_tailscale_sidecar:
             names.append("elesim-tailscale")
-        if "sim" in self.state.roles:
+        if {"sim", "ui"}.intersection(self.state.roles):
             names.append("elesim-viewer-cleanup")
         if self.state.developer_attachment.enabled:
             names.append("elesim-dev")
@@ -2860,6 +2886,14 @@ def _entrypoint(role: str) -> str:
             + commands[role]
             + ' "${sim_args[@]}" "$@"\n'
         )
+    elif role == "ui":
+        command = (
+            "if [[ ${1:-} == --elesim-ui-preflight ]]; then\n"
+            "  (( $# == 1 )) || { printf 'UI preflight accepts no arguments.\\n' >&2; exit 64; }\n"
+            "  exec python3 -m elesim_ui.graphics\n"
+            "fi\n"
+            + "exec " + commands[role] + ' "$@"\n'
+        )
     else:
         command = "exec " + commands[role] + ' "$@"\n'
     return (
@@ -2902,6 +2936,12 @@ def _reset_generated_context(context: Path) -> None:
             "Permission denied while replacing the existing image context. "
             f"To preserve the root-owned context, rerun the installation as a regular user: {context}"
         ) from exc
+
+
+def _reject_symlinked_ancestors(path: Path) -> None:
+    for current in (path, *path.parents):
+        if current.is_symlink():
+            raise ValueError(f"UI rendering policy contains a symlink: {current}")
 
 
 def _reject_source_symlinks(source: Path) -> None:
@@ -3676,7 +3716,7 @@ def _viewer_xhost_function(
     xhost_user: str = "root",
     x11_socket_dir: Path = Path("/tmp/.X11-unix"),
 ) -> str:
-    """Render opt-in X11 ACL management for the Sim container user."""
+    """Render X11 ACL/session management for the graphical container user."""
 
     state = shlex.quote(str(state_path))
     user = shlex.quote(str(xhost_user))
@@ -4310,12 +4350,14 @@ def _runtime_up_wrapper(
             xhost_user=viewer_user,
             x11_socket_dir=viewer_x11_socket_dir,
         )
-        if has_sim and viewer_state is not None
+        if (has_sim or "ui" in runtime_roles) and viewer_state is not None
         else ""
     )
     viewer_action = (
         (
-            "if (( view_requested )); then\n"
+            "ui_requested=0\n"
+            "for argument in \"${compose_args[@]}\"; do [[ $argument != ui ]] || ui_requested=1; done\n"
+            "if (( view_requested || ui_requested )); then\n"
             "  viewer_xhost_enable || exit $?\n"
             "fi\n"
             if viewer_function
@@ -4502,20 +4544,37 @@ def _runtime_up_wrapper(
         if viewer_function
         else ""
     )
+    if viewer_function and "ui" in runtime_roles:
+        viewer_preflight += (
+            "if (( ui_requested )); then\n"
+            "  ui_preflight_status=0\n"
+            "  ui_build_flags=()\n"
+            "  (( ! runtime_build_required )) || ui_build_flags=(--build)\n"
+            f"  {command} run --rm -T \"${{ui_build_flags[@]}}\" --no-deps ui --elesim-ui-preflight || ui_preflight_status=$?\n"
+            "  if (( ui_preflight_status )); then\n"
+            "    if (( viewer_xhost_cleanup_on_failure )); then viewer_xhost_cleanup || ui_preflight_status=$?; fi\n"
+            "    exit \"$ui_preflight_status\"\n"
+            "  fi\nfi\n"
+        )
     viewer_post_cleanup = (
         (
-            "if (( compose_status == 0 && ! view_requested )); then\n"
+            "if (( compose_status == 0 && ! view_requested && ! ui_requested )); then\n"
             "  headless_sim_selected=0\n"
             "  for argument in \"${compose_args[@]}\"; do\n"
             "    [[ $argument == sim ]] && headless_sim_selected=1\n"
             "  done\n"
             "  if (( headless_sim_selected )); then\n"
-            "    # Only a successfully activated headless Sim supersedes an old\n"
+            + (
+                f"    running_ui=\"$({command} ps --status running -q ui)\"\n"
+                "    if [[ -z $running_ui ]]; then viewer_xhost_cleanup || compose_status=$?; fi\n"
+                if "ui" in runtime_roles else
+                "    viewer_xhost_cleanup || compose_status=$?\n"
+            )
+            + "    # Only a successfully activated headless Sim supersedes an old\n"
             "    # Viewer.  Partial launches and failed restarts must preserve its\n"
-            "    # ACL so manager compensation can resume the previous container.\n"
-            "    viewer_xhost_cleanup || compose_status=$?\n"
+            "    # ACL, as must a running UI on the same display.\n"
             "  fi\n"
-            "elif (( compose_status != 0 && view_requested )); then\n"
+            "elif (( compose_status != 0 && (view_requested || ui_requested) )); then\n"
             "  if (( viewer_xhost_cleanup_on_failure )); then\n"
             "    viewer_xhost_cleanup || compose_status=$?\n"
             "  fi\n"

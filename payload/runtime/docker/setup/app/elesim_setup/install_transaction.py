@@ -136,6 +136,7 @@ class RefreshControlRollback:
         self.manifest_bytes = manifest.read_bytes()
         self.committed = False
         self.files: dict[Path, tuple[bytes, int] | None] = {}
+        self.acls: dict[Path, dict[str, bytes]] = {}
         for path in sorted(set(paths), key=str):
             self._check_path(path)
             if not os.path.lexists(path):
@@ -145,6 +146,11 @@ class RefreshControlRollback:
             if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
                 raise RuntimeError(f"refresh control file is not singly-linked and regular: {path}")
             self.files[path] = (path.read_bytes(), stat.S_IMODE(metadata.st_mode))
+            self.acls[path] = {
+                name: os.getxattr(path, name)
+                for name in os.listxattr(path)
+                if name.startswith("system.posix_acl_")
+            } if hasattr(os, "listxattr") else {}
 
     @staticmethod
     def _check_path(path: Path) -> None:
@@ -178,6 +184,8 @@ class RefreshControlRollback:
                     handle.flush()
                     os.fsync(handle.fileno())
                 temporary.chmod(mode)
+                for name, value in self.acls[path].items():
+                    os.setxattr(temporary, name, value)
                 os.replace(temporary, path)
             except OSError as error:
                 errors.append(f"{path}: {error}")
