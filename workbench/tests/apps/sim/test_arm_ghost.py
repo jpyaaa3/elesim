@@ -1,6 +1,5 @@
 from pathlib import Path
 from types import SimpleNamespace as NS
-import json
 
 import numpy as np
 import pytest
@@ -54,22 +53,6 @@ def test_mesh_ghost_has_no_physics_calls_and_clears_bounded_handles():
     ghost.update(scene,[-.12,.2,.1,-.1],np.eye(4));assert len(clears)==count
     ghost.update(scene,None,None)
     assert not ghost.handles and len(clears)==2*count
-
-
-def test_fk_matches_pilot_for_every_arm_link_and_nonidentity_base():
-    from elesim_pilot.robot.arm.iklib.kinematics import _forward_link_tf
-    from elesim_pilot.robot.arm.joint_defs import JointLimit
-    from scipy.spatial.transform import Rotation
-    context=json.loads((ROOT/'payload/data/models/arm/default.json').read_text())['context']
-    context['limit']=JointLimit(**context['limit']['value'])
-    base=np.eye(4);base[:3,3]=[.2,-.1,.4];base[:3,:3]=Rotation.from_euler('xyz',[.2,-.1,.5]).as_matrix()
-    context['base_world_T']=base
-    ghost=ArmGhost(URDF)
-    for q in ([-.1,0,0,0],[-.142,.7,.3,-.4],[0,-.7,-.2,.5]):
-        actual=ghost.transforms(q,base)
-        for link,(pos,rot) in _forward_link_tf(context,q).items():
-            np.testing.assert_allclose(actual[link][:3,3],pos,atol=1e-7)
-            np.testing.assert_allclose(actual[link][:3,:3],rot,atol=1e-7)
 
 
 def test_operator_preview_does_not_reset_or_step_simulation():

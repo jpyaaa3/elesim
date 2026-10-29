@@ -34,7 +34,7 @@ def test_dds_motion_target_reaches_runtime_arm_gripper_and_go2(monkeypatch):
     state=SimulationStateSource(SimMappingConfig())
     endpoint=SimEndpoint(endpoint_id='sim-motor',state=state,streams={})
     endpoint.grant_lease('pilot-motor','lease-motor')
-    client=SimpleNamespace(send=Mock())
+    client=SimpleNamespace(send=Mock(),node=SimpleNamespace(discover=lambda **kwargs: ()))
     command=dict(command='target',q=[-.1,.2,.3,-.3],
                  go2_vel=[.2,-.1,.3],claw_closed=True)
     def send(payload,seq):

@@ -97,6 +97,12 @@ CHECKS: tuple[Check, ...] = (
         description="Cross-role calibration/model/RL operating-range integration",
     ),
     Check(
+        "arm-ghost-fk",
+        ("workbench/tests/system/test_arm_ghost_fk.py",),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "payload/runtime/docker/sim/app"),
+        description="Pilot and Sim ghost FK agree for every arm link and transformed base",
+    ),
+    Check(
         "active-scan",
         ("workbench/tests/system/test_active_scan.py", "workbench/tests/system/test_scan_operator_process.py"),
         (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "payload/runtime/docker/ui/app"),
