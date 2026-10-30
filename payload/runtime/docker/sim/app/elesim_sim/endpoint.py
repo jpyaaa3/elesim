@@ -246,6 +246,7 @@ class SimEndpoint:
             revision = self._telemetry_revision
             pilot_id = self.pilot_id
             lease_id = self.active_lease
+        payload.update(self.state.control_feedback())
         if not self._send_best_effort(
             client,
             "telemetry",

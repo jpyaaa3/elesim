@@ -192,6 +192,12 @@ Sim mirrors it. Protocol major 6 and existing command/envelope fields remain
 unchanged. Physical speed limits and native controller ABI 5 are host-local
 implementation/configuration changes, not new DDS authority.
 
+Sim also publishes the existing `torque_enabled` and `claw_closed` fields from
+its applied virtual actuator state on every telemetry snapshot. This lets Pilot
+check the Sim-only scan prerequisites after accepted torque/claw commands.
+It is virtual controller feedback; Robot continues to report its hardware state.
+The bounded open telemetry map and protocol major 6 are unchanged.
+
 IMU 해석 모델 선택은 기존 v6 `motion_command`의 새 명령 값
 `set_imu_model`이다. 새 message type이나 기존 registry field set을 추가하지
 않으므로 wire major는 6을 유지하고, 명령 안의 `model.schema_version`을 1로

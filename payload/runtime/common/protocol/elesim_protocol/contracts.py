@@ -158,6 +158,7 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
         qos="reliable-control", notes=(
             "bounded state map; fields are additive by design; Robot measured state "
             "may feed opt-in Sim presentation.robot-state.v1 without motion authority; "
+            "Sim torque_enabled/claw_closed report its applied virtual actuator state; "
             "imu_reader schema 1 carries two uncalibrated sensor diagnostics, not correction authority; "
             "optional Robot measurement_time_s is the arm sample time in the source wall clock "
             "for RGB-D pairing; measurement_monotonic_s retains its existing freshness meaning; "

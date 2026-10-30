@@ -83,6 +83,8 @@ class EntityState:
     qpos: object
     velocity: object
     properties: dict
+    position: object
+    quaternion: object
 
     @classmethod
     def read(cls, entity):
@@ -90,13 +92,20 @@ class EntityState:
         if int(entity.n_dofs):
             for name in ("kp", "kv", "damping", "armature", "frictionloss"):
                 properties[name] = _copy(getattr(entity, "get_dofs_" + name)())
-        return cls(_copy(entity.get_qpos()), _copy(entity.get_dofs_velocity()), properties)
+        return cls(_copy(entity.get_qpos()), _copy(entity.get_dofs_velocity()), properties,
+            _copy(entity.get_pos()), _copy(entity.get_quat()))
 
     def restore(self, entity):
         for name, value in self.properties.items():
             getattr(entity, "set_dofs_" + name)(value)
         if len(self.qpos):
             entity.set_qpos(self.qpos)
+        # Fixed roots, including articulated fixed-base arms, have no root
+        # pose in qpos. A set_pos/set_quat after startup must survive edits.
+        for name, value in (('pos',self.position), ('quat',self.quaternion)):
+            equal = getattr(entity,'get_'+name)() == value
+            if not bool(equal.all() if hasattr(equal,'all') else equal):
+                getattr(entity,'set_'+name)(value)
         if len(self.velocity):
             entity.set_dofs_velocity(self.velocity)
 

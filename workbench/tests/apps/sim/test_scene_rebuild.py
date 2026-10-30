@@ -18,12 +18,19 @@ class Entity:
         self.desc = NS(morphs=(kwargs.get("morph"),), material=kwargs.get("material"),
             surface=kwargs.get("surface"), visualize_contact=False)
         self.q, self.v = [0.], [0.]
+        if getattr(kwargs.get('morph'), 'fixed', False):
+            self.n_dofs, self.q, self.v = 0, [], []
+        self.pos, self.quat = [0.,0.,0.], [1.,0.,0.,0.]
         self.props = {key: [1.] for key in ("kp", "kv", "damping", "armature", "frictionloss")}
 
     def get_qpos(self): return self.q
     def get_dofs_velocity(self): return self.v
     def set_qpos(self, q): self.q = q.copy()
     def set_dofs_velocity(self, v): self.v = v.copy()
+    def get_pos(self): return self.pos
+    def get_quat(self): return self.quat
+    def set_pos(self, value): self.pos = value.copy()
+    def set_quat(self, value): self.quat = value.copy()
     def __getattr__(self, key):
         if key.startswith("get_dofs_"):
             return lambda: self.props[key[9:]]
@@ -87,6 +94,28 @@ def test_camera_failure_restores_old_revision_state_and_bindings():
     assert [e.name for e in scene.entities] == ['robot']
     assert scene.get_entity('robot').q == [1.2]
     assert set(edit.current_kwargs) == {'robot'}
+
+
+@pytest.mark.parametrize('rollback',[False,True])
+def test_moved_fixed_roots_survive_rebuild_and_rollback(rollback):
+    scene = Scene()
+    scene.entities.append(Entity('target',morph=NS(fixed=True)))
+    for entity in scene.entities:
+        entity.pos, entity.quat = [1.,2.,3.], [.5,.5,.5,.5]
+    edit = SceneRebuilder(scene,NS(),editor_factory=Editor)
+    failed = []
+    def cameras(*_values):
+        if rollback and not failed:
+            failed.append(True)
+            raise RuntimeError('candidate frame failed')
+    if rollback:
+        with pytest.raises(RuntimeError,match='previous scene restored'):
+            edit.replace(None,rebind=lambda:None,cameras=cameras)
+    else:
+        edit.replace(None,rebind=lambda:None,cameras=cameras)
+    for entity in scene.entities:
+        assert entity.get_pos() == [1.,2.,3.]
+        assert entity.get_quat() == [.5,.5,.5,.5]
 
 
 def test_session_loss_during_build_rolls_back_and_never_activates_candidate():

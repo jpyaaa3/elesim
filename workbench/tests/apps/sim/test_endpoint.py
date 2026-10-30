@@ -157,6 +157,23 @@ def test_runtime_telemetry_is_merged_and_sent_as_canonical_q() -> None:
     assert kwargs["payload"]["go2_base_pos"] == [0.0, 0.0, 0.3]
 
 
+def test_telemetry_reports_applied_virtual_torque_and_claw_state() -> None:
+    value, _state, client = endpoint()
+    commands = [({}, False, False), ({'command':'torque_on'}, True, False),
+        ({'command':'target','claw_closed':True}, True, True),
+        ({'command':'torque_off'}, False, True), ({'command':'torque_on'}, True, True),
+        ({'command':'target','claw_closed':False}, True, False),
+        ({'command':'estop'}, False, False)]
+    for seq, (command, torque, closed) in enumerate(commands, 1):
+        if command:
+            value.handle_envelope(client, message(command, seq=seq))
+        value.publish_telemetry({'q':[-.1,.2,.3,-.3]})
+        value.flush_telemetry(client)
+        payload = client.sent[-1][1]['payload']
+        assert payload.get('torque_enabled') is torque
+        assert payload.get('claw_closed') is closed
+
+
 def test_telemetry_remains_dirty_when_pilot_temporarily_disappears() -> None:
     value, _state, _client = endpoint()
     client = FlakyClient("telemetry")

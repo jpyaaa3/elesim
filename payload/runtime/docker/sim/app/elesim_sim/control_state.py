@@ -182,6 +182,11 @@ class SimulationStateSource:
         with self._lock:
             return bool(self._claw_closed)
 
+    def control_feedback(self) -> dict[str, bool]:
+        """Report the virtual actuator state applied by this Sim process."""
+        with self._lock:
+            return {'torque_enabled':self._torque_enabled, 'claw_closed':self._claw_closed}
+
     def go2_vel(self) -> tuple[float, float, float]:
         with self._lock:
             return tuple(self._go2_velocity)
