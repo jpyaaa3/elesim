@@ -198,6 +198,11 @@ check the Sim-only scan prerequisites after accepted torque/claw commands.
 It is virtual controller feedback; Robot continues to report its hardware state.
 The bounded open telemetry map and protocol major 6 are unchanged.
 
+Sim encoded RGB-D populates the existing `calibration_id` with a SHA-256
+fingerprint of its hand-eye file digest and frame intrinsics/dimensions.
+Frame sequence, timestamp and arm pose do not change that identity. This is an
+existing bounded metadata field in protocol major 6; raw RGB-D is unchanged.
+
 IMU 해석 모델 선택은 기존 v6 `motion_command`의 새 명령 값
 `set_imu_model`이다. 새 message type이나 기존 registry field set을 추가하지
 않으므로 wire major는 6을 유지하고, 명령 안의 `model.schema_version`을 1로

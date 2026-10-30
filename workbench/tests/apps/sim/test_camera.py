@@ -280,3 +280,22 @@ def test_observer_horizontal_drag_keeps_one_screen_direction_above_and_below() -
 
     assert horizontal_motion(-0.7) > 0.0
     assert horizontal_motion(0.7) > 0.0
+def test_encoded_rgbd_identifies_hand_eye_and_intrinsics_without_tracking_frame_pose():
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    frames = []
+    def factory(*_args,**_kwargs):
+        return SimpleNamespace(bound_endpoint='/rgbd',publish=lambda frame:frames.append(frame) or True)
+    frame = SimCameraFrame(np.zeros((2,2,3),np.uint8),np.ones((2,2),np.float32),1.,
+        SimCameraIntrinsics(2.,2.,.5,.5,2,2),seq=1,ts=1000.,arm_q=(0.,0.,0.,0.))
+    def publish(seed, value):
+        publisher = SimCameraPublisher('/rgbd',endpoint_id='sim',boot_id='boot',
+            wire_format='encoded-rgbd-v1',color_codec='raw',calibration_id=seed,publisher_factory=factory)
+        assert publisher.publish(value)
+        return frames[-1].metadata.calibration_id
+    initial = publish('hand-eye-a',frame)
+    assert len(initial) == 64
+    assert publish('hand-eye-a',replace(frame,seq=2,ts=1001.,arm_q=(0.,.1,0.,0.))) == initial
+    assert publish('hand-eye-b',frame) != initial
+    assert publish('hand-eye-a',replace(frame,intrinsics=replace(frame.intrinsics,fx=3.))) != initial

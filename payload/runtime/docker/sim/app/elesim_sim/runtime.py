@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -3347,6 +3348,7 @@ class RuntimePrep:
                 color_codec="jpeg" if bool(a.cfg.sim_camera_jpeg) else "raw",
                 depth_codec="zlib",
                 jpeg_quality=int(a.cfg.sim_camera_jpeg_quality),
+                calibration_id=hashlib.sha256(Path(a.cfg.hand_eye_config).read_bytes()).hexdigest(),
             )
 
         if observer_enabled:

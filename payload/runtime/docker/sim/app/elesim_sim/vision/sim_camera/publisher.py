@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+
 from typing import Any, Callable, Optional
 
 from elesim_protocol import (
@@ -27,6 +30,7 @@ class SimCameraPublisher:
         color_codec: str = "jpeg",
         depth_codec: str = "zlib",
         jpeg_quality: int = 85,
+        calibration_id: str = "",
         publisher_factory: Callable[..., Any] = DdsRgbdPublisher,
     ) -> None:
         self.topic = str(topic)
@@ -39,6 +43,7 @@ class SimCameraPublisher:
         self._color_codec = str(color_codec).strip().lower()
         self._depth_codec = str(depth_codec).strip().lower()
         self._jpeg_quality = int(jpeg_quality)
+        self._calibration_id = str(calibration_id)
         self._send_depth = bool(send_depth)
         self._endpoint_id = str(endpoint_id)
         self._boot_id = str(boot_id)
@@ -75,6 +80,14 @@ class SimCameraPublisher:
     def publish(self, frame: SimCameraFrame) -> bool:
         if not self._encoded:
             return bool(self._publisher.publish(frame))
+        calibration_id = str(frame.calibration_id)
+        if self._calibration_id:
+            intrinsics = frame.intrinsics
+            calibration = {'schema_version':1,'hand_eye':self._calibration_id,
+                'intrinsics':[float(getattr(intrinsics,name)) for name in ('fx','fy','cx','cy')],
+                'size':[int(intrinsics.width),int(intrinsics.height)]}
+            calibration_id = hashlib.sha256(json.dumps(calibration,sort_keys=True,
+                separators=(',',':'),allow_nan=False).encode()).hexdigest()
         encoded = encoded_frame_from_rgbd(
             frame,
             source_id=self._endpoint_id,
@@ -82,6 +95,7 @@ class SimCameraPublisher:
             color_codec=self._color_codec,
             depth_codec=self._depth_codec if bool(frame.depth_raw is not None and self._send_depth) else "raw",
             jpeg_quality=self._jpeg_quality,
+            calibration_id=calibration_id,
         )
         if not self._send_depth:
             from dataclasses import replace
