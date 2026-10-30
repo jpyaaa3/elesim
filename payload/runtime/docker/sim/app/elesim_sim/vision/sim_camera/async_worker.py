@@ -112,6 +112,20 @@ class _CameraSceneEdit:
     revision: str
 
 
+@dataclass
+class CameraScenePreparation:
+    """Parent-owned handle for a single bounded visual scene edit."""
+    worker: Any
+    edit: _CameraSceneEdit
+    started: float
+    deadline: float
+    finished: bool = False
+    build_s: float = 0.
+
+    def wait(self) -> None:
+        self.worker.finish_scene_rebuild(self)
+
+
 class SharedRgbdMailbox:
     """One fixed-size latest-only RGB-D slot shared by two processes."""
 
@@ -405,7 +419,17 @@ def _apply_snapshot(
     return observer_pose_changed
 
 
-def _build_camera_scene(gs, spec, streams):
+def _add_base_entity(scene, descriptions, key, factory):
+    if key in descriptions:
+        # Genesis 1.4.5 InteractiveScene uses the same resolved-description
+        # path. Only fixed deployment assets enter this bounded dictionary.
+        return scene._sim._add_entity(desc=descriptions[key])
+    entity = factory()
+    descriptions[key] = entity.desc
+    return entity
+
+
+def _build_camera_scene(gs, spec, streams, base_descriptions):
     """Construct a visual scene in an already initialized render process."""
     from elesim_sim.vision.sim_camera.mount import Node9EyeInHandCamera, ObserverCamera
 
@@ -446,7 +470,8 @@ def _build_camera_scene(gs, spec, streams):
             scene_kwargs["rigid_options"] = rigid_options
         scene = gs.Scene(**scene_kwargs)
         if bool(spec.floor):
-            scene.add_entity(gs.morphs.Plane())
+            _add_base_entity(scene, base_descriptions, 'floor',
+                lambda: scene.add_entity(gs.morphs.Plane()))
         target_entity = None
         if bool(spec.target_enable):
             sphere_kwargs = {
@@ -462,12 +487,12 @@ def _build_camera_scene(gs, spec, streams):
             except TypeError:
                 sphere_kwargs.pop("collision", None)
                 sphere = gs.morphs.Sphere(**sphere_kwargs)
-            target_entity = scene.add_entity(
+            target_entity = _add_base_entity(scene, base_descriptions, 'target', lambda: scene.add_entity(
                 sphere,
                 surface=gs.surfaces.Rough(color=tuple(float(v) for v in spec.target_color_rgba)),
-            )
+            ))
         t_model = time.perf_counter()
-        entity = scene.add_entity(
+        entity = _add_base_entity(scene, base_descriptions, 'robot', lambda: scene.add_entity(
             _make_urdf_morph(
                 gs,
                 spec.urdf_path,
@@ -478,7 +503,7 @@ def _build_camera_scene(gs, spec, streams):
                 # the URDF joint DOFs used to pose the arm.
                 fixed=True,
             )
-        )
+        ))
         if "FL_calf_joint" in spec.robot_joint_names:
             from elesim_sim.robot.go2.initial_pose import validate_initial_stand_pose
 
@@ -489,14 +514,14 @@ def _build_camera_scene(gs, spec, streams):
         for asset in spec.mock_assets:
             path = str(asset)
             asset_id = path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].removesuffix(".obj")
-            mock_entities[asset_id] = scene.add_entity(
+            mock_entities[asset_id] = _add_base_entity(scene, base_descriptions, 'mock:' + asset_id, lambda: scene.add_entity(
                 gs.morphs.Mesh(
                     file=path,
                     pos=(0.0, 0.0, -100.0),
                     fixed=True,
                     collision=False,
                 )
-            )
+            ))
 
         if spec.scene_manifest:
             from elesim_sim.simulation.scene_artifact import add_scene_artifact, verify_scene_revision
@@ -562,7 +587,8 @@ def _camera_render_process_main(
         gs.init(**_genesis_init_kwargs(gs, use_gpu=bool(spec.use_gpu)))
         print(f"[sim-camera-worker] {streams} Genesis initialized in {time.perf_counter() - t_startup:.2f}s", flush=True)
 
-        scene, entity, mock_entities, target_entity, eye, observer, robot_dof_indices = _build_camera_scene(gs, spec, streams)
+        base_descriptions = {}
+        scene, entity, mock_entities, target_entity, eye, observer, robot_dof_indices = _build_camera_scene(gs, spec, streams, base_descriptions)
         results.put_nowait({"type": "ready", "ok": True})
         ready.set()
         startup_complete = True
@@ -593,7 +619,7 @@ def _camera_render_process_main(
                     scene = None
                     candidate_spec = replace(spec, scene_manifest=command.manifest,
                         scene_revision=command.revision)
-                    scene, entity, mock_entities, target_entity, eye, observer, robot_dof_indices = _build_camera_scene(gs, candidate_spec, streams)
+                    scene, entity, mock_entities, target_entity, eye, observer, robot_dof_indices = _build_camera_scene(gs, candidate_spec, streams, base_descriptions)
                     spec = candidate_spec
                     ik_marker = IkTargetMarker()
                     arm_ghost = ArmGhost(spec.hand_eye_urdf_path or spec.urdf_path)
@@ -893,6 +919,8 @@ class CameraRenderWorker:
         self._edit_epoch = -1
         self._edit_done = threading.Event()
         self._edit_replies: dict[str, str] = {}
+        self._edit_ticket: Optional[CameraScenePreparation] = None
+        self._edit_completed_at = 0.
 
     def _spec_for_stream(self, stream: str) -> CameraRenderSpec:
         """Return the smallest visual scene needed by ``stream``."""
@@ -1071,9 +1099,15 @@ class CameraRenderWorker:
 
     def rebuild_scene(self, manifest: str, revision: str, *, epoch: int, timeout_s: float) -> None:
         """Reliably edit both live processes; capture snapshots cannot replace this command."""
+        self.begin_scene_rebuild(manifest, revision, epoch=epoch, timeout_s=timeout_s).wait()
+
+    def begin_scene_rebuild(self, manifest: str, revision: str, *, epoch: int, timeout_s: float) -> CameraScenePreparation:
+        """Enqueue reliable edits so physics can rebuild while visual workers prepare."""
         if self._closed or not self._started or self.failure:
             raise RuntimeError(self.failure or 'camera render worker is unavailable')
-        deadline = time.monotonic() + max(.1, float(timeout_s))
+        started = time.monotonic()
+        ticket = CameraScenePreparation(self, _CameraSceneEdit(int(epoch), str(manifest), str(revision)),
+            started, started + max(.1, float(timeout_s)))
         with self._submission_lock:
             with self._lock:
                 if self._editing:
@@ -1084,29 +1118,46 @@ class CameraRenderWorker:
                 self._epoch = self._edit_epoch = int(epoch)
                 self._edit_replies.clear()
                 self._edit_done.clear()
+                self._edit_ticket = ticket
+                self._edit_completed_at = 0.
         try:
-            edit = _CameraSceneEdit(int(epoch), str(manifest), str(revision))
             for state in self._processes.values():
                 state.ready.clear()
                 # The producer is gated above. FIFO preserves any in-flight
                 # snapshot ahead of this reliable control operation.
-                state.commands.put(edit, timeout=max(.01, deadline-time.monotonic()))
+                state.commands.put(ticket.edit, timeout=max(.01, ticket.deadline-time.monotonic()))
+        except Exception as error:
+            self._set_failure('camera scene rebuild command failed: ' + str(error))
+            with self._lock:
+                self._editing = False
+                ticket.finished = True
+            raise RuntimeError(self.failure) from error
+        return ticket
+
+    def finish_scene_rebuild(self, ticket: CameraScenePreparation) -> None:
+        with self._lock:
+            if ticket is not self._edit_ticket or ticket.finished:
+                raise ValueError('camera scene preparation is no longer pending')
+        try:
             while not self._edit_done.wait(.02):
                 if self.failure:
                     raise RuntimeError(self.failure)
-                if time.monotonic() >= deadline:
+                if time.monotonic() >= ticket.deadline:
                     self._set_failure('camera scene rebuild timed out')
                     raise TimeoutError(self.failure)
             with self._lock:
                 errors = [f'{name}: {error}' for name, error in self._edit_replies.items() if error]
+                ticket.build_s = max(0., self._edit_completed_at - ticket.started)
+                late = self._edit_completed_at > ticket.deadline
+            if late:
+                self._set_failure('camera scene rebuild completed after its deadline')
+                raise TimeoutError(self.failure)
             if errors:
                 raise RuntimeError('camera scene rebuild failed: ' + '; '.join(errors))
-            self.spec = replace(self.spec, scene_manifest=str(manifest), scene_revision=str(revision))
-        except queue.Full as error:
-            self._set_failure('camera scene rebuild command queue timed out')
-            raise TimeoutError(self.failure) from error
+            self.spec = replace(self.spec, scene_manifest=ticket.edit.manifest, scene_revision=ticket.edit.revision)
         finally:
             with self._lock:
+                ticket.finished = True
                 self._editing = False
 
     def _stream_ready(self, stream: str) -> bool:
@@ -1231,6 +1282,7 @@ class CameraRenderWorker:
                 self._edit_replies[stream_hint] = ('' if message.get('ok') is True else
                     str(message.get('error') or 'scene rebuild failed')[:512])
                 if set(self._edit_replies) == set(self.streams):
+                    self._edit_completed_at = time.monotonic()
                     self._edit_done.set()
             return
         if kind == "ready":

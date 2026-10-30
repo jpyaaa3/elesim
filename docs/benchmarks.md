@@ -118,11 +118,20 @@ python3 -m workbench.research.support.worker \
 ```
 
 단일 노출 GPU와 role-owned cache에서 실행한다. `physics_s`는 메시 처리·물리
-재빌드·상태 복원/controller 재결합, `cameras_s`는 새 replica와 첫 프레임까지다.
+재빌드·상태 복원/controller 재결합이다. 병렬 준비 경로의 `camera_rebuild_s`는
+카메라 준비 요청부터 두 worker의 응답까지이며 물리 작업과 겹친다. `cameras_s`는
+물리 완료 이후 남은 카메라 준비 대기와 첫 프레임까지다. 두 값을 물리 시간에
+그대로 합산하지 않는다. 이전 순차 버전의 `cameras_s`에는 카메라 준비 전체가 들어간다.
 `total_s`에는 입력 검증과 기존 worker 정리도 포함한다. seed cache의 커널만
 준비됐는지, 개별 OBJ까지 처리됐는지를 구분해 기록한다. 결과는 단일 실행의
 실측이며 임의 메시나 다수 물체의 시간 상한이 아니다. 실제 두 DDS 프로세스의
 session/capability 명령 전달은 `dds-scene-commands` 필수 quality gate가 담당한다.
+
+`--variant N`은 같은 면 수의 다른 합성 형상을 만들어 매번 새 OBJ로 검사한다.
+`--profile-edits`는 명령별 cProfile 상위 호출을 결과에 추가한다. Profile 실행의
+시간은 계측 오버헤드를 포함하므로 일반 실행과 직접 비교하지 않는다. 물리 실패와
+진행 중 session 해제도 주입해 준비 중인 카메라 작업을 정리한 뒤 이전 씬으로
+돌아오는지 확인한다.
 
 소비자에게는 필요한 research Python import와 센서/명목 모델만 마운트한다.
 전체 checkout/evidence나 producer의 scene/catalog 코드를 넘기지 않는다.

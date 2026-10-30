@@ -25,7 +25,7 @@ def _stop_cameras(scene):
     scene._next_camera_publish_sim_t = scene._next_observer_camera_publish_sim_t = 0.
 
 
-def _start_cameras(app, authorized):
+def _start_cameras(app, authorized, preparation=None):
     from elesim_sim.runtime import RuntimePrep
 
     scene, cfg = app.sim_scene, app.cfg
@@ -34,19 +34,23 @@ def _start_cameras(app, authorized):
         streams["hand_eye_preview"] = (cfg.sim_camera_width, cfg.sim_camera_height)
     if scene.observer_enabled:
         streams["observer"] = (cfg.sim_observer_camera_width, cfg.sim_observer_camera_height)
-    scene.camera_render_epoch += 1
+    if preparation is None:
+        scene.camera_render_epoch += 1
     if streams:
-        spec = RuntimePrep(app).camera_render_spec(scene.robot_urdf_path)
-        worker = scene.camera_render_worker
-        if worker is not None and worker.failure:
-            worker.close()
-            scene.camera_render_worker = worker = None
-        if worker is None:
-            scene.configure_camera_render_worker(spec, streams,
-                timeout_s=cfg.camera_worker_start_timeout_s, wait=True)
+        if preparation is not None:
+            preparation.wait()
         else:
-            worker.rebuild_scene(spec.scene_manifest, spec.scene_revision,
-                epoch=scene.camera_render_epoch, timeout_s=cfg.camera_worker_start_timeout_s)
+            spec = RuntimePrep(app).camera_render_spec(scene.robot_urdf_path)
+            worker = scene.camera_render_worker
+            if worker is not None and worker.failure:
+                worker.close()
+                scene.camera_render_worker = worker = None
+            if worker is None:
+                scene.configure_camera_render_worker(spec, streams,
+                    timeout_s=cfg.camera_worker_start_timeout_s, wait=True)
+            else:
+                worker.rebuild_scene(spec.scene_manifest, spec.scene_revision,
+                    epoch=scene.camera_render_epoch, timeout_s=cfg.camera_worker_start_timeout_s)
         # Both edit acknowledgements are consumed on the receiver thread.
         # Clearing here excludes every callback from the previous generation.
         scene.suspend_camera_delivery()
@@ -99,6 +103,7 @@ def apply_scene_command(runtime, command):
     mock_names = {key: value.name for key, value in scene.mock_object_entities.items()}
     held_q = scene.mover.current_4dof_q()
     started = time.monotonic()
+    preparation = None
 
     def hold_motion():
         if app.state_source is not None:
@@ -139,6 +144,13 @@ def apply_scene_command(runtime, command):
     def cameras(artifact, entities):
         _stop_cameras(scene)
         rollback = entities is None
+        if rollback and preparation is not None and not preparation.finished:
+            # A failed physics build must settle the pending visual edit
+            # before rollback issues another edit to the same processes.
+            try:
+                preparation.wait()
+            except Exception:
+                pass  # Recovery below rebuilds or restarts the old camera scene.
         app.cfg = old_cfg if rollback else replace(old_cfg, scene_manifest=manifest)
         app.imported_scene = old_artifact if rollback else artifact
         app.imported_scene_entities = old_entities if rollback else entities
@@ -146,7 +158,10 @@ def apply_scene_command(runtime, command):
             # Old handles were destroyed too; recover the committed objects by name.
             app.imported_scene_entities = {key: scene.scene.get_entity(value.name)
                 for key, value in old_entities.items()}
-        _start_cameras(app, (lambda: True) if rollback else authorized)
+        _start_cameras(app, (lambda: True) if rollback else authorized,
+            None if rollback else preparation)
+        if not rollback and preparation is not None:
+            rebuilder.last_timings['camera_rebuild_s'] = preparation.build_s
 
     def validate():
         if candidate is not None:
@@ -157,6 +172,12 @@ def apply_scene_command(runtime, command):
         _stop_cameras(scene)
         runtime._status_dirty = True
         runtime._publish_simulation_status(force=True)
+        worker = scene.camera_render_worker
+        if worker is not None and not worker.failure:
+            scene.camera_render_epoch += 1
+            preparation = worker.begin_scene_rebuild(manifest,
+                candidate.revision if candidate else '', epoch=scene.camera_render_epoch,
+                timeout_s=app.cfg.camera_worker_start_timeout_s)
         entities, _ = rebuilder.replace(candidate, rebind=rebind, cameras=cameras,
             authorized=authorized, validate=validate)
         app.imported_scene_entities = entities
@@ -164,7 +185,7 @@ def apply_scene_command(runtime, command):
         revision = candidate.revision[:12] if candidate else "empty"
         timings = rebuilder.last_timings
         reason = (f"scene ready: revision={revision} objects={len(entities)} "
-            f"physics={timings['physics_s']:.2f}s cameras={timings['cameras_s']:.2f}s "
+            f"physics={timings['physics_s']:.2f}s camera_wait={timings['cameras_s']:.2f}s "
             f"total={time.monotonic()-started:.2f}s")
         print('[sim-scene] ' + reason, flush=True)
         return reason

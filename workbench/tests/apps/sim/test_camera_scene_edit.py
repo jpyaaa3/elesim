@@ -6,6 +6,7 @@ import pytest
 
 from elesim_sim.vision.sim_camera.async_worker import (
     CameraRenderSpec, CameraRenderWorker, CameraStateSnapshot, _CameraSceneEdit,
+    _add_base_entity,
 )
 
 
@@ -71,5 +72,54 @@ def test_failed_camera_edit_does_not_commit_spec_and_worker_can_accept_rollback(
         value.rebuild_scene('', '', epoch=2, timeout_s=3.)
         thread.join(2.)
         assert not thread.is_alive()
+    finally:
+        value.close()
+
+
+def test_preparation_runs_before_wait_and_does_not_commit_or_accept_snapshots_early():
+    value = worker()
+    try:
+        ticket = value.begin_scene_rebuild('new/scene.json', 'a'*64, epoch=1, timeout_s=2.)
+        assert not ticket.finished and value.spec.scene_manifest == ''
+        assert not value.submit(CameraStateSnapshot(1, 0, 0.), ('observer',))
+        for stream, state in value._processes.items():
+            assert state.commands.get(timeout=1.).epoch == 1
+            value._receive_message({'type':'scene_rebuilt', 'epoch':1, 'ok':True}, stream_hint=stream)
+        assert value.spec.scene_manifest == ''
+        ticket.wait()
+        assert ticket.finished and ticket.build_s > 0 and value.spec.scene_manifest == 'new/scene.json'
+        with pytest.raises(ValueError, match='no longer pending'):
+            ticket.wait()
+    finally:
+        value.close()
+
+
+def test_fixed_camera_models_reuse_descriptions_with_new_entity_handles():
+    descriptions, loaded, reused = {}, [], []
+    original = NS(desc=object())
+    def factory():
+        loaded.append(True)
+        return original
+    def add_resolved(*, desc):
+        reused.append(desc)
+        return NS(desc=desc)
+    scene = NS(_sim=NS(_add_entity=add_resolved))
+    assert _add_base_entity(scene, descriptions, 'robot', factory) is original
+    current = _add_base_entity(scene, descriptions, 'robot', factory)
+    assert current is not original and current.desc is original.desc
+    assert loaded == [True] and reused == [original.desc]
+
+
+def test_late_acknowledgement_is_rejected_even_if_physics_finishes_later():
+    value = worker()
+    try:
+        ticket = value.begin_scene_rebuild('new/scene.json', 'a'*64, epoch=1, timeout_s=2.)
+        for stream, state in value._processes.items():
+            state.commands.get(timeout=1.)
+            value._receive_message({'type':'scene_rebuilt', 'epoch':1, 'ok':True}, stream_hint=stream)
+        value._edit_completed_at = ticket.deadline + .01
+        with pytest.raises(TimeoutError, match='deadline'):
+            ticket.wait()
+        assert ticket.finished and value.spec.scene_manifest == '' and value.failure
     finally:
         value.close()

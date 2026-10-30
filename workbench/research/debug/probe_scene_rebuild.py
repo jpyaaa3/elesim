@@ -6,10 +6,12 @@ Robot are not started. A separate system smoke covers real DDS commands.
 from __future__ import annotations
 
 import argparse
+import cProfile
 from dataclasses import replace
 import hashlib
 import json
 import math
+import pstats
 from pathlib import Path
 import time
 from unittest.mock import patch
@@ -53,6 +55,8 @@ def main():
     parser.add_argument('config')
     parser.add_argument('model_bundle')
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--profile-edits', action='store_true')
+    parser.add_argument('--variant', type=int, default=0)
     args = parser.parse_args()
     import genesis as gs
     import numpy as np
@@ -66,9 +70,11 @@ def main():
     output = args.output.absolute()
     output.parent.mkdir(parents=True, exist_ok=True)
     root = output.parent/'imports'
-    cases = [fixture_bundle(root/'new-a', rings=9, segments=18, phase=.47),
-             fixture_bundle(root/'new-b', rings=101, segments=102, phase=1.13)]
+    cases = [fixture_bundle(root/'new-a', rings=9, segments=18, phase=.47+.31*args.variant),
+             fixture_bundle(root/'new-b', rings=101, segments=102, phase=1.13+.17*args.variant)]
     result = {'complete':False, 'scope':'production runtime scene commands, physical state, controller identity, first frames; no DDS/WebRTC', 'cases':cases, 'runs':[]}
+    result['variant'] = args.variant
+    result['profile_edits'] = args.profile_edits
     def save(): output.write_text(json.dumps(result, indent=2, allow_nan=False)+'\n')
     save()
     bundle = load_app_config(args.config, mode='remote')
@@ -116,7 +122,14 @@ def main():
             request = SimulationCommandRequest.from_payload({'schema_version':1, 'request_id':name+str(len(result['runs'])),
                 'session_id':'scene-probe', 'command':name, 'arguments':arguments})
             mailbox.enqueue(SimulationOperatorCommand.from_request(request, ui_id='ui-probe'))
-            runtime._apply_operator_commands()
+            profile = cProfile.Profile() if args.profile_edits else None
+            if profile is not None:
+                profile.enable()
+            try:
+                runtime._apply_operator_commands()
+            finally:
+                if profile is not None:
+                    profile.disable()
             elapsed = time.monotonic()-started
             replies = mailbox.take_results()
             assert len(replies)==1 and replies[0].payload.ok is ok, replies
@@ -138,6 +151,11 @@ def main():
                 'nonconvex_kernel_retained':True, 'camera_processes_preserved':True}
             if ok:
                 row.update(scene.scene_rebuilder.last_timings)
+                if profile is not None:
+                    stats = pstats.Stats(profile).stats
+                    row['profile'] = [{'function':name, 'file':file.rsplit('/site-packages/',1)[-1],
+                        'line':line, 'calls':values[1], 'self_s':values[2], 'cumulative_s':values[3]}
+                        for (file,line,name),values in sorted(stats.items(), key=lambda item:item[1][3], reverse=True)[:35]]
             result['runs'].append(row)
             save()
             print('SCENE_RUNTIME',json.dumps(row),flush=True)
@@ -153,6 +171,24 @@ def main():
         with patch.object(runtime_scene_edit, '_start_cameras', fail_once):
             run('load_scene', {k:cases[0][k] for k in ('manifest','expected_revision')}, ok=False, restored=True)
         assert runtime.operator.paused and app.imported_scene.revision == cases[1]['expected_revision']
+        editor = scene.scene_rebuilder.editor
+        original_rebuild = editor.rebuild
+        failures = [True]
+        def fail_physics_once(**values):
+            if failures.pop() if failures else False:
+                raise RuntimeError('injected physics rebuild failure with visual preparation pending')
+            return original_rebuild(**values)
+        with patch.object(editor, 'rebuild', fail_physics_once):
+            run('load_scene', {k:cases[0][k] for k in ('manifest','expected_revision')}, ok=False, restored=True)
+        failures = [True]
+        def revoke_during_physics(**values):
+            if failures.pop() if failures else False:
+                mailbox.set_session('another-ui', 'another-session')
+            return original_rebuild(**values)
+        with patch.object(editor, 'rebuild', revoke_during_physics):
+            run('load_scene', {k:cases[0][k] for k in ('manifest','expected_revision')}, ok=False, restored=True)
+        mailbox.set_session('ui-probe', 'scene-probe')
+        assert app.imported_scene.revision == cases[1]['expected_revision']
         run('load_scene', {'manifest':cases[0]['manifest'], 'expected_revision':'0'*64}, ok=False)
         run('clear_scene', {})
         assert not app.imported_scene_entities

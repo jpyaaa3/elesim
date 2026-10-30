@@ -6,6 +6,54 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 씬 교체 지연 추가 단축: 병렬 준비와 고정 모델 재사용 (2026-10-30)
+
+`f624c65`의 순차 교체 경로를 줄였다. 두 visual worker에 scene 준비를 먼저
+요청하고 그동안 main thread에서 물리 씬을 재빌드한다. Worker는 초기 로봇/
+지면/고정 asset의 resolved description을 재사용해 같은 URDF를 다시 읽지 않는다.
+이 사전은 고정 recipe에 한정하며 새로 가져온 OBJ를 누적 보관하지 않는다.
+물리 상태 복원과 같은 revision의 두 새 프레임을 확인하는 성공 조건은 유지한다.
+Rollback 전에 진행 중 camera 준비를 회수하고, 늦게 도착한 완료 응답도 거부한다.
+
+같은 서버 GPU 2, Genesis 1.4.5 이미지, 1280×720 두 영상, 독립적인 커널 cache
+복사본에서 세 번 실행했다. 각 실행은 서로 다른 새 OBJ 형상 두 개를 넣었으며
+첫 번째 형상 쌍은 아래 이전 측정과 동일하다. 입력 검증과 두 첫 프레임까지의
+전체 시간은 다음과 같다. 임의 메시/다수 물체의 지연 상한은 아니다.
+
+| 동작 | 이전 순차 경로 | 병렬 준비: 형상 1 / 2 / 3 |
+| --- | --- | --- |
+| 새 OBJ 288면 삽입 | 3.91초 | **2.02 / 2.07 / 2.17초** |
+| 새 OBJ 20,400면으로 교체 | 7.55초 | **4.69 / 4.65 / 4.85초** |
+| 가져온 물체 제거 | 4.18초 | **1.89 / 1.92 / 2.01초** |
+
+물리 재빌드/상태 복원은 작은 OBJ 1.73–1.86초, 큰 OBJ 4.15–4.34초였다.
+카메라 scene 준비는 0.61–1.22초로 줄었고 물리 작업에 가려진다. 물리 완료 후
+남은 대기와 두 첫 프레임은 0.23–0.26초였다. 따라서 카메라 준비 전체 시간을
+물리 시간에 합산하지 않는다. 일시정지는 남으며 다음 병목은 새 메시 처리와
+Genesis의 전체 물리 씬 재구성이다. 별도 cProfile은 이 호출 경로를 확인하기
+위한 계측 실행이고, 계측 오버헤드가 있어 위 일반 측정값과 직접 비교하지 않는다.
+초기 cold compilation이나 collision 형상/정밀도/제약조건을 줄인 변경은 아니다.
+
+세 실행 모두 qpos/velocity, Scene identity, MPC/controller와 카메라 PID,
+비볼록 경로를 유지했다. 카메라 실패, 물리 재빌드 실패, 준비 중 UI session
+해제를 주입해 이전 큰 메시/물리 상태/두 새 프레임을 복구하고 paused를 유지함을
+확인했다. 잘못된 revision도 거부했으며 각 실행 이후 stationary 100 step을
+통과했다. 병렬 경로의 Sim non-RL 회귀는 **924 passed, 3 skipped**, 이후 추가한
+late-ack timeout guard를 포함한 최종 camera/scene/operator 집중 회귀는
+**54 passed, 2 skipped**다. GPU가 실행한 최종 Sim/protocol/probe 해시는 현재
+로컬 코드와 일치한다. 기존 readability 세 건과 준비되지 않은 dev attachment로
+인한 전체 canonical gate 미실행 상태는 아래 기록과 같으며 실물 Robot/실제
+WebRTC viewer 검증은 포함하지 않는다.
+
+운영 release pin과 컨테이너를 교체하지 않았다. 작업 전 55개 중 별도 `/emulator`
+한 개에서 `die`/`destroy` 이벤트가 기록됐고 실행자는 Docker events로 확인되지
+않았다. 이 작업은 해당 컨테이너의 변경/삭제 명령을 실행하지 않았다. 나머지
+54개는 ID/name/image/status가 보존됐으며 새 진단 컨테이너 6개도 유지한다.
+원본 cache는 보존하고 각 trial은 자기 복사본에 썼으며 외부 checkout은 clean
+`70757e6` 그대로다. 최종 집중 회귀와 GPU 실행 직전의 58개도 모두 보존됐다.
+요약은 [`genesis_scene_overlap_20261030.json`](../workbench/evidence/curated/sim/genesis_scene_overlap_20261030.json),
+원자료는 서버 `/home/hckang/ws/elesim-genesis145-20261029/live-scene-speed-20261030/`다.
+
 ### 실행 중 새 OBJ 교체와 카메라 프로세스 재사용 (2026-10-30)
 
 Dynamic/async Sim에 비볼록 충돌 경로 예열과 `InteractiveScene.rebuild()`를

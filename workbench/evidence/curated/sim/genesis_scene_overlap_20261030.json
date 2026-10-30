@@ -1,0 +1,940 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-30",
+  "feature_base_revision": "f624c65612779fb7fff0418cb04c94e1f36d590b",
+  "image_id": "sha256:fe30fd0a76fd721f36ded1e5d26457cf132cf87f41913591bd27166832e910e6",
+  "hardware": {
+    "gpu_index": 2,
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "gpu": "NVIDIA RTX A6000",
+    "selected_gpus": 1
+  },
+  "packages": {
+    "numpy": "1.26.4",
+    "scipy": "1.15.3",
+    "torch": "2.12.1",
+    "genesis-world": "1.4.5",
+    "jax": "0.4.38",
+    "jaxlib": "0.4.38"
+  },
+  "configuration": {
+    "robot": "GO2+arm",
+    "dt_s": 0.01,
+    "substeps": 2,
+    "performance_mode": false,
+    "warm_nonconvex": true,
+    "camera_resolution": [
+      1280,
+      720
+    ],
+    "camera_processes": 2,
+    "controller": "pympc",
+    "solver": "jax_mppi",
+    "dds_in_gpu_probe": false,
+    "webrtc_viewer": false
+  },
+  "changes": [
+    "Prepare both camera scenes concurrently with main-thread physics rebuild using a bounded begin/wait handle.",
+    "Reuse only resolved descriptions of fixed camera deployment assets, without reparsing the robot URDF or accumulating imported OBJ descriptions.",
+    "Fence publication until physics state and both fresh camera frames are ready; settle pending camera preparation before rollback; reject late acknowledgements."
+  ],
+  "baseline": {
+    "source_evidence": "genesis_live_scene_20261030.json",
+    "scope": "Sequential physics and persistent-process camera rebuild, kernel cache prepared",
+    "runs": [
+      {
+        "command": "load_scene",
+        "total_s": 3.906355938874185,
+        "physics_s": 1.8769958191551268,
+        "cameras_s": 1.9811083590611815
+      },
+      {
+        "command": "load_scene",
+        "total_s": 7.549405131023377,
+        "physics_s": 4.671548509970307,
+        "cameras_s": 2.612215543165803
+      },
+      {
+        "command": "clear_scene",
+        "total_s": 4.181388622149825,
+        "physics_s": 1.9630245151929557,
+        "cameras_s": 2.2143455068580806
+      }
+    ]
+  },
+  "optimized_runs": [
+    {
+      "case": "optimized_0",
+      "source_tree_sha256": {
+        "elesim_protocol": "62863907a56a4ea20b5364a14f318683fe7882ba17ff6790bec35490221310b6",
+        "elesim_sim": "43b2d9a4a91e601b2ff4b5706a06f4be02c8aaa9e0f6b0d5411719a79a206786"
+      },
+      "entry_source_sha256": "adcbcf872dd967cdd8c3322a53a15f544c444763aedf6284963dcdabfacd3816",
+      "source_manifest_sha256": "cb3132d6b7bab70ba42e83239badd702254e16503c4d7f077716d88e8bfc5c39",
+      "driver_sha256": "6ef8e7ce1beb5bc0bb979d37f3f01c3aa6439f24bac0f90dfe6af5cfde4a2aff",
+      "probe": {
+        "complete": true,
+        "scope": "production runtime scene commands, physical state, controller identity, first frames; no DDS/WebRTC",
+        "cases": [
+          {
+            "manifest": "new-a/scene.json",
+            "expected_revision": "31291cb46af26caa2f3485826f8dc1ede821d77585a86ed7c13b3d347a090ac1",
+            "vertices": 146,
+            "faces": 288,
+            "mesh_sha256": "0131a25299796b2eaea2cc04cd75beecdd772a89d09a8911a7f07a17ef4bc3da"
+          },
+          {
+            "manifest": "new-b/scene.json",
+            "expected_revision": "f6db7879977b9393dc5cbf424c7ce8a013876ed30a68b7855109e41820979c2a",
+            "vertices": 10202,
+            "faces": 20400,
+            "mesh_sha256": "1ae41d135979d3c7df03a4f51d500d5d64ee51bc22eff0f4c0bac366f38b7b79"
+          }
+        ],
+        "runs": [
+          {
+            "command": "load_scene",
+            "ok": true,
+            "total_s": 2.021708081010729,
+            "reason": "scene ready: revision=31291cb46af2 objects=1 physics=1.73s camera_wait=0.24s total=2.00s",
+            "revision": "31291cb46af26caa2f3485826f8dc1ede821d77585a86ed7c13b3d347a090ac1",
+            "paused": false,
+            "epoch": 1,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true,
+            "physics_s": 1.7300784303806722,
+            "camera_rebuild_s": 0.6397614818997681,
+            "cameras_s": 0.24087143130600452
+          },
+          {
+            "command": "load_scene",
+            "ok": true,
+            "total_s": 4.689907753840089,
+            "reason": "scene ready: revision=f6db7879977b objects=1 physics=4.21s camera_wait=0.23s total=4.56s",
+            "revision": "f6db7879977b9393dc5cbf424c7ce8a013876ed30a68b7855109e41820979c2a",
+            "paused": false,
+            "epoch": 2,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true,
+            "physics_s": 4.212390749249607,
+            "camera_rebuild_s": 1.2078158129006624,
+            "cameras_s": 0.22947748377919197
+          },
+          {
+            "command": "load_scene",
+            "ok": false,
+            "total_s": 4.531975612975657,
+            "reason": "scene rebuild failed; previous scene restored: injected candidate camera failure",
+            "revision": "f6db7879977b9393dc5cbf424c7ce8a013876ed30a68b7855109e41820979c2a",
+            "paused": true,
+            "epoch": 3,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true
+          },
+          {
+            "command": "load_scene",
+            "ok": false,
+            "total_s": 3.051201798953116,
+            "reason": "scene rebuild failed; previous scene restored: injected physics rebuild failure with visual preparation pending",
+            "revision": "f6db7879977b9393dc5cbf424c7ce8a013876ed30a68b7855109e41820979c2a",
+            "paused": true,
+            "epoch": 4,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true
+          },
+          {
+            "command": "load_scene",
+            "ok": false,
+            "total_s": 4.561995654832572,
+            "reason": "scene rebuild failed; previous scene restored: simulation session changed during scene rebuild",
+            "revision": "f6db7879977b9393dc5cbf424c7ce8a013876ed30a68b7855109e41820979c2a",
+            "paused": true,
+            "epoch": 5,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true
+          },
+          {
+            "command": "load_scene",
+            "ok": false,
+            "total_s": 0.009549245703965425,
+            "reason": "scene artifact revision differs from the requested revision",
+            "revision": "f6db7879977b9393dc5cbf424c7ce8a013876ed30a68b7855109e41820979c2a",
+            "paused": true,
+            "epoch": 6,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": false,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true
+          },
+          {
+            "command": "clear_scene",
+            "ok": true,
+            "total_s": 1.8943591611459851,
+            "reason": "scene ready: revision=empty objects=0 physics=1.65s camera_wait=0.24s total=1.89s",
+            "revision": null,
+            "paused": true,
+            "epoch": 7,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true,
+            "physics_s": 1.6466699494048953,
+            "camera_rebuild_s": 0.5982922874391079,
+            "cameras_s": 0.24204588402062654
+          }
+        ],
+        "variant": 0,
+        "startup_s": 25.010092372074723,
+        "nonconvex_kernel_prepared": true,
+        "post_rebuild_stationary_steps": 100
+      }
+    },
+    {
+      "case": "optimized_1",
+      "source_tree_sha256": {
+        "elesim_protocol": "62863907a56a4ea20b5364a14f318683fe7882ba17ff6790bec35490221310b6",
+        "elesim_sim": "43b2d9a4a91e601b2ff4b5706a06f4be02c8aaa9e0f6b0d5411719a79a206786"
+      },
+      "entry_source_sha256": "adcbcf872dd967cdd8c3322a53a15f544c444763aedf6284963dcdabfacd3816",
+      "source_manifest_sha256": "cb3132d6b7bab70ba42e83239badd702254e16503c4d7f077716d88e8bfc5c39",
+      "driver_sha256": "6ef8e7ce1beb5bc0bb979d37f3f01c3aa6439f24bac0f90dfe6af5cfde4a2aff",
+      "probe": {
+        "complete": true,
+        "scope": "production runtime scene commands, physical state, controller identity, first frames; no DDS/WebRTC",
+        "cases": [
+          {
+            "manifest": "new-a/scene.json",
+            "expected_revision": "7e701077da8404f9992d9514337bf66a88af81212581f0255a5c0b2dde243f61",
+            "vertices": 146,
+            "faces": 288,
+            "mesh_sha256": "6423e1da9de283b61d5a6bd8600855d94a27e005fb95ae27ae5266eb85023862"
+          },
+          {
+            "manifest": "new-b/scene.json",
+            "expected_revision": "2caebaebd905f5c7472e3a60c2893fac20af6ed862dece7bb4bdc096f62f026a",
+            "vertices": 10202,
+            "faces": 20400,
+            "mesh_sha256": "094eb1a78778bdc31ebe9b17d600e353c084f328d83555a5ab67583224d1b1d3"
+          }
+        ],
+        "runs": [
+          {
+            "command": "load_scene",
+            "ok": true,
+            "total_s": 2.0729604428634048,
+            "reason": "scene ready: revision=7e701077da84 objects=1 physics=1.76s camera_wait=0.26s total=2.06s",
+            "revision": "7e701077da8404f9992d9514337bf66a88af81212581f0255a5c0b2dde243f61",
+            "paused": false,
+            "epoch": 1,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true,
+            "physics_s": 1.762554478365928,
+            "camera_rebuild_s": 0.6070767748169601,
+            "cameras_s": 0.2613276173360646
+          },
+          {
+            "command": "load_scene",
+            "ok": true,
+            "total_s": 4.649305252823979,
+            "reason": "scene ready: revision=2caebaebd905 objects=1 physics=4.15s camera_wait=0.25s total=4.51s",
+            "revision": "2caebaebd905f5c7472e3a60c2893fac20af6ed862dece7bb4bdc096f62f026a",
+            "paused": false,
+            "epoch": 2,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true,
+            "physics_s": 4.148713139817119,
+            "camera_rebuild_s": 1.190344622824341,
+            "cameras_s": 0.2542177368886769
+          },
+          {
+            "command": "load_scene",
+            "ok": false,
+            "total_s": 4.476745145861059,
+            "reason": "scene rebuild failed; previous scene restored: injected candidate camera failure",
+            "revision": "2caebaebd905f5c7472e3a60c2893fac20af6ed862dece7bb4bdc096f62f026a",
+            "paused": true,
+            "epoch": 3,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true
+          },
+          {
+            "command": "load_scene",
+            "ok": false,
+            "total_s": 3.0533629609271884,
+            "reason": "scene rebuild failed; previous scene restored: injected physics rebuild failure with visual preparation pending",
+            "revision": "2caebaebd905f5c7472e3a60c2893fac20af6ed862dece7bb4bdc096f62f026a",
+            "paused": true,
+            "epoch": 4,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true
+          },
+          {
+            "command": "load_scene",
+            "ok": false,
+            "total_s": 4.6074515441432595,
+            "reason": "scene rebuild failed; previous scene restored: simulation session changed during scene rebuild",
+            "revision": "2caebaebd905f5c7472e3a60c2893fac20af6ed862dece7bb4bdc096f62f026a",
+            "paused": true,
+            "epoch": 5,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true
+          },
+          {
+            "command": "load_scene",
+            "ok": false,
+            "total_s": 0.008879255037754774,
+            "reason": "scene artifact revision differs from the requested revision",
+            "revision": "2caebaebd905f5c7472e3a60c2893fac20af6ed862dece7bb4bdc096f62f026a",
+            "paused": true,
+            "epoch": 6,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": false,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true
+          },
+          {
+            "command": "clear_scene",
+            "ok": true,
+            "total_s": 1.9169554430991411,
+            "reason": "scene ready: revision=empty objects=0 physics=1.67s camera_wait=0.24s total=1.92s",
+            "revision": null,
+            "paused": true,
+            "epoch": 7,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true,
+            "physics_s": 1.6695092399604619,
+            "camera_rebuild_s": 0.5854993308894336,
+            "cameras_s": 0.24256887938827276
+          }
+        ],
+        "variant": 1,
+        "startup_s": 25.435170040931553,
+        "nonconvex_kernel_prepared": true,
+        "post_rebuild_stationary_steps": 100
+      }
+    },
+    {
+      "case": "final",
+      "source_tree_sha256": {
+        "elesim_protocol": "62863907a56a4ea20b5364a14f318683fe7882ba17ff6790bec35490221310b6",
+        "elesim_sim": "6bd5e87912eaf210dcb59ada985c1dc6c57a3da0649676b23fb5f4bc4679a158"
+      },
+      "entry_source_sha256": "e0a686b38d65f3cda86299145660c165f986fa6668dac2d6a76d7999311d562f",
+      "source_manifest_sha256": "1cef5da1957c9bafaba6469754822f5d64a82aa8a680062c7730a59e82e557b3",
+      "driver_sha256": "65b1200ddd0d65e35b9419440bc1d4e1af988ddf6d89631fbe1c46fdcdae7039",
+      "probe": {
+        "complete": true,
+        "scope": "production runtime scene commands, physical state, controller identity, first frames; no DDS/WebRTC",
+        "cases": [
+          {
+            "manifest": "new-a/scene.json",
+            "expected_revision": "84e81ff114398fbe17922efb4aa27de550d862244fa1a73fc6843f17045586f7",
+            "vertices": 146,
+            "faces": 288,
+            "mesh_sha256": "5f88c9cdd077a15d3d6e438c47241f000354efe92659da950bae7862296147d4"
+          },
+          {
+            "manifest": "new-b/scene.json",
+            "expected_revision": "c590af32a03cf020bb045d66e9be121e55e7148b7414c07316d6dd635c372c9a",
+            "vertices": 10202,
+            "faces": 20400,
+            "mesh_sha256": "81a6e5b48b858767d9f878f2e5cd59c406c8f7fb67ab73b02f5df0881eb9d5a5"
+          }
+        ],
+        "runs": [
+          {
+            "command": "load_scene",
+            "ok": true,
+            "total_s": 2.167987123131752,
+            "reason": "scene ready: revision=84e81ff11439 objects=1 physics=1.86s camera_wait=0.26s total=2.15s",
+            "revision": "84e81ff114398fbe17922efb4aa27de550d862244fa1a73fc6843f17045586f7",
+            "paused": false,
+            "epoch": 1,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true,
+            "physics_s": 1.8570777028799057,
+            "camera_rebuild_s": 0.63288759207353,
+            "cameras_s": 0.26121885841712356
+          },
+          {
+            "command": "load_scene",
+            "ok": true,
+            "total_s": 4.848135519307107,
+            "reason": "scene ready: revision=c590af32a03c objects=1 physics=4.34s camera_wait=0.26s total=4.71s",
+            "revision": "c590af32a03cf020bb045d66e9be121e55e7148b7414c07316d6dd635c372c9a",
+            "paused": false,
+            "epoch": 2,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true,
+            "physics_s": 4.342297034338117,
+            "camera_rebuild_s": 1.2158141126856208,
+            "cameras_s": 0.255374523345381
+          },
+          {
+            "command": "load_scene",
+            "ok": false,
+            "total_s": 4.80744316522032,
+            "reason": "scene rebuild failed; previous scene restored: injected candidate camera failure",
+            "revision": "c590af32a03cf020bb045d66e9be121e55e7148b7414c07316d6dd635c372c9a",
+            "paused": true,
+            "epoch": 3,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true
+          },
+          {
+            "command": "load_scene",
+            "ok": false,
+            "total_s": 3.2873240942135453,
+            "reason": "scene rebuild failed; previous scene restored: injected physics rebuild failure with visual preparation pending",
+            "revision": "c590af32a03cf020bb045d66e9be121e55e7148b7414c07316d6dd635c372c9a",
+            "paused": true,
+            "epoch": 4,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true
+          },
+          {
+            "command": "load_scene",
+            "ok": false,
+            "total_s": 4.849946295842528,
+            "reason": "scene rebuild failed; previous scene restored: simulation session changed during scene rebuild",
+            "revision": "c590af32a03cf020bb045d66e9be121e55e7148b7414c07316d6dd635c372c9a",
+            "paused": true,
+            "epoch": 5,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true
+          },
+          {
+            "command": "load_scene",
+            "ok": false,
+            "total_s": 0.009916691109538078,
+            "reason": "scene artifact revision differs from the requested revision",
+            "revision": "c590af32a03cf020bb045d66e9be121e55e7148b7414c07316d6dd635c372c9a",
+            "paused": true,
+            "epoch": 6,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": false,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true
+          },
+          {
+            "command": "clear_scene",
+            "ok": true,
+            "total_s": 2.0149895190261304,
+            "reason": "scene ready: revision=empty objects=0 physics=1.77s camera_wait=0.24s total=2.01s",
+            "revision": null,
+            "paused": true,
+            "epoch": 7,
+            "physics_state_verified": true,
+            "controller_and_solver_preserved": true,
+            "camera_frames_fresh": true,
+            "nonconvex_kernel_retained": true,
+            "camera_processes_preserved": true,
+            "physics_s": 1.7678552567958832,
+            "camera_rebuild_s": 0.5881412010639906,
+            "cameras_s": 0.2422303082421422
+          }
+        ],
+        "variant": 2,
+        "profile_edits": false,
+        "startup_s": 25.791705066803843,
+        "nonconvex_kernel_prepared": true,
+        "post_rebuild_stationary_steps": 100
+      }
+    }
+  ],
+  "timing_definitions": {
+    "total_s": "Operator command execution through both first-frame publication barriers, including validation and dispatcher cleanup; no network transport or container start.",
+    "physics_s": "Authoritative scene reconstruction, state restoration and controller rebinding.",
+    "camera_rebuild_s": "Camera preparation dispatch through both worker acknowledgements, overlapping physics.",
+    "cameras_s": "Remaining camera readiness wait and first frames after physics completes. Do not add camera_rebuild_s to physics_s."
+  },
+  "cache_policy": "Independent copies of the existing GPU-2 nonconvex-kernel seed (objgpu2-small-obj). The new 288-face and 20400-face fixture hashes were absent from that seed. Every trial writes only its own cache; original cache directories and all containers are retained. This is warm-kernel insertion, not a cold-start benchmark.",
+  "profiling": {
+    "scope": "Separate baseline cProfile run with measurement overhead; not comparable to ordinary wall timings.",
+    "source_tree_sha256": {
+      "elesim_protocol": "62863907a56a4ea20b5364a14f318683fe7882ba17ff6790bec35490221310b6",
+      "elesim_sim": "84defc48709ff02ed86703d414a31f7bc6bb3f45950b26e63afcc339577f9257"
+    },
+    "summary": [
+      {
+        "command": "load_scene",
+        "total_with_profiler_s": 4.497362905647606,
+        "physics_with_profiler_s": 2.467860892880708,
+        "cameras_with_profiler_s": 1.9875727081671357,
+        "top_calls": [
+          {
+            "function": "_apply_operator_commands",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/runtime.py",
+            "line": 3599,
+            "calls": 1,
+            "self_s": 2.4088e-05,
+            "cumulative_s": 4.497107241
+          },
+          {
+            "function": "apply",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/simulation/operator_control.py",
+            "line": 219,
+            "calls": 1,
+            "self_s": 1.5225e-05,
+            "cumulative_s": 4.496997626000001
+          },
+          {
+            "function": "_apply_scene_command",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/runtime.py",
+            "line": 3594,
+            "calls": 1,
+            "self_s": 2.0528e-05,
+            "cumulative_s": 4.4969708200000005
+          },
+          {
+            "function": "apply_scene_command",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/simulation/runtime_scene_edit.py",
+            "line": 78,
+            "calls": 1,
+            "self_s": 0.00018913300000000002,
+            "cumulative_s": 4.493059481
+          },
+          {
+            "function": "replace",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/simulation/scene_rebuild.py",
+            "line": 136,
+            "calls": 1,
+            "self_s": 4.7404e-05,
+            "cumulative_s": 4.483638469000001
+          },
+          {
+            "function": "wrapper",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/utils/misc.py",
+            "line": 162,
+            "calls": 182,
+            "self_s": 0.000409464,
+            "cumulative_s": 2.4879331390000003
+          },
+          {
+            "function": "build",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/simulation/scene_rebuild.py",
+            "line": 143,
+            "calls": 1,
+            "self_s": 6.0272e-05,
+            "cumulative_s": 2.4678552860000003
+          },
+          {
+            "function": "step",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/scene.py",
+            "line": 1067,
+            "calls": 1,
+            "self_s": 3.1125000000000004e-05,
+            "cumulative_s": 2.429045797
+          },
+          {
+            "function": "<listcomp>",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/scene.py",
+            "line": 1078,
+            "calls": 1,
+            "self_s": 2.9120000000000002e-06,
+            "cumulative_s": 2.4289909
+          },
+          {
+            "function": "_pre_step",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/interactive_scene.py",
+            "line": 103,
+            "calls": 1,
+            "self_s": 5.244e-06,
+            "cumulative_s": 2.4289879880000003
+          },
+          {
+            "function": "_apply_rebuild",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/interactive_scene.py",
+            "line": 234,
+            "calls": 1,
+            "self_s": 0.000139285,
+            "cumulative_s": 2.4289827440000002
+          },
+          {
+            "function": "wrapper",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/utils/misc.py",
+            "line": 152,
+            "calls": 3,
+            "self_s": 1.7146e-05,
+            "cumulative_s": 2.064386427
+          },
+          {
+            "function": "build",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/scene.py",
+            "line": 843,
+            "calls": 1,
+            "self_s": 8.4215e-05,
+            "cumulative_s": 2.0153536180000002
+          },
+          {
+            "function": "cameras",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/simulation/runtime_scene_edit.py",
+            "line": 139,
+            "calls": 1,
+            "self_s": 2.0514e-05,
+            "cumulative_s": 1.98756704
+          },
+          {
+            "function": "_start_cameras",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/simulation/runtime_scene_edit.py",
+            "line": 28,
+            "calls": 1,
+            "self_s": 0.0007721550000000001,
+            "cumulative_s": 1.9874518300000001
+          },
+          {
+            "function": "build",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/simulator.py",
+            "line": 165,
+            "calls": 1,
+            "self_s": 8.563100000000001e-05,
+            "cumulative_s": 1.9422392940000002
+          },
+          {
+            "function": "build",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/solvers/rigid/rigid_solver.py",
+            "line": 312,
+            "calls": 1,
+            "self_s": 0.00043321600000000005,
+            "cumulative_s": 1.8187647800000002
+          },
+          {
+            "function": "rebuild_scene",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/vision/sim_camera/async_worker.py",
+            "line": 1072,
+            "calls": 1,
+            "self_s": 0.0010290030000000001,
+            "cumulative_s": 1.721014829
+          },
+          {
+            "function": "wait",
+            "file": "/usr/lib/python3.10/threading.py",
+            "line": 589,
+            "calls": 87,
+            "self_s": 0.0011741800000000001,
+            "cumulative_s": 1.719129378
+          },
+          {
+            "function": "wait",
+            "file": "/usr/lib/python3.10/threading.py",
+            "line": 288,
+            "calls": 87,
+            "self_s": 0.002138025,
+            "cumulative_s": 1.717300276
+          }
+        ]
+      },
+      {
+        "command": "load_scene",
+        "total_with_profiler_s": 8.761647650972009,
+        "physics_with_profiler_s": 5.3524294486269355,
+        "cameras_with_profiler_s": 2.7789245541207492,
+        "top_calls": [
+          {
+            "function": "_apply_operator_commands",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/runtime.py",
+            "line": 3599,
+            "calls": 1,
+            "self_s": 2.845e-05,
+            "cumulative_s": 8.761493423000001
+          },
+          {
+            "function": "apply",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/simulation/operator_control.py",
+            "line": 219,
+            "calls": 1,
+            "self_s": 1.836e-05,
+            "cumulative_s": 8.761324117000001
+          },
+          {
+            "function": "_apply_scene_command",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/runtime.py",
+            "line": 3594,
+            "calls": 1,
+            "self_s": 5.3217e-05,
+            "cumulative_s": 8.761298135
+          },
+          {
+            "function": "apply_scene_command",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/simulation/runtime_scene_edit.py",
+            "line": 78,
+            "calls": 1,
+            "self_s": 0.000254862,
+            "cumulative_s": 8.761244918000001
+          },
+          {
+            "function": "replace",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/simulation/scene_rebuild.py",
+            "line": 136,
+            "calls": 1,
+            "self_s": 5.0782e-05,
+            "cumulative_s": 8.443620595
+          },
+          {
+            "function": "wrapper",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/utils/misc.py",
+            "line": 162,
+            "calls": 184,
+            "self_s": 0.000407406,
+            "cumulative_s": 5.3533144230000005
+          },
+          {
+            "function": "build",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/simulation/scene_rebuild.py",
+            "line": 143,
+            "calls": 1,
+            "self_s": 5.0102e-05,
+            "cumulative_s": 5.352421263
+          },
+          {
+            "function": "step",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/scene.py",
+            "line": 1067,
+            "calls": 1,
+            "self_s": 2.0283000000000002e-05,
+            "cumulative_s": 5.314506204000001
+          },
+          {
+            "function": "<listcomp>",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/scene.py",
+            "line": 1078,
+            "calls": 1,
+            "self_s": 3.9590000000000006e-06,
+            "cumulative_s": 5.314465859
+          },
+          {
+            "function": "_pre_step",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/interactive_scene.py",
+            "line": 103,
+            "calls": 1,
+            "self_s": 4.4e-06,
+            "cumulative_s": 5.3144619
+          },
+          {
+            "function": "_apply_rebuild",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/interactive_scene.py",
+            "line": 234,
+            "calls": 1,
+            "self_s": 0.000149851,
+            "cumulative_s": 5.3144575000000005
+          },
+          {
+            "function": "wrapper",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/utils/misc.py",
+            "line": 152,
+            "calls": 3,
+            "self_s": 2.7087e-05,
+            "cumulative_s": 4.98915047
+          },
+          {
+            "function": "cameras",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/simulation/runtime_scene_edit.py",
+            "line": 139,
+            "calls": 1,
+            "self_s": 2.8388000000000003e-05,
+            "cumulative_s": 2.778919445
+          },
+          {
+            "function": "_start_cameras",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/simulation/runtime_scene_edit.py",
+            "line": 28,
+            "calls": 1,
+            "self_s": 0.0008423240000000001,
+            "cumulative_s": 2.778715774
+          },
+          {
+            "function": "build",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/scene.py",
+            "line": 843,
+            "calls": 1,
+            "self_s": 9.703500000000001e-05,
+            "cumulative_s": 2.517180798
+          },
+          {
+            "function": "_add_entity",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/simulator.py",
+            "line": 126,
+            "calls": 6,
+            "self_s": 0.00011654300000000001,
+            "cumulative_s": 2.51316234
+          },
+          {
+            "function": "add_entity",
+            "file": "/usr/local/lib/python3.10/dist-packages/genesis/engine/solvers/kinematic_solver.py",
+            "line": 196,
+            "calls": 6,
+            "self_s": 8.574400000000001e-05,
+            "cumulative_s": 2.513015696
+          },
+          {
+            "function": "rebuild_scene",
+            "file": "payload/runtime/docker/sim/app/elesim_sim/vision/sim_camera/async_worker.py",
+            "line": 1072,
+            "calls": 1,
+            "self_s": 0.0014973450000000002,
+            "cumulative_s": 2.4872834360000002
+          },
+          {
+            "function": "wait",
+            "file": "/usr/lib/python3.10/threading.py",
+            "line": 589,
+            "calls": 124,
+            "self_s": 0.0016204490000000002,
+            "cumulative_s": 2.4849369450000003
+          },
+          {
+            "function": "wait",
+            "file": "/usr/lib/python3.10/threading.py",
+            "line": 288,
+            "calls": 124,
+            "self_s": 0.0031718410000000003,
+            "cumulative_s": 2.4822419740000004
+          }
+        ]
+      }
+    ]
+  },
+  "verification": {
+    "full_sim_before_deadline_guard": {
+      "name": "tests",
+      "exit": 0,
+      "wall_s": 59.07815984915942,
+      "summary": [
+        "924 passed, 3 skipped, 37 warnings in 50.74s"
+      ]
+    },
+    "final_camera_scene_operator_tests": {
+      "name": "tests",
+      "exit": 0,
+      "wall_s": 12.99899411201477,
+      "summary": [
+        "54 passed, 2 skipped, 1 warning in 8.72s"
+      ]
+    },
+    "final_runtime_source_matches_local": true,
+    "gpu_trials_completed": 3,
+    "stationary_steps_per_trial": 100,
+    "failure_checks": [
+      "candidate camera failure",
+      "physics failure while camera preparation is pending",
+      "UI session change during physics rebuild",
+      "wrong manifest revision"
+    ],
+    "canonical_gates": "Full required/extended/release gates not run: no usable current generated development attachment; host lacks scientific/ROS dependencies. Existing Sim image with role-isolated read-only source was used.",
+    "existing_readability_failures": "Unchanged PyMPC/ControlPanel/UiSimSession class-size failures are documented in status.md."
+  },
+  "preservation": {
+    "containers_before": 55,
+    "containers_after": 60,
+    "missing": [
+      {
+        "id": "9673cf7c478e8193ddc60e6495dde90fa4dd809bb779dced6a3b4c3d30b67e12",
+        "name": "/emulator",
+        "image": "sha256:d0e927dc9c52cf3d7942428eec0cc49fb4ec0e37f191eeea5e1141c47b7ef54e",
+        "status": "running"
+      }
+    ],
+    "changed": [],
+    "remote_checkout_revision": "70757e6116fa968904017388094f5c13d4854137",
+    "remote_checkout_clean": true,
+    "diagnostic_containers_created_and_retained": 6,
+    "emulator_events": [
+      {
+        "action": "die",
+        "utc": "2026-10-30T05:32:42+00:00"
+      },
+      {
+        "action": "destroy",
+        "utc": "2026-10-30T05:32:43+00:00"
+      }
+    ],
+    "event_caller": "Not identified by Docker events. No emulator change or deletion command was issued by this task.",
+    "normal_release_pins_and_containers_replaced": false,
+    "original_cache_directories_deleted": false
+  },
+  "measurement_containers": [
+    {
+      "id": "80231a5ccc5ae0a48ca56967c5855b2c22e355d8934050a3d99958a8a36f38a0",
+      "name": "elesim-merry-genesis145-scene-speed-p1-gpu"
+    },
+    {
+      "id": "2defaf96016d4afd0a66cb06d4df0e9d7ef0e8e787a0c68bd4c6cbe6f60c91d9",
+      "name": "elesim-merry-genesis145-scene-speed-o1-tests"
+    },
+    {
+      "id": "80508d02f83674a301705ffd1a2c6a6a2c9cfeb90a1c19f2580f5c8aaee6f0ae",
+      "name": "elesim-merry-genesis145-scene-speed-o1-gpu1"
+    },
+    {
+      "id": "125432520c3352082b22c5f2f8b1ecfdf8226ac83cf77985dacf090108b76edb",
+      "name": "elesim-merry-genesis145-scene-speed-o1-gpu2"
+    },
+    {
+      "id": "2e1dfd629d7a989ffd44b1217a97113e90da524d25ed68f7a78481020ad76078",
+      "name": "elesim-merry-genesis145-scene-speed-f1-tests"
+    },
+    {
+      "id": "756176a1cf74fd0eedf8d54a1f589c31d8d2f0f0c1d8adb7ba9e76ca1ef9338e",
+      "name": "elesim-merry-genesis145-scene-speed-f1-gpu"
+    }
+  ],
+  "limitations": [
+    "Three synthetic static-world shape variants on one selected RTX A6000; no bound for arbitrary meshes or many simultaneous objects.",
+    "Kernel cache prepared, with new OBJ hashes for each trial. Initial cold compilation remains.",
+    "Simulation still pauses during the transaction; physics reconstruction and mesh processing remain on the main thread.",
+    "Physical Robot, live DDS/WebRTC media and automatic bundle transfer were not exercised by these GPU probes."
+  ],
+  "raw_evidence_server_directory": "/home/hckang/ws/elesim-genesis145-20261029/live-scene-speed-20261030"
+}

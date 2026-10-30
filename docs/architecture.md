@@ -321,6 +321,12 @@ revision으로 visual replica를 다시 만든다. 카메라 프로세스와 Gen
 유지하며, bounded IPC control과 epoch별 두 응답으로 scene 교체를 확인한다.
 capture snapshot의 latest-only 병합은 이 교체 명령을 버릴 수 없다. 렌더 프로세스가
 죽거나 교체가 timeout이면 rollback에서 해당 worker를 새로 시작한다.
+실행 중 교체에서는 visual scene 준비를 먼저 요청하고 물리 재빌드와 겹쳐
+진행한다. Visual worker는 초기 로봇/지면/고정 asset의 resolved description을
+재사용하므로 같은 URDF를 다시 읽지 않는다. 이 메모리 사전은 고정 recipe에만
+묶이며 새로 가져오는 OBJ를 누적해서 보관하지 않는다. 아직 완료되지 않은
+visual 준비는 rollback이 이전 revision을 요청하기 전에 먼저 회수한다.
+Physics 상태 복원 전에는 새 camera snapshot/frame을 활성화하지 않는다.
 Observer와 hand-eye의 첫 프레임이 모두
 준비돼야 결과를 성공으로 응답하고 원래 pause 상태로 돌아간다. 준비 중 frame은
 stream별 한 장씩만 보관한다. 실패 시 이전 geometry/state/camera revision으로
