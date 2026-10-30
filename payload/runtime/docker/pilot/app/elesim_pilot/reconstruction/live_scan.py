@@ -19,6 +19,7 @@ from .contracts import Measurement, Task
 from .pipeline import Pipeline, PipelineCancelled
 from .scan import ActiveScan
 from .scan_collision import ScanCollision
+from .artifacts import scene_publication
 
 
 class LiveScan:
@@ -219,12 +220,15 @@ class LiveScan:
 
                 _, report = engine.run(acquire, feedback['q'], task, self.output_root/job_id,
                     cancelled=cancelled, progress=progress)
+                publication = (scene_publication(report['scene_manifest'], self.output_root, *route[:2])
+                    if report.get('scene_manifest') else {})
                 with self._condition:
                     if not cancelled():
                         self._phase = 'completed'
                         self._progress['stage'] = 'completed'
                         self._result = {key: report[key] for key in ('scene_manifest', 'stop_reason',
                             'accepted_views', 'observed_points', 'coverage', 'needs_more_observation') if key in report}
+                        self._result.update(publication)
                         self._release_pending = True
             except Exception as exc:
                 with self._condition:

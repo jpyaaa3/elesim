@@ -39,6 +39,22 @@ def draw_object_scan_panel(panel):
     for name in ('stop_reason', 'reason', 'scene_manifest'):
         if status.get(name):
             imgui.text_wrapped(name+': '+str(status[name]))
+    view = getattr(panel, '_sim_view', None)
+    session = getattr(view, 'session', None)
+    if status.get('phase') == 'completed' and status.get('scene_reference') and session is not None:
+        if session.supports_scene_rebuild and not session.snapshot.pending_commands:
+            if imgui.button('Apply reconstructed scene'):
+                try:
+                    request_id = session.load_scan_result(status)
+                    panel._scan_scene_request_id = request_id
+                    panel._scan_error = '' if request_id else session.snapshot.last_error
+                except ValueError as error:
+                    panel._scan_error = str(error)
+        result = session.snapshot.last_result
+        if result is not None and result.request_id == getattr(panel, '_scan_scene_request_id', ''):
+            imgui.text_wrapped(result.reason)
+        elif getattr(panel, '_scan_scene_request_id', '') and session.snapshot.pending_commands:
+            imgui.text_disabled('Applying reconstructed scene...')
     if getattr(panel, '_scan_error', ''):
         imgui.text_wrapped(panel._scan_error)
 

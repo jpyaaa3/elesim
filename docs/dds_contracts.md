@@ -50,6 +50,14 @@ Sim joint feedback adds source `measurement_time_s` and
 `measurement_monotonic_s` to the existing open telemetry object while retaining
 `q_source=simulated`; Robot measured-feedback semantics are unchanged.
 
+Completed scan status may add `scene_reference` (relative manifest path),
+`scene_revision` (SHA-256), `sim_id` and `sim_boot_id`. This remains an optional
+protocol-v6/operator-view-schema-1 addition: older UIs ignore the fields and older
+Pilots omit them. UI application uses the existing capability-gated `load_scene`
+command under its own Sim session, checks the exact source Sim boot, and pins the
+manifest digest. These fields do not transfer files. A shared exchange root may
+publish immutable bundles for a same-host deployment; multi-host transfer is separate.
+
 Motion renewal recovery retains protocol major 6 and the existing wire fields.
 Pilot correlates `error.reply_to` with a bounded history of renewal requests,
 including the target endpoint/boot and lease token. A rejection for the current

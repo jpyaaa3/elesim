@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -10,6 +11,21 @@ import tempfile
 import numpy as np
 
 from elesim_protocol.scene_artifact import MAX_MESH_BYTES, SceneArtifact, validate_obj
+
+
+def default_scene_output_root():
+    return Path(os.environ.get('XDG_CACHE_HOME', str(Path.home()/'.cache'))) / 'scene-imports'
+
+
+def scene_publication(manifest, output_root, sim_id, sim_boot_id):
+    """Describe an immutable bundle already published in the configured exchange root."""
+    path, root = Path(manifest).absolute(), Path(output_root).absolute()
+    reference = path.relative_to(root).as_posix()
+    if len(reference) > 512 or any(part in {'', '.', '..'} for part in reference.split('/')):
+        raise ValueError('scene reference exceeds the Sim command budget')
+    artifact = SceneArtifact.load(path)
+    return dict(scene_reference=reference, scene_revision=artifact.revision,
+        sim_id=str(sim_id), sim_boot_id=str(sim_boot_id))
 
 
 def export_result(result, destination):

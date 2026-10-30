@@ -268,6 +268,13 @@ Sim의 `simulation.runtime.scene_import_root` 아래 새 디렉터리에 게시�
 기본 root는 Sim process의 `$XDG_CACHE_HOME/scene-imports`다. `Clear scene`은
 가져온 물체만 제거하며 기본 로봇과 지면은 유지한다. 지원 capability가 있는
 Sim의 유효한 UI session에서만 이 명령을 보낸다. 자동 multi-host 전송은 없다.
+Pilot의 `--scan-output-root`와 Sim의 `scene_import_root`가 같은 공유 bundle
+디렉터리를 가리키면 UI `Object Scan (Sim)`의 `Apply reconstructed scene`으로
+완료 결과를 바로 적용한다. Pilot은 공유 root 기준 상대 manifest와 digest,
+관측을 제공한 Sim ID/boot를 상태에 게시한다. UI는 같은 live Sim인지 확인하고
+파일을 읽지 않은 채 적용 명령을 보낸다. Pilot의 기본 출력 root도
+`$XDG_CACHE_HOME/scene-imports`이며 설치된 Python package 안에 쓰지 않는다.
+공유 경로 설정은 배포 시 명시적으로 한다. 다른 호스트의 파일을 옮기지는 않는다.
 Sim은 물리 상태를 저장하고 재빌드·controller 재결합·두 카메라 새 프레임 확인을
 마친 뒤 응답한다. 실패하면 이전 씬으로 rollback하고 paused 상태로 남는다.
 비볼록 충돌 커널은 기본적으로 초기 build에서 준비하지만 새 OBJ의 처리와

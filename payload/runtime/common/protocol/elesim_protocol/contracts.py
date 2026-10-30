@@ -94,7 +94,9 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
         notes=("view_snapshot reads; allowlisted service_call/state_call/state_set writes; "
                "additive v6 arm trajectory prepare/execute/cancel and Pilot floor reference confirm/reset/export; "
                "floor status is an optional service snapshot value; no Robot motion is issued by calibration; "
-               "additive Sim-only start_object_scan/cancel_object_scan with optional object_scan status"),
+               "additive Sim-only start_object_scan/cancel_object_scan with optional object_scan status; "
+               "completed scans may advertise a relative scene_reference, SHA-256 scene_revision and exact source sim_id/sim_boot_id; "
+               "bundle bytes remain outside DDS and applying the result still requires a Sim-owned UI session"),
     ),
     "operator_result": _contract(
         "operator_result", ("pilot",), ("ui",),

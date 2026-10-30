@@ -29,6 +29,7 @@ from elesim_protocol.tracing import configure_tracing, shutdown_tracing, span
 from elesim_pilot.simulation_sync import SimulationWorkflowSync
 from elesim_pilot.vision.rgbd import DdsRgbdRelay
 from elesim_pilot.reconstruction.live_scan import LiveScan
+from elesim_pilot.reconstruction.artifacts import default_scene_output_root
 
 
 def _default_config_root() -> Path:
@@ -286,6 +287,7 @@ def _run() -> None:
     parser.add_argument("--id", default="")
     parser.add_argument("--target", default="")
     parser.add_argument("--scan-models", default="", help="Pilot-local scan model API 1 YAML")
+    parser.add_argument("--scan-output-root", default="", help="immutable scene exchange root; defaults to XDG cache/scene-imports")
     args = parser.parse_args()
     bundle = load_app_config(args.config, mode=args.mode)
     role = load_runtime_role_config(args.runtime_config)
@@ -343,14 +345,14 @@ def _run() -> None:
         execution_context=facade.mock_hug_execution_context,
     )
     facade.attach_mock_hug(mock_hug)
-    from elesim_pilot.vision.perception.capture import default_perception_capture_dir
     object_scan = LiveScan(connection, runtime.service, runtime.state,
         simulation_status=lambda: simulation_sync.latest,
         models_path=(Path(args.scan_models).expanduser().absolute() if args.scan_models
                      else directory/'scan.example.yaml'),
         model_dir=(directory/bundle.ik_config.curobo_model).resolve(),
         hand_eye=bundle.sim_config.hand_eye_config,
-        output_root=default_perception_capture_dir()/'object_scans',
+        output_root=(Path(args.scan_output_root).expanduser().absolute() if args.scan_output_root
+                     else default_scene_output_root()),
         other_busy=lambda: trajectory.active or mock_hug.running)
     facade._object_scan = object_scan
 

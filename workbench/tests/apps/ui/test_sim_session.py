@@ -18,6 +18,39 @@ from elesim_protocol import (
 from elesim_ui.sim_session import UiSimSession
 
 
+def test_scan_result_apply_is_bound_to_completed_scan_and_exact_live_sim_boot():
+    session = UiSimSession(ui_id='ui-a', sim_id='sim-a', autostart=False)
+    session._session_id = 'lease-a'
+    session._active_sim_id = 'sim-a'
+    session._active_sim_boot_id = 'boot-a'
+    session._scene_rebuild_supported = True
+    result = {'phase':'completed', 'active':False, 'sim_id':'sim-a', 'sim_boot_id':'boot-a',
+        'scene_reference':'job/scene/scene.json', 'scene_revision':'a'*64}
+    for patch in ({'phase':'capturing'}, {'active':True}, {'sim_id':'sim-b'}, {'sim_boot_id':'boot-b'}):
+        with pytest.raises(ValueError, match='same live Sim'):
+            session.load_scan_result({**result, **patch})
+    request_id = session.load_scan_result(result)
+    command = session._commands.take()
+    assert command.request_id == request_id and command.command == 'load_scene'
+    assert command.arguments == {'manifest':'job/scene/scene.json', 'expected_revision':'a'*64}
+    session._clear_session_locked()
+    assert session.active_sim_boot_id == ''
+    session.close()
+
+
+def test_scan_result_cannot_supply_a_missing_or_escaping_scene_reference():
+    session = UiSimSession(ui_id='ui-a', sim_id='sim-a', autostart=False)
+    session._session_id, session._active_sim_id, session._active_sim_boot_id = 'lease', 'sim-a', 'boot'
+    session._scene_rebuild_supported = True
+    result = {'phase':'completed', 'sim_id':'sim-a', 'sim_boot_id':'boot', 'scene_revision':'a'*64}
+    with pytest.raises(ValueError, match='no published'):
+        session.load_scan_result(result)
+    with pytest.raises(ValueError):
+        session.load_scan_result({**result, 'scene_reference':'../outside/scene.json'})
+    assert session.snapshot.pending_commands == 0
+    session.close()
+
+
 def test_scene_commands_require_the_selected_sim_capability_and_are_not_sent_to_old_peers():
     session = UiSimSession(ui_id='ui-a', sim_id='sim-a', autostart=False)
     session._session_id = 'lease-a'

@@ -98,6 +98,7 @@ class UiSimSession:
         self._lock = threading.RLock()
         self._requested_sim_id = str(sim_id)
         self._active_sim_id = ""
+        self._active_sim_boot_id = ""
         self._session_id = ""
         self._opening_request_id = ""
         self._opening_deadline = 0.0
@@ -131,6 +132,24 @@ class UiSimSession:
     def active_sim_id(self) -> str:
         with self._lock:
             return self._active_sim_id
+
+    @property
+    def active_sim_boot_id(self) -> str:
+        with self._lock:
+            return self._active_sim_boot_id
+
+    def load_scan_result(self, status: Mapping[str, Any]) -> str:
+        """Apply a completed scan only to the exact Sim process that supplied its observations."""
+        with self._lock:
+            if (status.get('phase') != 'completed' or status.get('active')
+                    or not self._active_sim_boot_id
+                    or status.get('sim_id') != self._active_sim_id
+                    or status.get('sim_boot_id') != self._active_sim_boot_id):
+                raise ValueError('select the same live Sim that produced this completed scan')
+            if not status.get('scene_revision') or not status.get('scene_reference'):
+                raise ValueError('scan has no published scene bundle')
+            return self.send_command('load_scene', {'manifest':status['scene_reference'],
+                'expected_revision':status['scene_revision']})
 
     @property
     def supports_scene_rebuild(self) -> bool:
@@ -540,6 +559,7 @@ class UiSimSession:
         if not refreshing:
             with self._lock:
                 self._active_sim_id = opened.sim_id
+                self._active_sim_boot_id = str(getattr(message, 'source_boot_id', ''))
                 self._session_id = opened.session_id
                 self._opening_request_id = ""
                 self._opening_deadline = 0.0
@@ -973,6 +993,7 @@ class UiSimSession:
 
     def _clear_session_locked(self) -> None:
         self._active_sim_id = ""
+        self._active_sim_boot_id = ""
         self._session_id = ""
         self._opening_request_id = ""
         self._opening_deadline = 0.0

@@ -100,6 +100,14 @@ def test_operator_state_surface_does_not_publish_arbitrary_attributes() -> None:
     assert "unpublished_internal_value" not in STATE_VALUES
 
 
+def test_completed_scan_publication_is_an_optional_v1_operator_status_value():
+    result = {'phase':'completed', 'scene_reference':'job/scene/scene.json',
+        'scene_revision':'a'*64, 'sim_id':'sim-a', 'sim_boot_id':'boot-a'}
+    snapshot = OperatorViewSnapshot.from_payload({'schema_version':1, 'state':{},
+        'service':{'object_scan':result}})
+    assert snapshot.to_payload()['service']['object_scan'] == result
+
+
 def test_operator_view_snapshot_has_an_explicit_versioned_shape() -> None:
     parsed = OperatorViewSnapshot.from_payload(
         {
