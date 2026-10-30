@@ -146,3 +146,19 @@ def test_runtime_loader_reads_arm_model_from_isolated_release(
     _bundle, actual = load_solver_context(str(release / "config/config.yaml"))
 
     assert actual == expected
+
+
+def test_loaded_geometry_uses_runtime_fixed_arm_placement(tmp_path,monkeypatch):
+    import json
+    from scipy.spatial.transform import Rotation
+    from elesim_pilot.robot.arm.iklib.kinematics import base_world_transform_from_context
+
+    monkeypatch.setenv('ELESIM_ARM_MODEL',str(REPO_ROOT/'payload/data/models/arm/default.json'))
+    config = tmp_path/'fixed-arm.yaml'
+    config.write_text(json.dumps({'schema_version':1,'extends':str(CONFIG_PATH),
+        'mode':'fixed_test','profiles':{'fixed_test':{'simulation':{'runtime':{'use_go2':False}},
+            'robot':{'arm':{'spawn':{'xyz':[.2,-.1,.8],'euler_deg':[10.,20.,30.]}}}}}}))
+    _,context = load_solver_context(str(config))
+    actual = base_world_transform_from_context(context)
+    np.testing.assert_allclose(actual[:3,3],[.2,-.1,.8],atol=1e-12)
+    np.testing.assert_allclose(actual[:3,:3],Rotation.from_euler('xyz',[10.,20.,30.],degrees=True).as_matrix(),atol=1e-12)

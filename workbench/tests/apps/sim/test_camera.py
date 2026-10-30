@@ -280,6 +280,8 @@ def test_observer_horizontal_drag_keeps_one_screen_direction_above_and_below() -
 
     assert horizontal_motion(-0.7) > 0.0
     assert horizontal_motion(0.7) > 0.0
+
+
 def test_encoded_rgbd_identifies_hand_eye_and_intrinsics_without_tracking_frame_pose():
     from dataclasses import replace
     from types import SimpleNamespace

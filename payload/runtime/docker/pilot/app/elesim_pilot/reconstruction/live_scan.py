@@ -124,7 +124,7 @@ class LiveScan:
         with self._condition:
             return dict(phase=self._phase, active=self.active, job_id=self._job_id,
                 reason=self._reason, blocked_reason=blocked, can_start=not self.active and not blocked,
-                geometry_complete_claimed=False, **self._progress, **self._result)
+                geometry_complete_claimed=False, **{**self._progress, **self._result})
 
     def start(self, target_id='target', max_views=12):
         if self.active or (self._worker is not None and self._worker.is_alive()) or self._release_pending:

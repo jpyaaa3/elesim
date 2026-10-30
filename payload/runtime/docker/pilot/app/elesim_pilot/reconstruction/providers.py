@@ -31,12 +31,15 @@ class DetectorSegmenter:
     General tree/apple instance tracking is supplied by a segmenter plugin.
     This adapter refuses multiple same-label instances instead of mixing them.
     """
-    api_version, stage, version = 1, "segmenter", "detector-single-instance-v1"
+    api_version, stage, version = 1, "segmenter", "detector-single-instance-v2"
 
     def __init__(self, *, options, assets):
         from elesim_pilot.vision.perception.detector import create_detector, load_detector_config
         config = load_detector_config(assets["detector"])
-        config.update(options)
+        self.mask_erode_px = options.get('mask_erode_px',0)
+        if type(self.mask_erode_px) is not int or not 0 <= self.mask_erode_px <= 8:
+            raise ValueError('mask_erode_px must be an integer in 0..8')
+        config.update({key:value for key,value in options.items() if key != 'mask_erode_px'})
         self.single_component = str(config.get('type', '')).lower() == 'hsv'
         self.min_area = int(config.get('min_area_px', 20))
         if self.single_component:
@@ -66,6 +69,12 @@ class DetectorSegmenter:
             if not usable:
                 return ()
             mask = components == usable[0]
+        if self.mask_erode_px:
+            import cv2
+            size = 2*self.mask_erode_px+1
+            mask = cv2.erode(mask.astype(np.uint8),np.ones((size,size),np.uint8)) > 0
+            if int(mask.sum()) < self.min_area:
+                return ()
         return (InstanceMask(task.target_id, result.label, mask, float(result.confidence)),)
 
 

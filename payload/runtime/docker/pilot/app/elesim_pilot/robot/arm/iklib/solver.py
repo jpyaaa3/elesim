@@ -57,6 +57,10 @@ def load_solver_context(
             context["limit"] = JointLimit(**dict(limit_raw.get("value", {})))
         if not isinstance(context.get("limit"), JointLimit):
             raise RuntimeError(f"arm model is missing JointLimit: {model_path}")
+        # Geometry stays in the arm's local frame. Its exported default
+        # placement must not override the current runtime's fixed-arm pose.
+        context['spawn_xyz'] = list(map(float,bundle.spawn_config.spawn_xyz))
+        context['spawn_euler_deg'] = list(map(float,bundle.spawn_config.spawn_euler_deg))
         backend = bundle.ik_config.backend
         if backend not in {"native", "curobo"}:
             raise ValueError("robot.arm.ik.backend must be native or curobo")

@@ -3,6 +3,9 @@ schema_version: 1
 models:
   segmenter:
     factory: elesim_pilot.reconstruction.providers:DetectorSegmenter
+    options:
+      # Reject mixed foreground/background depth at JPEG/antialiasing edges.
+      mask_erode_px: 2
     assets:
       detector:
         path: perception/detector.sim_hsv.json

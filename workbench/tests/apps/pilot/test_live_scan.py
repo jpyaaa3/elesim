@@ -226,3 +226,22 @@ def test_scan_never_sends_a_view_outside_an_operating_cap(rig):
     assert rig.scan.status()['phase'] == 'failed'
     assert 'operating bounds' in rig.scan.status()['reason']
     assert all(q[0] == 0. for q, *_ in rig.sent)
+
+
+def test_completed_status_merges_progress_with_final_report(rig):
+    class Engine:
+        def run(self,*args,**kwargs):
+            result,report = rig.engine().run(*args,**kwargs)
+            kwargs['progress'](dict(stage='reconstructing',accepted_views=2,observed_points=25,
+                coverage={'fraction':.1},stop_reason='view_budget'))
+            report.update(observed_points=30,coverage={'fraction':.25})
+            return result,report
+    rig.scan.engine_factory = lambda *_args:Engine()
+    rig.scan.start(max_views=2)
+    rig.pump()
+    rig.scan.tick()
+    status = rig.scan.status()
+    assert status['phase'] == 'completed' and not status['active']
+    assert status['accepted_views'] == 2 and status['observed_points'] == 30
+    assert status['coverage'] == {'fraction':.25}
+    assert status['stop_reason'] == 'view_budget'

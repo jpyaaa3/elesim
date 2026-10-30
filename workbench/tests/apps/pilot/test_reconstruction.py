@@ -188,3 +188,19 @@ def test_shipped_config_loads_without_learned_dependencies():
     pipeline = Pipeline.from_config(root / "payload/config/pilot/reconstruction.example.yaml")
     assert set(pipeline.models) == {"segmenter", "pose", "completion", "mesher"}
     assert not pipeline.corrections
+
+
+def test_reference_segmenter_can_exclude_rgb_depth_boundary_pixels():
+    image = np.zeros((32,32,3),np.uint8)
+    image[6:26,6:26,2] = 255
+    depth = np.full((32,32),2.,np.float32)
+    depth[8:24,8:24] = .4
+    sensor = SensorObservation(image,depth,1.,CameraIntrinsics(40.,40.,15.5,15.5,32,32),
+        1,1000.,'sim','boot','calibration',(0.,0.,0.,0.))
+    root = next(p for p in Path(__file__).resolve().parents if (p/'payload').is_dir())
+    config = root/'payload/config/pilot/perception/detector.sim_hsv.json'
+    segmenter = DetectorSegmenter(options={'mask_erode_px':2},assets={'detector':config})
+    instances = segmenter.segment(Measurement(sensor),Task('boundary','target'))
+    assert len(instances) == 1
+    assert int(instances[0].mask.sum()) == 16*16
+    assert np.all(sensor.depth_raw[instances[0].mask] == .4)
