@@ -7,6 +7,8 @@ surface completeness. The caller must keep the object and arm base stationary.
 """
 from __future__ import annotations
 
+import time
+
 import numpy as np
 from scipy.spatial import cKDTree
 from scipy.spatial.transform import Rotation
@@ -202,10 +204,14 @@ class ViewPlanner:
         samples = qmc.Halton(d=4, scramble=True, seed=seed).random(candidates)
         self.q = samples*(bounds[:, 1]-bounds[:, 0])+bounds[:, 0]
         poses = []
-        for q in self.q:
+        for index, q in enumerate(self.q):
             if cancelled():
                 raise InterruptedError('view planning cancelled')
             poses.append(camera_model.camera_pose(q))
+            if index % 16 == 15:
+                # Tiny FK calls can repeatedly reacquire the GIL ahead of
+                # DDS/control threads. Keep long preparation cooperative.
+                time.sleep(.001)
         self.poses = np.array(poses)
         z=1-2*(np.arange(96)+.5)/96
         azimuth=np.arange(96)*np.pi*(3-np.sqrt(5))

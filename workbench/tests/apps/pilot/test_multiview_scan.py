@@ -196,3 +196,34 @@ def test_repeated_joint_pose_does_not_identify_joint_zero_offsets():
     result = refine_joint_scan(model, [(q, corner())]*4)
     assert not result['accepted']
     assert result['reason'] == 'joint_fit_unobservable_or_bound'
+
+
+def test_view_preparation_services_cancellation_from_another_thread():
+    import sys
+    import threading
+    from types import SimpleNamespace
+
+    requested, cancelled = threading.Event(), threading.Event()
+    pose = np.eye(4)
+    bounds = np.column_stack((-np.ones(4),np.ones(4)))
+    def camera_pose(_q):
+        requested.set()
+        return pose
+    model = SimpleNamespace(model_digest='model',lower=bounds[:,0],upper=bounds[:,1],camera_pose=camera_pose)
+    collision = SimpleNamespace(source_hashes={'arm_model.json':'model'},bounds=bounds)
+    def cancel():
+        requested.wait(5.)
+        cancelled.set()
+    thread = threading.Thread(target=cancel)
+    thread.start()
+    previous = sys.getswitchinterval()
+    try:
+        # Simulate a compute-heavy provider retaining the GIL between FK
+        # calls. Control/cancel delivery needs an explicit scheduling point.
+        sys.setswitchinterval(5.)
+        with pytest.raises(InterruptedError,match='cancelled'):
+            ViewPlanner(model,collision_checker=collision,candidates=1600,cancelled=cancelled.is_set)
+    finally:
+        sys.setswitchinterval(previous)
+        requested.set()
+        thread.join(5.)
