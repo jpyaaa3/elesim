@@ -23,6 +23,40 @@ def command(name: str, arguments: dict[str, object], request_id: str = "request-
     return SimulationOperatorCommand.from_request(request, ui_id="ui-a")
 
 
+def test_scene_edit_pauses_and_advances_epoch_before_callback_and_retains_pause_on_failure():
+    seen = []
+    controller = SimulationOperatorController(reset_environment=lambda: None,
+        observer_command=lambda *a: None,
+        scene_command=lambda cmd: seen.append((controller.paused, controller.epoch)) or "ready")
+    assert controller.apply(command('load_scene', {'manifest': 'scene.json'})) == (True, 'ready')
+    assert seen == [(True, 1)] and controller.paused is False
+    def fail(cmd): raise RuntimeError('camera failed')
+    controller.scene_command = fail
+    with pytest.raises(RuntimeError, match='camera failed'):
+        controller.apply(command('clear_scene', {}))
+    assert controller.paused and controller.epoch == 2
+
+
+def test_revoked_session_invalidates_commands_already_in_the_mailbox():
+    mailbox = SimulationOperatorMailbox()
+    mailbox.set_session('ui-a', 'session-a')
+    item = command('load_scene', {'manifest': 'scene.json'})
+    mailbox.enqueue(item)
+    mailbox.set_session('ui-b', 'session-b')
+    queued = mailbox.drain()[0]
+    assert not mailbox.owns(queued) and not mailbox.is_current(queued)
+
+
+def test_scene_failure_reason_remains_serializable_with_a_long_genesis_error():
+    from elesim_protocol import SimulationResultPayload
+
+    mailbox = SimulationOperatorMailbox()
+    mailbox.complete(command('clear_scene', {}), ok=False, reason='failed: ' + 'x' * 2000)
+    result = mailbox.take_results()[0].payload
+    assert len(result.reason) == 512
+    assert SimulationResultPayload.from_payload(result.to_payload()).ok is False
+
+
 def test_mailbox_coalesces_adjacent_camera_motion_and_keeps_results() -> None:
     mailbox = SimulationOperatorMailbox(max_pending=4)
     assert mailbox.enqueue(command("orbit", {"dx": 0.1, "dy": 0.2}, "orbit-1"))

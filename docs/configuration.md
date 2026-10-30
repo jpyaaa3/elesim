@@ -54,7 +54,11 @@ Sim 자동 scan은 `scan.example.yaml`을 사용하며 Pilot의 `--scan-models`�
 Schema 1의 각 stage는 `factory: module:callable`, `options`, SHA-256이 있는
 `assets`를 갖는다. Sim의 `simulation.runtime.scene_manifest`는 기본 빈 문자열이며
 선택한 `scene.json`을 scene build 전에 읽는다. 상대 경로는 Sim YAML 기준이다.
-이 필드는 DDS의 원격 파일 업로드 경로가 아니다. 계약과 교체 방법은
+실행 중에는 UI의 `Sim Scene`에서 Sim import root 기준 manifest 상대 경로로
+bundle을 불러오거나 제거한다. `simulation.runtime.scene_import_root`가 빈 문자열이면
+Sim process의 `$XDG_CACHE_HOME/scene-imports`(미설정 시 `~/.cache/scene-imports`)다.
+Bundle 전체가 이 경로 아래에서 읽혀야 하며 symlink 경로는 거부한다.
+이 필드들은 DDS의 원격 파일 업로드 경로가 아니다. 계약과 교체 방법은
 [`model_integration.md`](model_integration.md)를 참조한다.
 
 Source config는 설치 중 복사되며 installed config를 수정해도 source default로
@@ -256,6 +260,8 @@ Sim의 `simulation.runtime`에는 카메라 실행 정책도 있다.
 simulation:
   runtime:
     genesis_performance_mode: false # GPU static arrays는 명시적으로 선택
+    genesis_warm_nonconvex: true    # 기본값; 첫 build에서 비볼록 충돌 커널 준비
+    scene_import_root: ""          # 기본값; XDG cache 아래 scene-imports
     camera_execution: async_process  # async_process | sync_legacy
     camera_worker_start_timeout_s: 180.0
     camera_first_frame_timeout_s: 30.0
@@ -287,6 +293,11 @@ physics에 static arrays를 사용한다. 일부 step 처리량을 높일 수 �
 않는다. CPU와 camera replica에는 static mode를 적용하지 않는다. 외부
 `GS_ENABLE_NDARRAY=0`은 Genesis 차원에서 dynamic arrays를 막을 수 있으므로
 실제 선택은 시작 로그의 `Genesis arrays`로 확인한다.
+
+`genesis_warm_nonconvex`와 `scene_import_root`는 새 Sim parser의 선택적 필드다.
+기존 설치 YAML에 없어도 위 기본값을 사용한다. 실행 중 scene 교체는 실제 dynamic
+arrays와 `async_process` cameras에서만 제공한다. 비볼록 예열은 첫 컴파일 비용을
+startup으로 옮기는 것이며 빈 캐시의 최초 시작 시간을 없애지 않는다.
 
 Sim은 Docker SIGTERM에서 Python 정리 경로를 실행하고, physics와 camera worker는
 Genesis의 `destroy()`로 종료해 kernel cache를 저장한다. multiprocessing은

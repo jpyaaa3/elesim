@@ -11,6 +11,7 @@ from typing import Any, Callable, Mapping, Optional
 
 from elesim_protocol import (
     CAPABILITY_SIM_MOCK_HUG,
+    CAPABILITY_SIM_SCENE_REBUILD,
     CloseSimulationSessionRequest,
     DdsRuntimeSettings,
     EndpointDescriptor,
@@ -120,6 +121,7 @@ class UiSimSession:
         self._last_error_log = ""
         self._last_error_log_at = 0.0
         self._was_registered = False
+        self._scene_rebuild_supported = False
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         if autostart:
@@ -129,6 +131,11 @@ class UiSimSession:
     def active_sim_id(self) -> str:
         with self._lock:
             return self._active_sim_id
+
+    @property
+    def supports_scene_rebuild(self) -> bool:
+        with self._lock:
+            return self._scene_rebuild_supported and bool(self._session_id)
 
     @property
     def connected_streams(self) -> tuple[str, ...]:
@@ -281,6 +288,9 @@ class UiSimSession:
 
     def send_command(self, command: str, arguments: Mapping[str, Any] | None = None) -> str:
         command_name = str(command).strip()
+        if command_name in {"load_scene", "clear_scene"} and not self.supports_scene_rebuild:
+            self._set_error("selected Sim does not support runtime scene rebuild")
+            return ""
         with self._lock:
             session_id = self._session_id
         if not session_id:
@@ -308,6 +318,14 @@ class UiSimSession:
         return request_id
 
     def run_cycle(self, client: Any) -> None:
+        discover = getattr(getattr(client, "node", None), "discover", None)
+        if discover is not None:
+            with self._lock:
+                sim_id = self._active_sim_id or self._requested_sim_id
+                self._scene_rebuild_supported = any(
+                    peer.descriptor.endpoint_id == sim_id
+                    and CAPABILITY_SIM_SCENE_REBUILD in peer.descriptor.capabilities
+                    for peer in discover(role="sim"))
         try:
             client.heartbeat()
         except DdsTransportError as exc:
@@ -436,6 +454,10 @@ class UiSimSession:
                 if self._closing_session_id or not self._commands or not self._session_id or not self._active_sim_id:
                     return
                 request = self._commands.take()
+                if request.command in {"load_scene", "clear_scene"} and not self._scene_rebuild_supported:
+                    self._commands.complete(request.request_id)
+                    self._set_error("selected Sim no longer supports runtime scene rebuild")
+                    continue
                 session_id = self._session_id
                 target_id = self._active_sim_id
             if request.session_id != session_id:
@@ -1041,7 +1063,7 @@ class UiSimSession:
         try:
             if client is None:
                 client = self.peer_factory(
-                    EndpointDescriptor(self.endpoint_id, "ui", (CAPABILITY_SIM_MOCK_HUG,)),
+                    EndpointDescriptor(self.endpoint_id, "ui", (CAPABILITY_SIM_MOCK_HUG, CAPABILITY_SIM_SCENE_REBUILD)),
                     settings=self.settings,
                     trace_context_provider=current_trace_context,
                 )

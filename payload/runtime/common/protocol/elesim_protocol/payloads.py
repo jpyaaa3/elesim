@@ -36,6 +36,8 @@ SIMULATION_COMMANDS = frozenset(
         "spawn_mock_object",
         "remove_mock_object",
         "detach_mock_object",
+        "load_scene",
+        "clear_scene",
     }
 )
 
@@ -644,6 +646,20 @@ class SimulationCommandRequest:
 
     @staticmethod
     def _arguments(command: str, raw: Mapping[str, Any]) -> dict[str, Any]:
+        if command == "load_scene":
+            _unknown(raw, {"manifest", "expected_revision"}, context="load_scene arguments")
+            manifest = raw.get("manifest")
+            if (not isinstance(manifest, str) or not 1 <= len(manifest) <= 512
+                    or manifest.startswith("/") or "\\" in manifest
+                    or any(ord(c) < 32 or ord(c) == 127 for c in manifest)
+                    or any(p in {"", ".", ".."} for p in manifest.split("/"))
+                    or not manifest.endswith(".json")):
+                raise ProtocolError("scene manifest must be a bounded relative JSON reference")
+            revision = raw.get("expected_revision", "")
+            if (not isinstance(revision, str) or revision and (
+                    len(revision) != 64 or any(c not in "0123456789abcdef" for c in revision))):
+                raise ProtocolError("expected scene revision must be a SHA-256 or empty")
+            return {"manifest": manifest, "expected_revision": revision}
         if command in {"orbit", "pan"}:
             _unknown(raw, {"dx", "dy"}, context=f"{command} arguments")
             dx = _finite(raw.get("dx"), name=f"{command} dx")

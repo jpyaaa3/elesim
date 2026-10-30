@@ -101,6 +101,29 @@ ssh -o 'ProxyCommand=python3 -m workbench.research.support.ssh_mss_proxy %h %p' 
 이 명령은 새 프로세스의 씬 재구성이며, 같은 프로세스의 `InteractiveScene.rebuild`
 시간이나 운영 앱의 hot-swap 완료를 입증하지 않는다.
 
+앱의 실행 중 scene 교체는 별도 probe로 검증한다. 준비된 Sim 과학 환경에서
+새 출력 디렉터리를 지정한다. 이 probe는 합성한 새 scene bundle 두 개를 만들고
+실제 operator command → 물리 재빌드 → controller/state 복원 → 두 카메라 첫 프레임,
+카메라 실패 rollback·revision 불일치 거부·clear·stationary 후속 step을 확인한다.
+카메라 프로세스 PID가 교체 전후 동일한지도 검사한다.
+기존 output/cache/container를 지우지 않으며 Robot/DDS/WebRTC를 시작하지 않는다.
+
+```bash
+python3 -m workbench.research.support.worker \
+  --metadata /writable/new-run/metadata.json \
+  --module workbench.research.debug.probe_scene_rebuild --role sim \
+  --simulation-config /opt/elesim/config/app.installed.yaml -- \
+  /opt/elesim/config/app.installed.yaml /opt/elesim/data/models/assemblies/zed-mini \
+  --output /writable/new-run/result.json
+```
+
+단일 노출 GPU와 role-owned cache에서 실행한다. `physics_s`는 메시 처리·물리
+재빌드·상태 복원/controller 재결합, `cameras_s`는 새 replica와 첫 프레임까지다.
+`total_s`에는 입력 검증과 기존 worker 정리도 포함한다. seed cache의 커널만
+준비됐는지, 개별 OBJ까지 처리됐는지를 구분해 기록한다. 결과는 단일 실행의
+실측이며 임의 메시나 다수 물체의 시간 상한이 아니다. 실제 두 DDS 프로세스의
+session/capability 명령 전달은 `dds-scene-commands` 필수 quality gate가 담당한다.
+
 소비자에게는 필요한 research Python import와 센서/명목 모델만 마운트한다.
 전체 checkout/evidence나 producer의 scene/catalog 코드를 넘기지 않는다.
 정답 데이터는 producer/evaluator에만 준다. 로컬 CPU 실행은 프로세스 구분이며

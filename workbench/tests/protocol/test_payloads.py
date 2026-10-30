@@ -211,6 +211,8 @@ def test_simulation_session_open_and_close_contracts_are_bounded() -> None:
         ),
         ("remove_mock_object", {}),
         ("detach_mock_object", {}),
+        ("load_scene", {"manifest": "scan-1/scene.json", "expected_revision": "a" * 64}),
+        ("clear_scene", {}),
     ),
 )
 def test_simulation_command_contract_accepts_the_public_command_surface(
@@ -228,6 +230,22 @@ def test_simulation_command_contract_accepts_the_public_command_surface(
     )
     assert parsed.command == command
     assert parsed.arguments == arguments
+
+
+@pytest.mark.parametrize("reference", ["/tmp/scene.json", "../scene.json", "x/../scene.json",
+    "x//scene.json", "x\\scene.json", "x\nscene.json", "x.obj", "x" * 513 + ".json"])
+def test_scene_command_rejects_paths_outside_the_sim_import_contract(reference):
+    with pytest.raises(ProtocolError):
+        SimulationCommandRequest.from_payload({"schema_version": 1, "request_id": "req", "session_id": "session",
+            "command": "load_scene", "arguments": {"manifest": reference}})
+
+
+def test_scene_command_rejects_invalid_revision_and_unknown_data():
+    for args in ({"manifest": "scene.json", "expected_revision": "unknown"},
+                 {"manifest": "scene.json", "obj": "raw mesh data"}):
+        with pytest.raises(ProtocolError):
+            SimulationCommandRequest.from_payload({"schema_version": 1, "request_id": "req", "session_id": "session",
+                "command": "load_scene", "arguments": args})
 
 
 @pytest.mark.parametrize(

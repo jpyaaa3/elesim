@@ -73,6 +73,24 @@ class SimulationOperatorMailbox:
         self._lock = threading.Lock()
         self._pending: deque[SimulationOperatorCommand] = deque()
         self._results: deque[PendingSimulationResult] = deque()
+        self._session: tuple[str, str] = ("", "")
+        self.rebuilding = threading.Event()
+        self.motion_lock = threading.RLock()
+        self._session_enforced = False
+
+    def set_session(self, ui_id: str = "", session_id: str = "") -> None:
+        with self._lock:
+            self._session = (str(ui_id), str(session_id))
+            self._session_enforced = True
+
+    def is_current(self, command: SimulationOperatorCommand) -> bool:
+        with self._lock:
+            return not self._session_enforced or (
+                bool(command.session_id) and self._session == (command.ui_id, command.session_id))
+
+    def owns(self, command: SimulationOperatorCommand) -> bool:
+        with self._lock:
+            return bool(command.session_id) and self._session == (command.ui_id, command.session_id)
 
     def enqueue(self, command: SimulationOperatorCommand) -> bool:
         with self._lock:
@@ -141,7 +159,7 @@ class SimulationOperatorMailbox:
                             session_id=command.session_id,
                             command=command.command,
                             ok=bool(ok),
-                            reason=str(reason),
+                            reason=str(reason)[:512],
                         ),
                     )
                 )
@@ -179,12 +197,14 @@ class SimulationOperatorController:
         mock_object_command: Callable[[str, dict[str, Any]], None] | None = None,
         mock_object_status: Callable[[], dict[str, Any]] | None = None,
         mock_hug_cancel: Callable[[str], None] | None = None,
+        scene_command: Callable[[SimulationOperatorCommand], str] | None = None,
     ) -> None:
         self.reset_environment = reset_environment
         self.observer_command = observer_command
         self.mock_object_command = mock_object_command
         self.mock_object_status = mock_object_status
         self.mock_hug_cancel = mock_hug_cancel
+        self.scene_command = scene_command
         self.paused = False
         self.speed = 1.0
         self.debug_visible = True
@@ -198,6 +218,21 @@ class SimulationOperatorController:
 
     def apply(self, command: SimulationOperatorCommand) -> tuple[bool, str]:
         name = command.command
+        if name in {"load_scene", "clear_scene"}:
+            if self.scene_command is None:
+                return False, "runtime scene rebuild is unavailable"
+            was_paused = self.paused
+            self.paused = True
+            self._steps_remaining = 0
+            self.arm_ghost = None
+            self.epoch += 1
+            if self.mock_hug_cancel is not None:
+                self.mock_hug_cancel("scene rebuild")
+            # Failure deliberately keeps the simulation paused.
+            reason = self.scene_command(command)
+            self.paused = was_paused
+            self._observer_dirty = True
+            return True, reason
         if name in _CAMERA_COMMANDS:
             self.observer_command(name, dict(command.arguments))
             self._observer_dirty = True

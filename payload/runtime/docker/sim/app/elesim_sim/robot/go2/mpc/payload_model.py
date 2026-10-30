@@ -94,6 +94,12 @@ class ArmPayloadCompensator:
         self._properties = None
         self._properties_ready = False
 
+    def rebind_entity(self, entity) -> None:
+        self._arm = entity
+        self._link_ids = ({id(entity.get_link(name)) for name in self._link_names}
+                          if self._link_names is not None else set())
+        self.reset()
+
     def _prepare_properties(self) -> _ArmPayloadProperties | None:
         if self._properties_ready:
             return self._properties

@@ -11,6 +11,10 @@ avoid an import cycle. Incompatible changes to existing messages require a
 major bump. The optional v6 presentation_target addition is capability-gated:
 only Sims advertising presentation.target.v1 receive it, so older v6 parsers
 never receive the new message type.
+The optional load_scene/clear_scene commands retain wire major 6 and simulation
+schema 1. They are sent only to simulation.scene-rebuild.v1 Sims. Their bounded
+manifest reference is relative to a Sim-owned import root; mesh bytes and OBJ
+paths remain outside DDS. Existing status/result field shapes are unchanged.
 """
 
 from __future__ import annotations
@@ -191,7 +195,9 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
         "simulation_command", ("ui",), ("sim",),
         authority="sim UI-session lease",
         notes=("validated SimulationCommandRequest; additive v6 set_ik_target and set_arm_ghost are display-only; ghost has <=96 timed q4 samples and a rigid base; "
-               "mock object commands carry asset id/pose, never OBJ bytes"),
+               "mock object commands carry asset id/pose, never OBJ bytes; "
+               "load_scene/clear_scene require simulation.scene-rebuild.v1; "
+               "load_scene carries a bounded relative manifest reference and optional expected SHA-256, not OBJ data"),
     ),
     "simulation_result": _contract(
         "simulation_result", ("sim",), ("ui",),

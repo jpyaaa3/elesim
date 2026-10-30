@@ -260,11 +260,22 @@ Build 전후에도 hash를 검사한다. Mesh의 Z-up/metre 좌표를 유지하�
 decimation, convexification, watertight wrapping을 끈다. 설정 근거는 고정 버전의
 [Genesis 1.4.5 Mesh options](https://github.com/Genesis-Embodied-AI/genesis-world/blob/v1.4.5/genesis/options/morphs.py)다.
 닫힌 표면·법선·self-intersection 등 실제 충돌에 필요한 mesh 품질은 mesher가
-검증해야 하며 파일 validator가 물리 적합성을 보증하지 않는다. 실행 중인 scene의 mesh
-교체, 물체의 동적 attach/들기, 계획 실행은 이 경로에서 제공하지 않는다.
-새 scene에는 Sim 재시작이 필요하다. 기존 mock-hug와 RL 실행기는 별도 경로다.
+검증해야 하며 파일 validator가 물리 적합성을 보증하지 않는다.
+
+Dynamic/async Sim에서는 재시작 없이 bundle을 교체할 수 있다. Bundle 전체를
+Sim의 `simulation.runtime.scene_import_root` 아래 새 디렉터리에 게시하고 UI의
+`Sim Scene`에 `new-scene/scene.json` 같은 상대 경로를 입력해 `Load scene`을 누른다.
+기본 root는 Sim process의 `$XDG_CACHE_HOME/scene-imports`다. `Clear scene`은
+가져온 물체만 제거하며 기본 로봇과 지면은 유지한다. 지원 capability가 있는
+Sim의 유효한 UI session에서만 이 명령을 보낸다. 자동 multi-host 전송은 없다.
+Sim은 물리 상태를 저장하고 재빌드·controller 재결합·두 카메라 새 프레임 확인을
+마친 뒤 응답한다. 실패하면 이전 씬으로 rollback하고 paused 상태로 남는다.
+비볼록 충돌 커널은 기본적으로 초기 build에서 준비하지만 새 OBJ의 처리와
+카메라 복제 씬 재생성 시간은 남는다. 파일은 사용 중 덮어쓰지 않는다.
+물체의 동적 attach/들기, 계획 실행은 제공하지 않는다. 기존 mock-hug와 RL 실행기는 별도 경로다.
 파일 검증은 protocol package의 `scene_artifact.py`가 담당하며 DDS wire major 6은
-변경하지 않는다.
+변경하지 않는다. 실행 중 교체 명령은 `simulation.scene-rebuild.v1` capability를
+사용하는 major 6의 선택적 확장이다.
 
 ## Robot IMU 모델과 구분
 

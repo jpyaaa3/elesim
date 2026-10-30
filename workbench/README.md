@@ -50,24 +50,25 @@ CPU만 필요한 검사는 의존성이 있는 host에서도 부분 검증으로
 | `analysis.visual_tilt_plot` | 현재 시각 보정 평가 그림 |
 | `debug.profile_fixed_foot` | 몸통 고정 상태에서 발 추종 원인 분리, 접촉 회귀용 trace 획득 |
 | `debug.sim_camera_preview` | 실제 DDS RGB-D 수신·깊이 미리보기 |
+| `debug.probe_scene_rebuild` | 실행 중 OBJ 교체·controller/state 보존·카메라 복구·rollback 실측 |
 | `debug.trace_viewer` | runtime trace JSONL 조회 |
 | `experiments.adapointr_inputs` | 보정된 센서 점군을 물체별 추론 입력으로 준비 |
 | `experiments.adapointr_gpu_smoke` | 모델/checkpoint 및 GPU FPS·gather adapter 확인 |
 
 ## 벤치 내부에서 쓰는 파일
 
-`research/`에는 아래 **35개 소스/시나리오 파일**과 package `__init__.py`만 남긴다.
+`research/`에는 아래 소스/시나리오 파일과 package `__init__.py`를 둔다.
 위의 사용자 진입점에서 필요한 worker/helper이며, 각각을 새 실행 경로로
 복제하지 않는다.
 
 | 경로 | 파일 |
 | --- | --- |
 | `research/analysis/` | `analyze_contact_metrics.py`, `analyze_walking_metrics.py`, `arm_scan_compare.py`, `arm_scan_plot.py`, `visual_tilt_plot.py`, `walking_motion.py`, `walking_swing.py` |
-| `research/debug/` | `profile_fixed_foot.py`, `profile_sim_walking.py`, `sim_camera_preview.py`, `trace_viewer.py` |
+| `research/debug/` | `profile_fixed_foot.py`, `profile_sim_walking.py`, `probe_scene_rebuild.py`, `sim_camera_preview.py`, `trace_viewer.py` |
 | `research/experiments/` · 보행 | `batch_readiness.py`, `config_overlay.py`, `run_walking_baseline_batch.py`, `walking_baseline.py`, `walking_scenarios.py`, `walking_suite.py`, `walking_suites.json` |
 | `research/experiments/` · 시각 | `vision_arm_scene.py`, `vision_reconstruct.py`, `vision_tilt_evaluate.py`, `arm_scan.py`, `arm_scan_scene.py`, `arm_scan_evaluate.py` |
 | `research/experiments/` · 완성 | `adapointr.py`, `adapointr_inputs.py`, `adapointr_infer.py`, `adapointr_evaluate.py`, `adapointr_gpu_smoke.py` |
-| `research/support/` | `adapointr_backend.py`, `adapointr_ops.py`, `adapointr_profiles.py`, `output.py`, `pilot_runtime.py`, `worker.py` |
+| `research/support/` | `adapointr_backend.py`, `adapointr_ops.py`, `adapointr_profiles.py`, `output.py`, `pilot_runtime.py`, `ssh_mss_proxy.py`, `worker.py` |
 
 `tools/quality/`, `tools/bench/`, `tools/release/`는 계속 유지한다. 이 밖의 유지
 도구는 `tools/setup_preview.py`, `tools/connection_manager_preview.py`와 Jetson

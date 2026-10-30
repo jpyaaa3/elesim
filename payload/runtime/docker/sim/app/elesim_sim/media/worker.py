@@ -73,6 +73,7 @@ class SharedFrameMailbox:
         captured_at: Any,
         published: Any,
         overwritten: Any,
+        valid: Any,
     ) -> None:
         self.width = int(width)
         self.height = int(height)
@@ -82,6 +83,7 @@ class SharedFrameMailbox:
         self._captured_at = captured_at
         self._published = published
         self._overwritten = overwritten
+        self._valid = valid
 
     @classmethod
     def create(cls, context: mp.context.BaseContext, *, width: int, height: int) -> "SharedFrameMailbox":
@@ -98,6 +100,7 @@ class SharedFrameMailbox:
             captured_at=context.Value(ctypes.c_double, 0.0),
             published=context.Value(ctypes.c_ulonglong, 0),
             overwritten=context.Value(ctypes.c_ulonglong, 0),
+            valid=context.Value(ctypes.c_bool, False),
         )
 
     @property
@@ -121,6 +124,7 @@ class SharedFrameMailbox:
             self._sequence.value += 1
             self._captured_at.value = now
             self._published.value += 1
+            self._valid.value = True
             return int(self._sequence.value)
 
     def latest(self) -> tuple[Optional[np.ndarray], int, float]:
@@ -129,11 +133,17 @@ class SharedFrameMailbox:
         with self._lock:
             sequence = int(self._sequence.value)
             captured_at = float(self._captured_at.value)
-            if sequence <= 0:
-                return None, 0, captured_at
+            if not self._valid.value:
+                return None, sequence, captured_at
             source = np.frombuffer(self._buffer, dtype=np.uint8).reshape(self.shape)
             image = source.copy()
         return image, sequence, captured_at
+
+    def clear(self) -> None:
+        with self._lock:
+            self._sequence.value += 1
+            self._captured_at.value = 0.0
+            self._valid.value = False
 
     def stats(self) -> dict[str, int | float]:
         with self._lock:

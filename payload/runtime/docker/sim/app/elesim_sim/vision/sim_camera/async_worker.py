@@ -105,6 +105,13 @@ class CameraStateSnapshot:
     arm_ghost_base: object = None
 
 
+@dataclass(frozen=True)
+class _CameraSceneEdit:
+    epoch: int
+    manifest: str
+    revision: str
+
+
 class SharedRgbdMailbox:
     """One fixed-size latest-only RGB-D slot shared by two processes."""
 
@@ -398,28 +405,12 @@ def _apply_snapshot(
     return observer_pose_changed
 
 
-def _camera_render_process_main(
-    spec: CameraRenderSpec,
-    streams: tuple[str, ...],
-    mailboxes: Mapping[str, SharedRgbdMailbox],
-    commands: Queue,
-    results: Queue,
-    frame_results: Mapping[str, Queue],
-    ready: Any,
-    stop: Any,
-) -> None:
-    """Spawn target; all Genesis imports and device work stay here."""
+def _build_camera_scene(gs, spec, streams):
+    """Construct a visual scene in an already initialized render process."""
+    from elesim_sim.vision.sim_camera.mount import Node9EyeInHandCamera, ObserverCamera
 
-    startup_complete = False
-    gs = None
+    scene = None
     try:
-        import genesis as gs
-        from elesim_sim.vision.sim_camera.mount import Node9EyeInHandCamera, ObserverCamera
-
-        t_startup = time.perf_counter()
-        gs.init(**_genesis_init_kwargs(gs, use_gpu=bool(spec.use_gpu)))
-        print(f"[sim-camera-worker] {streams} Genesis initialized in {time.perf_counter() - t_startup:.2f}s", flush=True)
-
         gravity = tuple(float(v) for v in spec.gravity)
         try:
             sim_options = gs.options.SimOptions(
@@ -543,6 +534,35 @@ def _camera_render_process_main(
         robot_dof_indices = resolve_single_dof_indices(entity, spec.robot_joint_names)
         if eye is not None:
             eye.bind(entity, hand_eye_path=str(spec.hand_eye_config))
+        return scene, entity, mock_entities, target_entity, eye, observer, robot_dof_indices
+    except Exception:
+        if scene is not None:
+            scene.destroy()
+        raise
+
+
+def _camera_render_process_main(
+    spec: CameraRenderSpec,
+    streams: tuple[str, ...],
+    mailboxes: Mapping[str, SharedRgbdMailbox],
+    commands: Queue,
+    results: Queue,
+    frame_results: Mapping[str, Queue],
+    ready: Any,
+    stop: Any,
+) -> None:
+    """Spawn target; all Genesis imports and device work stay here."""
+
+    startup_complete = False
+    gs = None
+    try:
+        import genesis as gs
+
+        t_startup = time.perf_counter()
+        gs.init(**_genesis_init_kwargs(gs, use_gpu=bool(spec.use_gpu)))
+        print(f"[sim-camera-worker] {streams} Genesis initialized in {time.perf_counter() - t_startup:.2f}s", flush=True)
+
+        scene, entity, mock_entities, target_entity, eye, observer, robot_dof_indices = _build_camera_scene(gs, spec, streams)
         results.put_nowait({"type": "ready", "ok": True})
         ready.set()
         startup_complete = True
@@ -553,14 +573,39 @@ def _camera_render_process_main(
         arm_ghost = ArmGhost(spec.hand_eye_urdf_path or spec.urdf_path)
         capture_logged: set[str] = set()
         snapshot_cache = _CameraSnapshotCache()
+        pending_edit = None
 
         while not stop.is_set():
-            try:
-                command = commands.get(timeout=0.1)
-            except queue.Empty:
-                continue
+            if pending_edit is not None:
+                command, pending_edit = pending_edit, None
+            else:
+                try:
+                    command = commands.get(timeout=0.1)
+                except queue.Empty:
+                    continue
             if command is None:
                 break
+            if isinstance(command, _CameraSceneEdit):
+                ready.clear()
+                try:
+                    if scene is not None:
+                        scene.destroy()
+                    scene = None
+                    candidate_spec = replace(spec, scene_manifest=command.manifest,
+                        scene_revision=command.revision)
+                    scene, entity, mock_entities, target_entity, eye, observer, robot_dof_indices = _build_camera_scene(gs, candidate_spec, streams)
+                    spec = candidate_spec
+                    ik_marker = IkTargetMarker()
+                    arm_ghost = ArmGhost(spec.hand_eye_urdf_path or spec.urdf_path)
+                    snapshot_cache = _CameraSnapshotCache()
+                    capture_logged.clear()
+                    ready.set()
+                    response = {'type':'scene_rebuilt', 'epoch':command.epoch, 'ok':True}
+                except Exception as exc:
+                    response = {'type':'scene_rebuilt', 'epoch':command.epoch,
+                        'ok':False, 'error':str(exc)[:512] or type(exc).__name__}
+                results.put(response, timeout=1.)
+                continue
             snapshot, requested = command
             if not isinstance(snapshot, CameraStateSnapshot):
                 raise RuntimeError("camera render command has an invalid snapshot")
@@ -577,6 +622,9 @@ def _camera_render_process_main(
                 if newer is None:
                     stop.set()
                     break
+                if isinstance(newer, _CameraSceneEdit):
+                    pending_edit = newer
+                    break
                 if not isinstance(newer, tuple) or len(newer) != 2:
                     raise RuntimeError("camera render queue contains an invalid command")
                 snapshot, requested = newer
@@ -587,6 +635,8 @@ def _camera_render_process_main(
                 requested_names.extend(str(name) for name in requested)
             if stop.is_set():
                 break
+            if pending_edit is not None:
+                continue
             hand_eye_only = (
                 "hand_eye_preview" in streams and "observer" not in streams
             )
@@ -838,6 +888,11 @@ class CameraRenderWorker:
         self._render_sum_ms = {name: 0.0 for name in self.streams}
         self._render_max_ms = {name: 0.0 for name in self.streams}
         self._lock = threading.Lock()
+        self._submission_lock = threading.Lock()
+        self._editing = False
+        self._edit_epoch = -1
+        self._edit_done = threading.Event()
+        self._edit_replies: dict[str, str] = {}
 
     def _spec_for_stream(self, stream: str) -> CameraRenderSpec:
         """Return the smallest visual scene needed by ``stream``."""
@@ -887,6 +942,7 @@ class CameraRenderWorker:
     def ready(self) -> bool:
         return bool(
             self._ready_ok.is_set()
+            and not self._editing
             and all(state.process.is_alive() for state in self._processes.values())
         )
 
@@ -973,8 +1029,15 @@ class CameraRenderWorker:
         return bool(self.ready)
 
     def submit(self, snapshot: CameraStateSnapshot, requested: tuple[str, ...]) -> bool:
+        with self._submission_lock:
+            return self._submit_snapshot(snapshot, requested)
+
+    def _submit_snapshot(self, snapshot: CameraStateSnapshot, requested: tuple[str, ...]) -> bool:
         if self._closed:
             return False
+        with self._lock:
+            if self._editing:
+                return False
         names = tuple(name for name in requested if name in self.mailboxes)
         if not names:
             return False
@@ -1005,6 +1068,46 @@ class CameraRenderWorker:
                 self._dropped += 1
             self._epoch = max(self._epoch, int(snapshot.epoch))
         return accepted
+
+    def rebuild_scene(self, manifest: str, revision: str, *, epoch: int, timeout_s: float) -> None:
+        """Reliably edit both live processes; capture snapshots cannot replace this command."""
+        if self._closed or not self._started or self.failure:
+            raise RuntimeError(self.failure or 'camera render worker is unavailable')
+        deadline = time.monotonic() + max(.1, float(timeout_s))
+        with self._submission_lock:
+            with self._lock:
+                if self._editing:
+                    raise RuntimeError('camera scene edit is already in progress')
+                if int(epoch) <= self._epoch:
+                    raise ValueError('camera scene edit must advance the render epoch')
+                self._editing = True
+                self._epoch = self._edit_epoch = int(epoch)
+                self._edit_replies.clear()
+                self._edit_done.clear()
+        try:
+            edit = _CameraSceneEdit(int(epoch), str(manifest), str(revision))
+            for state in self._processes.values():
+                state.ready.clear()
+                # The producer is gated above. FIFO preserves any in-flight
+                # snapshot ahead of this reliable control operation.
+                state.commands.put(edit, timeout=max(.01, deadline-time.monotonic()))
+            while not self._edit_done.wait(.02):
+                if self.failure:
+                    raise RuntimeError(self.failure)
+                if time.monotonic() >= deadline:
+                    self._set_failure('camera scene rebuild timed out')
+                    raise TimeoutError(self.failure)
+            with self._lock:
+                errors = [f'{name}: {error}' for name, error in self._edit_replies.items() if error]
+            if errors:
+                raise RuntimeError('camera scene rebuild failed: ' + '; '.join(errors))
+            self.spec = replace(self.spec, scene_manifest=str(manifest), scene_revision=str(revision))
+        except queue.Full as error:
+            self._set_failure('camera scene rebuild command queue timed out')
+            raise TimeoutError(self.failure) from error
+        finally:
+            with self._lock:
+                self._editing = False
 
     def _stream_ready(self, stream: str) -> bool:
         state = self._processes.get(str(stream))
@@ -1119,6 +1222,17 @@ class CameraRenderWorker:
             self._set_failure("camera render worker sent an invalid message")
             return
         kind = str(message.get("type", ""))
+        if kind == 'scene_rebuilt':
+            with self._lock:
+                if not self._editing or message.get('epoch') != self._edit_epoch:
+                    return
+                if stream_hint not in self._processes:
+                    return
+                self._edit_replies[stream_hint] = ('' if message.get('ok') is True else
+                    str(message.get('error') or 'scene rebuild failed')[:512])
+                if set(self._edit_replies) == set(self.streams):
+                    self._edit_done.set()
+            return
         if kind == "ready":
             if not bool(message.get("ok", False)):
                 self._set_failure(

@@ -31,6 +31,7 @@ from .panels import (
     draw_hardware_panel,
     draw_ik_panel,
     draw_mock_object_panel,
+    draw_scene_panel,
     draw_perception_panel,
     draw_resolution_panel,
     draw_imu_model_panel,
@@ -972,6 +973,7 @@ class ControlPanel:
                     (
                         draw_perception_panel,
                         draw_mock_object_panel,
+                        draw_scene_panel,
                     ),
                     item_width=second_item_w,
                 )
@@ -1017,6 +1019,7 @@ class ControlPanel:
                     draw_resolution_panel,
                     draw_perception_panel,
                     draw_mock_object_panel,
+                    draw_scene_panel,
                 ),
                 item_width=max(scaled(self, 120.0), right_w * 0.45),
             )
@@ -1036,6 +1039,7 @@ class ControlPanel:
                     draw_resolution_panel,
                     draw_perception_panel,
                     draw_mock_object_panel,
+                    draw_scene_panel,
                 ),
                 item_width=max(scaled(self, 120.0), avail_w * 0.45),
             )

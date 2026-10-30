@@ -276,6 +276,11 @@ queue에 넣는다. 카메라 프로세스는 그 snapshot을 자체 visual repl
 Physics scene과 visual replica는 기본적으로 Genesis의 dynamic-array 모드를 사용한다.
 Physics의 정적 배열은 `simulation.runtime.genesis_performance_mode`로 GPU에서만
 명시적으로 선택한다. 이 모드에서는 Genesis의 interactive scene rebuild를 사용할 수 없다.
+Dynamic physics는 기본적으로 보이지 않는 작은 비볼록 고정 메시를 지면 아래에
+유지한다. 이는 `has_nonconvex_nonterrain` 충돌 경로를 최초 build에서 준비해
+이후 처음 보는 OBJ에도 같은 커널을 재사용하게 한다. 메시별 geometry 처리와
+씬 재구성은 여전히 필요하며 다른 compiler 설정까지 예열하지는 않는다.
+`simulation.runtime.genesis_warm_nonconvex: false`로 이 준비를 끌 수 있다.
 Visual replica는 physics를 step하거나 IK/Jacobian을 계산하지 않는다. 두 Genesis process의 cold build는
 겹치지 않으며 physics scene을 먼저 완성한 뒤 visual replica를 만든다. Convex MPC는 Pinocchio가
 kinematics를 소유한다. GO2 physics URDF는 arm mount, feedback, collision policy가 사용하는
@@ -300,6 +305,27 @@ Sim의 heartbeat·lease·session authority는 살아 있어야 한다. 초기 sc
 DDS endpoint는 boot identity를 일찍 광고하지만, Sim scene과 media worker의
 bounded startup handshake가 끝나기 전에는 UI session을 grant하지 않는다.
 따라서 UI의 초기 request는 잠시 거부될 수 있고, 새 descriptor 이후 재시도된다.
+
+Dynamic arrays와 async cameras를 사용하는 Sim은
+`simulation.scene-rebuild.v1` capability로 실행 중 scene bundle 교체를 광고한다.
+UI의 `load_scene`/`clear_scene`은 현재 simulation session 아래에서 main thread가
+처리한다. 파일은 Sim import root 아래에 이미 게시된 immutable bundle이어야 한다.
+자동 파일 전송은 없고 wire에는 상대 manifest 경로와 선택적 revision만 전달한다.
+Sim은 motion 입력을 막고 물리 qpos/velocity와 DOF 설정을 저장한 뒤,
+같은 `Scene`의 `InteractiveScene.rebuild()`로 고정 충돌 물체를 교체한다.
+Genesis entity handle은 새로 찾아 arm/GO2/controller/payload에 재결합하며
+MPC model과 solver 객체는 재사용한다. 작업 중 UI session이 바뀌면 commit하지 않는다.
+
+기존 dispatch worker를 종료하고 latest frame을 무효화한 뒤 같은 manifest
+revision으로 visual replica를 다시 만든다. 카메라 프로세스와 Genesis 초기화는
+유지하며, bounded IPC control과 epoch별 두 응답으로 scene 교체를 확인한다.
+capture snapshot의 latest-only 병합은 이 교체 명령을 버릴 수 없다. 렌더 프로세스가
+죽거나 교체가 timeout이면 rollback에서 해당 worker를 새로 시작한다.
+Observer와 hand-eye의 첫 프레임이 모두
+준비돼야 결과를 성공으로 응답하고 원래 pause 상태로 돌아간다. 준비 중 frame은
+stream별 한 장씩만 보관한다. 실패 시 이전 geometry/state/camera revision으로
+rollback하고 paused 상태를 유지한다. Rollback 자체가 실패하면 Sim을 종료한다.
+물체의 동적 attach/들기나 reconstruction 결과의 자동 전송·자동 적용은 별도다.
 
 UI는 observer와 hand-eye를 별도 WebRTC track으로 받는다. Observer는 Genesis
 1.2.x `ViewerOptions`의 기본 위치·look-at·world-Z up·FOV에서 시작한다. 기본

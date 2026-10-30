@@ -164,6 +164,12 @@ class SimulationStateSource:
             self._robot_mirror_active = False
             self._q = q
 
+    def hold_for_scene_rebuild(self, q: SimQ) -> None:
+        with self._lock:
+            self._go2_velocity = (0.0, 0.0, 0.0)
+            if not self._robot_mirror_active:
+                self._q = q
+
     def ik_target_xyz(self) -> Optional[np.ndarray]:
         with self._lock:
             return None if self._ik_target is None else self._ik_target.copy()

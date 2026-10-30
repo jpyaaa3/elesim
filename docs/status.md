@@ -6,6 +6,66 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 실행 중 새 OBJ 교체와 카메라 프로세스 재사용 (2026-10-30)
+
+Dynamic/async Sim에 비볼록 충돌 경로 예열과 `InteractiveScene.rebuild()`를
+연결했다. 초기 build는 보이지 않는 작은 비볼록 고정 메시를 포함하며, 새 OBJ를
+로드하거나 모두 지울 때도 해당 충돌 경로를 유지한다. 예열은 최초 컴파일 비용을
+startup으로 옮긴다. 빈 캐시의 첫 시작 지연을 없앴다는 의미는 아니다.
+
+현재 UI session의 `load_scene`/`clear_scene`은 main thread에서 motion을 차단하고
+qpos/velocity/DOF 설정을 저장한 뒤 물리 씬을 재빌드한다. 기존 entity handle을
+arm/GO2/controller/payload에 다시 결합하고 MPC model/solver는 유지한다.
+카메라 프로세스 둘도 유지한 채 내부 visual scene만 재구성한다. Epoch별 두
+교체 응답과 같은 revision의 두 새 프레임을 받은 뒤에만 성공으로 처리한다.
+실패하면 이전 geometry/state/camera revision으로 rollback하고 paused 상태로
+남는다. Rollback까지 실패하면 Sim을 종료한다.
+
+서버 GPU 2의 같은 Genesis 1.4.5 이미지와 비볼록 커널 seed cache의 독립
+복사본에서 측정했다. 각 새 OBJ는 해당 실행 캐시에 처음 들어오는 합성 메시다.
+해상도는 hand-eye/observer 모두 1280×720이며 아래 전체 시간에는 두 카메라
+첫 프레임을 포함한다. 최초 버전은 매번 camera process를 재시작했고, 최종
+버전은 PID를 유지했다.
+
+| 동작 | 카메라 재시작 전체 | 최종 물리/상태 복원 | 최종 카메라/첫 프레임 | 최종 전체 |
+| --- | --- | --- | --- | --- |
+| 새 OBJ 288면 삽입 | 16.59초 | 1.88초 | 1.98초 | **3.91초** |
+| 새 OBJ 20,400면으로 교체 | 20.04초 | 4.67초 | 2.61초 | **7.55초** |
+| 가져온 물체 제거 | 16.52초 | 1.96초 | 2.21초 | **4.18초** |
+
+물리와 카메라 재구성은 순차이며 전체에는 입력 검증/기존 dispatcher 정리도
+포함한다. 최종 초기 startup은 28.07초로, 이 표는 startup을 제외한 실행 중
+교체 시간이다. 카메라 실패 주입 시 6.00초에 이전 큰 OBJ와 새 카메라 프레임을
+복구하고 paused를 유지했다. 잘못된 revision은 씬 변경 없이 거부했다.
+모든 교체·rollback·clear에서 Scene identity, qpos/velocity, controller/solver,
+카메라 PID 및 비볼록 경로 보존을 확인했고 이후 stationary 100 step도 통과했다.
+단일 실행이며 임의 메시/다수 물체의 지연 상한은 아니다.
+
+UI의 `Sim Scene`은 `simulation.scene-rebuild.v1`을 광고하는 Sim에만 명령을
+보낸다. Bundle 전체는 Sim의 `simulation.runtime.scene_import_root` 아래에
+이미 있어야 하며 UI에는 `new-scene/scene.json` 같은 상대 경로를 넣는다.
+기본 root는 Sim의 `$XDG_CACHE_HOME/scene-imports`다. 자동 다중 호스트 전송,
+동적 attach/집기는 이번 범위에 없다. Wire major 6/schema 1은 유지한다.
+
+검증은 원격 role-isolated Sim **922 passed, 3 skipped**, host protocol
+**188 passed, 5 skipped + 5 subtests**, UI **153 passed**(host에 `av`가 없어
+`test_zed_preview.py` 제외), quality matrix/layout **12 passed**다.
+새 명령의 capability/session/결과 응답은 실제 두 DDS OS process에서도 통과했고
+필수 matrix의 `dds-scene-commands`에 등록했다. Host readability gate는 기준
+HEAD부터 있던 1000-line class 초과 세 건으로 실패한다. 기준 길이는 PyMPC
+1068, ControlPanel 1131, UiSimSession 1015줄이며 현재 뒤 둘은 1134/1036줄이다.
+기준을 완화하지 않았다. 전체 canonical required/extended/release gate는 사용
+가능한 현재 dev attachment가 없어 실행하지 않았다. 물리 Robot과 실제 WebRTC
+viewer 검증도 포함하지 않는다.
+
+최종 GPU worker가 읽은 Sim/protocol 전체 source hash를 현재 로컬 코드와
+대조했다. 운영 release pin/컨테이너는 교체하지 않고 기존 이미지에 읽기 전용
+소스 스냅샷을 붙여 실행했다. 작업 전 기존 컨테이너 **45개**의 ID/name/image/status,
+외부 checkout의 clean `70757e6` 상태를 보존했다. 추가 진단 컨테이너 10개도
+삭제하지 않았다. 원본 cache는 복사만 하고 각 trial은 자기 cache에 썼다.
+요약은 [`genesis_live_scene_20261030.json`](../workbench/evidence/curated/sim/genesis_live_scene_20261030.json),
+원자료는 서버 `/home/hckang/ws/elesim-genesis145-20261029/live-scene-20261030/`다.
+
 ### 캐시된 씬에 새 OBJ 추가: GPU 2 실측 (2026-10-30)
 
 사용자가 지정한 서버 GPU 2(RTX A6000,
@@ -56,7 +116,8 @@ Scene identity 보존을 확인했다. Probe의 `--scene-manifest`와 물리 OBJ
 ID/image/name/status와 원본 캐시의 파일 digest가 보존됐다. 진단용 컨테이너도
 삭제하지 않았다. GPU 2에는 약 2 GiB를 사용하는 다른 process가 있었고, 각 표
 항목은 단일 실행이므로 통계적 범위나 임의 스캔 메시의 시간 상한을 의미하지
-않는다. 운영 앱의 hot-swap, controller/media 재결합은 구현하지 않았다.
+않는다. 이 단계에서는 운영 앱의 hot-swap, controller/media 재결합을 제외했다.
+이후 앱 구현과 전체 시간은 위 실행 중 교체 항목을 따른다.
 
 SSH는 TCP 연결/배너 뒤 KEX 또는 긴 명령에서 멈췄다. 기존 10-05 기록과 같이
 진단 연결 소켓 하나에 `TCP_MAXSEG=1024`를 적용하자 기본 SSH 알고리즘과 기존

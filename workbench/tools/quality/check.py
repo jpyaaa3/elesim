@@ -90,6 +90,13 @@ CHECKS: tuple[Check, ...] = (
         description="Real DDS Sim arm, Go2 velocity, gripper and stop command delivery",
     ),
     Check(
+        "dds-scene-commands",
+        ("workbench/tests/system/smoke_scene_commands.py",),
+        (PROTOCOL_SRC, "payload/runtime/docker/sim/app"),
+        module="script",
+        description="Capability-gated scene load/clear over a real DDS UI session",
+    ),
+    Check(
         "arm-operating-range",
         ("workbench/tests/system/test_arm_operating_range.py",),
         (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "payload/runtime/docker/sim/app",

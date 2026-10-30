@@ -45,5 +45,11 @@ class FrameHub:
                 raise KeyError(f"unknown frame stream: {stream}")
             return self._versions[stream]
 
+    def clear(self) -> None:
+        with self._lock:
+            for name in self._frames:
+                self._frames[name] = None
+                self._versions[name] += 1
+
 
 __all__ = ["FrameHub"]

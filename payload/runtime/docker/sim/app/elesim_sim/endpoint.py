@@ -14,6 +14,7 @@ from elesim_protocol import (
     CAPABILITY_ROBOT_STATE_MIRROR,
     CAPABILITY_PRESENTATION_TARGET,
     CAPABILITY_SIM_MOCK_HUG,
+    CAPABILITY_SIM_SCENE_REBUILD,
     CAPABILITY_STREAM_HAND_EYE_PREVIEW,
     CAPABILITY_STREAM_OBSERVER,
     CAPABILITY_STREAM_RGBD,
@@ -98,6 +99,7 @@ class SimEndpoint:
         simulation_session_ready_provider: Optional[Callable[[], tuple[bool, str]]] = None,
         turn_credential_provider: Optional[Callable[[str, str, float], Any]] = None,
         endpoint_factory: Callable[..., Any] = PeerClient,
+        scene_rebuild_enabled: bool = False,
     ) -> None:
         self.endpoint_id = str(endpoint_id)
         self.state = state
@@ -111,11 +113,13 @@ class SimEndpoint:
         self._mirror_pilot = None
         self._mirror_route_seq = -1
         self.operator_mailbox = operator_mailbox or SimulationOperatorMailbox()
+        self.operator_mailbox.set_session()
         self.webrtc_offer_handler = webrtc_offer_handler
         self.webrtc_session_close_handler = webrtc_session_close_handler
         self.simulation_session_ready_provider = simulation_session_ready_provider
         self.turn_credential_provider = turn_credential_provider
         self.endpoint_factory = endpoint_factory
+        self.scene_rebuild_enabled = bool(scene_rebuild_enabled)
 
         self.pilot_id = ""
         self.active_lease = ""
@@ -197,6 +201,7 @@ class SimEndpoint:
         changed = granted.session_id != self.simulation_session_id
         self.simulation_ui_id = granted.ui_id
         self.simulation_session_id = granted.session_id
+        self.operator_mailbox.set_session(granted.ui_id, granted.session_id)
         self.simulation_streams = tuple(granted.streams)
         self.turn_credentials = granted.turn
         if changed:
@@ -205,6 +210,7 @@ class SimEndpoint:
             self._webrtc_generations.clear()
 
     def revoke_simulation_session(self) -> None:
+        self.operator_mailbox.set_session()
         session_id = self.simulation_session_id
         self.simulation_ui_id = ""
         self.simulation_session_id = ""
@@ -509,6 +515,12 @@ class SimEndpoint:
         return True, "accepted"
 
     def _apply_motion(self, message: Envelope) -> tuple[bool, str]:
+        with self.operator_mailbox.motion_lock:
+            return self._apply_motion_locked(message)
+
+    def _apply_motion_locked(self, message: Envelope) -> tuple[bool, str]:
+        if self.operator_mailbox.rebuilding.is_set():
+            return False, "simulation_scene_rebuilding"
         if self.mirror_robot_id:
             return False, 'robot_present_sim_is_presentation_only'
         payload = dict(message.payload or {})
@@ -539,6 +551,8 @@ class SimEndpoint:
         except ProtocolError:
             return
         ok, reason = self._validate_simulation_session(message, request.session_id)
+        if ok and request.command in {"load_scene", "clear_scene"} and not self.scene_rebuild_enabled:
+            ok, reason = False, "simulation_scene_rebuild_unavailable"
         if ok:
             queued = self.operator_mailbox.enqueue(
                 SimulationOperatorCommand.from_request(request, ui_id=message.source_id)
@@ -857,6 +871,8 @@ class SimEndpoint:
         ]
         capabilities.append(CAPABILITY_ROBOT_STATE_MIRROR)
         capabilities.append(CAPABILITY_PRESENTATION_TARGET)
+        if self.scene_rebuild_enabled:
+            capabilities.append(CAPABILITY_SIM_SCENE_REBUILD)
         if "rgbd" in self.streams:
             capabilities.append(CAPABILITY_STREAM_RGBD)
         if "observer" in self.streams:

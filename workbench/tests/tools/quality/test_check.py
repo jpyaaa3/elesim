@@ -21,6 +21,7 @@ class QualityMatrixTests(unittest.TestCase):
                 "setup-tools",
                 "topology",
                 "dds-sim-motor",
+                "dds-scene-commands",
                 "arm-operating-range",
                 "arm-ghost-fk",
                 "reconstruction-pipeline",

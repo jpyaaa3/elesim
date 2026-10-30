@@ -274,6 +274,17 @@ hull(최대 64점), lifecycle revision과 SHA-256만 전달한다. 이 additive
 motion은 계속 Pilot motion lease에만 묶인다. pose는 ±10 m, Euler는 ±360°로
 제한한다.
 
+`load_scene`/`clear_scene`는 `simulation.scene-rebuild.v1` capability에 묶인
+선택적 확장이다. Wire major 6 / simulation schema 1과 기존 status/result 필드는
+유지하며, UI는 capability가 없는 peer에 새 명령을 전송하지 않는다. `load_scene`은
+Sim의 설정된 import root 아래 상대 `manifest`(최대 512자)와 선택적인
+`expected_revision` SHA-256만 받는다. 절대 경로, 상위 경로, backslash, 제어 문자와
+OBJ 경로/bytes는 허용하지 않는다. 실제 번들은 Sim이 regular-file·digest·geometry
+제한으로 검증한다. 파일의 다중 호스트 전송은 이 명령의 범위가 아니다.
+재빌드는 현재 UI session을 실행 시점에도 검증하며, 진행 중 motion을 차단한다.
+성공은 물리 상태 복원과 같은 revision의 두 카메라 첫 프레임 후에만 반환한다.
+실패하면 이전 구성을 복구하고 paused 상태를 유지한다.
+
 ## 4. RGB-D QoS
 
 ### Edge broker contract

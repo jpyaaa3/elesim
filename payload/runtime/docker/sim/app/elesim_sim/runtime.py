@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import time
+import threading
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import Any, Dict, List, Mapping, Optional, Tuple
@@ -520,6 +521,21 @@ class Go2Locomotion:
         # The controller has just installed its initial leg pose.  Seed the
         # renderer mirror once; subsequent camera submissions never perform a
         # Genesis readback.
+        self._camera_leg_q = self._read_leg_q()
+
+    def rebind_entity(self, entity, arm_entity) -> None:
+        from elesim_sim.robot.go2.mpc.rebind import rebind_controller
+
+        kin = Go2KinematicsModel.from_entity(entity)
+        if list(kin.all_leg_dof_idx) != self._leg_dof_idxs:
+            raise ValueError("scene rebuild changed GO2 joint topology")
+        self._entity, self._kin = entity, kin
+        if self._controller is not None:
+            rebind_controller(self._controller, entity, arm_entity)
+        elif self._mirror:
+            self._last_mirror_pos = self._last_mirror_rpy = self._last_mirror_leg_q = None
+        self._camera_root_pos = self._read_entity_pos()
+        self._camera_root_quat = self._read_entity_quat()
         self._camera_leg_q = self._read_leg_q()
 
     def _read_entity_pos(self) -> np.ndarray:
@@ -1379,6 +1395,11 @@ class SimScene(_SimSceneKinematicsMixin):
     rgbd_dispatcher: object = None
     camera_render_worker: Optional[CameraRenderWorker] = None
     camera_render_epoch: int = 0
+    robot_urdf_path: str = ""
+    scene_rebuilder: object = None
+    _camera_delivery_suspended: bool = False
+    _staged_camera_frames: dict = field(default_factory=dict)
+    _camera_delivery_lock: object = field(default_factory=threading.RLock)
     camera_timing_sink: object = None
     go2_timing_sink: object = None
     camera_gpu_convert: bool = True
@@ -1473,6 +1494,11 @@ class SimScene(_SimSceneKinematicsMixin):
         """
 
         name = str(stream)
+        with self._camera_delivery_lock:
+            if self._camera_delivery_suspended:
+                if name in {"hand_eye_preview", "observer"}:
+                    self._staged_camera_frames[name] = frame
+                return
         if name not in self._async_frame_seen:
             self._async_frame_seen.add(name)
             intrinsics = getattr(frame, "intrinsics", None)
@@ -2214,6 +2240,23 @@ class SimScene(_SimSceneKinematicsMixin):
                 on_error=self._dispatch_error,
             )
 
+    def suspend_camera_delivery(self) -> None:
+        with self._camera_delivery_lock:
+            self._camera_delivery_suspended = True
+            self._staged_camera_frames.clear()
+
+    def staged_camera_streams(self) -> set[str]:
+        with self._camera_delivery_lock:
+            return set(self._staged_camera_frames)
+
+    def resume_camera_delivery(self) -> None:
+        with self._camera_delivery_lock:
+            frames = dict(self._staged_camera_frames)
+            self._staged_camera_frames.clear()
+            self._camera_delivery_suspended = False
+        for name, frame in frames.items():
+            self._on_async_frame(name, frame)
+
     def camera_axes_world(self, *, hand_eye_path: str, parent_link: str = "node9") -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         if self._latest_camera_axes is not None:
             return tuple(axis.copy() for axis in self._latest_camera_axes)
@@ -2252,10 +2295,10 @@ class SimScene(_SimSceneKinematicsMixin):
         if self.rgbd_dispatcher is not None:
             self.rgbd_dispatcher.start()
 
-    def close_frame_dispatchers(self) -> None:
+    def close_frame_dispatchers(self, *, strict: bool = False, keep_camera_worker: bool = False) -> None:
         """Stop transport workers before their publishers are closed."""
 
-        if self.camera_render_worker is not None:
+        if self.camera_render_worker is not None and not keep_camera_worker:
             self.camera_render_worker.close()
             self.camera_render_worker = None
 
@@ -2263,6 +2306,9 @@ class SimScene(_SimSceneKinematicsMixin):
             self.frame_dispatcher.close()
         if self.rgbd_dispatcher is not None:
             self.rgbd_dispatcher.close()
+        if strict and any(worker is not None and worker.alive
+                          for worker in (self.frame_dispatcher, self.rgbd_dispatcher)):
+            raise RuntimeError("old frame dispatcher did not stop before scene rebuild")
 
     def close_camera_publishers(self) -> None:
         """Close camera publishers and report cleanup failures once."""
@@ -2413,6 +2459,15 @@ class SimMover:
             except Exception:
                 setattr(self, attr_name, None)
         self._apply_claw_direct(self._claw_left_cmd, self._claw_right_cmd)
+
+    def rebind_entity(self, entity) -> None:
+        indices = [_as_single_dof_index(entity.get_joint(name).dofs_idx_local)
+                   for name in self.joint_names]
+        if indices != self.dofs_idx_local:
+            raise ValueError("scene rebuild changed arm joint topology")
+        self.entity = entity
+        self._q_cmd = self.get_dofs_position().copy()
+        self._last_q_target = self._last_q_target_cmd = None
 
     def idx_roll(self) -> Optional[int]:
         return self._name2pos.get(self._roll_joint_name, None)
@@ -3058,6 +3113,7 @@ class RuntimePrep:
             ),
         }
         gs.init(**init_kwargs)
+        a.sim_scene.robot_urdf_path = urdf_path
         print(f"[runtime] Genesis initialized in {time.perf_counter() - t_init:.2f}s", flush=True)
         print(f"[runtime] Genesis arrays: {'dynamic' if gs.use_ndarray else 'static'}", flush=True)
 
@@ -3170,6 +3226,11 @@ class RuntimePrep:
             from elesim_sim.simulation.scene_artifact import add_scene_artifact, verify_scene_revision
             a.imported_scene, a.imported_scene_entities = add_scene_artifact(
                 a.sim_scene.scene, gs, a.cfg.scene_manifest)
+
+        if a.cfg.genesis_warm_nonconvex and not a.cfg.genesis_performance_mode:
+            from elesim_sim.simulation.scene_rebuild import add_collision_warmup
+
+            add_collision_warmup(a.sim_scene.scene, gs)
 
         hand_eye_enabled = bool(a.cfg.sim_camera_enable) and bool(
             str(a.cfg.hand_eye_config).strip()
@@ -3418,6 +3479,7 @@ class SimRuntime:
             mock_object_command=self._apply_mock_object_command,
             mock_object_status=self.app.mock_object_state.snapshot,
             mock_hug_cancel=self._cancel_mock_hug,
+            scene_command=self._apply_scene_command,
         )
         self.operator.debug_visible = bool(app.spawn.draw_debug_markers)
         self._ik_marker = IkTargetMarker()
@@ -3529,14 +3591,26 @@ class SimRuntime:
                 a.mock_object_state.fail(str(exc) or type(exc).__name__)
                 raise
 
+    def _apply_scene_command(self, command) -> str:
+        from elesim_sim.simulation.runtime_scene_edit import apply_scene_command
+
+        return apply_scene_command(self, command)
+
     def _apply_operator_commands(self) -> None:
         mailbox = self.app.operator_mailbox
         if mailbox is None:
             return
         for command in mailbox.drain():
+            if not mailbox.is_current(command):
+                mailbox.complete(command, ok=False, reason="simulation session changed before execution")
+                continue
             try:
                 ok, reason = self.operator.apply(command)
             except Exception as exc:
+                from elesim_sim.simulation.scene_rebuild import SceneRollbackError
+
+                if isinstance(exc, SceneRollbackError):
+                    raise
                 ok, reason = False, str(exc) or type(exc).__name__
             mailbox.complete(command, ok=ok, reason=reason)
             self._status_dirty = True

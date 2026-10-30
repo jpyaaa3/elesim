@@ -50,6 +50,17 @@ def test_shared_frame_mailbox_is_latest_only_and_shape_stable() -> None:
         mailbox.publish(np.zeros((3, 4, 3), dtype=np.float32))
 
 
+def test_scene_clear_invalidates_pixels_without_reusing_sequence_numbers():
+    mailbox = SharedFrameMailbox.create(mp.get_context('fork'), width=2, height=2)
+    frame = np.zeros((2, 2, 3), dtype=np.uint8)
+    first = mailbox.publish(frame, captured_at=0.)
+    assert mailbox.latest()[0] is not None
+    mailbox.clear()
+    image, sequence, _ = mailbox.latest()
+    assert image is None and sequence > first
+    assert mailbox.publish(frame) > sequence
+
+
 def test_media_worker_handshake_and_shutdown_are_bounded() -> None:
     if not webrtc_available():
         pytest.skip("aiortc/av is not installed in this test environment")

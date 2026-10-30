@@ -18,6 +18,20 @@ from elesim_protocol import (
 from elesim_ui.sim_session import UiSimSession
 
 
+def test_scene_commands_require_the_selected_sim_capability_and_are_not_sent_to_old_peers():
+    session = UiSimSession(ui_id='ui-a', sim_id='sim-a', autostart=False)
+    session._session_id = 'lease-a'
+    session._active_sim_id = 'sim-a'
+    assert not session.send_command('load_scene', {'manifest': 'scene.json'})
+    session._scene_rebuild_supported = True
+    assert session.send_command('load_scene', {'manifest': 'scene.json'})
+    session._scene_rebuild_supported = False
+    client = Endpoint()
+    session._flush_commands(client)
+    assert not client.sent and session.snapshot.pending_commands == 0
+    session.close()
+
+
 def test_ik_target_sync_is_display_only_latest_and_resends_on_new_session():
     session = UiSimSession(ui_id="ui-display", sim_id="sim-display", autostart=False)
     session.sync_ik_target([.1, .2, .3], [0, 0, 2])

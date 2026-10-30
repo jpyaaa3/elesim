@@ -229,6 +229,8 @@ def _run() -> None:
         webrtc_session_close_handler=None if media is None else media.close_session,
         simulation_session_ready_provider=simulation_session_ready,
         turn_credential_provider=turn_provider,
+        scene_rebuild_enabled=(not bundle.sim_config.genesis_performance_mode
+            and bundle.sim_config.camera_execution == "async_process"),
     )
     telemetry = RuntimeTelemetry(endpoint.publish_telemetry)
     try:

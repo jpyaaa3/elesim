@@ -40,6 +40,7 @@ class SimConfig:
     # Static arrays can improve stepping throughput but repeatedly specialize
     # scene kernels. Dynamic arrays reuse Genesis' cross-process frontend cache.
     genesis_performance_mode: bool = False
+    genesis_warm_nonconvex: bool = True
     # Keep Genesis backend selection independent from camera post-processing.
     # This switch allows an A/B profile with the same GPU-rendered scene while
     # forcing the legacy host conversion path.
@@ -91,6 +92,7 @@ class SimConfig:
     perf_log_interval_s: float = 2.0
     perf_log_path: str = ""
     scene_manifest: str = ""
+    scene_import_root: str = ""
 
 
 @dataclass(frozen=True)
