@@ -83,6 +83,24 @@ python3 -m workbench.tools.bench run walking-core \
 GPU reservation은 UUID 하나이고 EGL은 컨테이너의 논리 장치 0을 쓴다.
 host index 2를 컨테이너의 `CUDA_VISIBLE_DEVICES=2`로 재적용하지 않는다.
 
+2026-10-30 서버 경로에서는 SSH 키 교환과 긴 명령이 패킷 크기에 따라 멈췄다.
+호스트 MTU나 전역 SSH 설정을 바꾸지 않는 진단 경로는 checkout에서 다음과 같다.
+이 helper는 해당 TCP 소켓의 MSS만 1024로 지정하며 기본 SSH 알고리즘, 인증과
+기존 host-key 검증은 그대로 OpenSSH가 수행한다.
+
+```bash
+ssh -o 'ProxyCommand=python3 -m workbench.research.support.ssh_mss_proxy %h %p' \
+  -o StrictHostKeyChecking=yes hckang@100.74.222.24
+```
+
+새 OBJ의 캐시 영향을 비교하는 수동 진단은
+`workbench.research.debug.profile_sim_walking --scene-manifest <scene.json>`을 사용한다.
+현재 runtime과 동일한 artifact importer로 물리 충돌 및 카메라 복제 씬에 추가하며,
+첫 프레임 대기와 물리 OBJ import 시간을 별도로 기록한다. 기존 씬만 준비한 캐시를
+복사해 각 새 OBJ의 첫 실행을 분리하고, 동일 OBJ의 반복 실행은 그 복사본을 재사용한다.
+이 명령은 새 프로세스의 씬 재구성이며, 같은 프로세스의 `InteractiveScene.rebuild`
+시간이나 운영 앱의 hot-swap 완료를 입증하지 않는다.
+
 소비자에게는 필요한 research Python import와 센서/명목 모델만 마운트한다.
 전체 checkout/evidence나 producer의 scene/catalog 코드를 넘기지 않는다.
 정답 데이터는 producer/evaluator에만 준다. 로컬 CPU 실행은 프로세스 구분이며

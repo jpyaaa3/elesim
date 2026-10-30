@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-30",
+  "runtime_revision": "92eb0cd636f87df4918786a32cc3b63a3b487548",
+  "measurement_base_revision": "70757e6116fa968904017388094f5c13d4854137",
+  "report_base_revision": "4d6468d",
+  "measurement_worker_sha256": "4e2df0a7d6380c54ab1b8af471ae8bbabb5f87b57cff36cc73655db1fc046e28",
+  "remote_driver_sha256": "10396ab2765dc948ddd350208f4ad489ab44ef49f411e5b1acade3237ea39f3e",
+  "image_id": "sha256:fe30fd0a76fd721f36ded1e5d26457cf132cf87f41913591bd27166832e910e6",
+  "versions": {"genesis-world": "1.4.5", "quadrants": "1.3.3", "numpy": "1.26.4", "torch": "2.12.1"},
+  "hardware": {"gpu_index": 2, "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01", "gpu": "NVIDIA RTX A6000", "selected_gpus": 1},
+  "scene": {"robot": "GO2+arm", "dt_s": 0.01, "substeps": 2, "performance_mode": false, "camera_resolution": [1280, 720], "camera_workers": 2, "dds": false, "webrtc_viewer": false},
+  "cache_policy": "Copy the existing completed scene cache, warm it on GPU 2, then independently copy that baseline cache for each first OBJ insertion. Reuse each case's copy for its repeat. Original caches are unchanged.",
+  "mesh_cases": [
+    {"name": "small-obj", "vertices": 162, "faces": 320, "bytes": 10009, "sha256": "c3bcdec4339137cd06ba7b9e8ff96313f26829c01b43198d3f9338e9b0244265"},
+    {"name": "medium-obj", "vertices": 10242, "faces": 20480, "bytes": 732205, "sha256": "70e9f662c1bcd9eb2052af6821805f80cd10ca2f3cdfcea66a0bd0e34691e4e7"}
+  ],
+  "mesh_import": {"source": "synthetic deformed closed icosphere OBJ", "frame": "world", "units": "m", "fixed": true, "physics_collision": true, "camera_collision": false, "convexify": false, "decimate": false},
+  "full_reconstruction": {
+    "complete": true,
+    "scope": "New process constructing physics and two camera replicas; startup includes assets/controller and first frames, excludes Python imports and container startup",
+    "runs": [
+      {"case": "baseline", "physics_build_s": 3.88, "obj_import_s": 0.0, "hand_eye_build_s": 1.42, "observer_build_s": 1.45, "startup_s": 26.303339, "first_frames_wait_s": 0.606969, "completed": true},
+      {"case": "small-obj-first", "physics_build_s": 134.94, "obj_import_s": 0.040352, "hand_eye_build_s": 1.45, "observer_build_s": 1.44, "startup_s": 157.289886, "first_frames_wait_s": 0.591831, "completed": true},
+      {"case": "small-obj-repeat", "physics_build_s": 4.23, "obj_import_s": 0.015581, "hand_eye_build_s": 1.45, "observer_build_s": 1.44, "startup_s": 20.727440, "first_frames_wait_s": 0.586000, "completed": true},
+      {"case": "medium-obj-first", "physics_build_s": 130.18, "obj_import_s": 2.270783, "hand_eye_build_s": 1.63, "observer_build_s": 1.62, "startup_s": 155.410058, "first_frames_wait_s": 0.602800, "completed": true},
+      {"case": "medium-obj-repeat", "physics_build_s": 4.60, "obj_import_s": 0.506298, "hand_eye_build_s": 1.56, "observer_build_s": 1.60, "startup_s": 22.066429, "first_frames_wait_s": 0.603140, "completed": true}
+    ]
+  },
+  "inprocess_rebuild": {
+    "complete": true,
+    "source_sha256": "26d9c7a267033dc65e4ed285bf54d505d428f5a231520a68d4dccc58d857bdc9",
+    "driver_sha256": "4d75bec557358c41c45b0a0ba85502f61a730459bad1c591eb9d3dbc3bca266f",
+    "exit_code": 0,
+    "scope": "InteractiveScene.rebuild on the existing physical Scene; includes manifest validation, reconstruction, CUDA synchronization and original entity qpos/velocity restoration by name; excludes camera workers and app controller rebinding",
+    "initial_cache": "Independent copy of the same GPU-2 baseline cache, without the nonconvex collision path prepared",
+    "runs": [
+      {"case": "small-obj-first", "scene_build_s": 134.147610, "obj_add_s": 0.035175, "rebuild_and_validation_s": 134.477666, "state_restore_s": 0.001765, "total_s": 134.479431, "state_verified": true},
+      {"case": "small-obj-repeat", "scene_build_s": 1.228456, "obj_add_s": 0.003299, "rebuild_and_validation_s": 1.571839, "state_restore_s": 0.001547, "total_s": 1.573385, "state_verified": true},
+      {"case": "medium-obj-first-after-small", "scene_build_s": 2.015985, "obj_add_s": 2.105600, "rebuild_and_validation_s": 4.549342, "state_restore_s": 0.001598, "total_s": 4.550940, "state_verified": true},
+      {"case": "medium-obj-repeat", "scene_build_s": 1.192634, "obj_add_s": 0.011977, "rebuild_and_validation_s": 1.677569, "state_restore_s": 0.001761, "total_s": 1.679330, "state_verified": true}
+    ],
+    "observed_compile_config_change": {"collider.has_nonconvex_nonterrain": [false, true], "other_collider_config_fields_changed": [], "rigid_config_fields_changed": []},
+    "topology_counts": {"entities": [4, 5], "links": [49, 50], "geoms": [45, 46]},
+    "interpretation": "The first nonconvex collision path requires compilation. After it is prepared, replacing the small OBJ with a previously unseen 20480-face OBJ reuses the path and completes in 4.55 seconds. This does not demonstrate adding arbitrary additional objects or activating other solver features."
+  },
+  "preservation": {"containers_before": 39, "missing": 0, "changed": 0, "original_cache_unchanged": true, "original_cache_sha256": "94d4b2cd03fc2234f0f3293b879d24919f606e7eb5f0eb63040e96b87d61013a", "all_measurement_containers_retained": true, "remote_checkout_restored_clean": true},
+  "verification": {"local_probe_regressions_passed": 6, "completed_full_gpu_trials": 5, "completed_inprocess_rebuilds": 4, "inprocess_original_qpos_and_velocity_verified": true},
+  "ssh_diagnostic": {"route": "existing pinned Tailscale SSH", "connection_tcp_mss": 1024, "host_mtu_changed": false, "default_ssh_algorithms": true},
+  "limitations": [
+    "Single completed execution per row, with another process already using approximately 2 GiB on GPU 2",
+    "Synthetic meshes; these timings do not bound arbitrary reconstructed geometry",
+    "Camera builds overlap and must not be summed",
+    "New-process reconstruction does not implement in-runtime application scene replacement or controller/media rebinding",
+    "No physical Robot or live DDS/WebRTC acceptance was exercised"
+  ],
+  "raw_evidence_server_directory": "/home/hckang/ws/elesim-genesis145-20261029/obj-gpu2-20261030"
+}

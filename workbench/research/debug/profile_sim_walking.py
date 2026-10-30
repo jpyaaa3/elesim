@@ -193,6 +193,8 @@ def main() -> None:
     parser.add_argument("--cameras", action="store_true", help="include both async render workers")
     parser.add_argument("--arm-motion", action="store_true", help="small bounded arm bend oscillations")
     parser.add_argument("--keep-target", action="store_true")
+    parser.add_argument("--scene-manifest", type=Path,
+                        help="import a verified scene artifact into physics and both camera replicas")
     parser.add_argument("--output", type=Path, required=True, help="JSONL sample/summary file")
     args = parser.parse_args()
 
@@ -231,6 +233,8 @@ def main() -> None:
     cfg = replace(bundle.sim_config, build_dir=str(Path(args.model_bundle).resolve()),
                   enable_viewer=False, sim_camera_enable=args.cameras,
                   sim_observer_camera_enable=args.cameras)
+    if args.scene_manifest is not None:
+        cfg = replace(cfg, scene_manifest=str(args.scene_manifest.resolve(strict=True)))
     spawn = replace(bundle.spawn_config, sim_target_enable=bool(args.keep_target))
     locomotion = bundle.go2_locomotion_config
     overrides = {key: value for key, value in (
@@ -257,9 +261,22 @@ def main() -> None:
         try:
             urdf = AssetProcessor(app).prepare_assets()
             runtime = RuntimePrep(app)
+            from elesim_sim.simulation import scene_artifact
+            import_times = []
+            original_import = scene_artifact.add_scene_artifact
+
+            def timed_scene_import(*values, **options):
+                started = time.perf_counter()
+                try:
+                    return original_import(*values, **options)
+                finally:
+                    import_times.append(time.perf_counter() - started)
+
             # Exercise real rendering without creating a diagnostic DDS
             # participant or publishing into the installed system's topics.
-            with patch("elesim_sim.vision.sim_camera.SimCameraPublisher", return_value=None):
+            with patch.object(scene_artifact, "add_scene_artifact", timed_scene_import), patch(
+                "elesim_sim.vision.sim_camera.SimCameraPublisher", return_value=None
+            ):
                 runtime.init_genesis(urdf, attach_scene_cameras=False)
             scene = app.sim_scene
             streams = ("hand_eye_preview", "observer")
@@ -369,6 +386,10 @@ def main() -> None:
             emit(dict(kind="configuration", dt=dt, substeps=params.substeps, command=args.command,
                       startup_wall_s=time.perf_counter()-startup_began,
                       camera_first_frames_wall_s=first_frames_wall_s,
+                      scene_manifest=cfg.scene_manifest,
+                      scene_revision=app.imported_scene.revision if app.imported_scene else None,
+                      scene_object_count=len(app.imported_scene_entities),
+                      physics_scene_import_wall_s=sum(import_times),
                       timing_clock="simulation duration; monotonic wall timing",
                       dds=False, webrtc=False,
                       solver_dt=controller._solver.dt, solver_stride=controller._solve_stride,

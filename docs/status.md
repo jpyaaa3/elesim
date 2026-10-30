@@ -1,10 +1,71 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-29. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-30. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### 캐시된 씬에 새 OBJ 추가: GPU 2 실측 (2026-10-30)
+
+사용자가 지정한 서버 GPU 2(RTX A6000,
+`GPU-a40782b2-881c-e285-2a8e-66cae9162a01`)에서 위 1.4.5 정식 Sim 이미지를
+사용했다. 기존 씬의 완료된 캐시를 복사하고 GPU 2에서 기준 실행을 마친 뒤,
+그 복사본을 OBJ별로 다시 복사했다. 각 OBJ의 첫 실행에는 그 OBJ의 전처리나
+추가 충돌 경로가 미리 준비되지 않는다. 반복 실행은 해당 OBJ의 캐시를 재사용한다.
+
+메시는 합성한 닫힌 비구면 OBJ 두 개이며 같은 production scene-artifact importer로
+추가했다. World/metres, fixed/collision=true, convexify/decimate=false다.
+물리와 1280×720 카메라 복제 씬 둘을 새 프로세스에서 구성한 결과는 다음과 같다.
+
+| 실행 | 물리 OBJ 처리 | 물리 build | 두 카메라 첫 프레임까지 Startup |
+| --- | --- | --- | --- |
+| 기존 씬 캐시 기준 | 없음 | 3.88초 | 26.30초 |
+| 새 OBJ 320면, 첫 추가 | 0.04초 | 134.94초 | 157.29초 |
+| 같은 OBJ 반복 | 0.02초 | 4.23초 | 20.73초 |
+| 새 OBJ 20,480면, 첫 추가 | 2.27초 | 130.18초 | 155.41초 |
+| 같은 OBJ 반복 | 0.51초 | 4.60초 | 22.07초 |
+
+따라서 기존 씬의 warm 수치만으로 새 충돌 OBJ의 첫 삽입을 수초로 예측할 수 없다.
+이번 두 첫 실행의 지연은 메시 파일 처리보다 물리 build가 지배한다. Camera build는
+1.42–1.63초이고 병렬 실행하므로 합산하지 않는다. Startup에는 assets/controller와
+첫 프레임을 포함하지만 Python import/컨테이너 시작은 제외한다.
+
+별도 캐시 복사본에서 같은 물리 `Scene` 객체에 `InteractiveScene.rebuild`를
+적용했다. 기존 엔티티를 이름으로 다시 찾고 qpos/velocity를 복원·대조했으며
+CUDA 완료까지 기다렸다. 이때 카메라와 앱 controller 재결합은 제외했다.
+
+| 같은 프로세스의 물리 재빌드 | Build만 | 메시 처리·재구성·상태 복원 전체 |
+| --- | --- | --- |
+| 비볼록 충돌 경로가 없는 기준 씬 → 새 320면 OBJ | 134.15초 | 134.48초 |
+| 같은 OBJ 재빌드 | 1.23초 | 1.57초 |
+| 준비된 경로에서 처음 보는 20,480면 OBJ로 교체 | 2.02초 | 4.55초 |
+| 같은 큰 OBJ 재빌드 | 1.19초 | 1.68초 |
+
+전후 기록한 rigid compiler config는 동일했고 collider config는
+`has_nonconvex_nonterrain` 하나만 false→true로 바뀌었다. 설치된 Genesis의
+`ColliderStaticConfig` 생성부도 이 상수들의 변경이 재컴파일을 유발한다고 명시한다.
+따라서 이번 첫 지연은 비볼록 충돌 경로의 최초 준비와 연결된다. 그 뒤 다른 새
+메시로 교체할 때는 이 경로를 재사용했다. 이는 객체 수를 계속 늘리거나 다른 solver
+기능을 켜도 같은 시간이 나온다는 증거는 아니다.
+
+다섯 전체 GPU trial은 모두 정상 종료했고 두 카메라 후속 프레임, stationary hold와
+scene revision을 확인했다. 네 in-process 재빌드도 정상 종료하고 기존 상태 및
+Scene identity 보존을 확인했다. Probe의 `--scene-manifest`와 물리 OBJ 처리 타이머를
+추가했으며 host 측정기 회귀 **6 passed**다. 이번 시작 전 기존 컨테이너 39개의
+ID/image/name/status와 원본 캐시의 파일 digest가 보존됐다. 진단용 컨테이너도
+삭제하지 않았다. GPU 2에는 약 2 GiB를 사용하는 다른 process가 있었고, 각 표
+항목은 단일 실행이므로 통계적 범위나 임의 스캔 메시의 시간 상한을 의미하지
+않는다. 운영 앱의 hot-swap, controller/media 재결합은 구현하지 않았다.
+
+SSH는 TCP 연결/배너 뒤 KEX 또는 긴 명령에서 멈췄다. 기존 10-05 기록과 같이
+진단 연결 소켓 하나에 `TCP_MAXSEG=1024`를 적용하자 기본 SSH 알고리즘과 기존
+host-key 검증으로 전송을 완료했다. 시스템 MTU/route/전역 SSH 설정은 변경하지
+않았다. 외부 IP의 2222 포트는 응답했지만 현재 키 인증은 거부됐으며 지문/인증
+검증을 우회하지 않았다. 재현 명령은 `benchmarks.md`에 기록했다.
+
+요약은 [`genesis_cached_obj_20261030.json`](../workbench/evidence/curated/sim/genesis_cached_obj_20261030.json),
+원자료는 서버 `/home/hckang/ws/elesim-genesis145-20261029/obj-gpu2-20261030/`에 있다.
 
 ### Genesis 1.4.5 업그레이드와 첫 시작 실측 (2026-10-29)
 
