@@ -6,6 +6,81 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 바닥 보정 → 자동 스캔 → 실제 AdaPoinTr → Sim 적용 (2026-10-31)
+
+Pilot의 기본 scan 설정을 `scan.integrated.yaml`로 연결했다. 실행 전에 hash가
+고정된 source/config/AP-PS55 checkpoint를 strict-load하고, 각 시점의 동일한
+RGB-D와 FK pose로 바닥 tilt를 보정한다. 안정된 평면을 확인한 capture만 시야
+정합·관측 점군에 넣는다. 자동 시점 탐색 뒤 실제 AdaPoinTr가 예측한 점을 원래
+metre/world 좌표로 복원하고, 관측/예측을 구분한 채 20 mm voxel mesh와 immutable
+scene bundle을 만든다. 기존 UI Apply 경로로 실행 중인 Sim과 두 camera replica에
+적용한다. 모델 교체 경계는 model API 1이며 별도 연구 스크립트 호출을 요구하지 않는다.
+
+원본 PoinTr graph와 32,470,033개 parameter를 사용하며 missing/unexpected key는
+모두 0개다. 모델은 Pilot이 소유한 별도 spawn CUDA process에서 실행한다.
+준비·추론 취소/deadline은 그 자식만 종료하며 worker가 끝나기 전 Pilot 자원을
+해제하지 않는다. source의 private 추출본만 정리하고 원본 asset과 Triton/Genesis
+cache는 보존한다. 외부 source/weights의 명시적 read-only 제공은 필요하며,
+자동 다운로드나 `ObservedOnly` fallback은 없다. 설치/실행 경로는
+[`model_integration.md`](model_integration.md#실행과-sim-전달)에 기록했다.
+
+서버 GPU 2/A6000의 정상 설치 Pilot/Sim/UI 이미지로 다음 실제 경로를 통과했다.
+아래 p95는 GT를 Pilot에 보내지 않는 별도 사후 평가의 **표면까지 거리**다.
+메쉬 수치는 vertex 기준이며 미관측 면의 정확도·완전성을 뜻하지 않는다.
+
+| 실행 | 설정 / 채택 시점 | 관측점 / 예측점 | 관측 p95 | 예측 p95 | mesh vertex p95 | Sim 적용 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 18 | 원통, 예산 3 / 3 | 2,195 / 8,192 | 1.63 mm | 7.78 mm | 32.00 mm | 2.52 s |
+| 19 | 원통, hand-eye 5° 오차, 예산 12 / 5 | 2,065 / 8,192 | 8.35 mm | 13.71 mm | 35.87 mm | 2.75 s |
+| 20 | 최종 freshness 검사, 원통, 예산 3 / 3 | 2,195 / 8,192 | 1.63 mm | 7.78 mm | 32.00 mm | 2.52 s |
+
+실행 18/19의 runtime은 `67e5b8370580ac72d85c50717eae1049a676179c`다.
+실행 19는 Pilot의 private hand-eye calibration에만 오차를 넣었으며 Sim truth나
+제어는 바꾸지 않았다. 각 촬영의 보정 전 tilt는 1.26–4.88°였고 모두 3개의
+안정 frame으로 보정을 적용했다. 12개를 모두 촬영한 것이 아니라 새 관측의
+이득이 줄어 5개에서 `information_saturated`로 끝났다. 모든 결과의
+`geometry_complete_claimed=false`, `needs_more_observation=true`는 유지한다.
+바닥은 명시적 수평 기준으로 tilt만 보정하며 camera origin, 절대 높이/translation,
+법선 주위 yaw를 알아냈다고 주장하지 않는다. HSV 단일 대상 segmentation과
+거친 voxel mesher도 범위에 명시한다.
+
+첫 GPU 통합 실행 17은 같은 자세 재촬영마다 이동/정착을 반복해 capture 간격이
+0.53–0.60초로 늘고 기존 0.5초 평면 안정성 창을 계속 초기화했다. fresh feedback과
+관절 오차를 재검사하면서 이미 정착한 동일 목표를 재사용하도록 수정했다.
+안정성 창이나 settle 허용 오차를 완화하지 않았다. 최종 runtime `4a98102`는
+동일 source clock의 최신 telemetry에 비해 500 ms 넘게 오래되거나 200 ms 넘게
+미래인 RGB-D도 거부한다. 실패 원본과 성공 원본을 모두 보존한다.
+
+실행 20은 최종 runtime `4a9810297b22def238888d464c1604acf8e3f8c2`를 정상
+이미지로 다시 발행해 검증했다. Start 응답 뒤 scan 완료까지 56.43초였고,
+6개의 보정용 capture와 3개의 채택 view를 구분해 보존했다.
+
+세 실행 모두 원본 원통을 숨긴 후 새 mesh를 적용하고, 기존 entity 상태와 camera
+PID 보존 및 응답 이후의 새 두 WebRTC frame을 확인했다. 아홉 역할 process가
+모두 exit 0 / OOM false였고 Pilot fatal log는 0 bytes다. 안전한 Python stack
+수집기는 각각 1,370 / 6,114 / 1,154개 sample을 남겼다. 첫 model forward는 각각 약
+2.67 / 2.71 / 2.51초로, 해당 실행의 최초 Triton kernel 준비와 동시 Sim 부하를 포함한다.
+별도 steady-state 추론 benchmark나 cold Genesis startup 시간으로 취급하지 않는다.
+
+이번 수정의 host fallback은 Pilot **117 passed**, setup/release 경로 **35 passed**,
+UI **16 passed**, protocol registry **7 passed**, FK/별도 UI·Pilot process/stack
+sampler **5 passed**다. 사용할 수 있는 generated development attachment가 없어
+canonical required/extended, release build/isolated verify, 4-process real-RMW
+topology gate는 실행하지 않았다. Host scientific/ROS 의존성을 추가 설치하지 않았다.
+실제 검증은 고정 암/Robot-free/한 호스트의 격리 bridge와 headless UI backend이며,
+물리 Robot/GO2/native UI 창/다중 호스트 및 NAT 수용시험을 대신하지 않는다.
+R0–R5 전체의 완료로 판정하지 않는다.
+
+실행 18의 실제 decoded WebRTC 화면을 1배속으로 구성한 **73.7초**
+[`통합 데모`](../workbench/evidence/curated/sim/scan_cycle_integrated_20261031.mp4)와
+[`수치·해시 보고서`](../workbench/evidence/curated/sim/scan_cycle_integrated_20261031.json)를
+추가했다. 이전 기준선 영상은 그대로 보존한다. 아래 139 수정과 이전 원통 영상은
+각 당시의 baseline 결과이며, 새 바닥 보정/AdaPoinTr 실행 증거와 구분한다.
+원격 `cycle-17/`부터 `cycle-20/`까지 실패/성공 원자료와 새 진단 container를
+모두 보존했다. 작업 전 153개 container의 ID/name/image/status는 최종 180개
+inventory에서도 누락·변경 0개다. 기존 kernel cache와 원본 모델 asset을 보존했고,
+source/weights SHA-256과 기존 외부 checkout `70757e6`의 clean 상태도 재확인했다.
+
 ### Pilot exit 139 원인 분리와 수정 (2026-10-31)
 
 진단 probe에 넣었던 `faulthandler.dump_traceback_later`가 설치된 CPython

@@ -1,0 +1,25 @@
+{
+  "scope": "actual UI WebRTC recording, composed with measured stage captions",
+  "playback_speed": 1,
+  "mesh_cache_note": "Warm Genesis kernels / new AI mesh",
+  "rendered": {
+    "programs": [],
+    "streams": [
+      {
+        "codec_name": "h264",
+        "width": 1280,
+        "height": 720,
+        "avg_frame_rate": "10/1"
+      }
+    ],
+    "format": {
+      "duration": "73.700000"
+    }
+  },
+  "bytes": 1670958,
+  "sha256": "b1e82fc9e783baa832b302df8cec40e0411fb07c98e66d0bc3373307f363b00c",
+  "source": {
+    "hand_eye_preview.mp4": "a9f570d1df2a061c966cbb9d28e78bfea4eaa5bdaaf5acc7174f75fe5cbae884",
+    "observer.mp4": "76cdc7c9f1879dc44c98d0fb4625f73d7e7915132b99bac24c34a6898a1c2f11"
+  }
+}

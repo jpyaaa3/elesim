@@ -1,0 +1,991 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-31",
+  "status": "integrated_normal_image_gpu_cycles_and_shutdown_passed",
+  "scope": "Fixed-arm, one-host private bridge, Sim-only floor tilt -> active RGB-D scan -> actual pretrained AdaPoinTr AP-PS55 -> voxel mesh -> live Sim apply and two decoded WebRTC streams; headless UI backend",
+  "pipeline": [
+    "explicit horizontal reference; per-capture FloorTilt, minimum 3 stable frames",
+    "HSV instance mask with 2px erosion; measured q and nominal FK",
+    "certified active-view motion; source-fenced captures, registration and observed-cloud fusion",
+    "strict pretrained AdaPoinTr graph in an owned spawn CUDA process; center-only metric normalization and inverse axes",
+    "separate observed/predicted arrays; 20mm VoxelSurface mesh",
+    "immutable scene bundle; UI Apply; physics and two camera replicas; fresh decoded WebRTC"
+  ],
+  "runs": [
+    {
+      "attempt": 18,
+      "runtime_revision": "67e5b8370580ac72d85c50717eae1049a676179c",
+      "services": {
+        "sim": {
+          "key": "svc-scan_cycle_20261030_18-scan-sim-18-b11bafaf0d348619db7f6ba1098c74343d3b02d030106a51e0df3dcc136d9b53",
+          "name": "elesim-sandy-scan_cycle_20261030_18-sim",
+          "image": "sha256:426fbfa5f595d0bef55030992b1be5fe7eea38258b931b33d7f6b6ec9fffba25",
+          "image_id": "sha256:426fbfa5f595d0bef55030992b1be5fe7eea38258b931b33d7f6b6ec9fffba25"
+        },
+        "pilot": {
+          "key": "svc-scan_cycle_20261030_18-scan-pilot-18-9c6625c23528a1b7af2f299d0db577af3ee1922e06f4e9071c7b57944ded6b6a",
+          "name": "elesim-sandy-scan_cycle_20261030_18-pilot",
+          "image": "sha256:1e948a4d6e1b0ae24beb7688c84acbf44c3fc6ffa4a0246494bb6e75b4debebe",
+          "image_id": "sha256:1e948a4d6e1b0ae24beb7688c84acbf44c3fc6ffa4a0246494bb6e75b4debebe"
+        },
+        "ui": {
+          "key": "svc-scan_cycle_20261030_18-scan-ui-18-c894016a2181fd44b9fab2812e9649e9d668b828cc367716962fb3b91cc6bc72",
+          "name": "elesim-sandy-scan_cycle_20261030_18-ui",
+          "image": "sha256:2a342094320e38b091f67d8388cf31610cb0865504bb9d96c571b10a0aa872bc",
+          "image_id": "sha256:2a342094320e38b091f67d8388cf31610cb0865504bb9d96c571b10a0aa872bc"
+        }
+      },
+      "release": {
+        "already_published": false,
+        "release_key": "42645e6d49a9c420224f8a0d3c881f487a6ddc5fa02727a6f5540dd15541612d",
+        "release_path": "/home/hckang/ws/elesim-scan-cycle-20261030/install/releases/42645e6d49a9c420224f8a0d3c881f487a6ddc5fa02727a6f5540dd15541612d"
+      },
+      "pipeline_mode": "integrated",
+      "pose_bias_deg": 0.0,
+      "view_budget": 3,
+      "accepted_views": 3,
+      "stop_reason": "view_budget",
+      "calibration_captures": 6,
+      "geometry_complete_claimed": false,
+      "needs_more_observation": true,
+      "floor_by_view": [
+        {
+          "view": 0,
+          "sequence": 855,
+          "applied": true,
+          "tilt_before_correction_deg": 0.015666732196937993,
+          "stable_frames": 3
+        },
+        {
+          "view": 1,
+          "sequence": 1131,
+          "applied": true,
+          "tilt_before_correction_deg": 0.031773370563618744,
+          "stable_frames": 3
+        },
+        {
+          "view": 2,
+          "sequence": 1601,
+          "applied": true,
+          "tilt_before_correction_deg": 0.006077518964239289,
+          "stable_frames": 3
+        }
+      ],
+      "completion": {
+        "loaded": true,
+        "applied": true,
+        "profile": "projected55",
+        "normalization": "center-only",
+        "axis_order": "world-z-up",
+        "asset_sha256": {
+          "source": "ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e",
+          "config": "cdd8616e9abe77013234879f1c15b8aed0764274be274dec3937ebd65479a707",
+          "weights": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7"
+        },
+        "parameters": 32470033,
+        "missing_keys": [],
+        "unexpected_keys": [],
+        "upstream_revision": "4603257ed3db9e7dad349b712e1b2fe0da207015",
+        "gpu": "NVIDIA RTX A6000",
+        "torch_version": "2.12.1+cu130",
+        "backend": "upstream AdaPoinTr graph; Triton FPS / Torch gather",
+        "training": false,
+        "tf32": false,
+        "object_id": "target",
+        "input_points": 2195,
+        "sampled_points": 2048,
+        "predicted_points": 8192,
+        "center_m": [
+          0.330460373294837,
+          0.032693988096138465,
+          0.7555666167405956
+        ],
+        "metres_per_model_unit": 1.0,
+        "elapsed_s": 2.6832625842653215,
+        "forward_ms": 2670.8824574016035
+      },
+      "geometry": [
+        {
+          "object_id": "target",
+          "observed_points": 2195,
+          "predicted_points": 8192,
+          "vertices": 307,
+          "faces": 608,
+          "observed_surface_error_p50_m": 0.00034783667030823667,
+          "observed_surface_error_p95_m": 0.0016292039793788223,
+          "observed_surface_error_max_m": 0.0017887225797982506,
+          "mesh_vertex_surface_error_p95_m": 0.03199713786623855,
+          "observed_aabb_m": [
+            [
+              0.30647592041550986,
+              -0.005368375772479701,
+              0.6731251607707032
+            ],
+            [
+              0.393294001921262,
+              0.08494396063429208,
+              0.8109034168661158
+            ]
+          ],
+          "mesh_aabb_m": [
+            [
+              0.3,
+              -0.02,
+              0.66
+            ],
+            [
+              0.4,
+              0.1,
+              0.8200000000000001
+            ]
+          ],
+          "predicted_surface_error_p95_m": 0.007783660668133571,
+          "predicted_surface_error_max_m": 0.03462665612963148
+        }
+      ],
+      "geometry_accepted": true,
+      "stages_applied": true,
+      "scan_seconds_after_start_reply": 59.878562211990356,
+      "scene_apply": {
+        "command": "load_scene",
+        "started": 1793443144.6963704,
+        "camera_target_shape": "cylinder",
+        "camera_target_height_m": 0.14,
+        "original_target_position_m": [
+          -8.0,
+          -8.0,
+          -8.0
+        ],
+        "original_target_hidden_before_load": true,
+        "reason": "scene ready: revision=c84c607cd201 objects=1 physics=2.17s camera_wait=0.25s total=2.50s",
+        "ok": true,
+        "revision": "c84c607cd2010f328a882d5ade8fc6743ffd95f699a176842de03a4171b80f4a",
+        "elapsed_s": 2.5203709602355957,
+        "timings": {
+          "physics_s": 2.165608895942569,
+          "camera_rebuild_s": 0.6152899977751076,
+          "cameras_s": 0.25197834987193346
+        },
+        "entity_state_preserved": true,
+        "entity_pose_errors": {},
+        "camera_processes_preserved": true,
+        "frames": {
+          "observer": {
+            "ts": 1793443147.1479013,
+            "file": "observer-after-0.png",
+            "width": 1280,
+            "height": 720
+          },
+          "hand_eye_preview": {
+            "ts": 1793443147.1802628,
+            "file": "hand_eye_preview-after-0.png",
+            "width": 1280,
+            "height": 720
+          }
+        }
+      },
+      "shutdown": {
+        "complete": true,
+        "states": {
+          "sim": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T10:37:15.299652212Z",
+            "FinishedAt": "2026-10-31T10:39:59.50012495Z"
+          },
+          "pilot": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T10:37:15.29809879Z",
+            "FinishedAt": "2026-10-31T10:39:57.059815074Z"
+          },
+          "ui": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T10:37:15.294838103Z",
+            "FinishedAt": "2026-10-31T10:39:11.355672919Z"
+          }
+        },
+        "stack_sampler": {
+          "samples": 1370,
+          "error": ""
+        },
+        "fatal_bytes": 0,
+        "preservation": {
+          "before": 60,
+          "after": 168,
+          "missing": [],
+          "changed": [],
+          "prelaunch_before": 163,
+          "prelaunch_missing": [],
+          "prelaunch_changed": []
+        }
+      },
+      "video": {
+        "complete": true,
+        "error": "",
+        "fps": 10,
+        "files": {
+          "hand_eye_preview": "hand_eye_preview.mp4",
+          "observer": "observer.mp4"
+        },
+        "frames": {
+          "hand_eye_preview": 737,
+          "observer": 737
+        },
+        "started": 1793443077.0459943,
+        "duration_s": 73.65757312485948,
+        "clock": "actual wall time; original decoder frames, no speed change"
+      },
+      "artifacts": {
+        "run.json": "7491963fe69368f818e212445c0f67d55bb84def3b4b5989371484fe4f4ddb86",
+        "ui-output/ui.json": "e224ff0f73c6227d00cb0d2795668e53904fc4f008a32866f2ee88d1d8191e60",
+        "pilot-output/pilot.json": "a590148e74269b2d6099fe278fec2ee5cc2c88393d1adb0be3f29948ad1f0fbc",
+        "sim-output/sim.json": "d717333f1aacc14aecf7f8369e96865820e5c28fe6ad340caaeb754fecfde6aa",
+        "sim-output/evaluation.json": "f755cac05368d3f19869213fe350f70572e1acec229e7aa5efc785d86a734465",
+        "shutdown-validation.json": "e77ea16f9984907ad66715daedc81891f4d27fad8207b228ac0d45706dc02c45",
+        "exchange/168560a6c11c4f1eb21ddd64e2b30f5d/scan.json": "77e8ad21d489e00174f4878235e347b5e3c2f87c37f2228ff989d41bdd48141d"
+      },
+      "driver_sha256": "10fb628ffb551747d8bf6df2fbf24ca5d24605a4761b3fae05cc26935c3ca815",
+      "probe_sha256": {
+        "probe_scan_cycle_sim.py": "5495178fcb9d1ddb2c081f45ddcbc12b87d4f802d936b063a55719bd6e7d096b",
+        "probe_scan_cycle_pilot.py": "02bc6586862dab772018450ec435ca792afe13e09290774cd49a8169af9c9306",
+        "probe_scan_cycle_ui.py": "d4db7fe9368aa2077a09cb29625bd64cb9068caa4ca40b3c56713c8a4828cd1a",
+        "scan_cycle_recording.py": "997cf0044eece9c178da287c4e2707b9b60896940d49b8993b09ba540ecc0f09"
+      },
+      "stack_sampler_sha256": "8e77ce5299ac99b4028b1f03c9933ea3f15e413ff5f6e3bf84d5d2fb1e60c0a3",
+      "cache_condition": "Copy of prior Genesis cache; new Pilot model process uses its normal HOME cache. First forward includes initial Triton compilation and concurrent Sim load. This is stability verification, not a cold-start or steady-state latency benchmark.",
+      "remote_root": "/home/hckang/ws/elesim-scan-cycle-20261030/cycle-18"
+    },
+    {
+      "attempt": 19,
+      "runtime_revision": "67e5b8370580ac72d85c50717eae1049a676179c",
+      "services": {
+        "sim": {
+          "key": "svc-scan_cycle_20261030_19-scan-sim-19-f361ca336a2240b998fb83bfae3ed760bf1968eb7c825de3acf913a7d115c42e",
+          "name": "elesim-sandy-scan_cycle_20261030_19-sim",
+          "image": "sha256:426fbfa5f595d0bef55030992b1be5fe7eea38258b931b33d7f6b6ec9fffba25",
+          "image_id": "sha256:426fbfa5f595d0bef55030992b1be5fe7eea38258b931b33d7f6b6ec9fffba25"
+        },
+        "pilot": {
+          "key": "svc-scan_cycle_20261030_19-scan-pilot-19-3a3f5f6096901fba36ac2fe3358ad67f7122895e7994ce03dcf6f84eab5ca5a1",
+          "name": "elesim-sandy-scan_cycle_20261030_19-pilot",
+          "image": "sha256:1e948a4d6e1b0ae24beb7688c84acbf44c3fc6ffa4a0246494bb6e75b4debebe",
+          "image_id": "sha256:1e948a4d6e1b0ae24beb7688c84acbf44c3fc6ffa4a0246494bb6e75b4debebe"
+        },
+        "ui": {
+          "key": "svc-scan_cycle_20261030_19-scan-ui-19-51fd68b4140096e6c1d61fceafb9ef469e0f6a1f6e973880bf4345f28d223516",
+          "name": "elesim-sandy-scan_cycle_20261030_19-ui",
+          "image": "sha256:2a342094320e38b091f67d8388cf31610cb0865504bb9d96c571b10a0aa872bc",
+          "image_id": "sha256:2a342094320e38b091f67d8388cf31610cb0865504bb9d96c571b10a0aa872bc"
+        }
+      },
+      "release": {
+        "already_published": false,
+        "release_key": "42645e6d49a9c420224f8a0d3c881f487a6ddc5fa02727a6f5540dd15541612d",
+        "release_path": "/home/hckang/ws/elesim-scan-cycle-20261030/install/releases/42645e6d49a9c420224f8a0d3c881f487a6ddc5fa02727a6f5540dd15541612d"
+      },
+      "pipeline_mode": "integrated",
+      "pose_bias_deg": 5.0,
+      "view_budget": 12,
+      "accepted_views": 5,
+      "stop_reason": "information_saturated",
+      "calibration_captures": 10,
+      "geometry_complete_claimed": false,
+      "needs_more_observation": true,
+      "floor_by_view": [
+        {
+          "view": 0,
+          "sequence": 764,
+          "applied": true,
+          "tilt_before_correction_deg": 4.651504287460071,
+          "stable_frames": 3
+        },
+        {
+          "view": 1,
+          "sequence": 1023,
+          "applied": true,
+          "tilt_before_correction_deg": 4.116179456310715,
+          "stable_frames": 3
+        },
+        {
+          "view": 2,
+          "sequence": 1494,
+          "applied": true,
+          "tilt_before_correction_deg": 1.2598402248173586,
+          "stable_frames": 3
+        },
+        {
+          "view": 3,
+          "sequence": 1669,
+          "applied": true,
+          "tilt_before_correction_deg": 2.873831637339341,
+          "stable_frames": 3
+        },
+        {
+          "view": 4,
+          "sequence": 1870,
+          "applied": true,
+          "tilt_before_correction_deg": 4.884370236388601,
+          "stable_frames": 3
+        }
+      ],
+      "completion": {
+        "loaded": true,
+        "applied": true,
+        "profile": "projected55",
+        "normalization": "center-only",
+        "axis_order": "world-z-up",
+        "asset_sha256": {
+          "source": "ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e",
+          "config": "cdd8616e9abe77013234879f1c15b8aed0764274be274dec3937ebd65479a707",
+          "weights": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7"
+        },
+        "parameters": 32470033,
+        "missing_keys": [],
+        "unexpected_keys": [],
+        "upstream_revision": "4603257ed3db9e7dad349b712e1b2fe0da207015",
+        "gpu": "NVIDIA RTX A6000",
+        "torch_version": "2.12.1+cu130",
+        "backend": "upstream AdaPoinTr graph; Triton FPS / Torch gather",
+        "training": false,
+        "tf32": false,
+        "object_id": "target",
+        "input_points": 2065,
+        "sampled_points": 2048,
+        "predicted_points": 8192,
+        "center_m": [
+          0.3260719496287201,
+          0.03825308072456403,
+          0.7560445017926885
+        ],
+        "metres_per_model_unit": 1.0,
+        "elapsed_s": 2.7178134471178055,
+        "forward_ms": 2713.2497606799006
+      },
+      "geometry": [
+        {
+          "object_id": "target",
+          "observed_points": 2065,
+          "predicted_points": 8192,
+          "vertices": 333,
+          "faces": 660,
+          "observed_surface_error_p50_m": 0.004240965109416503,
+          "observed_surface_error_p95_m": 0.008352420337621739,
+          "observed_surface_error_max_m": 0.008674865908391019,
+          "mesh_vertex_surface_error_p95_m": 0.0358678013057719,
+          "observed_aabb_m": [
+            [
+              0.3019771657770852,
+              0.0007227013793946023,
+              0.6741448004827747
+            ],
+            [
+              0.3892721192425123,
+              0.08905658431703004,
+              0.8109256771819061
+            ]
+          ],
+          "mesh_aabb_m": [
+            [
+              0.28,
+              -0.02,
+              0.66
+            ],
+            [
+              0.4,
+              0.12,
+              0.8200000000000001
+            ]
+          ],
+          "predicted_surface_error_p95_m": 0.013714440419861558,
+          "predicted_surface_error_max_m": 0.036463609695218065
+        }
+      ],
+      "geometry_accepted": true,
+      "stages_applied": true,
+      "scan_seconds_after_start_reply": 72.04625535011292,
+      "scene_apply": {
+        "command": "load_scene",
+        "started": 1793443506.070684,
+        "camera_target_shape": "cylinder",
+        "camera_target_height_m": 0.14,
+        "original_target_position_m": [
+          -8.0,
+          -8.0,
+          -8.0
+        ],
+        "original_target_hidden_before_load": true,
+        "reason": "scene ready: revision=a0549a2b869b objects=1 physics=2.38s camera_wait=0.29s total=2.73s",
+        "ok": true,
+        "revision": "a0549a2b869b4b54da4e4cadca1d0181b7a6ffe72f01d0db9f65e7cca9aa9e85",
+        "elapsed_s": 2.7541065216064453,
+        "timings": {
+          "physics_s": 2.380100587848574,
+          "camera_rebuild_s": 0.874128304887563,
+          "cameras_s": 0.29175200406461954
+        },
+        "entity_state_preserved": true,
+        "entity_pose_errors": {},
+        "camera_processes_preserved": true,
+        "frames": {
+          "observer": {
+            "ts": 1793443508.7586555,
+            "file": "observer-after-0.png",
+            "width": 1280,
+            "height": 720
+          },
+          "hand_eye_preview": {
+            "ts": 1793443508.7907288,
+            "file": "hand_eye_preview-after-0.png",
+            "width": 1280,
+            "height": 720
+          }
+        }
+      },
+      "shutdown": {
+        "complete": true,
+        "states": {
+          "sim": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T10:43:05.589010594Z",
+            "FinishedAt": "2026-10-31T10:53:57.251631616Z"
+          },
+          "pilot": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T10:43:05.590622716Z",
+            "FinishedAt": "2026-10-31T10:53:54.587885537Z"
+          },
+          "ui": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T10:43:05.585813767Z",
+            "FinishedAt": "2026-10-31T10:45:12.824927256Z"
+          }
+        },
+        "stack_sampler": {
+          "samples": 6114,
+          "error": ""
+        },
+        "fatal_bytes": 0,
+        "preservation": {
+          "before": 60,
+          "after": 173,
+          "missing": [],
+          "changed": [],
+          "prelaunch_before": 168,
+          "prelaunch_missing": [],
+          "prelaunch_changed": []
+        }
+      },
+      "video": {
+        "complete": true,
+        "error": "",
+        "fps": 10,
+        "files": {
+          "hand_eye_preview": "hand_eye_preview.mp4",
+          "observer": "observer.mp4"
+        },
+        "frames": {
+          "hand_eye_preview": 847,
+          "observer": 847
+        },
+        "started": 1793443427.5261168,
+        "duration_s": 84.68604084802791,
+        "clock": "actual wall time; original decoder frames, no speed change"
+      },
+      "artifacts": {
+        "run.json": "4d806dafa4808ad7399a7f8bd3d18780c7be1c2d34bc6341a1db14ec69db0a91",
+        "ui-output/ui.json": "561991ee21765fe10f9001d0b4a041ac0384fbe65a4d5026d4ffb7e6ef5503aa",
+        "pilot-output/pilot.json": "ef509eda96cbac70bcf042e062474d921f1d520df6e6a583d837079298eb027e",
+        "sim-output/sim.json": "ddd7aa5ea5e9030eaf08fd6b3f1ba1523c1fc50280522e4810ef78c41c7c66c4",
+        "sim-output/evaluation.json": "1e50ae11e0ff5681ee3eb832c432d640877edf47f293f9e87453e9bfdbd1ae2b",
+        "shutdown-validation.json": "09270cc1eb17d5537fd3c3aab5bb71023def9c0e7a83f0bc62bb4b7efb54d1ea",
+        "exchange/7555fd43edf6444f924b04703136287c/scan.json": "a2d1ea5d3338e2a00056aa3d498416d22e7b3195fb1d4ca89f640bc0359ea0a5"
+      },
+      "driver_sha256": "10fb628ffb551747d8bf6df2fbf24ca5d24605a4761b3fae05cc26935c3ca815",
+      "probe_sha256": {
+        "probe_scan_cycle_sim.py": "5495178fcb9d1ddb2c081f45ddcbc12b87d4f802d936b063a55719bd6e7d096b",
+        "probe_scan_cycle_pilot.py": "02bc6586862dab772018450ec435ca792afe13e09290774cd49a8169af9c9306",
+        "probe_scan_cycle_ui.py": "d4db7fe9368aa2077a09cb29625bd64cb9068caa4ca40b3c56713c8a4828cd1a",
+        "scan_cycle_recording.py": "997cf0044eece9c178da287c4e2707b9b60896940d49b8993b09ba540ecc0f09"
+      },
+      "stack_sampler_sha256": "8e77ce5299ac99b4028b1f03c9933ea3f15e413ff5f6e3bf84d5d2fb1e60c0a3",
+      "cache_condition": "Copy of prior Genesis cache; new Pilot model process uses its normal HOME cache. First forward includes initial Triton compilation and concurrent Sim load. This is stability verification, not a cold-start or steady-state latency benchmark.",
+      "remote_root": "/home/hckang/ws/elesim-scan-cycle-20261030/cycle-19"
+    },
+    {
+      "attempt": 20,
+      "runtime_revision": "4a9810297b22def238888d464c1604acf8e3f8c2",
+      "services": {
+        "sim": {
+          "key": "svc-scan_cycle_20261030_20-scan-sim-20-bb70bd82e9a82df039c1f11e956a78d86bc8032fcd9226fbfdc920c4ea17ceef",
+          "name": "elesim-sandy-scan_cycle_20261030_20-sim",
+          "image": "sha256:426fbfa5f595d0bef55030992b1be5fe7eea38258b931b33d7f6b6ec9fffba25",
+          "image_id": "sha256:426fbfa5f595d0bef55030992b1be5fe7eea38258b931b33d7f6b6ec9fffba25"
+        },
+        "pilot": {
+          "key": "svc-scan_cycle_20261030_20-scan-pilot-20-791a4692478c8b199e91e20b324cf0405c35e8fdd9aedaa2ea77c1011e5ff9f1",
+          "name": "elesim-sandy-scan_cycle_20261030_20-pilot",
+          "image": "sha256:bba03f32dad9178f55fda5ccaeb92860f1b57e24ed4ed8bdd065ac382396cebd",
+          "image_id": "sha256:bba03f32dad9178f55fda5ccaeb92860f1b57e24ed4ed8bdd065ac382396cebd"
+        },
+        "ui": {
+          "key": "svc-scan_cycle_20261030_20-scan-ui-20-01e78cc7abfbe3cf52ee594dbab3d4603b54ddc12af0098c755828f61a8ab7ad",
+          "name": "elesim-sandy-scan_cycle_20261030_20-ui",
+          "image": "sha256:2a342094320e38b091f67d8388cf31610cb0865504bb9d96c571b10a0aa872bc",
+          "image_id": "sha256:2a342094320e38b091f67d8388cf31610cb0865504bb9d96c571b10a0aa872bc"
+        }
+      },
+      "release": {
+        "already_published": false,
+        "release_key": "b8b2d0031ac9d2fcd3f2d1d798deaaf7febe9fd0fc773149fe76288cabc7cb5b",
+        "release_path": "/home/hckang/ws/elesim-scan-cycle-20261030/install/releases/b8b2d0031ac9d2fcd3f2d1d798deaaf7febe9fd0fc773149fe76288cabc7cb5b"
+      },
+      "pipeline_mode": "integrated",
+      "pose_bias_deg": 0.0,
+      "view_budget": 3,
+      "accepted_views": 3,
+      "stop_reason": "view_budget",
+      "calibration_captures": 6,
+      "geometry_complete_claimed": false,
+      "needs_more_observation": true,
+      "floor_by_view": [
+        {
+          "view": 0,
+          "sequence": 757,
+          "applied": true,
+          "tilt_before_correction_deg": 0.015666732196937993,
+          "stable_frames": 3
+        },
+        {
+          "view": 1,
+          "sequence": 1028,
+          "applied": true,
+          "tilt_before_correction_deg": 0.031773370563618744,
+          "stable_frames": 3
+        },
+        {
+          "view": 2,
+          "sequence": 1484,
+          "applied": true,
+          "tilt_before_correction_deg": 0.006077518964239289,
+          "stable_frames": 3
+        }
+      ],
+      "completion": {
+        "loaded": true,
+        "applied": true,
+        "profile": "projected55",
+        "normalization": "center-only",
+        "axis_order": "world-z-up",
+        "asset_sha256": {
+          "source": "ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e",
+          "config": "cdd8616e9abe77013234879f1c15b8aed0764274be274dec3937ebd65479a707",
+          "weights": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7"
+        },
+        "parameters": 32470033,
+        "missing_keys": [],
+        "unexpected_keys": [],
+        "upstream_revision": "4603257ed3db9e7dad349b712e1b2fe0da207015",
+        "gpu": "NVIDIA RTX A6000",
+        "torch_version": "2.12.1+cu130",
+        "backend": "upstream AdaPoinTr graph; Triton FPS / Torch gather",
+        "training": false,
+        "tf32": false,
+        "object_id": "target",
+        "input_points": 2195,
+        "sampled_points": 2048,
+        "predicted_points": 8192,
+        "center_m": [
+          0.330460373294837,
+          0.032693988096138465,
+          0.7555666167405956
+        ],
+        "metres_per_model_unit": 1.0,
+        "elapsed_s": 2.5146591011434793,
+        "forward_ms": 2506.9851600565016
+      },
+      "geometry": [
+        {
+          "object_id": "target",
+          "observed_points": 2195,
+          "predicted_points": 8192,
+          "vertices": 307,
+          "faces": 608,
+          "observed_surface_error_p50_m": 0.00034783667030823667,
+          "observed_surface_error_p95_m": 0.0016292039793788223,
+          "observed_surface_error_max_m": 0.0017887225797982506,
+          "mesh_vertex_surface_error_p95_m": 0.03199713786623855,
+          "observed_aabb_m": [
+            [
+              0.30647592041550986,
+              -0.005368375772479701,
+              0.6731251607707032
+            ],
+            [
+              0.393294001921262,
+              0.08494396063429208,
+              0.8109034168661158
+            ]
+          ],
+          "mesh_aabb_m": [
+            [
+              0.3,
+              -0.02,
+              0.66
+            ],
+            [
+              0.4,
+              0.1,
+              0.8200000000000001
+            ]
+          ],
+          "predicted_surface_error_p95_m": 0.007783660668133571,
+          "predicted_surface_error_max_m": 0.03462665612963148
+        }
+      ],
+      "geometry_accepted": true,
+      "stages_applied": true,
+      "scan_seconds_after_start_reply": 56.425771951675415,
+      "scene_apply": {
+        "command": "load_scene",
+        "started": 1793445113.238592,
+        "camera_target_shape": "cylinder",
+        "camera_target_height_m": 0.14,
+        "original_target_position_m": [
+          -8.0,
+          -8.0,
+          -8.0
+        ],
+        "original_target_hidden_before_load": true,
+        "reason": "scene ready: revision=be657d187f59 objects=1 physics=2.17s camera_wait=0.26s total=2.50s",
+        "ok": true,
+        "revision": "be657d187f59d33183b8e0aba101600d131aa8e7ba9e06a958c8b1db5b097999",
+        "elapsed_s": 2.518568992614746,
+        "timings": {
+          "physics_s": 2.1715269866399467,
+          "camera_rebuild_s": 0.6482156310230494,
+          "cameras_s": 0.2582766152918339
+        },
+        "entity_state_preserved": true,
+        "entity_pose_errors": {},
+        "camera_processes_preserved": true,
+        "frames": {
+          "observer": {
+            "ts": 1793445115.6856592,
+            "file": "observer-after-0.png",
+            "width": 1280,
+            "height": 720
+          },
+          "hand_eye_preview": {
+            "ts": 1793445115.7271264,
+            "file": "hand_eye_preview-after-0.png",
+            "width": 1280,
+            "height": 720
+          }
+        }
+      },
+      "shutdown": {
+        "complete": true,
+        "states": {
+          "sim": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T11:10:08.835735211Z",
+            "FinishedAt": "2026-10-31T11:12:28.491019209Z"
+          },
+          "pilot": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T11:10:08.834961501Z",
+            "FinishedAt": "2026-10-31T11:12:26.123706925Z"
+          },
+          "ui": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T11:10:08.836520817Z",
+            "FinishedAt": "2026-10-31T11:11:59.797295201Z"
+          }
+        },
+        "stack_sampler": {
+          "samples": 1154,
+          "error": ""
+        },
+        "fatal_bytes": 0,
+        "preservation": {
+          "before": 60,
+          "after": 180,
+          "missing": [],
+          "changed": [],
+          "prelaunch_before": 175,
+          "prelaunch_missing": [],
+          "prelaunch_changed": []
+        }
+      },
+      "video": {
+        "complete": true,
+        "error": "",
+        "fps": 10,
+        "files": {
+          "hand_eye_preview": "hand_eye_preview.mp4",
+          "observer": "observer.mp4"
+        },
+        "frames": {
+          "hand_eye_preview": 684,
+          "observer": 684
+        },
+        "started": 1793445050.8529155,
+        "duration_s": 68.34424974909052,
+        "clock": "actual wall time; original decoder frames, no speed change"
+      },
+      "artifacts": {
+        "run.json": "95e6d4df3a0f400ae338638ab52d05847332add3302e96d1fa47e2f6dc99b8b4",
+        "ui-output/ui.json": "bcac893622284462d6f24911cbbe9891d9fffe5b5f4d81b2fcd1b9eb4193a772",
+        "pilot-output/pilot.json": "50cf957fa5a8f05fe093ebc6ba0a9c0e9c5ffdac2ad26a608c28e0a580834cfe",
+        "sim-output/sim.json": "3d780eb7cf2cc40504df52c2a475f3633d08742d2015e4cc77ea8218b2630bd8",
+        "sim-output/evaluation.json": "9f360c4f242aef9eecd4c083a1d928d8e0875f0584fbe1bc3ecdb84e5c416b36",
+        "shutdown-validation.json": "431d00abb3a953d53d8008b3fe6be35c62c71f1a721f648e97e8dc2308fd8cc7",
+        "exchange/a27c6b4982a740b0a47b21b165576667/scan.json": "b6b54d7bb0f4725a913219ce3f1527a607174c80cc9543aed1d20b6685f7bd64"
+      },
+      "driver_sha256": "10fb628ffb551747d8bf6df2fbf24ca5d24605a4761b3fae05cc26935c3ca815",
+      "probe_sha256": {
+        "probe_scan_cycle_sim.py": "5495178fcb9d1ddb2c081f45ddcbc12b87d4f802d936b063a55719bd6e7d096b",
+        "probe_scan_cycle_pilot.py": "02bc6586862dab772018450ec435ca792afe13e09290774cd49a8169af9c9306",
+        "probe_scan_cycle_ui.py": "d4db7fe9368aa2077a09cb29625bd64cb9068caa4ca40b3c56713c8a4828cd1a",
+        "scan_cycle_recording.py": "997cf0044eece9c178da287c4e2707b9b60896940d49b8993b09ba540ecc0f09"
+      },
+      "stack_sampler_sha256": "8e77ce5299ac99b4028b1f03c9933ea3f15e413ff5f6e3bf84d5d2fb1e60c0a3",
+      "cache_condition": "Copy of prior Genesis cache; new Pilot model process uses its normal HOME cache. First forward includes initial Triton compilation and concurrent Sim load. This is stability verification, not a cold-start or steady-state latency benchmark.",
+      "remote_root": "/home/hckang/ws/elesim-scan-cycle-20261030/cycle-20"
+    }
+  ],
+  "failures": [
+    {
+      "attempt": 17,
+      "runtime_revision": "909aa7da84850697d847e9a9a4665d69816e37e8",
+      "phase": "failed",
+      "error": "scan calibration unavailable after 8 coherent captures: floor correction: waiting_for_stable_plane",
+      "accepted_views": 1,
+      "calibration_captures": 10,
+      "cause": "Repeated same-goal capture re-issued motion/settling; 0.53..0.60s capture gaps repeatedly reset the 0.5s plane-stability window.",
+      "fix": "Reuse a settled goal while current feedback remains within tolerance; obtain a fresh coherent frame without another motion request. Preserve the stability window.",
+      "model_ready": {
+        "loaded": true,
+        "applied": false,
+        "profile": "projected55",
+        "normalization": "center-only",
+        "axis_order": "world-z-up",
+        "asset_sha256": {
+          "source": "ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e",
+          "config": "cdd8616e9abe77013234879f1c15b8aed0764274be274dec3937ebd65479a707",
+          "weights": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7"
+        },
+        "parameters": 32470033,
+        "missing_keys": [],
+        "unexpected_keys": [],
+        "upstream_revision": "4603257ed3db9e7dad349b712e1b2fe0da207015",
+        "gpu": "NVIDIA RTX A6000",
+        "torch_version": "2.12.1+cu130",
+        "backend": "upstream AdaPoinTr graph; Triton FPS / Torch gather",
+        "training": false,
+        "tf32": false
+      },
+      "record_sha256": "f7700cf448ed46d54247867aa7c57505ea6130b865a5e247c651a9428f3ff8f3",
+      "remote_root": "/home/hckang/ws/elesim-scan-cycle-20261030/cycle-17"
+    }
+  ],
+  "tests": {
+    "pilot_focused_passed": 117,
+    "setup_release_paths_passed": 35,
+    "ui_focused_passed": 16,
+    "protocol_registry_passed": 7,
+    "system_fk_operator_sampler_passed": 5,
+    "canonical_not_run": "No usable generated development attachment; required/extended and canonical release/real-RMW four-role topology gates not run. Host scientific/ROS dependencies were not installed."
+  },
+  "limitations": [
+    "Physical Robot, GO2, native UI window automation and multi-host/NAT acceptance were not tested.",
+    "Floor corrects tilt only and retains the FK camera origin; translation and rotation about the reference normal remain unobservable.",
+    "AP-PS55 is the pinned third-party inference redistribution used in earlier trials, not a claim about the original best-paper checkpoint.",
+    "HSV remains the single-target segmentation baseline; mesh is a coarse voxel reference.",
+    "Predicted surfaces are model estimates, not observed geometry or certified contact/free space. Geometry completeness remains false."
+  ],
+  "runtime_revisions": [
+    "67e5b8370580ac72d85c50717eae1049a676179c",
+    "4a9810297b22def238888d464c1604acf8e3f8c2"
+  ],
+  "wire": {
+    "protocol_major": 6,
+    "operator_view_schema": 1,
+    "model_api": 1,
+    "changes": "additive optional predicted_points/model_execution status only"
+  },
+  "preservation_checkpoint": "/home/hckang/ws/elesim-scan-cycle-20261030/integrated-20261031/containers-before.json",
+  "demo": {
+    "attempt": 18,
+    "video_file": "scan_cycle_integrated_20261031.mp4",
+    "poster_file": "scan_cycle_integrated_20261031.png",
+    "poster_time_s": 1,
+    "poster_sha256": "f36b31fb9c72ba69a06e7286eafb08e3701a956e11d6f718714550f41c715ac2",
+    "metadata": {
+      "scope": "actual UI WebRTC recording, composed with measured stage captions",
+      "playback_speed": 1,
+      "mesh_cache_note": "Warm Genesis kernels / new AI mesh",
+      "rendered": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 720,
+            "avg_frame_rate": "10/1"
+          }
+        ],
+        "format": {
+          "duration": "73.700000"
+        }
+      },
+      "bytes": 1670958,
+      "sha256": "b1e82fc9e783baa832b302df8cec40e0411fb07c98e66d0bc3373307f363b00c",
+      "source": {
+        "hand_eye_preview.mp4": "a9f570d1df2a061c966cbb9d28e78bfea4eaa5bdaaf5acc7174f75fe5cbae884",
+        "observer.mp4": "76cdc7c9f1879dc44c98d0fb4625f73d7e7915132b99bac24c34a6898a1c2f11"
+      }
+    }
+  },
+  "runtime_default": "payload/config/pilot/scan.integrated.yaml",
+  "final_source_clock_freshness_guard": {
+    "runtime_revision": "4a9810297b22def238888d464c1604acf8e3f8c2",
+    "verified_attempt": 20,
+    "maximum_frame_age_s": 0.5,
+    "maximum_frame_lead_s": 0.2,
+    "clock": "Same Sim source wall clock; no Pilot/Sim wall-clock synchronization assumption"
+  },
+  "preservation_final": {
+    "complete": true,
+    "captured_at": 1793445173.7074873,
+    "engine_id": "2ee9c1c8-0d97-43a9-82eb-dfef7cda0ae3",
+    "before": 153,
+    "after": 180,
+    "missing": [],
+    "changed": [],
+    "checkout": {
+      "path": "/home/hckang/ws/newsim_dev/elesim",
+      "revision": "70757e6116fa968904017388094f5c13d4854137",
+      "porcelain": ""
+    },
+    "device_requests": {
+      "sim": [
+        {
+          "Driver": "nvidia",
+          "Count": 0,
+          "DeviceIDs": [
+            "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+          ],
+          "Capabilities": [
+            [
+              "gpu"
+            ]
+          ],
+          "Options": null
+        }
+      ],
+      "pilot": [
+        {
+          "Driver": "nvidia",
+          "Count": 0,
+          "DeviceIDs": [
+            "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+          ],
+          "Capabilities": [
+            [
+              "gpu"
+            ]
+          ],
+          "Options": null
+        }
+      ]
+    },
+    "assets": {
+      "source": {
+        "path": "/home/hckang/ws/newsim/logs/diagnostics/adapointr-20261027-c18ff631/assets/pointr-source.tar.gz",
+        "sha256": "ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e",
+        "bytes": 26846627
+      },
+      "weights": {
+        "path": "/home/hckang/ws/newsim/logs/diagnostics/adapointr-20261027-c18ff631/contract-598fe6d2/assets/ap_ps55.pth",
+        "sha256": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7",
+        "bytes": 130024020
+      }
+    },
+    "scope": "Original 153 container IDs/names/images/states unchanged; original model assets unchanged; all new diagnostic containers/images/caches retained.",
+    "raw_checkpoint_sha256": "ca7a652b383e3022b2ccbbe92a8b7a44c55826a99d8395b4e9a5c588bb9f88f0",
+    "old_cache_exists": true
+  },
+  "preservation_final_sha256": "d59e41b2d380865c7e566ac108eca09953eff110ac799c56a042bbec83f14a6f"
+}

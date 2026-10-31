@@ -155,8 +155,8 @@ depth와 pose를 같은 FloorEstimator에 직접 넣는다. `reference_normal: [
 충돌하면 보정을 적용하지 않고 재촬영/실패한다. Camera origin은 유지하며 절대
 높이·translation·법선 주위 yaw를 알아냈다고 취급하지 않는다.
 
-기본 예제는 기존 HSV detector + arm/hand-eye FK + `ObservedOnly` + `VoxelSurface`다.
-학습된 completion과 planner는 포함하지 않는다. `ObservedOnly`는 명시적으로 빈
+비교용 `scan.example.yaml`은 기존 HSV detector + arm/hand-eye FK + `ObservedOnly` +
+`VoxelSurface`다. 학습된 completion과 planner는 포함하지 않는다. `ObservedOnly`는 명시적으로 빈
 생성 점을 반환한다. `VoxelSurface`는 관측/생성 점의 점유 voxel 표면을 삼각형으로
 만드는 연결 기준선이다. 실제 매끈한 복원 mesh나 물리 접촉 품질을 보장하지 않으며
 completion과 독립적으로 mesher도 교체할 수 있다.
