@@ -34,6 +34,7 @@ def test_reconstruction_example_uses_release_data_without_changing_hashes(tmp_pa
         assert after["path"] == "../data/" + before["path"][11:]
         assert after["sha256"] == before["sha256"]
     assert result["models"]["segmenter"] == original["models"]["segmenter"]
+    assert result["models"]["mesher"] == original["models"]["mesher"]
 
 
 @pytest.mark.parametrize(

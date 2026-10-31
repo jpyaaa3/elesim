@@ -50,7 +50,8 @@ def component_count(cells):
     return components
 
 
-def write_views(output, displays):
+def write_views(output, displays, *, title='Jar: same point cloud / 20, 10, 5 mm mesh',
+                subtitle='Prediction support fixed at 10 mm, 8 neighbours. Observations and raw predictions unchanged.'):
     """Write a static geometric comparison and a dependency-free orbit viewer."""
     all_vertices = np.concatenate([d['vertices'] for d in displays])
     center = (all_vertices.min(axis=0)+all_vertices.max(axis=0))/2
@@ -62,8 +63,8 @@ def write_views(output, displays):
     light = np.array([-.5,-.4,.8]); light /= np.linalg.norm(light)
     svg = ['<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1120">',
         '<rect width="1400" height="1120" fill="#101827"/>',
-        '<g fill="white" font-family="sans-serif"><text x="30" y="38" font-size="25">Jar: same point cloud / 20, 10, 5 mm mesh</text>',
-        '<text x="30" y="66" font-size="17">Prediction support fixed at 10 mm, 8 neighbours. Observations and raw predictions unchanged.</text></g>']
+        f'<g fill="white" font-family="sans-serif"><text x="30" y="38" font-size="25">{html.escape(title)}</text>',
+        f'<text x="30" y="66" font-size="17">{html.escape(subtitle)}</text></g>']
     panels = []
     for index, item in enumerate(displays):
         x, y = 20+(index%2)*690, 90+(index//2)*490
@@ -86,11 +87,11 @@ def write_views(output, displays):
             vertices=np.round(item['vertices']-center, 8).tolist(), faces=faces.tolist()))
     svg.append('<text x="30" y="1100" fill="white" font-family="sans-serif" font-size="16">Offline geometric render, not new camera footage. Vertex error does not establish complete surface coverage.</text></svg>')
     (output/'comparison.svg').write_text('\n'.join(svg)+'\n')
-    document = '''<!doctype html><meta charset="utf-8"><title>Jar voxel comparison</title>
+    document = '''<!doctype html><meta charset="utf-8"><title>__TITLE__</title>
 <style>body{background:#101827;color:#e5edf5;font:16px system-ui;margin:24px}h1{font-size:25px}.grid{display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));gap:18px}section{background:#192536;padding:14px;border-radius:10px}h2{margin:0;font-size:20px}canvas{width:100%;height:360px;touch-action:none;cursor:grab}a{color:#9bd2ff}button{padding:8px 14px}small{color:#b5c3d4}@media(max-width:650px){.grid{grid-template-columns:1fr}}</style>
-<h1>Jar: same point cloud, different mesh resolution</h1>
+<h1>__TITLE__</h1>
 <p>Drag any view to rotate all four. Scroll to zoom. <button id="reset">Reset view</button></p>
-<p>Support radius: 10 mm; minimum: 8 neighbours. Same observations and raw AdaPoinTr predictions.</p><div class="grid" id="grid"></div>
+<p>__SUBTITLE__</p><div class="grid" id="grid"></div>
 <p><small>Offline geometric views. Meshing does not reconstruct unsupported hidden surfaces or establish contact safety.</small></p>
 <script>
 const meshes=__MESHES__, extent=__EXTENT__,grid=document.getElementById('grid'),reset=document.getElementById('reset');let az=-65*Math.PI/180,el=25*Math.PI/180,zoom=1;
@@ -105,7 +106,9 @@ let last=null;canvas.onpointerdown=e=>{last=[e.clientX,e.clientY];canvas.setPoin
 function render(){const eye=[Math.cos(el)*Math.cos(az),Math.cos(el)*Math.sin(az),Math.sin(el)],right=[-Math.sin(az),Math.cos(az),0],up=[-Math.sin(el)*Math.cos(az),-Math.sin(el)*Math.sin(az),Math.cos(el)];for(const {gl,program,canvas,count} of views){const r=canvas.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);canvas.width=r.width*d;canvas.height=r.height*d;gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(.098,.145,.212,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);for(const [name,value]of [['eye',eye],['right',right],['up',up]])gl.uniform3fv(gl.getUniformLocation(program,name),value);gl.uniform2fv(gl.getUniformLocation(program,'scale'),[1.8*zoom/extent*r.height/r.width,1.8*zoom/extent]);gl.drawArrays(gl.TRIANGLES,0,count);}}
 reset.onclick=()=>{az=-65*Math.PI/180;el=25*Math.PI/180;zoom=1;render()};window.onresize=render;render();
 </script>'''
-    (output/'comparison.html').write_text(document.replace('__MESHES__',json.dumps(panels,separators=(',',':'))).replace('__EXTENT__',str(extent)))
+    (output/'comparison.html').write_text(document.replace('__TITLE__',html.escape(title))
+        .replace('__SUBTITLE__',html.escape(subtitle))
+        .replace('__MESHES__',json.dumps(panels,separators=(',',':'))).replace('__EXTENT__',str(extent)))
 
 
 def main():

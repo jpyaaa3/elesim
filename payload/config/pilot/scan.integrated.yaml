@@ -45,8 +45,14 @@ models:
         path: /opt/elesim/models/adapointr/ap_ps55.pth
         sha256: 66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7
   mesher:
-    factory: elesim_pilot.reconstruction.providers:VoxelSurface
+    factory: elesim_pilot.reconstruction.meshing:PoissonSurface
     options:
-      voxel_m: 0.01
+      depth: 8
+      normal_neighbors: 30
+      normal_radius_m: 0.012
+      remesh_resolution_m: 0.004
+      min_component_area_m2: 0.000025
+      threads: 1
+      timeout_s: 60.0
       min_generated_neighbors: 8
       generated_neighbor_radius_m: 0.01

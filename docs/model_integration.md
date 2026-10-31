@@ -20,7 +20,7 @@ adapter가 함께 필요하다. `--check`는 로딩과 버전/hash 검증이며 
 ```
 
 기본 Sim scan은 `scan.integrated.yaml`의 **FK → 각 촬영의 바닥/수평면 tilt 보정 →
-자동 시점 수집·정합 → 실제 AdaPoinTr AP-PS55 → voxel mesh → UI Apply**를 사용한다.
+자동 시점 수집·정합 → 실제 AdaPoinTr AP-PS55 → Poisson/거리장 표면 mesh → UI Apply**를 사용한다.
 `scan.example.yaml`은 학습 모델 없는 명시적 비교 기준선이다. 통합 설정은 모델
 자산이 없다고 기준선으로 바뀌지 않는다. UI Apply의 실행 중 scene 교체 경로는 아래와 같다.
 
@@ -169,16 +169,78 @@ completion과 독립적으로 mesher도 교체할 수 있다.
 고립된 배경 깊이가 메쉬를 확장하는 것을 막으며, 충분한 pixel을 가진 별도 내벽은
 유지한다. Object mesh/정답을 쓰지 않고, 실제 관측을 새 점으로 대체하지 않는다.
 외부 adapter에는 자동 적용하지 않으며 이 옵션의 기본값 0은 비활성이다.
-통합 `VoxelSurface`의 `min_generated_neighbors: 8`은 명시한
+현재 통합 mesher의 `min_generated_neighbors: 8`은 명시한
 `generated_neighbor_radius_m: 0.01` 안에서 이웃점 8개가 지지하는 생성점만
-mesh에 사용한다. 이 반경은 mesh 해상도와 독립이며, 생략한 기존 설정은 voxel
+mesh에 사용한다. 이 반경은 mesh 해상도와 독립이며, 기존 `VoxelSurface`에서 생략하면 voxel
 크기의 절반을 사용한다. 관측점은 모두 유지하고
 원본 생성 배열도 그대로 저장한다. 촬영으로 직접 확인되지 않은 표면의 정확성을
 인증하는 검사가 아니라 드문드문 뻗은 생성 노이즈의 voxel화를 막는 선택적 기준이다.
 Mesher diagnostics에 사용/제외한 생성점 수를 기록하며 기본값 0은 비활성이다.
-통합 scan의 현재 메쉬 해상도는 10 mm이며 point-cloud fusion의 4 mm와 별도다.
-`max_occupied_voxels` 기본값은 4,000이다. 비교 실험처럼 명시적으로 늘릴 때만
+`VoxelSurface`의 `max_occupied_voxels` 기본값은 4,000이다. 비교 실험처럼 명시적으로 늘릴 때만
 최대 8,000을 허용하며 최종 scene의 vertex/triangle/byte 계약 검사는 유지한다.
+
+### 점군에서 표면 복원
+
+`elesim_pilot.reconstruction.meshing:PoissonSurface`는 관측/생성 점의 기존
+지지 조건을 적용하고, 법선을 추정·일관되게 정향한 뒤 Open3D의 Screened
+Poisson으로 표면을 복원한다. 그 표면의 signed-distance 근사를 4 mm 간격으로
+샘플링한 뒤 zero surface를 Marching Tetrahedra로 추출한다. 점유칸의 외곽을 내보내던
+기본 메셔를 대체하며, 출력 해상도는 관측 점군의 4 mm fusion과 독립이다.
+Model API 1과 기존 scene bundle 규약은 유지한다.
+
+```yaml
+mesher:
+  factory: elesim_pilot.reconstruction.meshing:PoissonSurface
+  options:
+    depth: 8
+    normal_neighbors: 30
+    normal_radius_m: 0.012
+    remesh_resolution_m: 0.004
+    min_component_area_m2: 0.000025
+    threads: 1
+    timeout_s: 60
+    min_generated_neighbors: 8
+    generated_neighbor_radius_m: 0.01
+```
+
+Pilot의 `meshing` extra는 Open3D 0.20.0을 명시하며 Linux x86_64는 CPU wheel,
+다른 플랫폼은 일반 wheel을 선택한다. 정상 Pilot/Jetson/dev 의존성 명세에도
+pin을 포함한다. `prepare()`는 scan 이동 전에 의존성 유무를 검사하고 실제 native
+import/계산은 Pilot이 소유한 별도 CPU spawn 자식에서 수행한다. 취소·시간 초과·
+native 비정상 종료는 그 자식만 회수하고 실패로 반환한다. 다른 역할을 import하거나
+DDS/model API/scene artifact 버전을 바꾸지 않는다.
+
+원본 observed/predicted 배열은 그대로 유지한다. Native Poisson의 작은 퇴화/비정상
+연결을 직접 scene에 넣지 않고 거리장으로 정규화한 최종 표면을 검증한다. 외부
+padding은 양수로 고정하며, raw mesh의 경계 수와 부호 보정 수를 provenance에 남긴다.
+이는 닫힌 충돌용 근사 형상을 추론하는 가정이며 TSDF나 camera free-space 관측이 아니다.
+원래 단지의 열린 입구·내벽 보존과 물리 접촉 정확도를 보장하지 않는다.
+
+최종 vertex/edge manifold·정향·self-intersection·100,000 vertex/triangle 및
+2,000,000 grid point 예산을 검사한다. 교차 검사에서 native 후보를 분리축 검사로
+재확인하며, 실제 교차/접촉/수치적으로 불확실한 쌍은 계속 거부한다. 단지와 독립적인
+구/torus 실제 복원, 변 공유와 꼭짓점 접촉의 구분, 스케일/translation별 교차 회귀,
+deadline/exit 139/취소 회수와 SceneArtifact export를 검사했다.
+
+`min_component_area_m2: 0.000025`는 25 mm² 미만 성분을 제거한다. 해상도별
+triangle 개수나 최대 성분의 비율을 기준으로 삼지 않으며, 가장 큰 하나만 선택하지
+않는다. 제거 성분 수·면적과 raw observed/predicted를 기록한다. 이 조건도 실제 관측
+포괄률을 인증하지 않는다. 원본 native 표면을 비교하려면 `remesh_resolution_m: 0`을
+명시할 수 있다. 저밀도 trimming은 native 모드에서만 선택할 수 있고, regularization과
+함께 요청하면 사전에 거부한다. 실패를 voxel shell로 자동 대체하지 않는다.
+
+같은 단지 점군의 최종 비교에서 vertex 표면 p95는 기존 10/5 mm voxel의
+29.73/19.73 mm에서 **18.68 mm**가 됐다. 실제 변 연결 성분 1개, 비정상 변/열린
+경계/교차 0개이며 CPU 5회 중앙값은 **8.97초**다. 시간에는 매번 생성하는 CPU 자식의
+import와 검증을 포함한다. [그림과 재현 bundle](../workbench/evidence/curated/sim/jar-poisson-mesh-20261031/summary.json)에
+수치와 한계를 기록한다. 이번 검증은 새 scan/completion 추론/실행 중 Sim 적용을
+재실행한 것이 아니라 저장된 실제 점군의 remeshing이다.
+
+거리장 등가면 후보도 같은 단지 점군으로 시험했다. 연결 반경을 6 mm로 고정한
+5 mm 등가면은 비정상 edge를 없앴지만 vertex 표면 p95가 24.93 mm로 기존
+5 mm voxel의 19.73 mm보다 커져 통합 기본값으로 채택하지 않았다. 이 비교의
+소스 ZIP과 결과는 `workbench/evidence/generated/jar-distance-surface-20261031/pass-1/`에
+남겼다. 이것은 Poisson 실행 결과가 아니다.
 
 ## 실행과 Sim 전달
 

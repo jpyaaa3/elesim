@@ -507,6 +507,17 @@ Triton kernel과 Genesis cache는 유지한다. AP-PS55의 기본 전처리는 �
 ObservedOnly나 nominal pose로 조용히 대체하지 않는다. 기존 기준선은 명시적으로
 `--scan-models .../scan.example.yaml`을 선택할 때 사용한다.
 
+통합 scan의 `PoissonSurface`는 같은 model API 1의 mesher slot에서 점군의 법선을
+추정하고 Screened Poisson 표면을 만든다. 그 표면의 거리장을 4 mm 간격으로
+샘플링하고 zero surface를 Marching Tetrahedra로 다시 삼각형화한다. 양의 외부
+padding과 parity vote는 닫힌 충돌용 근사 형상을 만드는 가정이며 실제 미관측
+공간·입구·내벽을 측정한 것으로 취급하지 않는다. 가장 큰 성분만 선택하지 않고,
+명시된 25 mm² 미만 성분만 제거하며 수와 면적을 기록한다. 입력 observed/predicted는
+보존한다. 최종 manifold/정향/교차/예산 검사는 유지한다.
+Open3D native import와 계산은 Pilot 소유의 단일 작업 CPU spawn 자식에 격리한다.
+자식의 비정상 종료·시간 초과·취소는 그 자식만 회수하고 Pilot 오류로 돌려준다.
+Scene artifact/source/frame 계약은 유지하며 기존 voxel shell로 자동 대체하지 않는다.
+
 후속 부분 점군 기준선은 RGB-D, intrinsics, source identity/time과 encoder만
 허용하는 로컬 replay packet을 사용한다. Pilot은 실제 관측된 물체 표면을
 deproject하고 FK/기준면으로 정한 좌표계에서 bounded voxel fusion한다. Sim

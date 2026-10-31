@@ -5,6 +5,7 @@ import numpy as np
 
 from elesim_pilot.vision.partial_cloud import ArmCameraModel
 from .contracts import InstanceMask, Mesh, Pose
+from .meshing import supported_points
 
 
 class ArmPose:
@@ -165,20 +166,12 @@ class VoxelSurface:
         self._diagnostics = {}
 
     def mesh(self, shape, task):
-        observed, generated = shape.cloud.observed, shape.predicted
-        retained = generated
-        if self.min_generated_neighbors and len(generated):
-            from scipy.spatial import cKDTree
-            source = np.concatenate((observed, generated))
-            distances, _ = cKDTree(source).query(generated,k=self.min_generated_neighbors+1)
-            retained = generated[distances[:,-1] <= self.generated_neighbor_radius_m]
+        points, support = supported_points(shape, self.min_generated_neighbors,
+                                           self.generated_neighbor_radius_m)
         self._diagnostics = dict(voxel_m=self.voxel_m,
             min_generated_neighbors=self.min_generated_neighbors,
             generated_neighbor_radius_m=self.generated_neighbor_radius_m,
-            observed_points=len(observed),generated_points=len(generated),
-            meshed_generated_points=len(retained),
-            rejected_generated_points=len(generated)-len(retained))
-        points = np.concatenate((observed, retained))
+            **support)
         cells = {tuple(v) for v in np.floor(points / self.voxel_m).astype(np.int64)}
         self._diagnostics.update(occupied_voxels=len(cells),max_occupied_voxels=self.max_occupied_voxels)
         if len(cells) > self.max_occupied_voxels:

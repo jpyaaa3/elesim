@@ -6,6 +6,56 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 점군 → Poisson → 거리장 → 삼각형 표면 메쉬 (2026-10-31)
+
+통합 `scan.integrated.yaml`의 source 기본 mesher를 `PoissonSurface`로 바꿨다.
+관측/지지 생성점의 법선을 추정·정향하고 Screened Poisson을 푼 뒤, 그 표면의
+거리장을 **4 mm** 간격으로 샘플링해 zero surface를 Marching Tetrahedra로
+추출한다. 원본 native mesh의 비정상 연결을 scene에 직접 넘기지 않는다.
+최종 vertex/edge manifold, 정향, 교차, grid/triangle/vertex 예산을 검사한다.
+실제 Open3D import/계산은 Pilot 소유 CPU spawn 자식에만 두며 exit 139,
+취소와 deadline에 그 자식만 회수한다. Model API 1과 scene schema 1은 유지한다.
+
+실행 23의 같은 **관측 4,325점 / 원본 생성 8,192점**을 사용했다. 지지 조건은
+기존 이웃 8개/반경 10 mm를 유지해 생성점 8,023개를 mesh에 쓴다. Raw 배열은
+한 점도 바꾸지 않았다. 비교의 두 voxel OBJ hash도 이전 기록과 동일하다.
+
+| 메셔 | triangles | 실제 변 연결 성분 | 비정상 변 | vertex 표면 p95 | 면적 sampling F-score@10 mm | CPU 중앙값 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Voxel 10 mm | 4,220 | 1 | 12 | 29.73 mm | 0.7676 | 0.054 s |
+| Voxel 5 mm | 18,560 | 4 | 504 | 19.73 mm | 0.8792 | 0.112 s |
+| **Poisson + 거리장 4 mm** | **48,424** | **1** | **0** | **18.68 mm** | **0.8966** | **8.974 s** |
+
+최종 출력은 열린 경계/정향 오류/확인된 자기 교차 0개다. 면적 가중 30,000점을
+사용한 mesh→원형 p95는 17.61 mm, 원형→sampled mesh p95는 11.52 mm다.
+역방향은 정확한 triangle 거리 대신 sampling 근사이며 완전성·접촉 정확도의
+증거가 아니다. 시간은 WSL CPU warmup 뒤 5회 교차 실행의 중앙값이다.
+Poisson은 매번 만드는 CPU 자식의 spawn/import/검증까지 포함하며 새 촬영,
+completion 추론 또는 Sim 삽입 시간을 포함하지 않는다.
+
+원본 Poisson에는 열린 경계 45개와 비정상 변 15개가 있었다. 거리장의 parity vote와
+양의 외부 padding은 유한한 닫힌 충돌용 proxy를 추론하는 가정이며 원래 입구와
+내벽을 확인한 것이 아니다. 25 mm² 미만 성분만 명시적으로 제거하며 이번에는
+0.164 mm²짜리 성분 1개를 제거했다. 가장 큰 성분만 고르지 않는다. Raw 관측과
+생성 배열, 제거량과 부호 보정 수를 provenance에 보존한다. 점 주위에 6 mm 두께를
+주었던 별도 후보는 오차가 더 커 채택하지 않았으며 실패 원자료는 보존한다.
+
+[`비교 그림`](../workbench/evidence/curated/sim/jar-poisson-mesh-20261031/comparison.png),
+[`재현 가능한 scene bundle`](../workbench/evidence/curated/sim/jar-poisson-mesh-20261031/scene.zip),
+[`지표/해시/검증 범위`](../workbench/evidence/curated/sim/jar-poisson-mesh-20261031/summary.json)을
+남겼다. Bundle을 다시 풀어 `SceneArtifact.load`로 검사했고 원본 NPZ SHA-256도
+정확히 재현했다. Bundle/그림/환경 pin을 합쳐 약 1.3 MB다. Raw OBJ/viewer 및
+실패 진단은 `workbench/evidence/generated/jar-poisson-comparison-20261031/`에 있다.
+
+사용자 명시 승인으로 project 전용 `.venv`에 Open3D CPU 0.20.0과 고정된
+NumPy/SciPy를 설치해 실제 계산을 수행했다. 재구성/scan/analysis **97 passed**,
+AdaPoinTr/floor **9 passed**, setup **18 passed**, release 설정 **17 passed**로
+**총 141 passed / skipped 0**이다. 실제 sphere/torus 복원과 구멍 보존, native
+오류/취소/timeout 회수, 분리축 기반 교차 재확인, SceneArtifact export가 포함된다.
+기존 immutable 역할 image/instance/영상은 변경하지 않았다. 새 메쉬의 live Sim
+삽입과 물리 파지는 미실행이다. Generated development attachment 부재로 canonical
+required/extended, release build/isolated verify 및 real-RMW topology gate도 미실행이다.
+
 ### 같은 단지 점군의 20/10/5 mm 메쉬 비교 (2026-10-31)
 
 실행 23의 관측 **4,325점 / 원본 예측 8,192점**을 그대로 사용해 CPU에서만

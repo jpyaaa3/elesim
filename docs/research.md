@@ -44,6 +44,30 @@ python3 -m workbench.research.analysis.compare_voxel_mesh \
 명령은 기존 출력 디렉터리를 덮어쓰지 않는다. 거리 지표 하나를 표면 완전성으로
 해석하지 않으며 별도 runtime/GPU/접촉 검증을 대체하지 않는다.
 
+`compare_surface_mesh`는 동일 점군의 voxel 10/5 mm와 Poisson/거리장 메셔를
+비교한다. Open3D `meshing` extra를 갖춘 명시적 환경이 필요하다. 사용자 승인으로
+project 전용 venv에 Open3D 0.20.0과 고정된 NumPy/SciPy를 설치해 실제 계산을
+검증했다. 이 환경은 setup-generated canonical development attachment의 대체가 아니다.
+
+```bash
+python3 -m workbench.research.analysis.compare_surface_mesh \
+  --input source-target.npz \
+  --reference-report workbench/evidence/curated/sim/scan_cycle_jar_20261031.json \
+  --reference workbench/evidence/curated/sim/jar_scan_target_20261031.obj \
+  --output workbench/evidence/generated/surface-comparison
+```
+
+연결 수는 점유 voxel 인접이 아닌 삼각형의 실제 변/꼭짓점 기준으로 분리해
+기록한다. Mesh에서 면적 가중 30,000점을 뽑아 원형까지의 거리와 역방향 sampled
+거리, 10 mm F-score도 계산한다. 역방향 지표는 정확한 point-to-triangle 거리가
+아니며 샘플링 오차를 포함한다. Truth는 메셔 실행이 끝난 뒤 evaluator에서만 읽는다.
+`--poisson-options options.json`으로 명시적 모델 옵션을 비교할 수 있다.
+`--topology-probe`는 truth 없이 고정된 법선/깊이 후보의 품질 검사만 실행하고,
+`--raw-diagnostics`는 거부된 native 출력의 데이터와 결함을 기록한다. 이 두 진단
+모드는 truth/reference 입력을 받지 않으며 loadable SceneArtifact를 만들지 않는다.
+원본 surface의 수치 진단에는 `remesh_resolution_m: 0`을 명시한다. 모든 실행은
+새 출력 경로를 요구하고 실패 원자료를 덮어쓰지 않는다.
+
 ## Pitch-preview gaze
 
 상태: 구현됨. runtime mode는 `pitch_preview`다. GO2 보행 중 eye-in-hand

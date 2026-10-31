@@ -18,6 +18,10 @@ dependencies = [
 [project.optional-dependencies]
 perception = ["ultralytics>=8.0", "pyrealsense2>=2.54"]
 completion = ["torch>=2.6", "einops==0.8.1", "easydict==1.13"]
+meshing = [
+  "open3d-cpu==0.20.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "open3d==0.20.0; sys_platform != 'linux' or platform_machine != 'x86_64'",
+]
 test = ["pytest>=8,<9"]
 
 [project.scripts]
