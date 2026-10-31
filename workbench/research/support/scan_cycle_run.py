@@ -10,6 +10,7 @@ import hashlib
 import io
 import ipaddress
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -97,8 +98,10 @@ def inventory():
         for row in run_json(DOCKER+['inspect',*ids])}
 
 
-def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere'):
+def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_interval=None):
     assert 1 <= attempt <= 24
+    if stack_interval is not None and (not math.isfinite(stack_interval) or stack_interval <= 0):
+        raise ValueError('stack interval must be finite and positive')
     root = TASK/f'cycle-{attempt:02d}'
     assert not root.exists(), 'use a new attempt; never recreate retained diagnostic containers'
     root.mkdir(mode=0o755)
@@ -139,7 +142,10 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere'):
         started=time.time(), complete=False,probe_sha256={})
     record['pilot_math_threads'] = math_threads
     record['pilot_debug_allocator'] = debug_allocator
-    record['pilot_periodic_stacks'] = False
+    record['pilot_periodic_stacks'] = stack_interval is not None
+    record['pilot_stack_interval'] = stack_interval
+    if stack_interval is not None:
+        record['stack_sampler_sha256'] = hashlib.sha256((probes/'thread_stacks.py').read_bytes()).hexdigest()
     record['fixture_shape'] = shape
     for index,role in enumerate(('sim','pilot','ui')):
         key,service = services[role]
@@ -212,6 +218,9 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere'):
                     command.extend(('--peer',peer))
                 lines.append('    user: '+json.dumps(f'{os.getuid()}:{os.getgid()}'))
             else:
+                if stack_interval is not None:
+                    command.extend(('--periodic-stacks','--stack-interval',str(stack_interval)))
+                    mounts.append(bind(probes/'thread_stacks.py','/probe/thread_stacks.py',read_only=True))
                 command.extend(('--config','/opt/elesim/config/scan-cycle.yaml','--mode','scan_cycle',
                     '--runtime-config','/opt/elesim/config/runtime.installed.yaml',
                     '--target',endpoints['sim'],'--scan-output-root','/exchange'))
@@ -246,6 +255,8 @@ def upload():
         Path('workbench/research/analysis/evaluate_scan_cycle.py'),
         Path('workbench/research/analysis/profile_scan_models.py')]
     names.append(Path('workbench/research/debug/scan_cycle_native.py'))
+    names.append(Path('workbench/research/debug/pilot_native_repro.py'))
+    names.append(Path('workbench/research/support/thread_stacks.py'))
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode='w:gz') as archive:
         for path in names:
@@ -413,10 +424,11 @@ def main():
     parser.add_argument('--math-threads',type=int,choices=(1,2,4,8),default=None)
     parser.add_argument('--debug-allocator',action='store_true')
     parser.add_argument('--shape',choices=('sphere','cylinder'),default='sphere')
+    parser.add_argument('--stack-interval',type=float)
     args = parser.parse_args()
     if args.action == 'upload': upload()
     elif args.action == 'publish': publish()
-    elif args.action == 'launch': launch(args.attempt,args.math_threads,args.debug_allocator,args.shape)
+    elif args.action == 'launch': launch(args.attempt,args.math_threads,args.debug_allocator,args.shape,args.stack_interval)
     elif args.action == 'stop': stop(args.attempt)
     elif args.action == 'profile-models': profile_models(args.attempt)
     elif args.action == 'retry-ui': retry_ui(args.attempt)

@@ -301,14 +301,17 @@ class RgbdEdgeBroker:
 
     def close(self, *, timeout_s: float = 1.0) -> None:
         with self._condition:
-            if self._closed:
-                return
             self._closed = True
             self._pending = None
             self._condition.notify_all()
-        if self._thread is not None:
-            self._thread.join(max(0.0, float(timeout_s)))
-            self._thread = None
+            thread = self._thread
+        if thread is not None:
+            thread.join(max(0.0, float(timeout_s)))
+            if thread.is_alive():
+                raise TimeoutError('RGB-D publisher callback has not stopped')
+            with self._condition:
+                if self._thread is thread:
+                    self._thread = None
 
     def __enter__(self) -> "RgbdEdgeBroker":
         return self
@@ -416,8 +419,8 @@ class DdsRgbdEdgePublisher:
     def stats(self) -> RgbdEdgeStats:
         return self.broker.stats()
 
-    def close(self) -> None:
-        self.broker.close()
+    def close(self, *, timeout_s: float = 1.0) -> None:
+        self.broker.close(timeout_s=timeout_s)
         self._publisher.close()
 
 
@@ -482,10 +485,12 @@ class DdsRgbdRelay:
             self._stop.clear()
             self._thread.start()
 
-    def close(self) -> None:
+    def close(self, *, timeout_s: float = 2.0) -> None:
         self._stop.set()
         if self._thread.is_alive():
-            self._thread.join(timeout=2.0)
+            self._thread.join(timeout=max(0.,float(timeout_s)))
+            if self._thread.is_alive():
+                raise TimeoutError('RGB-D relay receiver has not stopped')
         self._subscriber.close()
         self._publisher.close()
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 
 import numpy as np
+import pytest
 
 from elesim_pilot.vision.rgbd import (
     EncodedRgbdFrame,
@@ -11,6 +12,8 @@ from elesim_pilot.vision.rgbd import (
     encode_rgbd_frame,
 )
 from elesim_pilot.vision.rgbd.edge import _without_depth_for_preview
+from elesim_pilot.vision.rgbd.edge import DdsRgbdEdgePublisher, DdsRgbdRelay
+from types import SimpleNamespace
 from elesim_pilot.vision.rgbd.types import RgbdFrame, RgbdIntrinsics
 from elesim_protocol.encoded_rgbd import RgbdEncodedMetadata, encode_payload
 
@@ -135,3 +138,50 @@ def test_left_preview_strips_depth_without_changing_color_or_identity() -> None:
     assert preview.depth_encoding == ""
     assert preview.depth_payload == b""
     assert preview.depth_scale == 0.0
+
+
+def test_close_keeps_native_publisher_alive_until_callback_has_stopped(monkeypatch):
+    from elesim_protocol import encoded_rgbd
+    entered,release = threading.Event(),threading.Event()
+    class Publisher:
+        closed = False
+        def __init__(self,*args,**kwargs): pass
+        def publish(self,frame):
+            entered.set()
+            release.wait(3.)
+        def close(self): self.closed = True
+    monkeypatch.setattr(encoded_rgbd,'DdsEncodedRgbdPublisher',Publisher)
+    publisher = DdsRgbdEdgePublisher('/rgbd',endpoint_id='test')
+    publisher.submit(_encoded(7))
+    assert entered.wait(1.)
+    try:
+        with pytest.raises(TimeoutError): publisher.close(timeout_s=.001)
+        assert publisher.broker._thread.is_alive() and not publisher._publisher.closed
+    finally:
+        release.set()
+        publisher.close()
+    assert publisher._publisher.closed and publisher.broker._thread is None
+
+
+def test_relay_close_cannot_destroy_a_subscriber_still_spinning():
+    entered,release = threading.Event(),threading.Event()
+    closed = []
+    def receive(**kwargs):
+        entered.set()
+        release.wait(3.)
+        return None
+    relay = DdsRgbdRelay.__new__(DdsRgbdRelay)
+    relay._stop = threading.Event()
+    relay._subscriber = SimpleNamespace(connect=lambda:None,recv_latest=receive,
+        close=lambda:closed.append('subscriber'))
+    relay._publisher = SimpleNamespace(close=lambda:closed.append('publisher'))
+    relay._thread = threading.Thread(target=relay._run)
+    relay.start()
+    assert entered.wait(1.)
+    try:
+        with pytest.raises(TimeoutError): relay.close(timeout_s=.001)
+        assert relay._thread.is_alive() and closed == []
+    finally:
+        release.set()
+        relay.close()
+    assert closed == ['subscriber','publisher']

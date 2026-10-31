@@ -19,9 +19,12 @@ DOCKER = ['docker','--context','default']
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--attempt',type=int,required=True)
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument('--attempt',type=int)
+    selection.add_argument('--run-dir',type=Path)
     args = parser.parse_args()
-    root = TASK/f'cycle-{args.attempt:02d}'
+    root = args.run_dir.resolve() if args.run_dir is not None else TASK/f'cycle-{args.attempt:02d}'
+    assert root.is_dir() and TASK in root.parents
     record = json.loads((root/'run.json').read_text())
     prep = json.loads((TASK/'preparation.json').read_text())
     pilot = record['services']['pilot']
@@ -35,7 +38,7 @@ def main():
     assert all(Path(path).exists() for path in paths)
     mounts = [dict(type='bind',source=path,target=path,read_only=True) for path in sorted(paths)]
     mounts.append(dict(type='bind',source=str(root),target='/diagnostic'))
-    name = f'elesim-sandy-native-{args.attempt:02d}-{time.time_ns()}'
+    name = f'elesim-sandy-native-{root.name}-{time.time_ns()}'
     commands = ['set debuginfod enabled off','set pagination off',
         'set sysroot /proc/1/root','attach 1','handle SIGPIPE nostop noprint pass',
         'continue','thread apply all bt 25','generate-core-file /diagnostic/pilot-native.core','detach']

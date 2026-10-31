@@ -101,8 +101,13 @@ python3 -m workbench.research.analysis.render_scan_cycle_demo \
 
 ## 실패 조사
 
-`probe_scan_cycle_pilot.py --periodic-stacks`를 명시해야 매초 stack을 수집한다.
-기본 probe는 fatal handler만 켜며 주기적 stack 수집을 하지 않는다.
+`probe_scan_cycle_pilot.py --periodic-stacks --stack-interval 1`은 Python
+thread에서 `sys._current_frames()`로 참조를 소유한 뒤 stack을 기록한다.
+원격 driver에서는 `launch --stack-interval .1`로 10 Hz 수집을 켠다. 기본 probe는
+fatal handler만 켜며 주기적 수집은 하지 않는다. 이 수집기는 GIL을 영구 점유한
+C 함수의 hang을 진단할 수 없으며 그런 경우 아래 외부 GDB를 사용한다.
+이전에 사용한 `faulthandler.dump_traceback_later`는 설치된 CPython 3.10에서
+139를 분리 재현했으므로 실제 scan probe에서 사용하지 않는다.
 `launch --debug-allocator`는 새 Pilot 하나에만 `PYTHONMALLOC=debug`를 설정한다.
 기본 실행은 이 설정을 사용하지 않는다. `research/debug/scan_cycle_native.py`
 의 원격 `--attempt N` 명령은 실행 중인 이 작업의 Pilot을 검증한 뒤, generated
@@ -111,3 +116,10 @@ PID namespace만 공유하며 network/Docker socket/host PID namespace를 받지
 않는다. 진단 컨테이너에는 이 목적으로만 ptrace 권한을 준다. attach 중 짧은
 정지가 시험 타이밍에 영향을 줄 수 있다. 결과를 일반 무계측 실행과 구분한다.
 Debugger를 분리한 뒤 role을 중지하고, debugger 컨테이너/core도 삭제하지 않는다.
+
+`research/debug/pilot_native_repro.py`의 서버 `launch --name NAME --mode
+none|native|safe --seconds 120 --interval .001`과 `start --name NAME`은 같은
+정상 Pilot 이미지에서 DDS/GPU 없이 실제 상태 직렬화를 비교한다. `native`만
+명시적으로 이전 watchdog API를 재현한다. 모든 진단 container/원자료는 보존한다.
+GDB 도구의 `--run-dir`로 이 진단 폴더를 지정할 수도 있다. 이 인공 부하의 실행
+시간은 앱 성능 지표가 아니며 실제 GPU cycle의 결과와 구분한다.

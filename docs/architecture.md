@@ -249,6 +249,13 @@ depth scale, sequence와 payload bound는 encoded frame metadata가 소유하며
 `StreamDescriptor` 구조나 protocol major를 불필요하게 확장하지 않는다.
 wire, QoS와 실패 경계는 [`dds_contracts.md`](dds_contracts.md)를 따른다.
 
+Pilot 종료는 SIGTERM을 Python 정리 경로로 전달한다. Workflow를 중지한 뒤
+target callback을 실행하는 connection thread를 join하고 RGB-D relay를 닫는다.
+Relay 수신과 broker publish 작업이 끝나기 전에는 해당 DDS endpoint를 파괴하지
+않는다. 제한 시간 안에 join하지 못하면 thread 참조와 endpoint를 유지하고
+TimeoutError를 보고하며, 종료를 재시도할 수 있다. 이는 프로세스 내부 자원
+수명 규칙이며 DDS wire 계약이나 Robot deadman을 변경하지 않는다.
+
 ## 5. Sim 내부 구조와 영상
 
 Sim은 하나의 deployable application, DDS participant, SROS2 enclave다. 다만

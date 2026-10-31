@@ -153,10 +153,12 @@ class PilotConnection:
         if not self.ready.wait(timeout=3.0):
             raise RuntimeError("pilot protocol connection failed to start")
 
-    def close(self) -> None:
+    def close(self, *, timeout_s: float = 3.0) -> None:
         self.stop_event.set()
         if self.thread is not None:
-            self.thread.join(timeout=3.0)
+            self.thread.join(timeout=max(0.0, float(timeout_s)))
+            if self.thread.is_alive():
+                raise TimeoutError("Pilot connection has not stopped")
         self.state_sink.peer_connected(False)
 
     def submit(self, message: Mapping[str, Any], *, force: bool = False) -> None:

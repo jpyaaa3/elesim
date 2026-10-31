@@ -93,6 +93,23 @@ def connection() -> tuple[PilotConnection, StateSink, Endpoint]:
     return value, sink, endpoint
 
 
+def test_close_does_not_report_disconnected_until_callback_thread_stops():
+    value, sink, _ = connection()
+    release = threading.Event()
+    value.thread = threading.Thread(target=release.wait)
+    value.thread.start()
+    try:
+        with pytest.raises(TimeoutError, match="connection has not stopped"):
+            value.close(timeout_s=.001)
+        assert value.thread.is_alive()
+        assert sink.connected == []
+    finally:
+        release.set()
+        value.close()
+    assert not value.thread.is_alive()
+    assert sink.connected == [False]
+
+
 def test_robot_discovery_stays_selected_after_loss_and_never_falls_back_to_sim():
     value, sink, endpoint = connection()
     sim = EndpointDescriptor("sim-a", "sim").to_dict()

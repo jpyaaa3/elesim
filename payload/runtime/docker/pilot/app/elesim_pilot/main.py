@@ -27,6 +27,7 @@ from elesim_pilot.pick import ControlClient
 from elesim_pilot.pick.mock_hug import MockHugCoordinator
 from elesim_protocol.tracing import configure_tracing, shutdown_tracing, span
 from elesim_pilot.simulation_sync import SimulationWorkflowSync
+from elesim_pilot.shutdown import graceful_sigterm
 from elesim_pilot.vision.rgbd import DdsRgbdRelay
 from elesim_pilot.reconstruction.live_scan import LiveScan
 from elesim_pilot.reconstruction.artifacts import default_scene_output_root
@@ -401,23 +402,26 @@ def _run() -> None:
         mock_hug.close()
         simulation_sync.close()
         runtime.service.close()
-        facade.close()
         connection.close()
+        # Target callbacks also own these relays. Join their caller before
+        # releasing media endpoints from the main thread.
+        facade.close()
 
 
 def main() -> None:
-    configure_tracing("elesim-pilot-agent", local_log=True)
-    try:
-        with span(
-            "elesim_pilot.main.main",
-            attributes={
-                "code.function.name": "elesim_pilot.main.main",
-                "elesim.flow.id": "pilot.lifecycle",
-            },
-        ):
-            _run()
-    finally:
-        shutdown_tracing()
+    with graceful_sigterm():
+        configure_tracing("elesim-pilot-agent", local_log=True)
+        try:
+            with span(
+                "elesim_pilot.main.main",
+                attributes={
+                    "code.function.name": "elesim_pilot.main.main",
+                    "elesim.flow.id": "pilot.lifecycle",
+                },
+            ):
+                _run()
+        finally:
+            shutdown_tracing()
 
 
 if __name__ == "__main__":

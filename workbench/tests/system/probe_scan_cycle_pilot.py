@@ -16,6 +16,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--evidence',type=Path,required=True)
     parser.add_argument('--periodic-stacks',action='store_true')
+    parser.add_argument('--stack-interval',type=float,default=1.)
     args, remaining = parser.parse_known_args()
     for sibling in ('elesim_sim','elesim_ui'):
         assert importlib.util.find_spec(sibling) is None, sibling
@@ -30,6 +31,10 @@ def main():
     original_accept, original_checked = LiveScan.accept_telemetry, LiveScan._checked_feedback
     original_start, original_tick = LiveScan.start, LiveScan.tick
     stack = (args.evidence/'stacks.log').open('w')
+    sampler = None
+    if args.periodic_stacks:
+        from thread_stacks import ThreadStackSampler
+        sampler = ThreadStackSampler(stack,interval_s=args.stack_interval).start()
     tracing = [False]
 
     def save():
@@ -61,14 +66,11 @@ def main():
         events.clear()
         evidence['started'] = time.time()
         tracing[0] = True
-        if args.periodic_stacks:
-            faulthandler.dump_traceback_later(1.,repeat=True,file=stack)
         return original_start(scan,*values,**kwargs)
 
     def tick(scan):
         original_tick(scan)
         if tracing[0] and not scan.active:
-            faulthandler.cancel_dump_traceback_later()
             tracing[0] = False
             evidence['finished'] = time.time()
             try:
@@ -78,9 +80,15 @@ def main():
             save()
 
     sys.argv = [sys.argv[0],*remaining]
-    with patch.object(LiveScan,'accept_telemetry',accept),patch.object(LiveScan,'_checked_feedback',checked),\
-            patch.object(LiveScan,'start',start),patch.object(LiveScan,'tick',tick):
-        run_pilot()
+    try:
+        with patch.object(LiveScan,'accept_telemetry',accept),patch.object(LiveScan,'_checked_feedback',checked),\
+                patch.object(LiveScan,'start',start),patch.object(LiveScan,'tick',tick):
+            run_pilot()
+    finally:
+        if sampler is not None:
+            sampler.close()
+            evidence['stack_sampler'] = dict(samples=sampler.samples,error=sampler.error)
+            save()
 
 
 if __name__ == '__main__':

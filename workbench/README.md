@@ -53,6 +53,7 @@ CPU만 필요한 검사는 의존성이 있는 host에서도 부분 검증으로
 | `debug.probe_scene_rebuild` | 실행 중 OBJ 교체·controller/state 보존·카메라 복구·rollback 실측 |
 | `analysis.render_scan_cycle_demo` | 실제 UI WebRTC 녹화와 측정된 단계 기록으로 1배속 MP4 구성 |
 | `debug.scan_cycle_native` | 격리 scan Pilot의 private PID namespace에서 네이티브 크래시 수집 |
+| `debug.pilot_native_repro` | 설치된 Pilot 이미지에서 직렬화와 native/safe 주기 스택 진단을 분리 비교 |
 | `debug.trace_viewer` | runtime trace JSONL 조회 |
 | `experiments.adapointr_inputs` | 보정된 센서 점군을 물체별 추론 입력으로 준비 |
 | `experiments.adapointr_gpu_smoke` | 모델/checkpoint 및 GPU FPS·gather adapter 확인 |
@@ -66,11 +67,11 @@ CPU만 필요한 검사는 의존성이 있는 host에서도 부분 검증으로
 | 경로 | 파일 |
 | --- | --- |
 | `research/analysis/` | `analyze_contact_metrics.py`, `analyze_walking_metrics.py`, `arm_scan_compare.py`, `arm_scan_plot.py`, `evaluate_scan_cycle.py`, `profile_scan_models.py`, `render_scan_cycle_demo.py`, `visual_tilt_plot.py`, `walking_motion.py`, `walking_swing.py` |
-| `research/debug/` | `profile_fixed_foot.py`, `profile_sim_walking.py`, `probe_scene_rebuild.py`, `scan_cycle_native.py`, `sim_camera_preview.py`, `trace_viewer.py` |
+| `research/debug/` | `profile_fixed_foot.py`, `profile_sim_walking.py`, `probe_scene_rebuild.py`, `pilot_native_repro.py`, `scan_cycle_native.py`, `sim_camera_preview.py`, `trace_viewer.py` |
 | `research/experiments/` · 보행 | `batch_readiness.py`, `config_overlay.py`, `run_walking_baseline_batch.py`, `walking_baseline.py`, `walking_scenarios.py`, `walking_suite.py`, `walking_suites.json` |
 | `research/experiments/` · 시각 | `vision_arm_scene.py`, `vision_reconstruct.py`, `vision_tilt_evaluate.py`, `arm_scan.py`, `arm_scan_scene.py`, `arm_scan_evaluate.py` |
 | `research/experiments/` · 완성 | `adapointr.py`, `adapointr_inputs.py`, `adapointr_infer.py`, `adapointr_evaluate.py`, `adapointr_gpu_smoke.py` |
-| `research/support/` | `adapointr_backend.py`, `adapointr_ops.py`, `adapointr_profiles.py`, `output.py`, `pilot_runtime.py`, `scan_cycle_install.py`, `scan_cycle_run.py`, `ssh_mss_proxy.py`, `worker.py` |
+| `research/support/` | `adapointr_backend.py`, `adapointr_ops.py`, `adapointr_profiles.py`, `output.py`, `pilot_runtime.py`, `scan_cycle_install.py`, `scan_cycle_run.py`, `ssh_mss_proxy.py`, `thread_stacks.py`, `worker.py` |
 
 정상 설치의 Pilot/Sim/UI 이미지 세 개로 실행하는 scan 운영 경로 검사는
 [`tests/system/scan_cycle.md`](tests/system/scan_cycle.md)를 따른다. 역할별 probe와
