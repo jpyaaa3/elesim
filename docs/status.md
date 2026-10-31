@@ -1,10 +1,91 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-30. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-10-31. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### 실제 카메라 수집 → 다중 시야 → 메쉬 → 실행 중 Sim 적용 (2026-10-31)
+
+서버 GPU 2의 정상 설치 이미지 Pilot/Sim/UI를 각각 분리해, 고정 암의 실제
+Genesis RGB-D → DDS → 3-view scan → baseline mesh export → UI Apply backend →
+실행 중 Sim 씬 적용을 확인했다. Native UI 창의 자동 조작은 포함하지 않으며,
+UI가 실제로 디코딩한 두 WebRTC 화면을 녹화했다. 원본 구를 숨긴 후 두 화면의
+빨간 픽셀 0개, 적용 응답 이후의 새 비어 있지 않은 두 화면, 원본의 실제 이동,
+기존 entity q/velocity/root pose와 camera PID 보존을 함께 확인했다.
+
+운영 경로 연결은 `b4f3819`, 실제 실행에서 수정한 runtime은 `b96398f`부터
+`5d7c123`까지다. Scan bundle의 상대 경로·digest·Sim ID/boot를 publication에
+넣고 UI가 같은 Sim에만 적용하게 했다. Sim이 실제 torque/claw 상태를 telemetry에
+내보내고 fixed entity의 root pose도 rebuild 시 복원한다. 시야 후보 12,000개를
+만드는 동안 16개마다 1 ms를 양보해 DDS 제어/취소를 처리한다. 500 ms guard는
+완화하지 않았다. 실제 hand-eye와 intrinsics의 calibration identity를 encoded
+RGB-D에 넣었고, 완료 status의 중복 key, 고정 암의 world spawn 적용, RGB mask
+경계에서 섞이는 바닥 depth를 수정했다. 경계 제외는 예제의 `mask_erode_px=2`이며
+모델 API 1/기존 wire major 6을 유지한다. 추가 정상 실행 12에서 scan 자체는
+3-view/1,182점으로 끝났지만, 새 lease를 발급받은 뒤에도 이전
+`motion lease renewal rejected: no_active_lease` 오류가 남아 제어권 확인이
+30초에 실패했다. `5d7c123`은 새 grant를 받은 경우에만 이 obsolete 오류를
+지우며 다른 명령/안전 오류와 telemetry만으로 오류를 지우지 않는 규칙을 유지한다.
+해당 회귀는 수정 전 실패, 수정 후 통과했다.
+
+실행 10/11 이미지는 runtime commit `2905b8e608705bba7c6280bdd054a8e334b81692`,
+최종 실행 13은 `5d7c123a94a7d0fe4425e3a6efc95ebf4f99c284`에서
+normal generated Dockerfile로 만들고 정상 release publication/instance 등록을
+거쳤다. 각 역할에서 sibling package가 없음을 확인했고 별도 internal bridge의
+eth0/static DDS peers를 사용했다. 공유 artifact root는 Pilot RW/Sim RO이고 UI는
+bundle/정답 파일을 받지 않는다. GPU는 A6000 UUID 하나만 예약했다. 초기 build는
+기존 cache의 독립 복사본을 쓰며 cold-start 측정은 아니다.
+
+현재 엄격한 수용 조건을 통과한 실행 10/11/13은 모두 3개 시점, 관측점
+**1,180개**, 추정점 **0개**, mesh **146 vertices / 288 faces**다. 관측점의 실제
+구 표면 거리 p95는 **0.933 mm**이고, 20 mm voxel mesh vertex의 표면 거리 p95는
+**28.04 mm**다. 이 두 정확도를 같은 지표로 해석하지 않는다. 시야 방향 proxy는
+0.427이며 실제 전체 표면 수집률이 아니다. `geometry_complete_claimed=false`,
+`needs_more_observation=true`로 종료한다. HSV/FK/ObservedOnly 기준선이며
+AdaPoinTr나 학습된 자세/잔차 모델의 정확도를 입증한 결과는 아니다.
+
+| 실행 | Scan 시작 응답→완료 관측 | 적용 함수 전체 | 물리 rebuild | 두 카메라 잔여 대기 | 녹화 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 10, allocator debug + GDB | 54.11초 | 2.47초 | 2.03초 | 0.33초 | 65.9초 |
+| 11, 기본 allocator + GDB | 44.09초 | 2.88초 | 2.44초 | 0.32초 | 57.2초 |
+| 13, 기본 allocator / GDB·주기적 stack 수집 없음 | 47.75초 | 2.51초 | 2.09초 | 0.34초 | 58.9초 |
+
+10/11/13의 동일 fixture는 앞선 실행 cache를 복사해 같은 mesh 전처리를 재사용했다.
+앞선 첫 생성 mesh의 적용 함수 전체는 6.97초였지만 당시 원본 제거/최종 UI
+frame 검사가 부족해 현재의 전체 수용시험 통과로 세지 않는다. 이 차이를 알고리즘
+개선이나 임의 새 OBJ의 지연 상한으로 주장하지 않는다. 초기 Python/컨테이너
+시작과 Sim build는 녹화/scan 시간 밖이다.
+
+실패 기록도 보존했다. 시도 7/9에서 Pilot **exit 139**가 발생했고 9의 Python
+fatal stack은 operator 응답 직렬화 시점을 가리킨다. 네이티브 원인은 아직
+확정하지 못했으며, 10/11의 GDB 실행에서 재현되지 않았다는 이유로 수정됐다고
+표시하지 않는다. 당시 probe에는 주기적 faulthandler stack 수집이 있었고 최종
+probe에서는 명시적으로 켤 때만 사용한다. 주기적 수집과 GDB가 없는 13은
+정상 완료했지만 이것만으로 139의 원인을 확정하지 않는다. 첫 volatile motion intent가 실제
+피드백에 반영되지 않는 경우도 남는다. Probe는 같은 Sim boot의 명시적
+torque-on을 제한 횟수 재시도하고 실제 피드백을 요구했으며, runtime의 전달
+보장이 해결됐다는 뜻은 아니다.
+
+Host focused 회귀는 scan/model Pilot **71 passed**, lease/state/connection/scan/trajectory
+Pilot **105 passed**(앞 묶음과 중복 포함), Sim **49 passed, 2 skipped**다. 그 밖에
+이 작업의 protocol registry/PeerClient **24 passed**, optional cuRobo contract **10 passed,
+4 skipped**를 확인했다. Host에 Genesis/ROS/AV 또는 과학 의존성을 추가하지
+않았다. 이번 검증 설치에는 dev attachment가 없고 기존 wrapper는 기존 개발
+컨테이너를 재생성할 수 있어 사용하지 않았다. Canonical required/extended,
+release build/isolated verify, 네 역할 `smoke_topology.py`는 미실행이다. 정상
+역할 이미지 세 개의 실제 DDS/GPU/WebRTC 검사가 그 gate나 Robot 검사를 대신하지
+않는다. 다중 호스트 artifact 전달, native UI 창, GO2 이동/집기와 물리 Robot은
+이번 범위 밖이다. R0–R5 전체 완료를 선언하지 않는다.
+
+기존 설치/release pin/source checkout은 교체하지 않고 별도 정상 설치를 만들었다.
+원래 inventory 60개 컨테이너와 원본 cache를 보존하며 새 진단 컨테이너도 삭제하지
+않는다. 재현/증거 파일의 소유 경계는
+[`scan_cycle.md`](../workbench/tests/system/scan_cycle.md)를 따른다.
+실행 13의 실제 영상은 [`scan_cycle_demo_20261031.mp4`](../workbench/evidence/curated/sim/scan_cycle_demo_20261031.mp4),
+수치/원자료 digest는 [`scan_cycle_20261031.json`](../workbench/evidence/curated/sim/scan_cycle_20261031.json)이다.
+원자료는 서버 `/home/hckang/ws/elesim-scan-cycle-20261030/cycle-*/`에 보존한다.
 
 ### 씬 교체 지연 추가 단축: 병렬 준비와 고정 모델 재사용 (2026-10-30)
 

@@ -1,0 +1,594 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-31",
+  "scope": "fixed-arm Sim-only operational cycle; installed role images, actual DDS RGB-D and decoded WebRTC; no native UI window automation",
+  "server_task_root": "/home/hckang/ws/elesim-scan-cycle-20261030",
+  "install_uuid": "6c83e40f-8d1e-48b5-83c3-286cc8d7f50b",
+  "project": "elesim-sandy",
+  "docker_engine_id": "2ee9c1c8-0d97-43a9-82eb-dfef7cda0ae3",
+  "gpu": {
+    "index": 2,
+    "uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "model": "RTX A6000"
+  },
+  "genesis_version": "1.4.5",
+  "pipeline": [
+    "HSV instance mask, 2 px erosion",
+    "nominal FK pose",
+    "ObservedOnly",
+    "20 mm voxel surface"
+  ],
+  "fixture": {
+    "type": "static sphere",
+    "radius_m": 0.045,
+    "truth_access": "Sim-only until independent evaluation after acquisition",
+    "arm_fixed": true,
+    "arm_base_xyz_m": [
+      0.0,
+      0.0,
+      0.8
+    ],
+    "go2": false,
+    "physical_robot": false
+  },
+  "transport": {
+    "control": "ROS 2 DDS",
+    "rgbd": "encoded-rgbd-v1 DDS",
+    "media": "two DTLS/SRTP WebRTC streams",
+    "artifact": "Pilot RW / Sim RO shared host directory; UI receives only publication",
+    "network": "private internal Docker bridge, static peers, eth0, domain 212"
+  },
+  "runs": [
+    {
+      "attempt": 10,
+      "complete": true,
+      "runtime_commit": "2905b8e608705bba7c6280bdd054a8e334b81692",
+      "release_key": "92b3b25c9e3e6ea11157178bb859a004bb6e51e582ecd50da62dca62e678853d",
+      "image_ids": {
+        "sim": "sha256:e03a8dc896a09b752b965d54d68ea74d9a2fba73a48ce875565b42b4635b6a01",
+        "pilot": "sha256:a476a1523dcf9daa1abbdf4419711b9cdf9c983a42928c3d3eb98d92a8c2e6be",
+        "ui": "sha256:be563e86283ee70209632f3feb02546686303c8536e1799de0de377cc0d80f74"
+      },
+      "instrumentation": {
+        "debug_allocator": true,
+        "gdb_attached": true,
+        "periodic_stacks": true,
+        "fatal_handler": true
+      },
+      "probe_sha256": {},
+      "scan_seconds_after_start_reply": 54.107030153274536,
+      "accepted_views": 3,
+      "geometry_complete_claimed": false,
+      "needs_more_observation": true,
+      "coverage_proxy": 0.4270833333333333,
+      "geometry": [
+        {
+          "object_id": "target",
+          "observed_points": 1180,
+          "predicted_points": 0,
+          "vertices": 146,
+          "faces": 288,
+          "observed_radial_error_p50_m": 0.00046314762777831947,
+          "observed_radial_error_p95_m": 0.0009327016298757612,
+          "observed_radial_error_max_m": 0.0013789821846112646,
+          "mesh_vertex_radial_error_p95_m": 0.028043410485964645,
+          "observed_aabb_m": [
+            [
+              0.30653852224620554,
+              -0.005888694288510912,
+              0.7118673585566057
+            ],
+            [
+              0.3824558702696047,
+              0.08404587566885763,
+              0.7853421595727436
+            ]
+          ],
+          "mesh_aabb_m": [
+            [
+              0.3,
+              -0.02,
+              0.7000000000000001
+            ],
+            [
+              0.4,
+              0.1,
+              0.8
+            ]
+          ]
+        }
+      ],
+      "view_encoder_q": [
+        [
+          -0.132063,
+          0.382158,
+          -0.33934,
+          0.558898
+        ],
+        [
+          -0.11708431243748119,
+          1.4020624526092176,
+          -0.4221779056920426,
+          0.589253923334589
+        ],
+        [
+          -0.08360042571873118,
+          -0.613006756940706,
+          -0.44493811614877,
+          0.6110863754045175
+        ]
+      ],
+      "acquisition_base_world_transform": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.8
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "scene_revision": "7bc43e2fe8899a7bdd6ec191f2633d3e1aa3c193026ad8b553457e389b5c4125",
+      "mesh_sha256": "62e15dd7aead9e0111ad90a4b196c42f59d0f5bb6b4f1c8d917af1c0d31986ca",
+      "apply": {
+        "elapsed_s": 2.466553211212158,
+        "physics_s": 2.0309163997881114,
+        "camera_rebuild_s": 0.6100729643367231,
+        "cameras_s": 0.32512966729700565,
+        "entity_state_preserved": true,
+        "camera_processes_preserved": true,
+        "original_hidden_before_load": true,
+        "hidden_red_pixels": {
+          "observer": 0,
+          "hand_eye_preview": 0
+        }
+      },
+      "recorded_seconds": 65.85404130397364,
+      "preservation": {
+        "before": 60,
+        "after": 120,
+        "missing": [],
+        "changed": []
+      },
+      "raw_evidence_sha256": {
+        "run.json": "55f8b922fffc0b3864089b7514b167b9be60e3508e11bb211b5ce0c654bd3082",
+        "preservation.json": "1d5a91c2954a8f421bec46c5a95faba7f53902d2d435d485f814c74c12a8debb",
+        "ui-output/ui.json": "70edd0aca3ac6002780bdca51fe069e8d52eb273c01cef8f73d07d509cbb9d3e",
+        "ui-output/video-timeline.json": "44a34fe73c5c422fdd78feb802a5ec8f96bd84c2cbae7d563616487f7387e9ba",
+        "sim-output/sim.json": "c754d89b344065e0929f812e5c7dd009cace818f95ff239f7e4039a7121ca895",
+        "sim-output/evaluation.json": "7047e9ff0859173883ad5204f03536ae6aa5e456923b5ebf153c267a35794408",
+        "ui-output/before-scan-observer.png": "8ed1ed8d4d2822591e92af9d62d69a0075b5d6f25b31b5a02cc8d23cd548a9ca",
+        "ui-output/before-scan-hand_eye_preview.png": "ded361dbd9762686e74bc9eebec0c4280d1916912e6fb3c52d9fbd564b12405c",
+        "ui-output/original-hidden-observer.png": "4c7e92cb9106db197e3520f7b755ec3e430f638feba50b26aea7c3a2aca6c465",
+        "ui-output/original-hidden-hand_eye_preview.png": "72b65788f8edcb6d2bbe16e430f992cf0aa9302669a05e7701021bb82f65188f",
+        "ui-output/reconstructed-observer.png": "c8c78edd11c168890f108b08f3017e7335b58c10a080857a3134b3ee3528b818",
+        "ui-output/reconstructed-hand_eye_preview.png": "49302c07ac4f2c4e53bf045a58d650b2602f551341efb8cc59eb83e9f1149c79"
+      }
+    },
+    {
+      "attempt": 11,
+      "complete": true,
+      "runtime_commit": "2905b8e608705bba7c6280bdd054a8e334b81692",
+      "release_key": "92b3b25c9e3e6ea11157178bb859a004bb6e51e582ecd50da62dca62e678853d",
+      "image_ids": {
+        "sim": "sha256:e03a8dc896a09b752b965d54d68ea74d9a2fba73a48ce875565b42b4635b6a01",
+        "pilot": "sha256:a476a1523dcf9daa1abbdf4419711b9cdf9c983a42928c3d3eb98d92a8c2e6be",
+        "ui": "sha256:be563e86283ee70209632f3feb02546686303c8536e1799de0de377cc0d80f74"
+      },
+      "instrumentation": {
+        "debug_allocator": false,
+        "gdb_attached": true,
+        "periodic_stacks": true,
+        "fatal_handler": true
+      },
+      "probe_sha256": {},
+      "scan_seconds_after_start_reply": 44.091877937316895,
+      "accepted_views": 3,
+      "geometry_complete_claimed": false,
+      "needs_more_observation": true,
+      "coverage_proxy": 0.4270833333333333,
+      "geometry": [
+        {
+          "object_id": "target",
+          "observed_points": 1180,
+          "predicted_points": 0,
+          "vertices": 146,
+          "faces": 288,
+          "observed_radial_error_p50_m": 0.00046314762777831947,
+          "observed_radial_error_p95_m": 0.0009327016298757612,
+          "observed_radial_error_max_m": 0.0013789821846112646,
+          "mesh_vertex_radial_error_p95_m": 0.028043410485964645,
+          "observed_aabb_m": [
+            [
+              0.30653852224620554,
+              -0.005888694288510912,
+              0.7118673585566057
+            ],
+            [
+              0.3824558702696047,
+              0.08404587566885763,
+              0.7853421595727436
+            ]
+          ],
+          "mesh_aabb_m": [
+            [
+              0.3,
+              -0.02,
+              0.7000000000000001
+            ],
+            [
+              0.4,
+              0.1,
+              0.8
+            ]
+          ]
+        }
+      ],
+      "view_encoder_q": [
+        [
+          -0.132063,
+          0.382158,
+          -0.33934,
+          0.558898
+        ],
+        [
+          -0.11708431243748119,
+          1.4020624526092176,
+          -0.4221779056920426,
+          0.589253923334589
+        ],
+        [
+          -0.08360042571873118,
+          -0.613006756940706,
+          -0.44493811614877,
+          0.6110863754045175
+        ]
+      ],
+      "acquisition_base_world_transform": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.8
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "scene_revision": "fd95a02c75015deb2042000de6f9baa83719f2be5db47f7c8d74a6ca8c04da9d",
+      "mesh_sha256": "62e15dd7aead9e0111ad90a4b196c42f59d0f5bb6b4f1c8d917af1c0d31986ca",
+      "apply": {
+        "elapsed_s": 2.8811018466949463,
+        "physics_s": 2.4392993017099798,
+        "camera_rebuild_s": 0.6607266929931939,
+        "cameras_s": 0.31690869107842445,
+        "entity_state_preserved": true,
+        "camera_processes_preserved": true,
+        "original_hidden_before_load": true,
+        "hidden_red_pixels": {
+          "observer": 0,
+          "hand_eye_preview": 0
+        }
+      },
+      "recorded_seconds": 57.167281437665224,
+      "preservation": {
+        "before": 60,
+        "after": 120,
+        "missing": [],
+        "changed": []
+      },
+      "raw_evidence_sha256": {
+        "run.json": "d30c7828302d9bc1792403f319ecd4666eee7a607c444260fc1d6cffc90c72a1",
+        "preservation.json": "1d5a91c2954a8f421bec46c5a95faba7f53902d2d435d485f814c74c12a8debb",
+        "ui-output/ui.json": "f293c96c4e0eb07b3f2a5cef7431f58aedd78bbd9616b2315c1c8ccdac8691f6",
+        "ui-output/video-timeline.json": "11cfd94cb6262f824c484cb0fdee0b1c98112a054cd36799cabfc230eae77161",
+        "sim-output/sim.json": "dc98e3ea35e5852b46d81529e7b120a3063c8ab8e7ea783b7c20a7adaa3e887f",
+        "sim-output/evaluation.json": "c1de9911fcc481f5f3a5d567846c870714bb1b54235a3cdf8be02ca486805387",
+        "ui-output/before-scan-observer.png": "9db7b6e3e4629e2f8fc29f06470737edf776bb4934871da4a91bc7dd631bcfd9",
+        "ui-output/before-scan-hand_eye_preview.png": "ded361dbd9762686e74bc9eebec0c4280d1916912e6fb3c52d9fbd564b12405c",
+        "ui-output/original-hidden-observer.png": "556aab4a47d2ec59561873fd73dc90e6adf78f5060c72701552ff4d689fc8bff",
+        "ui-output/original-hidden-hand_eye_preview.png": "74a39c62f08312b3dea4f555d9b9ba3189707261e053fe1c406414014d69861f",
+        "ui-output/reconstructed-observer.png": "481fcd69f4ebea0cc6ffe6c25ebf94affe145653c5884dc08322e4a98c1f53f4",
+        "ui-output/reconstructed-hand_eye_preview.png": "9e4b0abaad71120d52358298ef1df6e0306b0eb1cb1ab91a594364627fb9b335"
+      }
+    },
+    {
+      "attempt": 13,
+      "complete": true,
+      "runtime_commit": "5d7c123a94a7d0fe4425e3a6efc95ebf4f99c284",
+      "release_key": "487ba11cda98ea452d92f0b9e15573b053892e8090b41b8dda2c890b9a13160e",
+      "image_ids": {
+        "sim": "sha256:e03a8dc896a09b752b965d54d68ea74d9a2fba73a48ce875565b42b4635b6a01",
+        "pilot": "sha256:992ce4b7c9ed319ebf899152b6f048a0c5462f9184255439fb4b422b76f66294",
+        "ui": "sha256:be563e86283ee70209632f3feb02546686303c8536e1799de0de377cc0d80f74"
+      },
+      "instrumentation": {
+        "debug_allocator": false,
+        "gdb_attached": false,
+        "periodic_stacks": false,
+        "fatal_handler": true
+      },
+      "probe_sha256": {
+        "probe_scan_cycle_sim.py": "52809d9b0447b3d05d834a28e619188e6c023875fd48efe0795675ab985f6a2f",
+        "probe_scan_cycle_pilot.py": "fd652114a823a41eebcf5cbec0b927dc1c52b5ddf8d33e45d11ca56a93812ed7",
+        "probe_scan_cycle_ui.py": "d4db7fe9368aa2077a09cb29625bd64cb9068caa4ca40b3c56713c8a4828cd1a",
+        "scan_cycle_recording.py": "997cf0044eece9c178da287c4e2707b9b60896940d49b8993b09ba540ecc0f09"
+      },
+      "scan_seconds_after_start_reply": 47.74820137023926,
+      "accepted_views": 3,
+      "geometry_complete_claimed": false,
+      "needs_more_observation": true,
+      "coverage_proxy": 0.4270833333333333,
+      "geometry": [
+        {
+          "object_id": "target",
+          "observed_points": 1180,
+          "predicted_points": 0,
+          "vertices": 146,
+          "faces": 288,
+          "observed_radial_error_p50_m": 0.00046314762777831947,
+          "observed_radial_error_p95_m": 0.0009327016298757612,
+          "observed_radial_error_max_m": 0.0013789821846112646,
+          "mesh_vertex_radial_error_p95_m": 0.028043410485964645,
+          "observed_aabb_m": [
+            [
+              0.30653852224620554,
+              -0.005888694288510912,
+              0.7118673585566057
+            ],
+            [
+              0.3824558702696047,
+              0.08404587566885763,
+              0.7853421595727436
+            ]
+          ],
+          "mesh_aabb_m": [
+            [
+              0.3,
+              -0.02,
+              0.7000000000000001
+            ],
+            [
+              0.4,
+              0.1,
+              0.8
+            ]
+          ]
+        }
+      ],
+      "view_encoder_q": [
+        [
+          -0.132063,
+          0.382158,
+          -0.33934,
+          0.558898
+        ],
+        [
+          -0.11708431243748119,
+          1.4020624526092176,
+          -0.4221779056920426,
+          0.589253923334589
+        ],
+        [
+          -0.08360042571873118,
+          -0.613006756940706,
+          -0.44493811614877,
+          0.6110863754045175
+        ]
+      ],
+      "acquisition_base_world_transform": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.8
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "scene_revision": "387af3d9d608fe5233e69e42cafead2db979c529cd06be96b3877632d9278e99",
+      "mesh_sha256": "62e15dd7aead9e0111ad90a4b196c42f59d0f5bb6b4f1c8d917af1c0d31986ca",
+      "apply": {
+        "elapsed_s": 2.51482892036438,
+        "physics_s": 2.0864683240652084,
+        "camera_rebuild_s": 0.5948662552982569,
+        "cameras_s": 0.33654957776889205,
+        "entity_state_preserved": true,
+        "camera_processes_preserved": true,
+        "original_hidden_before_load": true,
+        "hidden_red_pixels": {
+          "observer": 0,
+          "hand_eye_preview": 0
+        }
+      },
+      "recorded_seconds": 58.81231540162116,
+      "preservation": {
+        "before": 60,
+        "after": 130,
+        "missing": [],
+        "changed": []
+      },
+      "raw_evidence_sha256": {
+        "run.json": "2aa315ef25950a3b0b3823dc1039b3a5aab445ffa47d06198af4afb9bf7a7c9a",
+        "preservation.json": "6ecd32e14aef2546cd54ac154269c470a574b5f35f6644450299d31f1bd603f6",
+        "ui-output/ui.json": "0b4d7c339e95fee42fa174e14f59909e058a2f6368ecca7266f710c2032a5d1e",
+        "ui-output/video-timeline.json": "472e301ccf3b712aa8b9732ee7a92bd116b75a01829833aaa9b9389efa3a2d8c",
+        "sim-output/sim.json": "6619be790a4fb5c2ddcae535f8ff3920f4efa090860285f0408dcef62bc9a1da",
+        "sim-output/evaluation.json": "9e8326e671882106868ed41ec978c4baa30f1f65d356cd14ede168ed8f9d642e",
+        "ui-output/before-scan-observer.png": "bd659c987d77b7b851425b07c500332bbfb9ad9f2c71ad83b184d7273b8f4302",
+        "ui-output/before-scan-hand_eye_preview.png": "2e132f1791876c923ec3eb97a733f939827039aba68653a1704d443d58e4404d",
+        "ui-output/original-hidden-observer.png": "6316ae840c64789b40407790599fe3efe88bac232bfefd9aed318d0453aa99f7",
+        "ui-output/original-hidden-hand_eye_preview.png": "f29cf4514330080046c6cbd6f5a540f0a6bb586f5c8215a0ac24009b760f9d2e",
+        "ui-output/reconstructed-observer.png": "158a9dbe637e07b325c89f30325d2393a33977af9095859e7dced66569e8006c",
+        "ui-output/reconstructed-hand_eye_preview.png": "8188b89a758531bf3340d18869efec6e064c6bc67825a07c080a4fd06345c985"
+      }
+    }
+  ],
+  "video": {
+    "attempt": 13,
+    "path": "scan_cycle_demo_20261031.mp4",
+    "poster": "scan_cycle_demo_20261031.png",
+    "poster_time_s": 56,
+    "poster_sha256": "bd781c5e8ae11e5628afe21208a0d3724baf409d71e93b991eb7cb8fd394106d",
+    "scope": "actual UI WebRTC recording, composed with measured stage captions",
+    "playback_speed": 1,
+    "mesh_cache_note": "Warm repeated mesh",
+    "rendered": {
+      "programs": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "width": 1280,
+          "height": 720,
+          "avg_frame_rate": "10/1"
+        }
+      ],
+      "format": {
+        "duration": "58.800000"
+      }
+    },
+    "bytes": 1592886,
+    "sha256": "a802b4cea69bd6daa783c6bf5ff9a3afe9ea2d07dfba77de65463f70fab36d8b",
+    "source": {
+      "hand_eye_preview.mp4": "cd029170869bb0678e3acd12193a15d33194dac73c9a8b569d4bc8a1f1b1dd99",
+      "observer.mp4": "1d395defa5026b0d1e30da0cc0e18ce8ab00a8af49da2025f56da07618627f0a"
+    }
+  },
+  "final_retention": {
+    "original_checkout_head": "70757e6116fa968904017388094f5c13d4854137",
+    "original_checkout_status": "",
+    "pilot_native_crash_bytes": 0
+  },
+  "focused_host_verification": {
+    "pilot_scan_models": {
+      "passed": 71
+    },
+    "pilot_lease_state_connection_scan_trajectory": {
+      "passed": 105,
+      "overlaps_previous": true
+    },
+    "sim": {
+      "passed": 49,
+      "skipped": 2
+    },
+    "protocol_registry_peer_client": {
+      "passed": 24
+    },
+    "optional_curobo_contract": {
+      "passed": 10,
+      "skipped": 4
+    }
+  },
+  "canonical_gates": {
+    "required": "not run",
+    "extended": "not run",
+    "release_build": "not run",
+    "isolated_release_verify": "not run",
+    "four_role_smoke_topology": "not run",
+    "reason": "No dev attachment in this test installation; existing wrapper may recreate a container that must be preserved. No host dependencies installed."
+  },
+  "failed_or_partial_attempts": [
+    {
+      "attempt": 1,
+      "status": "harness configuration rejected: local provider disabled"
+    },
+    {
+      "attempt": 2,
+      "status": "missing applied Sim torque/claw feedback; fixed b96398f"
+    },
+    {
+      "attempts": [
+        3,
+        4
+      ],
+      "status": "FK candidate preparation starved DDS/control; math-thread limit alone insufficient; cooperative yield fixed 6fc8c75"
+    },
+    {
+      "attempt": 5,
+      "status": "empty encoded RGB-D calibration identity; fixed 91b2495"
+    },
+    {
+      "attempt": 6,
+      "status": "world spawn, mixed mask-boundary depth and duplicate status keys; fixed 2905b8e"
+    },
+    {
+      "attempts": [
+        7,
+        9
+      ],
+      "status": "Pilot exit 139; root cause unresolved; periodic faulthandler stacks active; case 9 fatal stack captured"
+    },
+    {
+      "attempt": 8,
+      "status": "backend scan and import completed; original fixture still visible and UI observer final PNG was black; old probe was insufficient, strict assertions added",
+      "mesh_apply_s": 6.973668575286865
+    },
+    {
+      "attempt": 12,
+      "status": "scan completed (3 views, 1182 points), but old no_active_lease renewal error survived a new grant; post-scan authority check timed out at 30 s; fixed 5d7c123"
+    }
+  ],
+  "limits": [
+    "Observed surfaces only; no complete silhouette/geometry claim",
+    "Point radial p95 and voxel mesh vertex radial p95 are distinct metrics on one synthetic sphere",
+    "Warm kernel and identical-mesh preprocessing cache; startup excluded; no unseen-mesh latency bound",
+    "Exit 139 remains unresolved; successful GDB/normal runs do not establish its root cause",
+    "First explicit torque intent sometimes needs retry; general first-motion delivery not fixed",
+    "No Robot/GO2 locomotion/picking, native UI window, multi-host artifact transfer, learned-model accuracy or full canonical gate acceptance"
+  ],
+  "maintained_tool_sha256": {
+    "workbench/research/support/scan_cycle_install.py": "d026bc2bef7ea836ad3a56d79130d29455ac744212d7461044b58cb0e1799de6",
+    "workbench/research/support/scan_cycle_run.py": "bc0735e6e998eb95f523d1fc137614e9ef928bfd2b5c3313976e6c74b6ddd1a1",
+    "workbench/research/debug/scan_cycle_native.py": "45035404eed0bb54214dd14d885e132a62a7cbdbe12fde2383fe80a4f4b7b6e9",
+    "workbench/research/analysis/evaluate_scan_cycle.py": "7a030a14384966f197b6319f80d701cca806c77663471f3361658f7e051571f5",
+    "workbench/research/analysis/profile_scan_models.py": "fcea0b3746b35e80b2caddc11f343f42020fb618b5d831d28948c3aa7027bde3",
+    "workbench/research/analysis/render_scan_cycle_demo.py": "7de9096514825288ad532f591d43c237b4906e2b0e7b8508a8f534ec06659ae8"
+  }
+}

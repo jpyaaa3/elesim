@@ -284,7 +284,7 @@ Sim은 물리 상태를 저장하고 재빌드·controller 재결합·두 카메
 변경하지 않는다. 실행 중 교체 명령은 `simulation.scene-rebuild.v1` capability를
 사용하는 major 6의 선택적 확장이다.
 
-## Robot IMU 모델과 구분
+## 수집 좌표와 mask 경계
 
 고정 암의 world 배치는 실행 설정 `robot.arm.spawn.xyz/euler_deg`를 사용한다.
 생성된 IK geometry에 들어 있는 기본 spawn이 이 값을 덮어쓰지 않는다.
@@ -294,6 +294,8 @@ GO2 장착 시에는 기존 측정된 base pose 경로를 유지한다.
 Sim `scan.example.yaml`은 2를 명시해 JPEG/안티앨리어싱 경계의 RGB mask가
 뒤쪽 바닥 깊이를 섞는 픽셀을 제외한다. 경계 부근의 관측을 줄이는 옵션이며
 미관측 면을 채우거나 완전한 실루엣을 보증하지 않는다. Model API는 1이다.
+
+## Robot IMU 모델과 구분
 
 Robot의 5 ms arm loop에는 임의 Python/Torch 모델을 넣지 않는다. 기존
 `payload/config/pilot/imu_models/*.json`의 schema 1 expression graph가 이 슬롯이다.
