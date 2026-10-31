@@ -96,6 +96,7 @@ class RemoteState:
             if target and self._reply_reason in {
                 "no_active_target", "no_active_lease",
                 "motion command rejected: no_active_lease",
+                "motion lease renewal rejected: no_active_lease",
             }:
                 self._reply_ok, self._reply_reason = True, ""
             if target == self._target_id:

@@ -211,6 +211,8 @@ Pilot은 discovery interval마다 `select_target`을 반복하고 Sim/Robot의
 현재 lease의 갱신 요청에 대응하는 `error`가 오면 Pilot은 그 lease를 지우고
 `target_lost`를 통해 다시 선택한다. 요청 ID, target boot와 lease를 함께
 검사하므로 이전 lease의 지연된 오류·해제 통지가 새 lease를 취소하지 않는다.
+새 grant를 받은 뒤에는 이전 lease가 없어서 거절된 command/renewal 오류 상태를
+비운다. Telemetry 수신만으로 오류를 지우지 않으며 다른 명령·안전 오류는 유지한다.
 
 ### Authority와 lifecycle
 

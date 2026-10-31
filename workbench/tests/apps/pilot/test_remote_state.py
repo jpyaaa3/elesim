@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import pytest
 
 from elesim_pilot.remote_state import RemoteState
 from elesim_protocol import SimMappingConfig
@@ -154,12 +155,16 @@ def test_snapshot_before_first_telemetry_uses_a_finite_unknown_age() -> None:
     assert math.isfinite(snapshot.host_state_age_s)
 
 
-def test_new_grant_same_endpoint_clears_only_obsolete_missing_lease_error():
+@pytest.mark.parametrize('reason',[
+    'no_active_target','no_active_lease','motion command rejected: no_active_lease',
+    'motion lease renewal rejected: no_active_lease',
+])
+def test_new_grant_same_endpoint_clears_only_obsolete_missing_lease_error(reason):
     state = RemoteState(SimMappingConfig(), clock=lambda:10.)
     state.peer_connected(True)
     state.target_changed("robot-a")
     state.accept_telemetry({"q":[-.1,0,0,0],"q_source":"measured"})
-    state.accept_error("motion command rejected: no_active_lease")
+    state.accept_error(reason)
     state.accept_telemetry({"q":[-.1,0,0,0],"q_source":"measured"})
     assert not state.snapshot(tx_seq=0).reply_ok
     state.target_changed("robot-a")  # new lease, same Robot endpoint
