@@ -482,6 +482,9 @@ Sim 자동 scan의 기본 `scan.integrated.yaml`은 별도의 `FloorTilt` pose c
 새 capture를 최대 8회 받고 실패하면 scan을 중단한다. 보정 전 capture도 별도
 calibration 기록에 보존한다. Translation과 법선 주위 yaw는 보정하지 않는다.
 관측 전용 floor service의 늦은 snapshot을 다른 촬영에 재사용하지 않는다.
+같은 자세의 연속 calibration capture는 다시 motion을 명령하거나 정착을
+재시작하지 않는다. 최신 피드백·자세 허용 오차는 계속 검사하고 벗어나면
+기존 certified segment로 다시 정착한다.
 
 통합 scan은 누적 observed cloud를 실제 AdaPoinTr completion adapter에 넘긴다.
 고정 upstream source/config/checkpoint는 SHA-256이 검증된 명시적 외부 asset이고

@@ -75,6 +75,16 @@ def test_external_models_keep_apple_tree_identity_and_prediction_separate(tmp_pa
         export_result(result, manifest.parent)
 
 
+def test_model_preparation_does_not_require_a_measurement_sample(tmp_path):
+    pipeline = Pipeline.from_config(config_file(tmp_path, corrections=[{}]))
+    prepared = []
+    pipeline.corrections[0].implementation.prepare = lambda: prepared.append(True)
+    pipeline.prepare()
+    assert prepared == [True]
+    with pytest.raises(ValueError, match='IMU'):
+        pipeline.observe(measurement(), Task('s', 'apple-1'))
+
+
 def test_ordered_corrections_require_calibrated_fresh_imu(tmp_path):
     pipeline = Pipeline.from_config(config_file(tmp_path, corrections=[{"offset_m": .1}, {"scale": 2.}]))
     sample = measurement()

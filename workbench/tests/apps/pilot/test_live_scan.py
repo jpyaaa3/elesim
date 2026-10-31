@@ -245,3 +245,23 @@ def test_completed_status_merges_progress_with_final_report(rig):
     assert status['accepted_views'] == 2 and status['observed_points'] == 30
     assert status['coverage'] == {'fraction':.25}
     assert status['stop_reason'] == 'view_budget'
+
+
+def test_repeated_calibration_captures_do_not_restart_the_same_motion(rig):
+    settled = []
+    original = rig.scan._move_and_wait
+    def settle(*args):
+        settled.append(np.array(args[0]))
+        return original(*args)
+    rig.scan._move_and_wait = settle
+    class Engine:
+        def run(self, acquire, start, *args, **kwargs):
+            first = [acquire(start, {'accepted': True}) for _ in range(3)]
+            assert len({sample.sensor.seq for sample in first}) == 3
+            acquire(start+[-.001, 0., 0., 0.], {'accepted': True})
+            return None, {'accepted_views': 2, 'stop_reason': 'view_budget'}
+    rig.scan.engine_factory = lambda *_args: Engine()
+    rig.scan.start()
+    rig.pump()
+    assert rig.scan.status()['phase'] == 'completed'
+    assert len(settled) == 2

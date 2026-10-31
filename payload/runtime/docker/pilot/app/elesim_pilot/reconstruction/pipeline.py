@@ -43,7 +43,7 @@ def model_diagnostics(model):
 def call_model(model, method, *args, cancelled=lambda: False, progress=lambda event: None):
     if cancelled():
         raise PipelineCancelled("reconstruction cancelled")
-    if getattr(model.implementation, "requires_imu", False):
+    if method != 'prepare' and getattr(model.implementation, "requires_imu", False):
         if not args or not isinstance(args[0], Measurement) or args[0].imu is None:
             raise ValueError(f"{model.stage} requires a calibrated, fresh IMU sample")
     started = time.monotonic()

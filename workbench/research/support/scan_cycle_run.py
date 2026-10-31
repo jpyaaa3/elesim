@@ -119,10 +119,11 @@ def inventory():
 
 
 def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_interval=None,
-           pipeline_mode='integrated',pose_bias_deg=0.):
+           pipeline_mode='integrated',pose_bias_deg=0.,view_budget=3):
     assert 1 <= attempt <= 24
     assert pipeline_mode in ('baseline', 'integrated')
     assert math.isfinite(pose_bias_deg) and abs(pose_bias_deg) <= 10
+    assert type(view_budget) is int and 2 <= view_budget <= 24
     if stack_interval is not None and (not math.isfinite(stack_interval) or stack_interval <= 0):
         raise ValueError('stack interval must be finite and positive')
     root = TASK/f'cycle-{attempt:02d}'
@@ -172,6 +173,8 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
     record['fixture_shape'] = shape
     record['pipeline_mode'] = pipeline_mode
     record['pose_bias_deg'] = pose_bias_deg
+    record['view_budget'] = view_budget
+    record['driver_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     for index,role in enumerate(('sim','pilot','ui')):
         key,service = services[role]
         assert subprocess.run(DOCKER+['inspect',service['container_name']],capture_output=True).returncode != 0
@@ -237,6 +240,7 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
                 record['probe_sha256']['scan_cycle_recording.py'] = hashlib.sha256(
                     (probes/'scan_cycle_recording.py').read_bytes()).hexdigest()
                 command.append('--record-video')
+                command.extend(('--view-budget',str(view_budget)))
                 command.extend(('--system',system,'--pilot',endpoints['pilot'],
                     '--sim',endpoints['sim'],'--ui',endpoints['ui']))
                 for peer in peers:
@@ -485,11 +489,12 @@ def main():
     parser.add_argument('--stack-interval',type=float)
     parser.add_argument('--pipeline-mode',choices=('baseline','integrated'),default='integrated')
     parser.add_argument('--pose-bias-deg',type=float,default=0.)
+    parser.add_argument('--view-budget',type=int,default=3)
     args = parser.parse_args()
     if args.action == 'upload': upload()
     elif args.action == 'publish': publish()
     elif args.action == 'launch': launch(args.attempt,args.math_threads,args.debug_allocator,args.shape,args.stack_interval,
-        args.pipeline_mode,args.pose_bias_deg)
+        args.pipeline_mode,args.pose_bias_deg,args.view_budget)
     elif args.action == 'stop': stop(args.attempt)
     elif args.action == 'profile-models': profile_models(args.attempt)
     elif args.action == 'retry-ui': retry_ui(args.attempt)

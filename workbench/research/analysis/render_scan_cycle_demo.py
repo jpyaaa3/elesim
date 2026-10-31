@@ -25,13 +25,13 @@ def safe(value):
     return str(value).replace('\\','/').replace('{','(').replace('}',')').replace('\n',' ')
 
 
-def label(sample):
+def label(sample,max_views=3):
     stage,phase = sample['stage'],sample['phase']
     if stage == 'multi-view scan':
         index = (sample.get('view') or 0)+1
         return {'loading_models':'Load scan models', 'calibrating':'Measure floor tilt',
             'pose_correction':'Apply floor tilt correction', 'completion':'Complete shape with AdaPoinTr',
-            'moving':f'Move to view {index}/3', 'capturing':f'Capture RGB-D: view {index}/3',
+            'moving':f'Move to view {index}/{max_views}', 'capturing':f'Capture RGB-D: view {index}/{max_views}',
             'choosing_view':'Choose the next safe viewpoint', 'reconstructing':'Fuse points and build mesh',
             'completed':'Scan complete'}.get(phase,safe(phase).replace('_',' ').capitalize())
     return {'demo initial view':'Original virtual object', 'steady simulation feedback':'Check live feedback',
@@ -70,8 +70,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     event(0,duration,'Data',16,640,pipeline_label)
     event(0,duration,'Data',16,678,'Actual wall time / 1x playback | recorded at 10 fps | Genesis 1.4.5 | GPU 2')
     segments = []
+    max_views = ui.get('scan',{}).get('views',3)
     for row in rows:
-        key = (label(row),row.get('accepted_views',0),row.get('observed_points',0))
+        key = (label(row,max_views),row.get('accepted_views',0),row.get('observed_points',0))
         if not segments or segments[-1][1] != key:
             segments.append((row['t_s'],key,row))
     if segments:
@@ -80,7 +81,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         end = min(duration,segments[index+1][0] if index+1<len(segments) else duration)
         title,accepted,points = key
         event(start,end,'Stage',980,282,'\\N'.join(textwrap.wrap(title,23)))
-        event(start,end,'Data',980,382,f'Accepted views: {accepted}/3\\NObserved points: {points:,}\\NFixed arm / Sim only\\NHeadless UI backend')
+        event(start,end,'Data',980,382,f'Accepted views: {accepted}/{max_views}\\NObserved points: {points:,}\\NFixed arm / Sim only\\NHeadless UI backend')
         if row['stage'] in ('demo final view','complete') and evaluation['complete']:
             metrics = evaluation['objects'][0]
             error = metrics.get('observed_surface_error_p95_m',metrics.get('observed_radial_error_p95_m'))*1000

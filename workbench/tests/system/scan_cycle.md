@@ -41,6 +41,8 @@ strict-load/추론하여 8,192개 predicted point를 냈는지 검사한다. `co
 기존 baseline의 `complete`는 계속 형상 기준까지 요구한다. 기울기 오차 주입은
 `--pose-bias-deg 5`로 Pilot의 private hand-eye 추정 회전에만 적용하며, Sim의
 카메라/정답/관절 제어 calibration은 바꾸지 않는다.
+`--view-budget 12`로 실제 UI 기본 예산도 검사할 수 있다. 안전한 추가 시점이
+없으면 더 적은 관측으로 종료할 수 있으며 예산 수를 완전 표면 수집률로 해석하지 않는다.
 
 ## 역할별 파일
 

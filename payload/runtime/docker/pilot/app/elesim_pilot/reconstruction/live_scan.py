@@ -193,10 +193,17 @@ class LiveScan:
                     expected_source_id=route[0], expected_boot_id=route[1], wire_format=stream['format'])
                 camera.start()
                 last_seq, calibration = -1, None
+                settled_goal, settled_wall = None, None
 
                 def acquire(goal, certificate):
-                    nonlocal last_seq, calibration
-                    settled_wall = self._move_and_wait(goal, certificate, generation, cancelled)
+                    nonlocal last_seq, calibration, settled_goal, settled_wall
+                    if not certificate.get('accepted'):
+                        raise ValueError('uncertified scan motion')
+                    feedback, _, _ = self._checked_feedback()
+                    if (settled_goal is None or not np.array_equal(goal, settled_goal)
+                            or not np.allclose(feedback['q'], goal, rtol=0., atol=[.001, .015, .015, .015])):
+                        settled_wall = self._move_and_wait(goal, certificate, generation, cancelled)
+                        settled_goal = np.array(goal, copy=True)
                     progress({'stage': 'capturing'})
                     deadline = self.clock()+8.
                     while not cancelled() and self.clock() < deadline:
