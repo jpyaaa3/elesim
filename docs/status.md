@@ -6,6 +6,48 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 같은 단지 점군의 20/10/5 mm 메쉬 비교 (2026-10-31)
+
+실행 23의 관측 **4,325점 / 원본 예측 8,192점**을 그대로 사용해 CPU에서만
+재메쉬했다. 생성점 필터 반경은 해상도와 분리해 **10 mm / 이웃 8개**로 고정했다.
+세 결과 모두 같은 생성점 8,023개를 사용하고 169개를 제외한다. 20 mm OBJ의
+SHA-256이 기존 GPU 실행 23의 mesh와 정확히 같아 기준선 재현도 확인했다.
+
+| 해상도 | 점유 복셀 | 삼각형 | 면 연결 성분 | mesh vertex 표면 p95 | CPU 생성 중앙값 |
+| --- | --- | --- | --- | --- | --- |
+| 20 mm | 286 | 1,076 | 1 | 34.44 mm | 35.9 ms |
+| **10 mm** | **1,191** | **4,220** | **1** | **29.73 mm** | **53.3 ms** |
+| 5 mm | 4,755 | 18,560 | 66 | 19.73 mm | 125.7 ms |
+
+연결 성분은 면을 공유하는 점유 voxel의 기준이며 일반 mesh component 수와
+구분한다. 5 mm는 vertex 오차가 작아져도 입력 밀도 대비 빈틈/분리가 늘고 기존
+4,000 voxel 예산도 넘는다. 통합 scan 기본값은 **10 mm**로 낮췄다. 관측 통합의
+4 mm와는 독립이며, 생성점 필터 반경은 계속 10 mm다. 기존 설정에서 반경을
+생략하면 예전의 voxel/2 동작을 유지한다. 비교에서만 명시한 voxel 예산 8,000은
+runtime 기본 4,000을 바꾸지 않으며 최대 허용치다. 최종 scene의 triangle/vertex/
+byte 계약 검사는 유지한다.
+
+[`비교 그림`](../workbench/evidence/curated/sim/jar-voxel-comparison-20261031/comparison.png),
+[`같이 회전하는 3D 비교`](../workbench/evidence/curated/sim/jar-voxel-comparison-20261031/comparison.html),
+[`수치·해시 및 OBJ 기록`](../workbench/evidence/curated/sim/jar-voxel-comparison-20261031/summary.json)을
+추가했다. 원본과 세 메쉬는 같은 축척/시점으로 표시한다. 더 작은 voxel에서도
+목 위 돌기와 빈틈은 남아 있어 해상도 변경만으로 원형이 복구됐다고 주장하지 않는다.
+Vertex-to-surface p95 역시 전체 표면의 관측률이나 파지 정확도를 뜻하지 않는다.
+
+시간은 WSL host CPU에서 해상도별 warmup 뒤 5회 교차 실행한 중앙값이며
+file I/O, 촬영, completion 재추론, Sim 삽입 시간은 포함하지 않는다. 이번에는
+서버 원본 NPZ 읽기 외 live Docker/GPU/Robot 변경을 하지 않았다. 아래 98.1초
+영상과 그 당시 20 mm 실행 기록은 보존한다. 새 기본값은 source 설정 변경이며
+기존 immutable 역할 image/instance를 갱신하거나 재시작하지 않았다.
+
+관련 host fallback **74 passed**다. 검증 중 기존 freshness test가 worker에서
+mock 시간을 1초 뛰어넘겨 control deadman과 경쟁하던 문제를 확인했다. 실제
+control tick으로 시간을 진행하도록 test만 고쳤으며 stale/future frame 거절과
+500 ms runtime guard는 유지한다. HTML은 JavaScript 문법 검사와 PNG 확인을
+마쳤으며 browser WebGL 실기동은 미검증이다. Generated development attachment
+부재로 canonical required/extended, release build/isolated verify, 4-role real-RMW
+topology gate는 미실행이고, 새 해상도의 live Sim 삽입·물리 파지는 검증하지 않았다.
+
 ### 굴곡 있는 단지 1-cycle 데모 (2026-10-31)
 
 최대 몸통 지름 **120 mm / 높이 220 mm**, 목 지름 52.8 mm, 열린 입구와

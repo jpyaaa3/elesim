@@ -47,5 +47,6 @@ models:
   mesher:
     factory: elesim_pilot.reconstruction.providers:VoxelSurface
     options:
-      voxel_m: 0.02
+      voxel_m: 0.01
       min_generated_neighbors: 8
+      generated_neighbor_radius_m: 0.01

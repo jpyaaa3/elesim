@@ -146,7 +146,7 @@ class VoxelSurface:
     The learned mesher slot can replace this reference without changing runners
     or Sim. Measured and model-generated points stay separate in the artifact.
     """
-    api_version, stage, version = 1, "mesher", "supported-voxel-surface-v2"
+    api_version, stage, version = 1, "mesher", "supported-voxel-surface-v3"
 
     def __init__(self, *, options, assets):
         self.voxel_m = float(options.get("voxel_m", .02))
@@ -155,6 +155,13 @@ class VoxelSurface:
         self.min_generated_neighbors = options.get('min_generated_neighbors', 0)
         if type(self.min_generated_neighbors) is not int or not 0 <= self.min_generated_neighbors <= 64:
             raise ValueError('min_generated_neighbors must be an integer in 0..64')
+        self.generated_neighbor_radius_m = float(options.get('generated_neighbor_radius_m', self.voxel_m/2))
+        if not np.isfinite(self.generated_neighbor_radius_m) or not 0 < self.generated_neighbor_radius_m <= .2:
+            raise ValueError('generated_neighbor_radius_m must be a finite distance in (0,0.2] metres')
+        self.max_occupied_voxels = options.get('max_occupied_voxels', 4000)
+        # At most 12 triangles per voxel, within the 100000-triangle contract.
+        if type(self.max_occupied_voxels) is not int or not 1 <= self.max_occupied_voxels <= 8000:
+            raise ValueError('max_occupied_voxels must be an integer in 1..8000')
         self._diagnostics = {}
 
     def mesh(self, shape, task):
@@ -164,16 +171,17 @@ class VoxelSurface:
             from scipy.spatial import cKDTree
             source = np.concatenate((observed, generated))
             distances, _ = cKDTree(source).query(generated,k=self.min_generated_neighbors+1)
-            retained = generated[distances[:,-1] <= self.voxel_m/2]
+            retained = generated[distances[:,-1] <= self.generated_neighbor_radius_m]
         self._diagnostics = dict(voxel_m=self.voxel_m,
             min_generated_neighbors=self.min_generated_neighbors,
-            generated_neighbor_radius_m=self.voxel_m/2,
+            generated_neighbor_radius_m=self.generated_neighbor_radius_m,
             observed_points=len(observed),generated_points=len(generated),
             meshed_generated_points=len(retained),
             rejected_generated_points=len(generated)-len(retained))
         points = np.concatenate((observed, retained))
         cells = {tuple(v) for v in np.floor(points / self.voxel_m).astype(np.int64)}
-        if len(cells) > 4000:
+        self._diagnostics.update(occupied_voxels=len(cells),max_occupied_voxels=self.max_occupied_voxels)
+        if len(cells) > self.max_occupied_voxels:
             raise ValueError("voxel mesher budget exceeded; increase voxel_m or supply another mesher")
         # Outward oriented quads, triangulated with shared vertices.
         sides = (

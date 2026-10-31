@@ -276,3 +276,31 @@ def test_voxel_mesh_keeps_observations_and_dense_unseen_patch_but_rejects_lone_p
     np.testing.assert_array_equal(shape.predicted,predicted)
     np.testing.assert_array_equal(shape.cloud.observed,[[0.,0.,0.],[.5,0.,.5]])
     assert mesher.diagnostics()['rejected_generated_points'] == 1
+
+
+def test_explicit_generated_support_radius_keeps_filtering_fixed_across_voxel_sizes():
+    cloud = ObjectCloud('target','jar','target','world',[[.5,0.,.5]])
+    # Nine neighbours span 8 mm: supported at 10 mm, not at half a 5 mm voxel.
+    predicted = np.array([[.101+i*.001,.101,.101] for i in range(10)]+[[.8,.8,.8]])
+    shape = CompletedObject(cloud,predicted)
+    for voxel in (.02,.01,.005):
+        mesher = VoxelSurface(options={'voxel_m':voxel,'min_generated_neighbors':8,
+            'generated_neighbor_radius_m':.01},assets={})
+        mesher.mesh(shape,Task('resolution','target'))
+        assert mesher.diagnostics()['meshed_generated_points'] == 10
+        assert mesher.diagnostics()['rejected_generated_points'] == 1
+        assert mesher.diagnostics()['generated_neighbor_radius_m'] == .01
+    np.testing.assert_array_equal(shape.predicted,predicted)
+
+
+def test_voxel_budget_can_be_explicitly_raised_without_weakening_the_default():
+    points = np.array([[x*.04,y*.04,z*.04] for x in range(16) for y in range(16) for z in range(16)])
+    shape = CompletedObject(ObjectCloud('target','jar','target','world',points),np.empty((0,3)))
+    with pytest.raises(ValueError,match='budget exceeded'):
+        VoxelSurface(options={},assets={}).mesh(shape,Task('budget','target'))
+    mesher = VoxelSurface(options={'max_occupied_voxels':8000},assets={})
+    mesh = mesher.mesh(shape,Task('budget','target'))
+    assert mesher.diagnostics()['occupied_voxels'] == 4096
+    assert len(mesh.triangles) <= 100_000
+    with pytest.raises(ValueError,match='max_occupied_voxels'):
+        VoxelSurface(options={'max_occupied_voxels':8001},assets={})

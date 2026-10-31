@@ -24,6 +24,26 @@ run ID, GPU policy, encoder, simulated/physical hardware와 통과하지 않은 
 gate를 기록한다. Headless simulation은 물리 convergence, SROS2 enforce, NAT,
 TURN relay 또는 display 동작의 증거가 아니다.
 
+## 저장 점군의 메쉬 해상도 비교
+
+저장한 scan의 메쉬 해상도 비교는 관측/생성 점군 NPZ 하나를 그대로 사용한다.
+`compare_voxel_mesh`는 10 mm 반경/이웃 8개 필터를 고정해 20/10/5 mm로 만들고,
+5 mm를 비교하기 위해 점유 voxel 예산 8,000을 명시한다. Runtime의 기본 예산
+4,000은 바꾸지 않는다. Truth는 메쉬를 만든 뒤 평가/원본 표시에서만 사용한다.
+이 명령은 촬영·completion 추론·Sim 씬 교체를 실행하지 않는다.
+
+```bash
+python3 -m workbench.research.analysis.compare_voxel_mesh \
+  --input source-target.npz --truth sim.json --reference jar-target.obj \
+  --output workbench/evidence/generated/voxel-comparison
+```
+
+필요한 scientific dependency가 이미 있는 환경에서 실행하며 host에 새로 설치하지
+않는다. 각 해상도의 유효 scene bundle, 원본 배열, OBJ/hash, CPU 재메쉬 시간,
+표면까지의 vertex 거리, PNG 및 network dependency 없는 HTML 회전 viewer를 만든다.
+명령은 기존 출력 디렉터리를 덮어쓰지 않는다. 거리 지표 하나를 표면 완전성으로
+해석하지 않으며 별도 runtime/GPU/접촉 검증을 대체하지 않는다.
+
 ## Pitch-preview gaze
 
 상태: 구현됨. runtime mode는 `pitch_preview`다. GO2 보행 중 eye-in-hand

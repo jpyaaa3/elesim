@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "source_npz": "workbench/evidence/generated/jar-voxel-comparison-20261031/source-target.npz",
+  "source_npz_sha256": "e1a25174ce719c8a987e3ab2a47b7f8cd9224b51f9cb975e836d9a8cecc6d762",
+  "truth_sha256": "7a8db4107cddc1f38c5bcd06300f8442874b7eb1dccdbcbf508bfb1c40a7641d",
+  "reference_sha256": "1f586511ee45de604ab42f2af1ab8701a7919ab3018750754efd450894e33c2d",
+  "observed_points": 4325,
+  "raw_predicted_points": 8192,
+  "support_policy": {
+    "min_generated_neighbors": 8,
+    "generated_neighbor_radius_m": 0.01,
+    "max_occupied_voxels": 8000
+  },
+  "rows": [
+    {
+      "voxel_m": 0.02,
+      "diagnostics": {
+        "voxel_m": 0.02,
+        "min_generated_neighbors": 8,
+        "generated_neighbor_radius_m": 0.01,
+        "observed_points": 4325,
+        "generated_points": 8192,
+        "meshed_generated_points": 8023,
+        "rejected_generated_points": 169,
+        "occupied_voxels": 286,
+        "max_occupied_voxels": 8000
+      },
+      "vertices": 536,
+      "triangles": 1076,
+      "occupied_components_6": 1,
+      "obj_bytes": 42562,
+      "obj_file": "voxel-20mm.obj",
+      "obj_sha256": "3b7ab78ef36281a1282d0d63ab0208e4e076b2b0b277dea2e8c711cdfe345777",
+      "scene_manifest": "20mm/scene.json",
+      "mesh_vertex_surface_error_p95_m": 0.034442327372908955,
+      "mesh_vertex_surface_error_max_m": 0.07076460215064095,
+      "meshing_cpu_ms": [
+        35.86267298669554,
+        36.42139400471933,
+        33.41160199488513,
+        31.70938600669615,
+        44.29569799685851
+      ],
+      "meshing_cpu_median_ms": 35.86267298669554,
+      "fits_default_4000_voxel_budget": true
+    },
+    {
+      "voxel_m": 0.01,
+      "diagnostics": {
+        "voxel_m": 0.01,
+        "min_generated_neighbors": 8,
+        "generated_neighbor_radius_m": 0.01,
+        "observed_points": 4325,
+        "generated_points": 8192,
+        "meshed_generated_points": 8023,
+        "rejected_generated_points": 169,
+        "occupied_voxels": 1191,
+        "max_occupied_voxels": 8000
+      },
+      "vertices": 2081,
+      "triangles": 4220,
+      "occupied_components_6": 1,
+      "obj_bytes": 171193,
+      "obj_file": "voxel-10mm.obj",
+      "obj_sha256": "2189a5e3b037a362127135ae7cbe45807e57843436a251fe29d485c957825685",
+      "scene_manifest": "10mm/scene.json",
+      "mesh_vertex_surface_error_p95_m": 0.029729950484040465,
+      "mesh_vertex_surface_error_max_m": 0.0609346363561619,
+      "meshing_cpu_ms": [
+        55.203352007083595,
+        62.051387008978054,
+        43.37857099017128,
+        43.92146397731267,
+        53.26674800016917
+      ],
+      "meshing_cpu_median_ms": 53.26674800016917,
+      "fits_default_4000_voxel_budget": true
+    },
+    {
+      "voxel_m": 0.005,
+      "diagnostics": {
+        "voxel_m": 0.005,
+        "min_generated_neighbors": 8,
+        "generated_neighbor_radius_m": 0.01,
+        "observed_points": 4325,
+        "generated_points": 8192,
+        "meshed_generated_points": 8023,
+        "rejected_generated_points": 169,
+        "occupied_voxels": 4755,
+        "max_occupied_voxels": 8000
+      },
+      "vertices": 8656,
+      "triangles": 18560,
+      "occupied_components_6": 66,
+      "obj_bytes": 779694,
+      "obj_file": "voxel-5mm.obj",
+      "obj_sha256": "e0c1d0a244d97b2f4787aae76c4f03600875f05034cabf24b146ca393a4626b1",
+      "scene_manifest": "5mm/scene.json",
+      "mesh_vertex_surface_error_p95_m": 0.019729950484040457,
+      "mesh_vertex_surface_error_max_m": 0.05987276198612292,
+      "meshing_cpu_ms": [
+        142.32248099870048,
+        126.23609500587918,
+        116.77230399800465,
+        124.28346401429735,
+        125.73225900996476
+      ],
+      "meshing_cpu_median_ms": 125.73225900996476,
+      "fits_default_4000_voxel_budget": false
+    }
+  ],
+  "timing_scope": "Host CPU remeshing only; one warmup then five interleaved runs, no file I/O, no GPU/Sim import timing",
+  "python": "3.10.12",
+  "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+  "limitations": [
+    "Fixed input; no new scan or completion inference.",
+    "Vertex-to-surface distance does not establish complete surface coverage.",
+    "5 mm needs an explicit larger voxel budget; the runtime default remains 4000."
+  ],
+  "status": "same_input_comparison_complete",
+  "date": "2026-10-31",
+  "source_run": 23,
+  "source_remote_root": "/home/hckang/ws/elesim-scan-cycle-20261030/cycle-23",
+  "raw_output_root": "workbench/evidence/generated/jar-voxel-comparison-20261031/remesh-v2",
+  "selected_integrated_voxel_m": 0.01,
+  "default_runtime_voxel_budget": 4000,
+  "selection_reason": "10 mm improves detail, keeps one face-connected occupied component and stays within the unchanged default voxel budget. 5 mm has 66 face-connected components and exceeds that default budget.",
+  "source_20mm_gpu_mesh_sha256": "3b7ab78ef36281a1282d0d63ab0208e4e076b2b0b277dea2e8c711cdfe345777",
+  "implementation_sha256": "2247d28b1dab54d3155fc795c99c1862eb8b9e4a672c268e1cfe159dcce31efa",
+  "analysis_sha256": "98d7d97a7018819bfc9755930016e3ebda03696cb0dbce3895fb2f6b94408922",
+  "raw_summary_sha256": "43de6337da426839b64d798d242794b755b0b2abf257f0dac43a74953176968e",
+  "artifacts": {
+    "reference.obj": {
+      "sha256": "1f586511ee45de604ab42f2af1ab8701a7919ab3018750754efd450894e33c2d",
+      "bytes": 176773
+    },
+    "voxel-20mm.obj": {
+      "sha256": "3b7ab78ef36281a1282d0d63ab0208e4e076b2b0b277dea2e8c711cdfe345777",
+      "bytes": 42562
+    },
+    "voxel-10mm.obj": {
+      "sha256": "2189a5e3b037a362127135ae7cbe45807e57843436a251fe29d485c957825685",
+      "bytes": 171193
+    },
+    "voxel-5mm.obj": {
+      "sha256": "e0c1d0a244d97b2f4787aae76c4f03600875f05034cabf24b146ca393a4626b1",
+      "bytes": 779694
+    },
+    "comparison.png": {
+      "sha256": "6a865673e505d1def5434ee53330c30bd245781e93c04c6d1cea4d3a6a042e8b",
+      "bytes": 201086
+    },
+    "comparison.html": {
+      "sha256": "140b6f09658155266f218d87b931a082a5aa3e492e163d0c28c7f1760d52f9ce",
+      "bytes": 841192
+    }
+  },
+  "tests": {
+    "focused_passed": 74,
+    "canonical_not_run": "No generated development attachment. Canonical required/extended, release build/isolated verify and real-RMW four-role topology gates not run.",
+    "viewer_check": "JavaScript syntax checked with node; static PNG inspected; interactive WebGL not exercised in a browser.",
+    "fixture_clock_race": "An initial batch reported 73 passed/1 failed because the freshness fixture jumped its clock by one second in the worker, racing the control deadman. The test now advances through live pump ticks; the final focused batch passed all 74. Production freshness/deadman guards unchanged."
+  },
+  "verification_scope": "Offline remeshing and valid SceneArtifact export only. No new scan, completion inference, Sim import, live Docker changes or physical Robot motion.",
+  "reference_local_to_world_translation_m": [
+    0.3519371582478872,
+    0.03961561809656883,
+    0.7402700495159595
+  ]
+}

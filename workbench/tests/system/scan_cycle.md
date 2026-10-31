@@ -26,7 +26,7 @@ UI probe는 실제 피드백으로 torque/claw 상태를 확인한 뒤 3-view sc
 PID와 rebuild 이후 frame timestamp를 독립 기록한다.
 
 현재 driver 기본값 `--pipeline-mode integrated`는 HSV + FK + 촬영별 FloorTilt +
-실제 AdaPoinTr AP-PS55 + 20 mm voxel surface다. 기존 기준선은
+실제 AdaPoinTr AP-PS55 + 10 mm voxel surface다. 기존 기준선은
 `--pipeline-mode baseline`으로 명시한다. Source archive와 checkpoint는 이전
 실험의 고정 파일을 read-only로 붙이고 hash를 검사한다. Host Python에는
 패키지를 설치하지 않으며 설치된 tools 이미지에서 YAML을 읽는다.
@@ -38,7 +38,7 @@ world-Z 축의 유한 원통 옆면·끝면·모서리를 모두 포함한다. �
 root를 사용하며 보안/NAT 시험을 대신하지 않는다.
 통합 HSV adapter는 25 mm depth 연결성으로 detector `min_area_px` 미만의 작은
 깊이 성분도 제외한다. 고립된 background pixel은 제거하고 넓은 jar 내벽은 유지한다.
-통합 voxel mesher는 10 mm 반경에 이웃점 8개가 없는 생성점을 제외한다. 모든
+통합 voxel mesher는 mesh 크기와 별도로 고정한 10 mm 반경에 이웃점 8개가 없는 생성점을 제외한다. 모든
 관측점과 원본 8,192개 생성 배열은 보존하며, 사용/제외한 수를 별도 기록한다.
 Jar 평가는 Sim-private r,z profile의 회전 표면까지 거리를 독립 계산하며,
 외벽·내벽·rim·bottom을 포함하고 rotation-axis의 면적 없는 선은 제외한다.

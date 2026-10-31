@@ -295,8 +295,13 @@ def test_cached_settle_requires_a_current_camera_timestamp(rig, clock_offset_s):
     class Engine:
         def run(self, acquire, start, *args, **kwargs):
             accepted.append(acquire(start, {'accepted': True}))
-            rig.now[0] += 1.
-            rig.feedback()
+            # Let the control pump advance one second with live ticks. A jump
+            # from the worker races the separate 500 ms control-deadman guard.
+            next_capture = rig.now[0]+1.
+            while rig.now[0] < next_capture:
+                if kwargs['cancelled']():
+                    raise PipelineCancelled('cancelled while waiting for test source time')
+                time.sleep(.001)
             accepted.append(acquire(start, {'accepted': True}))
             return None, {'accepted_views': 2, 'stop_reason': 'view_budget'}
     rig.scan.engine_factory = lambda *_args: Engine()
