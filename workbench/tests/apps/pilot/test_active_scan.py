@@ -85,6 +85,57 @@ def test_active_acquisition_records_silhouettes_and_exports_separate_scene_objec
     assert result.objects[0].shape.predicted.shape == (1, 3)
 
 
+def test_pending_calibration_collects_new_frames_before_accepting_a_view(tmp_path):
+    from elesim_pilot.reconstruction.models import Model
+    from elesim_pilot.reconstruction.pipeline import ObservationPending
+    class Correction:
+        calls = 0
+        def correct(self, measurement, pose, task):
+            self.calls += 1
+            if self.calls < 3:
+                raise ObservationPending('waiting for stable floor')
+            return pose
+    p = pipeline(tmp_path)
+    p.corrections = (Model('pose_correction', Correction(), {'factory': 'test:Correction'}),)
+    acquired = []
+    base = np.eye(4)
+    base[2, 3] = .8
+    def capture(q, cert):
+        acquired.append(q.copy())
+        return Measurement(sensor(q, len(acquired)), base_world_transform=base)
+    _, report = ActiveScan(p, CameraModel(), Planner(), max_views=3).run(
+        capture, np.zeros(4), Task('orchard', 'apple-1'), tmp_path/'scan')
+    assert len(acquired) == 5 and report['accepted_views'] == 3
+    np.testing.assert_array_equal(acquired[0], acquired[2])
+    assert len(report['calibration_observations']) == 2
+    assert SensorObservation.load(tmp_path/'scan/frames/000.npz').seq == 3
+    assert len(list((tmp_path/'scan/calibration').glob('*.npz'))) == 2
+    from elesim_pilot.reconstruction.cli import load_measurements
+    replay = list(load_measurements(tmp_path/'scan'))
+    assert [sample.sensor.seq for sample in replay] == [1, 2, 3, 4, 5]
+    for sample in replay:
+        np.testing.assert_array_equal(sample.base_world_transform, base)
+
+
+def test_unsupported_calibration_is_bounded_and_does_not_publish_a_scene(tmp_path):
+    from elesim_pilot.reconstruction.models import Model
+    from elesim_pilot.reconstruction.pipeline import ObservationPending
+    class Correction:
+        def correct(self, *args):
+            raise ObservationPending('no supported floor')
+    p = pipeline(tmp_path)
+    p.corrections = (Model('pose_correction', Correction(), {'factory': 'test:Correction'}),)
+    calls = []
+    def capture(q, cert):
+        calls.append(q)
+        return Measurement(sensor(q, len(calls)))
+    with pytest.raises(RuntimeError, match='calibration'):
+        ActiveScan(p, CameraModel(), Planner(), max_views=3).run(
+            capture, np.zeros(4), Task('orchard', 'apple-1'), tmp_path/'scan')
+    assert len(calls) == 8
+    assert not (tmp_path/'scan/scene/scene.json').exists()
+
+
 def test_retained_joint_fit_uses_one_camera_transform_set_for_every_object(tmp_path, monkeypatch):
     poses = np.repeat(np.eye(4)[None], 4, axis=0)
     poses[:, 0, 3] = -np.arange(4)*.001

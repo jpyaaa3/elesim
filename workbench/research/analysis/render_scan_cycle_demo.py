@@ -29,7 +29,8 @@ def label(sample):
     stage,phase = sample['stage'],sample['phase']
     if stage == 'multi-view scan':
         index = (sample.get('view') or 0)+1
-        return {'loading_models':'Prepare 12,000 view candidates',
+        return {'loading_models':'Load scan models', 'calibrating':'Measure floor tilt',
+            'pose_correction':'Apply floor tilt correction', 'completion':'Complete shape with AdaPoinTr',
             'moving':f'Move to view {index}/3', 'capturing':f'Capture RGB-D: view {index}/3',
             'choosing_view':'Choose the next safe viewpoint', 'reconstructing':'Fuse points and build mesh',
             'completed':'Scan complete'}.get(phase,safe(phase).replace('_',' ').capitalize())
@@ -63,7 +64,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     event(0,duration,'Title',16,15,'EleSim | '+(shape.upper()+' | ' if shape else '')+'RGB-D -> mesh -> world')
     event(0,duration,'Label',14,78,'HAND-EYE / real WebRTC')
     event(0,duration,'Label',974,78,'OBSERVER / real WebRTC')
-    event(0,duration,'Data',16,640,'Baseline: HSV + FK | observed surfaces only | 20 mm voxel mesh')
+    integrated = evaluation.get('pipeline_mode') == 'integrated'
+    pipeline_label = ('FK + floor tilt | multi-view + AdaPoinTr AP-PS55 | 20 mm voxel mesh'
+                      if integrated else 'Baseline: HSV + FK | observed surfaces only | 20 mm voxel mesh')
+    event(0,duration,'Data',16,640,pipeline_label)
     event(0,duration,'Data',16,678,'Actual wall time / 1x playback | recorded at 10 fps | Genesis 1.4.5 | GPU 2')
     segments = []
     for row in rows:
@@ -82,7 +86,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             error = metrics.get('observed_surface_error_p95_m',metrics.get('observed_radial_error_p95_m'))*1000
             elapsed = sim['edits'][-1]['elapsed_s']
             note = '\\N'.join(textwrap.wrap(safe(cache_note),30))
-            event(start,end,'Data',980,490,f'Point p95: {error:.2f} mm\\N(vs Sim truth)\\NMesh import: {elapsed:.2f} s\\N'+note)
+            generated = f"AI points: {metrics['predicted_points']:,}\\N" if integrated else ''
+            event(start,end,'Data',980,490,generated+f'Observed p95: {error:.2f} mm\\N(vs Sim truth)\\NMesh import: {elapsed:.2f} s\\N'+note)
     path.write_text(header+'\n'.join(events)+'\n')
 
 

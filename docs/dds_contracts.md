@@ -50,6 +50,12 @@ Sim joint feedback adds source `measurement_time_s` and
 `measurement_monotonic_s` to the existing open telemetry object while retaining
 `q_source=simulated`; Robot measured-feedback semantics are unchanged.
 
+The integrated floor/scan/completion path retains protocol v6 and operator-view
+schema 1. Optional scan status adds `predicted_points` and bounded
+`model_execution` diagnostics (floor application and actual completion metadata).
+Older UIs ignore them. Model asset selection remains Pilot-local; no model file,
+new motion authority or service/action wire shape is added.
+
 Completed scan status may add `scene_reference` (relative manifest path),
 `scene_revision` (SHA-256), `sim_id` and `sim_boot_id`. This remains an optional
 protocol-v6/operator-view-schema-1 addition: older UIs ignore the fields and older

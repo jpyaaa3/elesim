@@ -95,6 +95,7 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
                "additive v6 arm trajectory prepare/execute/cancel and Pilot floor reference confirm/reset/export; "
                "floor status is an optional service snapshot value; no Robot motion is issued by calibration; "
                "additive Sim-only start_object_scan/cancel_object_scan with optional object_scan status; "
+               "object_scan may include separate predicted_points and bounded model_execution diagnostics; "
                "completed scans may advertise a relative scene_reference, SHA-256 scene_revision and exact source sim_id/sim_boot_id; "
                "bundle bytes remain outside DDS and applying the result still requires a Sim-owned UI session"),
     ),

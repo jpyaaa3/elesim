@@ -22,13 +22,25 @@ UI probe는 실제 피드백으로 torque/claw 상태를 확인한 뒤 3-view sc
 확인한다. Sim은 원본의 실제 위치, 기존 entity q/velocity/root pose, camera
 PID와 rebuild 이후 frame timestamp를 독립 기록한다.
 
-재구성 기준선은 HSV + 명목 FK + ObservedOnly + 20 mm voxel surface다.
+현재 driver 기본값 `--pipeline-mode integrated`는 HSV + FK + 촬영별 FloorTilt +
+실제 AdaPoinTr AP-PS55 + 20 mm voxel surface다. 기존 기준선은
+`--pipeline-mode baseline`으로 명시한다. Source archive와 checkpoint는 이전
+실험의 고정 파일을 read-only로 붙이고 hash를 검사한다. Host Python에는
+패키지를 설치하지 않으며 설치된 tools 이미지에서 YAML을 읽는다.
 `geometry_complete_claimed=false`, `needs_more_observation=true`를 유지한다.
 관측점의 표면 오차와 거친 mesh vertex 오차는 별도로 보고한다. 원통 평가는
 world-Z 축의 유한 원통 옆면·끝면·모서리를 모두 포함한다. 형상 완성,
 일반 instance segmentation, GO2 이동, 동적 집기 및 다중 호스트 파일 전송의
 수용시험은 아니다. 이 검사는 한 호스트의 사설 internal bridge와 공유 artifact
 root를 사용하며 보안/NAT 시험을 대신하지 않는다.
+
+통합 평가는 각 accepted view의 floor correction이 적용됐고 actual model이
+strict-load/추론하여 8,192개 predicted point를 냈는지 검사한다. `complete`는
+이 연결과 실제 scene 적용 완료, `geometry_accepted`/`accepted`는 별도의 형상
+기준을 뜻한다. 기준은 observed p95 15 mm, predicted/mesh vertex p95 45 mm다.
+기존 baseline의 `complete`는 계속 형상 기준까지 요구한다. 기울기 오차 주입은
+`--pose-bias-deg 5`로 Pilot의 private hand-eye 추정 회전에만 적용하며, Sim의
+카메라/정답/관절 제어 calibration은 바꾸지 않는다.
 
 ## 역할별 파일
 

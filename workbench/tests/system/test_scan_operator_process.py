@@ -35,7 +35,9 @@ from elesim_pilot.operator import OperatorDispatcher
 class Service:
     def start_object_scan(self, target_id, max_views):
         assert target_id == "apple-1" and max_views == 8
-        return {"job_id": "job", "phase": "preparing", "geometry_complete_claimed": False}
+        return {"job_id": "job", "phase": "preparing", "geometry_complete_claimed": False,
+                "predicted_points": 8192, "model_execution": {"pose_corrections": [{"applied": True}],
+                "models": {"completion": {"applied": True, "profile": "projected55"}}}}
     def cancel_object_scan(self):
         return {"job_id": "job", "phase": "cancelled"}
 dispatcher = OperatorDispatcher(SimpleNamespace(), Service())
@@ -51,3 +53,5 @@ for line in sys.stdin:
     responses = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
     assert all(response['ok'] for response in responses), responses
     assert [r['result']['phase'] for r in responses] == ['preparing', 'cancelled']
+    assert responses[0]['result']['predicted_points'] == 8192
+    assert responses[0]['result']['model_execution']['pose_corrections'][0]['applied']

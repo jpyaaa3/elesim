@@ -29,7 +29,7 @@ def _load(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize('filename', ['reconstruction.example.yaml', 'scan.example.yaml'])
+@pytest.mark.parametrize('filename', ['reconstruction.example.yaml', 'scan.example.yaml', 'scan.integrated.yaml'])
 def test_installed_reconstruction_example_retains_hashes_and_rebinds_data(tmp_path, filename):
     root = next(p for p in Path(__file__).resolve().parents if (p / "payload").is_dir())
     source = root / "payload/config/pilot"

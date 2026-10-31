@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 perception = ["ultralytics>=8.0", "pyrealsense2>=2.54"]
+completion = ["torch>=2.6", "einops==0.8.1", "easydict==1.13"]
 test = ["pytest>=8,<9"]
 
 [project.scripts]

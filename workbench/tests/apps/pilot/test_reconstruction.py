@@ -190,6 +190,32 @@ def test_shipped_config_loads_without_learned_dependencies():
     assert not pipeline.corrections
 
 
+def test_integrated_profile_loads_the_floor_and_real_completion_factories(tmp_path):
+    import hashlib
+    import yaml
+    from elesim_pilot.reconstruction.floor import FloorTilt
+    from elesim_pilot.reconstruction.adapointr import AdaPoinTrCompletion
+    root = next(p for p in Path(__file__).resolve().parents if (p/'payload').is_dir())/'payload/config/pilot'
+    config = yaml.safe_load((root/'scan.integrated.yaml').read_text())
+    for name in ('source', 'weights'):
+        path = tmp_path/name
+        path.write_bytes(b'explicit loader fixture; no GPU inference')
+        config['models']['completion']['assets'][name] = dict(path=str(path),
+            sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    for spec in config['models'].values():
+        for model in (spec if isinstance(spec, list) else [spec]):
+            for asset in model.get('assets', {}).values():
+                if not Path(asset['path']).is_absolute():
+                    asset['path'] = str((root/asset['path']).resolve())
+    path = tmp_path/'integrated.yaml'
+    path.write_text(yaml.safe_dump(config))
+    with Pipeline.from_config(path) as pipeline:
+        assert isinstance(pipeline.corrections[0].implementation, FloorTilt)
+        completion = pipeline.models['completion'].implementation
+        assert isinstance(completion, AdaPoinTrCompletion) and completion.output_points == 8192
+        assert not completion.diagnostics()['loaded']
+
+
 def test_reference_segmenter_can_exclude_rgb_depth_boundary_pixels():
     image = np.zeros((32,32,3),np.uint8)
     image[6:26,6:26,2] = 255

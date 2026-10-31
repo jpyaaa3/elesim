@@ -1,6 +1,8 @@
 # Orin, JetPack 6.1/6.2, CUDA 12.6, CPython 3.10. These are Jetson AI Lab
 # builds, not the same-version CUDA 13 distributions published to PyPI.
 numpy==1.26.4
+einops==0.8.1
+easydict==1.13
 scipy==1.15.3
 shapely==2.1.2
 PyYAML==6.0.2

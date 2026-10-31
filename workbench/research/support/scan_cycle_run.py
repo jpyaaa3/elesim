@@ -24,6 +24,7 @@ import time
 TASK = Path('/home/hckang/ws/elesim-scan-cycle-20261030')
 PREFIX = TASK/'install'
 DOCKER = ['docker','--context','default']
+ADAPOINTR_ROOT = Path('/home/hckang/ws/newsim/logs/diagnostics/adapointr-20261027-c18ff631')
 
 
 def write_json(path, value):
@@ -88,6 +89,25 @@ def publish():
     print(json.dumps(result), flush=True)
 
 
+def read_model_config(path):
+    """Use the installed tools parser without adding host Python packages."""
+    prep = json.loads((TASK/'preparation.json').read_text())
+    name = 'elesim-sandy-cycle-model-config-'+str(time.time_ns())
+    override = TASK/(name+'.compose.yaml')
+    override.write_text('\n'.join(['services:', '  tools:',
+        '    image: '+json.dumps(prep['image_ids']['tools']), '    read_only: true',
+        '    network_mode: none', '    restart: "no"', '    ports: !reset []',
+        '    networks: !reset []', '    depends_on: !reset {}',
+        '    volumes: !override '+json.dumps([dict(type='bind', source=str(path.parent),
+            target='/selection', read_only=True)]),
+        "    tmpfs: !override ['/tmp:mode=1777']"])+'\n')
+    script = 'import json,yaml;from pathlib import Path;print(json.dumps(yaml.safe_load(Path('+repr('/selection/'+path.name)+').read_text())))'
+    result = subprocess.run(compose('-f',str(override),'run','-T','--no-deps','--pull','never',
+        '--name',name,'--entrypoint','python3','tools','-c',script),
+        check=True,capture_output=True,text=True,timeout=60)
+    return json.loads(result.stdout)
+
+
 def bind(source, target, *, read_only=False):
     return dict(type='bind',source=str(source),target=target,read_only=read_only)
 
@@ -98,8 +118,11 @@ def inventory():
         for row in run_json(DOCKER+['inspect',*ids])}
 
 
-def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_interval=None):
+def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_interval=None,
+           pipeline_mode='integrated',pose_bias_deg=0.):
     assert 1 <= attempt <= 24
+    assert pipeline_mode in ('baseline', 'integrated')
+    assert math.isfinite(pose_bias_deg) and abs(pose_bias_deg) <= 10
     if stack_interval is not None and (not math.isfinite(stack_interval) or stack_interval <= 0):
         raise ValueError('stack interval must be finite and positive')
     root = TASK/f'cycle-{attempt:02d}'
@@ -147,6 +170,8 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
     if stack_interval is not None:
         record['stack_sampler_sha256'] = hashlib.sha256((probes/'thread_stacks.py').read_bytes()).hexdigest()
     record['fixture_shape'] = shape
+    record['pipeline_mode'] = pipeline_mode
+    record['pose_bias_deg'] = pose_bias_deg
     for index,role in enumerate(('sim','pilot','ui')):
         key,service = services[role]
         assert subprocess.run(DOCKER+['inspect',service['container_name']],capture_output=True).returncode != 0
@@ -224,6 +249,38 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
                 command.extend(('--config','/opt/elesim/config/scan-cycle.yaml','--mode','scan_cycle',
                     '--runtime-config','/opt/elesim/config/runtime.installed.yaml',
                     '--target',endpoints['sim'],'--scan-output-root','/exchange'))
+                selected = 'scan.example.yaml' if pipeline_mode == 'baseline' else 'scan.integrated.yaml'
+                if pipeline_mode == 'integrated':
+                    model_config = read_model_config(config_directory/selected)
+                    completion = model_config['models']['completion']
+                    completion['options']['cache_root'] = '/cycle-output/model-source'
+                    asset_paths = dict(source=ADAPOINTR_ROOT/'assets/pointr-source.tar.gz',
+                        weights=ADAPOINTR_ROOT/'contract-598fe6d2/assets/ap_ps55.pth')
+                    record['model_assets'] = {}
+                    for name,path in asset_paths.items():
+                        expected = completion['assets'][name]
+                        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                        assert digest == expected['sha256'], name
+                        mounts.append(bind(path, expected['path'], read_only=True))
+                        record['model_assets'][name] = dict(source=str(path), target=expected['path'],
+                            sha256=digest, bytes=path.stat().st_size)
+                    if pose_bias_deg:
+                        data_mount = next(Path(v['source']) for v in mounts if v.get('target') == '/opt/elesim/data')
+                        asset = model_config['models']['pose']['assets']['hand_eye']
+                        original = data_mount/'calibration/cameras/zed_mini.hand_eye.json'
+                        assert hashlib.sha256(original.read_bytes()).hexdigest() == asset['sha256']
+                        calibration = json.loads(original.read_text())
+                        x,y,z,w = calibration['quaternion_xyzw']
+                        sine,cosine = math.sin(math.radians(pose_bias_deg)/2), math.cos(math.radians(pose_bias_deg)/2)
+                        calibration['quaternion_xyzw'] = [w*sine+x*cosine, y*cosine+z*sine,
+                            z*cosine-y*sine, w*cosine-x*sine]
+                        biased = config_directory/'scan-cycle-biased-hand-eye.json'
+                        write_json(biased, calibration)
+                        asset.update(path='/opt/elesim/config/'+biased.name,
+                            sha256=hashlib.sha256(biased.read_bytes()).hexdigest())
+                    selected = 'scan-cycle-models.yaml'
+                    write_json(config_directory/selected, model_config)
+                command.extend(('--scan-models','/opt/elesim/config/'+selected))
             entry = ['/bin/bash','-c',
                 'source /opt/ros/humble/setup.bash && source /opt/elesim/ros/install/setup.bash && exec "$@"','scan-cycle']
             lines.append('    entrypoint: !override '+json.dumps(entry))
@@ -408,7 +465,8 @@ def evaluate(attempt):
     record = json.loads((root/'run.json').read_text())
     probes = root/'probes' if (root/'probes').is_dir() else TASK/'probes'
     script = (probes/'evaluate_scan_cycle.py').read_bytes()
-    result = subprocess.run(DOCKER+['exec','-i',record['services']['sim']['name'],'python3','-'],
+    result = subprocess.run(DOCKER+['exec','-i',record['services']['sim']['name'],'python3','-',
+        '--pipeline-mode',record.get('pipeline_mode','baseline')],
         input=script,capture_output=True,timeout=120)
     (root/'evaluation.stdout.log').write_bytes(result.stdout)
     (root/'evaluation.stderr.log').write_bytes(result.stderr)
@@ -425,10 +483,13 @@ def main():
     parser.add_argument('--debug-allocator',action='store_true')
     parser.add_argument('--shape',choices=('sphere','cylinder'),default='sphere')
     parser.add_argument('--stack-interval',type=float)
+    parser.add_argument('--pipeline-mode',choices=('baseline','integrated'),default='integrated')
+    parser.add_argument('--pose-bias-deg',type=float,default=0.)
     args = parser.parse_args()
     if args.action == 'upload': upload()
     elif args.action == 'publish': publish()
-    elif args.action == 'launch': launch(args.attempt,args.math_threads,args.debug_allocator,args.shape,args.stack_interval)
+    elif args.action == 'launch': launch(args.attempt,args.math_threads,args.debug_allocator,args.shape,args.stack_interval,
+        args.pipeline_mode,args.pose_bias_deg)
     elif args.action == 'stop': stop(args.attempt)
     elif args.action == 'profile-models': profile_models(args.attempt)
     elif args.action == 'retry-ui': retry_ui(args.attempt)

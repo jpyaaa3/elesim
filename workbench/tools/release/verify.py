@@ -478,6 +478,8 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
         _require_path(release / "data/models/arm/default.json")
         _require_path(release / "config/reconstruction.example.yaml")
         _require_path(release / "config/scan.example.yaml")
+        _require_path(release / "config/scan.integrated.yaml")
+        _require_path(release / "config/reconstruction/adapointr.projected55.yaml")
         _require_path(release / "config/world.yaml")
         _require_path(release / "config/wrap_grasp.yaml")
         _require_path(release / "data/policies/wrap-grasp/policy.pt")

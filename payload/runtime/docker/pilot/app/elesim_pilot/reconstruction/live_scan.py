@@ -171,10 +171,12 @@ class LiveScan:
 
         def worker():
             camera = None
+            pipeline = None
             try:
                 progress({'stage': 'loading_models'})
                 if self.engine_factory is None:
                     pipeline = Pipeline.from_config(self.models_path, mapping=self.connection.mapping)
+                    pipeline.prepare(cancelled=cancelled, progress=progress)
                     model = ArmCameraModel(self.model_dir.parents[1]/'arm/default.json', self.hand_eye,
                         base_world_transform=base)
                     arm = ArmSelfCollision(self.model_dir, joint_uncertainty=[.003, .04, .04, .04])
@@ -227,7 +229,8 @@ class LiveScan:
                         self._phase = 'completed'
                         self._progress['stage'] = 'completed'
                         self._result = {key: report[key] for key in ('scene_manifest', 'stop_reason',
-                            'accepted_views', 'observed_points', 'coverage', 'needs_more_observation') if key in report}
+                            'accepted_views', 'observed_points', 'predicted_points', 'model_execution',
+                            'coverage', 'needs_more_observation') if key in report}
                         self._result.update(publication)
                         self._release_pending = True
             except Exception as exc:
@@ -236,8 +239,12 @@ class LiveScan:
                         self._phase, self._reason = 'failed', str(exc)[:512]
                         self._release_pending = True
             finally:
-                if camera is not None:
-                    camera.stop()
+                try:
+                    if camera is not None:
+                        camera.stop()
+                finally:
+                    if pipeline is not None:
+                        pipeline.close()
                 with self._condition:
                     self._condition.notify_all()
 

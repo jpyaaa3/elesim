@@ -57,6 +57,14 @@ tree로 바꾸고 hash를 유지한다. 외부 model adapter와 checkpoint의 �
 이미 실행 중인 scene의 자동 교체와 multi-host 전송은 제공하지 않는다.
 자세한 계약과 실행 예시는 [`model_integration.md`](model_integration.md)를 따른다.
 
+현재 Pilot 기본 scan은 `config/scan.integrated.yaml`이다. FloorTilt와 실제
+AdaPoinTrCompletion을 연결하며 Projected55 config를 함께 배포한다. 설치/release는
+이 설정의 arm/hand-eye 경로도 같은 data tree에 연결한다. Source archive와 AP-PS55
+checkpoint는 image에 숨겨 넣거나 자동 다운로드하지 않으며 운영자가 read-only
+asset mount를 제공한다. 누락·digest 불일치·CUDA 준비 실패는 scan 이동 전에
+오류가 된다. 학습 모델 없는 기존 기준선은 `--scan-models .../scan.example.yaml`로
+명시적으로 선택한다. 모델의 CUDA process는 Pilot 내부 자식이며 새 배포 역할이 아니다.
+
 Setup 갱신 후에도 등록된 instance의 immutable image pin은 유지한다. UI 기동 전
 graphics 점검은 해당 이미지가 지원하는 경우 실행한다. 구버전 UI 이미지에 점검
 기능이 없으면 미지원 로그를 남기고 기존 기동을 유지하며, 점검 기능이 있는

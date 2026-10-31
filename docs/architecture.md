@@ -476,6 +476,25 @@ FK 추정값을 유지한다. 모든 translation과 기준 법선 주위 회전�
 Robot 모터 명령과 IMU 모델 선택에는 관여하지 않는다. 상세 절차와 실제
 검증 경계는 [`visual_calibration.md`](visual_calibration.md)를 따른다.
 
+Sim 자동 scan의 기본 `scan.integrated.yaml`은 별도의 `FloorTilt` pose correction을
+선택한다. 같은 FloorEstimator로 각 coherent RGB-D와 해당 FK를 함께 처리하고,
+설정에 명시된 수평 방향만 신뢰한다. 안정된 기준면을 얻기 전에는 같은 자세에서
+새 capture를 최대 8회 받고 실패하면 scan을 중단한다. 보정 전 capture도 별도
+calibration 기록에 보존한다. Translation과 법선 주위 yaw는 보정하지 않는다.
+관측 전용 floor service의 늦은 snapshot을 다른 촬영에 재사용하지 않는다.
+
+통합 scan은 누적 observed cloud를 실제 AdaPoinTr completion adapter에 넘긴다.
+고정 upstream source/config/checkpoint는 SHA-256이 검증된 명시적 외부 asset이고
+runtime에서 다운로드하지 않는다. PyTorch/CUDA와 upstream import는 Pilot이 소유한
+`spawn` 자식 process에 격리한다. 같은 scan의 물체들은 한 번 로드한 모델을 재사용하고,
+취소·deadline·세션 정리 시 그 자식만 종료한다. 새 deployable role/DDS participant는
+생기지 않는다. 외부 source의 private 추출본만 수명 종료 시 정리하며 입력 asset,
+Triton kernel과 Genesis cache는 유지한다. AP-PS55의 기본 전처리는 관측 중심만
+빼고 world Z-up/metre 크기를 유지하며 출력에 중심을 복원한다. 관측과 추정은
+서로 다른 array/provenance로 남기고 mesher가 둘을 소비한다. 모델/보정 부재를
+ObservedOnly나 nominal pose로 조용히 대체하지 않는다. 기존 기준선은 명시적으로
+`--scan-models .../scan.example.yaml`을 선택할 때 사용한다.
+
 후속 부분 점군 기준선은 RGB-D, intrinsics, source identity/time과 encoder만
 허용하는 로컬 replay packet을 사용한다. Pilot은 실제 관측된 물체 표면을
 deproject하고 FK/기준면으로 정한 좌표계에서 bounded voxel fusion한다. Sim

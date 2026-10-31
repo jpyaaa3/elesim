@@ -111,7 +111,7 @@ def bind_installed_data_paths(
                 policy[key] = str(runtime_data_root / "policies/wrap-grasp" / filename)
         _write_yaml(wrap, policy)
 
-    for filename in ("reconstruction.example.yaml", "scan.example.yaml"):
+    for filename in ("reconstruction.example.yaml", "scan.example.yaml", "scan.integrated.yaml"):
         reconstruction = config_root / filename
         if role == "pilot" and reconstruction.is_file():
             pipeline = _read_yaml(reconstruction)

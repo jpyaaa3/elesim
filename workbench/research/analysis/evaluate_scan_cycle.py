@@ -31,6 +31,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--exchange',type=Path,default=Path('/exchange'))
     parser.add_argument('--evidence',type=Path,default=Path('/cycle-output'))
+    parser.add_argument('--pipeline-mode',choices=('baseline','integrated'),default='baseline')
     args = parser.parse_args()
     import numpy as np
     from elesim_protocol.scene_artifact import SceneArtifact
@@ -46,6 +47,10 @@ def main():
         scan_phase=scan['phase'], accepted_views=scan.get('accepted_views'),
         geometry_complete_claimed=scan['geometry_complete_claimed'],
         target_geometry=truth['truth'],objects=[])
+    result['pipeline_mode'] = args.pipeline_mode
+    result['model_execution'] = scan.get('model_execution', {})
+    result['calibration_captures'] = len(scan.get('calibration_observations', []))
+    result['floor_corrections_by_view'] = [view.get('pose_corrections', []) for view in scan['views']]
     for item in artifact.objects:
         with np.load(manifest.parent/(item.object_id+'.npz'),allow_pickle=False) as cloud:
             observed, predicted = cloud['observed'], cloud['predicted']
@@ -62,6 +67,10 @@ def main():
             mesh_vertex_surface_error_p95_m=float(np.quantile(vertex_error,.95)),
             observed_aabb_m=[observed.min(axis=0).tolist(),observed.max(axis=0).tolist()],
             mesh_aabb_m=[vertices.min(axis=0).tolist(),vertices.max(axis=0).tolist()])
+        if len(predicted):
+            predicted_error = surface_errors(predicted,truth['truth'])
+            metrics.update(predicted_surface_error_p95_m=float(np.quantile(predicted_error,.95)),
+                           predicted_surface_error_max_m=float(predicted_error.max()))
         if truth['truth'].get('shape','sphere') == 'sphere':
             for old,new in (('observed_radial_error_p50_m','observed_surface_error_p50_m'),
                     ('observed_radial_error_p95_m','observed_surface_error_p95_m'),
@@ -83,15 +92,31 @@ def main():
             samples = depth[(selected>0)&np.isfinite(depth)&(depth>0)]
             result['mask_depth_diagnostics'].append(dict(erode_px=radius,pixels=len(samples),
                 depth_percentiles_m=np.quantile(samples,[.01,.5,.9,.95,.99,1.]).tolist()))
-    result['complete'] = (scan['phase']=='completed' and scan['accepted_views'] >= 2
+    operational = (scan['phase']=='completed' and scan['accepted_views'] >= 2
         and not scan['geometry_complete_claimed'] and bool(truth['edits'])
         and all(edit['ok'] and edit['entity_state_preserved'] and edit['camera_processes_preserved']
             and edit.get('original_target_hidden_before_load',False)
             for edit in truth['edits'])
-        and bool(result['objects'])
-        and all(row['observed_points'] > 0 and row['predicted_points'] == 0
-            and row['observed_surface_error_p95_m'] <= .015
-            and row['mesh_vertex_surface_error_p95_m'] <= .045 for row in result['objects']))
+        and bool(result['objects']) and all(row['observed_points'] > 0 for row in result['objects']))
+    result['geometry_accepted'] = all(row['observed_surface_error_p95_m'] <= .015
+        and row['mesh_vertex_surface_error_p95_m'] <= .045
+        and row.get('predicted_surface_error_p95_m',0.) <= .045 for row in result['objects'])
+    if args.pipeline_mode == 'integrated':
+        completion = result['model_execution'].get('models',{}).get('completion',{})
+        stages = (completion.get('applied') and completion.get('loaded')
+            and completion.get('predicted_points') == 8192
+            and completion.get('profile') == 'projected55'
+            and completion.get('missing_keys') == [] and completion.get('unexpected_keys') == []
+            and all(row['predicted_points'] == 8192 for row in result['objects'])
+            and all(view and all(c.get('applied') for c in view)
+                    for view in result['floor_corrections_by_view']))
+    else:
+        stages = all(row['predicted_points'] == 0 for row in result['objects'])
+    result['stages_applied'] = bool(stages)
+    result['complete'] = bool(operational and stages)
+    result['accepted'] = result['complete'] and result['geometry_accepted']
+    if args.pipeline_mode == 'baseline':
+        result['complete'] = result['accepted']
     (args.evidence/'evaluation.json').write_text(json.dumps(result,indent=2,allow_nan=False)+'\n')
     print(json.dumps(result),flush=True)
     return 0 if result['complete'] else 1

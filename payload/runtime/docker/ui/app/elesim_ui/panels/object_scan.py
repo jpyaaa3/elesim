@@ -25,7 +25,8 @@ def draw_object_scan_panel(panel):
         _submit(panel, 'cancel_object_scan')
     if status.get('stage'):
         imgui.text('Stage: '+str(status['stage']))
-    imgui.text(f"Accepted views: {status.get('accepted_views', 0)} | Points: {status.get('observed_points', 0)}")
+    imgui.text(f"Accepted views: {status.get('accepted_views', 0)} | Observed points: {status.get('observed_points', 0)}")
+    imgui.text(f"Predicted points: {status.get('predicted_points', 0)}")
     coverage = status.get('coverage', {})
     if coverage:
         imgui.text(f"View-direction coverage: {100*coverage.get('fraction', 0):.1f}%")

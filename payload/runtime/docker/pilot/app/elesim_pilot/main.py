@@ -349,7 +349,7 @@ def _run() -> None:
     object_scan = LiveScan(connection, runtime.service, runtime.state,
         simulation_status=lambda: simulation_sync.latest,
         models_path=(Path(args.scan_models).expanduser().absolute() if args.scan_models
-                     else directory/'scan.example.yaml'),
+                     else directory/'scan.integrated.yaml'),
         model_dir=(directory/bundle.ik_config.curobo_model).resolve(),
         hand_eye=bundle.sim_config.hand_eye_config,
         output_root=(Path(args.scan_output_root).expanduser().absolute() if args.scan_output_root

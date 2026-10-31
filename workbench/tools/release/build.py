@@ -142,7 +142,7 @@ def bind_release_data_paths(release: Path, role: str) -> None:
         policy["policy_path"] = "../data/policies/wrap-grasp/policy.pt"
         policy["manifest_path"] = "../data/policies/wrap-grasp/interface.json"
         wrap.write_text(yaml.safe_dump(policy, sort_keys=False), encoding="utf-8")
-    for filename in ("reconstruction.example.yaml", "scan.example.yaml"):
+    for filename in ("reconstruction.example.yaml", "scan.example.yaml", "scan.integrated.yaml"):
         reconstruction = release / "config" / filename
         if role == "pilot" and reconstruction.is_file():
             pipeline = yaml.safe_load(reconstruction.read_text(encoding="utf-8"))

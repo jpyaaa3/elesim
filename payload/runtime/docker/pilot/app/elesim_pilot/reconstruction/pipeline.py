@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import json
 import time
 
 import numpy as np
@@ -16,12 +17,27 @@ class PipelineCancelled(RuntimeError):
     pass
 
 
+class ObservationPending(RuntimeError):
+    """This view needs another coherent capture before it can be accepted."""
+
+
 @dataclass(frozen=True)
 class Result:
     task: Task
     objects: tuple[SceneObject, ...]
     plan: Plan | None
     provenance: dict
+
+
+def model_diagnostics(model):
+    method = getattr(model.implementation, 'diagnostics', None)
+    if not callable(method):
+        return {}
+    value = method()
+    encoded = json.dumps(value, allow_nan=False)
+    if not isinstance(value, dict) or len(encoded) > 16384:
+        raise ValueError('model diagnostics exceed their bounds')
+    return json.loads(encoded)
 
 
 def call_model(model, method, *args, cancelled=lambda: False, progress=lambda event: None):
@@ -32,12 +48,16 @@ def call_model(model, method, *args, cancelled=lambda: False, progress=lambda ev
             raise ValueError(f"{model.stage} requires a calibrated, fresh IMU sample")
     started = time.monotonic()
     try:
-        value = getattr(model.implementation, method)(*args)
+        kwargs = {'cancelled': cancelled} if getattr(model.implementation, 'supports_cancellation', False) else {}
+        value = getattr(model.implementation, method)(*args, **kwargs)
+    except (ObservationPending, PipelineCancelled):
+        raise
     except Exception as exc:
         raise RuntimeError(f"{model.stage}/{model.provenance['factory']}: {exc}") from exc
     if cancelled():
         raise PipelineCancelled("reconstruction cancelled")
-    progress({"stage": model.stage, "elapsed_s": time.monotonic()-started})
+    progress({"stage": 'loading_models' if method == 'prepare' else model.stage, "elapsed_s": time.monotonic()-started,
+              "model_status": model_diagnostics(model)})
     return value
 
 
@@ -53,6 +73,27 @@ class Pipeline:
     def from_config(cls, path, **kwargs):
         models, corrections = load_models(path)
         return cls(models, corrections, **kwargs)
+
+    def diagnostics(self):
+        return {'models': {key: model_diagnostics(value) for key, value in self.models.items()},
+                'pose_corrections': [model_diagnostics(value) for value in self.corrections]}
+
+    def prepare(self, **callbacks):
+        for model in [*self.models.values(), *self.corrections]:
+            if callable(getattr(model.implementation, 'prepare', None)):
+                call_model(model, 'prepare', **callbacks)
+
+    def close(self):
+        for model in reversed([*self.models.values(), *self.corrections]):
+            close = getattr(model.implementation, 'close', None)
+            if callable(close):
+                close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
 
     def observe(self, measurement, task, **callbacks):
         measurement = measurement.validated()
@@ -106,20 +147,22 @@ class Pipeline:
             "target_id": task.target_id, "mapping": asdict(self.mapping),
             "models": {key: value.provenance for key, value in self.models.items()},
             "pose_corrections": [value.provenance for value in self.corrections],
+            "model_execution": self.diagnostics(),
             **(extra_provenance or {})}
         return Result(task, objects, plan, provenance)
 
     def run(self, measurements, task: Task, *, cancelled=lambda: False, progress=lambda event: None):
         clouds, labels = {}, {}
-        identity, previous_seq, previous_time, count = None, -1, 0., 0
+        identity, previous_seq, previous_time, count, accepted = None, -1, 0., 0, 0
         imu_calibration = None
+        pending = ''
 
         for measurement in measurements:
             if cancelled():
                 raise PipelineCancelled("reconstruction cancelled")
             count += 1
-            if count > 32:
-                raise ValueError("reconstruction view budget exceeded (32)")
+            if count > 256:
+                raise ValueError("reconstruction capture budget exceeded (256)")
             if not isinstance(measurement, Measurement):
                 raise TypeError("pipeline input must be Measurement")
             measurement = measurement.validated()
@@ -135,8 +178,16 @@ class Pipeline:
             if sensor.seq <= previous_seq or sensor.ts < previous_time:
                 raise ValueError("replayed or reordered observation")
             identity, previous_seq, previous_time = current, sensor.seq, sensor.ts
-            measurement, pose, instances = self.observe(measurement, task,
-                cancelled=cancelled, progress=progress)
+            try:
+                measurement, pose, instances = self.observe(measurement, task,
+                    cancelled=cancelled, progress=progress)
+            except ObservationPending as error:
+                pending = str(error)
+                progress({'stage': 'calibrating', 'reason': pending})
+                continue
+            accepted += 1
+            if accepted > 32:
+                raise ValueError("reconstruction view budget exceeded (32)")
             for instance in instances:
                 if labels.get(instance.object_id, instance.label) != instance.label:
                     raise ValueError("object identity changed label across views")
@@ -148,8 +199,10 @@ class Pipeline:
                     continue
                 cloud = clouds.setdefault(instance.object_id, VoxelCloud(voxel_m=self.voxel_m))
                 cloud.add(view.points_before)
+        if not accepted and pending:
+            raise ValueError('reconstruction calibration unavailable: '+pending)
         if task.target_id not in clouds or any(key not in clouds for key in task.roles):
             raise ValueError("selected target or explicitly declared scene object was not observed")
         return self.finish([ObjectCloud(key, labels[key], task.role(key), task.frame_id, value.points())
-            for key, value in clouds.items()], task, sensor, views=count,
+            for key, value in clouds.items()], task, sensor, views=accepted,
             extra_provenance={"imu_calibration_id": imu_calibration}, cancelled=cancelled, progress=progress)

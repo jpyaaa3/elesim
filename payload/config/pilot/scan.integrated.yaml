@@ -1,0 +1,49 @@
+# Explicit horizontal-reference policy; source and AP-PS55 weights are external read-only assets.
+schema_version: 1
+models:
+  segmenter:
+    factory: elesim_pilot.reconstruction.providers:DetectorSegmenter
+    options:
+      mask_erode_px: 2
+    assets:
+      detector:
+        path: perception/detector.sim_hsv.json
+        sha256: 1f4df221a008a78eeb16fc8457dd6f9bbb709a8f4f14dee6a7d2c301ccfd97e3
+  pose:
+    factory: elesim_pilot.reconstruction.providers:ArmPose
+    assets:
+      arm:
+        path: ../../data/models/arm/default.json
+        sha256: 02a440f7ad8a0037d18c8cfd306d32af081fdb645ee3fb90250bdc5f9d6bd13a
+      hand_eye:
+        path: ../../data/calibration/cameras/zed_mini.hand_eye.json
+        sha256: 4cfba6124c6ab1287932ffc75f057ab2f1f1f3c808ab0b0b2b05a4dbbaf5579d
+  pose_corrections:
+  - factory: elesim_pilot.reconstruction.floor:FloorTilt
+    options:
+      reference_normal:
+      - 0.0
+      - 0.0
+      - 1.0
+  completion:
+    factory: elesim_pilot.reconstruction.adapointr:AdaPoinTrCompletion
+    options:
+      profile: projected55
+      normalization: center-only
+      axis_order: world-z-up
+      seed: 0
+      timeout_s: 120.0
+    assets:
+      source:
+        path: /opt/elesim/models/adapointr/pointr-source.tar.gz
+        sha256: ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e
+      config:
+        path: reconstruction/adapointr.projected55.yaml
+        sha256: cdd8616e9abe77013234879f1c15b8aed0764274be274dec3937ebd65479a707
+      weights:
+        path: /opt/elesim/models/adapointr/ap_ps55.pth
+        sha256: 66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7
+  mesher:
+    factory: elesim_pilot.reconstruction.providers:VoxelSurface
+    options:
+      voxel_m: 0.02

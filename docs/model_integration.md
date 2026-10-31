@@ -19,6 +19,11 @@ adapter가 함께 필요하다. `--check`는 로딩과 버전/hash 검증이며 
   → scene bundle → Sim 시작 시 물리 scene / observer / hand-eye
 ```
 
+기본 Sim scan은 `scan.integrated.yaml`의 **FK → 각 촬영의 바닥/수평면 tilt 보정 →
+자동 시점 수집·정합 → 실제 AdaPoinTr AP-PS55 → voxel mesh → UI Apply**를 사용한다.
+`scan.example.yaml`은 학습 모델 없는 명시적 비교 기준선이다. 통합 설정은 모델
+자산이 없다고 기준선으로 바뀌지 않는다. UI Apply의 실행 중 scene 교체 경로는 아래와 같다.
+
 모델 실행과 결과 생성은 Pilot 소유다. Sim은 검증된 파일만 읽으며 Pilot
 구현을 import하지 않는다. Robot은 기존 물리 I/O·limits·deadman을 소유한다.
 기록 replay 실행기는 motion lease를 획득하거나 모터 명령을 보내지 않는다.
@@ -90,6 +95,15 @@ Scene/view budget은 32 views, 16 objects다. 모델 생성 점과 mesh는 각�
 한 번의 `run()`은 동기 실행이며 취소는 모델 호출 전후에 확인한다. 모델의
 GPU hang/추론 deadline은 adapter가 별도로 다뤄야 한다.
 
+API 1의 선택적 lifecycle은 `prepare()`, `close()`, `diagnostics()`다.
+`supports_cancellation = True`를 선언한 adapter의 실행 메서드에는 `cancelled`
+callback을 추가로 전달한다. 기존 adapter의 위치 인자는 바뀌지 않는다.
+`ObservationPending`은 같은 자세의 새 coherent capture를 요청하며 정상 관측으로
+합치지 않는다. Live scan은 자세당 최대 8 capture, replay는 최대 256 raw capture와
+32 accepted views를 허용한다. `diagnostics()`는 JSON dict 최대 16 KiB이며 실제
+실행 결과를 manifest의 `model_execution`에 남긴다. `with Pipeline.from_config(...)`
+또는 명시적인 `close()`로 외부 자원을 정리한다.
+
 ## 모델 package와 YAML
 
 외부 completion adapter의 형태는 다음과 같다. `load_your_model`/`infer_metres`는
@@ -135,8 +149,11 @@ Factory 로딩 실패, dependency 누락, API/stage 불일치, hash 불일치 �
 
 `pose_corrections`는 최대 네 개의 correction spec을 받는 순서 있는 목록이다.
 IMU 잔차 보정 뒤 floor tilt 보정을 적용하려면 그 순서대로 adapter를 나열한다.
-관측만 하는 현재 floor service의 결과를 자동으로 이 파이프라인에 적용하는
-연결은 아직 없다. 확인된 기준면과 적용 정책은 해당 adapter가 명시적으로 받는다.
+기본 `FloorTilt`는 관측 전용 floor service의 나중 snapshot 대신, 이번 촬영의
+depth와 pose를 같은 FloorEstimator에 직접 넣는다. `reference_normal: [0, 0, 1]`은
+수평 방향을 신뢰한다는 명시적 설정이다. 안정된 평면을 얻지 못하거나 지지 방향이
+충돌하면 보정을 적용하지 않고 재촬영/실패한다. Camera origin은 유지하며 절대
+높이·translation·법선 주위 yaw를 알아냈다고 취급하지 않는다.
 
 기본 예제는 기존 HSV detector + arm/hand-eye FK + `ObservedOnly` + `VoxelSurface`다.
 학습된 completion과 planner는 포함하지 않는다. `ObservedOnly`는 명시적으로 빈
@@ -158,10 +175,31 @@ claw open 상태에서 대상이 hand-eye 화면에 보이도록 먼저 조준�
 segmenter가 반환하는 지속 ID와 같아야 한다. 기본 단일 대상 예제는 `target`이다.
 최대 촬영 수는 2..24, 세션 상한은 600초다.
 
-Pilot은 기본적으로 자신의 config 옆 `scan.example.yaml`을 읽는다. 사용자 모델은
+Pilot은 기본적으로 자신의 config 옆 `scan.integrated.yaml`을 읽는다. 사용자 모델은
 Pilot 실행 인자 `--scan-models /path/to/scan.yaml`로 선택한다. 이 YAML은 replay와
-같은 model API 1이다. Shipped 예제는 Sim의 빨간 대상용 HSV mask/FK,
-`ObservedOnly`, voxel surface이며 학습 모델은 포함하지 않는다.
+같은 model API 1이다. 기본 통합 설정은 Sim의 빨간 대상용 HSV mask/FK,
+FloorTilt와 실제 AdaPoinTrCompletion을 선택한다. 비교 기준선은
+`--scan-models .../scan.example.yaml`로 선택한다.
+
+통합 설정은 다음 외부 asset을 Pilot에 read-only로 제공해야 한다. 자동 다운로드나
+checkpoint 자동 교체는 없다. 모델 source는 고정 PoinTr revision
+`4603257ed3db9e7dad349b712e1b2fe0da207015`의 archive다.
+
+- `/opt/elesim/models/adapointr/pointr-source.tar.gz`: SHA-256
+  `ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e`
+- `/opt/elesim/models/adapointr/ap_ps55.pth`: SHA-256
+  `66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7`
+- Projected55 model config는 `config/reconstruction/adapointr.projected55.yaml`에
+  포함한다. AP-PS55는 기존 실험에 사용한 제3자 inference 재배포본이며 원저자의
+  최고 성능 checkpoint와 동일하다는 주장은 하지 않는다.
+
+정상 amd64 Pilot 이미지는 Torch, einops, easydict를 포함한다. 실행은 한 CUDA
+device가 필요하며 모델을 먼저 strict-load해 준비를 확인한 뒤 scan 이동을 시작한다.
+독립 `spawn` process는 원본 모델 forward와 Triton FPS/Torch gather를 사용한다.
+누적 관측점의 중심만 빼고 world Z-up/metre 크기를 유지하며 2,048점을 샘플링하고,
+8,192개 생성점을 원래 좌표에 복원한다. 관측은 변경하지 않는다. Source/config/
+checkpoint hash, 실제 load·추론, 전처리 및 보정 적용 여부는 결과에 기록한다.
+이 경로의 실행 완료는 미관측 형상이나 물리 접촉 품질의 보증이 아니다.
 
 한 세션은 다음 순서로 진행한다.
 
@@ -178,21 +216,32 @@ Pilot 실행 인자 `--scan-models /path/to/scan.yaml`로 선택한다. 이 YAML
    적용하지 않는다. 같은 최종 camera transform으로 모든 instance를 배치한다.
 6. completion/mesher/선택적 planner를 호출하고 scene bundle과 보고서를 저장한다.
 
+모델 준비와 추론의 취소/deadline은 AdaPoinTr 자식 process만 종료한다. 기본
+deadline은 호출당 120초다. 모델 source의 private 추출본만 정상 종료 시 정리하고
+원본 asset과 기존 Triton/Genesis cache는 보존한다.
+
 모델·시점 탐색·파일 작업은 worker에서, leased motion 전송은 DDS 제어 tick에서
 실행한다. 취소·피드백 지연·추종 실패·lease/boot/epoch/base 변경은 후속 명령을
-막고 원래 lease를 해제한다. 취소는 모델 호출을 강제 종료하지 않으므로 해당 호출이
-반환할 때까지 새 scan을 시작할 수 없다. Robot 대상은 거부한다.
+막고 원래 lease를 해제한다. AdaPoinTr는 취소 시 자식을 종료한다. 취소 callback을
+지원하지 않는 외부 adapter는 호출이 반환할 때까지 새 scan을 시작할 수 없다.
+Robot 대상은 거부한다.
 
 Pilot capture root의 `object_scans/<job-id>/`에 다음을 남긴다. Capture root는
 기존 perception capture 경로 설정을 따른다.
 
 ```text
 scan.json             # phase, 각 view의 q/seq/채택 여부/경로 검사, 종료 이유
+calibration/*.npz     # 보정 안정화에 사용한 원본 SensorObservation
 frames/000.npz        # 원본 SensorObservation; truth/mesh 필드 없음
 silhouettes/000.png   # 선택한 대상의 시점별 이진 마스크
 silhouettes/000.npz   # mask, 추정 camera/base transform, 관측 camera 점군
 scene/scene.json      # 성공한 재구성 bundle; OBJ/NPZ와 함께 사용
 ```
+
+`scan.json`은 촬영별 base/world transform, floor correction 및 completion 실행
+기록도 남긴다. 원본 SensorObservation schema 1의 엄격한 field allowlist는 유지한다.
+Replay의 `--frames`에 scan 디렉터리 전체를 주면 calibration/accepted capture를
+source 시간 순서로 읽고 해당 sequence의 base pose metadata를 함께 적용한다.
 
 `scan.json.phase=completed`가 세션 성공 기준이다. 실패·취소 시 원본은 남겨 진단할
 수 있으며 export 중 취소하면 scene 파일도 남을 수 있다. UI는 자동으로 실행하지 않는다.

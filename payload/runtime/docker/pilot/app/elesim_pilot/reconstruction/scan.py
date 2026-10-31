@@ -18,7 +18,7 @@ from elesim_pilot.vision.multiview import ScanMap, refine_joint_scan, transform
 from elesim_pilot.vision.partial_cloud import VoxelCloud, reconstruct_view
 from .artifacts import export_result
 from .contracts import Measurement, ObjectCloud
-from .pipeline import PipelineCancelled
+from .pipeline import ObservationPending, PipelineCancelled
 
 
 def save_observation(sensor, path):
@@ -43,6 +43,7 @@ class ActiveScan:
         root.mkdir(parents=True, exist_ok=False)
         (root/'frames').mkdir()
         (root/'silhouettes').mkdir()
+        (root/'calibration').mkdir()
         report = {'schema_version': 1, 'phase': 'acquiring', 'scene_id': task.scene_id,
                   'target_id': task.target_id, 'geometry_complete_claimed': False, 'views': []}
         try:
@@ -75,24 +76,39 @@ class ActiveScan:
             if not certificate['accepted']:
                 raise ValueError('unsafe scan segment: '+certificate['reason'])
             progress({'stage': 'moving', 'view': index, 'views': self.max_views})
-            measurement = acquire(current.copy(), certificate)
-            if not isinstance(measurement, Measurement):
-                raise TypeError('scan acquisition must return Measurement')
-            measurement = measurement.validated()
-            sensor = measurement.sensor
-            source = (sensor.source_id, sensor.source_boot_id, sensor.calibration_id)
-            if identity is not None and identity != source:
-                raise ValueError('source boot/calibration changed during scan')
-            if sensor.seq <= last_seq or sensor.ts < last_ts:
-                raise ValueError('replayed or reordered scan frame')
-            if not np.allclose(sensor.encoder_q, current, rtol=0., atol=[.001, .015, .015, .015]):
-                raise ValueError('capture does not match settled scan posture')
-            if measurement.imu is not None:
-                if imu_calibration is not None and imu_calibration != measurement.imu.calibration_id:
-                    raise ValueError('IMU calibration changed during scan')
-                imu_calibration = measurement.imu.calibration_id
-            identity, last_seq, last_ts = source, sensor.seq, sensor.ts
-            measurement, pose, instances = self.pipeline.observe(measurement, task, **callbacks)
+            for calibration_attempt in range(8):
+                if cancelled():
+                    raise PipelineCancelled('scan cancelled during calibration')
+                measurement = acquire(current.copy(), certificate)
+                if not isinstance(measurement, Measurement):
+                    raise TypeError('scan acquisition must return Measurement')
+                measurement = measurement.validated()
+                sensor = measurement.sensor
+                source = (sensor.source_id, sensor.source_boot_id, sensor.calibration_id)
+                if identity is not None and identity != source:
+                    raise ValueError('source boot/calibration changed during scan')
+                if sensor.seq <= last_seq or sensor.ts < last_ts:
+                    raise ValueError('replayed or reordered scan frame')
+                if not np.allclose(sensor.encoder_q, current, rtol=0., atol=[.001, .015, .015, .015]):
+                    raise ValueError('capture does not match settled scan posture')
+                if measurement.imu is not None:
+                    if imu_calibration is not None and imu_calibration != measurement.imu.calibration_id:
+                        raise ValueError('IMU calibration changed during scan')
+                    imu_calibration = measurement.imu.calibration_id
+                identity, last_seq, last_ts = source, sensor.seq, sensor.ts
+                try:
+                    measurement, pose, instances = self.pipeline.observe(measurement, task, **callbacks)
+                    break
+                except ObservationPending as error:
+                    name = f'view-{index:03d}-{calibration_attempt:02d}.npz'
+                    save_observation(sensor, root/'calibration'/name)
+                    report.setdefault('calibration_observations', []).append(dict(view=index,
+                        seq=sensor.seq, file=name, reason=str(error), diagnostics=self.pipeline.diagnostics(),
+                        base_world_transform=(None if measurement.base_world_transform is None
+                                              else measurement.base_world_transform.tolist())))
+                    progress({'stage': 'calibrating', 'view': index, 'reason': str(error)})
+                    if calibration_attempt == 7:
+                        raise RuntimeError('scan calibration unavailable after 8 coherent captures: '+str(error)) from error
             observe_scene = getattr(self.planner.collision_checker, 'observe', None)
             if observe_scene is not None:
                 observe_scene(measurement, pose.world_from_camera)
@@ -126,7 +142,10 @@ class ActiveScan:
                 identity=source, seq=sensor.seq)
             row = {'view': index, 'seq': sensor.seq, 'q': list(sensor.encoder_q),
                    'accepted': bool(result['accepted']), 'reason': result['reason'],
-                   'observed_points': len(points[task.target_id]), 'path_certificate': certificate}
+                   'observed_points': len(points[task.target_id]), 'path_certificate': certificate,
+                   'base_world_transform': (None if measurement.base_world_transform is None
+                                            else measurement.base_world_transform.tolist()),
+                   'pose_corrections': self.pipeline.diagnostics()['pose_corrections']}
             report['views'].append(row)
             attempted.append(current.copy())
             captures.append((sensor.encoder_q, points, index))
@@ -207,6 +226,8 @@ class ActiveScan:
             extra_provenance={'scan': {'stop_reason': stop, 'geometry_complete_claimed': False,
                 'coverage': report['coverage'], 'reference': 'first accepted estimated camera frame'},
                 'imu_calibration_id': imu_calibration}, **callbacks)
+        report['predicted_points'] = sum(len(obj.shape.predicted) for obj in result.objects)
+        report['model_execution'] = result.provenance['model_execution']
         if cancelled():
             raise PipelineCancelled('scan cancelled')
         manifest = export_result(result, root/'scene')
