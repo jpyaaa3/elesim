@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def surface_errors(points,geometry):
-    """Absolute distance to a sphere or a closed, world-Z cylinder surface."""
+    """Distance to primitive surfaces or a Sim-private revolved r,z profile."""
     import numpy as np
     offset = np.asarray(points,dtype=float)-np.asarray(geometry['center_m'],dtype=float)
     radius = float(geometry['radius_m'])
@@ -24,6 +24,17 @@ def surface_errors(points,geometry):
             np.abs(offset[:,2])-float(geometry['height_m'])/2))
         return np.abs(np.linalg.norm(np.maximum(distances,0.),axis=1)
             +np.minimum(np.max(distances,axis=1),0.))
+    if shape == 'jar':
+        # A lathed surface preserves Euclidean distance in the r,z meridian.
+        # Use the recorded profile, independently of the reconstructed mesh.
+        profile = np.asarray(geometry['profile_rz_m'], dtype=float)
+        rz = np.column_stack((np.linalg.norm(offset[:,:2], axis=1), offset[:,2]))
+        best = np.full(len(rz), np.inf)
+        for start, end in zip(profile, profile[1:]):
+            segment = end-start
+            fraction = np.clip(((rz-start)@segment)/(segment@segment), 0., 1.)
+            best = np.minimum(best, np.linalg.norm(rz-start-fraction[:,None]*segment,axis=1))
+        return best
     raise ValueError('unsupported evaluation geometry: '+str(shape))
 
 

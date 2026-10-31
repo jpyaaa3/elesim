@@ -420,6 +420,13 @@ setter의 추가 NumPy broadcast 변환을 피하며, 매 physics tick에 제어
 
 ### Mock object hug vertical slice
 
+Perception target의 `world.target.shape`는 sphere/cylinder와 직접 생성한 hollow
+jar를 지원한다. Jar의 metre 단위 r,z profile은 Sim이 소유하며, 물리 scene과
+observer/hand-eye replica는 동일한 content-addressed OBJ를 생성해 읽는다.
+목·lip·내벽을 convexify/decimate하지 않는다. Target mesh/profile은 Pilot에
+전달하지 않으며 scan은 기존 RGB-D/실측 q 계약을 사용한다. Jar는 ShapeNet에서
+가져온 개별 sample이 아니라, completion/scene 적용 검사용 원본 형상이다.
+
 Sim의 `data/models/objects/`는 시작 시 검증되는 bounded OBJ catalog다. Genesis
 scene build 뒤 동적 mesh 추가를 가정하지 않기 위해 catalog entity는 scene
 build 전에 숨김 위치에 준비하고, UI session 명령은 기존 entity의 pose만

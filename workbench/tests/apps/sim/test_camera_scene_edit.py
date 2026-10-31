@@ -126,8 +126,9 @@ def test_late_acknowledgement_is_rejected_even_if_physics_finishes_later():
         value.close()
 
 
-@pytest.mark.parametrize('shape,height', [('sphere', .14), ('cylinder', .14)])
-def test_camera_replica_renders_the_configured_target_shape(monkeypatch,shape,height):
+@pytest.mark.parametrize('shape,height', [('sphere', .14), ('cylinder', .14), ('jar', .22)])
+def test_camera_replica_renders_the_configured_target_shape(monkeypatch,tmp_path,shape,height):
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path))
     from elesim_sim.vision import render_device
     monkeypatch.setattr(render_device,'check_camera_renderer',lambda *args,**kwargs:None)
     morphs = []
@@ -141,7 +142,7 @@ def test_camera_replica_renders_the_configured_target_shape(monkeypatch,shape,he
             return NS(desc=object())
         def build(self): pass
         def destroy(self): pass
-    gs = NS(Scene=Scene,morphs=NS(Sphere=morph('sphere'),Cylinder=morph('cylinder'),URDF=morph('urdf')),
+    gs = NS(Scene=Scene,morphs=NS(Sphere=morph('sphere'),Cylinder=morph('cylinder'),Mesh=morph('jar'),URDF=morph('urdf')),
         surfaces=NS(Rough=lambda **kwargs:kwargs),options=NS(SimOptions=lambda **kwargs:kwargs,
             RigidOptions=lambda **kwargs:kwargs,ViewerOptions=lambda **kwargs:kwargs))
     spec = CameraRenderSpec(urdf_path='visual.urdf',robot_pos=(0.,0.,0.),
@@ -151,6 +152,10 @@ def test_camera_replica_renders_the_configured_target_shape(monkeypatch,shape,he
     _build_camera_scene(gs,spec,(),{})
     target = morphs[0]
     assert target.kind == shape
-    assert target.kwargs['radius'] == .045 and target.kwargs['collision'] is False
-    assert target.kwargs.get('height') == (height if shape=='cylinder' else None)
+    assert target.kwargs['collision'] is False
+    if shape == 'jar':
+        assert target.kwargs['file'].endswith('.obj') and target.kwargs['convexify'] is False
+    else:
+        assert target.kwargs['radius'] == .045
+        assert target.kwargs.get('height') == (height if shape=='cylinder' else None)
     assert replace(spec,scene_revision='a'*64).target_shape == shape

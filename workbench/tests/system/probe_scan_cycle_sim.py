@@ -61,6 +61,17 @@ def main():
             radius_m=float(app.spawn.sim_target_radius), initial_q=list(q),
             camera_origin_m=origin.tolist(), camera_look=look.tolist()),
             genesis_version=__import__('genesis').__version__, fixture_ready_at=time.time())
+        if app.spawn.sim_target_shape == 'jar':
+            import hashlib
+            from elesim_sim.simulation.target_geometry import jar_mesh_path, jar_profile
+            path = jar_mesh_path(app.spawn.sim_target_radius, app.spawn.sim_target_height)
+            data = path.read_bytes()
+            (output/'jar-target.obj').write_bytes(data)
+            evidence['truth']['profile_rz_m'] = jar_profile(
+                app.spawn.sim_target_radius, app.spawn.sim_target_height)
+            evidence['truth']['mesh'] = dict(file='jar-target.obj', sha256=hashlib.sha256(data).hexdigest(),
+                provenance='EleSim procedural jar v1; not a ShapeNet dataset sample',
+                convexify=False, decimate=False)
         save()
 
     def edit(runtime, command):

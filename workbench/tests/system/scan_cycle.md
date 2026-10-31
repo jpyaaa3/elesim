@@ -8,7 +8,10 @@ operator RPC, WebRTC 수신과 `load_scan_result` backend를 사용한다. Nativ
 
 `probe_scan_cycle_sim.py`는 고정 암을 배치하고 실제 카메라 앞 0.4 m에 반경
 45 mm의 빨간 구 또는 높이 140 mm인 같은 반경의 원통을 둔다.
-`launch --shape sphere|cylinder`로 선택하며 기본값은 sphere다.
+`launch --shape sphere|cylinder|jar`로 선택하며 기본값은 sphere다. `jar`는
+높이 220 mm / 최대 지름 120 mm, 좁은 목·돌출 lip·속이 빈 몸통을 가진 직접
+생성한 시험용 mesh다. ShapeNet 개별 sample을 가져온 것은 아니다. Physics와
+두 camera scene은 같은 content-addressed OBJ를 쓰며 convexify/decimate하지 않는다.
 정답은 Sim의 사후 평가 파일에만 남긴다. Pilot에는
 정답 파일, 실제 camera pose 또는 물체 mesh를 마운트하지 않는다. Pilot은
 측정 q/명목 FK와 실제 RGB-D로 시야를 선택한다. `use_hardware=false`,
@@ -33,6 +36,8 @@ world-Z 축의 유한 원통 옆면·끝면·모서리를 모두 포함한다. �
 일반 instance segmentation, GO2 이동, 동적 집기 및 다중 호스트 파일 전송의
 수용시험은 아니다. 이 검사는 한 호스트의 사설 internal bridge와 공유 artifact
 root를 사용하며 보안/NAT 시험을 대신하지 않는다.
+Jar 평가는 Sim-private r,z profile의 회전 표면까지 거리를 독립 계산하며,
+외벽·내벽·rim·bottom을 포함하고 rotation-axis의 면적 없는 선은 제외한다.
 
 통합 평가는 각 accepted view의 floor correction이 적용됐고 actual model이
 strict-load/추론하여 8,192개 predicted point를 냈는지 검사한다. `complete`는

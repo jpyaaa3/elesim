@@ -124,6 +124,8 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
     assert pipeline_mode in ('baseline', 'integrated')
     assert math.isfinite(pose_bias_deg) and abs(pose_bias_deg) <= 10
     assert type(view_budget) is int and 2 <= view_budget <= 24
+    assert shape in ('sphere', 'cylinder', 'jar')
+    target_radius, target_height = (.06, .22) if shape == 'jar' else (.045, .14)
     if stack_interval is not None and (not math.isfinite(stack_interval) or stack_interval <= 0):
         raise ValueError('stack interval must be finite and positive')
     root = TASK/f'cycle-{attempt:02d}'
@@ -171,6 +173,7 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
     if stack_interval is not None:
         record['stack_sampler_sha256'] = hashlib.sha256((probes/'thread_stacks.py').read_bytes()).hexdigest()
     record['fixture_shape'] = shape
+    record['fixture_radius_m'], record['fixture_height_m'] = target_radius, target_height
     record['pipeline_mode'] = pipeline_mode
     record['pose_bias_deg'] = pose_bias_deg
     record['view_budget'] = view_budget
@@ -204,7 +207,7 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
             profile = config['profiles']['scan_cycle']
             if role == 'sim':
                 profile['simulation']['runtime'].update(scene_import_root='/exchange')
-                profile['world'] = {'target':dict(enable=True, radius=.045,shape=shape,height=.14,
+                profile['world'] = {'target':dict(enable=True, radius=target_radius,shape=shape,height=target_height,
                     color_rgba=[.85,.15,.15,1.], gravity=False), 'debug':{'markers':False}}
                 # Seed only this new instance's private cache. The original
                 # measurement cache remains untouched.
@@ -437,7 +440,7 @@ selected=[]
 for path in root.rglob('*'):
  if not path.is_file() or path.is_symlink():continue
  relative=path.relative_to(root)
- if path.name in ('run.json','preservation.json','retention-checks.json','model-profile.json','shutdown-validation.json') or (path.suffix in ('.json','.png','.mp4') and
+ if path.name in ('run.json','preservation.json','retention-checks.json','model-profile.json','shutdown-validation.json','jar-target.obj') or (path.suffix in ('.json','.png','.mp4') and
      ('output' in relative.parts[0] or path.name in ('scan.json','scene.json'))):selected.append(path)
 assert sum(p.stat().st_size for p in selected)<256*1024*1024
 buffer=io.BytesIO()
@@ -484,7 +487,7 @@ def main():
     parser.add_argument('--attempt',type=int,default=1)
     parser.add_argument('--math-threads',type=int,choices=(1,2,4,8),default=None)
     parser.add_argument('--debug-allocator',action='store_true')
-    parser.add_argument('--shape',choices=('sphere','cylinder'),default='sphere')
+    parser.add_argument('--shape',choices=('sphere','cylinder','jar'),default='sphere')
     parser.add_argument('--stack-interval',type=float)
     parser.add_argument('--pipeline-mode',choices=('baseline','integrated'),default='integrated')
     parser.add_argument('--pose-bias-deg',type=float,default=0.)

@@ -477,25 +477,13 @@ def _build_camera_scene(gs, spec, streams, base_descriptions):
         target_entity = None
         if bool(spec.target_enable):
             shape = str(spec.target_shape).strip().lower()
-            if shape not in {'sphere','cylinder'}:
+            if shape not in {'sphere','cylinder','jar'}:
                 print(f"[sim-camera-worker] unknown target shape {shape!r}; using a sphere",flush=True)
                 shape = 'sphere'
-            morph = gs.morphs.Cylinder if shape == 'cylinder' else gs.morphs.Sphere
-            target_kwargs = {
-                "radius": max(0.01, float(spec.target_radius)),
-                "pos": tuple(float(v) for v in spec.target_xyz),
-                "fixed": not bool(spec.target_gravity),
-                # The target is visual-only in this process.  The authoritative
-                # collision target remains in the physics scene.
-                "collision": False,
-            }
-            if shape == 'cylinder':
-                target_kwargs['height'] = max(.01,float(spec.target_height))
-            try:
-                target = morph(**target_kwargs)
-            except TypeError:
-                target_kwargs.pop("collision", None)
-                target = morph(**target_kwargs)
+            from elesim_sim.simulation.target_geometry import target_morph
+            target = target_morph(gs, shape, radius=float(spec.target_radius),
+                height=float(spec.target_height), pos=tuple(float(v) for v in spec.target_xyz),
+                fixed=not bool(spec.target_gravity), collision=False)
             target_entity = _add_base_entity(scene, base_descriptions, 'target', lambda: scene.add_entity(
                 target,
                 surface=gs.surfaces.Rough(color=tuple(float(v) for v in spec.target_color_rgba)),
