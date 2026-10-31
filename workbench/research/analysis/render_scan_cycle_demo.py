@@ -59,7 +59,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     events = []
     def event(start,end,style,x,y,text):
         events.append(f'Dialogue: 0,{stamp(start)},{stamp(end)},{style},,0,0,0,,{{\\pos({x},{y})}}{text}')
-    event(0,duration,'Title',16,15,'EleSim | RGB-D -> point cloud -> mesh -> world')
+    shape = sim.get('truth',{}).get('shape','')
+    event(0,duration,'Title',16,15,'EleSim | '+(shape.upper()+' | ' if shape else '')+'RGB-D -> mesh -> world')
     event(0,duration,'Label',14,78,'HAND-EYE / real WebRTC')
     event(0,duration,'Label',974,78,'OBSERVER / real WebRTC')
     event(0,duration,'Data',16,640,'Baseline: HSV + FK | observed surfaces only | 20 mm voxel mesh')
@@ -77,7 +78,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         event(start,end,'Stage',980,282,'\\N'.join(textwrap.wrap(title,23)))
         event(start,end,'Data',980,382,f'Accepted views: {accepted}/3\\NObserved points: {points:,}\\NFixed arm / Sim only\\NHeadless UI backend')
         if row['stage'] in ('demo final view','complete') and evaluation['complete']:
-            error = evaluation['objects'][0]['observed_radial_error_p95_m']*1000
+            metrics = evaluation['objects'][0]
+            error = metrics.get('observed_surface_error_p95_m',metrics.get('observed_radial_error_p95_m'))*1000
             elapsed = sim['edits'][-1]['elapsed_s']
             note = '\\N'.join(textwrap.wrap(safe(cache_note),30))
             event(start,end,'Data',980,490,f'Point p95: {error:.2f} mm\\N(vs Sim truth)\\NMesh import: {elapsed:.2f} s\\N'+note)

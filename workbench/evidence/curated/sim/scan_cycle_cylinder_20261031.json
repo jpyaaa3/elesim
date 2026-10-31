@@ -1,0 +1,637 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-31",
+  "attempt": 14,
+  "complete": true,
+  "scope": "fixed-arm cylinder scan; installed isolated Pilot/Sim/UI images, actual Genesis/DDS RGB-D/WebRTC; headless UI backend",
+  "runtime_commit": "2949c1a0e228bf523b8ffe54cd92f1526536f1e2",
+  "release_key": "80daec16fb1a6d993a4129b7941af075d69ebd1ea8f27c4b96e4322c14546d66",
+  "server_raw_root": "/home/hckang/ws/elesim-scan-cycle-20261030/cycle-14",
+  "install_uuid": "6c83e40f-8d1e-48b5-83c3-286cc8d7f50b",
+  "image_ids": {
+    "sim": "sha256:82f38de2f40b0546a0d1ea8d37249e12438da27085130f712764e0765e27e7d8",
+    "pilot": "sha256:992ce4b7c9ed319ebf899152b6f048a0c5462f9184255439fb4b422b76f66294",
+    "ui": "sha256:be563e86283ee70209632f3feb02546686303c8536e1799de0de377cc0d80f74"
+  },
+  "gpu": {
+    "index": 2,
+    "uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "model": "RTX A6000"
+  },
+  "genesis_version": "1.4.5",
+  "fixture": {
+    "center_m": [
+      0.3519371582478872,
+      0.03961561809656883,
+      0.7402700495159595
+    ],
+    "shape": "cylinder",
+    "height_m": 0.14,
+    "radius_m": 0.045,
+    "initial_q": [
+      -0.132063,
+      0.382158,
+      -0.33934,
+      0.558898
+    ],
+    "camera_origin_m": [
+      0.16971163018173097,
+      -0.09317539446208423,
+      1.070664365303411
+    ],
+    "camera_look": [
+      0.03644510561323122,
+      0.02655820251173059,
+      -0.06607886315749023
+    ]
+  },
+  "pipeline": [
+    "configured HSV instance mask, 2 px erosion (no shape classification)",
+    "nominal FK",
+    "ObservedOnly",
+    "20 mm voxel surface"
+  ],
+  "accepted_views": 3,
+  "observed_points": 2219,
+  "geometry_complete_claimed": false,
+  "needs_more_observation": true,
+  "coverage_proxy": {
+    "fraction": 0.4270833333333333,
+    "geometry_complete_claimed": false,
+    "kind": "view_direction_proxy",
+    "probe_count": 96,
+    "unobserved_directions": [
+      [
+        0.6790520057591499,
+        -0.1492876785755457,
+        0.71875
+      ],
+      [
+        0.5769609516521259,
+        0.48626330086556324,
+        0.65625
+      ],
+      [
+        0.8263427130821289,
+        0.11118324330411461,
+        0.5520833333333333
+      ],
+      [
+        0.4335201018252923,
+        0.7565503823511097,
+        0.48958333333333337
+      ],
+      [
+        0.8116336390582708,
+        -0.3749953275325585,
+        0.44791666666666663
+      ],
+      [
+        0.8168020447879594,
+        0.4292882629256988,
+        0.38541666666666663
+      ],
+      [
+        0.16030225082591046,
+        0.9327529226805114,
+        0.32291666666666663
+      ],
+      [
+        0.9563580286188716,
+        -0.07923230778050969,
+        0.28125
+      ],
+      [
+        0.6556127379158925,
+        0.7227173551136206,
+        0.21875
+      ],
+      [
+        0.783970505704954,
+        -0.5950056632001702,
+        0.17708333333333337
+      ],
+      [
+        -0.17678522429951884,
+        0.9717679362735574,
+        0.15625
+      ],
+      [
+        0.9580850311642553,
+        0.2625713860671235,
+        0.11458333333333337
+      ],
+      [
+        0.3765309104551378,
+        0.9249388087115351,
+        0.05208333333333337
+      ],
+      [
+        0.9555609097627037,
+        -0.2946096413714757,
+        0.01041666666666663
+      ],
+      [
+        -0.5055949226249129,
+        0.8627081008495655,
+        -0.01041666666666674
+      ],
+      [
+        0.8141405549553103,
+        0.5783273149056236,
+        -0.05208333333333326
+      ],
+      [
+        0.6453147970244851,
+        -0.7581423021051177,
+        -0.09375
+      ],
+      [
+        0.03620319498886625,
+        0.992753740055821,
+        -0.11458333333333326
+      ],
+      [
+        0.986428947872129,
+        0.050436775272459156,
+        -0.15625
+      ],
+      [
+        -0.7587166966546354,
+        0.6268895175970273,
+        -0.17708333333333326
+      ],
+      [
+        0.5533855488401961,
+        0.8036870484428842,
+        -0.21875
+      ],
+      [
+        0.840041648878082,
+        -0.4759340163010159,
+        -0.26041666666666674
+      ],
+      [
+        -0.29612293345197394,
+        0.912803180200309,
+        -0.28125
+      ],
+      [
+        0.8712611248381136,
+        0.36963343833413376,
+        -0.32291666666666674
+      ],
+      [
+        -0.8851810841200938,
+        0.31351297551453183,
+        -0.34375
+      ],
+      [
+        0.43722510877189413,
+        -0.8221394026045467,
+        -0.36458333333333326
+      ],
+      [
+        0.23084253684091666,
+        0.8934012067601015,
+        -0.38541666666666674
+      ],
+      [
+        0.8918842502525398,
+        -0.14880292517404997,
+        -0.42708333333333326
+      ],
+      [
+        -0.5508868437046278,
+        0.7041976605722111,
+        -0.44791666666666674
+      ],
+      [
+        -0.06863700192754256,
+        -0.8806602065873071,
+        -0.46875
+      ],
+      [
+        0.6371764696982135,
+        0.5952430647938236,
+        -0.48958333333333326
+      ],
+      [
+        -0.8598862931776247,
+        -0.008389826823769618,
+        -0.5104166666666667
+      ],
+      [
+        0.630263788674696,
+        -0.5661633988394322,
+        -0.53125
+      ],
+      [
+        -0.08099479514828531,
+        0.8298456701185125,
+        -0.5520833333333333
+      ],
+      [
+        -0.49231500888437546,
+        -0.6552804171366124,
+        -0.5729166666666667
+      ],
+      [
+        0.7909441569930081,
+        0.14787926838681556,
+        -0.59375
+      ],
+      [
+        -0.6696971572080695,
+        0.4168849289867882,
+        -0.6145833333333333
+      ],
+      [
+        0.20772430633444483,
+        -0.7437044253465861,
+        -0.6354166666666667
+      ],
+      [
+        0.34122476944708163,
+        0.6729796387824717,
+        -0.65625
+      ],
+      [
+        -0.6887566514695362,
+        -0.25917645490803015,
+        -0.6770833333333333
+      ],
+      [
+        0.6646314169163604,
+        -0.26679094069446946,
+        -0.6979166666666667
+      ],
+      [
+        -0.3008166976419318,
+        0.6268235412935625,
+        -0.71875
+      ],
+      [
+        -0.19516218067202315,
+        -0.6441492189631967,
+        -0.7395833333333333
+      ],
+      [
+        0.558695139737465,
+        0.3310985259545713,
+        -0.7604166666666667
+      ],
+      [
+        -0.6109375091266469,
+        0.12807731041104903,
+        -0.78125
+      ],
+      [
+        0.34822449709645326,
+        -0.4851824667182557,
+        -0.8020833333333333
+      ],
+      [
+        0.0675141523717927,
+        0.5641365073736501,
+        -0.8229166666666667
+      ],
+      [
+        -0.40702066326807984,
+        -0.34988586306510344,
+        -0.84375
+      ],
+      [
+        0.5022390287343172,
+        -0.015862463182999685,
+        -0.8645833333333333
+      ],
+      [
+        -0.33264566326388245,
+        0.3246293102919397,
+        -0.8854166666666667
+      ],
+      [
+        0.023646197827768122,
+        -0.4220803179825969,
+        -0.90625
+      ],
+      [
+        0.23735380635196104,
+        0.290137318636868,
+        -0.9270833333333333
+      ],
+      [
+        -0.31524446335272804,
+        -0.04555130493197767,
+        -0.9479166666666667
+      ],
+      [
+        0.20497746970250794,
+        -0.1396698765459376,
+        -0.96875
+      ],
+      [
+        -0.03296559788430019,
+        0.1401359901846049,
+        -0.9895833333333333
+      ]
+    ]
+  },
+  "scan_seconds_after_start_reply": 46.683462619781494,
+  "application": {
+    "elapsed_s": 2.485213041305542,
+    "physics_s": 2.153040248900652,
+    "camera_rebuild_s": 0.6394702787511051,
+    "cameras_s": 0.2604264188557863,
+    "ok": true,
+    "original_hidden_before_load": true,
+    "hidden_red_pixels": {
+      "observer": 0,
+      "hand_eye_preview": 0
+    },
+    "camera_shape": "cylinder",
+    "camera_height_m": 0.14,
+    "camera_processes_preserved": true,
+    "entity_state_preserved": true
+  },
+  "evaluation": {
+    "complete": true,
+    "scope": "offline independent Sim truth evaluation after scan",
+    "scene_revision": "18d6d8c31ab68e583cf6f026a754c08394d8e2809c993e7e51773766328dfa34",
+    "manifest_sha256": "18d6d8c31ab68e583cf6f026a754c08394d8e2809c993e7e51773766328dfa34",
+    "scan_phase": "completed",
+    "accepted_views": 3,
+    "geometry_complete_claimed": false,
+    "target_geometry": {
+      "center_m": [
+        0.3519371582478872,
+        0.03961561809656883,
+        0.7402700495159595
+      ],
+      "shape": "cylinder",
+      "height_m": 0.14,
+      "radius_m": 0.045,
+      "initial_q": [
+        -0.132063,
+        0.382158,
+        -0.33934,
+        0.558898
+      ],
+      "camera_origin_m": [
+        0.16971163018173097,
+        -0.09317539446208423,
+        1.070664365303411
+      ],
+      "camera_look": [
+        0.03644510561323122,
+        0.02655820251173059,
+        -0.06607886315749023
+      ]
+    },
+    "objects": [
+      {
+        "object_id": "target",
+        "observed_points": 2219,
+        "predicted_points": 0,
+        "vertices": 240,
+        "faces": 476,
+        "observed_surface_error_p50_m": 0.00031312278757861245,
+        "observed_surface_error_p95_m": 0.001597560210677268,
+        "observed_surface_error_max_m": 0.0017715030279601904,
+        "mesh_vertex_surface_error_p95_m": 0.023193095187666563,
+        "observed_aabb_m": [
+          [
+            0.30643308994366525,
+            -0.005425985712641021,
+            0.673480648217564
+          ],
+          [
+            0.39332385307387285,
+            0.08489676914294683,
+            0.8108422523920757
+          ]
+        ],
+        "mesh_aabb_m": [
+          [
+            0.3,
+            -0.02,
+            0.66
+          ],
+          [
+            0.4,
+            0.1,
+            0.8200000000000001
+          ]
+        ]
+      }
+    ],
+    "view_encoder_q": [
+      [
+        -0.132063,
+        0.382158,
+        -0.33934,
+        0.558898
+      ],
+      [
+        -0.08360042571873118,
+        -0.6130067569407058,
+        -0.44493811614877,
+        0.6110863754045175
+      ],
+      [
+        -0.10434668222914785,
+        1.3168310103993432,
+        -0.43142675446421097,
+        0.6102639200183215
+      ]
+    ],
+    "acquisition_base_world_transform": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.8
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "mask_depth_diagnostics": [
+      {
+        "erode_px": 0,
+        "pixels": 29104,
+        "depth_percentiles_m": [
+          0.3180000151041895,
+          0.34600001643411815,
+          0.39700001885648817,
+          0.41200001956894994,
+          0.42600002023391426,
+          0.43600002070888877
+        ]
+      },
+      {
+        "erode_px": 1,
+        "pixels": 28257,
+        "depth_percentiles_m": [
+          0.3180000151041895,
+          0.3450000163866207,
+          0.39500001876149327,
+          0.41000001947395504,
+          0.4230000200914219,
+          0.4330000205663964
+        ]
+      },
+      {
+        "erode_px": 2,
+        "pixels": 27419,
+        "depth_percentiles_m": [
+          0.3180000151041895,
+          0.3450000163866207,
+          0.39300001866649836,
+          0.40800001937896013,
+          0.421000019996427,
+          0.43000002042390406
+        ]
+      },
+      {
+        "erode_px": 3,
+        "pixels": 26589,
+        "depth_percentiles_m": [
+          0.3180000151041895,
+          0.34400001633912325,
+          0.3920000186190009,
+          0.40600001928396523,
+          0.4190000199014321,
+          0.4270000202814117
+        ]
+      },
+      {
+        "erode_px": 4,
+        "pixels": 25767,
+        "depth_percentiles_m": [
+          0.3180000151041895,
+          0.34400001633912325,
+          0.390000018524006,
+          0.4040000191889703,
+          0.4170000198064372,
+          0.42400002013891935
+        ]
+      }
+    ]
+  },
+  "mesh_sha256": "fa2f95bb166b80bc30c66b6822908c30c7b0052182a89529a61e424ff1d4443d",
+  "cache_scope": "copy of prior kernel cache; this cylinder mesh SHA differs from the sphere, first occurrence in this task",
+  "video": {
+    "path": "scan_cycle_cylinder_20261031.mp4",
+    "poster": "scan_cycle_cylinder_20261031.png",
+    "poster_time_s": 1,
+    "poster_sha256": "58d4973b6e40baac4852f3ebacea3ae9bde694db47c4503e01a66f25f947999b",
+    "scope": "actual UI WebRTC recording, composed with measured stage captions",
+    "playback_speed": 1,
+    "mesh_cache_note": "Warm kernels / new mesh",
+    "rendered": {
+      "programs": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "width": 1280,
+          "height": 720,
+          "avg_frame_rate": "10/1"
+        }
+      ],
+      "format": {
+        "duration": "57.800000"
+      }
+    },
+    "bytes": 1631576,
+    "sha256": "acc77ce5328f86cf364e2f8ab3ca855cf380df8bf3ba65022e73a79e796867da",
+    "source": {
+      "hand_eye_preview.mp4": "9531a32fecedef6b0a14f8a3a285b9b2c4de8bfb08d6860f78e5c1d9cdbf05fd",
+      "observer.mp4": "803d0f492328d585557e81778dfc8047593618c285e10785fc5ef6c1ab6d86e9"
+    }
+  },
+  "previous_sphere_video": {
+    "path": "scan_cycle_demo_20261031.mp4",
+    "sha256": "a802b4cea69bd6daa783c6bf5ff9a3afe9ea2d07dfba77de65463f70fab36d8b",
+    "preserved": true
+  },
+  "instrumentation": {
+    "debug_allocator": false,
+    "periodic_stacks": false,
+    "gdb_attached": false,
+    "fatal_handler": true
+  },
+  "retention": {
+    "original_checkout_head": "70757e6116fa968904017388094f5c13d4854137",
+    "original_checkout_status": "",
+    "pilot_native_crash_bytes": 0
+  },
+  "preservation": {
+    "before": 60,
+    "after": 136,
+    "missing": [],
+    "changed": [],
+    "prelaunch_before": 132,
+    "prelaunch_missing": [],
+    "prelaunch_changed": []
+  },
+  "probe_sha256": {
+    "probe_scan_cycle_sim.py": "5495178fcb9d1ddb2c081f45ddcbc12b87d4f802d936b063a55719bd6e7d096b",
+    "probe_scan_cycle_pilot.py": "fd652114a823a41eebcf5cbec0b927dc1c52b5ddf8d33e45d11ca56a93812ed7",
+    "probe_scan_cycle_ui.py": "d4db7fe9368aa2077a09cb29625bd64cb9068caa4ca40b3c56713c8a4828cd1a",
+    "scan_cycle_recording.py": "997cf0044eece9c178da287c4e2707b9b60896940d49b8993b09ba540ecc0f09"
+  },
+  "raw_evidence_sha256": {
+    "run.json": "3d8ba48076f48531e3ed4f75b32f66e80254d890cb7658d2f52d28b7f19139d7",
+    "preservation.json": "d893dddbda81aecf140284407b0c93e1927d8c9ef992cefc0ede11fa1414630b",
+    "retention-checks.json": "ce6edc76015305201d0fe21f504d8ee70fd510c8be92be19a4616d56adfac912",
+    "ui-output/ui.json": "0c330517fd5292351c52b08c072943932fc79c3916ffa9bfe0a11fc9bbd59ed1",
+    "ui-output/video-timeline.json": "6928052f7689c4e6a6c9109ff1765d50105ac7508cd42547fd19e9d207631eda",
+    "sim-output/sim.json": "61ef3b28394d55b268d54b3625f0997679390f1ac85b70b1b7e0c16246a8cf42",
+    "sim-output/evaluation.json": "7fee07d6705c6dafa5bde0c0d95fcdc2091fe8029ab273a26aacce6d62114da2",
+    "ui-output/before-scan-observer.png": "48a5a4cf5e2e32011eae1fea439ac95c4d3f2994977f1a9c8b553327afdd5b4c",
+    "ui-output/before-scan-hand_eye_preview.png": "d3a8e75ddc892d333c544f3785edb13218f6faf5ed799d40235afa343eb31fbf",
+    "ui-output/original-hidden-observer.png": "c98d64ba191c7b688bdd324b35abc10b1f012ee89ee190387284c0c0f23191d0",
+    "ui-output/original-hidden-hand_eye_preview.png": "e3f2b76c3056c23541c56908def9d2204a9b051854ccdfe7eab6370f21ae3bbc",
+    "ui-output/reconstructed-observer.png": "c6560df82f7c82447126023adb07f410d7cf44aa0407c14c7be9905beae7450f",
+    "ui-output/reconstructed-hand_eye_preview.png": "ba2bd4c9c456f637492956e1b548040361ce89e35d66789b45225859f81ccfc5"
+  },
+  "focused_host_tests": {
+    "sim": {
+      "passed": 51,
+      "skipped": 2
+    },
+    "surface_distance": {
+      "passed": 2
+    }
+  },
+  "canonical_gates": "Required/extended, isolated release build/verify and four-role topology not run: no usable generated dev attachment. No host dependencies installed.",
+  "limits": [
+    "Observed surfaces only; complete geometry and learned completion accuracy are not claimed",
+    "Point and mesh-vertex distances are separate metrics to the ideal closed world-Z cylinder",
+    "Startup excluded; one warm-kernel/new-mesh run is not an arbitrary-mesh latency bound",
+    "Prior Pilot exit 139 remains unresolved; this run completed with an empty fatal log",
+    "No Robot/GO2 locomotion/picking, native UI window or multi-host artifact transfer acceptance"
+  ],
+  "maintained_tool_sha256": {
+    "workbench/research/support/scan_cycle_run.py": "c40f6a080cdae0ca28f484552fac4df3a7b026a8e9bf399c12ce1e10d1f749dc",
+    "workbench/research/analysis/evaluate_scan_cycle.py": "3561853eea374ba14b7c5c9e7da2e4b152d22b3184ebfd8ad12d60d54d38163b",
+    "workbench/research/analysis/render_scan_cycle_demo.py": "504cad1a92ae5c06e3f98aa99589caa17c30985410ea823cc400f74e9e90429c"
+  }
+}

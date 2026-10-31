@@ -6,6 +6,36 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 원통 1-cycle 데모 (2026-10-31)
+
+같은 서버 GPU 2/고정 암 조건에서 반경 45 mm, 높이 140 mm의 빨간 원통으로
+다시 촬영했다. 물리 씬은 이미 원통을 지원했지만 async camera replica가 항상
+구를 생성하던 누락을 수정했다. Runtime `2949c1a0e228bf523b8ffe54cd92f1526536f1e2`는
+immutable render recipe에 shape/height를 전달하고 두 worker가 같은 형상을 만든다.
+구·원통 회귀는 수정 전 실패했고 수정 후 Sim focused **51 passed, 2 skipped**다.
+
+정상 역할 이미지의 격리 실행 14에서 실제 DDS RGB-D로 **3개 시점 / 2,219점**을
+수집하고 **240 vertices / 476 faces**의 20 mm voxel mesh를 생성했다. 원본 원통을
+숨긴 뒤 UI Apply backend로 새 mesh를 적용하고 두 WebRTC 화면의 새 frame과
+기존 entity 상태/camera PID 보존을 확인했다. 별도 평가기의 유한 원통 옆면·끝면
+거리 회귀 **2 passed**이며, 점군 표면 거리 p95 **1.60 mm**, mesh vertex 표면 거리
+p95 **23.19 mm**다. 미관측 표면 완성을 주장하지 않는 기존 기준선을 유지한다.
+
+Scan 시작 응답부터 완료 관측까지 **46.68초**, 적용 함수 전체 **2.49초**
+(물리 2.15초 / 두 카메라 잔여 대기 0.26초)였다. 기존 kernel cache의 복사본에서
+처음 생성한 원통 scan mesh를 적용한 단일 실행이다. 같은 mesh 반복이나 cold
+startup 지연의 통계로 해석하지 않는다. 초기 Sim 준비 이후 두 실제 WebRTC 화면을
+기록한 1배속 영상은 **57.8초**다. GDB/주기적 stack 수집 없이 완료했고 이번
+Pilot fatal log는 비어 있다. 앞선 139의 원인 미확정 상태는 그대로 남는다.
+
+이전 구형 영상과 실패 기록을 보존한다. 새 시도는 시작 직전 전체 container
+inventory를 추가 대조하고 probe를 실행 폴더에 고정 복사한다. 이번 작업 전
+130개 container를 보존했으며 정상 image build/publish 뒤의 prelaunch inventory도
+검사한다. Canonical/Robot/native UI window 및 다중 호스트 gate 범위는 아래와 같다.
+영상은 [`scan_cycle_cylinder_20261031.mp4`](../workbench/evidence/curated/sim/scan_cycle_cylinder_20261031.mp4),
+수치/해시는 [`scan_cycle_cylinder_20261031.json`](../workbench/evidence/curated/sim/scan_cycle_cylinder_20261031.json)이다.
+원자료는 서버 `/home/hckang/ws/elesim-scan-cycle-20261030/cycle-14/`에 보존한다.
+
 ### 실제 카메라 수집 → 다중 시야 → 메쉬 → 실행 중 Sim 적용 (2026-10-31)
 
 서버 GPU 2의 정상 설치 이미지 Pilot/Sim/UI를 각각 분리해, 고정 암의 실제

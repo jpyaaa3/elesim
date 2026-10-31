@@ -1,7 +1,7 @@
 """Sim-only fixture/evidence adapter around the installed, real DDS runtime.
 
 No frames, measurements, transport, reconstruction or scene commands are mocked.
-The initial red sphere is private ground truth; Pilot never receives this file.
+The initial red target is private ground truth; Pilot never receives this file.
 """
 from __future__ import annotations
 
@@ -57,6 +57,7 @@ def main():
         scene.set_sim_target_position(center)
         app.spawn = replace(app.spawn, sim_target_xyz=tuple(map(float, center)))
         evidence.update(fixture_ready=True, truth=dict(center_m=center.tolist(),
+            shape=app.spawn.sim_target_shape,height_m=float(app.spawn.sim_target_height),
             radius_m=float(app.spawn.sim_target_radius), initial_q=list(q),
             camera_origin_m=origin.tolist(), camera_look=look.tolist()),
             genesis_version=__import__('genesis').__version__, fixture_ready_at=time.time())
@@ -66,6 +67,10 @@ def main():
         app, scene = runtime.app, runtime.app.sim_scene
         started = time.time()
         row = dict(command=command.command, started=started)
+        spec = scene.camera_render_worker.spec
+        row.update(camera_target_shape=spec.target_shape,camera_target_height_m=spec.target_height)
+        assert spec.target_shape == evidence['truth']['shape']
+        assert np.isclose(spec.target_height,evidence['truth']['height_m'])
         if scene.sim_target_entity is not None:
             target_pos = array(scene.sim_target_entity.get_pos())
             row['original_target_position_m'] = target_pos.tolist()

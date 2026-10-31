@@ -7,7 +7,9 @@ operator RPC, WebRTC 수신과 `load_scan_result` backend를 사용한다. Nativ
 [`docs/status.md`](../../../docs/status.md)만 소유한다.
 
 `probe_scan_cycle_sim.py`는 고정 암을 배치하고 실제 카메라 앞 0.4 m에 반경
-45 mm의 빨간 구를 둔다. 정답은 Sim의 사후 평가 파일에만 남긴다. Pilot에는
+45 mm의 빨간 구 또는 높이 140 mm인 같은 반경의 원통을 둔다.
+`launch --shape sphere|cylinder`로 선택하며 기본값은 sphere다.
+정답은 Sim의 사후 평가 파일에만 남긴다. Pilot에는
 정답 파일, 실제 camera pose 또는 물체 mesh를 마운트하지 않는다. Pilot은
 측정 q/명목 FK와 실제 RGB-D로 시야를 선택한다. `use_hardware=false`,
 `use_go2=false`이며 물리 Robot에는 연결하지 않는다.
@@ -22,7 +24,8 @@ PID와 rebuild 이후 frame timestamp를 독립 기록한다.
 
 재구성 기준선은 HSV + 명목 FK + ObservedOnly + 20 mm voxel surface다.
 `geometry_complete_claimed=false`, `needs_more_observation=true`를 유지한다.
-관측점의 구 표면 오차와 거친 mesh vertex 오차는 별도로 보고한다. 형상 완성,
+관측점의 표면 오차와 거친 mesh vertex 오차는 별도로 보고한다. 원통 평가는
+world-Z 축의 유한 원통 옆면·끝면·모서리를 모두 포함한다. 형상 완성,
 일반 instance segmentation, GO2 이동, 동적 집기 및 다중 호스트 파일 전송의
 수용시험은 아니다. 이 검사는 한 호스트의 사설 internal bridge와 공유 artifact
 root를 사용하며 보안/NAT 시험을 대신하지 않는다.
@@ -73,6 +76,9 @@ python3 /home/hckang/ws/elesim-scan-cycle-20261030/probes/scan_cycle_run.py stop
 
 `stop`은 이 설치 UUID/system/image를 대조한 세 컨테이너만 중지하고 원래
 inventory와 비교한다. 컨테이너·이미지·volume·원본 cache를 삭제하지 않는다.
+새 실행은 시작 직전의 전체 container inventory도 따로 대조한다. Probe는 각
+실행 폴더에 고정 복사하며 upload가 교체하는 기존 파일은 SHA-256별 history에
+보존한다. 이후 도구 변경이 이미 생성한 실행의 probe를 바꾸지 않는다.
 실패한 시도도 남긴다. Cache는 새 instance에 복사하며 기존 cache를 비우지
 않는다. 같은 fixture의 후속 실행은 mesh 전처리 cache도 재사용할 수 있으므로
 첫 삽입과 반복 삽입의 지연을 구분한다.
@@ -86,6 +92,9 @@ python3 -m workbench.research.analysis.render_scan_cycle_demo \
   --output workbench/evidence/curated/sim/scan_cycle_demo_DATE.mp4 \
   --cache-note 'Warm repeated mesh'
 ```
+
+`--cache-note`는 실제 조건을 기입한다. 다른 형상에서 처음 생성된 mesh라면
+예를 들어 `Warm kernels / new mesh`로 적으며 같은 mesh의 반복과 구분한다.
 
 원격 SSH 전송에만 `ssh_mss_proxy`의 소켓별 MSS를 적용한다. 호스트 MTU나
 전역 SSH 설정을 바꾸지 않는다. DDS/WebRTC는 이 SSH stream을 사용하지 않는다.

@@ -1,0 +1,25 @@
+{
+  "scope": "actual UI WebRTC recording, composed with measured stage captions",
+  "playback_speed": 1,
+  "mesh_cache_note": "Warm kernels / new mesh",
+  "rendered": {
+    "programs": [],
+    "streams": [
+      {
+        "codec_name": "h264",
+        "width": 1280,
+        "height": 720,
+        "avg_frame_rate": "10/1"
+      }
+    ],
+    "format": {
+      "duration": "57.800000"
+    }
+  },
+  "bytes": 1631576,
+  "sha256": "acc77ce5328f86cf364e2f8ab3ca855cf380df8bf3ba65022e73a79e796867da",
+  "source": {
+    "hand_eye_preview.mp4": "9531a32fecedef6b0a14f8a3a285b9b2c4de8bfb08d6860f78e5c1d9cdbf05fd",
+    "observer.mp4": "803d0f492328d585557e81778dfc8047593618c285e10785fc5ef6c1ab6d86e9"
+  }
+}

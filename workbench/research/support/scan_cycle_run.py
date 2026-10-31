@@ -91,11 +91,20 @@ def bind(source, target, *, read_only=False):
     return dict(type='bind',source=str(source),target=target,read_only=read_only)
 
 
-def launch(attempt,math_threads=None,debug_allocator=False):
+def inventory():
+    ids = subprocess.check_output(DOCKER+['ps','-aq','--no-trunc'],text=True).split()
+    return {row['Id']:{'name':row['Name'],'image':row['Image'],'status':row['State']['Status']}
+        for row in run_json(DOCKER+['inspect',*ids])}
+
+
+def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere'):
     assert 1 <= attempt <= 24
     root = TASK/f'cycle-{attempt:02d}'
     assert not root.exists(), 'use a new attempt; never recreate retained diagnostic containers'
     root.mkdir(mode=0o755)
+    write_json(root/'containers-before.json',inventory())
+    probes = root/'probes'
+    shutil.copytree(TASK/'probes',probes)
     system = 'scan_cycle_20261030' if attempt == 1 else f'scan_cycle_20261030_{attempt:02d}'
     suffix = f'{attempt:02d}'
     endpoints = dict(sim='scan-sim-'+suffix,pilot='scan-pilot-'+suffix,ui='scan-ui-'+suffix)
@@ -131,6 +140,7 @@ def launch(attempt,math_threads=None,debug_allocator=False):
     record['pilot_math_threads'] = math_threads
     record['pilot_debug_allocator'] = debug_allocator
     record['pilot_periodic_stacks'] = False
+    record['fixture_shape'] = shape
     for index,role in enumerate(('sim','pilot','ui')):
         key,service = services[role]
         assert subprocess.run(DOCKER+['inspect',service['container_name']],capture_output=True).returncode != 0
@@ -160,7 +170,7 @@ def launch(attempt,math_threads=None,debug_allocator=False):
             profile = config['profiles']['scan_cycle']
             if role == 'sim':
                 profile['simulation']['runtime'].update(scene_import_root='/exchange')
-                profile['world'] = {'target':dict(enable=True, radius=.045,
+                profile['world'] = {'target':dict(enable=True, radius=.045,shape=shape,height=.14,
                     color_rgba=[.85,.15,.15,1.], gravity=False), 'debug':{'markers':False}}
                 # Seed only this new instance's private cache. The original
                 # measurement cache remains untouched.
@@ -184,7 +194,7 @@ def launch(attempt,math_threads=None,debug_allocator=False):
             write_json(config_path,config)
             mounts.append(bind(exchange,'/exchange',read_only=role=='sim'))
         if role in ('sim','ui','pilot'):
-            script = TASK/'probes'/('probe_scan_cycle_'+role+'.py')
+            script = probes/('probe_scan_cycle_'+role+'.py')
             record['probe_sha256'][script.name] = hashlib.sha256(script.read_bytes()).hexdigest()
             mounts.append(bind(script,'/probe/run.py',read_only=True))
             command = ['python3','/probe/run.py','--evidence','/cycle-output']
@@ -192,9 +202,9 @@ def launch(attempt,math_threads=None,debug_allocator=False):
                 command.extend(('--config','/opt/elesim/config/scan-cycle.yaml','--mode','scan_cycle',
                     '--runtime-config','/opt/elesim/config/runtime.installed.yaml'))
             elif role == 'ui':
-                mounts.append(bind(TASK/'probes/scan_cycle_recording.py','/probe/scan_cycle_recording.py',read_only=True))
+                mounts.append(bind(probes/'scan_cycle_recording.py','/probe/scan_cycle_recording.py',read_only=True))
                 record['probe_sha256']['scan_cycle_recording.py'] = hashlib.sha256(
-                    (TASK/'probes/scan_cycle_recording.py').read_bytes()).hexdigest()
+                    (probes/'scan_cycle_recording.py').read_bytes()).hexdigest()
                 command.append('--record-video')
                 command.extend(('--system',system,'--pilot',endpoints['pilot'],
                     '--sim',endpoints['sim'],'--ui',endpoints['ui']))
@@ -208,9 +218,6 @@ def launch(attempt,math_threads=None,debug_allocator=False):
             entry = ['/bin/bash','-c',
                 'source /opt/ros/humble/setup.bash && source /opt/elesim/ros/install/setup.bash && exec "$@"','scan-cycle']
             lines.append('    entrypoint: !override '+json.dumps(entry))
-        else:
-            command = ['--config','/opt/elesim/config/scan-cycle.yaml','--mode','scan_cycle',
-                '--target',endpoints['sim'],'--scan-output-root','/exchange']
         lines.append('    command: !override '+json.dumps(command))
         lines.append('    volumes: !override '+json.dumps(mounts))
     override = root/'cycle.compose.yaml'
@@ -244,13 +251,20 @@ def upload():
         for path in names:
             archive.add(path,arcname=path.name)
     remote = f'''
-import io,sys,tarfile,json
+import io,sys,tarfile,json,hashlib
 from pathlib import Path
 root=Path({str(TASK)!r})/'probes';root.mkdir(exist_ok=True)
 with tarfile.open(fileobj=io.BytesIO(sys.stdin.buffer.read()),mode='r:gz') as archive:
  for member in archive.getmembers():
   assert member.isfile() and Path(member.name).name==member.name
-  (root/member.name).write_bytes(archive.extractfile(member).read())
+  target=root/member.name; incoming=archive.extractfile(member).read()
+  if target.exists() and target.read_bytes()!=incoming:
+   previous=target.read_bytes(); digest=hashlib.sha256(previous).hexdigest()
+   history=root.parent/'probe-history'/digest;history.mkdir(parents=True,exist_ok=True)
+   preserved=history/member.name
+   if preserved.exists():assert preserved.read_bytes()==previous
+   else:preserved.write_bytes(previous)
+  target.write_bytes(incoming)
 print(json.dumps({{'uploaded':sorted(p.name for p in root.iterdir())}}))
 '''
     command = ['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10',
@@ -278,25 +292,31 @@ def stop(attempt):
         (root/(role+'.stdout.log')).write_bytes(result.stdout)
         (root/(role+'.stderr.log')).write_bytes(result.stderr)
     before = json.loads((TASK/'containers-before.json').read_text())
-    ids = subprocess.check_output(DOCKER+['ps','-aq','--no-trunc'],text=True).split()
-    after = {row['Id']:{'name':row['Name'],'image':row['Image'],'status':row['State']['Status']}
-        for row in run_json(DOCKER+['inspect',*ids])}
+    after = inventory()
     preservation = dict(before=len(before),after=len(after),
         missing=sorted(set(before)-set(after)),
         changed=[key for key in before if key in after and before[key] != after[key]])
+    baseline_path = root/'containers-before.json'
+    if baseline_path.exists():
+        baseline = json.loads(baseline_path.read_text())
+        preservation.update(prelaunch_before=len(baseline),
+            prelaunch_missing=sorted(set(baseline)-set(after)),
+            prelaunch_changed=[key for key in baseline if key in after and baseline[key] != after[key]])
     write_json(root/'preservation.json',preservation)
     ui_path, evaluation_path = root/'ui-output/ui.json',root/'sim-output/evaluation.json'
     ui = json.loads(ui_path.read_text()) if ui_path.exists() else {}
     evaluation = json.loads(evaluation_path.read_text()) if evaluation_path.exists() else {}
     record.update(stopped=time.time(),complete=bool(ui.get('complete') and evaluation.get('complete')
-        and ui.get('video',{}).get('complete') and not preservation['missing'] and not preservation['changed']))
+        and ui.get('video',{}).get('complete') and not preservation['missing'] and not preservation['changed']
+        and not preservation.get('prelaunch_missing') and not preservation.get('prelaunch_changed')))
     write_json(root/'run.json',record)
 
 
 def profile_models(attempt):
     root = TASK/f'cycle-{attempt:02d}'
     record = json.loads((root/'run.json').read_text())
-    script = (TASK/'probes/profile_scan_models.py').read_bytes()
+    probes = root/'probes' if (root/'probes').is_dir() else TASK/'probes'
+    script = (probes/'profile_scan_models.py').read_bytes()
     rows = []
     for extra in ([],['--single-thread']):
         result = subprocess.run(DOCKER+['exec','-i',record['services']['pilot']['name'],
@@ -375,7 +395,8 @@ sys.stdout.buffer.write(buffer.getvalue())
 def evaluate(attempt):
     root = TASK/f'cycle-{attempt:02d}'
     record = json.loads((root/'run.json').read_text())
-    script = (TASK/'probes/evaluate_scan_cycle.py').read_bytes()
+    probes = root/'probes' if (root/'probes').is_dir() else TASK/'probes'
+    script = (probes/'evaluate_scan_cycle.py').read_bytes()
     result = subprocess.run(DOCKER+['exec','-i',record['services']['sim']['name'],'python3','-'],
         input=script,capture_output=True,timeout=120)
     (root/'evaluation.stdout.log').write_bytes(result.stdout)
@@ -391,10 +412,11 @@ def main():
     parser.add_argument('--attempt',type=int,default=1)
     parser.add_argument('--math-threads',type=int,choices=(1,2,4,8),default=None)
     parser.add_argument('--debug-allocator',action='store_true')
+    parser.add_argument('--shape',choices=('sphere','cylinder'),default='sphere')
     args = parser.parse_args()
     if args.action == 'upload': upload()
     elif args.action == 'publish': publish()
-    elif args.action == 'launch': launch(args.attempt,args.math_threads,args.debug_allocator)
+    elif args.action == 'launch': launch(args.attempt,args.math_threads,args.debug_allocator,args.shape)
     elif args.action == 'stop': stop(args.attempt)
     elif args.action == 'profile-models': profile_models(args.attempt)
     elif args.action == 'retry-ui': retry_ui(args.attempt)
