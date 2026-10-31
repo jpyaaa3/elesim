@@ -1,0 +1,1056 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-31",
+  "status": "final_normal_image_gpu_workflow_and_geometry_passed",
+  "scope": "Fixed-arm Sim-only original procedural jar; floor tilt, real RGB-D/DDS active scan, actual AdaPoinTr, supported voxel mesh, UI Apply and decoded WebRTC; no physical grasp/lift.",
+  "final_runtime_revision": "af52eda4722e930a43ca9326fef240d336d10652",
+  "install_uuid": "6c83e40f-8d1e-48b5-83c3-286cc8d7f50b",
+  "gpu": {
+    "host_index": 2,
+    "uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "model": "RTX A6000"
+  },
+  "target": {
+    "provenance": "EleSim original procedural jar v1; not an individual ShapeNet dataset mesh",
+    "max_diameter_m": 0.12,
+    "height_m": 0.22,
+    "outer_neck_diameter_m": 0.0528,
+    "inner_mouth_diameter_m": 0.048,
+    "outer_lower_waist_diameter_m": 0.0936,
+    "vertices": 2402,
+    "faces": 4800,
+    "file": "jar_scan_target_20261031.obj",
+    "sha256": "1f586511ee45de604ab42f2af1ab8701a7919ab3018750754efd450894e33c2d",
+    "preview_file": "jar_scan_target_20261031.png",
+    "preview_sha256": "c435074b9dabf433a63f258e02d2f8c39f2440f4a2991b6f8aaf084f79f66524",
+    "truth": {
+      "center_m": [
+        0.3519371582478872,
+        0.03961561809656883,
+        0.7402700495159595
+      ],
+      "shape": "jar",
+      "height_m": 0.22,
+      "radius_m": 0.06,
+      "initial_q": [
+        -0.132063,
+        0.382158,
+        -0.33934,
+        0.558898
+      ],
+      "camera_origin_m": [
+        0.16971163018173097,
+        -0.09317539446208423,
+        1.070664365303411
+      ],
+      "camera_look": [
+        0.03644510561323122,
+        0.02655820251173059,
+        -0.06607886315749023
+      ],
+      "profile_rz_m": [
+        [
+          0.0,
+          -0.11
+        ],
+        [
+          0.043199999999999995,
+          -0.11
+        ],
+        [
+          0.048,
+          -0.10339999999999999
+        ],
+        [
+          0.05039999999999999,
+          -0.0924
+        ],
+        [
+          0.0468,
+          -0.0748
+        ],
+        [
+          0.0528,
+          -0.0484
+        ],
+        [
+          0.06,
+          -0.0176
+        ],
+        [
+          0.06,
+          0.0088
+        ],
+        [
+          0.05639999999999999,
+          0.0352
+        ],
+        [
+          0.0468,
+          0.055
+        ],
+        [
+          0.0312,
+          0.0704
+        ],
+        [
+          0.0264,
+          0.07919999999999999
+        ],
+        [
+          0.0264,
+          0.0946
+        ],
+        [
+          0.033600000000000005,
+          0.099
+        ],
+        [
+          0.033600000000000005,
+          0.11
+        ],
+        [
+          0.024,
+          0.11
+        ],
+        [
+          0.021599999999999998,
+          0.1012
+        ],
+        [
+          0.021599999999999998,
+          0.07919999999999999
+        ],
+        [
+          0.027,
+          0.0682
+        ],
+        [
+          0.041999999999999996,
+          0.0506
+        ],
+        [
+          0.0516,
+          0.030800000000000004
+        ],
+        [
+          0.0552,
+          0.0066
+        ],
+        [
+          0.0552,
+          -0.015400000000000002
+        ],
+        [
+          0.048,
+          -0.044000000000000004
+        ],
+        [
+          0.04139999999999999,
+          -0.0704
+        ],
+        [
+          0.0396,
+          -0.0924
+        ],
+        [
+          0.0,
+          -0.0924
+        ]
+      ],
+      "mesh": {
+        "file": "jar-target.obj",
+        "sha256": "1f586511ee45de604ab42f2af1ab8701a7919ab3018750754efd450894e33c2d",
+        "provenance": "EleSim procedural jar v1; not a ShapeNet dataset sample",
+        "convexify": false,
+        "decimate": false
+      }
+    }
+  },
+  "runs": [
+    {
+      "attempt": 21,
+      "runtime_revision": "985e76019c2d8d0ae529d23c74dc7f7776bf0ec0",
+      "release": {
+        "already_published": false,
+        "release_key": "cef7cde3b85f33e55c849dba509672b66ab5f113cf9b5e412d34f9bba2306cf8",
+        "release_path": "/home/hckang/ws/elesim-scan-cycle-20261030/install/releases/cef7cde3b85f33e55c849dba509672b66ab5f113cf9b5e412d34f9bba2306cf8"
+      },
+      "image_ids": {
+        "sim": "sha256:1187e7ebe770bb263f6b9f1415faff326de700ef7c872582dde4651a79e63e1f",
+        "pilot": "sha256:bba03f32dad9178f55fda5ccaeb92860f1b57e24ed4ed8bdd065ac382396cebd",
+        "ui": "sha256:2a342094320e38b091f67d8388cf31610cb0865504bb9d96c571b10a0aa872bc"
+      },
+      "service_names": {
+        "sim": "elesim-sandy-scan_cycle_20261030_21-sim",
+        "pilot": "elesim-sandy-scan_cycle_20261030_21-pilot",
+        "ui": "elesim-sandy-scan_cycle_20261030_21-ui"
+      },
+      "view_budget": 12,
+      "accepted_views": 6,
+      "stop_reason": "information_saturated",
+      "calibration_captures": 12,
+      "geometry_complete_claimed": false,
+      "needs_more_observation": true,
+      "models": {
+        "segmenter": {},
+        "pose": {},
+        "completion": {
+          "loaded": true,
+          "applied": true,
+          "profile": "projected55",
+          "normalization": "center-only",
+          "axis_order": "world-z-up",
+          "asset_sha256": {
+            "source": "ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e",
+            "config": "cdd8616e9abe77013234879f1c15b8aed0764274be274dec3937ebd65479a707",
+            "weights": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7"
+          },
+          "parameters": 32470033,
+          "missing_keys": [],
+          "unexpected_keys": [],
+          "upstream_revision": "4603257ed3db9e7dad349b712e1b2fe0da207015",
+          "gpu": "NVIDIA RTX A6000",
+          "torch_version": "2.12.1+cu130",
+          "backend": "upstream AdaPoinTr graph; Triton FPS / Torch gather",
+          "training": false,
+          "tf32": false,
+          "object_id": "target",
+          "input_points": 4300,
+          "sampled_points": 2048,
+          "predicted_points": 8192,
+          "center_m": [
+            0.341475974815134,
+            0.03391257273333354,
+            0.757192491881609
+          ],
+          "metres_per_model_unit": 1.0,
+          "elapsed_s": 2.575022723991424,
+          "forward_ms": 2570.0397840701044
+        },
+        "mesher": {}
+      },
+      "floor_by_view": [
+        {
+          "view": 0,
+          "applied": true,
+          "tilt_before_correction_deg": 0.015630676827585673,
+          "stable_frames": 3
+        },
+        {
+          "view": 1,
+          "applied": true,
+          "tilt_before_correction_deg": 0.031669865859060564,
+          "stable_frames": 3
+        },
+        {
+          "view": 2,
+          "applied": true,
+          "tilt_before_correction_deg": 0.015423133095421532,
+          "stable_frames": 3
+        },
+        {
+          "view": 3,
+          "applied": true,
+          "tilt_before_correction_deg": 0.02098669529851795,
+          "stable_frames": 3
+        },
+        {
+          "view": 4,
+          "applied": true,
+          "tilt_before_correction_deg": 0.016214507571581827,
+          "stable_frames": 3
+        },
+        {
+          "view": 5,
+          "applied": true,
+          "tilt_before_correction_deg": 0.01589386648484624,
+          "stable_frames": 3
+        }
+      ],
+      "geometry": [
+        {
+          "object_id": "target",
+          "observed_points": 4300,
+          "predicted_points": 8192,
+          "vertices": 2434,
+          "faces": 4324,
+          "observed_surface_error_p50_m": 0.0002694354059258718,
+          "observed_surface_error_p95_m": 0.0008717557337859726,
+          "observed_surface_error_max_m": 1.2077566010235876,
+          "mesh_vertex_surface_error_p95_m": 0.8664174617529161,
+          "observed_aabb_m": [
+            [
+              0.2915533121866885,
+              -0.020508881970208805,
+              -0.0005514200567451333
+            ],
+            [
+              1.080090187967695,
+              0.8288866236385503,
+              0.8509335871942612
+            ]
+          ],
+          "mesh_aabb_m": [
+            [
+              0.16,
+              -0.08,
+              -0.02
+            ],
+            [
+              1.1,
+              0.84,
+              0.88
+            ]
+          ],
+          "predicted_surface_error_p95_m": 0.040427787543166484,
+          "predicted_surface_error_max_m": 1.0027509737151565
+        }
+      ],
+      "geometry_accepted": false,
+      "workflow_complete": true,
+      "scan_seconds_after_start_reply": 81.62175035476685,
+      "scene_apply": {
+        "command": "load_scene",
+        "started": 1793446795.1831717,
+        "camera_target_shape": "jar",
+        "camera_target_height_m": 0.22,
+        "original_target_position_m": [
+          -8.0,
+          -8.0,
+          -8.0
+        ],
+        "original_target_hidden_before_load": true,
+        "reason": "scene ready: revision=dd5732bc23ac objects=1 physics=3.94s camera_wait=0.26s total=4.28s",
+        "ok": true,
+        "revision": "dd5732bc23acd487dc9866a39ef16beea247d1ae5f82d45f6f9777ad6e0b1c77",
+        "elapsed_s": 4.320615291595459,
+        "timings": {
+          "physics_s": 3.9354549339041114,
+          "camera_rebuild_s": 1.599771342240274,
+          "cameras_s": 0.2581240627914667
+        },
+        "entity_state_preserved": true,
+        "entity_pose_errors": {},
+        "camera_processes_preserved": true,
+        "frames": {
+          "observer": {
+            "ts": 1793446799.4315014,
+            "file": "observer-after-0.png",
+            "width": 1280,
+            "height": 720
+          },
+          "hand_eye_preview": {
+            "ts": 1793446799.4656184,
+            "file": "hand_eye_preview-after-0.png",
+            "width": 1280,
+            "height": 720
+          }
+        }
+      },
+      "clean_exits": {
+        "sim": {
+          "ExitCode": 0,
+          "OOMKilled": false,
+          "Running": false
+        },
+        "pilot": {
+          "ExitCode": 0,
+          "OOMKilled": false,
+          "Running": false
+        },
+        "ui": {
+          "ExitCode": 0,
+          "OOMKilled": false,
+          "Running": false
+        }
+      },
+      "fatal_bytes": 0,
+      "stack_sampler": {
+        "samples": 1614,
+        "error": ""
+      },
+      "video": {
+        "complete": true,
+        "error": "",
+        "fps": 10,
+        "files": {
+          "hand_eye_preview": "hand_eye_preview.mp4",
+          "observer": "observer.mp4"
+        },
+        "frames": {
+          "hand_eye_preview": 952,
+          "observer": 952
+        },
+        "started": 1793446707.6531768,
+        "duration_s": 95.2402124973014,
+        "clock": "actual wall time; original decoder frames, no speed change"
+      },
+      "preservation": {
+        "before": 60,
+        "after": 187,
+        "missing": [],
+        "changed": [],
+        "prelaunch_before": 182,
+        "prelaunch_missing": [],
+        "prelaunch_changed": []
+      },
+      "artifacts": {
+        "run.json": "b5c13422c68852bc6a4319661be0c638e82a17a094b36b9119663548c9980439",
+        "ui-output/ui.json": "ef9350372aaf4c5640f0d41fba1004f06609b90292f0b554a667ec71bd8f58ec",
+        "pilot-output/pilot.json": "dc9213756a54ab3e580c55d273a174e878376375ba1df5deb0250a8040e4a125",
+        "sim-output/sim.json": "df65c9327f16a86d31b78eb160272576acf7c152fe2c46aa4f20569393035901",
+        "sim-output/evaluation.json": "dfca1774492863b7b307e817e50a9fd3ea955c7eff098315abe4ca4a5be86696",
+        "shutdown-validation.json": "890a4728cf57650262fbf3323a6133a0eb71ddb1bcb8347800728b780d17b095",
+        "exchange/1161100278fa4b68854d6221d0d257a5/scan.json": "140d5b4fc197f2665ecf344f1f954db3a480a7546d6a71bc73ac9987f7b960fb"
+      },
+      "probe_sha256": {
+        "probe_scan_cycle_sim.py": "c7371a233c22ccd885d4c1c3e207e0a3735e307af3421b1578b027ff7079fec1",
+        "probe_scan_cycle_pilot.py": "02bc6586862dab772018450ec435ca792afe13e09290774cd49a8169af9c9306",
+        "probe_scan_cycle_ui.py": "d4db7fe9368aa2077a09cb29625bd64cb9068caa4ca40b3c56713c8a4828cd1a",
+        "scan_cycle_recording.py": "997cf0044eece9c178da287c4e2707b9b60896940d49b8993b09ba540ecc0f09"
+      },
+      "driver_sha256": "d557d9d04f42fe50d376510a969742970aa19b80a4d1eb0952cbab83880b64de",
+      "remote_root": "/home/hckang/ws/elesim-scan-cycle-20261030/cycle-21"
+    },
+    {
+      "attempt": 22,
+      "runtime_revision": "a861c25179def7564c02ff7ed8c1b973b12d31c3",
+      "release": {
+        "already_published": false,
+        "release_key": "c27887075934539cfbf43a096197870bfdc5bbb5b6fad6751018685fcd4dca12",
+        "release_path": "/home/hckang/ws/elesim-scan-cycle-20261030/install/releases/c27887075934539cfbf43a096197870bfdc5bbb5b6fad6751018685fcd4dca12"
+      },
+      "image_ids": {
+        "sim": "sha256:1187e7ebe770bb263f6b9f1415faff326de700ef7c872582dde4651a79e63e1f",
+        "pilot": "sha256:3526ff7b531ac43f3f93dcb988fb467861bd5f9060ea4283db2b01b78e61b70b",
+        "ui": "sha256:2a342094320e38b091f67d8388cf31610cb0865504bb9d96c571b10a0aa872bc"
+      },
+      "service_names": {
+        "sim": "elesim-sandy-scan_cycle_20261030_22-sim",
+        "pilot": "elesim-sandy-scan_cycle_20261030_22-pilot",
+        "ui": "elesim-sandy-scan_cycle_20261030_22-ui"
+      },
+      "view_budget": 12,
+      "accepted_views": 6,
+      "stop_reason": "information_saturated",
+      "calibration_captures": 12,
+      "geometry_complete_claimed": false,
+      "needs_more_observation": true,
+      "models": {
+        "segmenter": {
+          "depth_gap_m": 0.025,
+          "min_component_pixels": 20,
+          "input_mask_pixels": 42813,
+          "kept_pixels": 42812,
+          "rejected_pixels": 1,
+          "depth_components": 2
+        },
+        "pose": {},
+        "completion": {
+          "loaded": true,
+          "applied": true,
+          "profile": "projected55",
+          "normalization": "center-only",
+          "axis_order": "world-z-up",
+          "asset_sha256": {
+            "source": "ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e",
+            "config": "cdd8616e9abe77013234879f1c15b8aed0764274be274dec3937ebd65479a707",
+            "weights": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7"
+          },
+          "parameters": 32470033,
+          "missing_keys": [],
+          "unexpected_keys": [],
+          "upstream_revision": "4603257ed3db9e7dad349b712e1b2fe0da207015",
+          "gpu": "NVIDIA RTX A6000",
+          "torch_version": "2.12.1+cu130",
+          "backend": "upstream AdaPoinTr graph; Triton FPS / Torch gather",
+          "training": false,
+          "tf32": false,
+          "object_id": "target",
+          "input_points": 4325,
+          "sampled_points": 2048,
+          "predicted_points": 8192,
+          "center_m": [
+            0.3413842292805207,
+            0.033681817058626294,
+            0.7573710919078736
+          ],
+          "metres_per_model_unit": 1.0,
+          "elapsed_s": 2.5935648060403764,
+          "forward_ms": 2587.794848252088
+        },
+        "mesher": {}
+      },
+      "floor_by_view": [
+        {
+          "view": 0,
+          "applied": true,
+          "tilt_before_correction_deg": 0.015630676827585673,
+          "stable_frames": 3
+        },
+        {
+          "view": 1,
+          "applied": true,
+          "tilt_before_correction_deg": 0.031669865859060564,
+          "stable_frames": 3
+        },
+        {
+          "view": 2,
+          "applied": true,
+          "tilt_before_correction_deg": 0.015423133095421532,
+          "stable_frames": 3
+        },
+        {
+          "view": 3,
+          "applied": true,
+          "tilt_before_correction_deg": 0.02098669529851795,
+          "stable_frames": 3
+        },
+        {
+          "view": 4,
+          "applied": true,
+          "tilt_before_correction_deg": 0.016214507571581827,
+          "stable_frames": 3
+        },
+        {
+          "view": 5,
+          "applied": true,
+          "tilt_before_correction_deg": 0.01589386648484624,
+          "stable_frames": 3
+        }
+      ],
+      "geometry": [
+        {
+          "object_id": "target",
+          "observed_points": 4325,
+          "predicted_points": 8192,
+          "vertices": 657,
+          "faces": 1316,
+          "observed_surface_error_p50_m": 0.0002757265776355128,
+          "observed_surface_error_p95_m": 0.0009046914156300756,
+          "observed_surface_error_max_m": 0.0022321354940895415,
+          "mesh_vertex_surface_error_p95_m": 0.2497429011735317,
+          "observed_aabb_m": [
+            [
+              0.29155287058122437,
+              -0.02048918566377085,
+              0.6421929614087912
+            ],
+            [
+              0.40704634082128804,
+              0.09875661064000726,
+              0.8509566637877964
+            ]
+          ],
+          "mesh_aabb_m": [
+            [
+              0.28,
+              -0.04,
+              0.64
+            ],
+            [
+              0.42,
+              0.12,
+              1.26
+            ]
+          ],
+          "predicted_surface_error_p95_m": 0.010876112724348061,
+          "predicted_surface_error_max_m": 0.397947655890572
+        }
+      ],
+      "geometry_accepted": false,
+      "workflow_complete": true,
+      "scan_seconds_after_start_reply": 79.94572186470032,
+      "scene_apply": {
+        "command": "load_scene",
+        "started": 1793447541.8164093,
+        "camera_target_shape": "jar",
+        "camera_target_height_m": 0.22,
+        "original_target_position_m": [
+          -8.0,
+          -8.0,
+          -8.0
+        ],
+        "original_target_hidden_before_load": true,
+        "reason": "scene ready: revision=e433466867b7 objects=1 physics=2.56s camera_wait=0.30s total=2.94s",
+        "ok": true,
+        "revision": "e433466867b77e5925bc4848ce324e0897168ddcc72fb6590d0f0d85acad7eef",
+        "elapsed_s": 2.9688334465026855,
+        "timings": {
+          "physics_s": 2.5619856896810234,
+          "camera_rebuild_s": 0.8785787341184914,
+          "cameras_s": 0.29647307889536023
+        },
+        "entity_state_preserved": true,
+        "entity_pose_errors": {},
+        "camera_processes_preserved": true,
+        "frames": {
+          "observer": {
+            "ts": 1793447544.713711,
+            "file": "observer-after-0.png",
+            "width": 1280,
+            "height": 720
+          },
+          "hand_eye_preview": {
+            "ts": 1793447544.747575,
+            "file": "hand_eye_preview-after-0.png",
+            "width": 1280,
+            "height": 720
+          }
+        }
+      },
+      "clean_exits": {
+        "sim": {
+          "ExitCode": 0,
+          "OOMKilled": false,
+          "Running": false
+        },
+        "pilot": {
+          "ExitCode": 0,
+          "OOMKilled": false,
+          "Running": false
+        },
+        "ui": {
+          "ExitCode": 0,
+          "OOMKilled": false,
+          "Running": false
+        }
+      },
+      "fatal_bytes": 0,
+      "stack_sampler": {
+        "samples": 1754,
+        "error": ""
+      },
+      "video": {
+        "complete": true,
+        "error": "",
+        "fps": 10,
+        "files": {
+          "hand_eye_preview": "hand_eye_preview.mp4",
+          "observer": "observer.mp4"
+        },
+        "frames": {
+          "hand_eye_preview": 924,
+          "observer": 924
+        },
+        "started": 1793447455.739552,
+        "duration_s": 92.399748288095,
+        "clock": "actual wall time; original decoder frames, no speed change"
+      },
+      "preservation": {
+        "before": 60,
+        "after": 195,
+        "missing": [],
+        "changed": [],
+        "prelaunch_before": 190,
+        "prelaunch_missing": [],
+        "prelaunch_changed": []
+      },
+      "artifacts": {
+        "run.json": "1524bf39d693307f6ef39178e20ac95e5ff9d4b0bf7b20ab821af3ca1c559789",
+        "ui-output/ui.json": "b3fff0466832fc4c3754b31b3dfe6e7e05c9b0d70c9342c292d4544c6609cf36",
+        "pilot-output/pilot.json": "3fcdd2728983d8eeb63e61a8e23d81ee96413175ede46ece1adbc3251c010b08",
+        "sim-output/sim.json": "d259d51ef4afeb9e805bc1a837b6ca398beb69dd88d847115609c97a8ed34045",
+        "sim-output/evaluation.json": "9c463d2e09dfd133c32272ca2850d0b01cbe1f09b471d00bfb6bdbc18d6eb16a",
+        "shutdown-validation.json": "a179ab8f216448c8ab168974e681510788ad3b14f959e681ddce38be34eaf764",
+        "exchange/281a7029f51949b3a8209e35b087aa93/scan.json": "6a18acfd594c637f69b986fa7b5b3195aa913b58be21b644f144df51f06f2488"
+      },
+      "probe_sha256": {
+        "probe_scan_cycle_sim.py": "c7371a233c22ccd885d4c1c3e207e0a3735e307af3421b1578b027ff7079fec1",
+        "probe_scan_cycle_pilot.py": "02bc6586862dab772018450ec435ca792afe13e09290774cd49a8169af9c9306",
+        "probe_scan_cycle_ui.py": "d4db7fe9368aa2077a09cb29625bd64cb9068caa4ca40b3c56713c8a4828cd1a",
+        "scan_cycle_recording.py": "997cf0044eece9c178da287c4e2707b9b60896940d49b8993b09ba540ecc0f09"
+      },
+      "driver_sha256": "d557d9d04f42fe50d376510a969742970aa19b80a4d1eb0952cbab83880b64de",
+      "remote_root": "/home/hckang/ws/elesim-scan-cycle-20261030/cycle-22"
+    },
+    {
+      "attempt": 23,
+      "runtime_revision": "af52eda4722e930a43ca9326fef240d336d10652",
+      "release": {
+        "already_published": false,
+        "release_key": "022b1bbeeb1cdb710b0cf90a5cedb62092fe25f3d2c6992edb18c268ad100a49",
+        "release_path": "/home/hckang/ws/elesim-scan-cycle-20261030/install/releases/022b1bbeeb1cdb710b0cf90a5cedb62092fe25f3d2c6992edb18c268ad100a49"
+      },
+      "image_ids": {
+        "sim": "sha256:1187e7ebe770bb263f6b9f1415faff326de700ef7c872582dde4651a79e63e1f",
+        "pilot": "sha256:8a3194b0b1fc94f26c11fccc1dc15cc1bf8fdac460c06125d8336a85f697c07c",
+        "ui": "sha256:2a342094320e38b091f67d8388cf31610cb0865504bb9d96c571b10a0aa872bc"
+      },
+      "service_names": {
+        "sim": "elesim-sandy-scan_cycle_20261030_23-sim",
+        "pilot": "elesim-sandy-scan_cycle_20261030_23-pilot",
+        "ui": "elesim-sandy-scan_cycle_20261030_23-ui"
+      },
+      "view_budget": 12,
+      "accepted_views": 6,
+      "stop_reason": "information_saturated",
+      "calibration_captures": 12,
+      "geometry_complete_claimed": false,
+      "needs_more_observation": true,
+      "models": {
+        "segmenter": {
+          "depth_gap_m": 0.025,
+          "min_component_pixels": 20,
+          "input_mask_pixels": 42813,
+          "kept_pixels": 42812,
+          "rejected_pixels": 1,
+          "depth_components": 2
+        },
+        "pose": {},
+        "completion": {
+          "loaded": true,
+          "applied": true,
+          "profile": "projected55",
+          "normalization": "center-only",
+          "axis_order": "world-z-up",
+          "asset_sha256": {
+            "source": "ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e",
+            "config": "cdd8616e9abe77013234879f1c15b8aed0764274be274dec3937ebd65479a707",
+            "weights": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7"
+          },
+          "parameters": 32470033,
+          "missing_keys": [],
+          "unexpected_keys": [],
+          "upstream_revision": "4603257ed3db9e7dad349b712e1b2fe0da207015",
+          "gpu": "NVIDIA RTX A6000",
+          "torch_version": "2.12.1+cu130",
+          "backend": "upstream AdaPoinTr graph; Triton FPS / Torch gather",
+          "training": false,
+          "tf32": false,
+          "object_id": "target",
+          "input_points": 4325,
+          "sampled_points": 2048,
+          "predicted_points": 8192,
+          "center_m": [
+            0.3413842292805207,
+            0.033681817058626294,
+            0.7573710919078736
+          ],
+          "metres_per_model_unit": 1.0,
+          "elapsed_s": 2.561731444206089,
+          "forward_ms": 2556.6337229683995
+        },
+        "mesher": {
+          "voxel_m": 0.02,
+          "min_generated_neighbors": 8,
+          "generated_neighbor_radius_m": 0.01,
+          "observed_points": 4325,
+          "generated_points": 8192,
+          "meshed_generated_points": 8023,
+          "rejected_generated_points": 169
+        }
+      },
+      "floor_by_view": [
+        {
+          "view": 0,
+          "applied": true,
+          "tilt_before_correction_deg": 0.015630676827585673,
+          "stable_frames": 3
+        },
+        {
+          "view": 1,
+          "applied": true,
+          "tilt_before_correction_deg": 0.031669865859060564,
+          "stable_frames": 3
+        },
+        {
+          "view": 2,
+          "applied": true,
+          "tilt_before_correction_deg": 0.015423133095421532,
+          "stable_frames": 3
+        },
+        {
+          "view": 3,
+          "applied": true,
+          "tilt_before_correction_deg": 0.02098669529851795,
+          "stable_frames": 3
+        },
+        {
+          "view": 4,
+          "applied": true,
+          "tilt_before_correction_deg": 0.016214507571581827,
+          "stable_frames": 3
+        },
+        {
+          "view": 5,
+          "applied": true,
+          "tilt_before_correction_deg": 0.01589386648484624,
+          "stable_frames": 3
+        }
+      ],
+      "geometry": [
+        {
+          "object_id": "target",
+          "observed_points": 4325,
+          "predicted_points": 8192,
+          "vertices": 536,
+          "faces": 1076,
+          "observed_surface_error_p50_m": 0.0002757265776355128,
+          "observed_surface_error_p95_m": 0.0009046914156300756,
+          "observed_surface_error_max_m": 0.0022321354940895415,
+          "mesh_vertex_surface_error_p95_m": 0.034442327372908955,
+          "observed_aabb_m": [
+            [
+              0.29155287058122437,
+              -0.02048918566377085,
+              0.6421929614087912
+            ],
+            [
+              0.40704634082128804,
+              0.09875661064000726,
+              0.8509566637877964
+            ]
+          ],
+          "mesh_aabb_m": [
+            [
+              0.28,
+              -0.04,
+              0.64
+            ],
+            [
+              0.42,
+              0.12,
+              0.92
+            ]
+          ],
+          "predicted_surface_error_p95_m": 0.010876112724348061,
+          "predicted_surface_error_max_m": 0.397947655890572
+        }
+      ],
+      "geometry_accepted": true,
+      "workflow_complete": true,
+      "scan_seconds_after_start_reply": 86.0669813156128,
+      "scene_apply": {
+        "command": "load_scene",
+        "started": 1793448055.7977831,
+        "camera_target_shape": "jar",
+        "camera_target_height_m": 0.22,
+        "original_target_position_m": [
+          -8.0,
+          -8.0,
+          -8.0
+        ],
+        "original_target_hidden_before_load": true,
+        "reason": "scene ready: revision=916570f30e6a objects=1 physics=2.32s camera_wait=0.26s total=2.67s",
+        "ok": true,
+        "revision": "916570f30e6a361a0a15fe3a4db5d64f506189dd0c38eda47df02605e818f974",
+        "elapsed_s": 2.694995164871216,
+        "timings": {
+          "physics_s": 2.315288892015815,
+          "camera_rebuild_s": 0.6622055377811193,
+          "cameras_s": 0.26009261002764106
+        },
+        "entity_state_preserved": true,
+        "entity_pose_errors": {},
+        "camera_processes_preserved": true,
+        "frames": {
+          "observer": {
+            "ts": 1793448058.4121711,
+            "file": "observer-after-0.png",
+            "width": 1280,
+            "height": 720
+          },
+          "hand_eye_preview": {
+            "ts": 1793448058.4465435,
+            "file": "hand_eye_preview-after-0.png",
+            "width": 1280,
+            "height": 720
+          }
+        }
+      },
+      "clean_exits": {
+        "sim": {
+          "ExitCode": 0,
+          "OOMKilled": false,
+          "Running": false
+        },
+        "pilot": {
+          "ExitCode": 0,
+          "OOMKilled": false,
+          "Running": false
+        },
+        "ui": {
+          "ExitCode": 0,
+          "OOMKilled": false,
+          "Running": false
+        }
+      },
+      "fatal_bytes": 0,
+      "stack_sampler": {
+        "samples": 1701,
+        "error": ""
+      },
+      "video": {
+        "complete": true,
+        "error": "",
+        "fps": 10,
+        "files": {
+          "hand_eye_preview": "hand_eye_preview.mp4",
+          "observer": "observer.mp4"
+        },
+        "frames": {
+          "hand_eye_preview": 981,
+          "observer": 981
+        },
+        "started": 1793447963.8149137,
+        "duration_s": 98.05418222490698,
+        "clock": "actual wall time; original decoder frames, no speed change"
+      },
+      "preservation": {
+        "before": 60,
+        "after": 202,
+        "missing": [],
+        "changed": [],
+        "prelaunch_before": 197,
+        "prelaunch_missing": [],
+        "prelaunch_changed": []
+      },
+      "artifacts": {
+        "run.json": "a13082b481514d894e9dca4f3a85aafd0387f6a4ef35681992ca3e192101845c",
+        "ui-output/ui.json": "4e22cf290851211725b07b2d921cf51a02d0f02e7042d5da44574f2b71d20a5a",
+        "pilot-output/pilot.json": "16a88d0762e2b845472f4aa1ecbad603d2aea8975e1325bba3ba3a4c1d420754",
+        "sim-output/sim.json": "7a8db4107cddc1f38c5bcd06300f8442874b7eb1dccdbcbf508bfb1c40a7641d",
+        "sim-output/evaluation.json": "611426189119a6533003d7fd6c799d539ca2dc7aaf267072e4d6663681537166",
+        "shutdown-validation.json": "2e17db9a88901c3e68e9c3e9e4c571aebc275cd3057a2c464ef9cdec8f523483",
+        "exchange/e6df8f6736364e008b0c187931ef3da2/scan.json": "d41473236452a7221b925fd7c3ece5302c5e859bd5b9174be28adcfda5a47a09"
+      },
+      "probe_sha256": {
+        "probe_scan_cycle_sim.py": "c7371a233c22ccd885d4c1c3e207e0a3735e307af3421b1578b027ff7079fec1",
+        "probe_scan_cycle_pilot.py": "02bc6586862dab772018450ec435ca792afe13e09290774cd49a8169af9c9306",
+        "probe_scan_cycle_ui.py": "d4db7fe9368aa2077a09cb29625bd64cb9068caa4ca40b3c56713c8a4828cd1a",
+        "scan_cycle_recording.py": "997cf0044eece9c178da287c4e2707b9b60896940d49b8993b09ba540ecc0f09"
+      },
+      "driver_sha256": "d557d9d04f42fe50d376510a969742970aa19b80a4d1eb0952cbab83880b64de",
+      "remote_root": "/home/hckang/ws/elesim-scan-cycle-20261030/cycle-23"
+    }
+  ],
+  "corrections": [
+    {
+      "rejected_attempt": 21,
+      "cause": "One isolated colour-mask pixel in frame 002 read background depth 1.654 m. Observed max surface error 1.208 m; raw completion and voxel mesh propagated the outlier.",
+      "fix_revision": "a861c25179def7564c02ff7ed8c1b973b12d31c3",
+      "policy": "Four-neighbour depth graph; 25 mm max adjacent depth jump; discard components smaller than existing detector min_area_px=20. Keep larger disconnected inner surfaces. No object truth used."
+    },
+    {
+      "rejected_attempt": 22,
+      "cause": "Input outlier fixed (observed maximum error 2.23 mm), but raw AdaPoinTr sparse generated trail extended the voxel mesh. Mesh vertex p95 249.74 mm failed the unchanged 45 mm criterion.",
+      "fix_revision": "af52eda4722e930a43ca9326fef240d336d10652",
+      "policy": "Keep every observed point and preserve all 8192 original generated points. Mesh only generated points with 8 neighbours within half of the 20 mm voxel size. Record used/rejected counts. No truth or target-specific envelope used."
+    }
+  ],
+  "acceptance": {
+    "observed_surface_error_p95_limit_m": 0.015,
+    "raw_generated_surface_error_p95_limit_m": 0.045,
+    "mesh_vertex_surface_error_p95_limit_m": 0.045,
+    "definition": "Point-to-true-surface distance; includes outer/inner/rim/bottom jar profile. One-direction vertex metric, not complete geometry or contact certification. Criteria unchanged across all attempts."
+  },
+  "tests": {
+    "sim_geometry_camera_cache_scene_analysis_passed": 34,
+    "pilot_reconstruction_active_scan_lifecycle_passed": 68,
+    "canonical_not_run": "Generated development attachment unavailable. Host has no Genesis; full Runtime CLI/async-camera collection, canonical required/extended, release build/isolated verify and four-role real-RMW topology gates not run. No host scientific/ROS dependencies installed."
+  },
+  "preservation_final": {
+    "complete": true,
+    "captured_at": 1793448140.7465198,
+    "engine_id": "2ee9c1c8-0d97-43a9-82eb-dfef7cda0ae3",
+    "before": 180,
+    "after": 202,
+    "missing": [],
+    "changed": [],
+    "checkout": {
+      "path": "/home/hckang/ws/newsim_dev/elesim",
+      "revision": "70757e6116fa968904017388094f5c13d4854137",
+      "porcelain": ""
+    },
+    "device_requests": {
+      "sim": [
+        {
+          "Driver": "nvidia",
+          "Count": 0,
+          "DeviceIDs": [
+            "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+          ],
+          "Capabilities": [
+            [
+              "gpu"
+            ]
+          ],
+          "Options": null
+        }
+      ],
+      "pilot": [
+        {
+          "Driver": "nvidia",
+          "Count": 0,
+          "DeviceIDs": [
+            "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+          ],
+          "Capabilities": [
+            [
+              "gpu"
+            ]
+          ],
+          "Options": null
+        }
+      ]
+    },
+    "assets": {
+      "source": {
+        "path": "/home/hckang/ws/newsim/logs/diagnostics/adapointr-20261027-c18ff631/assets/pointr-source.tar.gz",
+        "sha256": "ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e",
+        "bytes": 26846627
+      },
+      "weights": {
+        "path": "/home/hckang/ws/newsim/logs/diagnostics/adapointr-20261027-c18ff631/contract-598fe6d2/assets/ap_ps55.pth",
+        "sha256": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7",
+        "bytes": 130024020
+      }
+    },
+    "raw_checkpoint_sha256": "0e03111cc5ba307db9a6d92d366708e0dd5230e0a89ff8cd509c6359446be714",
+    "development_wrapper_exists": false,
+    "old_cache_exists": true,
+    "scope": "Original 180 container IDs/names/images/states unchanged; original source/checkpoint assets unchanged; new diagnostic containers/images/caches retained."
+  },
+  "preservation_sha256": "49c2c9087a2c61e6f90e6e87e7f2f04588c7ee34ef2962b38859cb0e43b7cb65",
+  "cache_condition": "Each new instance copied the preceding Genesis cache. The original jar target is warm after attempt 21; each reconstructed mesh differs. Not a cold-start benchmark.",
+  "demo": {
+    "attempt": 23,
+    "video_file": "scan_cycle_jar_20261031.mp4",
+    "metadata": {
+      "scope": "actual UI WebRTC recording, composed with measured stage captions",
+      "playback_speed": 1,
+      "mesh_cache_note": "Warm kernels / new reconstruction",
+      "rendered": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 720,
+            "avg_frame_rate": "10/1"
+          }
+        ],
+        "format": {
+          "duration": "98.100000"
+        }
+      },
+      "bytes": 2583123,
+      "sha256": "8a56f62cf6f784bc8946852b2f55b306be9c813b5775e036e1fb11cf2abd694c",
+      "source": {
+        "hand_eye_preview.mp4": "4584295c922c1db3164342ebabf6f65327b5dd61f855e98948a5e0aed5236c2a",
+        "observer.mp4": "7a906e34d6771bc45dabeec1f330976521ee311fcbd4f56f95de81fbdba977ed"
+      }
+    },
+    "poster_file": "scan_cycle_jar_20261031.png",
+    "poster_time_s": 1,
+    "poster_sha256": "8bc3754be207901d5a19b96f2a736929ef6970f675d77f2dc5790f0047888431"
+  },
+  "limitations": [
+    "Hollow opening and neck are approximated by a 20 mm voxel surface; full unseen geometry is not established.",
+    "HSV single-target segmentation; no semantic jar recognition or general multi-instance tracking claim.",
+    "Pretrained completion estimates surfaces. Supported generated points are not observed or certified safe contact/free space.",
+    "Physical Robot/GO2, deformable Christmas tree, grasp retention, native UI window automation and multi-host/NAT acceptance were not tested."
+  ]
+}

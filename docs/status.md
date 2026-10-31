@@ -6,6 +6,65 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### 굴곡 있는 단지 1-cycle 데모 (2026-10-31)
+
+최대 몸통 지름 **120 mm / 높이 220 mm**, 목 지름 52.8 mm, 열린 입구와
+내벽·돌출 lip·잘록한 하단이 있는 jar를 직접 생성했다. ShapeNet에서 가져온
+개별 sample이 아니다. 원본 OBJ는 **2,402 vertices / 4,800 faces**이며 물리 씬과
+두 camera replica가 같은 content hash의 메쉬를 convexify/decimate 없이 쓴다.
+[`형상 미리보기`](../workbench/evidence/curated/sim/jar_scan_target_20261031.png)와
+[`원본 OBJ`](../workbench/evidence/curated/sim/jar_scan_target_20261031.obj)를 보존한다.
+
+서버 GPU 2/A6000의 정상 역할 이미지로 바닥 보정 → 자동 시점 수집 → 실제
+AdaPoinTr AP-PS55 → voxel mesh → UI Apply → 새 두 WebRTC frame까지 실행했다.
+Runtime `af52eda4722e930a43ca9326fef240d336d10652`, 실행 23에서 예산 12개 중
+**6개 시점 / 관측 4,325점 / 원본 예측 8,192점**을 얻었다. 각 시점의 바닥 보정이
+3개 안정 frame으로 적용됐고 보정용 capture 12개는 채택 view와 구분해 남겼다.
+`information_saturated` 종료는 완전 관측 판정이 아니며 기존 completeness=false와
+needs_more_observation=true를 유지한다. Scan 응답 뒤 완료까지 **86.07초**,
+첫 model forward **2.56초**, 실행 중 mesh 적용 함수 전체 **2.69초**였다.
+기존 kernel cache의 복사본 및 첫 시도 이후의 jar 전처리 cache를 사용한 단일
+경로 검사이며 cold startup/steady-state 추론/지연 통계로 해석하지 않는다.
+
+복잡한 원본 형상에서 두 품질 결함을 수정했다. 실행 21의 세 번째 촬영은 색
+마스크의 pixel 하나가 1.654 m 뒤 배경 깊이를 읽어 메쉬를 크게 확장했다.
+25 mm 이내의 인접 depth로 성분을 만들고 기존 detector 최소 면적 20 pixel
+미만인 성분만 제외해 넓은 별도 내벽은 유지했다. 실행 22에서는 관측 오염은
+없어졌지만, 드문드문 이어진 생성점이 voxel 메쉬에 돌기를 만들었다. 통합 mesher는
+10 mm 반경에 이웃점 8개가 있는 생성점만 사용하도록 했다. **모든 관측점과 원본
+예측 8,192점은 보존**하며 최종 mesh에는 생성점 8,023개를 사용하고 169개를 제외했다.
+필터는 물체 정답·형상별 bounding box를 쓰지 않으며, 두 옵션 모두 외부 adapter에
+자동 적용하지 않는다. 일반 adapter의 기본값 0은 계속 비활성이다.
+
+| 실행 | 관측 표면 p95 | 원본 생성점 표면 p95 | mesh vertex 표면 p95 | 기존 형상 기준 |
+| --- | --- | --- | --- | --- |
+| 21, 입력 오염 | 0.87 mm | 40.43 mm | 866.42 mm | 거부 |
+| 22, 입력 수정 | 0.90 mm | 10.88 mm | 249.74 mm | 거부 |
+| 23, 생성점 지지 조건 추가 | 0.90 mm | 10.88 mm | 34.44 mm | 통과 |
+
+관측 최대 오차는 최종 2.23 mm다. 위 판정 한계는 기존 observed p95 15 mm,
+generated/mesh vertex p95 45 mm로 유지했다. 최종 mesh는 **536 vertices / 1,076 faces**다.
+원본 생성점에는 최대 약 398 mm의 outlier가 남아 있고, 이를 포함한 원본 배열의
+수치와 mesh의 수치를 분리한다. 거친 20 mm voxel surface는 입구·목의 세부 형상을
+단순화하며, vertex 표면 거리는 전체 표면의 완전성이나 접촉·파지 성능을 증명하지 않는다.
+
+실패한 두 실행도 보존했다. 세 실행의 아홉 역할 process 모두 exit 0/OOM false,
+Pilot fatal log 0 bytes이며 마지막 Python stack 수집은 1,701 sample/error 없음이다.
+관련 host fallback은 Sim/analysis **34 passed**, Pilot **68 passed**다. 검증 설치에
+generated development wrapper가 없고 host에는 Genesis가 없어 Runtime CLI/
+async-camera 전체 수집과 canonical required/extended, release build/isolated verify,
+4-role real-RMW topology gate는 미실행이다. 정상 역할 GPU 검증을 이 전체 gate의
+대체로 취급하지 않는다. 물리 Robot/GO2, 실제 장식용 트리의 변형·파지·들기,
+native UI 창 및 다중 호스트/NAT 검증도 포함하지 않는다.
+
+최종 실제 화면의 **98.1초 / 1배속**
+[`단지 통합 데모`](../workbench/evidence/curated/sim/scan_cycle_jar_20261031.mp4)와
+[`실행·해시 보고서`](../workbench/evidence/curated/sim/scan_cycle_jar_20261031.json)를 추가했다.
+원격 `cycle-21/`, `cycle-22/`, `cycle-23/`, `jar-demo-20261031/` 원자료 및 기존 영상은
+보존한다. 작업 전 180개 container의 ID/name/image/status는 최종 202개 inventory에서
+누락·변경 0개이고, 기존 cache와 원본 source/checkpoint SHA-256, 외부 checkout
+`70757e6`의 clean 상태도 확인했다. 기존 container/image/volume/cache는 삭제하지 않았다.
+
 ### 바닥 보정 → 자동 스캔 → 실제 AdaPoinTr → Sim 적용 (2026-10-31)
 
 Pilot의 기본 scan 설정을 `scan.integrated.yaml`로 연결했다. 실행 전에 hash가
