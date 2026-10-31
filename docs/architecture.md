@@ -275,6 +275,10 @@ queue에 넣는다. 카메라 프로세스는 그 snapshot을 자체 visual repl
 오래된 snapshot/frame은 새 데이터로 덮어쓴다. `sync_legacy`는 비교 측정과
 장치 진단을 위한 명시적 fallback일 뿐이다.
 
+Visual replica의 대상은 물리 씬과 같은 `world.target.shape`와 radius/height를
+사용한다. 구/원통 형상은 immutable `CameraRenderSpec`으로 두 render process에
+전달하며, 원통의 높이는 world-Z 방향이다. Scene 교체에도 이 recipe를 유지한다.
+
 Physics scene과 visual replica는 기본적으로 Genesis의 dynamic-array 모드를 사용한다.
 Physics의 정적 배열은 `simulation.runtime.genesis_performance_mode`로 GPU에서만
 명시적으로 선택한다. 이 모드에서는 Genesis의 interactive scene rebuild를 사용할 수 없다.

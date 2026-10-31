@@ -1,4 +1,5 @@
 import multiprocessing as mp
+from dataclasses import replace
 from types import SimpleNamespace as NS
 import threading
 
@@ -6,7 +7,7 @@ import pytest
 
 from elesim_sim.vision.sim_camera.async_worker import (
     CameraRenderSpec, CameraRenderWorker, CameraStateSnapshot, _CameraSceneEdit,
-    _add_base_entity,
+    _add_base_entity, _build_camera_scene,
 )
 
 
@@ -123,3 +124,33 @@ def test_late_acknowledgement_is_rejected_even_if_physics_finishes_later():
         assert ticket.finished and value.spec.scene_manifest == '' and value.failure
     finally:
         value.close()
+
+
+@pytest.mark.parametrize('shape,height', [('sphere', .14), ('cylinder', .14)])
+def test_camera_replica_renders_the_configured_target_shape(monkeypatch,shape,height):
+    from elesim_sim.vision import render_device
+    monkeypatch.setattr(render_device,'check_camera_renderer',lambda *args,**kwargs:None)
+    morphs = []
+    def morph(kind):
+        return lambda **kwargs:NS(kind=kind,kwargs=kwargs)
+    class Scene:
+        def __init__(self,**kwargs):
+            self.visualizer = NS(rasterizer=NS(_renderer=object()))
+        def add_entity(self,value,**kwargs):
+            morphs.append(value)
+            return NS(desc=object())
+        def build(self): pass
+        def destroy(self): pass
+    gs = NS(Scene=Scene,morphs=NS(Sphere=morph('sphere'),Cylinder=morph('cylinder'),URDF=morph('urdf')),
+        surfaces=NS(Rough=lambda **kwargs:kwargs),options=NS(SimOptions=lambda **kwargs:kwargs,
+            RigidOptions=lambda **kwargs:kwargs,ViewerOptions=lambda **kwargs:kwargs))
+    spec = CameraRenderSpec(urdf_path='visual.urdf',robot_pos=(0.,0.,0.),
+        robot_euler_deg=(0.,0.,0.),use_gpu=False,gpu_convert=False,
+        dt=.01,gravity=(0.,0.,0.),substeps=1,floor=False,
+        target_enable=True,target_radius=.045,target_shape=shape,target_height=height)
+    _build_camera_scene(gs,spec,(),{})
+    target = morphs[0]
+    assert target.kind == shape
+    assert target.kwargs['radius'] == .045 and target.kwargs['collision'] is False
+    assert target.kwargs.get('height') == (height if shape=='cylinder' else None)
+    assert replace(spec,scene_revision='a'*64).target_shape == shape

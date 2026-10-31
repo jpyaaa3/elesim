@@ -59,6 +59,8 @@ class CameraRenderSpec:
     target_radius: float = 0.025
     target_color_rgba: tuple[float, float, float, float] = (0.85, 0.15, 0.15, 1.0)
     target_gravity: bool = False
+    target_shape: str = "sphere"
+    target_height: float = 1.1
     robot_joint_names: tuple[str, ...] = ()
     # The hand-eye camera only needs the arm visual tree.  When a GO2+arm
     # runtime is active, using the combined URDF for both cameras makes a
@@ -474,7 +476,12 @@ def _build_camera_scene(gs, spec, streams, base_descriptions):
                 lambda: scene.add_entity(gs.morphs.Plane()))
         target_entity = None
         if bool(spec.target_enable):
-            sphere_kwargs = {
+            shape = str(spec.target_shape).strip().lower()
+            if shape not in {'sphere','cylinder'}:
+                print(f"[sim-camera-worker] unknown target shape {shape!r}; using a sphere",flush=True)
+                shape = 'sphere'
+            morph = gs.morphs.Cylinder if shape == 'cylinder' else gs.morphs.Sphere
+            target_kwargs = {
                 "radius": max(0.01, float(spec.target_radius)),
                 "pos": tuple(float(v) for v in spec.target_xyz),
                 "fixed": not bool(spec.target_gravity),
@@ -482,13 +489,15 @@ def _build_camera_scene(gs, spec, streams, base_descriptions):
                 # collision target remains in the physics scene.
                 "collision": False,
             }
+            if shape == 'cylinder':
+                target_kwargs['height'] = max(.01,float(spec.target_height))
             try:
-                sphere = gs.morphs.Sphere(**sphere_kwargs)
+                target = morph(**target_kwargs)
             except TypeError:
-                sphere_kwargs.pop("collision", None)
-                sphere = gs.morphs.Sphere(**sphere_kwargs)
+                target_kwargs.pop("collision", None)
+                target = morph(**target_kwargs)
             target_entity = _add_base_entity(scene, base_descriptions, 'target', lambda: scene.add_entity(
-                sphere,
+                target,
                 surface=gs.surfaces.Rough(color=tuple(float(v) for v in spec.target_color_rgba)),
             ))
         t_model = time.perf_counter()

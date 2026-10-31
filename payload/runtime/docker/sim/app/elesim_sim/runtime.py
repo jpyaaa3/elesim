@@ -3014,6 +3014,8 @@ class RuntimePrep:
             target_radius=float(a.spawn.sim_target_radius),
             target_color_rgba=tuple(float(x) for x in a.spawn.sim_target_color_rgba),
             target_gravity=bool(a.spawn.sim_target_gravity),
+            target_shape=str(getattr(a.spawn,'sim_target_shape','sphere')),
+            target_height=float(getattr(a.spawn,'sim_target_height',1.1)),
             robot_joint_names=movable_urdf_joint_names(str(urdf_path)),
             hand_eye_urdf_path=hand_eye_urdf_path,
             hand_eye_robot_pos=hand_eye_robot_pos,
