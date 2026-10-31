@@ -265,3 +265,18 @@ def test_repeated_calibration_captures_do_not_restart_the_same_motion(rig):
     rig.pump()
     assert rig.scan.status()['phase'] == 'completed'
     assert len(settled) == 2
+
+
+def test_close_keeps_a_pending_worker_owned_until_cleanup_finishes(rig):
+    release = threading.Event()
+    worker = threading.Thread(target=release.wait)
+    rig.scan._worker = worker
+    worker.start()
+    try:
+        with pytest.raises(TimeoutError, match='scan worker'):
+            rig.scan.close(timeout_s=.001)
+        assert rig.scan._worker is worker and worker.is_alive()
+    finally:
+        release.set()
+        rig.scan.close()
+    assert not worker.is_alive()

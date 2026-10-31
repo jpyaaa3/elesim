@@ -379,8 +379,10 @@ class LiveScan:
             return True
         return False
 
-    def close(self):
+    def close(self, *, timeout_s=5.):
         self.request_cancel('Pilot stopping')
         worker = self._worker
         if worker is not None and worker is not threading.current_thread():
-            worker.join(timeout=1.)
+            worker.join(timeout=max(0., float(timeout_s)))
+            if worker.is_alive():
+                raise TimeoutError('object scan worker has not stopped')
