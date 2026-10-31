@@ -5,6 +5,7 @@ models:
     factory: elesim_pilot.reconstruction.providers:DetectorSegmenter
     options:
       mask_erode_px: 2
+      depth_component_gap_m: 0.025
     assets:
       detector:
         path: perception/detector.sim_hsv.json

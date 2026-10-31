@@ -31,7 +31,7 @@ class DetectorSegmenter:
     General tree/apple instance tracking is supplied by a segmenter plugin.
     This adapter refuses multiple same-label instances instead of mixing them.
     """
-    api_version, stage, version = 1, "segmenter", "detector-single-instance-v2"
+    api_version, stage, version = 1, "segmenter", "detector-single-instance-v3"
 
     def __init__(self, *, options, assets):
         from elesim_pilot.vision.perception.detector import create_detector, load_detector_config
@@ -39,7 +39,14 @@ class DetectorSegmenter:
         self.mask_erode_px = options.get('mask_erode_px',0)
         if type(self.mask_erode_px) is not int or not 0 <= self.mask_erode_px <= 8:
             raise ValueError('mask_erode_px must be an integer in 0..8')
-        config.update({key:value for key,value in options.items() if key != 'mask_erode_px'})
+        self.depth_component_gap_m = options.get('depth_component_gap_m', 0.)
+        if (isinstance(self.depth_component_gap_m, bool)
+                or not isinstance(self.depth_component_gap_m, (int,float))
+                or not 0 <= self.depth_component_gap_m <= .2):
+            raise ValueError('depth_component_gap_m must be a finite distance in 0..0.2 metres')
+        self._depth_diagnostics = {}
+        config.update({key:value for key,value in options.items()
+                       if key not in {'mask_erode_px', 'depth_component_gap_m'}})
         self.single_component = str(config.get('type', '')).lower() == 'hsv'
         self.min_area = int(config.get('min_area_px', 20))
         if self.single_component:
@@ -75,7 +82,50 @@ class DetectorSegmenter:
             mask = cv2.erode(mask.astype(np.uint8),np.ones((size,size),np.uint8)) > 0
             if int(mask.sum()) < self.min_area:
                 return ()
+        if self.depth_component_gap_m:
+            mask = self._depth_supported(mask, measurement.sensor)
+            if int(mask.sum()) < self.min_area:
+                return ()
         return (InstanceMask(task.target_id, result.label, mask, float(result.confidence)),)
+
+    def _depth_supported(self, mask, sensor):
+        """Reject tiny depth islands while retaining disconnected inner surfaces.
+
+        Colour closing/JPEG edges can include isolated pixels from a distant
+        background. Require the same pixel support as the detector's min area,
+        with four-neighbour edges bounded by a metric depth discontinuity.
+        No object shape, pose or truth is used to choose a component.
+        """
+        from scipy.sparse import coo_matrix
+        from scipy.sparse.csgraph import connected_components
+        depth = sensor.depth_raw.astype(float)*sensor.depth_scale
+        valid = mask & np.isfinite(depth) & (depth >= .1) & (depth <= 5.)
+        count = int(valid.sum())
+        labels = np.full(mask.shape, -1, dtype=np.int32)
+        labels[valid] = np.arange(count, dtype=np.int32)
+        kept = np.zeros(mask.shape, dtype=bool)
+        components = 0
+        if count:
+            edges = []
+            for a,b,da,db in ((labels[:,:-1],labels[:,1:],depth[:,:-1],depth[:,1:]),
+                              (labels[:-1,:],labels[1:,:],depth[:-1,:],depth[1:,:])):
+                adjacent = (a >= 0) & (b >= 0) & (np.abs(da-db) <= self.depth_component_gap_m)
+                edges.append((a[adjacent], b[adjacent]))
+            left = np.concatenate([a for a,b in edges])
+            right = np.concatenate([b for a,b in edges])
+            graph = coo_matrix((np.ones(len(left), dtype=np.uint8), (left,right)),
+                               shape=(count,count)).tocsr()
+            components, groups = connected_components(graph, directed=False)
+            sizes = np.bincount(groups)
+            kept[valid] = sizes[groups] >= self.min_area
+        self._depth_diagnostics = dict(depth_gap_m=float(self.depth_component_gap_m),
+            min_component_pixels=self.min_area, input_mask_pixels=int(mask.sum()),
+            kept_pixels=int(kept.sum()), rejected_pixels=int(mask.sum()-kept.sum()),
+            depth_components=int(components))
+        return kept
+
+    def diagnostics(self):
+        return dict(self._depth_diagnostics)
 
 
 class ObservedOnly:

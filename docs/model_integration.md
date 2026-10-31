@@ -164,6 +164,11 @@ completion과 독립적으로 mesher도 교체할 수 있다.
 기존 detector adapter는 단일 대상용이다. YOLO의 실제 instance mask는 사용할 수
 있지만 bbox fallback과 여러 같은-label 후보는 거부한다. 일반적인 사과/나무 장면은
 추적을 포함한 다중 instance segmenter adapter를 제공해야 한다.
+통합 예제의 `depth_component_gap_m: 0.025`는 인접 pixel의 깊이 차이가 25 mm
+이하인 성분 중 detector의 `min_area_px` 미만인 작은 성분을 제외한다. 색 마스크의
+고립된 배경 깊이가 메쉬를 확장하는 것을 막으며, 충분한 pixel을 가진 별도 내벽은
+유지한다. Object mesh/정답을 쓰지 않고, 실제 관측을 새 점으로 대체하지 않는다.
+외부 adapter에는 자동 적용하지 않으며 이 옵션의 기본값 0은 비활성이다.
 
 ## 실행과 Sim 전달
 

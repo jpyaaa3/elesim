@@ -240,3 +240,25 @@ def test_reference_segmenter_can_exclude_rgb_depth_boundary_pixels():
     assert len(instances) == 1
     assert int(instances[0].mask.sum()) == 16*16
     assert np.all(sensor.depth_raw[instances[0].mask] == .4)
+
+
+def test_depth_support_removes_a_single_background_pixel_but_keeps_inner_surfaces():
+    image = np.zeros((32,32,3),np.uint8)
+    image[4:28,4:28,2] = 255
+    depth = np.full((32,32),2.,np.float32)
+    depth[4:28,4:28] = .4
+    depth[10:18,10:18] = .55  # A separate, legitimate inner-wall surface.
+    depth[23,23] = 1.65       # One RGB-mask pixel sees the distant floor.
+    sensor = SensorObservation(image,depth,1.,CameraIntrinsics(40.,40.,15.5,15.5,32,32),
+        1,1000.,'sim','boot','calibration',(0.,0.,0.,0.))
+    root = next(p for p in Path(__file__).resolve().parents if (p/'payload').is_dir())
+    config = root/'payload/config/pilot/perception/detector.sim_hsv.json'
+    segmenter = DetectorSegmenter(options={'depth_component_gap_m':.025},assets={'detector':config})
+    mask = segmenter.segment(Measurement(sensor),Task('depth','target'))[0].mask
+    assert not mask[23,23]
+    assert np.all(mask[10:18,10:18])
+    assert int(mask.sum()) == 24*24-1
+    diagnostics = segmenter.diagnostics()
+    assert diagnostics['rejected_pixels'] == 1 and diagnostics['depth_components'] == 3
+    legacy = DetectorSegmenter(options={},assets={'detector':config})
+    assert legacy.segment(Measurement(sensor),Task('depth','target'))[0].mask[23,23]

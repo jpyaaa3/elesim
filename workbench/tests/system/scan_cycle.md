@@ -36,6 +36,8 @@ world-Z 축의 유한 원통 옆면·끝면·모서리를 모두 포함한다. �
 일반 instance segmentation, GO2 이동, 동적 집기 및 다중 호스트 파일 전송의
 수용시험은 아니다. 이 검사는 한 호스트의 사설 internal bridge와 공유 artifact
 root를 사용하며 보안/NAT 시험을 대신하지 않는다.
+통합 HSV adapter는 25 mm depth 연결성으로 detector `min_area_px` 미만의 작은
+깊이 성분도 제외한다. 고립된 background pixel은 제거하고 넓은 jar 내벽은 유지한다.
 Jar 평가는 Sim-private r,z profile의 회전 표면까지 거리를 독립 계산하며,
 외벽·내벽·rim·bottom을 포함하고 rotation-axis의 면적 없는 선은 제외한다.
 
