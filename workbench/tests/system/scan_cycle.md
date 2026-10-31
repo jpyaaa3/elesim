@@ -38,6 +38,8 @@ world-Z 축의 유한 원통 옆면·끝면·모서리를 모두 포함한다. �
 root를 사용하며 보안/NAT 시험을 대신하지 않는다.
 통합 HSV adapter는 25 mm depth 연결성으로 detector `min_area_px` 미만의 작은
 깊이 성분도 제외한다. 고립된 background pixel은 제거하고 넓은 jar 내벽은 유지한다.
+통합 voxel mesher는 10 mm 반경에 이웃점 8개가 없는 생성점을 제외한다. 모든
+관측점과 원본 8,192개 생성 배열은 보존하며, 사용/제외한 수를 별도 기록한다.
 Jar 평가는 Sim-private r,z profile의 회전 표면까지 거리를 독립 계산하며,
 외벽·내벽·rim·bottom을 포함하고 rotation-axis의 면적 없는 선은 제외한다.
 

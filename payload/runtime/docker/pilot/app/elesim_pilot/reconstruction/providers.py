@@ -146,15 +146,32 @@ class VoxelSurface:
     The learned mesher slot can replace this reference without changing runners
     or Sim. Measured and model-generated points stay separate in the artifact.
     """
-    api_version, stage, version = 1, "mesher", "observed-voxel-surface-v1"
+    api_version, stage, version = 1, "mesher", "supported-voxel-surface-v2"
 
     def __init__(self, *, options, assets):
         self.voxel_m = float(options.get("voxel_m", .02))
         if assets or not np.isfinite(self.voxel_m) or not .001 <= self.voxel_m <= .2:
             raise ValueError("voxel mesh resolution must be .001..0.2 metres")
+        self.min_generated_neighbors = options.get('min_generated_neighbors', 0)
+        if type(self.min_generated_neighbors) is not int or not 0 <= self.min_generated_neighbors <= 64:
+            raise ValueError('min_generated_neighbors must be an integer in 0..64')
+        self._diagnostics = {}
 
     def mesh(self, shape, task):
-        points = np.concatenate((shape.cloud.observed, shape.predicted))
+        observed, generated = shape.cloud.observed, shape.predicted
+        retained = generated
+        if self.min_generated_neighbors and len(generated):
+            from scipy.spatial import cKDTree
+            source = np.concatenate((observed, generated))
+            distances, _ = cKDTree(source).query(generated,k=self.min_generated_neighbors+1)
+            retained = generated[distances[:,-1] <= self.voxel_m/2]
+        self._diagnostics = dict(voxel_m=self.voxel_m,
+            min_generated_neighbors=self.min_generated_neighbors,
+            generated_neighbor_radius_m=self.voxel_m/2,
+            observed_points=len(observed),generated_points=len(generated),
+            meshed_generated_points=len(retained),
+            rejected_generated_points=len(generated)-len(retained))
+        points = np.concatenate((observed, retained))
         cells = {tuple(v) for v in np.floor(points / self.voxel_m).astype(np.int64)}
         if len(cells) > 4000:
             raise ValueError("voxel mesher budget exceeded; increase voxel_m or supply another mesher")
@@ -181,3 +198,6 @@ class VoxelSurface:
                     quad.append(indices[vertex])
                 faces.extend(((quad[0],quad[1],quad[2]), (quad[0],quad[2],quad[3])))
         return Mesh(shape.cloud.object_id, task.frame_id, vertices, np.asarray(faces, dtype=np.int64))
+
+    def diagnostics(self):
+        return dict(self._diagnostics)

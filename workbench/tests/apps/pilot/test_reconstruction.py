@@ -262,3 +262,17 @@ def test_depth_support_removes_a_single_background_pixel_but_keeps_inner_surface
     assert diagnostics['rejected_pixels'] == 1 and diagnostics['depth_components'] == 3
     legacy = DetectorSegmenter(options={},assets={'detector':config})
     assert legacy.segment(Measurement(sensor),Task('depth','target'))[0].mask[23,23]
+
+
+def test_voxel_mesh_keeps_observations_and_dense_unseen_patch_but_rejects_lone_prediction():
+    cloud = ObjectCloud('target','jar','target','world',[[0.,0.,0.],[.5,0.,.5]])
+    cluster = np.array([[.101+i*.0001,.101,.101] for i in range(12)])
+    predicted = np.vstack((cluster,[[.8,.8,.8]]))
+    shape = CompletedObject(cloud,predicted)
+    mesher = VoxelSurface(options={'voxel_m':.02,'min_generated_neighbors':8},assets={})
+    mesh = mesher.mesh(shape,Task('supported','target'))
+    assert mesh.vertices[:,2].max() == pytest.approx(.52)
+    assert np.any(np.all(np.isclose(mesh.vertices,[.1,.1,.1]),axis=1))
+    np.testing.assert_array_equal(shape.predicted,predicted)
+    np.testing.assert_array_equal(shape.cloud.observed,[[0.,0.,0.],[.5,0.,.5]])
+    assert mesher.diagnostics()['rejected_generated_points'] == 1
