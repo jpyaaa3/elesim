@@ -1,0 +1,151 @@
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+0x00007daf37df96ed in select () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+[New Thread 0x7daf33a00640 (LWP 102)]
+[New Thread 0x7daf33000640 (LWP 103)]
+[New Thread 0x7daf32600640 (LWP 104)]
+[New Thread 0x7daf31c00640 (LWP 105)]
+[New Thread 0x7daf31200640 (LWP 106)]
+
+Thread 2 "python3" received signal SIGSEGV, Segmentation fault.
+[Switching to Thread 0x7daf33a00640 (LWP 102)]
+0x00005e43c0345dde in ?? ()
+
+Thread 6 (Thread 0x7daf31200640 (LWP 106) "python3"):
+#0  0x00007daf37df2a0f in write () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+#1  0x00005e43c0422270 in _Py_write_noraise ()
+#2  0x00005e43c0470928 in ?? ()
+#3  0x00005e43c0442790 in ?? ()
+#4  0x00005e43c0422e41 in ?? ()
+#5  0x00005e43c0299b53 in ?? ()
+#6  0x00005e43c0474bf8 in ?? ()
+#7  0x00007daf37d72a83 in ?? () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+#8  0x00007daf37e03a94 in clone () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+
+Thread 5 (Thread 0x7daf31c00640 (LWP 105) "python3"):
+#0  0x00007daf37d6f0d7 in ?? () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007daf37d71e5b in pthread_cond_timedwait () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+#2  0x00005e43c031def0 in ?? ()
+#3  0x00005e43c034ec4b in _PyEval_EvalFrameDefault ()
+#4  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#5  0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#6  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#7  0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#8  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#9  0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#10 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#11 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#12 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#13 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#14 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#15 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#16 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#17 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#18 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#19 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#20 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#21 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#22 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#23 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#24 0x00005e43c035caec in _PyFunction_Vectorcall ()
+
+Thread 4 (Thread 0x7daf32600640 (LWP 104) "python3"):
+#0  0x00007daf37d6f0d7 in ?? () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007daf37d71e5b in pthread_cond_timedwait () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+#2  0x00005e43c031def0 in ?? ()
+#3  0x00005e43c034ec4b in _PyEval_EvalFrameDefault ()
+#4  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#5  0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#6  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#7  0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#8  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#9  0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#10 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#11 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#12 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#13 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#14 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#15 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#16 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#17 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#18 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#19 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#20 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#21 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#22 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#23 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#24 0x00005e43c035caec in _PyFunction_Vectorcall ()
+
+Thread 3 (Thread 0x7daf33000640 (LWP 103) "python3"):
+#0  0x00007daf37d6f0d7 in ?? () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007daf37d71e5b in pthread_cond_timedwait () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+#2  0x00005e43c031def0 in ?? ()
+#3  0x00005e43c034ec4b in _PyEval_EvalFrameDefault ()
+#4  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#5  0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#6  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#7  0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#8  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#9  0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#10 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#11 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#12 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#13 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#14 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#15 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#16 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#17 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#18 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#19 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+warning: target file /proc/1/cmdline contained unexpected null characters
+#20 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#21 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#22 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#23 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#24 0x00005e43c035caec in _PyFunction_Vectorcall ()
+
+Thread 2 (Thread 0x7daf33a00640 (LWP 102) "python3"):
+#0  0x00005e43c0345dde in ?? ()
+#1  0x00005e43c035cabe in _PyFunction_Vectorcall ()
+#2  0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#3  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#4  0x00005e43c0348ee9 in _PyEval_EvalFrameDefault ()
+#5  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#6  0x00005e43c0346e07 in _PyEval_EvalFrameDefault ()
+#7  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#8  0x00005e43c0346e07 in _PyEval_EvalFrameDefault ()
+#9  0x00005e43c0369e61 in ?? ()
+#10 0x00005e43c047ecca in ?? ()
+#11 0x00005e43c0474bf8 in ?? ()
+#12 0x00007daf37d72a83 in ?? () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+#13 0x00007daf37e03a94 in clone () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+
+Thread 1 (Thread 0x7daf37cdd480 (LWP 1) "python3"):
+#0  0x00007daf37d6f0d7 in ?? () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007daf37d79f3e in ?? () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+#2  0x00005e43c031dc7b in PyThread_acquire_lock_timed ()
+#3  0x00005e43c03721a1 in ?? ()
+#4  0x00005e43c035d547 in ?? ()
+#5  0x00005e43c0346e07 in _PyEval_EvalFrameDefault ()
+#6  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#7  0x00005e43c0346e07 in _PyEval_EvalFrameDefault ()
+#8  0x00005e43c035caec in _PyFunction_Vectorcall ()
+#9  0x00005e43c0346e07 in _PyEval_EvalFrameDefault ()
+#10 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#11 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#12 0x00005e43c035caec in _PyFunction_Vectorcall ()
+#13 0x00005e43c0346cc0 in _PyEval_EvalFrameDefault ()
+#14 0x00005e43c042c036 in ?? ()
+#15 0x00005e43c042bf06 in PyEval_EvalCode ()
+#16 0x00005e43c0452a88 in ?? ()
+#17 0x00005e43c044d0df in ?? ()
+#18 0x00005e43c0452825 in ?? ()
+#19 0x00005e43c0451d68 in _PyRun_SimpleFileObject ()
+#20 0x00005e43c0451a47 in _PyRun_AnyFileObject ()
+#21 0x00005e43c0445eae in Py_RunMain ()
+#22 0x00005e43c041ff4d in Py_BytesMain ()
+#23 0x00007daf37d07d90 in ?? () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+#24 0x00007daf37d07e40 in __libc_start_main () from /proc/1/root/lib/x86_64-linux-gnu/libc.so.6
+warning: Memory read failed for corefile section, 4096 bytes at 0xffffffffff600000.
+Saved corefile /diagnostic/pilot-native.core
+[Inferior 1 (process 1) detached]

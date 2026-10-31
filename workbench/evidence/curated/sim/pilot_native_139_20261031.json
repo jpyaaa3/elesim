@@ -1,0 +1,716 @@
+{
+  "schema_version": 1,
+  "status": "native_watchdog_trigger_removed_and_cpu_gpu_regressions_passed",
+  "runtime_revision": "e7b81b18e069a70d3797f5c8e417e4f828d767c6",
+  "scope": "Installed Pilot CPython 3.10.12; isolated serializer/stack sampling and normal GPU scan-cycle verification",
+  "finding": {
+    "proven": "The native periodic faulthandler watchdog triggers SIGSEGV/exit 139 under actual Pilot state serialization without DDS or GPU initialization. All three native trials failed, including the original one-second period; the no-watchdog baseline and two safe-sampler trials passed.",
+    "fix": "Use a Python stack-sampling thread with owning frame references; retain fatal-signal handling. The native watchdog exists only in the explicitly selected isolated reproducer.",
+    "native_mechanism_limit": "The C stack shows Python evaluation/vectorcall and a concurrent trace writer. Stripped interpreter symbols prevent identification of the exact corrupted object. A frame/code lifetime race is an inference, not a symbolized root-cause claim.",
+    "historical_link": "Scan attempts 7 and 9 used the same native periodic API and failed in serializer frames. They were not replayed byte-for-byte. Their logs and containers are retained."
+  },
+  "audit": {
+    "reviewed": [
+      "Probe stack diagnostics and interpreter core",
+      "Operator serialization and state snapshots",
+      "RGB-D encoding/buffer ownership and relay/publisher shutdown",
+      "Pilot connection callbacks and signal shutdown",
+      "Scan workers, perception/recording cleanup, DDS endpoint ownership",
+      "Sim render-worker and runtime scene integration"
+    ],
+    "additional_fixes": [
+      "Do not destroy RGB-D DDS endpoints while receive/publish threads remain alive; retain ownership and report a retryable timeout.",
+      "Join the Pilot callback connection before releasing facade relays; a timed-out join must not report disconnected.",
+      "Unwind workflow/media/trace cleanup on SIGTERM, including PID 1 in the normal container."
+    ],
+    "wire_major_unchanged": 6,
+    "robot_motion_tested": false
+  },
+  "trials": [
+    {
+      "name": "baseline-01",
+      "mode": "none",
+      "interval_s": 0.0001,
+      "planned_seconds": 60.0,
+      "workers": 4,
+      "source_sha256": "89b8d5ffcdaf270eb89192b945fa4966180188de9ba86c8b4310a10581b24a8f",
+      "container": "elesim-sandy-native-139-baseline-01",
+      "image": "sha256:992ce4b7c9ed319ebf899152b6f048a0c5462f9184255439fb4b422b76f66294",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-10-31T05:42:48.640491352Z",
+        "FinishedAt": "2026-10-31T05:45:22.613992243Z"
+      },
+      "workload_start_epoch_s": 1793425462.386715,
+      "result": {
+        "complete": true,
+        "python": "3.10.12 (main, Aug 31 2026, 10:18:17) [GCC 11.4.0]",
+        "mode": "none",
+        "interval": 0.0001,
+        "workers": 4,
+        "code_refcount_before": 2,
+        "errors": [],
+        "iterations": [
+          4501,
+          4422,
+          5439,
+          5543
+        ],
+        "elapsed_s": 60.15688715688884,
+        "code_refcount_after": 2
+      },
+      "fatal_log": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sampler_sha256": null
+    },
+    {
+      "name": "safe-01",
+      "mode": "safe",
+      "interval_s": 0.0001,
+      "planned_seconds": 120.0,
+      "workers": 4,
+      "source_sha256": "2ac88a8dfdfa0e06ab93e2d09b6f5f2197e06091dc792f56779fc8f586dc36e4",
+      "container": "elesim-sandy-native-139-safe-01",
+      "image": "sha256:992ce4b7c9ed319ebf899152b6f048a0c5462f9184255439fb4b422b76f66294",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-10-31T05:49:24.369196683Z",
+        "FinishedAt": "2026-10-31T05:51:25.767261058Z"
+      },
+      "workload_start_epoch_s": 1793425764.8556635,
+      "result": {
+        "complete": true,
+        "python": "3.10.12 (main, Aug 31 2026, 10:18:17) [GCC 11.4.0]",
+        "mode": "safe",
+        "interval": 0.0001,
+        "workers": 4,
+        "code_refcount_before": 2,
+        "errors": [],
+        "iterations": [
+          10743,
+          10198,
+          10005,
+          9693
+        ],
+        "elapsed_s": 120.84448448382318,
+        "code_refcount_after": 2,
+        "stack_samples": 688,
+        "stack_error": ""
+      },
+      "fatal_log": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sampler_sha256": "8e77ce5299ac99b4028b1f03c9933ea3f15e413ff5f6e3bf84d5d2fb1e60c0a3"
+    },
+    {
+      "name": "safe-02",
+      "mode": "safe",
+      "interval_s": 0.001,
+      "planned_seconds": 120.0,
+      "workers": 4,
+      "source_sha256": "7518dfd84328409e7f96e27647cc6c5b444e4fd80c98731499c023ace7a4b795",
+      "container": "elesim-sandy-native-139-safe-02",
+      "image": "sha256:992ce4b7c9ed319ebf899152b6f048a0c5462f9184255439fb4b422b76f66294",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-10-31T05:59:36.168787424Z",
+        "FinishedAt": "2026-10-31T06:01:39.082768624Z"
+      },
+      "workload_start_epoch_s": 1793426376.5320663,
+      "result": {
+        "complete": true,
+        "python": "3.10.12 (main, Aug 31 2026, 10:18:17) [GCC 11.4.0]",
+        "mode": "safe",
+        "interval": 0.001,
+        "workers": 4,
+        "code_refcount_before": 2,
+        "errors": [],
+        "iterations": [
+          11530,
+          10706,
+          10411,
+          10309
+        ],
+        "elapsed_s": 122.47388079902157,
+        "code_refcount_after": 2,
+        "stack_samples": 371,
+        "stack_error": ""
+      },
+      "fatal_log": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sampler_sha256": "8e77ce5299ac99b4028b1f03c9933ea3f15e413ff5f6e3bf84d5d2fb1e60c0a3"
+    },
+    {
+      "name": "watchdog-01",
+      "mode": "native",
+      "interval_s": 0.0001,
+      "planned_seconds": 60.0,
+      "workers": 4,
+      "source_sha256": "89b8d5ffcdaf270eb89192b945fa4966180188de9ba86c8b4310a10581b24a8f",
+      "container": "elesim-sandy-native-139-watchdog-01",
+      "image": "sha256:992ce4b7c9ed319ebf899152b6f048a0c5462f9184255439fb4b422b76f66294",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 139,
+        "Error": "",
+        "StartedAt": "2026-10-31T05:42:50.31379333Z",
+        "FinishedAt": "2026-10-31T05:44:25.947176998Z"
+      },
+      "workload_start_epoch_s": 1793425462.6546237,
+      "result": null,
+      "fatal_log": {
+        "bytes": 5189,
+        "sha256": "acec830a1bb258cbb1a0af568f4148b0defa87a9bb25b17a2ee3c9fc2ce0169b"
+      },
+      "sampler_sha256": null
+    },
+    {
+      "name": "watchdog-02",
+      "mode": "native",
+      "interval_s": 0.001,
+      "planned_seconds": 60.0,
+      "workers": 4,
+      "source_sha256": "2ac88a8dfdfa0e06ab93e2d09b6f5f2197e06091dc792f56779fc8f586dc36e4",
+      "container": "elesim-sandy-native-139-watchdog-02",
+      "image": "sha256:992ce4b7c9ed319ebf899152b6f048a0c5462f9184255439fb4b422b76f66294",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 139,
+        "Error": "",
+        "StartedAt": "2026-10-31T05:49:26.328570599Z",
+        "FinishedAt": "2026-10-31T05:49:27.589347031Z"
+      },
+      "workload_start_epoch_s": 1793425766.8549738,
+      "result": null,
+      "fatal_log": {
+        "bytes": 4669,
+        "sha256": "ac48691824fa43fc763bb54ba1de3ff8b97ab86d1eefd36edccd20d19a5d80f1"
+      },
+      "sampler_sha256": "8e77ce5299ac99b4028b1f03c9933ea3f15e413ff5f6e3bf84d5d2fb1e60c0a3"
+    },
+    {
+      "name": "watchdog-03",
+      "mode": "native",
+      "interval_s": 1.0,
+      "planned_seconds": 120.0,
+      "workers": 4,
+      "source_sha256": "2ac88a8dfdfa0e06ab93e2d09b6f5f2197e06091dc792f56779fc8f586dc36e4",
+      "container": "elesim-sandy-native-139-watchdog-03",
+      "image": "sha256:992ce4b7c9ed319ebf899152b6f048a0c5462f9184255439fb4b422b76f66294",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 139,
+        "Error": "",
+        "StartedAt": "2026-10-31T05:58:50.297139995Z",
+        "FinishedAt": "2026-10-31T05:59:43.966506479Z"
+      },
+      "workload_start_epoch_s": 1793426374.6908543,
+      "result": null,
+      "fatal_log": {
+        "bytes": 3879,
+        "sha256": "ac433ce60b7cc974cd648ffd1f382e954a7f9d25b4ad984508739050489584b5"
+      },
+      "sampler_sha256": "8e77ce5299ac99b4028b1f03c9933ea3f15e413ff5f6e3bf84d5d2fb1e60c0a3"
+    }
+  ],
+  "core": {
+    "path": "/home/hckang/ws/elesim-scan-cycle-20261030/native-139-20261031/watchdog-01/pilot-native.core",
+    "bytes": 405151424,
+    "sha256": "ca8d90b536c8b291fd52a66030e782e3784ba23d08e29e0b777b7c286c7610b3"
+  },
+  "gdb": {
+    "remote_path": "/home/hckang/ws/elesim-scan-cycle-20261030/native-139-20261031/watchdog-01/gdb.log",
+    "sha256": "ccc8bc5eb7a64eba2a2deeaec3ad7ac26e74a8e5982d496d0b7d3b82e1f53599",
+    "file": "pilot_native_139_20261031.gdb.txt"
+  },
+  "raw_evidence": {
+    "remote_path": "/home/hckang/ws/elesim-scan-cycle-20261030/native-139-20261031/native-evidence.json",
+    "local_generated_path": "workbench/evidence/generated/native-139-20261031/native-evidence.json",
+    "sha256": "55feec045916c50a01400f004d8b52d7c858b5315c4a1e06d2cd1a01a801c768"
+  },
+  "tests": {
+    "host_focused_passed": 113,
+    "command": "PYTHONPATH=payload/runtime/common/protocol:payload/runtime/docker/pilot/app python3 -m pytest workbench/tests/apps/pilot/test_connection.py workbench/tests/apps/pilot/test_rgbd_edge.py workbench/tests/apps/pilot/test_pilot_shutdown.py workbench/tests/apps/pilot/test_live_scan.py workbench/tests/apps/pilot/test_active_scan.py workbench/tests/apps/pilot/test_arm_trajectory.py workbench/tests/apps/pilot/test_pick_stop_lifecycle.py workbench/tests/research/debug/test_thread_stacks.py -q",
+    "canonical_not_run": "No usable generated development attachment is available for this validation installation. Host Python lacks optional Shapely/ROS dependencies; no dependencies were installed into it."
+  },
+  "gpu_cycles": [
+    {
+      "attempt": 15,
+      "shape": "cylinder",
+      "source_revision": "e7b81b18e069a70d3797f5c8e417e4f828d767c6",
+      "services": {
+        "sim": {
+          "key": "svc-scan_cycle_20261030_15-scan-sim-15-a796a4dd2980c4c4fc3f9f47cbc35dc87451e125c5decad165595b8fe31fd250",
+          "name": "elesim-sandy-scan_cycle_20261030_15-sim",
+          "image": "sha256:82f38de2f40b0546a0d1ea8d37249e12438da27085130f712764e0765e27e7d8",
+          "image_id": "sha256:82f38de2f40b0546a0d1ea8d37249e12438da27085130f712764e0765e27e7d8"
+        },
+        "pilot": {
+          "key": "svc-scan_cycle_20261030_15-scan-pilot-15-903595924d765ca9093dfddc5766760ed1b9ed492ceb8eafd40749305dfe16ef",
+          "name": "elesim-sandy-scan_cycle_20261030_15-pilot",
+          "image": "sha256:abda123dbc44e934102981e5dde7ddb831d17d1e5e72aa25a218ffa8017a7f5f",
+          "image_id": "sha256:abda123dbc44e934102981e5dde7ddb831d17d1e5e72aa25a218ffa8017a7f5f"
+        },
+        "ui": {
+          "key": "svc-scan_cycle_20261030_15-scan-ui-15-abb7e66702a32d2f799df84edd79d915293aa46613b7fa538496e7b1d6749bbd",
+          "name": "elesim-sandy-scan_cycle_20261030_15-ui",
+          "image": "sha256:be563e86283ee70209632f3feb02546686303c8536e1799de0de377cc0d80f74",
+          "image_id": "sha256:be563e86283ee70209632f3feb02546686303c8536e1799de0de377cc0d80f74"
+        }
+      },
+      "release": {
+        "already_published": false,
+        "release_key": "6406b53bc6fd2d6e56119e947b73bd0a380482f5140a3a83bc3750386e092158",
+        "release_path": "/home/hckang/ws/elesim-scan-cycle-20261030/install/releases/6406b53bc6fd2d6e56119e947b73bd0a380482f5140a3a83bc3750386e092158"
+      },
+      "probe_sha256": {
+        "probe_scan_cycle_sim.py": "5495178fcb9d1ddb2c081f45ddcbc12b87d4f802d936b063a55719bd6e7d096b",
+        "probe_scan_cycle_pilot.py": "02bc6586862dab772018450ec435ca792afe13e09290774cd49a8169af9c9306",
+        "probe_scan_cycle_ui.py": "d4db7fe9368aa2077a09cb29625bd64cb9068caa4ca40b3c56713c8a4828cd1a",
+        "scan_cycle_recording.py": "997cf0044eece9c178da287c4e2707b9b60896940d49b8993b09ba540ecc0f09"
+      },
+      "sampler_sha256": "8e77ce5299ac99b4028b1f03c9933ea3f15e413ff5f6e3bf84d5d2fb1e60c0a3",
+      "requested_stack_interval_s": 0.1,
+      "ui_complete": true,
+      "scan_views": 3,
+      "observed_points": 2219,
+      "geometry_complete_claimed": false,
+      "scene_revision": "c6e0487111f2a5e20c440986ad90adf0c1d30eeed5228422a60e8b535d73498f",
+      "load_scene": {
+        "ok": true,
+        "elapsed_s": 2.417600631713867,
+        "timings": {
+          "physics_s": 2.0135727771557868,
+          "camera_rebuild_s": 0.6622910480946302,
+          "cameras_s": 0.29926497116684914
+        },
+        "entity_state_preserved": true,
+        "camera_processes_preserved": true
+      },
+      "independent_evaluation_complete": true,
+      "mesh": [
+        {
+          "object_id": "target",
+          "observed_points": 2219,
+          "predicted_points": 0,
+          "vertices": 240,
+          "faces": 476
+        }
+      ],
+      "shutdown": {
+        "complete": true,
+        "states": {
+          "sim": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T06:02:36.531983805Z",
+            "FinishedAt": "2026-10-31T06:04:55.897361247Z"
+          },
+          "pilot": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T06:02:36.534286812Z",
+            "FinishedAt": "2026-10-31T06:04:53.367941242Z"
+          },
+          "ui": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T06:02:36.5299121Z",
+            "FinishedAt": "2026-10-31T06:04:18.562998582Z"
+          }
+        },
+        "stack_sampler": {
+          "samples": 1152,
+          "error": ""
+        },
+        "stack_bytes": 7374549,
+        "fatal_bytes": 0,
+        "preservation": {
+          "before": 60,
+          "after": 149,
+          "missing": [],
+          "changed": [],
+          "prelaunch_before": 145,
+          "prelaunch_missing": [],
+          "prelaunch_changed": []
+        }
+      },
+      "video": {
+        "complete": true,
+        "error": "",
+        "fps": 10,
+        "files": {
+          "hand_eye_preview": "hand_eye_preview.mp4",
+          "observer": "observer.mp4"
+        },
+        "frames": {
+          "hand_eye_preview": 601,
+          "observer": 601
+        },
+        "started": 1793426597.8550587,
+        "duration_s": 60.07375159813091,
+        "clock": "actual wall time; original decoder frames, no speed change"
+      },
+      "artifacts": {
+        "run.json": {
+          "bytes": 3057,
+          "sha256": "a968a7356289b35fb63d4d1a358f2dfc06733ead9c1ff6961441005795ed4009"
+        },
+        "shutdown-validation.json": {
+          "bytes": 1321,
+          "sha256": "e6a4886c8214faf1b48c9fc945de389c982fd707444bd7b57a34a8b034127ef2"
+        },
+        "sim-output/sim.json": {
+          "bytes": 1923,
+          "sha256": "072a9399d67e40a6d1b5bc785792ff543a38ebff421297eb6e1693393fa3cd6a"
+        },
+        "pilot-output/pilot.json": {
+          "bytes": 41418,
+          "sha256": "9a9fff71f5d33fecacbf0783515f91d61cfbb130d2bca08acbcbdb29dcdc9827"
+        },
+        "ui-output/ui.json": {
+          "bytes": 10642,
+          "sha256": "4206f97277d4e0fdcdd300eddb69f1054ec015a6181ea374f45e5acbdb9a6b3f"
+        },
+        "sim-output/evaluation.json": {
+          "bytes": 3684,
+          "sha256": "0e6565e372fd8711a1b58206c5aa489551cf78d957f769a89e9b4c120f047b87"
+        },
+        "pilot-output/stacks.log": {
+          "bytes": 7374549,
+          "sha256": "10584b05d15a37bf7fff004267a28693c18e1ccce5b4948b7972d4ff23bc579c"
+        },
+        "pilot-output/native-crash.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "gpu_device_requests": [
+        {
+          "Driver": "nvidia",
+          "Count": 0,
+          "DeviceIDs": [
+            "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+          ],
+          "Capabilities": [
+            [
+              "gpu"
+            ]
+          ],
+          "Options": null
+        }
+      ],
+      "evidence_root": "workbench/evidence/generated/scan-cycle-20261030/cycle-15",
+      "remote_root": "/home/hckang/ws/elesim-scan-cycle-20261030/cycle-15",
+      "cache_condition": "Copied previous run cache; warm kernels; stability verification, not cold-start or latency benchmark."
+    },
+    {
+      "attempt": 16,
+      "shape": "sphere",
+      "source_revision": "e7b81b18e069a70d3797f5c8e417e4f828d767c6",
+      "services": {
+        "sim": {
+          "key": "svc-scan_cycle_20261030_16-scan-sim-16-2cf3e489d55054d52bbf03a71d1d322ce3b7c33d7f890813bef4f3679d203f4e",
+          "name": "elesim-sandy-scan_cycle_20261030_16-sim",
+          "image": "sha256:82f38de2f40b0546a0d1ea8d37249e12438da27085130f712764e0765e27e7d8",
+          "image_id": "sha256:82f38de2f40b0546a0d1ea8d37249e12438da27085130f712764e0765e27e7d8"
+        },
+        "pilot": {
+          "key": "svc-scan_cycle_20261030_16-scan-pilot-16-cd908f892bcd10cc400874b39a8418f184c424eb922892d512d87815965ee01e",
+          "name": "elesim-sandy-scan_cycle_20261030_16-pilot",
+          "image": "sha256:abda123dbc44e934102981e5dde7ddb831d17d1e5e72aa25a218ffa8017a7f5f",
+          "image_id": "sha256:abda123dbc44e934102981e5dde7ddb831d17d1e5e72aa25a218ffa8017a7f5f"
+        },
+        "ui": {
+          "key": "svc-scan_cycle_20261030_16-scan-ui-16-a413ae86ac7a2be0dc4f2d61da675c5c21ab939703e24134fac490c33da96f94",
+          "name": "elesim-sandy-scan_cycle_20261030_16-ui",
+          "image": "sha256:be563e86283ee70209632f3feb02546686303c8536e1799de0de377cc0d80f74",
+          "image_id": "sha256:be563e86283ee70209632f3feb02546686303c8536e1799de0de377cc0d80f74"
+        }
+      },
+      "release": {
+        "already_published": false,
+        "release_key": "6406b53bc6fd2d6e56119e947b73bd0a380482f5140a3a83bc3750386e092158",
+        "release_path": "/home/hckang/ws/elesim-scan-cycle-20261030/install/releases/6406b53bc6fd2d6e56119e947b73bd0a380482f5140a3a83bc3750386e092158"
+      },
+      "probe_sha256": {
+        "probe_scan_cycle_sim.py": "5495178fcb9d1ddb2c081f45ddcbc12b87d4f802d936b063a55719bd6e7d096b",
+        "probe_scan_cycle_pilot.py": "02bc6586862dab772018450ec435ca792afe13e09290774cd49a8169af9c9306",
+        "probe_scan_cycle_ui.py": "d4db7fe9368aa2077a09cb29625bd64cb9068caa4ca40b3c56713c8a4828cd1a",
+        "scan_cycle_recording.py": "997cf0044eece9c178da287c4e2707b9b60896940d49b8993b09ba540ecc0f09"
+      },
+      "sampler_sha256": "8e77ce5299ac99b4028b1f03c9933ea3f15e413ff5f6e3bf84d5d2fb1e60c0a3",
+      "requested_stack_interval_s": 0.1,
+      "ui_complete": true,
+      "scan_views": 3,
+      "observed_points": 1173,
+      "geometry_complete_claimed": false,
+      "scene_revision": "9fe5b732f12e05ef9106d5231e4d6777182609b4c7cc6a8072e1470bce812a23",
+      "load_scene": {
+        "ok": true,
+        "elapsed_s": 2.4463024139404297,
+        "timings": {
+          "physics_s": 2.0830159783363342,
+          "camera_rebuild_s": 0.6160503239370883,
+          "cameras_s": 0.2644451926462352
+        },
+        "entity_state_preserved": true,
+        "camera_processes_preserved": true
+      },
+      "independent_evaluation_complete": true,
+      "mesh": [
+        {
+          "object_id": "target",
+          "observed_points": 1173,
+          "predicted_points": 0,
+          "vertices": 146,
+          "faces": 288
+        }
+      ],
+      "shutdown": {
+        "complete": true,
+        "states": {
+          "sim": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T06:05:46.528488477Z",
+            "FinishedAt": "2026-10-31T06:08:10.784540852Z"
+          },
+          "pilot": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T06:05:46.531168479Z",
+            "FinishedAt": "2026-10-31T06:08:08.167568767Z"
+          },
+          "ui": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-31T06:05:46.530463062Z",
+            "FinishedAt": "2026-10-31T06:07:30.475020965Z"
+          }
+        },
+        "stack_sampler": {
+          "samples": 1208,
+          "error": ""
+        },
+        "stack_bytes": 7760842,
+        "fatal_bytes": 0,
+        "preservation": {
+          "before": 60,
+          "after": 153,
+          "missing": [],
+          "changed": [],
+          "prelaunch_before": 149,
+          "prelaunch_missing": [],
+          "prelaunch_changed": []
+        }
+      },
+      "video": {
+        "complete": true,
+        "error": "",
+        "fps": 10,
+        "files": {
+          "hand_eye_preview": "hand_eye_preview.mp4",
+          "observer": "observer.mp4"
+        },
+        "frames": {
+          "hand_eye_preview": 594,
+          "observer": 594
+        },
+        "started": 1793426790.4819796,
+        "duration_s": 59.34547490393743,
+        "clock": "actual wall time; original decoder frames, no speed change"
+      },
+      "artifacts": {
+        "run.json": {
+          "bytes": 3057,
+          "sha256": "48c588a30dd985870f9e4c17dbddd8f57f46f64a5c977a6c6042a4601203e3c2"
+        },
+        "shutdown-validation.json": {
+          "bytes": 1323,
+          "sha256": "0072b2e2bf5a3eb41710d0d82aa9ae5d65dc28233e9a3610a706420d66213ec9"
+        },
+        "sim-output/sim.json": {
+          "bytes": 1917,
+          "sha256": "49264291a6ffe234d049496cb1a589c6833bdd2c52930cf0a1a485761c104044"
+        },
+        "pilot-output/pilot.json": {
+          "bytes": 41431,
+          "sha256": "97a21c407d976506ac1afa075503cb23ab9a6bfd7c555aade28b3af4d99c2b39"
+        },
+        "ui-output/ui.json": {
+          "bytes": 10641,
+          "sha256": "42de25d2005c2dd4e7e03bc871c69f1e0b3d9dcbf36db2452ad1bed399576e17"
+        },
+        "sim-output/evaluation.json": {
+          "bytes": 3921,
+          "sha256": "99bee78213d788259d079aafbe61868b62a9f875e71502ec85a9de2316e38c30"
+        },
+        "pilot-output/stacks.log": {
+          "bytes": 7760842,
+          "sha256": "2c6f3d0c0270e87b7df0b442767386876fbde868e2259c15c2938f4f534434bd"
+        },
+        "pilot-output/native-crash.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "gpu_device_requests": [
+        {
+          "Driver": "nvidia",
+          "Count": 0,
+          "DeviceIDs": [
+            "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+          ],
+          "Capabilities": [
+            [
+              "gpu"
+            ]
+          ],
+          "Options": null
+        }
+      ],
+      "evidence_root": "workbench/evidence/generated/scan-cycle-20261030/cycle-16",
+      "remote_root": "/home/hckang/ws/elesim-scan-cycle-20261030/cycle-16",
+      "cache_condition": "Copied previous run cache; warm kernels; stability verification, not cold-start or latency benchmark."
+    }
+  ],
+  "preservation": {
+    "captured_at": 1793426935.9880867,
+    "checkpoint_captured_at": 1793426296.6751566,
+    "checkpoint_scope": "checkpoint after isolated native trials; excludes only exact trial/debugger containers",
+    "before": 136,
+    "after": 153,
+    "missing": [],
+    "changed": [],
+    "engine_id": "2ee9c1c8-0d97-43a9-82eb-dfef7cda0ae3",
+    "original_checkout": {
+      "path": "/home/hckang/ws/newsim_dev/elesim",
+      "revision": "70757e6116fa968904017388094f5c13d4854137",
+      "status": ""
+    }
+  },
+  "checkpoint": {
+    "captured_at": 1793426296.6751566,
+    "scope": "checkpoint after isolated native trials; excludes only exact trial/debugger containers",
+    "containers": 136
+  },
+  "references": [
+    {
+      "url": "https://raw.githubusercontent.com/python/cpython/v3.10.12/Modules/faulthandler.c",
+      "purpose": "Native watchdog implementation; source supports the frame-walk concurrency inference, not exact installed binary symbolization."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/python/cpython/v3.10.12/Python/traceback.c",
+      "purpose": "dump_frame and thread-frame walk; exact affected object is not proven."
+    },
+    {
+      "url": "https://github.com/python/cpython/issues/158200",
+      "purpose": "Upstream report of periodic faulthandler native crashes on a different Python revision; background only, not proof for this installed 3.10 binary."
+    }
+  ],
+  "preservation_evidence": {
+    "remote_path": "/home/hckang/ws/elesim-scan-cycle-20261030/native-139-20261031/preservation-final.json",
+    "local_generated_path": "workbench/evidence/generated/native-139-20261031/preservation-final.json",
+    "sha256": "c002b4713600e129fd4bdd9856460c2e63ef9075bf119845df9c87d80a54d8ca"
+  },
+  "totals": {
+    "native_failures": 3,
+    "safe_cpu_passes": 2,
+    "safe_cpu_serialization_iterations": 83595,
+    "safe_cpu_stack_samples": 1059,
+    "gpu_cycles_passed": 2,
+    "gpu_stack_samples": 2360,
+    "gpu_fatal_bytes": 0,
+    "all_six_gpu_role_exits": 0
+  }
+}

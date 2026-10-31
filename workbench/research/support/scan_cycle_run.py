@@ -377,7 +377,7 @@ selected=[]
 for path in root.rglob('*'):
  if not path.is_file() or path.is_symlink():continue
  relative=path.relative_to(root)
- if path.name in ('run.json','preservation.json','retention-checks.json','model-profile.json') or (path.suffix in ('.json','.png','.mp4') and
+ if path.name in ('run.json','preservation.json','retention-checks.json','model-profile.json','shutdown-validation.json') or (path.suffix in ('.json','.png','.mp4') and
      ('output' in relative.parts[0] or path.name in ('scan.json','scene.json'))):selected.append(path)
 assert sum(p.stat().st_size for p in selected)<256*1024*1024
 buffer=io.BytesIO()

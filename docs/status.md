@@ -6,6 +6,49 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Pilot exit 139 원인 분리와 수정 (2026-10-31)
+
+진단 probe에 넣었던 `faulthandler.dump_traceback_later`가 설치된 CPython
+3.10.12에서 139를 유발함을 분리 재현했다. 같은 정상 Pilot 이미지의 실제
+상태 직렬화를 4개 thread에서 실행하되 DDS/GPU는 초기화하지 않았다.
+Native 주기 덤프는 0.1 ms, 1 ms, 원래의 **1초 주기 모두 exit 139**였다.
+덤프 없는 기준 실행은 60초 / 19,905회, Python 수집기로 교체한 두 실행은
+각각 약 120초 / **40,639회와 42,956회**를 통과했다. 수집기는 합계 1,059개
+stack sample을 남겼고 fatal/error log는 비어 있다. 요청 주기는 실제 sample
+주파수가 아니며 인공 부하의 처리량을 앱 성능으로 해석하지 않는다.
+
+한 native 실패는 GDB로 SIGSEGV와 405 MB core를 확보했다. C stack은
+Python 평가/vectorcall과 동시에 실행 중인 trace writer를 보여준다. Interpreter가
+stripped binary이므로 정확히 손상된 C object까지 특정했다고 주장하지 않는다.
+CPython의 frame/code 수명 경쟁은 source와 현상에서 얻은 추론이며, 다른 버전의
+[upstream 보고](https://github.com/python/cpython/issues/158200)를 이 환경의
+증명으로 대신하지 않는다. 과거 실행 7/9의 원본 전체를 그대로 replay한 결과와도
+구분한다. 확인한 트리거는 probe에서 제거했고 fatal-signal handler는 유지했다.
+
+Runtime `e7b81b18e069a70d3797f5c8e417e4f828d767c6`에는 코드 검토로 확인한
+종료 결함도 수정했다. RGB-D receive/publish thread가 끝나기 전에 DDS endpoint를
+파괴하지 않으며 join timeout이면 참조를 보존하고 오류를 보고해 재시도한다.
+Pilot connection callback이 끝난 뒤 facade relay를 닫고, SIGTERM은 workflow,
+media와 trace 정리를 거치게 했다. 이 결함들을 이번 139의 입증된 원인으로
+혼동하지 않는다. 서버 GPU 2의 정상 설치/발행 이미지에서 원통 실행 15와 구형
+실행 16 모두 10 Hz 수집을 켠 채 scan → mesh 적용 → 두 WebRTC 화면 복구를
+통과했다. 원통은 3-view / 2,219점 / 1,152 sample, 구는 3-view / 1,173점 /
+1,208 sample이다. **두 fatal log 모두 0 bytes**, 여섯 역할 process 모두
+**exit 0**으로 종료했다. 기존 kernel cache 복사본을 쓴 안정성 검증이며 cold
+startup이나 지연 통계의 측정이 아니다.
+
+관련 host fallback은 **113 passed**다. 현재 검증 설치에 사용할 수 있는 generated
+development attachment가 없어 canonical required/extended, isolated release와
+4-process topology gate는 이번 수정에서 실행하지 않았다. Host Python에
+부족한 scientific/ROS 의존성을 설치하지 않았다. 실제 검사는 고정 암/Robot-free
+GPU 경로이며 물리 Robot/native UI window/다중 호스트 수용시험은 포함하지 않는다.
+비교표, core SHA256, GDB와 실행별 해시는
+[`pilot_native_139_20261031.json`](../workbench/evidence/curated/sim/pilot_native_139_20261031.json)에
+기록하며 원격 `native-139-20261031/`, `cycle-15/`, `cycle-16/` 원자료와 기존
+container/cache는 보존한다. 분리 진단 뒤 확보한 기존 136개 checkpoint와 각
+실행 직전 inventory의 container ID/image/status 대조에서 누락·변경은 0개다.
+최종 153개 container를 모두 보존했고 기존 외부 checkout `70757e6`도 변경하지 않았다.
+
 ### 원통 1-cycle 데모 (2026-10-31)
 
 같은 서버 GPU 2/고정 암 조건에서 반경 45 mm, 높이 140 mm의 빨간 원통으로
@@ -26,7 +69,8 @@ Scan 시작 응답부터 완료 관측까지 **46.68초**, 적용 함수 전체 
 처음 생성한 원통 scan mesh를 적용한 단일 실행이다. 같은 mesh 반복이나 cold
 startup 지연의 통계로 해석하지 않는다. 초기 Sim 준비 이후 두 실제 WebRTC 화면을
 기록한 1배속 영상은 **57.8초**다. GDB/주기적 stack 수집 없이 완료했고 이번
-Pilot fatal log는 비어 있다. 앞선 139의 원인 미확정 상태는 그대로 남는다.
+Pilot fatal log는 비어 있다. 이 실행 당시 미확정이었던 139는 위의 별도
+원인 분리/수정 결과를 따른다.
 
 이전 구형 영상과 실패 기록을 보존한다. 새 시도는 시작 직전 전체 container
 inventory를 추가 대조하고 probe를 실행 폴더에 고정 복사한다. 이번 작업 전
@@ -89,11 +133,11 @@ frame 검사가 부족해 현재의 전체 수용시험 통과로 세지 않는�
 시작과 Sim build는 녹화/scan 시간 밖이다.
 
 실패 기록도 보존했다. 시도 7/9에서 Pilot **exit 139**가 발생했고 9의 Python
-fatal stack은 operator 응답 직렬화 시점을 가리킨다. 네이티브 원인은 아직
-확정하지 못했으며, 10/11의 GDB 실행에서 재현되지 않았다는 이유로 수정됐다고
-표시하지 않는다. 당시 probe에는 주기적 faulthandler stack 수집이 있었고 최종
-probe에서는 명시적으로 켤 때만 사용한다. 주기적 수집과 GDB가 없는 13은
-정상 완료했지만 이것만으로 139의 원인을 확정하지 않는다. 첫 volatile motion intent가 실제
+fatal stack은 operator 응답 직렬화 시점을 가리킨다. 당시에는 네이티브 원인을
+확정하지 못했고, 10/11의 GDB 실행에서 재현되지 않았다는 이유로 수정됐다고
+표시하지 않았다. 당시 probe에는 주기적 faulthandler stack 수집이 있었고 13은
+주기적 수집과 GDB 없이 정상 완료했다. 이후 별도 비교 재현으로 해당 native
+수집 API를 트리거로 확인해 위와 같이 교체했다. 첫 volatile motion intent가 실제
 피드백에 반영되지 않는 경우도 남는다. Probe는 같은 Sim boot의 명시적
 torque-on을 제한 횟수 재시도하고 실제 피드백을 요구했으며, runtime의 전달
 보장이 해결됐다는 뜻은 아니다.
