@@ -215,8 +215,11 @@ class LiveScan:
                             raise ValueError('scan RGB-D source boot changed')
                         if calibration is not None and frame.calibration_id != calibration:
                             raise ValueError('camera calibration changed during scan')
-                        if (frame.seq <= last_seq or frame.ts < settled_wall or frame.arm_q is None
+                        current_feedback, _, _ = self._checked_feedback()
+                        if (frame.seq <= last_seq or frame.ts < settled_wall
+                                or not -.2 <= current_feedback['wall']-frame.ts <= .5 or frame.arm_q is None
                                 or not np.allclose(frame.arm_q, goal, rtol=0., atol=[.001, .015, .015, .015])):
+                            time.sleep(.001)
                             continue
                         sample = SensorObservation(frame.color_bgr, frame.depth_raw, frame.depth_scale,
                             frame.intrinsics, frame.seq, frame.ts, frame.source_id, frame.source_boot_id,

@@ -257,7 +257,6 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
                 if pipeline_mode == 'integrated':
                     model_config = read_model_config(config_directory/selected)
                     completion = model_config['models']['completion']
-                    completion['options']['cache_root'] = '/cycle-output/model-source'
                     asset_paths = dict(source=ADAPOINTR_ROOT/'assets/pointr-source.tar.gz',
                         weights=ADAPOINTR_ROOT/'contract-598fe6d2/assets/ap_ps55.pth')
                     record['model_assets'] = {}

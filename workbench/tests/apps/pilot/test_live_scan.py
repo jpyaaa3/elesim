@@ -280,3 +280,27 @@ def test_close_keeps_a_pending_worker_owned_until_cleanup_finishes(rig):
         release.set()
         rig.scan.close()
     assert not worker.is_alive()
+
+
+@pytest.mark.parametrize('clock_offset_s', [-.99, .5])
+def test_cached_settle_requires_a_current_camera_timestamp(rig, clock_offset_s):
+    accepted = []
+    original = rig.camera.capture
+    def capture(camera, **kwargs):
+        frame = original(camera, **kwargs)
+        if camera.sequence == 2:
+            frame.ts = 1000.+rig.now[0]+clock_offset_s
+        return frame
+    rig.camera.capture = capture
+    class Engine:
+        def run(self, acquire, start, *args, **kwargs):
+            accepted.append(acquire(start, {'accepted': True}))
+            rig.now[0] += 1.
+            rig.feedback()
+            accepted.append(acquire(start, {'accepted': True}))
+            return None, {'accepted_views': 2, 'stop_reason': 'view_budget'}
+    rig.scan.engine_factory = lambda *_args: Engine()
+    rig.scan.start()
+    rig.pump()
+    assert rig.scan.status()['phase'] == 'completed'
+    assert [sample.sensor.seq for sample in accepted] == [1, 3]

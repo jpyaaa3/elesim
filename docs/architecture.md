@@ -485,6 +485,8 @@ calibration 기록에 보존한다. Translation과 법선 주위 yaw는 보정�
 같은 자세의 연속 calibration capture는 다시 motion을 명령하거나 정착을
 재시작하지 않는다. 최신 피드백·자세 허용 오차는 계속 검사하고 벗어나면
 기존 certified segment로 다시 정착한다.
+정착 시각을 재사용하더라도 capture 시각은 최신 Sim telemetry의 같은 source
+clock과 대조한다. 500 ms보다 오래됐거나 200 ms보다 앞선 frame은 받지 않는다.
 
 통합 scan은 누적 observed cloud를 실제 AdaPoinTr completion adapter에 넘긴다.
 고정 upstream source/config/checkpoint는 SHA-256이 검증된 명시적 외부 asset이고
