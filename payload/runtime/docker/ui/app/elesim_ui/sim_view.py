@@ -170,6 +170,8 @@ class SimViewState:
     main_stream: str = "observer"
     preview_stream: str = "hand_eye_preview"
     camera_source: str = "sim"
+    layout: str = 'pip'
+    zed_layout: str = 'stereo'
 
     def swap_streams(self) -> None:
         self.main_stream, self.preview_stream = self.preview_stream, self.main_stream
@@ -191,54 +193,72 @@ class SimView:
         self.state = SimViewState()
         if zed_preview is not None or zed_right_preview is not None:
             self.state.camera_source = "zed"
+            if zed_right_preview is None:
+                self.state.zed_layout = 'left'
+            elif zed_preview is None:
+                self.state.zed_layout = 'right'
         self._textures: dict[str, int] = {}
         self._texture_versions: dict[str, int] = {}
         self._texture_sizes: dict[str, tuple[int, int]] = {}
 
     def draw(self) -> None:
-        if self.zed_preview is not None or self.zed_right_preview is not None:
-            if imgui.button("ZED View##camera-source-zed"):
-                self.state.camera_source = "zed"
-            if self.session is not None:
-                imgui.same_line()
-                if imgui.button("Sim Cameras##camera-source-sim"):
-                    self.state.camera_source = "sim"
-            if self.state.camera_source == "zed":
-                self._draw_zed()
-                return
+        if self.state.camera_source == 'zed':
+            self._draw_zed()
+            return
         if self.session is None:
             imgui.text_disabled("Sim camera session is not configured")
             return
         snapshot = self.session.snapshot
         if snapshot.last_error:
             imgui.text_colored(snapshot.last_error, 0.78, 0.18, 0.18)
-
+        layout = 2 if self.state.layout == 'split' else int(self.state.main_stream != 'observer')
+        imgui.push_item_width(min(280., float(imgui.get_content_region_available_width())*.65))
+        changed, layout = imgui.combo('Layout##sim-camera-layout', layout,
+            ['Observer + inset', 'Hand-eye + inset', 'Side by side'])
+        imgui.pop_item_width()
+        if changed:
+            self.state.layout = 'split' if layout == 2 else 'pip'
+            if layout < 2:
+                self.state.main_stream = 'observer' if layout == 0 else 'hand_eye_preview'
+                self.state.preview_stream = 'hand_eye_preview' if layout == 0 else 'observer'
         available = max(1.0, float(imgui.get_content_region_available_width()))
         available_height = self._available_content_height(fallback=available * 0.75)
-        observer_max_height = max(1.0, available_height - imgui.get_frame_height_with_spacing())
-        _, observer_rect = self._draw_stream(
-            "observer",
+        max_height = max(1.0, available_height - imgui.get_text_line_height_with_spacing())
+        if self.state.layout == 'split':
+            spacing = float(imgui.get_style().item_spacing.x)
+            pane_width = max(1., (available-spacing)*.5)
+            for index, stream in enumerate(('observer', 'hand_eye_preview')):
+                if index:
+                    imgui.same_line()
+                imgui.begin_child('split-'+stream, pane_width, available_height, False)
+                try:
+                    self._draw_stream(stream, width=pane_width, max_height=max_height,
+                        connected=stream in snapshot.connected_streams,
+                        display_aspect=OBSERVER_ASPECT if stream == 'observer' else None)
+                finally:
+                    imgui.end_child()
+            return
+        main, preview = self.state.main_stream, self.state.preview_stream
+        _, main_rect = self._draw_stream(
+            main,
             width=available,
-            max_height=observer_max_height,
-            connected="observer" in snapshot.connected_streams,
-            display_aspect=OBSERVER_ASPECT,
+            max_height=max_height,
+            connected=main in snapshot.connected_streams,
+            display_aspect=OBSERVER_ASPECT if main == 'observer' else None,
             center=True,
+            pip_stream=preview,
         )
-        if observer_rect is not None:
-            self._draw_pip(
-                observer_rect,
-                connected="hand_eye_preview" in snapshot.connected_streams,
-            )
+        if main_rect is not None:
+            self._draw_pip(main_rect, stream=preview, connected=preview in snapshot.connected_streams)
         else:
-            # Keep the secondary stream visible while the observer m-line is
-            # negotiating or reporting a decoder error.  Once observer has a
-            # frame it returns to the intended PIP layout above.
+            # A missing primary track must not hide a healthy secondary.
             self._draw_stream(
-                "hand_eye_preview",
+                preview,
                 width=available,
-                max_height=max(180.0, available_height * 0.55),
-                connected="hand_eye_preview" in snapshot.connected_streams,
-                display_aspect=4.0 / 3.0,
+                max_height=max(1., self._available_content_height(fallback=available_height*.55)
+                               - imgui.get_text_line_height_with_spacing()),
+                connected=preview in snapshot.connected_streams,
+                display_aspect=OBSERVER_ASPECT if preview == 'observer' else None,
                 center=True,
             )
 
@@ -246,21 +266,26 @@ class SimView:
         left_source = str(getattr(self.zed_preview, "source_id", "")).strip()
         right_source = str(getattr(self.zed_right_preview, "source_id", "")).strip()
         source_ids = {source for source in (left_source, right_source) if source}
-        if source_ids and source_ids != {"robot-go2"}:
+        if source_ids:
             imgui.text("RGB-D SOURCE " + ", ".join(sorted(source_ids)))
-            imgui.text_colored(
-                "Select robot-go2 in Target to see the physical ZED Mini.",
-                0.9,
-                0.55,
-                0.12,
-            )
         left_status = str(getattr(self.zed_preview, "status", "WAIT"))
         right_status = str(getattr(self.zed_right_preview, "status", "WAIT"))
         imgui.text(f"ZED MINI STEREO    LEFT {left_status}    RIGHT {right_status}")
+        layouts = ('stereo', 'left', 'right')
+        imgui.push_item_width(min(220., float(imgui.get_content_region_available_width())*.65))
+        _, selected = imgui.combo('Layout##zed-camera-layout', layouts.index(self.state.zed_layout),
+                                  ['Stereo', 'Left', 'Right'])
+        self.state.zed_layout = layouts[selected]
+        imgui.pop_item_width()
 
         available = max(1.0, float(imgui.get_content_region_available_width()))
         available_height = self._available_content_height(fallback=available * 0.75)
         spacing = float(imgui.get_style().item_spacing.x)
+        if self.state.zed_layout != 'stereo':
+            left = self.state.zed_layout == 'left'
+            self._draw_zed_pane('LEFT' if left else 'RIGHT',
+                self.zed_preview if left else self.zed_right_preview, available, available_height)
+            return
         pane_width = max(1.0, (available - spacing) * 0.5)
         pane_height = max(1.0, available_height)
         self._draw_zed_pane("LEFT", self.zed_preview, pane_width, pane_height)
@@ -334,6 +359,7 @@ class SimView:
         connected: bool,
         display_aspect: float | None = None,
         center: bool = False,
+        pip_stream: str | None = None,
     ) -> tuple[bool, tuple[float, float, float, float] | None]:
         label = "OBSERVER" if stream == "observer" else "HAND-EYE"
         imgui.text(f"{label} {'LIVE' if connected else 'WAIT'}")
@@ -390,6 +416,13 @@ class SimView:
         rect_max = _xy(imgui.get_item_rect_max())
         rect = (rect_min[0], rect_min[1], rect_max[0], rect_max[1])
         hovered = bool(imgui.is_item_hovered())
+        if hovered and pip_stream is not None:
+            preview = self.session.frame(pip_stream)
+            aspect = (float(preview.shape[1])/max(1, int(preview.shape[0]))
+                      if preview is not None and len(preview.shape) == 3 else OBSERVER_ASPECT)
+            px0, py0, px1, py1 = _pip_rect(rect, source_aspect=aspect)
+            mx, my = _xy(imgui.get_io().mouse_pos)
+            hovered = not (px0 <= mx <= px1 and py0 <= my <= py1)
         if hovered and stream == "observer":
             self._handle_observer_input(width=draw_width, height=draw_height)
         clicked = hovered and bool(getattr(imgui, "is_item_clicked", lambda *_: False)(0))
@@ -400,8 +433,9 @@ class SimView:
         container: tuple[float, float, float, float],
         *,
         connected: bool,
+        stream: str = 'hand_eye_preview',
     ) -> None:
-        stream = "hand_eye_preview"
+        label = 'OBSERVER' if stream == 'observer' else 'HAND-EYE'
         version_getter = getattr(self.session, "frame_version", None)
         version = version_getter(stream) if callable(version_getter) else None
         frame = self.session.frame(stream)
@@ -453,7 +487,7 @@ class SimView:
                 x0 + 10.0,
                 y0 + (y1 - y0) * 0.5 - 7.0,
                 _color_u32(0.85, 0.87, 0.91, 1.0),
-                "HAND-EYE WAIT",
+                label+' WAIT',
             )
         label_height = min(24.0, max(18.0, (y1 - y0) * 0.16))
         _draw_rect_filled(
@@ -470,7 +504,7 @@ class SimView:
             x0 + 8.0,
             y0 + max(2.0, (label_height - 13.0) * 0.5),
             _color_u32(0.96, 0.97, 1.0, 1.0),
-            f"HAND-EYE {'LIVE' if connected else 'WAIT'}",
+            f"{label} {'LIVE' if connected else 'WAIT'}",
         )
         try:
             draw_list.add_rect(x0, y0, x1, y1, border, 3.0, 0)

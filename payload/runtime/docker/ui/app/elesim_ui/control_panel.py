@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import os
 import time
 import sys
@@ -24,33 +23,9 @@ from elesim_ui.helpers import scaled, set_panel_header_font
 from elesim_ui.sim_view import SimView, camera_icon_button
 from elesim_ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_font_with_korean_ranges
 from elesim_ui import file_dialog
+from elesim_ui.workspace import draw_workspace
 
-from .panels import (
-    draw_control_4dof_panel,
-    draw_go2_panel,
-    draw_hardware_panel,
-    draw_ik_panel,
-    draw_mock_object_panel,
-    draw_scene_panel,
-    draw_perception_panel,
-    draw_resolution_panel,
-    draw_imu_model_panel,
-    draw_floor_calibration_panel,
-    draw_object_scan_panel,
-    draw_status_panel,
-)
 
-_DEFAULT_SPACING_X = 8.0
-_DEFAULT_WINDOW_PADDING_X = 11.0
-_GO2_PAD_MIN_CELL_W = 36.0
-_GO2_PAD_MIN_ROW_W = _GO2_PAD_MIN_CELL_W * 5.0 + _DEFAULT_SPACING_X * 4.0
-_CONTROL_COLUMN_SCALE = 0.90
-_FIRST_COLUMN_MIN_W = _GO2_PAD_MIN_ROW_W + _DEFAULT_WINDOW_PADDING_X * 2.0
-_SECOND_COLUMN_MIN_W = 264.0
-_CONTROL_COLUMN_MIN_W = max(_FIRST_COLUMN_MIN_W, _SECOND_COLUMN_MIN_W)
-_THREE_COLUMN_BASE_W = _CONTROL_COLUMN_MIN_W / _CONTROL_COLUMN_SCALE
-_THREE_COLUMN_MIN_W = _THREE_COLUMN_BASE_W * 3.0 + _DEFAULT_SPACING_X * 2.0
-_TWO_COLUMN_MIN_W = 720.0
 _INITIAL_WINDOW_W = 1440
 _INITIAL_WINDOW_H = 900
 _RESPAWN_DOUBLE_PRESS_S = 0.5
@@ -71,12 +46,8 @@ def _set_style_color(style, name: str, rgba: tuple[float, float, float, float]) 
         pass
 
 
-def draw_sim_video_panel(panel: "ControlPanel") -> None:
-    panel._draw_sim_video()
-
-
 class ControlPanel:
-    """External ImGui window that draws and edits PanelState."""
+    """Own the operator workspace and its optional detached camera window."""
 
     def __init__(
         self,
@@ -207,11 +178,14 @@ class ControlPanel:
         self._camera_imgui_context = None
         self._main_imgui_impl = None
         self._camera_imgui_impl = None
+        self._workspace_controls_visible = True
+        self._workspace_controls_width = 440.0
+        self._workspace_tab = 'Scan'
+        self._workspace_tab_request = 'Scan'
+        self._workspace_error = ''
         self._last_input_at = time.monotonic()
         self._ui_resolution_requested_scale = 1.0
         self._ui_resolution_scale = 1.0
-        self._ui_resolution_base_w = _INITIAL_WINDOW_W
-        self._ui_resolution_base_h = _INITIAL_WINDOW_H
         self._ui_style_base_scalars: dict[str, float] = {}
         self._ui_style_base_vectors: dict[str, tuple[float, float]] = {}
         self._pending_file_browse: Optional[tuple[str, str]] = None
@@ -398,60 +372,36 @@ class ControlPanel:
             if index + 1 < len(endpoints):
                 imgui.same_line()
 
-    def _draw_camera_panel(self) -> None:
-        self._draw_endpoint_selector()
-        if self._sim_view is None:
-            return
-        if self._sim_view.session is not None:
-            snapshot = self._sim_view.session.snapshot
-            connected = len(snapshot.connected_streams)
-            imgui.text(f"SIM CAMERAS  {connected}/2 streams")
-        if self._sim_view.zed_preview is not None:
-            preview = self._sim_view.zed_preview
-            source_id = str(getattr(preview, "source_id", "")).strip()
-            label = (
-                "ZED MINI"
-                if not source_id or source_id == "robot-go2"
-                else f"RGB-D {source_id}"
-            )
-            imgui.text(f"{label}  {preview.status}")
-        if self._camera_visible:
-            imgui.text_disabled("Camera Views is open in a separate window.")
-            return
-        if imgui.button("Open Camera Views##open-camera-views"):
-            self._show_camera_window()
-
-    def _draw_sim_video(self) -> None:
-        # Keep the existing panel hook while its camera window now includes
-        # both the physical ZED feed and the Sim-generated streams.
-        self._draw_camera_panel()
-
     def _draw_camera_contents(self) -> None:
         if self._sim_view is None:
-            imgui.text_disabled("Sim session is not configured")
+            imgui.text_disabled("Camera sources are not configured")
             return
-        footer_height = imgui.get_frame_height_with_spacing()
-        imgui.begin_child("camera-video", 0.0, -footer_height, False)
-        self._sim_view.draw()
-        imgui.end_child()
-        if self._sim_view.session is None:
-            return
-        spacing = float(imgui.get_style().item_spacing.x)
-        button_size = float(imgui.get_frame_height())
-        button_width = button_size * 2.0
-        imgui.push_item_width(max(80.0, imgui.get_content_region_available_width()
-                                  - button_width - spacing * 2.0))
+        available = float(imgui.get_content_region_available_width())
+        imgui.push_item_width(max(scaled(self, 110), available-scaled(self, 235)))
         self._draw_camera_selector()
         imgui.pop_item_width()
         imgui.same_line()
-        maximized = self._camera_window is not None and bool(
-            glfw.get_window_attrib(self._camera_window, glfw.MAXIMIZED)
-        )
-        if camera_icon_button("maximize", button_size, maximized=maximized):
-            self._toggle_camera_maximized()
-        imgui.same_line()
-        if camera_icon_button("reset-view", button_size):
-            self._sim_view.session.send_command("reset_view")
+        if self._camera_visible:
+            if imgui.button('Dock##dock-camera'):
+                self._hide_camera_window()
+        elif imgui.button('Pop out##detach-camera'):
+            self._show_camera_window()
+        if self._camera_visible:
+            imgui.same_line()
+            maximized = bool(glfw.get_window_attrib(self._camera_window, glfw.MAXIMIZED))
+            if camera_icon_button('maximize', imgui.get_frame_height(), maximized=maximized):
+                self._toggle_camera_maximized()
+        if self._sim_view.session is not None and self._sim_view.state.camera_source == 'sim':
+            imgui.same_line()
+            if camera_icon_button('reset-view', imgui.get_frame_height()):
+                self._sim_view.session.send_command('reset_view')
+        imgui.separator()
+        flags = imgui.WINDOW_NO_SCROLLBAR | imgui.WINDOW_NO_SCROLL_WITH_MOUSE
+        imgui.begin_child('camera-video', 0., 0., False, flags=flags)
+        try:
+            self._sim_view.draw()
+        finally:
+            imgui.end_child()
 
     def _toggle_camera_maximized(self) -> None:
         window = self._camera_window
@@ -471,6 +421,8 @@ class ControlPanel:
             setter(context)
 
     def _show_camera_window(self) -> None:
+        if self._camera_window is None:
+            self._create_camera_window()
         window = self._camera_window
         if window is None:
             return
@@ -482,6 +434,45 @@ class ControlPanel:
         except Exception:
             pass
 
+    def _create_camera_window(self) -> None:
+        """Create the optional shared-context window only on explicit detach."""
+        if self._sim_view is None or self._glfw_window is None:
+            return
+        previous = imgui.get_current_context()
+        window = None
+        context = None
+        renderer = None
+        try:
+            glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
+            window = glfw.create_window(800, 720, 'Camera Views', None, self._glfw_window)
+            if not window:
+                raise RuntimeError('Could not open Camera Views')
+            glfw.set_window_size_limits(window, 360, 280, glfw.DONT_CARE, glfw.DONT_CARE)
+            glfw.make_context_current(window)
+            glfw.swap_interval(0)
+            context = imgui.create_context()
+            self._set_imgui_context(context)
+            self._install_ui_font(install_header=False)
+            self._install_ui_style()
+            renderer = GlfwRenderer(window)
+            self._install_respawn_shortcut(window, renderer)
+            self._camera_window = window
+            self._camera_imgui_context = context
+            self._camera_imgui_impl = renderer
+            self._workspace_error = ''
+        except Exception as error:
+            self._workspace_error = str(error)
+            if renderer is not None:
+                renderer.shutdown()
+            if context is not None:
+                imgui.destroy_context(context)
+            if window is not None:
+                glfw.destroy_window(window)
+        finally:
+            glfw.window_hint(glfw.VISIBLE, glfw.TRUE)
+            glfw.make_context_current(self._glfw_window)
+            self._set_imgui_context(previous)
+
     def _hide_camera_window(self) -> None:
         window = self._camera_window
         if window is None:
@@ -491,6 +482,8 @@ class ControlPanel:
         try:
             glfw.hide_window(window)
             glfw.set_window_should_close(window, glfw.FALSE)
+            if self._glfw_window is not None:
+                glfw.focus_window(self._glfw_window)
         except Exception:
             pass
 
@@ -741,59 +734,12 @@ class ControlPanel:
         self._ui_resolution_scale = scale
         self._apply_ui_resolution_scale()
 
-    def _effective_ui_scale_from_window(self) -> float:
-        requested = self.ui_resolution_requested_scale()
-        window = getattr(self, "_glfw_window", None)
-        if window is None:
-            return requested
-        base_w = max(1.0, float(getattr(self, "_ui_resolution_base_w", _INITIAL_WINDOW_W) or _INITIAL_WINDOW_W))
-        base_h = max(1.0, float(getattr(self, "_ui_resolution_base_h", _INITIAL_WINDOW_H) or _INITIAL_WINDOW_H))
-        try:
-            size = glfw.get_window_size(window)
-        except Exception:
-            return requested
-        try:
-            actual_w = float(size[0])
-            actual_h = float(size[1])
-        except Exception:
-            return requested
-        if actual_w <= 0.0 or actual_h <= 0.0:
-            return requested
-        return max(0.1, min(float(requested), actual_w / base_w, actual_h / base_h))
-
-    def _sync_ui_resolution_scale_to_window(self) -> None:
-        self._set_ui_resolution_effective_scale(self._effective_ui_scale_from_window())
-
-    def _lock_os_window_size(self) -> None:
-        window = getattr(self, "_glfw_window", None)
-        if window is None:
-            return
-        try:
-            width, height = glfw.get_window_size(window)
-            width = max(1, int(width))
-            height = max(1, int(height))
-            glfw.set_window_size_limits(window, width, height, width, height)
-        except Exception:
-            pass
-
     def set_ui_resolution_scale(self, scale: float) -> None:
         scale = float(scale)
         if abs(scale - self.ui_resolution_requested_scale()) <= 1e-6:
             return
         self._ui_resolution_requested_scale = scale
         self._set_ui_resolution_effective_scale(scale)
-        window = getattr(self, "_glfw_window", None)
-        if window is not None:
-            try:
-                glfw.set_window_size(
-                    window,
-                    max(1, int(round(float(self._ui_resolution_base_w) * scale))),
-                    max(1, int(round(float(self._ui_resolution_base_h) * scale))),
-                )
-            except Exception:
-                pass
-            self._lock_os_window_size()
-            self._sync_ui_resolution_scale_to_window()
 
     def stop(self) -> None:
         self._stop = True
@@ -936,120 +882,17 @@ class ControlPanel:
         imgui.set_next_window_position(0.0, 0.0, cond)
         imgui.set_next_window_size(float(io.display_size.x), float(io.display_size.y), cond)
         window_flags = getattr(imgui, "WINDOW_NO_TITLE_BAR", 0)
-        imgui.begin("Arm Control###arm_control_window", True, flags=window_flags)
-        avail_w = max(1.0, float(imgui.get_content_region_available_width()))
-        style = imgui.get_style()
-        spacing_x = float(getattr(style.item_spacing, "x", 8.0))
-        if avail_w >= scaled(self, _THREE_COLUMN_MIN_W):
-            col_w = max(1.0, (avail_w - spacing_x * 2.0) / 3.0)
-            first_w = max(1.0, col_w * _CONTROL_COLUMN_SCALE)
-            second_w = first_w
-            main_w = first_w + second_w + spacing_x
-            imgui.begin_child("main_controls_block", main_w, 0.0, True)
-            main_inner_w = max(1.0, float(imgui.get_content_region_available_width()))
-            inner_col_w = max(1.0, (main_inner_w - spacing_x) * 0.5)
-            first_item_w = max(scaled(self, 108.0), inner_col_w * 0.45)
-            second_item_w = first_item_w
-            imgui.begin_child("primary_controls_inner", inner_col_w, 0.0, False)
-            try:
-                self._draw_panel_stack(
-                    (
-                        draw_hardware_panel,
-                        draw_control_4dof_panel,
-                        draw_go2_panel,
-                        draw_ik_panel,
-                        draw_imu_model_panel,
-                        draw_floor_calibration_panel,
-                        draw_object_scan_panel,
-                    ),
-                    item_width=first_item_w,
-                )
-            finally:
-                imgui.end_child()
-            imgui.same_line()
-            imgui.begin_child("motion_controls_inner", 0.0, 0.0, False)
-            try:
-                self._draw_panel_stack(
-                    (
-                        draw_perception_panel,
-                        draw_mock_object_panel,
-                        draw_scene_panel,
-                    ),
-                    item_width=second_item_w,
-                )
-            finally:
-                imgui.end_child()
-            imgui.end_child()
-            imgui.same_line()
-            imgui.begin_child("status_controls", 0.0, 0.0, True)
-            status_w = max(1.0, float(imgui.get_content_region_available_width()))
-            self._draw_panel_stack(
-                (
-                    draw_sim_video_panel,
-                    draw_status_panel,
-                    draw_resolution_panel,
-                ),
-                item_width=max(scaled(self, 108.0), status_w * 0.45),
-            )
-            imgui.end_child()
-        elif avail_w >= scaled(self, _TWO_COLUMN_MIN_W):
-            col_w = max(scaled(self, 300.0), (avail_w - spacing_x) * 0.5)
-            imgui.begin_child("left_controls", col_w, 0.0, True)
-            left_w = max(1.0, float(imgui.get_content_region_available_width()))
-            self._draw_panel_stack(
-                (
-                    draw_hardware_panel,
-                    draw_control_4dof_panel,
-                    draw_go2_panel,
-                    draw_ik_panel,
-                    draw_imu_model_panel,
-                    draw_floor_calibration_panel,
-                    draw_object_scan_panel,
-                ),
-                item_width=max(scaled(self, 120.0), left_w * 0.45),
-            )
-            imgui.end_child()
-            imgui.same_line()
-            imgui.begin_child("right_controls", 0.0, 0.0, True)
-            right_w = max(scaled(self, 300.0), float(imgui.get_content_region_available_width()))
-            self._draw_panel_stack(
-                (
-                    draw_sim_video_panel,
-                    draw_status_panel,
-                    draw_resolution_panel,
-                    draw_perception_panel,
-                    draw_mock_object_panel,
-                    draw_scene_panel,
-                ),
-                item_width=max(scaled(self, 120.0), right_w * 0.45),
-            )
-            imgui.end_child()
-        else:
-            self._draw_panel_stack(
-                (
-                    draw_hardware_panel,
-                    draw_control_4dof_panel,
-                    draw_go2_panel,
-                    draw_ik_panel,
-                    draw_imu_model_panel,
-                    draw_floor_calibration_panel,
-                    draw_object_scan_panel,
-                    draw_sim_video_panel,
-                    draw_status_panel,
-                    draw_resolution_panel,
-                    draw_perception_panel,
-                    draw_mock_object_panel,
-                    draw_scene_panel,
-                ),
-                item_width=max(scaled(self, 120.0), avail_w * 0.45),
-            )
-        imgui.end()
+        imgui.begin("EleSim###arm_control_window", True, flags=window_flags)
+        try:
+            draw_workspace(self)
+        finally:
+            imgui.end()
 
-    def run(self) -> None:
+    def run(self, *, window_title: str = 'EleSim') -> None:
         if not glfw.init():
             raise SystemExit("glfw.init() failed.")
 
-        glfw.window_hint(glfw.RESIZABLE, False)
+        glfw.window_hint(glfw.RESIZABLE, glfw.TRUE)
         # pyimgui's programmable pipeline renderer is most stable with an explicit 3.3 core context.
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
@@ -1067,17 +910,16 @@ class ControlPanel:
                 if width > 0 and height > 0:
                     max_w = int(width * 0.9)
                     max_h = int(height * 0.9)
-                    win_w = min(_INITIAL_WINDOW_W, max_w, int(max_h * 16.0 / 10.0))
-                    win_h = int(win_w * 10.0 / 16.0)
-        window = glfw.create_window(win_w, win_h, "Arm Control", None, None)
+                    win_w = min(_INITIAL_WINDOW_W, max_w)
+                    win_h = min(_INITIAL_WINDOW_H, max_h)
+        window = glfw.create_window(win_w, win_h, window_title, None, None)
         if not window:
             glfw.terminate()
             raise SystemExit("Failed to create GLFW window.")
         self._glfw_window = window
         file_dialog.set_glfw_window(window)
-        self._ui_resolution_base_w = int(win_w)
-        self._ui_resolution_base_h = int(win_h)
-        self._lock_os_window_size()
+        glfw.set_window_size_limits(window, min(640, win_w), min(480, win_h),
+                                    glfw.DONT_CARE, glfw.DONT_CARE)
 
         glfw.make_context_current(window)
         # Let the compositor pace the primary control window.  A fixed
@@ -1094,61 +936,6 @@ class ControlPanel:
         main_impl = GlfwRenderer(window)
         self._main_imgui_impl = main_impl
         self._install_respawn_shortcut(window, main_impl)
-
-        # Keep camera streams in one independently resizable native window.
-        # The contexts are separate, while the OpenGL share context keeps the
-        # lifecycle explicit and avoids embedding video in the control layout.
-        camera_impl = None
-        if self._sim_view is not None:
-            glfw.window_hint(glfw.RESIZABLE, glfw.TRUE)
-            camera_window = glfw.create_window(
-                800,
-                660,
-                "Camera Views",
-                None,
-                window,
-            )
-            glfw.window_hint(glfw.RESIZABLE, glfw.FALSE)
-            if camera_window:
-                self._camera_window = camera_window
-                self._camera_visible = True
-                glfw.make_context_current(camera_window)
-                # The camera is a secondary window.  Do not let its buffer
-                # swap add a second vsync wait to the control window's frame;
-                # the camera draw is capped independently above.
-                try:
-                    glfw.swap_interval(0)
-                except Exception:
-                    pass
-                self._camera_imgui_context = imgui.create_context()
-                self._set_imgui_context(self._camera_imgui_context)
-                # Use exactly the control-panel font, spacing and light theme
-                # in the camera context as well.  ImGui contexts do not share
-                # style or font atlases, so configuring only the main context
-                # leaves the camera window on the default dark theme.
-                # SimView has no collapsible panel headers.  Do not replace
-                # the process-global header-font handle used by the main
-                # context with a font object owned by this context.
-                self._install_ui_font(install_header=False)
-                self._install_ui_style()
-                style = imgui.get_style()
-                # Fit the initial client area to a 4:3 image, its label, and
-                # the single footer row using the actual font/style metrics.
-                camera_width = 800
-                image_height = (camera_width - 2.0 * style.window_padding.x) * 0.75
-                camera_height = math.ceil(
-                    image_height + 2.0 * style.window_padding.y
-                    + imgui.get_text_line_height_with_spacing()
-                    + imgui.get_frame_height_with_spacing()
-                    + style.item_spacing.y
-                )
-                glfw.set_window_size(camera_window, camera_width, camera_height)
-                camera_impl = GlfwRenderer(camera_window)
-                self._camera_imgui_impl = camera_impl
-                self._install_respawn_shortcut(camera_window, camera_impl)
-                glfw.make_context_current(window)
-                self._set_imgui_context(self._main_imgui_context)
-
         try:
             report_frames = os.environ.get("ELESIM_UI_FRAME_STATS") == "1"
             report_started = time.monotonic()
@@ -1166,7 +953,6 @@ class ControlPanel:
                 glfw.make_context_current(window)
                 self._set_imgui_context(self._main_imgui_context)
                 main_impl.process_inputs()
-                self._sync_ui_resolution_scale_to_window()
 
                 imgui.new_frame()
                 self._draw_controls_window()
@@ -1188,7 +974,8 @@ class ControlPanel:
                 # Bound redraws instead of saturating CPU with duplicate frames;
                 # input events wake this wait immediately.
                 interactive = time.monotonic() - self._last_input_at < 0.25 or any(imgui.get_io().mouse_down)
-                target_hz = 60.0 if interactive else 20.0
+                video_visible = self._sim_view is not None and not self._camera_visible
+                target_hz = 60.0 if interactive else (30.0 if video_visible else 20.0)
                 remaining = 1.0 / target_hz - (time.monotonic() - frame_started)
                 if remaining > 0.0:
                     glfw.wait_events_timeout(remaining)
@@ -1197,15 +984,18 @@ class ControlPanel:
                 try:
                     glfw.make_context_current(self._camera_window)
                     self._set_imgui_context(self._camera_imgui_context)
-                    if self._sim_view is not None:
-                        self._sim_view.close()
-                    if camera_impl is not None:
-                        camera_impl.shutdown()
+                    if self._camera_imgui_impl is not None:
+                        self._camera_imgui_impl.shutdown()
+                    if self._camera_imgui_context is not None:
+                        imgui.destroy_context(self._camera_imgui_context)
                     glfw.destroy_window(self._camera_window)
                 except Exception:
                     pass
                 self._camera_window = None
             glfw.make_context_current(window)
             self._set_imgui_context(self._main_imgui_context)
+            if self._sim_view is not None:
+                self._sim_view.close()
             main_impl.shutdown()
+            imgui.destroy_context(self._main_imgui_context)
             glfw.terminate()

@@ -293,6 +293,10 @@ def test_host_helper_rejects_daemon_escape_shapes(argv: tuple[str, ...]) -> None
 def test_host_helper_limits_network_cli_to_installed_wrapper() -> None:
     compose, bin_dir = _paths()
     _validate_command(
+        (str(bin_dir / "elesim-tailscale"), "start"),
+        compose=compose, bin_dir=bin_dir, project="elesim-runtime",
+    )
+    _validate_command(
         (str(bin_dir / "elesim-tailscale"), "login", "--if-needed"),
         compose=compose,
         bin_dir=bin_dir,

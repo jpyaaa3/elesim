@@ -1,18 +1,68 @@
 from __future__ import annotations
 
 import sys
+import socket
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from elesim_setup.credentials import (
+    _open_direct_ssh_connection,
     install_staged_credentials,
     open_ssh_connection,
     probe_ssh_fingerprint,
     proxy_failure_detail,
     validate_external_turn_credentials,
 )
+
+
+@pytest.mark.parametrize("host,explicit", [
+    ("100.74.222.24", False), ("fd7a:115c:a1e0::1", False),
+    ("compute.example", True),
+])
+def test_tailscale_ssh_bounds_segments_before_connect(monkeypatch, host, explicit):
+    events = []
+    connection = SimpleNamespace(
+        settimeout=lambda value: events.append(("timeout", value)),
+        setsockopt=lambda *args: events.append(("option", *args)),
+        connect=lambda address: events.append(("connect", address)),
+    )
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_a: [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("100.74.222.24", 22)),
+    ])
+    monkeypatch.setattr(socket, "socket", lambda *_a: connection)
+    assert _open_direct_ssh_connection(host, 22, 3, tailscale=explicit) is connection
+    assert events == [
+        ("timeout", 3), ("option", socket.IPPROTO_TCP, socket.TCP_MAXSEG, 1100),
+        ("connect", ("100.74.222.24", 22)),
+    ]
+
+
+def test_tailscale_ssh_closes_failed_socket_before_next_address(monkeypatch):
+    events = []
+    def failed(_address):
+        raise OSError("unreachable first address")
+    sockets = iter([
+        SimpleNamespace(settimeout=lambda _: None, setsockopt=lambda *_: None,
+                        connect=failed, close=lambda: events.append("closed")),
+        SimpleNamespace(settimeout=lambda _: None, setsockopt=lambda *_: None,
+                        connect=lambda _: events.append("connected")),
+    ])
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_a: [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", (host, 22))
+        for host in ("100.64.0.1", "100.64.0.2")
+    ])
+    monkeypatch.setattr(socket, "socket", lambda *_a: next(sockets))
+    _open_direct_ssh_connection("compute.example", 22, 3, tailscale=True)
+    assert events == ["closed", "connected"]
+
+
+def test_ordinary_ssh_retains_default_socket_behavior(monkeypatch):
+    calls = []
+    monkeypatch.setattr(socket, "create_connection", lambda *a, **k: calls.append((a, k)))
+    _open_direct_ssh_connection("server.example", 2222, 4)
+    assert calls == [((("server.example", 2222),), {"timeout": 4})]
 
 
 def test_staged_sros2_files_are_installed_with_private_modes(tmp_path: Path) -> None:
@@ -90,9 +140,9 @@ def test_ssh_fingerprint_uses_the_supplied_non_default_port(
             pass
 
     monkeypatch.setattr(
-        "elesim_setup.credentials.socket.create_connection",
-        lambda address, timeout: (
-            calls.append((address, timeout)) or Connection()
+        "elesim_setup.credentials._open_direct_ssh_connection",
+        lambda host, port, timeout, **kwargs: (
+            calls.append(((host, port), timeout)) or Connection()
         ),
     )
     monkeypatch.setitem(sys.modules, "paramiko", SimpleNamespace(Transport=Transport))
@@ -151,7 +201,7 @@ def test_ssh_fingerprint_uses_host_tailscale_proxy_for_cgnat_address(
     def no_direct_route(*_args, **_kwargs):
         raise OSError("direct TCP is unavailable")
 
-    monkeypatch.setattr("elesim_setup.credentials.socket.create_connection", no_direct_route)
+    monkeypatch.setattr("elesim_setup.credentials._open_direct_ssh_connection", no_direct_route)
 
     fingerprint = probe_ssh_fingerprint("100.74.222.24", 22, timeout_s=3.0)
 
@@ -166,7 +216,7 @@ def test_ssh_fingerprint_timeout_explains_container_and_tailscale_path(
 ) -> None:
     monkeypatch.setenv("ELESIM_CONNECTION_PUBLISHED", "1")
     monkeypatch.setattr(
-        "elesim_setup.credentials.socket.create_connection",
+        "elesim_setup.credentials._open_direct_ssh_connection",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError()),
     )
     monkeypatch.setitem(sys.modules, "paramiko", SimpleNamespace(Transport=object))
@@ -180,8 +230,8 @@ def test_ssh_fingerprint_timeout_explains_container_and_tailscale_path(
 def test_ssh_direct_connection_does_not_start_optional_proxy(monkeypatch, force):
     connection = object()
     monkeypatch.setattr(
-        "elesim_setup.credentials.socket.create_connection",
-        lambda address, timeout: connection,
+        "elesim_setup.credentials._open_direct_ssh_connection",
+        lambda *_args, **_kwargs: connection,
     )
     def unexpected_proxy(*_args, **_kwargs):
         raise AssertionError("a working direct route must not use the host proxy")
@@ -194,13 +244,13 @@ def test_ssh_direct_connection_does_not_start_optional_proxy(monkeypatch, force)
 def test_ssh_proxy_is_only_attempted_after_direct_connect_failure(monkeypatch, force):
     calls = []
     connection = object()
-    def direct(address, timeout):
-        calls.append(("direct", address, timeout))
+    def direct(host, port, timeout, **kwargs):
+        calls.append(("direct", (host, port), timeout))
         raise OSError("no route")
     def proxy(host, port, *, force):
         calls.append(("proxy", host, port, force))
         return connection
-    monkeypatch.setattr("elesim_setup.credentials.socket.create_connection", direct)
+    monkeypatch.setattr("elesim_setup.credentials._open_direct_ssh_connection", direct)
     monkeypatch.setattr("elesim_setup.credentials.open_tailscale_proxy", proxy)
 
     assert open_ssh_connection("peer.example", 2222, 3, force_tailscale_proxy=force) is connection

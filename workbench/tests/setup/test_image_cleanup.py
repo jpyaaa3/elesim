@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -18,6 +19,24 @@ from elesim_setup.readable_names import reserve_role_release_name, role_release_
 
 
 INSTALL = "01234567-89ab-cdef-0123-456789abcdef"
+
+
+def test_preservation_override_keeps_artifacts_and_refreshes_release_choices(monkeypatch, scenario, capsys):
+    monkeypatch.setenv("ELESIM_KEEP_RUNTIME_ARTIFACTS", "1")
+    prefix = scenario["prefix"]
+    monkeypatch.setattr(sys, "argv", ["image_cleanup", "--prefix", str(prefix)])
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("preservation must skip container, image and alias collection")
+    monkeypatch.setattr(image_cleanup, "collect", forbidden)
+    available = image_cleanup.available_releases
+    monkeypatch.setattr(image_cleanup, "available_releases", lambda p: available(p, docker=scenario["docker"]))
+    original_images = json.dumps(scenario["images"], sort_keys=True)
+    assert image_cleanup.main() == 0
+    assert "skipped" in capsys.readouterr().out
+    assert json.dumps(scenario["images"], sort_keys=True) == original_images
+    assert {release_key(r) for r in image_cleanup.recorded_available_releases(prefix)} == {
+        release_key(r) for r in scenario["releases"]
+    }
 
 
 @pytest.fixture

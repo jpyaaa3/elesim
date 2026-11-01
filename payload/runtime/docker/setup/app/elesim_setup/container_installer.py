@@ -2505,6 +2505,7 @@ class ContainerInstaller:
                     compose_wrapper=compose_wrapper,
                     guard=guard,
                     hostname=self.state.container_network.tailscale_hostname,
+                    state_file=self.state.prefix_path / "secrets/tailscale/tailscaled.state",
                     services=tailscale_services,
                     scoped=self._scoped_namespace,
                 ),
@@ -3465,12 +3466,73 @@ def _manager_wrapper(
     )
 
 
+_TAILSCALE_START_CASE = r'''
+  start)
+    if (( $# != 1 )); then
+      printf 'Usage: elesim-tailscale start\n' >&2
+      exit 64
+    fi
+    existing_id="$("${tailscale_compose[@]}" ps -a -q tailscale)"
+    if [[ -n $existing_id ]]; then
+      "${tailscale_compose[@]}" start tailscale
+    else
+      "${tailscale_compose[@]}" up -d --no-deps --pull never tailscale
+    fi
+    for recovery in 0 1; do
+      backend_state=
+      for _attempt in {1..60}; do
+        status_json="$("${tailscale_compose[@]}" exec -T tailscale tailscale --socket=/tmp/tailscaled.sock status --json 2>/dev/null || true)"
+        backend_state="$(printf '%s\n' "$status_json" | sed -n 's/.*"BackendState"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]')"
+        case $backend_state in
+          running) exit 0 ;;
+          needslogin|nostate) break ;;
+        esac
+        sleep 0.25
+      done
+      # Desktop can restore the container before its WSL bind is available.
+      # Repair only the proven empty-view case, once, with no live consumers.
+      if (( recovery == 0 )) && [[ -n $tailscale_state_file && -f $tailscale_state_file && ! -L $tailscale_state_file ]]; then
+        host_bytes="$(wc -c <"$tailscale_state_file")"
+        visible_bytes="$("${tailscale_compose[@]}" exec -T tailscale wc -c /var/lib/tailscale/tailscaled.state 2>/dev/null || true)"
+        read -r visible_bytes _ <<<"$visible_bytes"
+        if [[ $host_bytes =~ ^[[:space:]]*[0-9]+[[:space:]]*$ && $visible_bytes =~ ^[0-9]+$ ]] && (( host_bytes > 2 && visible_bytes <= 2 )); then
+          sidecar_id="$("${tailscale_compose[@]}" ps -q tailscale)"
+          [[ $sidecar_id =~ ^[0-9a-f]{64}$ ]] || exit 75
+          running_ids="$(docker ps -q --no-trunc)"
+          if [[ -n $running_ids ]]; then
+            mapfile -t live_ids <<<"$running_ids"
+            namespaces="$(docker inspect --format '{{.HostConfig.NetworkMode}}' "${live_ids[@]}")"
+            while IFS= read -r namespace; do
+              if [[ $namespace == "container:$sidecar_id" ]]; then
+                printf 'Tailscale state mount is stale, but a runtime is using its namespace. Stop that runtime before retrying.\n' >&2
+                exit 75
+              fi
+            done <<<"$namespaces"
+          fi
+          printf '[elesim-tailscale] Recovering an empty state mount in the existing sidecar.\n'
+          "${tailscale_compose[@]}" restart --no-deps tailscale
+          continue
+        fi
+      fi
+      break
+    done
+    if [[ $backend_state == needslogin || $backend_state == nostate ]]; then
+      printf 'Tailscale sidecar login is required. Run elesim-tailscale login first.\n' >&2
+    else
+      printf 'Tailscale sidecar is not ready (state: %s). Inspect elesim-tailscale status.\n' "${backend_state:-unavailable}" >&2
+    fi
+    exit 75
+    ;;
+'''
+
+
 def _tailscale_wrapper(
     *,
     compose: Path,
     compose_wrapper: Path,
     guard: str,
     hostname: str,
+    state_file: Path | None = None,
     services: tuple[str, ...] = (),
     scoped: bool = False,
 ) -> str:
@@ -3509,7 +3571,9 @@ def _tailscale_wrapper(
         + guard
         + compose_array
         + services_array
+        + "tailscale_state_file=" + shlex.quote(str(state_file) if state_file else "") + "\n"
         + "case ${1:-} in\n"
+        + _TAILSCALE_START_CASE
         + "  login)\n"
         + "    login_if_needed=0\n"
         + "    if (( $# == 2 )) && [[ $2 == --if-needed ]]; then\n"
@@ -3703,7 +3767,7 @@ def _tailscale_wrapper(
         + "    printf '%s\\n' '[elesim-tailscale] Reconnected only the namespace services that were already running.'\n"
         + "    ;;\n"
         + "  *)\n"
-        + "    printf 'Usage: elesim-tailscale {login [--if-needed]|status [--json]|update}\\n' >&2\n"
+        + "    printf 'Usage: elesim-tailscale {start|login [--if-needed]|status [--json]|update}\\n' >&2\n"
         + "    exit 64\n"
         + "    ;;\n"
         + "esac\n"

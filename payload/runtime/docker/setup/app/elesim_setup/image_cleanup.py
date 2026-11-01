@@ -537,6 +537,11 @@ def main() -> int:
             fcntl.flock(args.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         else:
             fd = _safe_lock(lock)
+        if os.environ.get("ELESIM_KEEP_RUNTIME_ARTIFACTS") == "1":
+            owner = OwnershipManifest.load(prefix / "install-ownership.json")
+            _record_available_releases(prefix, available_releases(prefix), owner)
+            print("[cleanup] skipped: ELESIM_KEEP_RUNTIME_ARTIFACTS=1; release index refreshed")
+            return 0
         removed = collect(prefix)
         print(f"[cleanup] reclaimed {len(removed)} unreferenced image(s).")
         return 0

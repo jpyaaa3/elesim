@@ -56,7 +56,7 @@ SCOPED_PROJECT = "elesim-runtime-11111111111141118111111111111111"
 @pytest.fixture
 def direct_ssh_socket(monkeypatch: pytest.MonkeyPatch):
     connection = SimpleNamespace(close=lambda: None)
-    monkeypatch.setattr(secure_deployment.socket, "create_connection", lambda *_a, **_k: connection)
+    monkeypatch.setattr("elesim_setup.credentials._open_direct_ssh_connection", lambda *_a, **_k: connection)
     return connection
 
 
@@ -64,7 +64,7 @@ def direct_ssh_socket(monkeypatch: pytest.MonkeyPatch):
 def unavailable_direct_ssh(monkeypatch: pytest.MonkeyPatch):
     def unavailable(*_args, **_kwargs):
         raise OSError("direct route unavailable")
-    monkeypatch.setattr(secure_deployment.socket, "create_connection", unavailable)
+    monkeypatch.setattr("elesim_setup.credentials._open_direct_ssh_connection", unavailable)
 
 
 def _scoped_remote_topology(*, install_uuid: str = SCOPED_INSTALL) -> ConnectionTopology:
@@ -1645,9 +1645,8 @@ def test_paramiko_connector_reports_tailscale_check_reauth_failure(
     key_bytes = b"tailscale-server-key"
     raw_socket = SimpleNamespace(close=lambda: None)
     monkeypatch.setattr(
-        secure_deployment.socket,
-        "create_connection",
-        lambda address, timeout: raw_socket,
+        "elesim_setup.credentials._open_direct_ssh_connection",
+        lambda *_args, **_kwargs: raw_socket,
     )
 
     class Key:
@@ -1709,9 +1708,8 @@ def test_paramiko_connector_does_not_treat_transport_failure_as_auth_fallback(
     key_bytes = b"tailscale-server-key"
     raw_socket = SimpleNamespace(close=lambda: None)
     monkeypatch.setattr(
-        secure_deployment.socket,
-        "create_connection",
-        lambda address, timeout: raw_socket,
+        "elesim_setup.credentials._open_direct_ssh_connection",
+        lambda *_args, **_kwargs: raw_socket,
     )
 
     class AuthenticationException(Exception):
@@ -2318,6 +2316,9 @@ class SidecarNetworkSession:
             if not self.statuses:
                 raise AssertionError("unexpected extra Tailscale status call")
             return RemoteCommandResult(0, json.dumps(self.statuses.pop(0)))
+        if values[-1:] == ("start",):
+            self.events.append("start")
+            return RemoteCommandResult(0)
         raise AssertionError(f"unexpected command: {values!r}")
 
     def run_streaming(self, argv, *, output, check=True) -> RemoteCommandResult:
@@ -2342,7 +2343,7 @@ def test_runtime_network_preparation_skips_login_for_a_ready_sidecar() -> None:
     )
 
     assert address == "100.64.0.42"
-    assert session.events == ["show", "status:False"]
+    assert session.events == ["show", "start", "status:False"]
     assert output == []
 
 
@@ -2359,7 +2360,7 @@ def test_runtime_network_preparation_requires_explicit_sidecar_login() -> None:
             session, host, lambda stream, text: output.append((stream, text))
         )
 
-    assert session.events == ["show", "status:False"]
+    assert session.events == ["show", "start", "status:False"]
     assert output == []
 
 

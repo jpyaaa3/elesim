@@ -3209,12 +3209,12 @@ class InstalledElesimLifecycle:
         host: ManagedHost,
         output: CommandOutput,
     ) -> str | None:
-        """Check a Docker-Desktop sidecar before namespace preflight.
+        """Prepare a Docker-Desktop sidecar before read-only namespace preflight.
 
         Native installs are a no-op.  Sidecar image pull and browser/device
         enrollment are explicit installation commands; the connection manager
-        only verifies the resulting status document and discovers its runtime
-        DDS address.  Keeping enrollment outside this job prevents a hidden
+        starts the installed sidecar and checks its resulting runtime DDS
+        address. Keeping enrollment outside this job prevents a hidden
         browser wait when the GUI has no login step.
         """
 
@@ -3246,6 +3246,18 @@ class InstalledElesimLifecycle:
                     f"{host.host_id}/{unit.unit_id}: {mode!r}"
                 )
 
+            started = session.run(
+                (str(_tailscale_command(unit)), "start"), check=False,
+            )
+            for stream, content in (("stdout", started.stdout), ("stderr", started.stderr)):
+                if content:
+                    output(stream, content)
+            if started.exit_status != 0:
+                raise RuntimeError(
+                    f"EleSim Tailscale sidecar preparation failed on "
+                    f"{host.host_id}/{unit.unit_id}: "
+                    f"{(started.stderr or started.stdout).strip()[-1000:]}"
+                )
             status_command = (
                 str(_tailscale_command(unit)),
                 "status",

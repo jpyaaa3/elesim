@@ -6,7 +6,13 @@ from elesim_ui.helpers import panel_header
 
 def draw_object_scan_panel(panel):
     status = getattr(panel.service, 'object_scan', {})
-    if not status or not panel_header('Object Scan (Sim)', visible=True)[0]:
+    if not getattr(panel, '_scan_header_init_open', False):
+        imgui.set_next_item_open(True, imgui.ONCE)
+        panel._scan_header_init_open = True
+    if not panel_header('Object Scan (Sim)', visible=True)[0]:
+        return
+    if not status:
+        imgui.text_wrapped('Waiting for Pilot scan status.')
         return
     imgui.text('Phase: '+str(status.get('phase', 'idle')))
     imgui.text_wrapped('Keep object and base stationary. Aim the hand-eye camera at the target first.')

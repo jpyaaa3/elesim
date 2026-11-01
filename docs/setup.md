@@ -94,6 +94,9 @@ dev/tools/Tailscale/Coturn은 자동 삭제하지 않는다. 소유권과 현재
 검증한 완료된 일회성 진단 컨테이너도 회수한다. 주기 실행 작업은 없으며
 `down`/`remove`에서는 이 자동 청소를 실행하지 않는다. 자세한 경계는
 [`deployment.md`](deployment.md)의 General Compose 절을 따른다.
+진단용 컨테이너·이미지·별칭을 모두 보존해야 하는 작업에서는
+`ELESIM_KEEP_RUNTIME_ARTIFACTS=1 elesim-update` 또는 같은 환경 변수의
+`elesim-instance <system> up`으로 해당 실행의 자동 청소를 건너뛴다.
 
 The SSH fingerprint button requires a username before showing confirmation.
 In OpenSSH mode an empty private-key path selects the forwarded SSH agent;
@@ -609,6 +612,11 @@ host proxy는 **호스트의 `tailscale nc`**를 사용하고, `elesim-tailscale
 지문 조회와 실제 SSH 접속은 직접 TCP를 먼저 시도하고, TCP 연결이 실패한
 경우에만 사용 가능한 host proxy를 선택한다. 지문 불일치나 인증 실패 뒤에는
 다른 경로로 재시도하지 않는다.
+Tailscale IP 또는 명시적인 Tailscale SSH의 직접 TCP 소켓은 연결 전에
+MSS를 1100 byte로 제한한다. 두 접속 경로가 같은 helper를 쓰며 host MTU나
+SSH 알고리즘·지문·인증 정책을 바꾸지 않는다. `TCP_MAXSEG`를 지원하지 않는
+플랫폼은 기존 socket 기본값을 유지한다. 이 제한은 SSH 관리 연결에만 적용하며
+DDS나 영상 패킷의 동작을 검증하거나 변경하지 않는다.
 OpenSSH는 proxy 경유 여부와 관계없이 명시적 key 또는 agent로 인증하며 설정한
 포트를 유지한다. 명시적 Tailscale SSH의 keyless/22번 포트 계약은 별도다.
 지문 확인 성공은 상대 host key를 읽었다는 뜻이며 사용자 인증, 설치 조회,
@@ -620,6 +628,7 @@ Docker Desktop은 WSL distribution의 host `tailscale0`를 container namespace�
 
 ```bash
 elesim-tailscale login
+elesim-tailscale start
 elesim-tailscale status
 elesim-tailscale update
 elesim-net namespace-check --dds-interface tailscale0
@@ -629,6 +638,13 @@ elesim-net namespace-check --dds-interface tailscale0
 EleSim은 auth/OAuth key를 저장하지 않고 sidecar node state만 prefix의
 mode-0700 secrets 아래 보관한다. `status`의 sidecar DDS IP와 host/WSL SSH
 주소는 서로 다른 값일 수 있다.
+
+Connections의 start/prepare는 namespace preflight 전에 `start`를 호출한다.
+이미지는 pull하지 않고 기존 sidecar의 준비를 기다린다. Docker Desktop 복원 직후
+host의 저장 state는 있지만 container에서 2 byte 이하의 빈 state만 보이는 경우,
+그 namespace를 사용하는 실행 중 container가 없을 때 기존 sidecar를 한 번만
+restart한다. state·container ID는 유지하며 인증이 실제로 없으면 명시적인
+`login`이 필요하다. 실행 중 namespace 사용자가 있으면 자동 restart하지 않는다.
 
 `update`는 설치된 Compose의 고정 Tailscale image를 pull한 뒤 sidecar를
 재생성한다. sidecar namespace를 공유하는 role과 managed Coturn 중 당시

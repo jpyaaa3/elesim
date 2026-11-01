@@ -193,12 +193,58 @@ def open_ssh_connection(
     """
 
     try:
-        return socket.create_connection((host, port), timeout=timeout_s)
+        return _open_direct_ssh_connection(
+            host, port, timeout_s, tailscale=force_tailscale_proxy,
+        )
     except OSError:
         proxy = open_tailscale_proxy(host, port, force=force_tailscale_proxy)
         if proxy is None:
             raise
         return proxy
+
+
+def _open_direct_ssh_connection(
+    host: str, port: int, timeout_s: float, *, tailscale: bool = False,
+) -> socket.socket:
+    """Bound Tailscale SSH segments before the SYN, without changing host MTU.
+
+    A successful TCP/banner probe does not exercise the larger key exchange.
+    Keep headroom for routed VPN paths for both fingerprint and authenticated
+    sessions. Ordinary SSH keeps the platform's normal connection behavior.
+    """
+
+    try:
+        address = ipaddress.ip_address(host)
+        tailscale = tailscale or (
+            address in ipaddress.ip_network("100.64.0.0/10")
+            if address.version == 4
+            else address in ipaddress.ip_network("fd7a:115c:a1e0::/48")
+        )
+    except ValueError:
+        pass
+    if not tailscale or not hasattr(socket, "TCP_MAXSEG"):
+        return socket.create_connection((host, port), timeout=timeout_s)
+    error: OSError | None = None
+    for family, kind, protocol, _name, target in socket.getaddrinfo(
+        host, port, 0, socket.SOCK_STREAM,
+    ):
+        connection = socket.socket(family, kind, protocol)
+        try:
+            connection.settimeout(timeout_s)
+            try:
+                connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_MAXSEG, 1100)
+            except OSError:
+                # Some platforms expose TCP_MAXSEG without supporting it.
+                # Leave their socket defaults in place; never alter routing.
+                pass
+            connection.connect(target)
+            return connection
+        except OSError as exc:
+            error = exc
+            connection.close()
+    if error is not None:
+        raise error
+    raise OSError("SSH address resolution returned no TCP endpoints")
 
 
 def _open_probe_connection(

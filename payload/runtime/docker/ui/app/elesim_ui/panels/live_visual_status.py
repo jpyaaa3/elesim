@@ -890,7 +890,7 @@ def _draw_ui_resolution_controls(panel) -> None:
         return
     current_fn = requested_scale_fn if callable(requested_scale_fn) else scale_fn
     current = float(current_fn())
-    imgui.text("UI Resolution")
+    imgui.text("UI Scale")
     for idx, (label, scale) in enumerate(presets):
         if idx > 0:
             imgui.same_line()
@@ -916,6 +916,6 @@ def draw_resolution_panel(panel) -> None:
         cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
         imgui.set_next_item_open(True, cond)
         panel._resolution_header_init_open = True
-    if not panel_header("Resolution", visible=True)[0]:
+    if not panel_header("Display", visible=True)[0]:
         return
     _draw_ui_resolution_controls(panel)

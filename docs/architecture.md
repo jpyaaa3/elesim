@@ -65,8 +65,18 @@ arm-base 변환을 갱신하며 다리 각도만으로 월드 위치를 추정�
 
 UI의 Control Target과 Camera View는 독립이다. Robot 원본 좌우 RGB-D 구독은
 Pilot broker의 제어 대상 변경을 따르지 않으며 Sim 영상은 기존 WebRTC session을
-사용한다. 두 GLFW 창의 입력은 각 창의 ImGui context에서 처리한다. 카메라는
-30 Hz, 제어 창은 입력 중 60 Hz·유휴 20 Hz로 제한하고 이벤트 대기로 깨어난다.
+사용한다. 기본 UI는 크기를 조절할 수 있는 GLFW 창 하나에 작업 탭과 카메라를
+함께 배치한다. `Scan`은 재구성/scene 적용, `Manual`은 하드웨어·관절·GO2·IK·mock
+조작, `Legacy`는 기존 HSV/YOLO·UV/LJI, `Status`는 상태·IMU·바닥 보정 진단·화면
+배율을 담당한다. 좌우 폭은 divider로 조절하며 좁은 창에서는 카메라/작업을
+위아래로 배치한다. 화면 배율은 글자·위젯만 조절하고 창 크기를 고정하지 않는다.
+수동 입력이 숨겨지면 GO2 velocity를 한 번 해제하고 입력을 놓은 뒤 다시 받아들인다.
+Sim 영상은 observer/hand-eye 중 큰 화면을 선택하거나 두 영상을 나란히 보여준다.
+Robot 영상은 좌우 함께/한쪽 확대를 선택한다. `Pop out`을 누를 때만 공유 OpenGL
+context의 카메라 창을 만들고 `Dock` 또는 창 닫기로 메인 UI에 복귀한다. 같은
+SimView·session·texture를 사용하며 추가 수신/디코딩 경로를 만들지 않는다.
+분리 창의 입력은 자체 ImGui context에서 처리한다. 분리 영상은 30 Hz, 메인 창은
+입력 중 60 Hz·영상 표시 중 유휴 30 Hz·그 외 유휴 20 Hz로 제한하고 이벤트 대기로 깨어난다.
 
 IK 목표 XYZ/방향의 표시 intent는 UI simulation-session의 `set_ik_target`
 명령으로 Sim에 직접 전달한다. Pilot의 motion target이 Robot이어도 초록

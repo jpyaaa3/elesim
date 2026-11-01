@@ -1,10 +1,86 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-10-31. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-11-01. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### 수정 소스의 실제 배포와 Connections 기동 보완 (2026-11-01)
+
+현재 설치를 확인해 로컬 UI와 서버 Pilot/Sim이 이전 immutable image를 실행하고
+있음을 확인했다. 소스 변경, release 발행, instance pin 교체와 실제 실행 확인을
+구분하며 새 UI는 push/update만으로 적용됐다고 판단하지 않는다.
+
+SSH 지문 조회와 실제 인증의 공통 helper에서 Tailscale socket의 TCP MSS를
+connect 전에 1100 byte로 제한했다. host MTU/SSH 알고리즘/지문/인증은 유지한다.
+생산 ParamikoConnector로 저장된 서버 지문과 keyless 인증을 통과하고 실제 원격
+명령까지 **2.67초**에 완료했다. 이 증거는 DDS/영상 경로의 준비를 뜻하지 않는다.
+Host에는 Paramiko가 없어 `/tmp`의 격리 venv에만 SSH 라이브러리를 준비했다.
+
+Connections network preparation은 새 `elesim-tailscale start`를 호출한다.
+기존 sidecar는 recreate/pull 없이 start하며, 저장된 host state와 달리 container가
+빈 state만 보는 Desktop 복원 오류는 live namespace 사용자가 없을 때 한 번만
+restart한다. 실제 인증 누락은 여전히 명시적인 login을 요구한다. 런타임 namespace
+preflight는 read-only로 유지한다. `ELESIM_KEEP_RUNTIME_ARTIFACTS=1`은 자동
+container/image/alias 회수를 생략하고 읽기 전용 Docker 조회로 release 선택
+목록만 갱신한다. 이번 배포에서 기존 실험 container와 Genesis cache 보존에 쓴다.
+
+UI **192 passed**, 연결/설치의 5개 집중 suite **378 passed**, Connections runner와
+updater **50 passed**다. 집중 suite의 첫 sandbox 실행은 Unix/X11 bind 거부로
+실패했으며 정상 권한에서 위 수치를 확인했다. 그 뒤 보존 옵션의 release 목록
+갱신과 기존 sidecar start를 별도 회귀 검사한다. 현재 설치의 generated dev wrapper는
+발견했으나 invocation이 새 ROS base 빌드와 dev container 재생성으로 이어져
+보존 지시를 지키기 위해 빌드 중 중단했다. canonical required/extended, isolated
+release 및 real-RMW 4-role smoke는 이 revision에서 미실행이다.
+
+### 직접 실행하는 Mock UI (2026-11-01)
+
+저장소 루트의 `python3 -m workbench.tools.ui_preview --interactive`로 production
+ControlPanel과 로컬 fixture를 사용하는 `EleSim - Mock UI` 창을 연다. 탭·영상
+배치·배율·창 분리/복귀를 조작할 수 있으며 DDS participant나 실제 장치 실행기는
+생성하지 않는다. Async 요청은 로컬에서 미연결 응답을 반환하고 요청 기록은
+256개로 제한한다. PNG 출력은 기존 `--output` 모드로 유지한다.
+
+WSLg의 `WAYLAND_DISPLAY` 때문에 PyOpenGL이 EGL을 고르는 반면 host GLFW는
+X11/GLX를 사용해 renderer 초기화가 실패하던 문제를 확인했다. Interactive 모드의
+Linux/X11 프로세스에 GLX를 명시해 해결했다. 샌드박스의 X11 소켓 접근은 EPERM으로
+거부되어 표시 권한으로 실행했으며, 실제 X11 계층에서 `EleSim - Mock UI` 창 생성을
+확인했다. Host UI **192 passed**이며 PyAV 부재의 `test_zed_preview.py` 제외와
+canonical 미실행 범위는 아래와 같다. 실제 드래그·분리/복귀의 수동 검증은 남아 있다.
+
+### 카메라와 작업 조작을 한 창으로 정리 (2026-11-01)
+
+기존 다열 조작부와 시작 시 자동으로 열리던 카메라 창을 기본 한 창의 작업
+공간으로 바꿨다. `Scan / Manual / Legacy / Status` 탭으로 나누고 HSV·YOLO·UV/LJI
+조작은 `Legacy`에 둔다. 탭 선택줄은 내용 스크롤과 분리해 고정했다. 오른쪽에는
+기존 영상 session을 표시하며 observer/hand-eye 확대·나란히 보기와 Robot 좌우
+함께/한쪽 확대를 지원한다. 제어 대상과 영상 출처 선택은 여전히 독립이다.
+
+메인 창은 자유롭게 크기를 조절하고 divider로 조작부 폭을 바꾼다. 좁은 창은
+위아래 배치로 전환하며 `Controls`를 끄면 카메라 영역을 넓힌다. UI 배율은
+글자·위젯만 바꾸며 창 크기를 고정하지 않는다. 별도 카메라 창은 `Pop out` 요청에
+한 번만 생성하고 `Dock` 또는 창 닫기로 내장 영상에 복귀한다. 같은 SimView와
+공유 texture를 쓰며 기본 구성에서는 두 번째 창/ImGui renderer를 만들지 않는다.
+수동 탭/조작부가 숨겨질 때 활성 GO2 속도를 해제하고 held 입력을 놓기 전에는
+다시 움직이지 않는다. 활성 tracking/pick의 정지와 Torque OFF는 상단에 남긴다.
+
+Host UI **190 passed**다. 실제 ImGui context로 640×480–1920×1200의 탭 선택·
+영역 경계, 긴 설정 스크롤 중 탭 고정, 영상 focus/fallback, PIP 위 observer 입력
+차단, 분리 context 초기화/실패 복귀와 숨겨진 수동 입력 해제를 검사했다.
+`test_zed_preview.py`는 host의 PyAV(`av`) 부재로 제외했다. EGL/Mesa llvmpipe로
+production UI와 합성 영상 fixture를 렌더했으며 최종 보존한 세 배치 모두 렌더 중
+operator 요청 0개다. 이 결과는 DDS/실제 영상/모터 실행의 증거가 아니다.
+
+[`기본 화면`](../workbench/evidence/curated/ui/workspace-20261101/workspace.png),
+[`수동 조작·핸드아이 확대`](../workbench/evidence/curated/ui/workspace-20261101/manual.png),
+[`재현 명령·source/PNG 해시`](../workbench/evidence/curated/ui/workspace-20261101/summary.json)를
+보존했다. 추가 narrow/Robot stereo/camera-only 그림과 JUnit 결과는
+`workbench/evidence/generated/ui-workspace-20261101/`에 있다.
+`python3 -m workbench.tools.ui_preview --help`로 같은 렌더 도구를 실행한다.
+초기 X11 `:0` 접근 실패로 실제 GLFW 창에서 드래그·분리·복귀는 미실행이며, generated
+development attachment 부재로 canonical required/extended, release build/isolated
+verify 및 real-RMW topology gate도 미실행이다. 실행 중 이미지/instance는 갱신하지 않았다.
 
 ### 점군 → Poisson → 거리장 → 삼각형 표면 메쉬 (2026-10-31)
 

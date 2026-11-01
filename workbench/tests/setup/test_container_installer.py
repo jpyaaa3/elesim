@@ -1432,6 +1432,70 @@ def test_legacy_unpinned_update_rejects_foreign_daemon_labels(
         ContainerInstaller(pinned).run()
 
 
+@pytest.mark.parametrize("live_consumer,has_state,exists", [
+    (False, True, True), (True, True, True), (False, False, False), (False, True, False),
+])
+def test_tailscale_start_recovers_only_empty_mount_without_live_consumers(
+    tmp_path: Path, live_consumer: bool, has_state: bool, exists: bool,
+) -> None:
+    calls = tmp_path / "calls"
+    recovered = tmp_path / "recovered"
+    state = tmp_path / "tailscaled.state"
+    if has_state:
+        state.write_text('{"saved_profile":"fixture"}')
+    compose_wrapper = tmp_path / "elesim-compose"
+    compose_wrapper.write_text(
+        '#!/usr/bin/env bash\n'
+        'printf "%s\\n" "$*" >>"$TEST_CALLS"\n'
+        'case " $* " in\n'
+        '  *" status --json "*)\n'
+        '    if [[ -e $TEST_RECOVERED ]]; then printf \'{"BackendState":"Running"}\\n\';\n'
+        '    else printf \'{"BackendState":"NeedsLogin"}\\n\'; fi ;;\n'
+        '  *" wc -c "*) printf "2 /var/lib/tailscale/tailscaled.state\\n" ;;\n'
+        '  *" ps -a -q tailscale "*) if [[ $TEST_EXISTS == 1 ]]; then printf "%064d\\n" 1; fi ;;\n'
+        '  *" ps -q tailscale "*) printf "%064d\\n" 1 ;;\n'
+        '  *" restart --no-deps tailscale "*) : >"$TEST_RECOVERED" ;;\n'
+        'esac\n'
+    )
+    compose_wrapper.chmod(0o755)
+    docker = tmp_path / "docker"
+    docker.write_text(
+        '#!/usr/bin/env bash\n'
+        'if [[ $1 == ps ]]; then printf "%064d\\n" 2;\n'
+        'elif [[ $TEST_LIVE == 1 ]]; then printf "container:%064d\\n" 1;\n'
+        'else printf "host\\n"; fi\n'
+    )
+    docker.chmod(0o755)
+    wrapper = tmp_path / "elesim-tailscale"
+    wrapper.write_text(_tailscale_wrapper(
+        compose=tmp_path / "compose.yaml", compose_wrapper=compose_wrapper,
+        guard="", hostname="fixture", state_file=state,
+    ))
+    wrapper.chmod(0o755)
+    env = dict(os.environ, PATH=str(tmp_path) + os.pathsep + os.environ["PATH"],
+               TEST_CALLS=str(calls), TEST_RECOVERED=str(recovered),
+               TEST_LIVE="1" if live_consumer else "0", TEST_EXISTS="1" if exists else "0")
+    result = subprocess.run((wrapper, "start"), env=env, capture_output=True, text=True)
+    commands = calls.read_text()
+    assert ("start tailscale" if exists else "up -d --no-deps --pull never tailscale") in commands
+    if exists:
+        assert " up " not in commands
+    assert "--force-recreate" not in commands
+    assert " login " not in commands and "--force-reauth" not in commands
+    if has_state and not live_consumer:
+        assert result.returncode == 0, result.stderr
+        assert commands.count("restart --no-deps tailscale") == 1
+        assert recovered.exists()
+        # A normal subsequent start never repeats recovery.
+        again = subprocess.run((wrapper, "start"), env=env, capture_output=True, text=True)
+        assert again.returncode == 0, again.stderr
+        assert calls.read_text().count("restart --no-deps tailscale") == 1
+    else:
+        assert result.returncode == 75
+        assert not recovered.exists()
+        assert ("Stop that runtime" if live_consumer else "elesim-tailscale login") in result.stderr
+
+
 def test_tailscale_login_retries_starting_then_supports_idempotent_mode_when_running(
     tmp_path: Path,
 ) -> None:

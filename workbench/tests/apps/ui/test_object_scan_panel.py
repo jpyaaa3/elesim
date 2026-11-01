@@ -21,6 +21,6 @@ def test_scan_panel_submits_only_explicit_start_or_cancel(monkeypatch, active, c
         coverage={'fraction': .4, 'unobserved_directions': [[0., 0., -1.]]})
     service = NS(object_scan=status,
         object_scan_async=lambda name, *args, **kw: calls.append((name, *args)))
-    object_scan.draw_object_scan_panel(NS(service=service))
+    object_scan.draw_object_scan_panel(NS(service=service, _scan_header_init_open=True))
     assert calls == expected
     assert any('completeness is unverified' in row for row in text)

@@ -85,6 +85,9 @@ fingerprint와 runtime-data digest라면 기존 readable alias와 immutable rele
 fingerprint가 일치하는 기존 이미지는 그대로 재사용해 Compose build에서도
 제외한다. 입력이 달라진 role만 재빌드되고, 변경 입력은 새 alias/release로
 발행된다.
+`ELESIM_KEEP_RUNTIME_ARTIFACTS=1`을 지정한 update/release 또는 공개 instance
+`up`은 자동 회수를 생략한다. 진단용 기존 container/image/별칭의 보존이 필요한
+작업에 사용하며 기본 회수 정책은 그대로다.
 성공한 update/release 및 공개 instance `up` 경로는 설치 lock 아래 종료된
 고아 역할 컨테이너를 먼저 정리하고 미참조 구버전 이미지를 회수한다. 고아는
 설치 UUID, pinned Docker Engine, Compose project/설정 경로와 발행된 역할별

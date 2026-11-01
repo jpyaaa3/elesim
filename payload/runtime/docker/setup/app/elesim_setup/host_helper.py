@@ -450,6 +450,7 @@ def _validate_command(
         return
     tailscale = str(bin_dir / "elesim-tailscale")
     if tuple(argv) in {
+        (tailscale, "start"),
         (tailscale, "login"),
         (tailscale, "login", "--if-needed"),
         (tailscale, "status"),
