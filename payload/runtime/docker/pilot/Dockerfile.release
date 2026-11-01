@@ -11,6 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       libgl1 \
+      libegl1 \
       libglib2.0-0 \
       libgomp1 \
       python3-colcon-common-extensions \
@@ -30,6 +31,7 @@ RUN . /opt/ros/humble/setup.sh && \
 
 COPY requirements.lock /opt/elesim/requirements.lock
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip install -r /opt/elesim/requirements.lock
+RUN python3 -c 'import open3d; print("Open3D meshing import:", open3d.__version__)'
 
 COPY wheels/ /tmp/wheels/
 ARG PROTOCOL_WHEEL
