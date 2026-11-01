@@ -65,7 +65,10 @@ arm-base 변환을 갱신하며 다리 각도만으로 월드 위치를 추정�
 
 UI의 Control Target과 Camera View는 독립이다. Robot 원본 좌우 RGB-D 구독은
 Pilot broker의 제어 대상 변경을 따르지 않으며 Sim 영상은 기존 WebRTC session을
-사용한다. 기본 UI는 크기를 조절할 수 있는 GLFW 창 하나에 작업 탭과 카메라를
+사용한다. Robot 카메라 subscriber는 UI 자신의 DDS peer가 live Robot role을
+발견한 뒤 생성한다. Robot 없는 SROS2 graph에서 허용되지 않은 카메라 topic을
+반복 생성하지 않으며 Pilot이나 선택한 motion target의 존재를 요구하지 않는다.
+기본 UI는 크기를 조절할 수 있는 GLFW 창 하나에 작업 탭과 카메라를
 함께 배치한다. `Scan`은 재구성/scene 적용, `Manual`은 하드웨어·관절·GO2·IK·mock
 조작, `Legacy`는 기존 HSV/YOLO·UV/LJI, `Status`는 상태·IMU·바닥 보정 진단·화면
 배율을 담당한다. 좌우 폭은 divider로 조절하며 좁은 창에서는 카메라/작업을

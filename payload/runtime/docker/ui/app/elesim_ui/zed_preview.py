@@ -51,6 +51,7 @@ class ZedCameraPreview:
         subscriber_factory: Callable[..., Any] = DdsEncodedRgbdSubscriber,
         decoder: Callable[[Any], Any] = _decode_color,
         clock: Callable[[], float] = time.monotonic,
+        source_available: Callable[[], bool] | None = None,
     ) -> None:
         self.topic = str(topic).strip()
         if not self.topic.startswith("/"):
@@ -61,6 +62,7 @@ class ZedCameraPreview:
         self._subscriber: Any = None
         self._decoder = decoder
         self._clock = clock
+        self._source_available = source_available
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -122,6 +124,13 @@ class ZedCameraPreview:
 
     def _run(self) -> None:
         while not self._stop.is_set():
+            if (
+                self._subscriber is None
+                and self._source_available is not None
+                and not self._source_available()
+            ):
+                self._stop.wait(0.25)
+                continue
             try:
                 if self._subscriber is None:
                     self._subscriber = self._subscriber_factory(

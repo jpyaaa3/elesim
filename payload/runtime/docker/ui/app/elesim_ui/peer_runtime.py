@@ -111,6 +111,20 @@ class UiPeerHub:
             except Exception:
                 return False
 
+    def has_role(self, role: str) -> bool:
+        """Read live role discovery without creating another DDS participant."""
+
+        with self._io_lock:
+            client = self._client
+            node = getattr(client, "node", None)
+            discover = getattr(node, "discover", None)
+            if not callable(discover):
+                return False
+            try:
+                return bool(discover(role=str(role).strip()))
+            except Exception:
+                return False
+
     @property
     def last_error(self) -> str:
         with self._condition:

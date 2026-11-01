@@ -63,6 +63,7 @@ def _run(args: argparse.Namespace) -> None:
             endpoint_id=config.endpoint_id,
             settings=config.dds,
             stream_id="zed-left-preview",
+            source_available=lambda: peer_hub.has_role("robot"),
         )
         zed_preview.start()
         if config.rgbd_right_topic:
@@ -71,6 +72,7 @@ def _run(args: argparse.Namespace) -> None:
                 endpoint_id=config.endpoint_id,
                 settings=config.dds,
                 stream_id="zed-right-preview",
+                source_available=lambda: peer_hub.has_role("robot"),
             )
             zed_right_preview.start()
 

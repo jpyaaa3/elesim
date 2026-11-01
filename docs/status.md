@@ -8,6 +8,18 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### 수정 소스의 실제 배포와 Connections 기동 보완 (2026-11-01)
 
+`eb49daa`와 bootstrap 설정 manifest 누락을 고친 `a98d52b`를 push했다.
+양쪽 정식 updater로 같은 source revision의 새 release를 발행했으며 실제 UI
+모듈 hash도 source와 일치한다. 정상 Connections의 SROS2 rotate 및 start를
+실행해 양쪽 DDS endpoint gate는 통과했다. 로컬 host의 `xhost` 부재는 Ubuntu
+`x11-xserver-utils` 한 package로 해결했고 실제 새 UI의 OpenGL preflight도 통과했다.
+
+실제 화면 검증에서 Robot 없는 graph의 camera preview가 허용되지 않은 Robot
+topic 생성을 반복하는 결함을 확인했다. Preview를 UI 자체의 live Robot discovery로
+지연하고, Robot이 뒤늦게 발견되면 구독을 시작하도록 수정했다. Pilot/control target
+선택에는 의존하지 않는다. UI **194 passed**이며 이 추가 수정의 live 적용을 진행한다.
+Bootstrap **113 passed**, 실제 배포 source tree **560 files** 검증도 통과했다.
+
 현재 설치를 확인해 로컬 UI와 서버 Pilot/Sim이 이전 immutable image를 실행하고
 있음을 확인했다. 소스 변경, release 발행, instance pin 교체와 실제 실행 확인을
 구분하며 새 UI는 push/update만으로 적용됐다고 판단하지 않는다.
