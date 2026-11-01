@@ -322,6 +322,17 @@ def test_source_snapshot_rejects_unowned_setup_python_module(
         bootstrap_module._validate_source_snapshot(root)
 
 
+def test_bootstrap_manifest_covers_actual_shipped_role_configs() -> None:
+    root = Path(__file__).resolve().parents[3]
+    actual = {
+        PurePosixPath(p.relative_to(root).as_posix())
+        for role in ("pilot", "sim", "ui", "robot")
+        for p in (root / "payload/config" / role).rglob("*")
+        if p.is_file()
+    } - bootstrap_module._BOOTSTRAP_EXCLUDED_CONFIG_FILES
+    assert actual == bootstrap_module._BOOTSTRAP_ROLE_CONFIG_FILES
+
+
 def test_bootstrap_manifest_covers_cli_and_instance_runtime_imports() -> None:
     """Every relative setup import must survive the curl source filter."""
     repository_root = Path(__file__).resolve().parents[3]

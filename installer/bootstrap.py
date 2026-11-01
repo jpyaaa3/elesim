@@ -235,7 +235,10 @@ _BOOTSTRAP_ROLE_CONFIG_FILES = frozenset(
         "pilot": (
             "config.yaml",
             "reconstruction.example.yaml",
+            "reconstruction/LICENSE.PoinTr",
+            "reconstruction/adapointr.projected55.yaml",
             "scan.example.yaml",
+            "scan.integrated.yaml",
             "world.yaml",
             "wrap_grasp.yaml",
             "imu_models/README.md",
