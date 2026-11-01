@@ -179,9 +179,9 @@ RUN if [ "$ROLE" = sim ]; then \
 
 COPY entrypoint /usr/local/bin/elesim-entrypoint
 RUN chmod 0755 /usr/local/bin/elesim-entrypoint
-# Open3D's CPU meshing wheel links EGL even without opening a renderer.
+# Open3D's CPU meshing wheel links EGL/USB even without opening a device.
 RUN if [ "$ROLE" = pilot ]; then \
-      apt-get update && apt-get install -y --no-install-recommends libegl1 && \
+      apt-get update && apt-get install -y --no-install-recommends libegl1 libusb-1.0-0 && \
       rm -rf /var/lib/apt/lists/* && \
       python -c 'import open3d; print("Open3D meshing import:", open3d.__version__)'; \
     fi
