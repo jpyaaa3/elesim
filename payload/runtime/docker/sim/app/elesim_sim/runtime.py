@@ -943,6 +943,12 @@ class Go2Locomotion:
         if self._controller is not None:
             self._controller.step()
 
+    def capture_physics_contacts(self) -> None:
+        if not self._mirror and self._controller is not None:
+            capture = getattr(self._controller, 'capture_physics_contacts', None)
+            if callable(capture):
+                capture()
+
 
 def _make_urdf_morph(
     urdf_path: str,
@@ -1869,6 +1875,13 @@ class SimScene(_SimSceneKinematicsMixin):
                 update_visualizer=refresh_on_step,
                 refresh_visualizer=refresh_on_step,
             )
+            # Genesis 1.4.5 clears every contact (including foot forces) on a
+            # kinematic arm position write. Preserve the completed solve before
+            # mirror restoration or the next loop's arm command can erase it.
+            if self.go2 is not None and not mirror_go2:
+                capture = getattr(self.go2, 'capture_physics_contacts', None)
+                if callable(capture):
+                    capture()
             self.sim_step_count += 1
             if mirror_go2:
                 self.go2.reapply_last_mirror_pose()

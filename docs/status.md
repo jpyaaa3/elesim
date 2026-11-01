@@ -6,6 +6,30 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Genesis 1.4.5 GO2 접촉력 읽기 순서 수정 (2026-11-01, GPU 검증 진행)
+
+실제 UI에서 보행 시 `touchdown timeout after 0.30s: FL,FR,RL,RR`가 발생했다.
+Sim process는 살아 있고 restart는 0회였다. 설치된 Genesis 소스를 확인하니
+`set_dofs_position`은 arm DOF만 지정해도 `collider.clear`를 호출해 모든 접촉력까지
+지운다. 기존 loop는 arm 쓰기 뒤 그 live getter를 읽어 실제 지지를 잃은 것으로
+판단할 수 있었다.
+
+완료된 physics step 직후 소유한 contact tensor를 갱신하고 ready/walk 양쪽에서
+그 값을 사용한다. 자세·속도는 기존 current getter로 읽으며 접촉력도 같은 한 번의
+host transfer에 포함한다. 다음 물리 계산의 zero force는 그대로 반영하고 reset은
+보관한 표본을 폐기한다. 접촉 임계값·timeout·허용 토크는 변경하지 않았다.
+
+설치된 Sim 이미지의 별도 source 복사본으로 control-state, MPC adapter, contact
+gate, scene ordering, direct arm write, runtime readback **177 passed**다. 기존 앱
+파일의 전후 hash도 일치했다. canonical dev gate의 대체 증거가 아니며 actual
+GPU 보행 비교와 양쪽 정식 배포는 진행 중이다. Host-only 집중 검사는 **36 passed**이며
+tensor 2개는 Torch 부재로 skip했다. 넓은 host 검사에서는 445 passed와 함께
+Pinocchio/Torch/convex_mpc/CasADi 부재로 43개가 실패했다.
+
+격리 bench가 image dependency PYTHONPATH와 mock catalog 경로를 덮어써 초기화에
+실패하던 문제도 수정했다. Image 자체 경로와 선언된 read-only data만 사용한다.
+해당 Compose 병합·격리·회수 회귀는 **8 passed**다. 원시 실패/재시도 결과도 보존했다.
+
 ### Instance 교체 시 endpoint runtime cache 보존 (2026-11-01)
 
 Release/security 교체가 endpoint 디렉터리 전체를 바꾸면서 등록된 `test`의

@@ -66,18 +66,69 @@ def test_shared_state_reads_seven_contiguous_fields_once_and_owns_current_tick()
     np.testing.assert_array_equal(current.pos,entity.values['pos'])
 
 
-def test_tensor_fields_use_one_host_transfer_and_match_numpy_fields():
+@pytest.mark.parametrize('tensor', [False, True])
+def test_physics_contact_feedback_survives_pose_writes_but_tracks_next_physics_step(tensor):
+    entity = Entity()
+    if tensor:
+        torch = pytest.importorskip('torch')
+        entity.values = {name: torch.tensor(value) for name, value in entity.values.items()}
+    capture = reader(entity)
+    force = entity.values['contact_force']
+    expected = np.asarray(force).copy()
+    # A public getter may expose live storage; the completed physics sample
+    # must stay owned even when a subsequent arm pose write clears contacts.
+    entity.get_links_net_contact_force = lambda: force
+    capture.capture_physics_contacts()
+    force[:] = 0.
+    entity.values['pos'] += 1.
+    snapshot = capture.read()
+    np.testing.assert_array_equal(snapshot.contact_force, expected)
+    np.testing.assert_array_equal(snapshot.pos, np.asarray(entity.values['pos']))
+    np.testing.assert_array_equal(capture.contact_forces(), expected)
+
+    # Real loss of support must replace the old forces on the very next step.
+    capture.capture_physics_contacts()
+    np.testing.assert_array_equal(capture.read().contact_force, np.zeros((19, 3)))
+    force[:] = 5.
+    capture.capture_physics_contacts()
+    capture.clear_physics_contacts()
+    force[:] = 0.
+    np.testing.assert_array_equal(capture.contact_forces(), np.zeros((19, 3)))
+
+
+@pytest.mark.parametrize('snapshot', [False, True])
+def test_ready_and_walk_read_the_same_preserved_physics_contacts(snapshot):
+    from elesim_sim.robot.go2.pympc_controller import PyMpcGenesisController
+
+    entity = Entity()
+    controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
+    controller._entity = entity
+    controller._state_reader = reader(entity)
+    controller._contact_link_idxs = [1, 4, 8, 12]
+    expected = entity.values['contact_force'][controller._contact_link_idxs, 2].copy()
+    controller.capture_physics_contacts()
+    entity.values['contact_force'][:] = 0.
+    state = controller._state_reader.read() if snapshot else None
+    np.testing.assert_array_equal(controller._normal_contact_forces(snapshot=state), expected)
+
+
+@pytest.mark.parametrize('preserve_contacts', [False, True])
+def test_tensor_fields_use_one_host_transfer_and_match_numpy_fields(preserve_contacts):
     torch=pytest.importorskip('torch')
     entity=Entity()
     expected=reader(entity).read()
     entity.values={name:torch.tensor(value,dtype=torch.float64) for name,value in entity.values.items()}
+    capture = reader(entity)
+    if preserve_contacts:
+        capture.capture_physics_contacts()
+        entity.values['contact_force'].zero_()
     original_cpu=torch.Tensor.cpu
     calls=[]
     def copy_to_host(tensor,*args,**kwargs):
         calls.append(tuple(tensor.shape))
         return original_cpu(tensor,*args,**kwargs)
     with patch.object(torch.Tensor,'cpu',copy_to_host):
-        actual=reader(entity).read()
+        actual=capture.read()
     assert len(calls)==1
     for name in entity.values:
         np.testing.assert_array_equal(getattr(actual,name),getattr(expected,name))

@@ -880,6 +880,9 @@ class PyMpcGenesisController:
         self._arm_q = tuple(float(x) for x in arm_q)
 
     def reset(self) -> None:
+        reader = getattr(self, '_state_reader', None)
+        if reader is not None:
+            reader.clear_physics_contacts()
         self._contact_gait = ContactGatedGait()
         self._was_searching.fill(False)
         self._search_targets.fill(0.0)
@@ -1146,9 +1149,17 @@ class PyMpcGenesisController:
             delta *= min(1., max_shift / max(np.linalg.norm(delta), 1e-12))
         return target + delta
 
+    def capture_physics_contacts(self) -> None:
+        reader = getattr(self, '_state_reader', None)
+        if reader is not None:
+            reader.capture_physics_contacts()
+
     def _normal_contact_forces(self, *, snapshot=None) -> np.ndarray:
         if snapshot is None:
-            forces = to_numpy_1d(self._entity.get_links_net_contact_force()).reshape(-1, 3)
+            reader = getattr(self, '_state_reader', None)
+            value = (reader.contact_forces() if reader is not None
+                     else self._entity.get_links_net_contact_force())
+            forces = to_numpy_1d(value).reshape(-1, 3)
         else:
             if snapshot.entity is not self._entity:
                 raise ValueError('GO2 contact snapshot belongs to another entity')

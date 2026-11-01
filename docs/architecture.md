@@ -274,6 +274,14 @@ TimeoutError를 보고하며, 종료를 재시도할 수 있다. 이는 프로�
 Sim은 하나의 deployable application, DDS participant, SROS2 enclave다. 다만
 physics/authority와 media worker를 내부적으로 분리한다.
 
+GO2의 발 접촉력은 직전 완료된 physics step에서 소유한 tensor로 보관한다.
+Genesis 1.4.5의 arm position setter는 발을 포함한 collider 접촉력도 지우므로,
+팔 명령 뒤의 live getter를 접촉 상실 증거로 사용하지 않는다. 몸체·관절·payload
+자세와 속도는 제어 시점의 getter로 읽고, 접촉력만 완료된 물리 계산의 값을
+같은 host transfer에 포함한다. 매 physics step이 접촉력을 교체하고 controller
+reset은 표본을 폐기한다. 높이만으로 접촉을 가정하거나 touchdown timeout을
+늘리지 않는다.
+
 ```text
 Physics/authority process                 visual-only Genesis process
   ├─ physics, leases, session gate       ├─ camera scene + camera.render()

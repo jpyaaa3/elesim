@@ -165,7 +165,9 @@ def test_real_compose_merge_drops_inherited_credentials_network_and_gpu_set(tmp_
         if args[0] == "info":
             return "pinned\n"
         if args[0] == "image":
-            return json.dumps([{"Id": image, "Config": {"Labels": {"io.elesim.install_uuid": owner_uuid}}}])
+            return json.dumps([{"Id": image, "Config": {
+                "Labels": {"io.elesim.install_uuid": owner_uuid},
+                "Env": ["PYTHONPATH=/image/runtime-deps", "PRIVATE=test-only"]}}])
         if args[0] == "ps":
             return ""
         raise AssertionError(f"unexpected Docker mutation/query: {args}")
@@ -180,3 +182,13 @@ def test_real_compose_merge_drops_inherited_credentials_network_and_gpu_set(tmp_
         if stage.name == "scan":
             assert not any("truth" in m["target"] or "arm_scan_scene.py" in m["target"] for m in mounts)
         assert "CUDA_VISIBLE_DEVICES" not in env
+        override = command[max(i for i, value in enumerate(command) if value == '-f') + 1]
+        settings = next(line for line in Path(override).read_text().splitlines()
+                        if line.strip().startswith('environment:'))
+        runtime_env = json.loads(settings.split('!override ', 1)[1])
+        assert runtime_env['PYTHONPATH'] == '/bench/source:/image/runtime-deps'
+        assert 'PRIVATE' not in runtime_env
+        if stage.role == 'sim' and 'data' in stage.inputs:
+            assert runtime_env['ELESIM_SIM_MOCK_OBJECT_ROOT'] == str(data / 'models/objects')
+        else:
+            assert 'ELESIM_SIM_MOCK_OBJECT_ROOT' not in runtime_env

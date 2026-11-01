@@ -1041,6 +1041,7 @@ def test_controller_reset_preempts_command_and_resets_solver_and_bridge():
     controller._pose_transition = SimpleNamespace(reset=Mock())
     controller._kin = SimpleNamespace(stand_q=np.zeros(12))
     controller._config = SimpleNamespace(stand_kp=20.0, stand_kv=1.0, joint_damping=.1)
+    controller._state_reader = SimpleNamespace(clear_physics_contacts=Mock())
     controller._entity = Mock()
     controller._leg_dof_idxs = list(range(12))
     controller._payload = None
@@ -1062,6 +1063,7 @@ def test_controller_reset_preempts_command_and_resets_solver_and_bridge():
     assert controller._cmd == Go2Command()
     assert controller._command_shaper.reset.call_count == 1
     assert controller._bridge.reset.call_count == 1
+    controller._state_reader.clear_physics_contacts.assert_called_once_with()
     assert controller._solver.reset.call_count == 1
     assert not np.any(controller._force_requested)
     assert not np.any(controller._forces)

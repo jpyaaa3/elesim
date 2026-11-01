@@ -87,7 +87,10 @@ class ComposeExecutor(LocalExecutor):
             if image["Config"].get("Labels", {}).get("io.elesim.install_uuid") != self.owner["install_uuid"]:
                 raise ValueError("release image is not owned by this installation")
             self.services[role] = {"service": service, "image_id": image["Id"],
-                                   "image_labels": image["Config"].get("Labels", {})}
+                                   "image_labels": image["Config"].get("Labels", {}),
+                                   "pythonpath": next((value.partition('=')[2]
+                                       for value in (image["Config"].get("Env") or ())
+                                       if value.startswith('PYTHONPATH=')), '')}
         if any(stage.gpu for stage in plan.stages) and (not self.gpu or not self.gpu.startswith("GPU-")):
             raise ValueError("select exactly one physical GPU with --gpu GPU-<UUID>")
         (run / "control").mkdir()
@@ -133,13 +136,16 @@ class ComposeExecutor(LocalExecutor):
                 raise ValueError(f"stage input not produced: {relative}")
             mounts.append({"type": "bind", "source": str(source), "target": f"/bench/run/{relative}",
                            "read_only": relative not in stage.writes})
-        env = {"HOME": "/tmp", "PYTHONUNBUFFERED": "1", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": "/bench/source",
+        pythonpath = ':'.join(filter(None, ('/bench/source', service.get('pythonpath', ''))))
+        env = {"HOME": "/tmp", "PYTHONUNBUFFERED": "1", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": pythonpath,
                "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "2", "EGL_DEVICE_ID": "0",
                "XDG_CACHE_HOME": "/tmp/bench-cache", "DISPLAY": "",
                "NVIDIA_VISIBLE_DEVICES": self.gpu if stage.gpu else "void",
                "PYOPENGL_PLATFORM": "egl", "NVIDIA_DRIVER_CAPABILITIES": "compute,utility,graphics,video"}
         if stage.gpu:
             env["ELESIM_BENCH_GPU"] = self.gpu
+        if stage.role == "sim" and "data" in stage.inputs:
+            env["ELESIM_SIM_MOCK_OBJECT_ROOT"] = str(Path(plan.inputs["data"]) / "models/objects")
         labels = {"io.elesim.install_uuid": self.owner["install_uuid"],
                   "io.elesim.bench_id": self.token, "io.elesim.role": stage.role}
         devices = [{"driver": "nvidia", "device_ids": [self.gpu], "capabilities": ["gpu"]}] if stage.gpu else []

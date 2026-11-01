@@ -82,6 +82,9 @@ python3 -m workbench.tools.bench run walking-core \
 제거하고, 병합 결과와 실행 중 실제 mount/network/device를 각각 확인한다.
 GPU reservation은 UUID 하나이고 EGL은 컨테이너의 논리 장치 0을 쓴다.
 host index 2를 컨테이너의 `CUDA_VISIBLE_DEVICES=2`로 재적용하지 않는다.
+진단 source를 import 경로 맨 앞에 놓되 image 자체의 dependency `PYTHONPATH`는
+유지한다. Host나 운영 service의 임의 경로를 가져오지 않으며, Sim의 mock catalog는
+해당 stage에 선언하고 read-only로 mount한 `data/models/objects`만 가리킨다.
 
 2026-10-30 서버 경로에서는 SSH 키 교환과 긴 명령이 패킷 크기에 따라 멈췄다.
 호스트 MTU나 전역 SSH 설정을 바꾸지 않는 진단 경로는 checkout에서 다음과 같다.

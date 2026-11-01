@@ -23,8 +23,10 @@ class EntityControlStateReader:
 
     All entity links/DOFs are contiguous in Genesis. Reading that small range
     avoids rebuilding GPU index arrays for each field. Select body/payload/leg
-    rows on the CPU after the single transfer. Never cache live state across
-    controller ticks or use the solver's uncorrected internal link frames.
+    rows on the CPU after the single transfer. Pose and velocity stay current.
+    Contacts come from the latest completed physics step: Genesis clears them
+    even when a position setter only moves the arm. Explicit reset discards
+    that sample. Never use the solver's uncorrected internal link frames.
     """
 
     _GETTERS = ('get_links_pos', 'get_links_quat', 'get_links_vel', 'get_links_ang',
@@ -32,6 +34,7 @@ class EntityControlStateReader:
 
     def __init__(self, entity) -> None:
         self.entity = entity
+        self._physics_contact_force = None
         links, dofs = int(entity.n_links), int(entity.n_dofs)
         if links <= 0 or dofs <= 0:
             raise ValueError('control state requires a built entity with links and DOFs')
@@ -42,6 +45,22 @@ class EntityControlStateReader:
             fields.append((name, getter, shape, slice(offset, end)))
             offset = end
         self._fields = tuple(fields)
+
+    def capture_physics_contacts(self) -> None:
+        """Own the completed contact solve before any kinematic pose writes."""
+        value = self.entity.get_links_net_contact_force()
+        if tuple(value.shape) != (int(self.entity.n_links), 3):
+            raise ValueError('physics contact forces must have shape (n_links, 3)')
+        self._physics_contact_force = (value.detach().clone() if hasattr(value, 'detach')
+                                       else np.array(value, copy=True))
+
+    def clear_physics_contacts(self) -> None:
+        self._physics_contact_force = None
+
+    def contact_forces(self):
+        if self._physics_contact_force is not None:
+            return self._physics_contact_force
+        return self.entity.get_links_net_contact_force()
 
     @classmethod
     def for_entity(cls, entity):
@@ -56,7 +75,7 @@ class EntityControlStateReader:
     def read(self) -> EntityControlState:
         values = []
         for name, getter, shape, _ in self._fields:
-            value = getattr(self.entity, getter)()
+            value = self.contact_forces() if name == 'contact_force' else getattr(self.entity, getter)()
             if tuple(value.shape) != shape:
                 raise ValueError(f'control state {name} must have shape {shape}, got {tuple(value.shape)}')
             values.append(value)
