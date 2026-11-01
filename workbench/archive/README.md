@@ -1,4 +1,4 @@
-# 보관한 Workbench 도구
+# 보관한 퇴역 소스
 
 이 디렉터리는 중복 실행기, 옛 결과 경로/샘플 ID 전용 그림 생성기, 중단한
 height/mount 보정 실험을 로컬 ZIP으로 보관한다. 현재 쓰는 도구와 명령은
@@ -22,3 +22,9 @@ height/mount 보정 실험을 로컬 ZIP으로 보관한다. 현재 쓰는 도�
 
 이 ZIP은 손대지 않은 원문 보관본이다. 실행 환경과 오래된 외부 의존성까지
 묶은 재현 환경은 아니며, 압축을 푸는 것만으로 당시 실험이 실행되지는 않는다.
+
+`retired-visual-servoing-ui-20261101.zip`은 새 Visual Servoing 작업 화면으로
+대체한 UI panel 4개와 교체 전 UI regression 파일 3개의 정확한 원문을 보관한다.
+역할별 source와 archive member, SHA256은 같은 `index.json`에 기록했다.
+Start/cancel·coverage·mock scene/motion authority·파일 선택 회귀는 현재 UI
+suite로 이관했다. 이 ZIP은 현재 runtime이나 테스트가 읽지 않는다.

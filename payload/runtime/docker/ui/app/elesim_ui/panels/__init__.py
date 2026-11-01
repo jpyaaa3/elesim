@@ -5,13 +5,10 @@ _EXPORTS = {
     "draw_go2_panel": "go2",
     "draw_hardware_panel": "hardware",
     "draw_ik_panel": "ik",
-    "draw_mock_object_panel": "mock_object",
-    "draw_scene_panel": "scene",
-    "draw_perception_panel": "perception",
+    "draw_visual_servoing_panel": "visual_servoing",
     "draw_resolution_panel": "live_visual_status",
     "draw_imu_model_panel": "imu_models",
     "draw_floor_calibration_panel": "floor_calibration",
-    "draw_object_scan_panel": "object_scan",
     "draw_status_panel": "live_visual_status",
 }
 
@@ -20,11 +17,8 @@ __all__ = [
     "draw_go2_panel",
     "draw_hardware_panel",
     "draw_ik_panel",
-    "draw_mock_object_panel",
-    "draw_scene_panel",
-    "draw_perception_panel",
+    "draw_visual_servoing_panel",
     "draw_imu_model_panel",
-    "draw_object_scan_panel",
     "draw_resolution_panel",
     "draw_status_panel",
 ]

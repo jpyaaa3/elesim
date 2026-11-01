@@ -68,10 +68,18 @@ Pilot broker의 제어 대상 변경을 따르지 않으며 Sim 영상은 기존
 사용한다. Robot 카메라 subscriber는 UI 자신의 DDS peer가 live Robot role을
 발견한 뒤 생성한다. Robot 없는 SROS2 graph에서 허용되지 않은 카메라 topic을
 반복 생성하지 않으며 Pilot이나 선택한 motion target의 존재를 요구하지 않는다.
+공유 UI peer channel은 I/O lock 아래 live descriptor의 읽기 전용 discovery snapshot을
+제공한다. UI Sim session은 이 경로 또는 직접 peer의 discovery에서 선택한 Sim의
+scene-rebuild capability를 확인한다. 채널에 DDS node 자체를 노출하지 않으며
+discovery가 motion lease나 simulation session을 대신하지 않는다.
+Discovery의 I/O 대기는 UI session의 snapshot/frame lock 밖에서 수행하고,
+대기 중 대상·boot·session이 바뀐 결과는 폐기한다.
 기본 UI는 크기를 조절할 수 있는 GLFW 창 하나에 작업 탭과 카메라를
-함께 배치한다. `Scan`은 재구성/scene 적용, `Manual`은 하드웨어·관절·GO2·IK·mock
-조작, `Legacy`는 기존 HSV/YOLO·UV/LJI, `Status`는 상태·IMU·바닥 보정 진단·화면
-배율을 담당한다. 좌우 폭은 divider로 조절하며 좁은 창에서는 카메라/작업을
+함께 배치한다. `Visual Servoing`은 Scene → Scan → Reconstruction → Action의
+한 작업 화면이며 mock 소환·스캔·재구성 scene 적용과 동작 시험을 모은다.
+`Manual`은 하드웨어·관절·GO2·IK, `Status`는 상태·IMU·바닥 보정 진단·화면
+배율을 담당한다. 별도 Scan/Legacy 탭과 옛 HSV/YOLO·UV/LJI 폼은 제거했다.
+좌우 폭은 divider로 조절하며 좁은 창에서는 카메라/작업을
 위아래로 배치한다. 화면 배율은 글자·위젯만 조절하고 창 크기를 고정하지 않는다.
 수동 입력이 숨겨지면 GO2 velocity를 한 번 해제하고 입력을 놓은 뒤 다시 받아들인다.
 Sim 영상은 observer/hand-eye 중 큰 화면을 선택하거나 두 영상을 나란히 보여준다.
@@ -80,6 +88,21 @@ context의 카메라 창을 만들고 `Dock` 또는 창 닫기로 메인 UI에 �
 SimView·session·texture를 사용하며 추가 수신/디코딩 경로를 만들지 않는다.
 분리 창의 입력은 자체 ImGui context에서 처리한다. 분리 영상은 30 Hz, 메인 창은
 입력 중 60 Hz·영상 표시 중 유휴 30 Hz·그 외 유휴 20 Hz로 제한하고 이벤트 대기로 깨어난다.
+
+Visual Servoing의 controller는 UI form draft·요청 중복 억제·ACK 상관관계만
+소유한다. 렌더링이나 callback으로 다음 motion을 시작하지 않는다. 실측 경로와
+모델 실행은 Pilot이 계속 소유하며 기존 DDS v6/operator-view v1 계약을 사용한다.
+Pilot intent의 응답은 control endpoint/boot, Sim scene command의 ACK는 UI
+Sim/boot/session에 각각 묶는다. 카메라 변경은 motion 응답을, control target
+변경은 동일 Sim의 scene ACK·적용 표시를 무효화하지 않는다.
+Reference Hug solution은 control endpoint/boot, UI Sim/boot/session, epoch와
+mock revision/digest에 묶고 context 변경·timeout 뒤의 callback을 폐기한다.
+재구성 적용은 기존 `load_scan_result`의 producer Sim boot·published revision
+검증을 거쳐 matching request ACK가 와야 성공으로 표시한다. Sim rebuild의 epoch
+증가를 수용하며 이후 reset/scene 교체는 적용 표시를 무효화한다.
+메쉬 기반 gripper/embrace 실행 어댑터는 아직 연결되지 않았으며 UI에서도 실행을
+허용하지 않는다. Sim ground-truth reference Hug와 설정된 원통용 Wrap 정책은
+별도 시험으로 표시한다. [운영 화면과 범위](visual_servoing.md).
 
 IK 목표 XYZ/방향의 표시 intent는 UI simulation-session의 `set_ik_target`
 명령으로 Sim에 직접 전달한다. Pilot의 motion target이 Robot이어도 초록

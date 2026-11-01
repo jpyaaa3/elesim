@@ -46,24 +46,20 @@ class FileDialogHelpersTests(unittest.TestCase):
         self.assertEqual(selected, "/tmp/example.json")
         self.assertEqual(calls, ["Pick"])
 
-    def test_detector_browser_defaults_to_config_presets(self) -> None:
-        import elesim_ui.panels.perception as panel
-
-        calls: list[str] = []
-
-        def fake_browse(**kwargs) -> None:
-            calls.append(str(kwargs["initial_dir"]))
-            return None
-
-        original = panel.browse_open_file_path
-        try:
-            panel.browse_open_file_path = fake_browse
-            self.assertIsNone(panel.browse_detector_config_path(""))
-        finally:
-            panel.browse_open_file_path = original
-
+    def test_json_browser_preserves_explicit_config_directory(self) -> None:
+        import elesim_ui.file_dialog as dialog
         root = next(parent for parent in Path(__file__).resolve().parents if (parent / "payload").is_dir())
-        self.assertEqual(calls, [str(root / "payload" / "config" / "ui" / "perception")])
+        initial = root / "payload" / "config" / "ui" / "perception"
+        calls = []
+        original, platform = dialog._browse_open_file_tk, dialog.sys.platform
+        try:
+            dialog.sys.platform = 'linux'
+            dialog._browse_open_file_tk = lambda **kwargs: calls.append(kwargs['initial_dir'])
+            self.assertIsNone(dialog.browse_open_file_path(title='Select JSON',
+                initial_dir=str(initial),extensions=('.json',)))
+        finally:
+            dialog._browse_open_file_tk, dialog.sys.platform = original, platform
+        self.assertEqual(calls,[str(initial)])
 
 
 if __name__ == "__main__":

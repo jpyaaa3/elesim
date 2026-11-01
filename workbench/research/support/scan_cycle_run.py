@@ -118,13 +118,30 @@ def inventory():
         for row in run_json(DOCKER+['inspect',*ids])}
 
 
+def cycle_network(attempt):
+    if type(attempt) is not int or not 1 <= attempt <= 254:
+        raise ValueError('invalid scan-cycle attempt')
+    address = f'172.30.{230+attempt}' if attempt <= 24 else f'172.29.{attempt-24}'
+    network = ipaddress.ip_network(address+'.0/24')
+    return str(network), [str(network.network_address+value) for value in (2,3,4)]
+
+
 def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_interval=None,
-           pipeline_mode='integrated',pose_bias_deg=0.,view_budget=3):
-    assert 1 <= attempt <= 24
+           pipeline_mode='integrated',pose_bias_deg=0.,view_budget=3,visual_servoing_source=None,
+           require_poisson=False,native_window=False):
+    subnet, peers = cycle_network(attempt)
     assert pipeline_mode in ('baseline', 'integrated')
+    if require_poisson and pipeline_mode != 'integrated':
+        raise ValueError('Poisson acceptance requires the integrated model pipeline')
+    if native_window and (not visual_servoing_source or not require_poisson):
+        raise ValueError('native-window demo requires current UI source and Poisson acceptance')
     assert math.isfinite(pose_bias_deg) and abs(pose_bias_deg) <= 10
     assert type(view_budget) is int and 2 <= view_budget <= 24
     assert shape in ('sphere', 'cylinder', 'jar')
+    ui_source = Path(visual_servoing_source).resolve(strict=True) if visual_servoing_source else None
+    if ui_source is not None:
+        assert ui_source.is_dir() and (ui_source/'elesim_ui/visual_servoing.py').is_file()
+        assert not any((ui_source/name).exists() for name in ('elesim_pilot','elesim_sim','elesim_robot'))
     target_radius, target_height = (.06, .22) if shape == 'jar' else (.045, .14)
     if stack_interval is not None and (not math.isfinite(stack_interval) or stack_interval <= 0):
         raise ValueError('stack interval must be finite and positive')
@@ -137,8 +154,6 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
     system = 'scan_cycle_20261030' if attempt == 1 else f'scan_cycle_20261030_{attempt:02d}'
     suffix = f'{attempt:02d}'
     endpoints = dict(sim='scan-sim-'+suffix,pilot='scan-pilot-'+suffix,ui='scan-ui-'+suffix)
-    subnet = f'172.30.{230+attempt}.0/24'
-    peers = [f'172.30.{230+attempt}.{value}' for value in (2,3,4)]
     network_ids = subprocess.check_output(DOCKER+['network','ls','-q'], text=True).split()
     for network in run_json(DOCKER+['network','inspect',*network_ids]):
         for config in network.get('IPAM',{}).get('Config',[]) or []:
@@ -177,6 +192,12 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
     record['pipeline_mode'] = pipeline_mode
     record['pose_bias_deg'] = pose_bias_deg
     record['view_budget'] = view_budget
+    record['require_poisson'] = require_poisson
+    record['native_window'] = native_window
+    if ui_source is not None:
+        record['visual_servoing_source'] = dict(path=str(ui_source),
+            sha256={str(p.relative_to(ui_source)):hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in sorted((ui_source/'elesim_ui').rglob('*.py'))})
     record['driver_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     for index,role in enumerate(('sim','pilot','ui')):
         key,service = services[role]
@@ -196,6 +217,9 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
             environment.update(OPENBLAS_NUM_THREADS=str(math_threads),OMP_NUM_THREADS=str(math_threads))
         if role == 'pilot' and debug_allocator:
             environment['PYTHONMALLOC'] = 'debug'
+        if role == 'ui' and ui_source is not None:
+            mounts.append(bind(ui_source,'/visual-servoing-ui',read_only=True))
+            environment['PYTHONPATH'] = '/visual-servoing-ui'
         if environment:
             lines.append('    environment: '+json.dumps(environment))
         if role in ('sim','pilot'):
@@ -239,6 +263,10 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
                 command.extend(('--config','/opt/elesim/config/scan-cycle.yaml','--mode','scan_cycle',
                     '--runtime-config','/opt/elesim/config/runtime.installed.yaml'))
             elif role == 'ui':
+                if require_poisson:
+                    command.append('--require-poisson')
+                if ui_source is not None:
+                    command.append('--visual-servoing')
                 mounts.append(bind(probes/'scan_cycle_recording.py','/probe/scan_cycle_recording.py',read_only=True))
                 record['probe_sha256']['scan_cycle_recording.py'] = hashlib.sha256(
                     (probes/'scan_cycle_recording.py').read_bytes()).hexdigest()
@@ -249,6 +277,12 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
                 for peer in peers:
                     command.extend(('--peer',peer))
                 lines.append('    user: '+json.dumps(f'{os.getuid()}:{os.getgid()}'))
+                if native_window:
+                    for filename,target in [('probe_visual_servoing_window.py','/probe/window.py'),
+                                            ('probe_scan_cycle_ui.py','/probe/probe_scan_cycle_ui.py')]:
+                        mounts.append(bind(probes/filename,target,read_only=True))
+                        record['probe_sha256'][filename] = hashlib.sha256((probes/filename).read_bytes()).hexdigest()
+                    command = ['sleep','infinity']
             else:
                 if stack_interval is not None:
                     command.extend(('--periodic-stacks','--stack-interval',str(stack_interval)))
@@ -259,6 +293,10 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
                 selected = 'scan.example.yaml' if pipeline_mode == 'baseline' else 'scan.integrated.yaml'
                 if pipeline_mode == 'integrated':
                     model_config = read_model_config(config_directory/selected)
+                    if require_poisson:
+                        mesher = model_config['models']['mesher']
+                        assert mesher['factory'] == 'elesim_pilot.reconstruction.meshing:PoissonSurface', mesher
+                        assert mesher.get('options', {}).get('remesh_resolution_m') == .004, mesher
                     completion = model_config['models']['completion']
                     asset_paths = dict(source=ADAPOINTR_ROOT/'assets/pointr-source.tar.gz',
                         weights=ADAPOINTR_ROOT/'contract-598fe6d2/assets/ap_ps55.pth')
@@ -286,6 +324,7 @@ def launch(attempt,math_threads=None,debug_allocator=False,shape='sphere',stack_
                             sha256=hashlib.sha256(biased.read_bytes()).hexdigest())
                     selected = 'scan-cycle-models.yaml'
                     write_json(config_directory/selected, model_config)
+                    write_json(root/'scan-models.json', model_config)
                 command.extend(('--scan-models','/opt/elesim/config/'+selected))
             entry = ['/bin/bash','-c',
                 'source /opt/ros/humble/setup.bash && source /opt/elesim/ros/install/setup.bash && exec "$@"','scan-cycle']
@@ -320,6 +359,8 @@ def upload():
     names.append(Path('workbench/research/debug/scan_cycle_native.py'))
     names.append(Path('workbench/research/debug/pilot_native_repro.py'))
     names.append(Path('workbench/research/support/thread_stacks.py'))
+    names.append(Path('workbench/tests/system/probe_visual_servoing_window.py'))
+    names.append(Path('workbench/research/support/ui_window_run.py'))
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode='w:gz') as archive:
         for path in names:
@@ -346,6 +387,13 @@ print(json.dumps({{'uploaded':sorted(p.name for p in root.iterdir())}}))
         '-o','ProxyCommand=python3 -m workbench.research.support.ssh_mss_proxy %h %p',
         'hckang@100.74.222.24','python3 -c '+shlex.quote(remote)]
     subprocess.run(command,input=buffer.getvalue(),check=True,timeout=120)
+
+
+def preservation_ok(preservation):
+    """Accept this execution against its start; retain historical audit separately."""
+    if 'prelaunch_before' in preservation:
+        return not preservation['prelaunch_missing'] and not preservation['prelaunch_changed']
+    return not preservation['missing'] and not preservation['changed']
 
 
 def stop(attempt):
@@ -380,9 +428,10 @@ def stop(attempt):
     ui_path, evaluation_path = root/'ui-output/ui.json',root/'sim-output/evaluation.json'
     ui = json.loads(ui_path.read_text()) if ui_path.exists() else {}
     evaluation = json.loads(evaluation_path.read_text()) if evaluation_path.exists() else {}
+    record['stop_driver_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    record['preservation_scope'] = 'prelaunch' if baseline_path.exists() else 'historical'
     record.update(stopped=time.time(),complete=bool(ui.get('complete') and evaluation.get('complete')
-        and ui.get('video',{}).get('complete') and not preservation['missing'] and not preservation['changed']
-        and not preservation.get('prelaunch_missing') and not preservation.get('prelaunch_changed')))
+        and ui.get('video',{}).get('complete') and preservation_ok(preservation)))
     write_json(root/'run.json',record)
 
 
@@ -440,7 +489,7 @@ selected=[]
 for path in root.rglob('*'):
  if not path.is_file() or path.is_symlink():continue
  relative=path.relative_to(root)
- if path.name in ('run.json','preservation.json','retention-checks.json','model-profile.json','shutdown-validation.json','jar-target.obj') or (path.suffix in ('.json','.png','.mp4') and
+ if path.name in ('run.json','preservation.json','retention-checks.json','model-profile.json','scan-models.json','shutdown-validation.json','jar-target.obj') or (path.suffix in ('.json','.png','.mp4') and
      ('output' in relative.parts[0] or path.name in ('scan.json','scene.json'))):selected.append(path)
 assert sum(p.stat().st_size for p in selected)<256*1024*1024
 buffer=io.BytesIO()
@@ -471,8 +520,10 @@ def evaluate(attempt):
     record = json.loads((root/'run.json').read_text())
     probes = root/'probes' if (root/'probes').is_dir() else TASK/'probes'
     script = (probes/'evaluate_scan_cycle.py').read_bytes()
-    result = subprocess.run(DOCKER+['exec','-i',record['services']['sim']['name'],'python3','-',
-        '--pipeline-mode',record.get('pipeline_mode','baseline')],
+    arguments = ['--pipeline-mode',record.get('pipeline_mode','baseline')]
+    if record.get('native_window'):
+        arguments.extend(('--source-fixture','visible'))
+    result = subprocess.run(DOCKER+['exec','-i',record['services']['sim']['name'],'python3','-',*arguments],
         input=script,capture_output=True,timeout=120)
     (root/'evaluation.stdout.log').write_bytes(result.stdout)
     (root/'evaluation.stderr.log').write_bytes(result.stderr)
@@ -492,11 +543,17 @@ def main():
     parser.add_argument('--pipeline-mode',choices=('baseline','integrated'),default='integrated')
     parser.add_argument('--pose-bias-deg',type=float,default=0.)
     parser.add_argument('--view-budget',type=int,default=3)
+    parser.add_argument('--visual-servoing-source',type=Path,
+        help='Read-only UI-only app root for an uncommitted Visual Servoing widget/controller cycle')
+    parser.add_argument('--require-poisson',action='store_true',
+        help='Require configured PoissonSurface and actual screened_poisson/4 mm execution diagnostics')
+    parser.add_argument('--native-window',action='store_true',
+        help='Reserve UI for the production desktop capture helper instead of the headless probe')
     args = parser.parse_args()
     if args.action == 'upload': upload()
     elif args.action == 'publish': publish()
     elif args.action == 'launch': launch(args.attempt,args.math_threads,args.debug_allocator,args.shape,args.stack_interval,
-        args.pipeline_mode,args.pose_bias_deg,args.view_budget)
+        args.pipeline_mode,args.pose_bias_deg,args.view_budget,args.visual_servoing_source,args.require_poisson,args.native_window)
     elif args.action == 'stop': stop(args.attempt)
     elif args.action == 'profile-models': profile_models(args.attempt)
     elif args.action == 'retry-ui': retry_ui(args.attempt)

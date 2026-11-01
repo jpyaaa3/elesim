@@ -2,9 +2,32 @@
 
 정상 설치로 만든 Pilot/Sim/UI 이미지 세 개를 분리해 실행한다. 각 probe는
 자기 역할만 import할 수 있어야 한다. 실제 Genesis, 관절 피드백, DDS RGB-D,
-operator RPC, WebRTC 수신과 `load_scan_result` backend를 사용한다. Native UI
-창을 자동 조작하지는 않는다. 현재 완료 범위와 수치는
+operator RPC, WebRTC 수신과 `load_scan_result` backend를 사용한다. 기본 모드는
+headless이며 아래 native-window 모드만 실제 desktop 창과 OS 입력을 사용한다.
+현재 완료 범위와 수치는
 [`docs/status.md`](../../../docs/status.md)만 소유한다.
+
+`launch --visual-servoing-source /absolute/UI/app/root`는 검증할 UI 전용 소스를
+읽기 전용으로 UI image에 붙이고 모든 Python 파일 SHA를 기록한다. 이 모드에서는
+새 Visual Servoing의 실제 ImGui widget에 mouse down/up을 전달해 Place/Remove,
+Scan, Apply와 Resume를 누른다. Live operator/session과 production controller를
+사용하며 matching ACK, 중복 Apply 차단과 미연결 grasp 버튼의 차단도 요구한다.
+ImGui draw loop는 headless이며 OS native 창·UI OpenGL renderer의 수용시험은 아니다.
+두 카메라의 녹화는 실제 WebRTC decoder frame을 사용한다. Pilot/Sim image는
+기존 발행 revision을 유지하므로 UI source SHA와 image revision을 구분한다.
+
+`launch --native-window --require-poisson --visual-servoing-source /absolute/UI/app/root`는
+UI 컨테이너를 대기 상태로 만든다. 이어 그 실행 폴더에 고정된
+`ui_window_run.py --run-root /absolute/cycle-NN`을 실행하면 production
+`ControlPanel.run()`을 private Xvfb의 1920×1080 창으로 열고 XTest 마우스/키보드와
+X11 화면 녹화를 사용한다. UI 상태·센서 frame·응답을 대체하지 않는다. 디스플레이
+도구는 이 진단 UI 컨테이너 안에만 설치하고, 준비 중 추가한 외부 경로는 DDS/UI
+실행 전에 제거한다. 원본 영상은 30 fps H.264이며 초기 화면 설정은 Sim/Side by side다.
+이 모드는 원래 Sim fixture를 숨기지 않고 재구성을 겹쳐 보여준다. 독립 평가도
+기존 hidden-source 기준선과 구분해 원래 fixture의 위치 보존을 요구한다.
+마우스 down/up은 한 XTest 연결에서 수행하고 실제 위젯 반응·단계 전환을 기록한다.
+일반 desktop operator와 동일한 shared UI peer channel을 사용하므로 직접 peer만
+사용하는 headless probe로 확인할 수 없는 capability 전달도 함께 검사한다.
 
 `probe_scan_cycle_sim.py`는 고정 암을 배치하고 실제 카메라 앞 0.4 m에 반경
 45 mm의 빨간 구 또는 높이 140 mm인 같은 반경의 원통을 둔다.
@@ -25,8 +48,12 @@ UI probe는 실제 피드백으로 torque/claw 상태를 확인한 뒤 3-view sc
 확인한다. Sim은 원본의 실제 위치, 기존 entity q/velocity/root pose, camera
 PID와 rebuild 이후 frame timestamp를 독립 기록한다.
 
-현재 driver 기본값 `--pipeline-mode integrated`는 HSV + FK + 촬영별 FloorTilt +
-실제 AdaPoinTr AP-PS55 + 10 mm voxel surface다. 기존 기준선은
+현재 소스의 `--pipeline-mode integrated` 기본 프로필은 HSV + FK + 촬영별 FloorTilt +
+실제 AdaPoinTr AP-PS55 + PoissonSurface/4 mm remesh다. 이미 발행된 옛 image는
+자신의 프로필을 유지하므로 현재 Poisson 검사에는 `--require-poisson`을 함께 쓴다.
+이 옵션은 기동 전 factory/설정과 Scan 후 실제 mesher 실행 진단을 모두 검사한다.
+옛 voxel 실행을 Poisson 결과로 판정하지 않는다. 선택한 설정 원문은 `scan-models.json`에
+보존한다. 기존 기준선은
 `--pipeline-mode baseline`으로 명시한다. Source archive와 checkpoint는 이전
 실험의 고정 파일을 read-only로 붙이고 hash를 검사한다. Host Python에는
 패키지를 설치하지 않으며 설치된 tools 이미지에서 YAML을 읽는다.
@@ -38,8 +65,11 @@ world-Z 축의 유한 원통 옆면·끝면·모서리를 모두 포함한다. �
 root를 사용하며 보안/NAT 시험을 대신하지 않는다.
 통합 HSV adapter는 25 mm depth 연결성으로 detector `min_area_px` 미만의 작은
 깊이 성분도 제외한다. 고립된 background pixel은 제거하고 넓은 jar 내벽은 유지한다.
-통합 voxel mesher는 mesh 크기와 별도로 고정한 10 mm 반경에 이웃점 8개가 없는 생성점을 제외한다. 모든
+표면화 입력은 mesh 해상도와 별도로 고정한 10 mm 반경에 이웃점 8개가 없는 생성점을 제외한다. 모든
 관측점과 원본 8,192개 생성 배열은 보존하며, 사용/제외한 수를 별도 기록한다.
+현재 Poisson은 별도 CPU child에서 연속 표면을 적합하고 4 mm signed-distance
+격자로 regularize한다. 격자 간격은 최종 면 생성에 쓰며 점마다 분리된 상자를
+출력하지 않는다. 이 solid proxy와 AdaPoinTr가 추정한 숨은 면은 실측 증거가 아니다.
 Jar 평가는 Sim-private r,z profile의 회전 표면까지 거리를 독립 계산하며,
 외벽·내벽·rim·bottom을 포함하고 rotation-axis의 면적 없는 선은 제외한다.
 
@@ -83,7 +113,9 @@ python3 -m workbench.research.support.scan_cycle_run upload
 `prepare`는 작업 root가 없을 때만 실행한다. 이미 존재하는 이 작업에는
 다시 실행하지 않는다. 소스 수정 후에는 먼저 commit하고 `refresh`로 그
 commit의 archive를 보낸다. 원격 build가 `preparation.json`에 성공을 기록한
-뒤 서버에서 아래 명령을 순서대로 실행한다. `N`은 사용하지 않은 1..24다.
+뒤 서버에서 아래 명령을 순서대로 실행한다. `N`은 사용하지 않은 1..254다.
+기존 1..24의 network 주소는 유지하며 25 이후는 별도 private subnet을 사용한다.
+실제 Docker network와의 겹침은 계속 거부한다.
 
 ```bash
 python3 /home/hckang/ws/elesim-scan-cycle-20261030/probes/scan_cycle_run.py publish
@@ -102,6 +134,9 @@ inventory와 비교한다. 컨테이너·이미지·volume·원본 cache를 삭�
 새 실행은 시작 직전의 전체 container inventory도 따로 대조한다. Probe는 각
 실행 폴더에 고정 복사하며 upload가 교체하는 기존 파일은 SHA-256별 history에
 보존한다. 이후 도구 변경이 이미 생성한 실행의 probe를 바꾸지 않는다.
+현재 실행의 보존 gate는 이 prelaunch inventory를 사용한다. 옛 study-wide inventory의
+missing/changed 기록도 남기며, prelaunch snapshot이 없는 legacy 실행은 기존
+study-wide gate를 유지한다. 재집계할 때 최초 결과를 보존하고 stop driver SHA를 기록한다.
 실패한 시도도 남긴다. Cache는 새 instance에 복사하며 기존 cache를 비우지
 않는다. 같은 fixture의 후속 실행은 mesh 전처리 cache도 재사용할 수 있으므로
 첫 삽입과 반복 삽입의 지연을 구분한다.

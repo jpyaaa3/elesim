@@ -1,0 +1,9 @@
+[Perception] label=sim_sphere camera=[+0.0123, -0.0541, +0.1870] m world=[+0.7757, +0.0126, +0.0865] m (sim_frame_pose)
+[Perception] label=sim_sphere camera=[+0.0098, -0.1029, +0.2590] m world=[+0.8614, +0.0152, +0.0708] m (sim_frame_pose)
+[Grasp-Ctrl] mode=local_img_jacobian | u_err=+0.0000 v_err=+0.1187 z_err=+0.2001 | dq_cmd=[0.0068,0.0077,0.0027,0.0081] dq_meas=[0.0000,0.0000,0.0000,0.0000] q_cmd=[-0.1277,-0.0353,0.1297,0.0131] | sample=dq_too_small | remain=200.1mm close_tol=3.0mm
+[Grasp-Ctrl] mode=local_img_jacobian | u_err=+0.0828 v_err=-0.0479 z_err=+0.1373 | dq_cmd=[0.0045,-0.0055,-0.0018,-0.0048] dq_meas=[0.0000,0.0000,0.0000,-0.0054] q_cmd=[-0.0574,-0.0454,0.1184,0.0248] | sample=dq_too_small | remain=138.4mm close_tol=3.0mm
+[Grasp-Ctrl] mode=local_img_jacobian | u_err=+0.0250 v_err=-0.1312 z_err=+0.1392 | dq_cmd=[0.0046,-0.0055,-0.0018,-0.0053] dq_meas=[0.0046,-0.0055,-0.0018,0.0006] q_cmd=[-0.0574,-0.0454,0.1184,0.0189] | sample=dq_too_small | remain=136.2mm close_tol=3.0mm
+[Grasp] LJI | blind finish | remain=98.3mm <= 100.0mm
+[Grasp] blind extend | axial_remain=98.0mm look_err=19.8deg (latched look)
+[Grasp] grasp blind | bisect | travel=23.8mm look_err=19.1deg (tol 12.0deg)
+[Grasp] blind abort | axial_remain=65.3mm > tol 3.0mm

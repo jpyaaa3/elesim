@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "created_utc": "2026-11-01T09:52:43.158468+00:00",
+  "scope": "Supplemental actual Genesis 1.4.5 camera-worker and stationary physics/render tests on remote GPU2. No new-UI end-to-end scan/reconstruction/apply acceptance.",
+  "relationship_to_previous_run": {
+    "report": "workbench/evidence/curated/ui/visual_servoing_20261101.json",
+    "previous_required": {
+      "passed": 3982,
+      "skipped": 6
+    },
+    "note": "The previous required run skipped both opt-in real Genesis camera tests. These two tests were separately enabled and passed here; the original run counts are unchanged. Its software/RMW/media results did not prove an actual Genesis scene or the new UI full cycle."
+  },
+  "source": {
+    "base_head": "e88ca97d99a8f3db21338b6843a4e7cc24b1fc80",
+    "dirty": true,
+    "camera_source_manifest": "workbench/evidence/generated/visual-servoing-20261101/remote/source-manifest-r4.json",
+    "bench_runtime_files_compared_with_local": 99,
+    "bench_runtime_sha_mismatches": [],
+    "bench_runtime_hashes": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/real-genesis/real-genesis-run2/work/metadata/probe.json",
+      "sha256": "573fa867dd22ba1b2e2d3c55785631e1ad5100973fa91c798bfad899553011fc"
+    },
+    "metadata_head_note": "The bench manifest sees a copy of server Git metadata at 70757e6. Runtime identity is the current e88ca97-based dirty snapshot manifest and byte hashes, not that metadata HEAD."
+  },
+  "environment": {
+    "ssh_host": "hckang@100.74.222.24",
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "gpu_model": "NVIDIA RTX A6000",
+    "genesis_world": "1.4.5",
+    "camera_tests": {
+      "method": "Existing installed persistent dev container via Compose exec, private locked venv/ROSIDL overlay; no image build/recreate.",
+      "cuda_visible_devices": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+      "egl_device_id": "2",
+      "egl_mapping": "Inherited dev EGL exposes three GPUs; EGL_CUDA_DEVICE_NV plus cuDeviceGetUuid matched EGL index 2 to the selected GPU2 UUID.",
+      "private_vendor_json": {
+        "path": "workbench/evidence/generated/visual-servoing-20261101/real-genesis/environment/nvidia-egl.json",
+        "sha256": "902ce1a29e2e84fbf7b38168bf953ad42b689f2d46510fd07a54e4a18cb5ad1c"
+      }
+    },
+    "physics_bench": {
+      "method": "Maintained sim-step catalog through installed Compose; GPU2-only diagnostic container using existing Sim image, removed automatically after its own run.",
+      "image": "sha256:0a9afc14c043bd6c4010befc6e97cda08b6405bd03f02590af429bf6fb8398b0",
+      "visible_gpu": [
+        "GPU-a40782b2-881c-e285-2a8e-66cae9162a01, NVIDIA RTX A6000, 580.65.06"
+      ],
+      "egl_device_id": "0",
+      "packages": {
+        "numpy": "1.26.4",
+        "scipy": "1.15.3",
+        "torch": "2.12.1",
+        "genesis-world": "1.4.5",
+        "jax": "0.4.38",
+        "jaxlib": "0.4.38"
+      },
+      "renderer": "NVIDIA RTX A6000/PCIe/SSE2; software=false for both camera workers"
+    }
+  },
+  "camera_tests": {
+    "tests": [
+      "test_real_async_camera_worker_delivers_latest_observer_frame",
+      "test_real_async_camera_workers_keep_hand_eye_and_observer_live"
+    ],
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0,
+    "pytest_wall_s": 110.26,
+    "supervisor_wall_s": 115.0793308550492,
+    "resolution": [
+      64,
+      48
+    ],
+    "asserted": "Real observer RGBD first frame, both observer and hand-eye frames after a substantial joint/root/camera/target pose update, non-null camera world origins, updated image pixels, no worker failure.",
+    "rendering": "Actual Genesis scenes and NVIDIA EGL rendering; the first observer test uses CPU Genesis and the dual-worker test requests GPU Genesis/conversion.",
+    "junit": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/real-genesis/evidence/real-genesis-camera.xml",
+      "sha256": "e025f34148cec297d90b75d1cd99d59cd8cc4c1b29a1a375e6b233667c58ed4a"
+    },
+    "log": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/real-genesis/evidence/real-genesis-camera.log",
+      "sha256": "898b94bf555ba3aafeb53dca9263c5e87dbb7014e67bee20fb43735c5e42525c"
+    }
+  },
+  "stationary_physics_bench": {
+    "recipe": "sim-step",
+    "complete": true,
+    "accepted": true,
+    "parameters": {
+      "duration": 2,
+      "repeat": 1,
+      "cycles": 1,
+      "command": [
+        0,
+        0,
+        0
+      ],
+      "cameras": true,
+      "arm_motion": false,
+      "budget_ms": 100
+    },
+    "scope": "Real GPU Genesis GO2+arm scene with arm hold and two asynchronous camera workers. Zero base command; active MPPI walking/solve was not exercised.",
+    "dds": false,
+    "webrtc": false,
+    "hardware": false,
+    "new_native_ui": false,
+    "sim_elapsed_s": 6.0,
+    "trial_wall_s": 2.962355202063918,
+    "resolution": [
+      1280,
+      720
+    ],
+    "rendered_fps": {
+      "hand_eye_preview": 28.355816325292768,
+      "observer": 28.355816325292768
+    },
+    "capture_to_observation_ms_p95": {
+      "hand_eye_preview": 15.020966529846191,
+      "observer": 16.742563247680657
+    },
+    "whole_loop_step_ms": 4.93725867010653,
+    "step_ms_p50_p95": [
+      4.683528561145067,
+      6.063820794224738
+    ],
+    "solve_ms_p50_p95": null,
+    "fallen": false,
+    "faulted": false,
+    "startup_wall_s": 261.6639064596966,
+    "camera_first_frames_wall_s": 20.58654105849564,
+    "supervisor_wall_s": 288.2983068721369,
+    "timing_limits": "Single short stationary trial, explicit 100 ms mean whole-loop budget. Startup used a private benchmark cache; original runtime caches were not cleared. This is not a cold-start timing comparison or production moving-MPPI performance acceptance.",
+    "manifest": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/real-genesis/real-genesis-run2/manifest.json",
+      "sha256": "4ddd3e3392f3356cd1014ef9249c6806b14b82b8457bfaae01503d6b097b2787"
+    },
+    "log": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/real-genesis/real-genesis-run2/logs/probe.log",
+      "sha256": "7516513af7ccc5a308f9b7f1014ebab5ec4dc6f0eb9c8ab7483833179a362d8d"
+    },
+    "samples": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/real-genesis/real-genesis-run2/work/probe/walking.jsonl",
+      "sha256": "bf80fb364d321da4d0be84f1216d4848abcbe06d63d8db444aa7874a3bbca10e"
+    }
+  },
+  "initial_setup_failures_preserved": [
+    {
+      "failure": "Existing dev lacks the NVIDIA EGL vendor JSON; initial EGL enumeration failed.",
+      "resolution": "Private validation-owned EGL vendor JSON and confirmed GPU2 CUDA/EGL mapping; no original image/root edit.",
+      "raw": {
+        "path": "workbench/evidence/generated/visual-servoing-20261101/real-genesis/evidence/real-genesis-egl-probe.log",
+        "sha256": "8b4996d729a1ce150c42b6cf38bc601a70d0160f6816f925d6952451124cef76"
+      }
+    },
+    {
+      "failure": "First host-side maintained bench preflight could not import PyYAML.",
+      "resolution": "Copied the existing dev image PyYAML package into the private host-tools directory for config parsing; no host scientific/ROS installation.",
+      "raw": {
+        "path": "workbench/evidence/generated/visual-servoing-20261101/real-genesis/evidence/real-genesis-bench-exit.json",
+        "sha256": "60f7c93d22559febf63032f72c2409535e788ca57e7f89b9b77febec7c11f6c7"
+      }
+    }
+  ],
+  "preservation": {
+    "checked_utc": "2026-11-01T09:50:51.018031+00:00",
+    "context": "default",
+    "engine_id": "2ee9c1c8-0d97-43a9-82eb-dfef7cda0ae3",
+    "before_count": 202,
+    "after_count": 202,
+    "removed": [],
+    "added": [],
+    "targets": {
+      "dev": {
+        "id": "911d6afa54c7aca932ab613018f3ae44156d7e8297caa16bd81802e5c0dbd2a7",
+        "image": "sha256:d10248f3c2dacfb4ec7332e52b7756790aae7fc0d88ce03490075abe68ff7c8a",
+        "running": false,
+        "restart_count": 0
+      },
+      "pilot": {
+        "id": "a3e381d60bf9d9794e4801e589d45bed4222edb19c6ec3991d5f65d23e85d350",
+        "image": "sha256:721ad04bd30ba71549841fffc88aab62d6c9d49c7842d643ea9b3d264781c22a",
+        "running": false,
+        "restart_count": 0
+      },
+      "sim": {
+        "id": "ecdb1f6ce5550931bcda0065d7d09aab509df3f3907e3f2815fc7c8023168660",
+        "image": "sha256:0a9afc14c043bd6c4010befc6e97cda08b6405bd03f02590af429bf6fb8398b0",
+        "running": false,
+        "restart_count": 0
+      }
+    }
+  },
+  "preservation_evidence": {
+    "path": "workbench/evidence/generated/visual-servoing-20261101/real-genesis/evidence/real-genesis-preservation.json",
+    "sha256": "e859b77f8f4c3242f05a22288c6090b0039a14f71e26ba998cc607b00d29a180"
+  },
+  "not_exercised": [
+    "New Visual Servoing native UI with live DDS/WebRTC followed by Scene -> Scan -> reconstruction -> mesh apply in one run.",
+    "New UI Apply/cancel/stop/reconnect behavior against a real Genesis scene in one live deployment.",
+    "Active GO2 walking/MPPI solve with camera load, physical Robot or real hardware safety.",
+    "Mesh-derived grasp/embrace execution and hold verification (adapters remain unconnected)."
+  ],
+  "raw_artifact_index": {
+    "path": "workbench/evidence/generated/visual-servoing-20261101/real-genesis/artifact-index.json",
+    "sha256": "029bec79afb93c28a5fbe0697867594a2abe0d2ea2c81eec955178b080516639"
+  }
+}

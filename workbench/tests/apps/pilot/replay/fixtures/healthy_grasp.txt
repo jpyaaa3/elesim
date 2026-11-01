@@ -1,0 +1,7 @@
+[Perception] label=sim_sphere camera=[+0.0100, -0.0500, +0.1900] m world=[+0.8000, +0.0000, +0.2000] m (sim_frame_pose)
+[Perception] label=sim_sphere camera=[+0.0090, -0.0400, +0.1750] m world=[+0.8005, +0.0002, +0.1997] m (sim_frame_pose)
+[Grasp-Ctrl] mode=local_img_jacobian | u_err=+0.0200 v_err=-0.0150 z_err=+0.0400 | dq_cmd=[0.0040,-0.0020,0.0010,-0.0010] dq_meas=[0.0038,-0.0019,0.0010,-0.0010] q_cmd=[0.1000,0.0000,0.1000,0.0000] | sample=accepted | remain=40.0mm close_tol=3.0mm
+[Grasp-Ctrl] mode=local_img_jacobian | u_err=+0.0080 v_err=-0.0060 z_err=+0.0150 | dq_cmd=[0.0030,-0.0010,0.0005,-0.0005] dq_meas=[0.0029,-0.0010,0.0005,-0.0005] q_cmd=[0.1030,-0.0010,0.1005,-0.0005] | sample=accepted | remain=15.0mm close_tol=3.0mm
+[Grasp] LJI | blind finish | remain=5.0mm <= 10.0mm
+[Grasp] blind extend | axial_remain=5.0mm look_err=3.0deg (latched look)
+[Grasp] grasp done | claw closed

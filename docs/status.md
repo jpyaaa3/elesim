@@ -6,6 +6,134 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Visual Servoing 통합 UI와 원격 GPU2 회귀 (2026-11-01)
+
+작업 탭을 **Visual Servoing / Manual / Status**로 정리했다. 기존 Scan·Legacy 탭과
+Manual의 Mock Object/Wrap 행을 제거하고 **Scene → Scan → Reconstruction → Action**
+네 단계에 배치·관측·재구성·동작 시험을 모았다. 이전 panel 4개와 교체 전 회귀
+원문은 archive ZIP과 SHA inventory로 보존했다. 카메라는 같은 창에서 observer와
+hand-eye를 나란히 또는 큰 화면+보조 화면으로 보며 기존 선택적 pop-out도 유지한다.
+
+UI는 명시적 intent와 ACK 표시를 소유한다. Pilot 요청은 motion endpoint/boot,
+scene 명령은 UI Sim/boot/session에 묶어 조작 대상과 카메라 선택의 독립성을 유지한다.
+Reference solution은 양쪽 context와 object revision/digest/epoch가 바뀌면 버린다.
+스캔 중 장면 변경·경쟁 동작과 중복 제출을 막고, 재구성 적용은 동일 producer Sim
+boot와 published revision을 검증해 matching ACK가 와야 완료로 표시한다.
+Stop workflow, 항상 보이는 Torque OFF, paused 상태의 명시적 Resume Sim을 제공한다.
+Wrap의 존재하지 않던 `pick_cancelled` 참조도 기존 Pick stop event로 바꿔 ramp/roll
+중지를 연결했다. 기존 IK solver의 계산 취소는 미지원이며 해당 Stop은 torque-off를
+요청한다. 실기기 stop deadline을 검증한 결과가 아니다.
+
+스캔은 **현재 Sim 전용**이다. 메쉬 기반 gripper/embrace 실행과 유지 검증은 미연결로
+표시한다. Sim ground-truth reference Hug와 설정된 원통 geometry의 Wrap 정책을
+재구성 메쉬 기반 실행으로 표시하지 않는다. 기존 detector·UV/LJI 계산과 wire API는
+공유 backend/호환 경로로 유지하며 DDS v6/operator-view v1은 변경하지 않았다.
+[화면·조작·모델 연결 범위](visual_servoing.md).
+
+`hckang@100.74.222.24`의 현재 설치 dev service에서 GPU2 UUID를 CUDA 장치 하나로
+선택하고 실제 CUDA 계산 및 변환 검사를 수행했다. 기존 dev image는 Genesis 1.4.1이고
+현재 generated wrapper의 선택 alias가 없어, wrapper를 통한 build/recreate 대신
+**기존 컨테이너 ID를 보존한 Compose exec + 별도 venv/ROSIDL overlay**를 사용했다.
+검증 venv는 Genesis 1.4.5, Quadrants 1.3.3, Torch 2.12.1, Open3D CPU 0.20.0 등
+저장소 dev lock **32개**와 일치한다. 최종 실행 파일 **1,335개**의 SHA를 실행 전후 및
+로컬 소스와 대조했다. 스냅샷의 코드 identity는 local base `e88ca97` + 파일 manifest다.
+Git-aware 설치 검사용으로 복사한 서버 checkout metadata의 HEAD `70757e6`를 실제
+실행 코드 revision으로 사용하지 않는다.
+
+최종 required는 **3,982 passed / 6 skipped**, 종료 코드 0, **281.41초**다.
+Protocol 194, Robot 166, Pilot **728**, Sim **1,117**, UI **298**, model/release 98,
+setup **1,369**, 기타 pytest 시스템 검사 12개가 통과했다. 실제 CycloneDDS 4-process
+topology, 2-process Sim motor 및 UI scene-command smoke 3개도 통과했다. Encoded
+WebRTC 두 스트림과 active scan/재구성 artifact 경로가 포함된다. Skip은 qpOASES
+plugin 부재 1개, opt-in 실제 Genesis camera-worker 2개, Node.js가 없는 설치 frontend
+behavior 3개다. 실제 Robot·NAT/TURN·multi-host SROS2·GPU renderer 인수시험의 대체가 아니다.
+
+위 required 실행 뒤 **실제 Genesis 1.4.5**를 GPU2에서 별도로 기동했다. Opt-in
+camera-worker 검사 **2 passed / 0 skipped**, 110.26초로 observer RGBD와 자세 변경 후
+observer·hand-eye 양쪽 영상 갱신을 확인했다. CUDA UUID와 EGL 장치 UUID를 대조했고
+두 renderer 모두 NVIDIA A6000, `software=false`였다. 기존 dev의 EGL vendor JSON
+누락은 검증 전용 파일로 보완했으며 원본 image는 수정하지 않았다.
+
+기존 Sim image의 maintained `sim-step`도 `cameras=true`, base command `[0,0,0]`으로
+실행해 통과했다. 실제 GO2+arm 물리 씬에서 6 sim초 동안 arm hold와 1280×720 두 영상을
+함께 구동했고 각각 28.36 fps, fall/fault 없음이다. 정지 시험이므로 active MPPI solve나
+보행 검증은 아니다. 별도 cache의 startup은 261.66초였고 원본 runtime cache를 지우지
+않았으므로 cold-start 비교 자료로 사용하지 않는다. 기존 202개 container ID를 유지하고
+dev·Pilot·Sim을 원래 정지 상태로 복원했다. 원래 required 3,982/6 집계와 이 추가
+실행을 구분한다.
+[추가 실행 조건·결과·원본 로그 SHA](../workbench/evidence/curated/ui/visual_servoing_genesis_20261101.json).
+
+이어서 격리 설치의 jar `cycle-24`에서 **새 Visual Servoing의 실제 ImGui widget과
+controller**를 실제 Genesis/DDS/WebRTC에 연결해 한 바퀴 통과했다. Mouse down/up으로
+Place/Remove, Scan, Apply, Resume와 단계 이동 **8회**를 실행했다. UI 코드 29개 파일은
+현재 로컬 소스와 SHA가 일치하며 다른 역할은 import하지 않는다. 고정 암 3-view에서
+관측점 **3,733개**, view별 바닥 보정과 실제 AdaPoinTr **8,192개** 출력을 확인했다.
+Scan은 **51.82초**, 메쉬 적용은 **2.87초**이며 matching ACK 뒤 `applied` 표시,
+중복 Apply 차단, rebuild 후 두 영상 갱신, Pause 후 Resume와 미연결 grasp 차단을
+확인했다. 원본 decoder 영상은 각 644 frame / 64.40초, 10 fps로 보존했다.
+
+이 cycle은 **headless ImGui**이며 OS native 창·UI OpenGL renderer 검증은 아니다.
+기존 발행 backend revision `af52eda`와 **20 mm voxel surface** 프로필을 사용했다.
+현재 기본 Poisson/4 mm remesh의 이번 UI cycle 검증으로 해석하지 않는다. 독립 평가의
+observed/predicted/mesh vertex p95는 각각 **0.96/10.08/32.45 mm**로 해당 fixture
+기준을 통과했으나 완전 형상·일반 instance segmentation·집기 성공을 주장하지 않는다.
+검증 전 202개 container의 ID·image·상태가 모두 같고 추가 진단 5개도 삭제 없이
+정지 상태다. 기존 dev와 실제 `test` Pilot/Sim은 down, restart 0이다.
+
+옛 study-wide inventory에서 이번 기동 전에 이미 없던 2개 ID 때문에 driver가 최초
+aggregate를 `complete=false`로 표시했다. 최초 결과·옛 missing 목록은 그대로 보존하고
+이번 실행 전 inventory를 기준으로 재집계했다. 현재 실행의 누락·변경은 계속 실패로
+판정하며 prelaunch snapshot이 없는 legacy 실행의 기존 gate도 유지한다. 회귀검사
+**6 passed**다. [실제 UI cycle 조건·영상·평가·감사 결과 SHA](../workbench/evidence/curated/ui/visual_servoing_live_cycle_20261101.json).
+
+이후 `cycle-30`은 **production UI 창 전체**를 private Xvfb에서 열고 실제 XTest
+입력으로 Manual 토크, Scan 예산 3, 시작, Reconstruction Apply와 Action 확인을
+수행했다. 실제 Genesis 1.4.5/DDS RGBD/WebRTC 두 영상과 **현재 기본 Poisson/4 mm
+remesh**를 사용했다. 초기 Sim fixture 배치는 probe가 맡고 원본 빨간 jar는 적용 뒤에도
+숨기지 않는다. UI 코드 29개 SHA가 현재 로컬과 일치하고 sibling app import는 없다.
+
+현재 Pilot image에서 Poisson child를 처음 실행하자 Open3D의 EGL 의존성이 누락돼
+실패했다. `libegl1` 추가 뒤 build import gate가 USB 누락도 잡았다. Generated app과
+standalone Pilot Dockerfile에 `libegl1`/`libusb-1.0-0` 및 실제 Open3D import gate를
+넣었고, 새 generated Pilot image의 Open3D **0.20.0** import/build가 통과했다.
+Backend 발행 revision은 `61da794`다. 실제 desktop의 공유 peer channel에는 직접
+peer의 `.node`가 없어 scene-rebuild capability가 전달되지 않던 문제도 수정했다.
+읽기 전용 discovery snapshot을 제공하고, I/O 대기 중 UI session lock을 잡지 않으며
+대상·boot·session 변경 중 얻은 결과는 버린다. 최종 원격 **전체 UI 303 passed**,
+host focused UI **93 passed**, profile/network/preservation/geometry **23 passed**다.
+위 required 3,982/6 집계는 이전 실행이며 이 후속 변경 뒤 전체 required를 반복하지 않았다.
+
+Scan은 실제 Start 위젯 입력부터 완료 표시까지 **58.75초**, AdaPoinTr 추론은
+**2.95초**였다. 관측 **3,733개**와 생성 **8,192개**에서 Poisson의 **23,832 vertex /
+47,676 triangle** 메쉬를 만들었다. 최종 성분 1개, 열린 경계·비다양체 edge·winding
+불일치·자기 교차 0이며 vertex-manifold다. 독립 평가 observed/predicted/mesh vertex
+p95는 **0.96/10.08/11.83 mm**로 기준을 통과했다. 38.5% 방향 coverage와 숨은 면 추정의
+한계는 유지하며 완전 형상·관측 free-space·집기 성공을 주장하지 않는다.
+
+Apply backend는 **8.08초**, 실제 위젯 입력에서 matching ACK까지 **9.05초**였다.
+Entity 상태·camera PID가 보존되고 두 영상이 다시 갱신됐다. 재빌드 중 잠시 Control
+OFFLINE을 표시한 뒤 마지막 영상에서는 ONLINE으로 복구됐다. 무편집·1배속 **1920×1080,
+30 fps, 2,923 frame / 97.434초**의 전체 창 원본을 디코딩 검증했다. 이번 시작 전
+**207개 container, 45개 image, 기존 cache 13,300개 항목**의 ID/image/상태 또는
+inode/size/mtime/type가 모두 보존됐다. 추가 진단도 삭제하지 않고 모두 정지했으며
+기존 dev·실제 Pilot/Sim은 down, restart 0이다. 실패한 cycle-25..29와 빌드 로그도 보존했다.
+[전체 UI 영상](../workbench/evidence/curated/ui/visual_servoing_poisson_demo_20261101.mp4),
+[실행 조건·독립 평가·원본 SHA·보존 감사](../workbench/evidence/curated/ui/visual_servoing_poisson_20261101.json).
+
+Extended 실행은 **184 passed / 1 failed / 1 skipped**이며 critical mutation **7개**를
+모두 잡았다. 남은 실패는 기존 readability 검사 하나로, 해당 실행 당시 수정하지 않은
+`PyMpcGenesisController` 1,079줄과 `UiSimSession` 1,057줄이 1,000줄 한도를 넘는다.
+당시 HEAD와 같은 바이트임을 확인했으며 한도를 낮추거나 검사를 건너뛰지 않았다.
+최종 네 역할 release는 별도 출력 경로에서 생성·격리 검증을 통과했다.
+
+넓은 검사에서 발견한 test-double API 누락, Git에 없던 replay `.log` fixture,
+editable import가 가짜 legacy image 검사에 새어 들어가던 문제를 assertion을 유지하며
+보완했다. 첫 실패 실행과 후속 성공 실행을 모두 보존했다. 서버 기존 **202개 container
+ID**와 dev image를 유지했고 dev는 원래 정지 상태로 복원했다. 실제 `test` Pilot/Sim은
+같은 ID·image, restart 0, down 상태이며 로컬 실제 UI도 기동하지 않았다. 원본 Genesis
+cache나 image를 정리하지 않았다. [조건·집계·원본 로그 SHA](../workbench/evidence/curated/ui/visual_servoing_20261101.json).
+R0–R5 운영 인수 완료를 주장하지 않는다.
+
 ### Genesis 1.4.5 GO2 접촉력 읽기 순서 수정 (2026-11-01)
 
 실제 UI에서 보행 시 `touchdown timeout after 0.30s: FL,FR,RL,RR`가 발생했다.

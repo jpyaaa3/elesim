@@ -27,3 +27,18 @@ def test_revolved_profile_measures_caps_inner_wall_and_corner_distance():
     points = np.array([[1.,0.,0.],[.8,0.,0.],[0.,0.,-.9],
                        [0.,0.,0.],[1.3,0.,1.4],[.9,0.,1.]])+[2.,3.,4.]
     assert evaluation.surface_errors(points,geometry) == pytest.approx([0.,0.,.1,.8,.5,0.])
+
+
+def test_desktop_demo_keeps_the_original_at_its_recorded_position():
+    geometry = dict(center_m=[.3,.1,.7])
+    visible = dict(original_target_position_m=[.3,.1,.7],original_target_hidden_before_load=False)
+    assert evaluation.source_fixture_matches(visible,geometry,'visible')
+    assert not evaluation.source_fixture_matches(visible,geometry,'hidden')
+    moved = dict(visible,original_target_position_m=[.4,.1,.7])
+    assert not evaluation.source_fixture_matches(moved,geometry,'visible')
+
+
+def test_reconstruction_only_evaluation_still_requires_hidden_source():
+    hidden = dict(original_target_position_m=[-8.,-8.,-8.],original_target_hidden_before_load=True)
+    assert evaluation.source_fixture_matches(hidden,dict(center_m=[.3,.1,.7]),'hidden')
+    assert not evaluation.source_fixture_matches(hidden,dict(center_m=[.3,.1,.7]),'visible')

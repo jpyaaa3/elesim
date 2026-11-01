@@ -337,14 +337,22 @@ class UiSimSession:
         return request_id
 
     def run_cycle(self, client: Any) -> None:
-        discover = getattr(getattr(client, "node", None), "discover", None)
+        discover = getattr(client, "discover", None) or getattr(getattr(client, "node", None), "discover", None)
         if discover is not None:
             with self._lock:
-                sim_id = self._active_sim_id or self._requested_sim_id
-                self._scene_rebuild_supported = any(
-                    peer.descriptor.endpoint_id == sim_id
-                    and CAPABILITY_SIM_SCENE_REBUILD in peer.descriptor.capabilities
-                    for peer in discover(role="sim"))
+                context = (self._active_sim_id, self._requested_sim_id,
+                           self._active_sim_boot_id, self._session_id)
+            sim_id = context[0] or context[1]
+            # Shared-channel discovery can wait for DDS I/O. Keep the UI's
+            # snapshot/frame lock free while waiting for that separate lock.
+            supported = any(
+                peer.descriptor.endpoint_id == sim_id
+                and CAPABILITY_SIM_SCENE_REBUILD in peer.descriptor.capabilities
+                for peer in discover(role="sim"))
+            with self._lock:
+                if context == (self._active_sim_id, self._requested_sim_id,
+                               self._active_sim_boot_id, self._session_id):
+                    self._scene_rebuild_supported = supported
         try:
             client.heartbeat()
         except DdsTransportError as exc:

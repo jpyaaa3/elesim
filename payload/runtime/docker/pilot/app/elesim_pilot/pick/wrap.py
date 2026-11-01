@@ -361,6 +361,9 @@ class WrapGraspRunner:
             out.waypoints.append(waypoint)
 
             reached = self._command_waypoint(waypoint, self.cfg.step_timeout_s)
+            if self._cancelled():
+                out.reason = 'cancelled'
+                return out
             _say(
                 f"step {out.steps:2d}  "
                 f"cmd=({waypoint[0]:+.3f},{waypoint[1]:+.3f},"
@@ -599,6 +602,9 @@ class WrapActions:
 
         if self.wrap_grasp_running():
             return False
+        if not hasattr(self, '_pick_stop_event'):
+            self._pick_stop_event = threading.Event()
+        self._pick_stop_event.clear()
         self._wrap_result = "running"
         worker = threading.Thread(
             target=self._run_wrap_grasp, name="wrap-grasp", daemon=True
@@ -606,6 +612,10 @@ class WrapActions:
         self._wrap_worker = worker
         worker.start()
         return True
+
+    def _wrap_cancelled(self) -> bool:
+        event = getattr(self, '_pick_stop_event', None)
+        return event is not None and event.is_set()
 
     def _run_wrap_grasp(self) -> None:
         try:
@@ -648,6 +658,8 @@ class WrapActions:
             self.send_current_target(source="wrap_policy")
 
         def command(waypoint: Sequence[float], timeout_s: float) -> bool:
+            if self._wrap_cancelled():
+                return False
             # `_command_q_and_wait` returns the host state and drops the
             # settled flag, so a step that timed out short of its waypoint
             # still reads as success and the policy walks on from a pose the
@@ -674,6 +686,8 @@ class WrapActions:
             steps = max(1, int(cfg.approach_substeps))
             reached_target = True
             for k in range(1, steps):
+                if self._wrap_cancelled():
+                    return False
                 q = start + (q_cmd - start) * (float(k) / steps)
                 send(q)
                 held[0] = q
@@ -684,6 +698,8 @@ class WrapActions:
                     reached_target = False
                     break
             if reached_target:
+                if self._wrap_cancelled():
+                    return False
                 send(q_cmd)
                 held[0] = q_cmd
                 _state, settled = self._wait_until_q_settled(
@@ -697,6 +713,8 @@ class WrapActions:
             return True
 
         def command_roll(roll: float) -> None:
+            if self._wrap_cancelled():
+                return
             # Unwind roll and nothing else: the grasp is the rest of the pose.
             #
             # This used to read a `policy_waypoint` attribute set once before
@@ -747,7 +765,7 @@ class WrapActions:
             read_joints=read_joints,
             command_waypoint=command,
             command_roll=command_roll,
-            cancelled=lambda: bool(getattr(self, "pick_cancelled", False)),
+            cancelled=self._wrap_cancelled,
             overloaded=overloaded,
             currents=currents,
             loaded=loaded,

@@ -17,6 +17,75 @@ import traceback
 import zlib
 
 
+def check_poisson_surface(status):
+    diagnostics = status.get('model_execution', {}).get('models', {}).get('mesher', {})
+    assert diagnostics.get('surface_method') == 'screened_poisson', diagnostics
+    assert diagnostics.get('remesh_resolution_m') == .004, diagnostics
+    return diagnostics
+
+
+class ServoingWidgets:
+    """Real ImGui widgets and live UI services, without an OS window/GL renderer."""
+
+    def __init__(self, service, sim):
+        from types import SimpleNamespace
+        import imgui
+        from elesim_ui.visual_servoing import ServoingController
+        self.imgui = imgui
+        self.context = imgui.create_context()
+        self.io = imgui.get_io()
+        self.io.ini_file_name = None
+        self.io.delta_time = 1/30
+        self.io.display_size = 1280, 1200
+        self.io.fonts.get_tex_data_as_rgba32()
+        self.panel = SimpleNamespace(service=service, state=service.state,
+            _sim_view=SimpleNamespace(session=sim))
+        self.panel.servoing = ServoingController(self.panel)
+        self.controller = self.panel.servoing
+        self.rectangles, self.clicks = {}, []
+        self.frames = 0
+
+    def draw(self):
+        from elesim_ui.panels.visual_servoing import draw_visual_servoing_panel
+        imgui = self.imgui
+        button = imgui.button
+        self.rectangles.clear()
+        def record(label, *args, **kwargs):
+            result = button(label, *args, **kwargs)
+            a, b = imgui.get_item_rect_min(), imgui.get_item_rect_max()
+            self.rectangles[label] = ((a.x+b.x)/2, (a.y+b.y)/2)
+            return result
+        imgui.button = record
+        try:
+            imgui.new_frame()
+            imgui.set_next_window_position(0, 0)
+            imgui.set_next_window_size(1280, 1200)
+            imgui.begin('Visual Servoing live probe')
+            try:
+                draw_visual_servoing_panel(self.panel)
+            finally:
+                imgui.end()
+            imgui.render()
+            self.frames += 1
+        finally:
+            imgui.button = button
+
+    def click(self, label):
+        self.draw()
+        self.draw()
+        point = self.rectangles[label]
+        assert 0 < point[0] < 1280 and 0 < point[1] < 1200, (label, point)
+        self.io.mouse_pos = point
+        self.io.mouse_down[0] = True
+        self.draw()
+        self.io.mouse_down[0] = False
+        self.draw()
+        self.clicks.append(dict(label=label, time=time.time()))
+
+    def close(self):
+        self.imgui.destroy_context(self.context)
+
+
 def write_png(path, bgr):
     """Write the decoded image with stdlib only; UI has no OpenCV dependency."""
     def chunk(kind, data):
@@ -39,6 +108,9 @@ def main():
     parser.add_argument('--view-budget', type=int, default=3)
     parser.add_argument('--peer', action='append', required=True)
     parser.add_argument('--record-video',action='store_true')
+    parser.add_argument('--visual-servoing',action='store_true',
+        help='Drive actual Visual Servoing ImGui buttons and controller instead of direct scan/Apply calls')
+    parser.add_argument('--require-poisson',action='store_true')
     args = parser.parse_args()
     for sibling in ('elesim_pilot','elesim_sim'):
         assert importlib.util.find_spec(sibling) is None, sibling
@@ -60,6 +132,11 @@ def main():
     service = RemoteControlService(operator, RemotePanelState(operator))
     sim = UiSimSession(ui_id=args.ui, sim_id=args.sim, settings=settings)
     recorder = None
+    widgets = ServoingWidgets(service, sim) if args.visual_servoing else None
+    controller = widgets.controller if widgets is not None else None
+    if widgets is not None:
+        evidence['scope'] = ('real Visual Servoing ImGui button mouse input and controller; '
+            'actual DDS, Genesis and decoded WebRTC; no OS window/GL UI renderer')
 
     def save():
         (output/'ui.json').write_text(json.dumps(evidence, indent=2, allow_nan=False)+'\n')
@@ -70,6 +147,8 @@ def main():
         deadline, last_progress = time.monotonic()+timeout, 0.
         while time.monotonic() < deadline:
             service.poll()
+            if widgets is not None:
+                widgets.draw()
             if condition():
                 evidence['timeline'].append(dict(event=label, time=time.time()))
                 save()
@@ -122,6 +201,17 @@ def main():
             initial_view = time.monotonic()
             wait('demo initial view',lambda:time.monotonic()-initial_view >= 2.,5.)
         evidence['before'] = frames('before-scan')
+        if widgets is not None:
+            wait('Visual Servoing scene preflight', lambda:not controller.reason('spawn'), 30.)
+            controller.position = [3., 3., 1.]
+            widgets.click('Place object##vs-spawn')
+            wait('Visual Servoing place ACK', lambda:not controller.pending, 30.)
+            assert not controller.error, controller.error
+            wait('Visual Servoing placed status', lambda:sim.status.mock_object.state != 'empty', 15.)
+            widgets.click('Remove object##vs-remove')
+            wait('Visual Servoing remove ACK', lambda:not controller.pending, 30.)
+            assert not controller.error, controller.error
+            wait('Visual Servoing empty status', lambda:sim.status.mock_object.state == 'empty', 15.)
         initial_step = service.current_host_state().sim_step_count
         wait('steady simulation feedback', lambda:service.current_host_state().sim_step_count >= initial_step+100
             and service.current_host_state().rx_age_s < .2, 60.)
@@ -145,11 +235,22 @@ def main():
         evidence['host_before_scan'] = {name:getattr(host,name) for name in (
             'connected','torque_enabled','claw_closed','rx_age_s','sim_step_count',
             'sim_realtime_factor','reply_ok','reply_reason')}
-        call('start_object_scan', 'target', args.view_budget)
+        if widgets is None:
+            call('start_object_scan', 'target', args.view_budget)
+        else:
+            controller.target_id, controller.max_views = 'target', args.view_budget
+            widgets.click('2  Scan##vs-step-1')
+            wait('Visual Servoing scan preflight', lambda:not controller.reason('scan'), 30.)
+            widgets.click('Start scan & reconstruction##vs-scan')
+            assert controller.pending == 'scan', (controller.pending, controller.error)
+            wait('Visual Servoing scan ACK', lambda:not controller.pending, 15.)
+            assert not controller.error, controller.error
         wait('multi-view scan', lambda:service.object_scan.get('phase') in ('completed','failed','cancelled'), 620.)
         status = service.object_scan
         evidence['scan'] = status
         assert status['phase'] == 'completed', status
+        if args.require_poisson:
+            evidence['poisson_surface'] = check_poisson_surface(status)
         assert status['accepted_views'] >= 2 and status['observed_points'] > 0, status
         assert status['geometry_complete_claimed'] is False, status
         assert status['sim_id'] == sim.active_sim_id and status['sim_boot_id'] == sim.active_sim_boot_id
@@ -179,18 +280,40 @@ def main():
         evidence['hidden_red_pixels'] = {name:red_pixels(name) for name in SIMULATION_STREAMS}
         evidence['hidden'] = frames('original-hidden')
         epoch = sim.status.epoch
-        request_id = sim.load_scan_result(status)
+        if widgets is None:
+            request_id = sim.load_scan_result(status)
+        else:
+            widgets.click('3  Mesh##vs-step-2')
+            wait('Visual Servoing apply preflight', lambda:not controller.reason('apply'), 30.)
+            widgets.click('Apply reconstruction to Sim##vs-apply')
+            assert controller.pending == 'apply', (controller.pending, controller.error)
+            request_id = controller._pending['request_id']
         wait('apply reconstructed scene', lambda:sim.snapshot.last_result is not None
             and sim.snapshot.last_result.request_id == request_id, 120.)
         result = sim.snapshot.last_result
         evidence['application'] = asdict(result)
         assert result.ok, result
+        if widgets is not None:
+            assert not controller.pending and controller.scene_outcome == 'applied', controller.error
+            assert controller.reason('apply'), 'same reconstruction must not be applied twice'
+            evidence['visual_servoing_apply'] = dict(scene_outcome=controller.scene_outcome,
+                duplicate_block_reason=controller.reason('apply'), request_id=request_id)
         ack_versions = {name:sim.frame_version(name) for name in SIMULATION_STREAMS}
         wait('fresh WebRTC after rebuild', lambda:sim.status.epoch > epoch and all(
             sim.frame(name) is not None and (sim.frame_version(name) or 0) >
             (ack_versions[name] or 0)+4 and np.ptp(sim.frame(name)) > 30
             for name in SIMULATION_STREAMS), 30.)
         evidence['after'] = frames('reconstructed')
+        if widgets is not None:
+            pause = sim.send_command('pause')
+            wait('explicit Sim pause', lambda:sim.snapshot.last_result is not None
+                and sim.snapshot.last_result.request_id == pause and sim.status.paused, 20.)
+            assert sim.snapshot.last_result.ok
+            widgets.click('Resume Sim##vs-resume_sim')
+            wait('Visual Servoing resume ACK', lambda:not controller.pending and not sim.status.paused, 20.)
+            assert not controller.error, controller.error
+            widgets.click('4  Action##vs-step-3')
+            assert all(controller.reason(action) for action in ('gripper','embrace','verify'))
         if recorder is not None:
             final_view = time.monotonic()
             wait('demo final view',lambda:time.monotonic()-final_view >= 3.,5.)
@@ -201,6 +324,10 @@ def main():
         evidence.update(error=str(exc), traceback=traceback.format_exc(), finished=time.time())
         raise
     finally:
+        if widgets is not None:
+            evidence['visual_servoing_widgets'] = dict(frames=widgets.frames, clicks=widgets.clicks,
+                os_window=False, gl_ui_renderer=False)
+            widgets.close()
         if recorder is not None:
             evidence['video'] = recorder.close()
         save()

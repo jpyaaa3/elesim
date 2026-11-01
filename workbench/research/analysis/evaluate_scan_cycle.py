@@ -38,11 +38,21 @@ def surface_errors(points,geometry):
     raise ValueError('unsupported evaluation geometry: '+str(shape))
 
 
+def source_fixture_matches(edit, geometry, visibility):
+    if visibility == 'hidden':
+        return bool(edit.get('original_target_hidden_before_load',False))
+    position = edit.get('original_target_position_m', [])
+    expected = geometry['center_m']
+    return (not edit.get('original_target_hidden_before_load',False) and len(position) == 3
+        and all(abs(actual-wanted) <= 1e-6 for actual,wanted in zip(position,expected)))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--exchange',type=Path,default=Path('/exchange'))
     parser.add_argument('--evidence',type=Path,default=Path('/cycle-output'))
     parser.add_argument('--pipeline-mode',choices=('baseline','integrated'),default='baseline')
+    parser.add_argument('--source-fixture',choices=('hidden','visible'),default='hidden')
     args = parser.parse_args()
     import numpy as np
     from elesim_protocol.scene_artifact import SceneArtifact
@@ -59,6 +69,7 @@ def main():
         geometry_complete_claimed=scan['geometry_complete_claimed'],
         target_geometry=truth['truth'],objects=[])
     result['pipeline_mode'] = args.pipeline_mode
+    result['source_fixture'] = args.source_fixture
     result['model_execution'] = scan.get('model_execution', {})
     result['calibration_captures'] = len(scan.get('calibration_observations', []))
     result['floor_corrections_by_view'] = [view.get('pose_corrections', []) for view in scan['views']]
@@ -106,7 +117,7 @@ def main():
     operational = (scan['phase']=='completed' and scan['accepted_views'] >= 2
         and not scan['geometry_complete_claimed'] and bool(truth['edits'])
         and all(edit['ok'] and edit['entity_state_preserved'] and edit['camera_processes_preserved']
-            and edit.get('original_target_hidden_before_load',False)
+            and source_fixture_matches(edit,truth['truth'],args.source_fixture)
             for edit in truth['edits'])
         and bool(result['objects']) and all(row['observed_points'] > 0 for row in result['objects']))
     result['geometry_accepted'] = all(row['observed_surface_error_p95_m'] <= .015

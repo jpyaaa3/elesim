@@ -150,11 +150,13 @@ if '--elesim-ui-preflight' in args:
     if os.environ['TEST_UI_IMAGE'] == 'legacy':
         print('unrecognized arguments: --elesim-ui-preflight', file=sys.stderr)
         sys.exit(2)
-    sys.exit(subprocess.run([sys.executable, '-m', 'elesim_ui.graphics']).returncode)
+    # A fake container sees only its fixture package, including when this test
+    # runs in the all-project development venv with editable role finders.
+    sys.exit(subprocess.run([sys.executable, '-S', '-m', 'elesim_ui.graphics']).returncode)
 if '--entrypoint' in args:
     index = args.index('--entrypoint')
     assert args[index+1] == 'python3'
-    sys.exit(subprocess.run([sys.executable, *args[index+3:]]).returncode)
+    sys.exit(subprocess.run([sys.executable, '-S', *args[index+3:]]).returncode)
 ''')
     docker.chmod(0o755)
     monkeypatch.setenv('PATH', str(fake_bin)+':/usr/bin:/bin')

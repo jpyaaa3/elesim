@@ -6,18 +6,16 @@ import imgui
 from .helpers import scaled
 from .panels import (
     draw_control_4dof_panel, draw_floor_calibration_panel, draw_go2_panel,
-    draw_hardware_panel, draw_ik_panel, draw_imu_model_panel, draw_mock_object_panel,
-    draw_object_scan_panel, draw_perception_panel, draw_resolution_panel,
-    draw_scene_panel, draw_status_panel,
+    draw_hardware_panel, draw_ik_panel, draw_imu_model_panel, draw_resolution_panel,
+    draw_status_panel, draw_visual_servoing_panel,
 )
 from .panels.go2 import _stop_go2
 
 
 _TABS = {
-    "Scan": (draw_object_scan_panel, draw_scene_panel),
+    "Visual Servoing": (draw_visual_servoing_panel,),
     "Manual": (draw_hardware_panel, draw_control_4dof_panel, draw_go2_panel,
-               draw_ik_panel, draw_mock_object_panel),
-    "Legacy": (draw_perception_panel,),
+               draw_ik_panel),
     "Status": (draw_status_panel, draw_imu_model_panel,
                draw_floor_calibration_panel, draw_resolution_panel),
 }
@@ -46,12 +44,15 @@ def release_manual_input(panel):
 def _draw_header(panel):
     width = float(imgui.get_content_region_available_width())
     imgui.text('EleSim')
+    if getattr(panel,'_preview_scenario',None) is not None:
+        imgui.same_line()
+        imgui.text_colored('MOCK',.70,.35,.08)
     imgui.same_line()
     available = float(imgui.get_content_region_available_width())
     imgui.push_item_width(min(scaled(panel, 320), max(scaled(panel, 150), available*.4)))
     panel._draw_endpoint_selector(dropdown=True)
     imgui.pop_item_width()
-    host = panel._host_state
+    host = panel._host_state or panel.service.current_host_state()
     online = bool(getattr(host, 'connected', False))
     imgui.same_line()
     imgui.text_colored('ONLINE' if online else 'OFFLINE',
@@ -74,14 +75,11 @@ def _draw_header(panel):
             release_manual_input(panel)
         panel._workspace_controls_visible = visible
         panel._workspace_tab_request = panel._workspace_tab
-    for field, label, method in (
-        ('gaze_running', 'Stop tracking', 'stop_gaze_stabilizer'),
-        ('pick_running', 'Stop pick', 'stop_pick_e2e'),
-    ):
-        if getattr(panel.state, field, False):
-            imgui.same_line()
-            if imgui.button(label+'##workspace-'+field):
-                getattr(panel.service, method)()
+    panel.servoing.refresh()
+    if panel.servoing.view().busy or panel.servoing.pending in ('scan','wrap','execute_hug'):
+        imgui.same_line()
+        if imgui.button('Stop workflow##workspace-stop'):
+            panel.servoing.stop()
     if panel._workspace_error:
         imgui.text_wrapped(panel._workspace_error)
     imgui.separator()
@@ -103,8 +101,6 @@ def _draw_controls(panel, width: float, height: float):
                                 panel._workspace_tab = name
                             imgui.begin_child('workspace-content-'+name, 0., 0., False)
                             try:
-                                if name == 'Legacy':
-                                    imgui.text_wrapped('Detection, gaze tracking and the existing UV/LJI pick workflow.')
                                 inner = max(1., float(imgui.get_content_region_available_width()))
                                 panel._draw_panel_stack(drawers, item_width=max(scaled(panel, 100), inner*.45))
                             finally:

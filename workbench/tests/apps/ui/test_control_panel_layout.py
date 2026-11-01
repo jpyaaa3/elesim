@@ -14,7 +14,8 @@ from elesim_ui.panels.go2 import (
     _stop_go2,
 )
 from elesim_ui.sim_view import SimViewState
-from elesim_ui.panels import mock_object
+from elesim_ui.panels import visual_servoing
+from workbench.tools.ui_preview import preview_panel
 
 
 def test_sim_preview_swap_is_explicit_and_reversible() -> None:
@@ -164,110 +165,30 @@ def test_go2_sit_button_sends_stand_down_even_without_pose_feedback(monkeypatch)
 
 
 def test_mock_object_section_remains_visible_without_a_sim_session(monkeypatch) -> None:
-    messages: list[str] = []
-    fake_imgui = type(
-        "Imgui",
-        (),
-        {
-            "input_text": staticmethod(lambda *_args, **_kwargs: (False, "demo_box")),
-            "input_float": staticmethod(lambda *_args, **_kwargs: (False, 0.0)),
-            "text_disabled": staticmethod(lambda value: messages.append(str(value))),
-            "button": staticmethod(lambda *_args, **_kwargs: False),
-            "same_line": staticmethod(lambda: None),
-            "text_wrapped": staticmethod(lambda value: messages.append(str(value))),
-        },
-    )
-    monkeypatch.setattr(mock_object, "imgui", fake_imgui)
-    monkeypatch.setattr(mock_object, "panel_header", lambda *_args, **_kwargs: (True, True))
-    panel = type(
-        "Panel",
-        (),
-        {
-            "_sim_view": None,
-            "_mock_object_asset": "demo_box",
-            "_mock_object_position": [0.5, 0.0, 0.4],
-            "_mock_object_euler_deg": [0.0, 0.0, 0.0],
-            "_mock_hug_solution": {},
-            "_mock_object_message": "",
-        },
-    )()
-    mock_object.draw_mock_object_panel(panel)
-    assert any("unavailable" in value for value in messages)
+    messages = []
+    panel, _ = preview_panel()
+    panel._sim_view = None
+    monkeypatch.setattr(visual_servoing, '_title', lambda *_: None)
+    monkeypatch.setattr(visual_servoing, '_next', lambda *_: None)
+    monkeypatch.setattr(visual_servoing, 'imgui', SimpleNamespace(
+        text_wrapped=messages.append, spacing=lambda: None))
+    visual_servoing._scene(panel.servoing,panel.servoing.view())
+    assert any('unavailable' in value for value in messages)
 
 
-def test_mock_object_panel_keeps_spawn_authority_separate_from_hug_motion(
-    monkeypatch,
-) -> None:
-    pressed: set[str] = {"Spawn##mock-object-spawn", "Compute hug##mock-hug-compute"}
-    fake_imgui = type(
-        "Imgui",
-        (),
-        {
-            "input_text": staticmethod(lambda *_args, **_kwargs: (False, "demo_box.obj")),
-            "input_float": staticmethod(lambda *_args, **_kwargs: (False, 0.0)),
-            "text_disabled": staticmethod(lambda *_args, **_kwargs: None),
-            "button": staticmethod(lambda label: label in pressed),
-            "same_line": staticmethod(lambda: None),
-            "text_wrapped": staticmethod(lambda *_args, **_kwargs: None),
-        },
-    )
-    monkeypatch.setattr(mock_object, "imgui", fake_imgui)
-    monkeypatch.setattr(mock_object, "panel_header", lambda *_args, **_kwargs: (True, True))
-    commands: list[tuple[str, object]] = []
-    motion_calls: list[tuple[str, object]] = []
-    status = SimulationStatusPayload(
-        0,
-        False,
-        1.0,
-        True,
-        0.0,
-        mock_object=MockObjectStatePayload(
-            available_assets=("demo_box.obj",),
-            state="spawned",
-            asset_id="demo_box",
-            revision=1,
-            sha256="a" * 64,
-            silhouette_xz=((-0.1, -0.1), (0.1, -0.1), (0.0, 0.1)),
-        ),
-    )
-
-    class Session:
-        snapshot = SimpleNamespace(status=status)
-
-        def send_command(self, name, arguments=None):
-            commands.append((name, arguments))
-
-    class Service:
-        def compute_mock_hug(self, **kwargs):
-            motion_calls.append(("compute", None))
-            kwargs["on_result"]({"solution_id": "solution-a"})
-
-        def execute_mock_hug(self, solution_id, **kwargs):
-            motion_calls.append(("execute", solution_id))
-            kwargs["on_result"]({"state": "executing"})
-
-    panel = SimpleNamespace(
-        _sim_view=SimpleNamespace(session=Session()),
-        _mock_object_asset="demo_box.obj",
-        _mock_object_position=[0.5, 0.0, 0.4],
-        _mock_object_euler_deg=[0.0, 0.0, 0.0],
-        _mock_hug_solution={},
-        _mock_object_message="",
-        service=Service(),
-    )
-    mock_object.draw_mock_object_panel(panel)
-    pressed.clear()
-    pressed.add("Execute##mock-hug-execute")
-    mock_object.draw_mock_object_panel(panel)
-
-    assert commands == [
-        (
-            "spawn_mock_object",
-            {
-                "asset_id": "demo_box.obj",
-                "position": [0.5, 0.0, 0.4],
-                "euler_deg": [0.0, 0.0, 0.0],
-            },
-        )
-    ]
-    assert motion_calls == [("compute", None), ("execute", "solution-a")]
+def test_mock_object_panel_keeps_spawn_authority_separate_from_hug_motion() -> None:
+    panel, cache = preview_panel(scenario='ready')
+    c, session = panel.servoing, panel._sim_view.session
+    commands = []
+    session.send_command = lambda name,args=None: commands.append((name,args)) or 'spawn-a'
+    c.asset_id = 'demo_box'
+    assert c.perform('spawn')
+    session.snapshot.last_result = SimpleNamespace(request_id='spawn-a',ok=True,reason='spawned')
+    c.refresh()
+    assert c.perform('compute_hug')
+    cache.requests[-1][1]['on_result']({'solution_id':'solution-a'})
+    assert c.perform('execute_hug')
+    assert commands == [('spawn_mock_object',dict(asset_id='demo_box',
+        position=[.5,0.,.4],euler_deg=[0.,0.,0.]))]
+    assert [request[0][1:] for request in cache.requests] == [
+        ('compute_mock_hug',),('execute_mock_hug','solution-a')]

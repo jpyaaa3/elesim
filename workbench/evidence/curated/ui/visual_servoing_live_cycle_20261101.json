@@ -1,0 +1,290 @@
+{
+  "schema_version": 1,
+  "created_utc": "2026-11-01T10:07:16.074385+00:00",
+  "scope": "New Visual Servoing production ImGui buttons/controller with actual Genesis 1.4.5, DDS RGBD, Pilot reconstruction and two decoded WebRTC streams in isolated installed role images. Headless widgets; no OS window or UI GL renderer.",
+  "relationship_to_previous_runs": {
+    "software_gate": "workbench/evidence/curated/ui/visual_servoing_20261101.json",
+    "genesis_camera_and_physics": "workbench/evidence/curated/ui/visual_servoing_genesis_20261101.json",
+    "note": "Original 3982 passed / 6 skipped software gate is unchanged. This is a separate live Genesis/UI-controller cycle after the separate real camera tests and stationary physics/render run."
+  },
+  "result": {
+    "complete": true,
+    "ui_exit_code": 0,
+    "stages_applied": true,
+    "geometry_accepted": true,
+    "geometry_complete_claimed": false,
+    "accepted_views": 3,
+    "observed_points": 3733,
+    "predicted_points": 8192,
+    "scan_wall_s": 51.81903529167175,
+    "ui_process_wall_s": 105.7360737323761,
+    "recording_duration_s": 64.39528280869126,
+    "buttons": [
+      "Place object##vs-spawn",
+      "Remove object##vs-remove",
+      "2  Scan##vs-step-1",
+      "Start scan & reconstruction##vs-scan",
+      "3  Mesh##vs-step-2",
+      "Apply reconstruction to Sim##vs-apply",
+      "Resume Sim##vs-resume_sim",
+      "4  Action##vs-step-3"
+    ],
+    "scene_outcome": "applied",
+    "duplicate_apply_blocked": true,
+    "same_request_ack": true,
+    "application_reason": "scene ready: revision=2f7f0bbe3dad objects=1 physics=2.51s camera_wait=0.26s total=2.85s",
+    "application_wall_s": 2.8735618591308594,
+    "entity_state_preserved": true,
+    "camera_processes_preserved": true,
+    "pause_then_ui_resume_verified": true,
+    "unconnected_mesh_grasp_actions_blocked": true
+  },
+  "source": {
+    "ui_base_head": "e88ca97d99a8f3db21338b6843a4e7cc24b1fc80",
+    "ui_dirty": true,
+    "ui_files_compared": 29,
+    "ui_sha_mismatches": [],
+    "ui_snapshot": "workbench/evidence/generated/visual-servoing-20261101/remote/source-manifest-r4.json",
+    "ui_execution_note": "Read-only mount of only the current UI app root into existing isolated UI image. Runtime sibling import checks passed. No updated backend release or normal-instance rollout.",
+    "backend_published_revision": "af52eda4722e930a43ca9326fef240d336d10652",
+    "images": {
+      "sim": "sha256:1187e7ebe770bb263f6b9f1415faff326de700ef7c872582dde4651a79e63e1f",
+      "pilot": "sha256:8a3194b0b1fc94f26c11fccc1dc15cc1bf8fdac460c06125d8336a85f697c07c",
+      "ui": "sha256:2a342094320e38b091f67d8388cf31610cb0865504bb9d96c571b10a0aa872bc"
+    },
+    "launch_driver_sha256": "9aae7d69fcc34800d63f3f4c508fd46fbdae114374b6c68eba245035ee8d00ac",
+    "stop_driver_sha256": "2258614b11b1a24a0c0d4f8e88039246a70472e1222a8eecc2244afd27d276f0",
+    "probe_sha256": {
+      "probe_scan_cycle_sim.py": "c7371a233c22ccd885d4c1c3e207e0a3735e307af3421b1578b027ff7079fec1",
+      "probe_scan_cycle_pilot.py": "02bc6586862dab772018450ec435ca792afe13e09290774cd49a8169af9c9306",
+      "probe_scan_cycle_ui.py": "acaff07fba8189f1382d6f57b37aedb1b513b67ddfcb18f7e45634b06756b2cf",
+      "scan_cycle_recording.py": "997cf0044eece9c178da287c4e2707b9b60896940d49b8993b09ba540ecc0f09"
+    },
+    "actual_run": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/live-cycle-final/run.json",
+      "sha256": "b4eb0851f3d7541d8cb5d273bec28420dcaeea523ac550a86cdaaa3cc461cdfc"
+    }
+  },
+  "environment": {
+    "host": "hckang@100.74.222.24",
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "genesis_version": "1.4.5",
+    "renderer": "NVIDIA RTX A6000/PCIe/SSE2; software=false for both cameras",
+    "gpu_binding": "Generated Pilot and Sim Compose device_ids each reserve only the GPU2 UUID.",
+    "network": "One-host isolated internal bridge; static CycloneDDS peers; trusted-network. No Robot process/hardware.",
+    "cache_seed": "/home/hckang/ws/elesim-scan-cycle-20261030/install/instances/scan_cycle_20261030_23/endpoints/scan-sim-23/cache",
+    "cache_note": "Copied existing kernels into a new instance cache. Original caches untouched. No cold-start performance claim.",
+    "fixture": {
+      "shape": "jar",
+      "height_m": 0.22,
+      "max_diameter_m": 0.12,
+      "fixed_arm": true,
+      "use_go2": false,
+      "provenance": "Procedural jar, separate Sim-private truth. The scan target was placed by the Sim fixture; Place/Remove buttons independently exercised a catalog object away from it."
+    }
+  },
+  "pipeline": {
+    "segmenter": "Configured single HSV/depth adapter; not general instance segmentation.",
+    "floor_by_view": [
+      [
+        {
+          "applied": true,
+          "valid": true,
+          "state": "tracking",
+          "normal_error_deg": 0.015630676827585673,
+          "sequence": 708
+        }
+      ],
+      [
+        {
+          "applied": true,
+          "valid": true,
+          "state": "tracking",
+          "normal_error_deg": 0.031669865859060564,
+          "sequence": 968
+        }
+      ],
+      [
+        {
+          "applied": true,
+          "valid": true,
+          "state": "tracking",
+          "normal_error_deg": 0.015423133095421532,
+          "sequence": 1350
+        }
+      ]
+    ],
+    "completion": {
+      "loaded": true,
+      "applied": true,
+      "profile": "projected55",
+      "normalization": "center-only",
+      "axis_order": "world-z-up",
+      "asset_sha256": {
+        "source": "ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e",
+        "config": "cdd8616e9abe77013234879f1c15b8aed0764274be274dec3937ebd65479a707",
+        "weights": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7"
+      },
+      "parameters": 32470033,
+      "missing_keys": [],
+      "unexpected_keys": [],
+      "upstream_revision": "4603257ed3db9e7dad349b712e1b2fe0da207015",
+      "gpu": "NVIDIA RTX A6000",
+      "torch_version": "2.12.1+cu130",
+      "backend": "upstream AdaPoinTr graph; Triton FPS / Torch gather",
+      "training": false,
+      "tf32": false,
+      "object_id": "target",
+      "input_points": 3733,
+      "sampled_points": 2048,
+      "predicted_points": 8192,
+      "center_m": [
+        0.33532208068541036,
+        0.030413079171831225,
+        0.7617837674215414
+      ],
+      "metres_per_model_unit": 1.0,
+      "elapsed_s": 2.6989185409620404,
+      "forward_ms": 2693.202506750822
+    },
+    "mesher": {
+      "voxel_m": 0.02,
+      "min_generated_neighbors": 8,
+      "generated_neighbor_radius_m": 0.01,
+      "observed_points": 3733,
+      "generated_points": 8192,
+      "meshed_generated_points": 8024,
+      "rejected_generated_points": 168
+    },
+    "mesher_limit": "Existing published scan-cycle image/profile uses 20 mm voxel surface. This run does not validate the current default PoissonSurface/4 mm remesh profile.",
+    "coverage_kind": "view_direction_proxy",
+    "coverage_fraction": 0.3854166666666667,
+    "geometry_metrics": {
+      "vertices": 532,
+      "faces": 1068,
+      "observed_surface_error_p95_m": 0.0009561142067498062,
+      "predicted_surface_error_p95_m": 0.010076117822176423,
+      "mesh_vertex_surface_error_p95_m": 0.032448378293373735,
+      "predicted_surface_error_max_m": 0.23291078392071643
+    },
+    "geometry_note": "Acceptance checks only configured p95 thresholds on this fixture. Missing surfaces and outliers remain unverified; no complete-geometry/grasp claim."
+  },
+  "video": {
+    "fps": 10,
+    "duration_s": 64.39528280869126,
+    "frames": {
+      "hand_eye_preview": 644,
+      "observer": 644
+    },
+    "clock": "actual wall time; original decoder frames, no speed change",
+    "ui_overlay": false,
+    "observer": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/live-cycle/ui-output/observer.mp4",
+      "sha256": "ee8c45848cf604ad176ab82fb1041a382bdc21be92a93e88fa01f84e716bdc42"
+    },
+    "hand_eye": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/live-cycle/ui-output/hand_eye_preview.mp4",
+      "sha256": "e28ea2796f1d3d0b184089f9e8c7da4632695335b23d42ca473fea420801ddd1"
+    }
+  },
+  "preservation": {
+    "checked_utc": "2026-11-01T10:05:38.980703+00:00",
+    "before_count": 202,
+    "after_count": 207,
+    "missing": [],
+    "changed": [],
+    "targets": {
+      "dev": {
+        "id": "911d6afa54c7aca932ab613018f3ae44156d7e8297caa16bd81802e5c0dbd2a7",
+        "image": "sha256:d10248f3c2dacfb4ec7332e52b7756790aae7fc0d88ce03490075abe68ff7c8a",
+        "running": false,
+        "restart_count": 0
+      },
+      "pilot": {
+        "id": "a3e381d60bf9d9794e4801e589d45bed4222edb19c6ec3991d5f65d23e85d350",
+        "image": "sha256:721ad04bd30ba71549841fffc88aab62d6c9d49c7842d643ea9b3d264781c22a",
+        "running": false,
+        "restart_count": 0
+      },
+      "sim": {
+        "id": "ecdb1f6ce5550931bcda0065d7d09aab509df3f3907e3f2815fc7c8023168660",
+        "image": "sha256:0a9afc14c043bd6c4010befc6e97cda08b6405bd03f02590af429bf6fb8398b0",
+        "running": false,
+        "restart_count": 0
+      },
+      "cycle_sim": {
+        "id": "b6f39573629e24368c09aa0ebd39c5e64b382091137c505ed22b8bac57169d9c",
+        "image": "sha256:1187e7ebe770bb263f6b9f1415faff326de700ef7c872582dde4651a79e63e1f",
+        "running": false,
+        "restart_count": 0
+      },
+      "cycle_pilot": {
+        "id": "5623dde86c3e0763a2c83cf852288007ba8e5108019c4e25c4dcdf3f02fbaf4c",
+        "image": "sha256:8a3194b0b1fc94f26c11fccc1dc15cc1bf8fdac460c06125d8336a85f697c07c",
+        "running": false,
+        "restart_count": 0
+      },
+      "cycle_ui": {
+        "id": "b4fec5406a6aee81336614b999ba68d6b088078541fde765b5353db9bb1a5a54",
+        "image": "sha256:2a342094320e38b091f67d8388cf31610cb0865504bb9d96c571b10a0aa872bc",
+        "running": false,
+        "restart_count": 0
+      }
+    },
+    "remaining_running": "496b05622781 doosan_kos"
+  },
+  "aggregate_correction": {
+    "original_aggregate_complete": false,
+    "reason": "Old driver included an October 30 study-wide inventory in this run acceptance. Its two missing IDs were already absent from this run prelaunch inventory. Current prelaunch 202 resources had no missing or changed entries.",
+    "historical_missing_preserved": [
+      "4ed4fe7582646ec57ae17e9547ddcc73fdc5b59147416e48b13312f7d8b48287",
+      "665dc91a9def19fa7b457086d3679e10d95e3942f601881e1dcc146d250f3cef"
+    ],
+    "new_gate": "Current run prelaunch inventory, with unchanged historical fallback for legacy runs without that snapshot. Historical audit remains in the raw preservation report.",
+    "regression_tests": {
+      "passed": 6,
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider workbench/tests/research/debug/test_scan_cycle_preservation.py",
+      "environment": "host-only stdlib/pytest; not a canonical dev gate"
+    },
+    "original_aggregate": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/live-cycle/run.json",
+      "sha256": "acd4d7726959f036cf9010490578bcb96508a1cfc5cbc7b91a65a8d58ef0afd6"
+    },
+    "original_audit": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/live-cycle/preservation.json",
+      "sha256": "2840fc86e8e10358ba16082d1ce8c78d5a52b1d9ab5265df2c19ad753776c907"
+    },
+    "final_audit": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/live-cycle-final/preservation.json",
+      "sha256": "2840fc86e8e10358ba16082d1ce8c78d5a52b1d9ab5265df2c19ad753776c907"
+    }
+  },
+  "not_exercised": [
+    "Native desktop window/GL renderer and manual operating-system input with this live deployment.",
+    "Current default Poisson profile in this UI cycle; backend role images stayed at the retained published revision.",
+    "Physical Robot, GO2 locomotion, general instance segmentation, mesh-derived grasp/embrace and hold verification.",
+    "Multi-host networking, NAT/TURN or SROS2 enforcement."
+  ],
+  "raw_artifact_indexes": [
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/live-cycle/artifact-index.json",
+      "sha256": "b2dbf27a26a7eb85a964d5280f77ca5738dfc216bd78019dababe37a2f9a0fd1"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/live-cycle-final/artifact-index.json",
+      "sha256": "87d889c7c01dc5fa41d90f3947df10892fd3281a0efec055f443ec365c20a01d"
+    }
+  ],
+  "ui_evidence": {
+    "path": "workbench/evidence/generated/visual-servoing-20261101/live-cycle/ui-output/ui.json",
+    "sha256": "64c0e306577927079a66ebce8186c2e899c0c95efb42c7b8143ea8321d1fd81a"
+  },
+  "evaluation_evidence": {
+    "path": "workbench/evidence/generated/visual-servoing-20261101/live-cycle/sim-output/evaluation.json",
+    "sha256": "4e159f3dd935e7261768bb9b215eaf479efac68eb143db5775bec77337ba6e97"
+  },
+  "final_preservation_evidence": {
+    "path": "workbench/evidence/generated/visual-servoing-20261101/live-cycle-final/final-preservation.json",
+    "sha256": "12f0d47dbdcdac3fcf8a11b92fcb51c79cff18fe28244af1c1b06f30b3bb63fb"
+  }
+}

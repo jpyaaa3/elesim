@@ -9,7 +9,7 @@ FIXTURES = Path(__file__).with_name("fixtures")
 
 
 def test_problematic_recording_reproduces_the_observed_failure_chain() -> None:
-    report = analyze_pick_log((FIXTURES / "problematic_grasp.log").read_text(encoding="utf-8"))
+    report = analyze_pick_log((FIXTURES / "problematic_grasp.txt").read_text(encoding="utf-8"))
 
     assert report.perception_samples == 2
     assert report.control_samples == 3
@@ -28,7 +28,7 @@ def test_problematic_recording_reproduces_the_observed_failure_chain() -> None:
 
 
 def test_healthy_recording_has_no_diagnostics() -> None:
-    report = analyze_pick_log((FIXTURES / "healthy_grasp.log").read_text(encoding="utf-8"))
+    report = analyze_pick_log((FIXTURES / "healthy_grasp.txt").read_text(encoding="utf-8"))
 
     assert report.outcome == "completed"
     assert report.issue_codes == frozenset()

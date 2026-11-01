@@ -22,7 +22,7 @@ def ui_context():
 
 
 @pytest.mark.parametrize('size', [(1920,1080), (1920,1200), (1366,768), (1280,800), (800,600), (640,480)])
-@pytest.mark.parametrize('tab', ['Scan', 'Manual', 'Legacy', 'Status'])
+@pytest.mark.parametrize('tab', ['Visual Servoing', 'Manual', 'Status'])
 def test_only_selected_work_controls_draw_and_camera_stays_in_window(monkeypatch, ui_context, size, tab):
     panel, cache = preview_panel()
     panel._sim_view = None
@@ -81,6 +81,104 @@ def test_mock_ui_poll_dispatches_local_rejection_and_bounds_request_history():
     panel.service.close()
 
 
+@pytest.mark.parametrize('size', [(1920,1080),(1920,1200),(1366,768),(1280,800),(800,600),(640,480)])
+@pytest.mark.parametrize('scenario', ['offline','ready','scanning','reconstructed','failed','robot','paused'])
+def test_all_workflow_steps_render_without_emitting_commands(ui_context,size,scenario):
+    panel, cache = preview_panel(scenario=scenario)
+    panel._sim_view._draw_stream = lambda *a,**k:None
+    panel._draw_camera_contents = lambda:None
+    ui_context.display_size = size
+    for step in range(4):
+        panel.servoing.step = step
+        for _ in range(2):
+            imgui.new_frame()
+            panel._draw_controls_window()
+            imgui.render()
+    assert cache.requests == []
+
+
+@pytest.mark.parametrize('scenario',['offline','ready','scanning','reconstructed','failed','robot','paused'])
+@pytest.mark.parametrize('tab',['Manual','Status'])
+def test_mock_scenarios_support_real_auxiliary_panels_without_dispatch(ui_context,scenario,tab):
+    panel,cache = preview_panel(scenario=scenario)
+    panel._draw_camera_contents = lambda:None
+    panel._host_state = panel.service.current_host_state()
+    panel._workspace_tab_request = tab
+    ui_context.display_size = 1280,800
+    for _ in range(4):
+        imgui.new_frame()
+        panel._draw_controls_window()
+        imgui.render()
+    assert cache.requests == []
+
+
+@pytest.mark.parametrize('scenario',['ready','paused'])
+def test_real_button_click_navigates_then_submits_exactly_one_intent(monkeypatch,ui_context,scenario):
+    panel, cache = preview_panel(scenario=scenario)
+    panel._draw_camera_contents = lambda:None
+    ui_context.display_size = 1280,800
+    rectangles = {}
+    button = imgui.button
+    def record(label,*args,**kwargs):
+        result = button(label,*args,**kwargs)
+        a,b = imgui.get_item_rect_min(),imgui.get_item_rect_max()
+        rectangles[label] = ((a.x+b.x)/2,(a.y+b.y)/2)
+        return result
+    monkeypatch.setattr(imgui,'button',record)
+    def frame():
+        imgui.new_frame()
+        panel._draw_controls_window()
+        imgui.render()
+    def click(label):
+        ui_context.mouse_pos = rectangles[label]
+        ui_context.mouse_down[0] = True
+        frame()
+        ui_context.mouse_down[0] = False
+        frame()
+    frame(); frame()
+    if scenario == 'ready':
+        click('2  Scan##vs-step-1')
+        assert panel.servoing.step == 1 and not cache.requests
+        frame()
+        click('Start scan & reconstruction##vs-scan')
+        assert [request[0][1] for request in cache.requests] == ['start_object_scan']
+    else:
+        click('Resume Sim##vs-resume_sim')
+        assert cache.requests == [('resume',None)]
+    for _ in range(5):
+        frame()
+    assert len(cache.requests) == 1
+
+
+def test_stage_navigation_stays_visible_while_workflow_body_scrolls(monkeypatch,ui_context):
+    from elesim_ui.panels import visual_servoing
+    panel, cache = preview_panel(scenario='reconstructed')
+    panel._draw_camera_contents = lambda:None
+    ui_context.display_size = 1280,800
+    ui_context.mouse_pos = 200,350
+    positions, scrolls = [],[]
+    button = imgui.button
+    def record(label,*args,**kwargs):
+        result = button(label,*args,**kwargs)
+        if label.endswith('vs-step-0'):
+            positions.append(imgui.get_item_rect_min().y)
+        return result
+    def body(*_):
+        scrolls.append(imgui.get_scroll_y())
+        for i in range(100):
+            imgui.text('Detailed reconstruction row '+str(i))
+    monkeypatch.setattr(imgui,'button',record)
+    monkeypatch.setattr(visual_servoing,'_reconstruction',body)
+    for index in range(7):
+        if index == 4:
+            ui_context.mouse_wheel = -5.
+        imgui.new_frame()
+        panel._draw_controls_window()
+        imgui.render()
+    assert max(scrolls)>0 and len(set(positions[-4:])) == 1
+    assert not cache.requests
+
+
 def test_interactive_mock_selects_glx_before_loading_ui_on_wslg(monkeypatch):
     from workbench.tools import ui_preview
     import os
@@ -96,27 +194,27 @@ def test_interactive_mock_selects_glx_before_loading_ui_on_wslg(monkeypatch):
     assert seen == ['glx']
 
 
-def test_tab_bar_stays_visible_while_legacy_controls_scroll(monkeypatch, ui_context):
+def test_tab_bar_stays_visible_while_workflow_controls_scroll(monkeypatch, ui_context):
     panel, _ = preview_panel()
     panel._sim_view = None
-    panel._workspace_tab_request = 'Legacy'
+    panel._workspace_tab_request = 'Visual Servoing'
     panel._draw_camera_contents = lambda: None
     tab_y, scroll_y = [], []
     begin_tab = imgui.begin_tab_item
 
     def tab(*args, **kwargs):
         result = begin_tab(*args, **kwargs)
-        if args[0] == 'Scan':
+        if args[0] == 'Visual Servoing':
             tab_y.append(imgui.get_item_rect_min().y)
         return result
 
     def long_controls(_panel):
         scroll_y.append(imgui.get_scroll_y())
         for row in range(100):
-            imgui.text('Legacy setting '+str(row))
+            imgui.text('Workflow setting '+str(row))
 
     monkeypatch.setattr(workspace.imgui, 'begin_tab_item', tab)
-    monkeypatch.setattr(workspace, '_TABS', dict(Scan=(), Manual=(), Legacy=(long_controls,), Status=()))
+    monkeypatch.setattr(workspace, '_TABS', {'Visual Servoing':(long_controls,), 'Manual':(), 'Status':()})
     ui_context.display_size = 1280, 800
     ui_context.mouse_pos = 200, 300
     for index in range(7):

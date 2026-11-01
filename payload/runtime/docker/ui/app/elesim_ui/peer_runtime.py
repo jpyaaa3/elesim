@@ -53,6 +53,10 @@ class UiPeerChannel:
 
         return self._hub.has_peer(endpoint_id)
 
+    def discover(self, *, role: Optional[str] = None) -> tuple[Any, ...]:
+        """Read live descriptors without exposing the shared DDS node."""
+        return self._hub.discover(role=role)
+
     def send(self, message_type: str, **kwargs: Any) -> Envelope:
         return self._hub.send(self.name, message_type, **kwargs)
 
@@ -113,17 +117,20 @@ class UiPeerHub:
 
     def has_role(self, role: str) -> bool:
         """Read live role discovery without creating another DDS participant."""
+        return bool(self.discover(role=str(role).strip()))
 
+    def discover(self, *, role: Optional[str] = None) -> tuple[Any, ...]:
+        """Return a snapshot of live descriptors under the peer's I/O lock."""
         with self._io_lock:
             client = self._client
             node = getattr(client, "node", None)
             discover = getattr(node, "discover", None)
             if not callable(discover):
-                return False
+                return ()
             try:
-                return bool(discover(role=str(role).strip()))
+                return tuple(discover(role=role))
             except Exception:
-                return False
+                return ()
 
     @property
     def last_error(self) -> str:

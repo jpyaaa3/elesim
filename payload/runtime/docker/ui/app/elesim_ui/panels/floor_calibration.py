@@ -10,13 +10,13 @@ def draw_floor_calibration_panel(panel):
     status = getattr(panel.service, "floor_calibration_status", {})
     if not status:
         return
-    if not panel_header("Visual Calibration", visible=True)[0]:
+    if not panel_header("Plane diagnostics", visible=True)[0]:
         return
     imgui.text("Plane direction: " + str(status.get("state", "idle")))
     if status.get("reason"):
         imgui.text_wrapped(str(status["reason"]))
     if not status.get("enabled"):
-        imgui.text_wrapped("Start perception to observe depth planes.")
+        imgui.text_wrapped("No plane diagnostic source is running. Automatic scans use their own configured floor correction; these retained observations are separate.")
         if status.get("records", 0) and imgui.button("Export plane observations"):
             _submit(panel, "export_floor_calibration")
         _draw_result(panel)

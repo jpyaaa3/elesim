@@ -24,7 +24,7 @@ CPU만 필요한 검사는 의존성이 있는 host에서도 부분 검증으로
 `plan|run` 같은 표기는 각각 별도 명령이라는 뜻이다. 셸에 `|`를 입력하지 않는다.
 
 `ui_preview`는 UI/OpenCV/EGL이 준비된 환경에서 production ImGui 화면을 CPU Mesa로
-그린다. `--width/--height`, `--tab Scan\|Manual\|Legacy\|Status`, `--layout
+그린다. `--width/--height`, `--tab 'Visual Servoing'\|Manual\|Status`, `--layout
 observer\|hand-eye\|split`, `--source sim\|robot`, `--scale 0.8\|1\|1.2`,
 `--camera-only`로 배치를 바꾼다. 영상과 상태는 동작 실행기가 없는 로컬 fixture다.
 DDS·실기기·실제 미디어 수신 검증을 대신하지 않으며 기존 출력 파일을 덮어쓰지 않는다.
@@ -33,6 +33,16 @@ DDS·실기기·실제 미디어 수신 검증을 대신하지 않으며 기존 
 기존 UI·OpenCV 의존성과 사용 가능한 디스플레이가 필요하며 PNG 출력 경로는 받지
 않는다. `--tab`, `--layout`, `--source`, `--scale`, `--camera-only`도 사용할 수 있다.
 WSLg에서는 GLFW와 일치하는 GLX를 이 프로세스에만 선택한다.
+
+새 Visual Servoing은 `--scenario offline|ready|scanning|reconstructed|failed|robot|paused`로
+작업 상태를 미리 볼 수 있다. `--stage scene|scan|reconstruction|action`으로 특정
+단계를 연다. 이 상태들은 전부 예시이며 버튼을 눌러도 runtime으로 전송하지 않는다.
+실제 연결·모델 실행·파지 성공을 증명하지 않는다.
+
+```bash
+python3 -m workbench.tools.ui_preview --interactive --scenario reconstructed --layout split
+python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/servoing-preview.png --scenario scanning --stage scan --width 1366 --height 768
+```
 
 ## 유지하는 벤치
 
@@ -65,6 +75,7 @@ WSLg에서는 GLFW와 일치하는 GLX를 이 프로세스에만 선택한다.
 | `debug.sim_camera_preview` | 실제 DDS RGB-D 수신·깊이 미리보기 |
 | `debug.probe_scene_rebuild` | 실행 중 OBJ 교체·controller/state 보존·카메라 복구·rollback 실측 |
 | `analysis.render_scan_cycle_demo` | 실제 UI WebRTC 녹화와 측정된 단계 기록으로 1배속 MP4 구성 |
+| `support.ui_window_run` | 격리 scan-cycle의 실제 production UI 창과 OS 입력을 1080p X11 영상으로 기록 |
 | `analysis.compare_voxel_mesh` | 동일한 저장 점군과 고정된 생성점 필터로 20/10/5 mm 메쉬·CPU 시간·형상·회전 viewer 비교 |
 | `analysis.compare_surface_mesh` | 같은 점군의 voxel/Poisson·거리장 표면 비교, mesh topology·양방향 sampling·진단; Open3D 필요 |
 | `debug.scan_cycle_native` | 격리 scan Pilot의 private PID namespace에서 네이티브 크래시 수집 |
@@ -86,7 +97,7 @@ WSLg에서는 GLFW와 일치하는 GLX를 이 프로세스에만 선택한다.
 | `research/experiments/` · 보행 | `batch_readiness.py`, `config_overlay.py`, `run_walking_baseline_batch.py`, `walking_baseline.py`, `walking_scenarios.py`, `walking_suite.py`, `walking_suites.json` |
 | `research/experiments/` · 시각 | `vision_arm_scene.py`, `vision_reconstruct.py`, `vision_tilt_evaluate.py`, `arm_scan.py`, `arm_scan_scene.py`, `arm_scan_evaluate.py` |
 | `research/experiments/` · 완성 | `adapointr.py`, `adapointr_inputs.py`, `adapointr_infer.py`, `adapointr_evaluate.py`, `adapointr_gpu_smoke.py` |
-| `research/support/` | `adapointr_backend.py`, `adapointr_ops.py`, `adapointr_profiles.py`, `output.py`, `pilot_runtime.py`, `scan_cycle_install.py`, `scan_cycle_run.py`, `ssh_mss_proxy.py`, `thread_stacks.py`, `worker.py` |
+| `research/support/` | `adapointr_backend.py`, `adapointr_ops.py`, `adapointr_profiles.py`, `output.py`, `pilot_runtime.py`, `scan_cycle_install.py`, `scan_cycle_run.py`, `ssh_mss_proxy.py`, `thread_stacks.py`, `ui_window_run.py`, `worker.py` |
 
 정상 설치의 Pilot/Sim/UI 이미지 세 개로 실행하는 scan 운영 경로 검사는
 [`tests/system/scan_cycle.md`](tests/system/scan_cycle.md)를 따른다. 역할별 probe와

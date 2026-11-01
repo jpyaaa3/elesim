@@ -1,4 +1,4 @@
-"""Pilot-owned IMU model selector (legacy panel slot)."""
+"""Pilot-owned IMU model selector and raw sensor diagnostics in Status."""
 
 from __future__ import annotations
 

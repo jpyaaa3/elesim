@@ -1,0 +1,896 @@
+{
+  "schema_version": 1,
+  "created_utc": "2026-11-01T11:22:34.602548+00:00",
+  "scope": "Actual production ControlPanel.run desktop window, UiPeerHub shared channels, XTest OS mouse/keyboard, Genesis 1.4.5 + DDS RGBD + two WebRTC cameras + configured Pilot models on isolated GPU2 instances.",
+  "relationship_to_previous_runs": {
+    "software_gate": "workbench/evidence/curated/ui/visual_servoing_20261101.json",
+    "prior_headless_voxel_cycle": "workbench/evidence/curated/ui/visual_servoing_live_cycle_20261101.json",
+    "note": "Separate new acceptance: prior 3982/6 software count and cycle-24 voxel result remain historical and unchanged. This run uses the refreshed Poisson Pilot image and a native full UI window."
+  },
+  "result": {
+    "complete": true,
+    "accepted": true,
+    "accepted_views": 3,
+    "observed_points": 3733,
+    "predicted_points": 8192,
+    "scan_wall_s": 58.75190234184265,
+    "scan_clock": "Actual Start widget press to observed completed status; includes acquisition, motion, completion and meshing.",
+    "apply_ack_wall_s": 9.047748327255249,
+    "apply_backend_total_s": 8.08,
+    "apply_backend_physics_s": 7.190330242738128,
+    "application": {
+      "request_id": "dc5d50e73a854669a8333f76f4e687c6",
+      "session_id": "1:59976b779289a77fdc13558a3f14922f145a73926ed541c37821c5d419a4b951",
+      "command": "load_scene",
+      "ok": true,
+      "reason": "scene ready: revision=c5f1d069a1c8 objects=1 physics=7.19s camera_wait=0.36s total=8.08s",
+      "schema_version": 1
+    },
+    "scene_revision": "c5f1d069a1c8e4a99ebb4ca1a6aadf9550a7195e84116eb56c3395d94650acf4",
+    "frames_after_apply": "Both WebRTC frame versions advanced by more than four.",
+    "entity_state_preserved": true,
+    "camera_processes_preserved": true,
+    "source_fixture_preserved": true,
+    "geometry_complete_claimed": false,
+    "unconnected_mesh_grasp_actions_blocked": true,
+    "geometry": {
+      "object_id": "target",
+      "observed_points": 3733,
+      "predicted_points": 8192,
+      "vertices": 23832,
+      "faces": 47676,
+      "observed_surface_error_p50_m": 0.00033974265969566276,
+      "observed_surface_error_p95_m": 0.0009561142067498062,
+      "observed_surface_error_max_m": 0.0022321354940895415,
+      "mesh_vertex_surface_error_p95_m": 0.01183084159730577,
+      "observed_aabb_m": [
+        [
+          0.2915050432055555,
+          -0.02058201230700496,
+          0.6421929614087912
+        ],
+        [
+          0.40645716025742223,
+          0.09875661064000726,
+          0.8512577427988418
+        ]
+      ],
+      "mesh_aabb_m": [
+        [
+          0.27554233372071174,
+          -0.023025575435472012,
+          0.6208833720686024
+        ],
+        [
+          0.4048356910111567,
+          0.103129875130398,
+          0.8833538134502781
+        ]
+      ],
+      "predicted_surface_error_p95_m": 0.010076117822176423,
+      "predicted_surface_error_max_m": 0.23291078392071643
+    },
+    "actual_widget_presses": [
+      {
+        "label": "##hardware_torque_switch",
+        "time": 1793531799.7988591,
+        "frame": 194
+      },
+      {
+        "label": "2  Scan##vs-step-1",
+        "time": 1793531802.483429,
+        "frame": 268
+      },
+      {
+        "label": "Start scan & reconstruction##vs-scan",
+        "time": 1793531806.3131943,
+        "frame": 374
+      },
+      {
+        "label": "3  Reconstruction##vs-step-2",
+        "time": 1793531865.9579153,
+        "frame": 1986
+      },
+      {
+        "label": "Apply reconstruction to Sim##vs-apply",
+        "time": 1793531869.645546,
+        "frame": 2085
+      },
+      {
+        "label": "4  Action##vs-step-3",
+        "time": 1793531883.96483,
+        "frame": 2473
+      },
+      {
+        "label": "3  Reconstruction##vs-step-2",
+        "time": 1793531888.3450878,
+        "frame": 2595
+      }
+    ]
+  },
+  "source": {
+    "backend_revision": "61da794574d0318d68791588a0d3af601230b7fa",
+    "release": {
+      "already_published": false,
+      "release_key": "d12d819074f5c818b7377c0e6eb68471984d35fc2c5aa9dfa638e5fee4c0f96e",
+      "release_path": "/home/hckang/ws/elesim-scan-cycle-20261030/install/releases/d12d819074f5c818b7377c0e6eb68471984d35fc2c5aa9dfa638e5fee4c0f96e"
+    },
+    "ui_source": {
+      "base_revision": "61da794574d0318d68791588a0d3af601230b7fa",
+      "dirty": true,
+      "files_compared": 29,
+      "sha_mismatches": [],
+      "manifest": {
+        "path": "/home/hckang/ws/newsim_dev/elesim/.validation/visual-servoing-20261101/ui-capability-responsive-fix/payload/runtime/docker/ui/app",
+        "sha256": {
+          "elesim_ui/__init__.py": "5c496e6659179188f1c35a66e8e8134b82541f49f28fcbb13a7d171319aa1af5",
+          "elesim_ui/config.py": "7d4744fefb2ca6082a502dc27350ff74417d7fedc99a9fb5bc9906cb1a7368f6",
+          "elesim_ui/control_panel.py": "216b9f06c49d35fe809c1daec2a95a3b8f7606abea539e289f60f4226f27bbf0",
+          "elesim_ui/file_dialog.py": "abd3c87f368296118c64a875e4fbc452cb9440269fcd206b4d6579fbf030d936",
+          "elesim_ui/graphics.py": "96f6c2e1ddeee175bc48d84d416417344e2c851db49709d205eea7a219470bda",
+          "elesim_ui/helpers.py": "c053c32789dd87dc7ce7fadf7426a3bf967f6958e7d8a07271c8e01da460a27a",
+          "elesim_ui/main.py": "4b69a96d5845d7baafad2de600db81eca1905f04bbb921ce20c6b89e9759e258",
+          "elesim_ui/models.py": "219310f4147f5713ba13737755c123a084c7eefa9d1027fec8f7c4c1fabc448c",
+          "elesim_ui/operator.py": "6c66b28c8c93dff8ba52f258648ad22b19aecf7b921d6ee731d1ece60199fe67",
+          "elesim_ui/operator_session.py": "8fad553a894ba7503494e887574a7add010636631c971c6c712a9943959e54a2",
+          "elesim_ui/panels/__init__.py": "1773cfba1a118e60feb8ac6d79c39952287e8d6fae591c83a1fd7c94698bf1b9",
+          "elesim_ui/panels/control_4dof.py": "5debe354d38f3dc0fab6e003514652508b1a012f5ed3705e5f99a292bd588b29",
+          "elesim_ui/panels/floor_calibration.py": "0d85392f601e82d0eef99dbafca3e39d3e733b8dc0eaf166dfb013b7eb4c9432",
+          "elesim_ui/panels/go2.py": "e0e38d23e8975bc542a1ef698dabfc914d8af54ce6f3064e9b82abfca166890f",
+          "elesim_ui/panels/hardware.py": "fbbc55dce9335d95cc9dff3e9d6f7b43d3ddbb8237854d12d405c3074a552fda",
+          "elesim_ui/panels/ik.py": "b7cd564aa4837e3ba5653b0e22086ac9ab540e5bc50f8ded8ba46b0e14c01247",
+          "elesim_ui/panels/imu_models.py": "13fd6dfa53322e4b9aa3a6192340755a2a2fe8bd176a7b63af59b1c33cb7f72b",
+          "elesim_ui/panels/live_visual_status.py": "e277534c426ce69d1ae8e21ea9597de0226e5e1eb07c867ecd1a63a997fbe38d",
+          "elesim_ui/panels/visual_servoing.py": "60191f8febf1c3743a992c5924fab882a7baa249c9c366df7f9861c931f59569",
+          "elesim_ui/peer_runtime.py": "9367eec2d5e586797a866ff9b39373f08c0a38e6967309102388dc4ba172713b",
+          "elesim_ui/sim_session.py": "6f218657b403bc5ac9a3b9a8112c7d7d52a478b8662afca2069e3ebb2cfd821e",
+          "elesim_ui/sim_view.py": "444007e51ab336ec289692922546cbf01f6936f63af9de4bbfef777677c81eb4",
+          "elesim_ui/simulation_commands.py": "425d228741fa33778189aa143fd85cb07f4086e6ad747a720e756835f6bd6e2e",
+          "elesim_ui/stream_health.py": "1f8b8a460f86de97901bb18266db973c2100e678791ffd553d8614fd1a1d37cb",
+          "elesim_ui/theme.py": "ec5f923f3de91876e360913cbcdd5e65cac07286e5a0345716c827aa466b2a1c",
+          "elesim_ui/visual_servoing.py": "8bfbb32a93455e7cfd5deb8d611614ceb2d5acd7824e7bd2ad30ec0cd5a82297",
+          "elesim_ui/webrtc.py": "4ed3a12bdefdf6c808597bedec27377625ad174f38ed80050ef4f9fa3d592404",
+          "elesim_ui/workspace.py": "511c4236126caa51833bc5b27b533a43aa35a37f652a421088b8824af44c37a0",
+          "elesim_ui/zed_preview.py": "9c05a92ae48a24981f0ae5d388a02c57a62f7c24388a5c2bbde2b69b95409ee5"
+        }
+      },
+      "note": "UI-only read-only mount; no sibling app imports. Native input probe and host display helper match current local source byte-for-byte."
+    },
+    "image_ids": {
+      "sim": "sha256:d8c3ba5d2f86cdf2cbbe7f26cedfa4d3596d48dff5b78a81a490b05b327f4b41",
+      "pilot": "sha256:0e4e881398efa8a2acb9c8ea13c45c1268f762fa4440987e3ef7f77c77cc9ceb",
+      "ui": "sha256:68e6c86eab92c4470a1f4afb6ccecc10f8577999ba6a32fb337dc8cc31285a58"
+    },
+    "frozen_run": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/native-window-final/cycle-30/run.json",
+      "sha256": "4a34da558c423c30c385b94958877a28750570803cb5ba69afcee3b3010a2891",
+      "bytes": 7311
+    },
+    "driver_sha256": "5270d4ed6e3ae75dc5a07012df08e15069ec75edec76f4ce9559a977976a4da7",
+    "probe_sha256": {
+      "probe_scan_cycle_sim.py": "c7371a233c22ccd885d4c1c3e207e0a3735e307af3421b1578b027ff7079fec1",
+      "probe_scan_cycle_pilot.py": "02bc6586862dab772018450ec435ca792afe13e09290774cd49a8169af9c9306",
+      "probe_scan_cycle_ui.py": "705c1450e6bb9b7fcef8a87ee7f895120a56c34adcf242ab0e50bc2d78ce46ac",
+      "scan_cycle_recording.py": "997cf0044eece9c178da287c4e2707b9b60896940d49b8993b09ba540ecc0f09",
+      "probe_visual_servoing_window.py": "50e0b835276b3bb3083530bd11dd1c68bfcc3043e5fcc4b243012ccb987ee803"
+    },
+    "native_probe": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/native-window-final/cycle-30/probes/probe_visual_servoing_window.py",
+      "sha256": "50e0b835276b3bb3083530bd11dd1c68bfcc3043e5fcc4b243012ccb987ee803",
+      "bytes": 14627
+    },
+    "selected_models": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/native-window-final/cycle-30/scan-models.json",
+      "sha256": "09d3521f6dd7d45acdb0808ae374bd0f3c24a6db48ad7fb5bba0058b577ffaa1",
+      "bytes": 2453
+    }
+  },
+  "fixes": {
+    "pilot_packaging": "Both generated app Dockerfile and standalone Pilot release Dockerfile install libegl1 and libusb-1.0-0, with an actual Open3D import build gate. Final production Pilot build imports Open3D 0.20.0 successfully.",
+    "ui_shared_channel": "Read-only descriptor discovery through UiPeerChannel/UiPeerHub makes the selected Sim rebuild capability available to the actual desktop UI.",
+    "ui_responsiveness": "Discovery I/O waits occur outside the UI session snapshot/frame lock; results are discarded if requested/active target, boot or session changed.",
+    "recording_input": "One XTest connection per down/up gesture; actual ImGui button returns, mouse edges and stage changes recorded. This changes only the demo driver."
+  },
+  "environment": {
+    "host": "hckang@100.74.222.24",
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "genesis_version": "1.4.5",
+    "camera_renderer": "NVIDIA RTX A6000/PCIe/SSE2; software=false for both cameras",
+    "ui_renderer": {
+      "renderer": "llvmpipe (LLVM 15.0.7, 256 bits)",
+      "vendor": "Mesa"
+    },
+    "network": "One-host private internal bridge, CycloneDDS static peers, trusted-network.",
+    "caches": {
+      "seed": "/home/hckang/ws/elesim-scan-cycle-20261030/install/instances/scan_cycle_20261030_29/endpoints/scan-sim-29/cache",
+      "condition": "Warm copied Genesis kernels; newly produced Poisson mesh. Originals not cleared; no cold-start timing claim."
+    },
+    "fixture": {
+      "shape": "procedural jar",
+      "height_m": 0.22,
+      "max_diameter_m": 0.12,
+      "use_go2": false,
+      "use_hardware": false,
+      "note": "Sim-private truth and source mesh not mounted into Pilot/UI. Source fixture placed by Sim before UI starts and stays visible when grey reconstruction is applied."
+    }
+  },
+  "pipeline": {
+    "segmenter": "Configured single HSV/depth mask adapter, not general instance segmentation.",
+    "floor_corrections_by_view": [
+      [
+        {
+          "state": "tracking",
+          "valid": true,
+          "reason": "",
+          "candidates": [
+            {
+              "id": "plane-1",
+              "stable_frames": 3,
+              "world_normal": [
+                0.00021831596156792306,
+                0.00016358996220153135,
+                0.9999999627882319
+              ],
+              "world_offset_m": -0.0004427930290988869,
+              "height_above_plane_m": 1.0702434852069462,
+              "rms_m": 0.00026699436940115214,
+              "area_m2": 10.23036720949025,
+              "outline_world": [
+                [
+                  0.6146099277783297,
+                  4.385882062504877,
+                  -0.0004088724243154207
+                ],
+                [
+                  3.3136136162322467,
+                  3.922577927721512,
+                  -0.0009223161230447197
+                ],
+                [
+                  2.466930845246337,
+                  -1.0098201656174894,
+                  6.941909480495667e-05
+                ],
+                [
+                  -0.23207284320758018,
+                  -0.5465160308341237,
+                  0.0005828627935344777
+                ]
+              ]
+            }
+          ],
+          "normal_error_deg": 0.015630676827585673,
+          "distance_error_m": -0.000421024729037045,
+          "required_stable_frames": 3,
+          "capture_time_s": 1793531825.9080286,
+          "correction_mode": "orientation",
+          "observable": [
+            "tilt_2d"
+          ],
+          "unobservable": [
+            "translation_3d",
+            "rotation_about_normal"
+          ],
+          "selected_id": "plane-1",
+          "observed": {
+            "normal": [
+              0.37307543749663424,
+              0.42286761249370985,
+              -0.825831520493475
+            ],
+            "offset_m": 1.070243485206946,
+            "rms_m": 0.00026699436940115214,
+            "inliers": 3902,
+            "samples": 4096,
+            "area_m2": 10.23036720949025,
+            "span_m": [
+              2.7384798511618897,
+              5.004540303504145
+            ],
+            "outline": [
+              [
+                3.7565188468070323,
+                -0.8176447730373432,
+                2.5743179469962687
+              ],
+              [
+                3.326445057677882,
+                1.6635097801722745,
+                3.650505901867964
+              ],
+              [
+                -1.2497699958524655,
+                1.7481787837643623,
+                1.6265220597708188
+              ],
+              [
+                -0.8196962067233152,
+                -0.7329757694452554,
+                0.550334104899123
+              ]
+            ]
+          },
+          "predicted": {
+            "normal": [
+              0.3729236624597848,
+              0.4227010751881102,
+              -0.8259853164629478
+            ],
+            "offset_m": 1.070664509935983,
+            "rms_m": 0.0,
+            "inliers": 0,
+            "samples": 0,
+            "area_m2": 0.0,
+            "span_m": [
+              0.0,
+              0.0
+            ],
+            "outline": []
+          },
+          "reference": {
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "offset_m": -0.0,
+            "rms_m": 0.0,
+            "inliers": 0,
+            "samples": 0,
+            "area_m2": 0.0,
+            "span_m": [
+              0.0,
+              0.0
+            ],
+            "outline": [],
+            "kind": "configured_direction",
+            "absolute": false
+          },
+          "applied": true,
+          "sequence": 1019,
+          "source": [
+            "scan-sim-30",
+            "172716a67a19496784fbdbe108ed602d",
+            "b94d80653f55360406acfec7dfde632f720b7f693f82acf6181bc39534e8f439"
+          ]
+        }
+      ],
+      [
+        {
+          "state": "tracking",
+          "valid": true,
+          "reason": "",
+          "candidates": [
+            {
+              "id": "plane-2",
+              "stable_frames": 3,
+              "world_normal": [
+                0.0004759506506075759,
+                -0.0002810627151910778,
+                0.9999998472373525
+              ],
+              "world_offset_m": -0.00036883138526033743,
+              "height_above_plane_m": 1.148522607671856,
+              "rms_m": 0.00025682525589037494,
+              "area_m2": 22.120521322469717,
+              "outline_world": [
+                [
+                  0.25175114135798776,
+                  0.5887800650307756,
+                  0.00041449445278685104
+                ],
+                [
+                  4.000813782831917,
+                  1.1259679995508045,
+                  -0.0012188911006667524
+                ],
+                [
+                  4.885432975957477,
+                  -5.047842091419155,
+                  -0.003375154337817099
+                ],
+                [
+                  1.1363703344835474,
+                  -5.585030025939184,
+                  -0.0017417687843623852
+                ]
+              ]
+            }
+          ],
+          "normal_error_deg": 0.031669865859060564,
+          "distance_error_m": -0.0003266978568261525,
+          "required_stable_frames": 3,
+          "capture_time_s": 1793531835.5899975,
+          "correction_mode": "orientation",
+          "observable": [
+            "tilt_2d"
+          ],
+          "unobservable": [
+            "translation_3d",
+            "rotation_about_normal"
+          ],
+          "selected_id": "plane-2",
+          "observed": {
+            "normal": [
+              -0.5755591486714331,
+              0.5517903802631746,
+              -0.6035387664679348
+            ],
+            "offset_m": 1.1485226076718562,
+            "rms_m": 0.00025682525589037494,
+            "inliers": 3159,
+            "samples": 3348,
+            "area_m2": 22.120521322469717,
+            "span_m": [
+              3.787353196447056,
+              6.236865142495848
+            ],
+            "outline": [
+              [
+                1.0740971331176095,
+                -0.3534504891618226,
+                0.5555328256503372
+              ],
+              [
+                1.5144146127657543,
+                2.622482358268441,
+                2.8563997143120083
+              ],
+              [
+                -3.5340389485980843,
+                0.8793261411511047,
+                6.077115449541946
+              ],
+              [
+                -3.97435642824623,
+                -2.0966067062791587,
+                3.776248560880274
+              ]
+            ]
+          },
+          "predicted": {
+            "normal": [
+              -0.5753293492264899,
+              0.5515480489630002,
+              -0.6039792128904203
+            ],
+            "offset_m": 1.1488493055286824,
+            "rms_m": 0.0,
+            "inliers": 0,
+            "samples": 0,
+            "area_m2": 0.0,
+            "span_m": [
+              0.0,
+              0.0
+            ],
+            "outline": []
+          },
+          "reference": {
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "offset_m": -0.0,
+            "rms_m": 0.0,
+            "inliers": 0,
+            "samples": 0,
+            "area_m2": 0.0,
+            "span_m": [
+              0.0,
+              0.0
+            ],
+            "outline": [],
+            "kind": "configured_direction",
+            "absolute": false
+          },
+          "applied": true,
+          "sequence": 1243,
+          "source": [
+            "scan-sim-30",
+            "172716a67a19496784fbdbe108ed602d",
+            "b94d80653f55360406acfec7dfde632f720b7f693f82acf6181bc39534e8f439"
+          ]
+        }
+      ],
+      [
+        {
+          "state": "tracking",
+          "valid": true,
+          "reason": "",
+          "candidates": [
+            {
+              "id": "plane-3",
+              "stable_frames": 3,
+              "world_normal": [
+                0.0002034844198466642,
+                0.00017622247168858895,
+                0.999999963769865
+              ],
+              "world_offset_m": -0.0006736301229117728,
+              "height_above_plane_m": 1.0233617993146975,
+              "rms_m": 0.0002732066416565804,
+              "area_m2": 16.55566618452302,
+              "outline_world": [
+                [
+                  -0.6841193803771646,
+                  0.4970441207306162,
+                  0.0007252474409171761
+                ],
+                [
+                  2.818655704864044,
+                  -1.0979770777413176,
+                  0.00029356584719431034
+                ],
+                [
+                  4.776639296816607,
+                  3.2018884343049185,
+                  -0.0008625862784310545
+                ],
+                [
+                  1.273864211575397,
+                  4.796909632776852,
+                  -0.00043090468470818877
+                ]
+              ]
+            }
+          ],
+          "normal_error_deg": 0.015423133095421532,
+          "distance_error_m": -0.000663332453053167,
+          "required_stable_frames": 3,
+          "capture_time_s": 1793531849.6115026,
+          "correction_mode": "orientation",
+          "observable": [
+            "tilt_2d"
+          ],
+          "unobservable": [
+            "translation_3d",
+            "rotation_about_normal"
+          ],
+          "selected_id": "plane-3",
+          "observed": {
+            "normal": [
+              0.8199008185492521,
+              0.34509592126766386,
+              -0.45680570581669505
+            ],
+            "offset_m": 1.023361799314697,
+            "rms_m": 0.0002732066416565804,
+            "inliers": 2417,
+            "samples": 2693,
+            "area_m2": 16.55566618452302,
+            "span_m": [
+              3.848834382993172,
+              4.724674010418906
+            ],
+            "outline": [
+              [
+                -0.45436204433228927,
+                -1.391869440610613,
+                0.3732473526185164
+              ],
+              [
+                -1.368104888826291,
+                2.191443033703517,
+                1.4402393081979363
+              ],
+              [
+                1.0932654520937575,
+                1.6299269851996756,
+                5.433846734678365
+              ],
+              [
+                2.0070082965877587,
+                -1.9533854891144546,
+                4.3668547790989445
+              ]
+            ]
+          },
+          "predicted": {
+            "normal": [
+              0.8197999344453805,
+              0.345020569918967,
+              -0.45704362353733935
+            ],
+            "offset_m": 1.0240251317677502,
+            "rms_m": 0.0,
+            "inliers": 0,
+            "samples": 0,
+            "area_m2": 0.0,
+            "span_m": [
+              0.0,
+              0.0
+            ],
+            "outline": []
+          },
+          "reference": {
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "offset_m": -0.0,
+            "rms_m": 0.0,
+            "inliers": 0,
+            "samples": 0,
+            "area_m2": 0.0,
+            "span_m": [
+              0.0,
+              0.0
+            ],
+            "outline": [],
+            "kind": "configured_direction",
+            "absolute": false
+          },
+          "applied": true,
+          "sequence": 1576,
+          "source": [
+            "scan-sim-30",
+            "172716a67a19496784fbdbe108ed602d",
+            "b94d80653f55360406acfec7dfde632f720b7f693f82acf6181bc39534e8f439"
+          ]
+        }
+      ]
+    ],
+    "completion": {
+      "applied": true,
+      "asset_sha256": {
+        "config": "cdd8616e9abe77013234879f1c15b8aed0764274be274dec3937ebd65479a707",
+        "source": "ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e",
+        "weights": "66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7"
+      },
+      "axis_order": "world-z-up",
+      "backend": "upstream AdaPoinTr graph; Triton FPS / Torch gather",
+      "center_m": [
+        0.33532208068541036,
+        0.030413079171831225,
+        0.7617837674215414
+      ],
+      "elapsed_s": 2.954599536024034,
+      "forward_ms": 2933.597644791007,
+      "gpu": "NVIDIA RTX A6000",
+      "input_points": 3733,
+      "loaded": true,
+      "metres_per_model_unit": 1.0,
+      "missing_keys": [],
+      "normalization": "center-only",
+      "object_id": "target",
+      "parameters": 32470033,
+      "predicted_points": 8192,
+      "profile": "projected55",
+      "sampled_points": 2048,
+      "tf32": false,
+      "torch_version": "2.12.1+cu130",
+      "training": false,
+      "unexpected_keys": [],
+      "upstream_revision": "4603257ed3db9e7dad349b712e1b2fe0da207015"
+    },
+    "mesher": {
+      "boundary_edges": 0,
+      "cancelled_opposite_triangles": 0,
+      "cleanup_removed_vertices": 14,
+      "density_threshold": null,
+      "density_trim_quantile": 0.0,
+      "depth": 8,
+      "field_kind": "poisson_mesh_signed_distance",
+      "field_sign": "parity_vote_solid_proxy",
+      "free_space_observed": false,
+      "generated_neighbor_radius_m": 0.01,
+      "generated_points": 8192,
+      "geometry_complete_claimed": false,
+      "inconsistent_winding_edges": 0,
+      "intersection_candidates": 0,
+      "intersection_check": "native_plus_separating_axes",
+      "library_version": "0.20.0",
+      "linear_fit": false,
+      "max_grid_points": 2000000,
+      "mesh_edge_components": 1,
+      "mesh_vertex_components": 1,
+      "meshed_generated_points": 8024,
+      "min_component_area_m2": 2.5e-05,
+      "min_generated_neighbors": 8,
+      "nonmanifold_edges": 0,
+      "normal_neighbors": 30,
+      "normal_radius_m": 0.012,
+      "normals": "estimated_consistent_tangent_plane",
+      "observed_points": 3733,
+      "orientation_cosine": 1.0,
+      "orientation_penalty": 0.0,
+      "raw_triangles": 47474,
+      "raw_vertices": 23816,
+      "rejected_generated_points": 168,
+      "remesh_boundary_sign_corrections": 318,
+      "remesh_grid_points": 93240,
+      "remesh_resolution_m": 0.004,
+      "removed_component_area_m2": 1.8221412913781357e-05,
+      "removed_sliver_triangles": 0,
+      "removed_small_components": 1,
+      "self_intersections": false,
+      "sliver_tolerance_m": 1e-06,
+      "source_boundary_edges": 48,
+      "source_intersection_candidates": 2,
+      "source_nonmanifold_edges": 17,
+      "source_self_intersection_pairs": 0,
+      "surface_method": "screened_poisson",
+      "threads": 1,
+      "timeout_s": 60.0,
+      "triangles": 47676,
+      "unique_input_points": 11757,
+      "vertex_manifold": true,
+      "vertices": 23832,
+      "weld_max_displacement_m": 0.0,
+      "weld_tolerance_m": 0.0
+    },
+    "mesh_quality": {
+      "components": 1,
+      "boundary_edges": 0,
+      "nonmanifold_edges": 0,
+      "vertex_manifold": true,
+      "self_intersections": false,
+      "inconsistent_winding_edges": 0
+    },
+    "coverage_fraction": 0.3854166666666667,
+    "limitations": "Regularized Poisson SDF parity-vote solid proxy; inferred hidden geometry and free space remain unverified. General instance segmentation and mesh grasp/embrace/hold verification are not connected. Sim-only fixed-arm scan."
+  },
+  "validation": {
+    "full_ui": {
+      "tests": 303,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "pytest_s": 3.356,
+      "junit": {
+        "path": "workbench/evidence/generated/visual-servoing-20261101/native-window-final/ui-tests/ui-current1.xml",
+        "sha256": "ba956d5c623641525a46eb305f1b68d69a9ca6f932bba58ac1aebcdbfcb9e582",
+        "bytes": 49500
+      },
+      "source": "New UI-only source snapshot and peer regressions; prior immutable R4 source preserved."
+    },
+    "host_focused_ui": {
+      "passed": 93,
+      "wall_s": 1.14
+    },
+    "host_driver_and_geometry": {
+      "passed": 23,
+      "wall_s": 0.57
+    },
+    "tdd_reproduction": "Slow shared discovery first failed the nonblocking snapshot regression, then passed with target-change rejection; initial shared-channel capability regression also reproduced before its fix.",
+    "independent_evaluation": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/native-window-final/cycle-30/sim-output/evaluation.json",
+      "sha256": "983f6ed75d8c0c5d303c7adbcb0ffbedb6acdbf027846b3bdf785ba65a6725b6",
+      "bytes": 24027
+    },
+    "native_stages": [
+      {
+        "stage": "launch",
+        "exit_code": 0,
+        "wall_s": 17.173959210515022
+      },
+      {
+        "stage": "native_window",
+        "exit_code": 0,
+        "wall_s": 145.48713972978294
+      },
+      {
+        "stage": "evaluate",
+        "exit_code": 0,
+        "wall_s": 1.0732315815985203
+      },
+      {
+        "stage": "stop",
+        "exit_code": 0
+      }
+    ],
+    "video_decode": "ffmpeg decoded all frames to null with exit 0; ffprobe H.264 1920x1080 30/1, 2923 frames.",
+    "historical_required_gate_note": "The 3982 passed / 6 skipped broad gate predates these packaging/shared-channel changes. Full broad gate not repeated; final UI 303, production image build and live full-window cycle are separate evidence."
+  },
+  "video": {
+    "file": {
+      "path": "workbench/evidence/curated/ui/visual_servoing_poisson_demo_20261101.mp4",
+      "sha256": "485162ce0000edd9ec2fabc1a368daa267330b3154ad9fe303d88b4a8333d06f",
+      "bytes": 3774509
+    },
+    "poster": {
+      "path": "workbench/evidence/curated/ui/visual_servoing_poisson_20261101.png",
+      "sha256": "b826b5d328edc926e1b8a40376a975f8e1535e8d0aab873822f040b0c4a264d2",
+      "bytes": 435929
+    },
+    "duration_s": 97.434,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "frames": 2923,
+    "ui_rendered_frames": 2688,
+    "capture": "Continuous original X11 full-window recording; cursor and operator UI visible; no overlay, synthesis, editing or speed change.",
+    "poster_source": "Unmodified frame extracted from the original video at 96 seconds.",
+    "timeline_s": {
+      "manual": 4.649778366088867,
+      "scan_start": 12.058536529541016,
+      "scan_completed": 70.81043887138367,
+      "apply": 75.39088821411133,
+      "apply_ack": 84.43863654136658,
+      "action": 90.15382695198059
+    },
+    "note": "Original red source remains visible with grey reconstruction overlaid. A temporary control OFFLINE indication occurs during the ~8 s rebuild; ONLINE and both camera streams recover in the final recorded view."
+  },
+  "preservation": {
+    "checked_utc": "2026-11-01T11:19:32.962993+00:00",
+    "before_count": 207,
+    "after_count": 243,
+    "missing": [],
+    "changed": [],
+    "baseline_images_preserved": 45,
+    "cache_entries": 13300,
+    "cache_missing": [],
+    "cache_changed": [],
+    "new_running": [],
+    "targets": {
+      "dev": {
+        "id": "911d6afa54c7aca932ab613018f3ae44156d7e8297caa16bd81802e5c0dbd2a7",
+        "image": "sha256:d10248f3c2dacfb4ec7332e52b7756790aae7fc0d88ce03490075abe68ff7c8a",
+        "running": false,
+        "restart_count": 0
+      },
+      "pilot": {
+        "id": "a3e381d60bf9d9794e4801e589d45bed4222edb19c6ec3991d5f65d23e85d350",
+        "image": "sha256:721ad04bd30ba71549841fffc88aab62d6c9d49c7842d643ea9b3d264781c22a",
+        "running": false,
+        "restart_count": 0
+      },
+      "sim": {
+        "id": "ecdb1f6ce5550931bcda0065d7d09aab509df3f3907e3f2815fc7c8023168660",
+        "image": "sha256:0a9afc14c043bd6c4010befc6e97cda08b6405bd03f02590af429bf6fb8398b0",
+        "running": false,
+        "restart_count": 0
+      }
+    },
+    "remaining_running": [
+      {
+        "id": "496b0562278148432a125a7a20d3817c522bad8208360c95914b2047efcb852e",
+        "name": "/doosan_kos"
+      }
+    ],
+    "baseline_note": "Original 207 IDs/state/name from before first refresh; immutable image IDs from cycle-25 prelaunch snapshot; original cache inode/size/mtime/type compared, atime excluded.",
+    "complete": true
+  },
+  "failed_attempts": [
+    {
+      "attempt": 25,
+      "reason": "Actual Poisson child failed to import Open3D: libEGL.so.1 missing from production Pilot image."
+    },
+    {
+      "attempt": 26,
+      "reason": "Display-tool setup had no egress on the private internal bridge; helper now adds egress only while idle and removes it before DDS/UI start."
+    },
+    {
+      "attempt": 27,
+      "reason": "Actual shared UI channel did not expose selected Sim rebuild capability; both actual WebRTC cameras decoded."
+    },
+    {
+      "attempt": 28,
+      "reason": "Separate XTest invocations missed Scan navigation."
+    },
+    {
+      "attempt": 29,
+      "reason": "Separate XTest invocations missed torque switch; actual UI regression and scripts preserved."
+    }
+  ],
+  "artifacts": {
+    "raw_index": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/native-window-final/artifact-index.json",
+      "sha256": "4ea24166996f1f78f79a6e174b3d9ebc8c1d56b9611c2374e39fad66dec34576",
+      "bytes": 17370
+    },
+    "failures_index": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/poisson-attempts/artifact-index.json",
+      "sha256": "9bff1774c6bc09e021553827f99832c13126dee18b4f830a774de7c70c2b7c4c",
+      "bytes": 21607
+    },
+    "final_audit": {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/native-window-final/poisson-final-preservation-20261101.json",
+      "sha256": "f549a6bc5938eb448ff199cc19c3d1a927259a9f4fc312ba9251b80420ebc23d",
+      "bytes": 1365
+    },
+    "note": "72 original successful-run files (15,779,545 bytes) and 97 prior attempt/build/baseline files (7,840,435 bytes) retained locally. All diagnostic containers and remote evidence retained."
+  }
+}

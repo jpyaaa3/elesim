@@ -1,0 +1,657 @@
+{
+  "schema_version": 1,
+  "created": "2026-11-01T09:27:20.552010+00:00",
+  "scope": "Production Visual Servoing UI with inert local previews; GPU2 software regression and isolated release verification. No physical motion or live runtime rollout.",
+  "source": {
+    "base_head": "e88ca97d99a8f3db21338b6843a4e7cc24b1fc80",
+    "dirty": true,
+    "executed_snapshot_files": 1335,
+    "manifest": "workbench/evidence/generated/visual-servoing-20261101/remote/source-manifest-r4.json",
+    "manifest_sha256": "0d7701d3e420ec7a4f01bb6735b4248cbe833dcd5eb88660609027c14cef74a3",
+    "code_and_test_files_matched_after_execution": true,
+    "validation_git_metadata_note": "A read-only copy of server checkout metadata (70757e6) makes Git-aware workspace tests valid. Executed code identity is the local e88ca97-based snapshot file manifest, not that metadata HEAD."
+  },
+  "environment": {
+    "python": "/home/hckang/ws/newsim_dev/elesim/.validation/visual-servoing-20261101/environment/venv/bin/python3",
+    "cuda_visible_devices": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "packages": {
+      "genesis-world": "1.4.5",
+      "quadrants": "1.3.3",
+      "torch": "2.12.1",
+      "numpy": "1.26.4",
+      "scipy": "1.15.3",
+      "shapely": "2.1.2",
+      "av": "14.2.0",
+      "casadi": "3.7.2",
+      "imgui": "2.0.0",
+      "rclpy": "3.3.21",
+      "open3d-cpu": "0.20.0",
+      "zstandard": "0.25.0"
+    },
+    "modules": {
+      "pinocchio": "/opt/openrobots/lib/python3.10/site-packages/pinocchio/__init__.py",
+      "convex_mpc": "/usr/local/lib/python3.10/dist-packages/convex_mpc/__init__.py",
+      "rclpy": "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py",
+      "cv2": "/usr/local/lib/python3.10/dist-packages/cv2/__init__.py",
+      "open3d": "/home/hckang/ws/newsim_dev/elesim/.validation/visual-servoing-20261101/environment/venv/lib/python3.10/site-packages/open3d/__init__.py",
+      "av": "/usr/local/lib/python3.10/dist-packages/av/__init__.py"
+    },
+    "gpu": {
+      "name": "NVIDIA RTX A6000",
+      "uuid": "a40782b2-881c-e285-2a8e-66cae9162a01",
+      "memory": 50895192064,
+      "logical_devices": 1
+    },
+    "locked_dependencies": {
+      "numpy": "1.26.4",
+      "scipy": "1.15.3",
+      "open3d-cpu": "0.20.0",
+      "shapely": "2.1.2",
+      "PyYAML": "6.0.2",
+      "pyserial": "3.5",
+      "dynamixel-sdk": "4.0.5",
+      "genesis-world": "1.4.5",
+      "quadrants": "1.3.3",
+      "imgui": "2.0.0",
+      "glfw": "2.10.0",
+      "PyOpenGL": "3.1.10",
+      "PyOpenGL-accelerate": "3.1.10",
+      "torch": "2.12.1",
+      "torchvision": "0.27.1",
+      "tensordict": "0.14.2",
+      "rsl-rl-lib": "5.4.0",
+      "tensorboard": "2.21.0",
+      "opencv-contrib-python": "4.11.0.86",
+      "opencv-python": "4.11.0.86",
+      "pyrealsense2": "2.58.2.10647",
+      "ultralytics": "8.4.75",
+      "casadi": "3.7.2",
+      "aiortc": "1.13.0",
+      "av": "14.2.0",
+      "pytest": "8.4.2",
+      "dulwich": "0.22.8",
+      "paramiko": "3.5.1",
+      "jax": "0.4.38",
+      "jaxlib": "0.4.38",
+      "ml_dtypes": "0.5.4",
+      "opt_einsum": "3.4.0"
+    },
+    "lock_mismatches": []
+  },
+  "execution": {
+    "ssh_host": "hckang@100.74.222.24",
+    "install": "/home/hckang/ws/newsim",
+    "validation_root": "/home/hckang/ws/newsim_dev/elesim/.validation/visual-servoing-20261101",
+    "method": "Current installed persistent dev service via installed elesim-compose exec, separate venv and ROSIDL overlay. No build/recreate of the dev container.",
+    "generated_dev_wrapper_not_used": "Its selected image alias was missing and its Compose hash differed; up --build would replace the preserved container.",
+    "gpu_binding": "Inherited dev GPU visibility; CUDA process selected GPU2 by UUID and observed exactly one logical CUDA device. This is not a fresh GPU-passthrough installation acceptance test."
+  },
+  "required": {
+    "passed": 3982,
+    "skipped": 6,
+    "groups": {
+      "protocol": {
+        "kind": "pytest",
+        "passed": 194,
+        "skipped": 0
+      },
+      "robot": {
+        "kind": "pytest",
+        "passed": 166,
+        "skipped": 0
+      },
+      "pilot": {
+        "kind": "pytest",
+        "passed": 728,
+        "skipped": 0
+      },
+      "sim": {
+        "kind": "pytest",
+        "passed": 1117,
+        "skipped": 3
+      },
+      "ui": {
+        "kind": "pytest",
+        "passed": 298,
+        "skipped": 0
+      },
+      "model-builder": {
+        "kind": "pytest",
+        "passed": 98,
+        "skipped": 0
+      },
+      "topology": {
+        "kind": "script",
+        "passed": null,
+        "skipped": 0
+      },
+      "dds-sim-motor": {
+        "kind": "script",
+        "passed": null,
+        "skipped": 0
+      },
+      "dds-scene-commands": {
+        "kind": "script",
+        "passed": null,
+        "skipped": 0
+      },
+      "arm-operating-range": {
+        "kind": "pytest",
+        "passed": 3,
+        "skipped": 0
+      },
+      "arm-ghost-fk": {
+        "kind": "pytest",
+        "passed": 1,
+        "skipped": 0
+      },
+      "active-scan": {
+        "kind": "pytest",
+        "passed": 3,
+        "skipped": 0
+      },
+      "reconstruction-pipeline": {
+        "kind": "pytest",
+        "passed": 1,
+        "skipped": 0
+      },
+      "dds-rgbd": {
+        "kind": "pytest",
+        "passed": 2,
+        "skipped": 0
+      },
+      "webrtc-media": {
+        "kind": "pytest",
+        "passed": 2,
+        "skipped": 0
+      },
+      "setup-tools": {
+        "kind": "pytest",
+        "passed": 1369,
+        "skipped": 3
+      }
+    },
+    "exit_code": 0,
+    "wall_s": 281.40521326102316,
+    "script_checks": [
+      "topology",
+      "dds-sim-motor",
+      "dds-scene-commands"
+    ],
+    "skip_reasons": [
+      "SKIPPED [1] workbench/tests/apps/sim/scenarios/go2/test_50_mpc_import.py:57: qpOASES plugin unavailable",
+      "SKIPPED [1] workbench/tests/apps/sim/test_async_camera.py:847: real Genesis camera worker smoke is opt-in",
+      "SKIPPED [1] workbench/tests/apps/sim/test_async_camera.py:901: real Genesis camera worker smoke is opt-in",
+      "SKIPPED [1] workbench/tests/setup/test_connection_lookup_behavior.py:13: Node.js is required for the frontend behavioral check",
+      "SKIPPED [1] workbench/tests/setup/test_connection_lookup_behavior.py:22: Node.js is required for the frontend behavioral check",
+      "SKIPPED [1] workbench/tests/setup/test_connection_lookup_behavior.py:52: Node.js is required for the frontend behavioral check"
+    ]
+  },
+  "extended": {
+    "snapshot_round": 3,
+    "passed": 184,
+    "failed": 1,
+    "skipped": 1,
+    "exit_code": 1,
+    "critical_mutations_killed": [
+      "protocol-version-mismatch",
+      "target-authority-stale-sequence",
+      "sim-operator-session-lease",
+      "robot-stale-sequence",
+      "robot-go2-deadman",
+      "uv-control-direction",
+      "lji-gain-direction"
+    ],
+    "failure": {
+      "test": "test_deployment_definitions_stay_within_human_review_budget",
+      "unchanged_from_base_head": true,
+      "classes": {
+        "PyMpcGenesisController": 1079,
+        "UiSimSession": 1057
+      },
+      "limit": 1000
+    },
+    "note": "Final round changes UI resume controls and their tests; the existing oversized classes and mutation targets remain unchanged."
+  },
+  "release": [
+    {
+      "name": "release-build-r4",
+      "exit_code": 0,
+      "wall_s": 16.482970715500414
+    },
+    {
+      "name": "release-verify-r4",
+      "exit_code": 0,
+      "wall_s": 7.179349612444639
+    }
+  ],
+  "preservation": {
+    "existing_containers": 202,
+    "after_containers": 202,
+    "removed_ids": [],
+    "dev_id_preserved": "911d6afa54c7aca932ab613018f3ae44156d7e8297caa16bd81802e5c0dbd2a7",
+    "dev_image_preserved": "sha256:d10248f3c2dacfb4ec7332e52b7756790aae7fc0d88ce03490075abe68ff7c8a",
+    "original_dev_running": false,
+    "dev_running_after": false,
+    "source_files_unchanged": 1335,
+    "runtime": {
+      "elesim-merry-test-pilot": {
+        "id": "a3e381d60bf9d9794e4801e589d45bed4222edb19c6ec3991d5f65d23e85d350",
+        "image": "sha256:721ad04bd30ba71549841fffc88aab62d6c9d49c7842d643ea9b3d264781c22a",
+        "running": false,
+        "restart_count": 0
+      },
+      "elesim-merry-test-sim": {
+        "id": "ecdb1f6ce5550931bcda0065d7d09aab509df3f3907e3f2815fc7c8023168660",
+        "image": "sha256:0a9afc14c043bd6c4010befc6e97cda08b6405bd03f02590af429bf6fb8398b0",
+        "running": false,
+        "restart_count": 0
+      }
+    }
+  },
+  "previews": {
+    "image": "workbench/evidence/curated/ui/visual_servoing_20261101.png",
+    "image_sha256": "d1d6b136e463b9866a2d0549ad0c07b599d519816f434c7a65f33457bfc487bf",
+    "kind": "Production ImGui via EGL/Mesa, inert illustrative fixture, no sensor/model execution",
+    "native_window_verified": true,
+    "scenarios": [
+      "offline",
+      "ready",
+      "scanning",
+      "reconstructed",
+      "failed",
+      "robot",
+      "paused"
+    ],
+    "viewing_emits_no_intents": true
+  },
+  "implementation": {
+    "tabs": [
+      "Visual Servoing",
+      "Manual",
+      "Status"
+    ],
+    "steps": [
+      "Scene",
+      "Scan",
+      "Reconstruction",
+      "Action"
+    ],
+    "wire_change": false,
+    "scan_runtime": "Sim only",
+    "mesh_grasp_adapter": "not connected",
+    "hold_verification": "not connected",
+    "diagnostics": [
+      "Sim-ground-truth reference hug",
+      "configured pole wrap policy"
+    ],
+    "fixes": [
+      "Wrap cancellation uses existing Pick stop event, checks ramps and roll, and reports cancellation.",
+      "Pilot ACKs bind to motion endpoint/boot; scene ACKs bind to UI Sim/boot/session.",
+      "Reference solution binds both contexts and object revision/digest/epoch; Scan/Wrap start invalidates it.",
+      "Explicit Resume Sim recovers a paused session without requiring Pilot motion authority.",
+      "cuRobo test double implements world conversion; ignored replay logs preserved as versioned TXT fixtures.",
+      "Fake Docker Python ignores editable site finders, preserving legacy-image test isolation."
+    ]
+  },
+  "unverified": [
+    "Physical Robot control/stop deadlines",
+    "Robot live scanning",
+    "Mesh-driven grasp execution and hold verification",
+    "Opt-in real Genesis camera worker smoke",
+    "NAT/TURN, SROS2 enforce-mode multi-host acceptance",
+    "Current generated dev-image build/start"
+  ],
+  "raw_artifacts": [
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/complete-r2.json",
+      "bytes": 336,
+      "sha256": "9b61532ccc237fc0f40e2460fbda93ec4d74ec07238bbcce36a402aeee51f849"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/complete-r3.json",
+      "bytes": 443,
+      "sha256": "ae2bc609a5916ccbce5c582f573923d0d8823315ddd241d9f875aded283d2ff3"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/complete-r4.json",
+      "bytes": 345,
+      "sha256": "9ab2c44f668bc02775b7822792b15b3f4cee1532a0db156d1f833c731a2e7467"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/complete.json",
+      "bytes": 629,
+      "sha256": "522384521a73df54c850b3e76f642865eb904c187562383900b4f11dc81f31e0"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/containers-after-r4.jsonl",
+      "bytes": 298199,
+      "sha256": "2d3d68874a575e2b7dec87b424ec978a3a1f8944490631ee71a281c59f946ae7"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/containers-after.jsonl",
+      "bytes": 298223,
+      "sha256": "4fe2dc2cf6a8814c2ff1c7ef87918b8474a81890737eace8f726d20065d27a4b"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/containers-before-r3.jsonl",
+      "bytes": 298214,
+      "sha256": "d2fe847d64c33d26acce1a3f9e021ac99443deb3593dd4b14b3017f2150bb003"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/containers-before.jsonl",
+      "bytes": 298200,
+      "sha256": "4ac03486cfa23102651d302a33d946737e847d5a8251dd7488ee537a8943e712"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/current-job-r2.json",
+      "bytes": 1131,
+      "sha256": "a43fa22591e26e3d15f1d94a918c129aa51b57d801ea33a24314c4bcdb8df5a8"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/current-job-r3.json",
+      "bytes": 1229,
+      "sha256": "3df20391fae4160720a159adf3bfb1e1f27b9309e24efea8e77940882336a524"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/current-job-r4.json",
+      "bytes": 1233,
+      "sha256": "9e397ebead21fa7f822ad282f390d52d5a885d08a28858d5f3ae5ea30c853940"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/current-job.json",
+      "bytes": 1207,
+      "sha256": "c51571277a30c6f331eee93f34f82dc1e79d17f528fa23f62ed4dba1f6a66f04"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/dependencies-exit.json",
+      "bytes": 70,
+      "sha256": "d967f3fc463fd826549d27e76c0479be56e47f5a15540b650b6f71cbab794c2b"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/dependencies-r2-exit.json",
+      "bytes": 72,
+      "sha256": "a19067a27efcbfcb460676cbb652233cc3fb2e47cd35726b12b10e3228b0fcc1"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/dependencies-r2.log",
+      "bytes": 64208,
+      "sha256": "406c9c4febbd09dc2eb718888e481bf5293eb5fd5846f2ca6df130f407d87c3e"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/dependencies.log",
+      "bytes": 1503,
+      "sha256": "5799437b18243c4d197b81bc9c2e74c37693147e296f2806690abdf9d2c168e7"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/dev-before.json",
+      "bytes": 1082,
+      "sha256": "96366140a711eaa9285b5bc49fc227cf2c38602bcf2ef3336b2de09f6aeeb1b4"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/environment-exit.json",
+      "bytes": 68,
+      "sha256": "7f5736d688f209a8328d708c472582fbc8038b5c7ab383fcd97a8c8151bec8be"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/environment-final-r4.json",
+      "bytes": 2125,
+      "sha256": "f33411a8b239095e5e13035c65a98bad77c3acefb83b91ef204e4a30f5f71184"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/environment-final.json",
+      "bytes": 2125,
+      "sha256": "f33411a8b239095e5e13035c65a98bad77c3acefb83b91ef204e4a30f5f71184"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/environment.json",
+      "bytes": 1029,
+      "sha256": "555a989fbdacaa0845d586b4b7c2524a57f6202ca66390b6d7204d6aeeb3e1d3"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/environment.log",
+      "bytes": 1030,
+      "sha256": "a85627565db53f7b585472807035d32a03e09cb5ed2582e6c94e0e1553c7d0e8"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/extended-exit.json",
+      "bytes": 66,
+      "sha256": "38e034fe22e7de8cb0f9ce14ff7720d66e177417b0386228e76cc5b2f609d6ec"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/extended-r2-exit.json",
+      "bytes": 68,
+      "sha256": "110fdfe37d21f49a5bdbe6d0b35a95b9a80563ff988b697975d066beeabb1dd0"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/extended-r2.log",
+      "bytes": 2951,
+      "sha256": "864def633d55abfc66b2c6741adc562f7d1684f10ebd62d4fe7946f2657715cb"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/extended-r3-exit.json",
+      "bytes": 68,
+      "sha256": "f06a794e6e366406b7b707b8d7b4ac7b8c4ec4eeb21e452fe8af286e22f1769a"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/extended-r3.log",
+      "bytes": 2951,
+      "sha256": "2860ff17c29dbf7c21b330cad113165225860ee5de303385438a5fea6fc90cad"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/extended.log",
+      "bytes": 2951,
+      "sha256": "aed0edf234e9cac7e6679ba8fcffb419f68b0e8ed1e256ba38ac9a6cc7208fdf"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/full-run-r2.log",
+      "bytes": 281,
+      "sha256": "c5b1def0559b8702ea0353dfefc6704e0c7097c3cb580859232b491c1c22a818"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/full-run-r2.pid",
+      "bytes": 7,
+      "sha256": "93f62fb86c567a06ccd1cdcd209af03f43a44b44d100925e90d645fdd562c0cc"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/full-run-r3.log",
+      "bytes": 388,
+      "sha256": "7c2d96a83636dda06f63ab96c7f169e3a82fb8e4094845e6722567e5d2bfee74"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/full-run-r3.pid",
+      "bytes": 7,
+      "sha256": "dd20d4d2ff429d7498bea77d21586af226d40be402a1ae1b88fbde58f525a543"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/full-run-r4.log",
+      "bytes": 297,
+      "sha256": "09a5978976e75f12f14caeaff1afb4728bbf4c16f3e0376d27b02c279dc25f29"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/full-run-r4.pid",
+      "bytes": 7,
+      "sha256": "85ea7efeb970a8907496f448822fb0abf0d60765c8ccf308ebb9c2f91e7dc389"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/full-run.log",
+      "bytes": 549,
+      "sha256": "7e458565de2566cad9760a9428f8097d2d3aa4363bc86d06cea3f49e7e6ec5a6"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/full-run.pid",
+      "bytes": 7,
+      "sha256": "7f0f7a5ec576da5dd1bb8006b8fdf1bbc0c58c03de117791a4b096bd672f0b08"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/git-metadata.json",
+      "bytes": 242,
+      "sha256": "13583c6775ef57e16ea53b1b75a95f5b939326157e8976670f756437fa0f1715"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/jobs-r2.json",
+      "bytes": 270,
+      "sha256": "3abf9e71e40d40144b2d6869927e76ce77da65be0d98d2968f85d5a925d3e0ae"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/jobs-r3.json",
+      "bytes": 367,
+      "sha256": "abcaf9d833d69ee4a04e53b3a7ffaf131da4c4ed78d50190bb3f2c3ba418e21d"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/jobs-r4.json",
+      "bytes": 279,
+      "sha256": "a69e89fac8cc4363dce925a7b060f6ee45eba078c694b944dfb1a542e6a09bef"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/jobs.json",
+      "bytes": 533,
+      "sha256": "e6f2bbf83ac086ec16a9972985e28746609f99546e6271b63429f8f918344b1f"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/preservation-r4.json",
+      "bytes": 902,
+      "sha256": "a66ebb170dd7fb6b76ec03ba55defb8cbc73ef325f4090d8ff5fb1efd89420e4"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/preservation.json",
+      "bytes": 902,
+      "sha256": "c90e1e4351a62f5590661588518f4438e48f7ceb31f4b77222cad1fbc0df1c32"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/readiness-exit.json",
+      "bytes": 46,
+      "sha256": "2f4bb21429bf511fd9f21df12ce4a7fb1884d8b2c2fc5e855b4d84deb9890f3d"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/readiness-pid.json",
+      "bytes": 1974,
+      "sha256": "4cffebcefcb5df0f48ce1d7884134a9a7ad5b18cfe3c1d0049b06979a093c824"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/readiness.log",
+      "bytes": 711,
+      "sha256": "1ca5c294009df7b8589c0d6142e66c93894c5d30a66186a26d80ee58e0d22d9a"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/release-build-exit.json",
+      "bytes": 70,
+      "sha256": "d0826a51ded6b078d9afc5d9bc7925664869891b45806566c25bf8c42a7c5ced"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/release-build-r3-exit.json",
+      "bytes": 74,
+      "sha256": "80836cd75164a5d97cd56ae37aafc9c62c7acd379faad68694f7f7578c5d2be1"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/release-build-r3.log",
+      "bytes": 5216,
+      "sha256": "2a9e456abd8b47b6b0d5c3771673a507fe45cea803d3fe5a96a0a49429f866da"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/release-build-r4-exit.json",
+      "bytes": 74,
+      "sha256": "266bb07df9925e0888844b73bf17e1112ca52e9d38b9a490cf2c0e3ddc100379"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/release-build-r4.log",
+      "bytes": 5216,
+      "sha256": "41d558c482195b5c4061201296f3cdff124fd1fe80d35b9df0b94a3daf2a26df"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/release-build.log",
+      "bytes": 5064,
+      "sha256": "038097ce178f8b0f348074576fcc399e83105ff5cecfbf5835473b7f69fdf9b3"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/release-verify-exit.json",
+      "bytes": 71,
+      "sha256": "c255e57d54816348372ba5051f12f9a5f1b945a714beb1b1847ee9b210f20500"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/release-verify-r3-exit.json",
+      "bytes": 74,
+      "sha256": "64d9899d2c24f635a7eba23ba07f6f67701b8d0ab2f90f76d7c075555e681fd8"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/release-verify-r3.log",
+      "bytes": 571,
+      "sha256": "b57bdad042485e458fb47b75e0c1dc133d827ef367df226b8c8c3cf1f104e698"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/release-verify-r4-exit.json",
+      "bytes": 74,
+      "sha256": "9eaeea3cc1a51a0cbda8eb089ce61b55129af758c7acb7b099ff112a6c1083a3"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/release-verify-r4.log",
+      "bytes": 571,
+      "sha256": "903083d816e75ae64f929affe0a7d19a9d665baccb772852fb71e975c8e09664"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/release-verify.log",
+      "bytes": 495,
+      "sha256": "df90f89776ba303d62536692ee5aef31c5cc0d134139d7b400e034d403efd44f"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/required-exit.json",
+      "bytes": 66,
+      "sha256": "4816a5492b434d7d53fc8ffb744528660319c4ef46498ed2ac90c29c01b8d7a0"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/required-r2-exit.json",
+      "bytes": 68,
+      "sha256": "c2e8957a5518e8470dc470c8a8ebb4b2a9eeeac209e4b9334aee306e8c1060b0"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/required-r2.log",
+      "bytes": 19310,
+      "sha256": "aaa68c469defe48261fa70884b6fef37313d440b63e1d11f0f9c8f3155c3c00b"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/required-r3-exit.json",
+      "bytes": 69,
+      "sha256": "7f48559f22bc82dd032071d1c23bb0061d21437c43f21f21991f36fafe97d39b"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/required-r3.log",
+      "bytes": 19557,
+      "sha256": "665c78224cadb6a375764e278d2b5a2a97ac5a9044c159503b053464464c724f"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/required-r4-exit.json",
+      "bytes": 69,
+      "sha256": "afdd93564331fb05e6786d4c85408812af83c74d91037d2a52895a8b69dedd57"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/required-r4.log",
+      "bytes": 20136,
+      "sha256": "1369c8003f117e3429815edbe9024ed3b7af687612cea9f501d0039984f54112"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/required.log",
+      "bytes": 29410,
+      "sha256": "87e3f3926a31c3de397f5a47408978332531ba4e93d972b990b7febb86a27506"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/source-manifest-r2.json",
+      "bytes": 179377,
+      "sha256": "9585799f23bcc0e411bee7095ff4a2c5d20e1bf74e6dbb86568001335c571fc4"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/source-manifest-r3.json",
+      "bytes": 179603,
+      "sha256": "ca645e57cf3e4b5c7e555fa5fcf413f6ef39b00c4f6106289cdb855828a305d6"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/source-manifest-r4.json",
+      "bytes": 180389,
+      "sha256": "0d7701d3e420ec7a4f01bb6735b4248cbe833dcd5eb88660609027c14cef74a3"
+    },
+    {
+      "path": "workbench/evidence/generated/visual-servoing-20261101/remote/source-manifest.json",
+      "bytes": 178733,
+      "sha256": "be9ddac09f0ba21181f394479481b7f6feaea79755cb2f5160e80e535a81e19a"
+    }
+  ]
+}

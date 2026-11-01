@@ -223,10 +223,14 @@ def test_object_goal_rejects_standoff_in_ik_or_trajectory_endpoint(bad_ik):
 @pytest.mark.parametrize("solver_fails", [False, True])
 def test_position_ik_includes_target_obstacle_and_restores_world(monkeypatch, solver_fails):
     torch = pytest.importorskip("torch")
+    class World(dict):
+        def get_collision_check_world(self):
+            return self
+
     for name, attributes in {
         "curobo.rollout.cost.pose_cost": {"PoseCostMetric": object},
         "curobo.types.math": {"Pose": lambda **kwargs: SimpleNamespace(**kwargs)},
-        "curobo.geom.types": {"WorldConfig": SimpleNamespace(from_dict=lambda world: world)},
+        "curobo.geom.types": {"WorldConfig": SimpleNamespace(from_dict=World)},
         "curobo.wrap.reacher.ik_solver": {"IKSolver": object, "IKSolverConfig": object},
     }.items():
         module = ModuleType(name)

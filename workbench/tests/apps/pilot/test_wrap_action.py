@@ -254,6 +254,78 @@ def test_the_mixin_defaults_to_the_nominal_condition():
     assert cfg.zero_load_proxy is True
 
 
+def test_operator_stop_event_cancels_wrap_and_a_new_attempt_resets_it():
+    import threading
+    started, release = threading.Event(), threading.Event()
+    class Service(WrapActions):
+        _pick_stop_event = threading.Event()
+        def _wrap_grasp_attempt(self):
+            started.set()
+            release.wait(2.)
+            return WrapGraspOutcome(steps=0,reason='cancelled' if self._wrap_cancelled() else 'done')
+    service = Service()
+    service._pick_stop_event.set()
+    assert service.start_wrap_grasp()
+    assert started.wait(1.)
+    assert not service._pick_stop_event.is_set()
+    service._pick_stop_event.set()  # Existing stop_object_pick / stop_pick_e2e path.
+    release.set()
+    service._wrap_worker.join(2.)
+    assert not service.wrap_grasp_running()
+    assert 'cancelled' in service.wrap_grasp_result()
+
+
+def test_operator_stop_during_ramp_prevents_remaining_targets_and_roll(monkeypatch):
+    import threading
+    from types import SimpleNamespace as NS
+    from elesim_pilot.pick import wrap
+    stop, sent = threading.Event(), []
+    class Service(WrapActions):
+        _pick_stop_event = stop
+        state = NS(set_q=lambda *q:sent.append(q))
+        def wrap_grasp_config(self):
+            return WrapGraspConfig(approach_substeps=5)
+        def current_host_state(self):
+            return NS(q=NS(linear_m=0.,roll_rad=0.,theta1_rad=0.,theta2_rad=0.))
+        def _clamp_q(self,q):
+            return q
+        def send_current_target(self,**_):
+            pass
+        def _wait_until_q_settled(self,*a,**k):
+            pytest.fail('cancelled ramp must not issue a final target or wait for it')
+    class Probe:
+        def __init__(self,cfg,**callbacks):
+            self.callbacks = callbacks
+        def run(self):
+            assert not self.callbacks['command_waypoint']((.1,.1,.1,.1),1.)
+            assert len(sent) == 1
+            assert self.callbacks['cancelled']()
+            self.callbacks['command_roll'](.2)
+            assert len(sent) == 1
+            return WrapGraspOutcome(steps=0,reason='cancelled')
+    monkeypatch.setattr(wrap,'WrapGraspRunner',Probe)
+    monkeypatch.setattr(wrap.time,'sleep',lambda _:stop.set())
+    assert Service()._wrap_grasp_attempt().reason == 'cancelled'
+
+
+@pytest.mark.parametrize('reached',[True,False])
+def test_cancel_during_waypoint_is_reported_as_cancelled_not_settle_or_lift(reached):
+    import threading
+    from types import SimpleNamespace as NS
+    stop = threading.Event()
+    runner = WrapGraspRunner.__new__(WrapGraspRunner)
+    runner.cfg = WrapGraspConfig(max_steps=1)
+    runner.policy = NS(reset=lambda:None,iface=NS(expects_load=False,max_steps=1),
+        act=lambda **_:((0.,0.,-.2,.2),True))
+    runner._cancelled = stop.is_set
+    runner._read_joints = lambda:(0.,0.,0.,0.)
+    runner._overloaded = runner._currents = lambda:{}
+    runner._loaded = lambda:False
+    runner._command_waypoint = lambda *_:stop.set() or reached
+    runner._command_roll = lambda *_:pytest.fail('cancelled attempt must not lift')
+    assert runner.run().reason == 'cancelled'
+
+
 def test_an_attempt_runs_off_the_request_thread_and_reports_through_the_snapshot():
     """The intent handler must come back before the attempt does.
 
@@ -424,6 +496,7 @@ def test_default_roll_preserves_policy_observation_waypoint_and_lift(monkeypatch
             return WrapGraspOutcome()
 
     monkeypatch.setattr(wrap, "WrapGraspRunner", ProbeRunner)
+    service._wrap_cancelled = lambda: False
     WrapActions._wrap_grasp_attempt(service)
 
 

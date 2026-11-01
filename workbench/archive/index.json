@@ -245,6 +245,70 @@
           "reason": "Already superseded by walking_suites.json; original source recovered before commit"
         }
       ]
+    },
+    {
+      "file": "retired-visual-servoing-ui-20261101.zip",
+      "sha256": "9894ab65ff7d0a347133041a69018b3ccded515b3b251bf15b3b3a343bf82fd5",
+      "bytes": 16318,
+      "base_head": "e88ca97d99a8f3db21338b6843a4e7cc24b1fc80",
+      "entries": [
+        {
+          "original_path": "payload/runtime/docker/ui/app/elesim_ui/panels/perception.py",
+          "member": "worktree/payload/runtime/docker/ui/app/elesim_ui/panels/perception.py",
+          "sha256": "8464244daccfdf2f1f5eb4eab74f4ee58753c64484fa6d57bc521da9fcd980f2",
+          "bytes": 34300,
+          "origin": "working-tree",
+          "reason": "Unified Visual Servoing UI replaces legacy forms; regression assertions migrated to the unified controls."
+        },
+        {
+          "original_path": "payload/runtime/docker/ui/app/elesim_ui/panels/object_scan.py",
+          "member": "worktree/payload/runtime/docker/ui/app/elesim_ui/panels/object_scan.py",
+          "sha256": "a007f2903880b8ec83a57d7561926e752a1e6c281a997c31171ea596c22021b1",
+          "bytes": 3855,
+          "origin": "working-tree",
+          "reason": "Unified Visual Servoing UI replaces legacy forms; regression assertions migrated to the unified controls."
+        },
+        {
+          "original_path": "payload/runtime/docker/ui/app/elesim_ui/panels/scene.py",
+          "member": "worktree/payload/runtime/docker/ui/app/elesim_ui/panels/scene.py",
+          "sha256": "30531fd09810df47476b092eb751973e74337d38a64eeb916c302c60a3d77e01",
+          "bytes": 1286,
+          "origin": "working-tree",
+          "reason": "Unified Visual Servoing UI replaces legacy forms; regression assertions migrated to the unified controls."
+        },
+        {
+          "original_path": "payload/runtime/docker/ui/app/elesim_ui/panels/mock_object.py",
+          "member": "worktree/payload/runtime/docker/ui/app/elesim_ui/panels/mock_object.py",
+          "sha256": "c1d18aab114587594af74c9e109b954c8298c51465d7c7707873154f0140f9f1",
+          "bytes": 3905,
+          "origin": "working-tree",
+          "reason": "Unified Visual Servoing UI replaces legacy forms; regression assertions migrated to the unified controls."
+        },
+        {
+          "original_path": "workbench/tests/apps/ui/test_object_scan_panel.py",
+          "member": "worktree/workbench/tests/apps/ui/test_object_scan_panel.py",
+          "sha256": "d37f7211fd958ae52226ed22e540e0dc14c372de2b1e18f316e4834cf0f4dc17",
+          "bytes": 1326,
+          "origin": "working-tree",
+          "reason": "Unified Visual Servoing UI replaces legacy forms; regression assertions migrated to the unified controls."
+        },
+        {
+          "original_path": "workbench/tests/apps/ui/test_control_panel_layout.py",
+          "member": "worktree/workbench/tests/apps/ui/test_control_panel_layout.py",
+          "sha256": "998bdf2315df6dce98bcedddc9855b4b449c11f9d1c6006852e11768b266dff0",
+          "bytes": 9347,
+          "origin": "working-tree",
+          "reason": "Unified Visual Servoing UI replaces legacy forms; regression assertions migrated to the unified controls."
+        },
+        {
+          "original_path": "workbench/tests/apps/ui/regressions/test_file_dialog.py",
+          "member": "worktree/workbench/tests/apps/ui/regressions/test_file_dialog.py",
+          "sha256": "23bcd682da198b82a23b25408509001cafdc3ab434f4825d2172ac6eb942ed08",
+          "bytes": 2537,
+          "origin": "working-tree",
+          "reason": "Unified Visual Servoing UI replaces legacy forms; regression assertions migrated to the unified controls."
+        }
+      ]
     }
   ],
   "policy": "ZIP contents are local and ignored by Git. This inventory is tracked. Active code must not import from archives.",

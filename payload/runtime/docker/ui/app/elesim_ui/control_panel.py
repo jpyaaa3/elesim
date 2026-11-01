@@ -11,19 +11,16 @@ from imgui.integrations.glfw import GlfwRenderer
 
 from elesim_ui.models import (
     ControlService,
-    GazeStabilizerConfig,
     HardwareConfig,
     HostState,
     PanelState,
-    PerceptionConfig,
-    PickConfig,
-    gaze_config_to_dict,
 )
 from elesim_ui.helpers import scaled, set_panel_header_font
 from elesim_ui.sim_view import SimView, camera_icon_button
 from elesim_ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_font_with_korean_ranges
 from elesim_ui import file_dialog
 from elesim_ui.workspace import draw_workspace
+from elesim_ui.visual_servoing import ServoingController
 
 
 _INITIAL_WINDOW_W = 1440
@@ -60,9 +57,6 @@ class ControlPanel:
         go2_teleop_vy_mps: float = 0.35,
         go2_teleop_wz_radps: float = 0.80,
         hardware_cfg: HardwareConfig | None = None,
-        perception_cfg: PerceptionConfig | None = None,
-        pick_cfg: PickConfig | None = None,
-        gaze_cfg: GazeStabilizerConfig | None = None,
         sim_session: Optional[object] = None,
         zed_preview: Optional[object] = None,
         zed_right_preview: Optional[object] = None,
@@ -91,38 +85,14 @@ class ControlPanel:
         hw_cfg = hardware_cfg or HardwareConfig()
         self._current_yellow_ma = abs(int(hw_cfg.current_yellow_ma))
         self._current_limit_ma = abs(int(hw_cfg.current_limit_ma))
-        pc = perception_cfg or PerceptionConfig()
-        pk = pick_cfg or PickConfig()
-        gz = gaze_cfg or getattr(service, "gaze_config", GazeStabilizerConfig())
         self._stop = False
         self._hw_header_init_open = False
         self._ctrl_header_init_open = False
         self._ik_header_init_open = False
         self._go2_header_init_open = False
-        self._perception_header_init_open = False
         self._status_header_init_open = False
         self._imu_model_header_init_open = False
-        self._perception_config_path_draft = str(pc.detector_config)
-        self._perception_mode_draft = str(pc.mode)
-        self._perception_detector_draft = str(pc.detector)
-        self._perception_target_label_draft = str(pc.target_label)
-        self._perception_yolo_device_draft = str(pc.yolo_device)
-        self._perception_publish_hz_draft = float(pc.publish_hz)
-        self._perception_show_preview_draft = bool(pc.show_preview)
-        self._perception_pipeline_draft = str(pc.pipeline)
-        self._perception_tracker_draft = str(pc.tracker)
-        self._gaze_config_draft = gaze_config_to_dict(gz)
-        self._gaze_config_seen_signature = ""
-        self._gaze_config_last_source = "local"
-        self._gaze_config_pending_until = 0.0
-        self.state.visual_target_label = str(pc.target_label).strip()
-        self.state.visual_target_scale = float(pk.target_scale)
-        self.state.visual_center_tol = float(pk.center_tol)
-        self.state.visual_target_uv_u = float(pk.target_uv_u)
-        self.state.visual_target_uv_v = float(pk.target_uv_v)
-        self.state.visual_scale_tol = float(pk.scale_tol)
-        self.state.visual_ready_distance_m = float(pk.ready_pose_standoff_m)
-        self.state.visual_look_distance_m = float(pk.look_pose_standoff_m)
+        self.servoing = ServoingController(self)
         self._port_input = ""
         self._motor_reboot_confirmed = False
         self._host_state: Optional[HostState] = None
@@ -149,11 +119,6 @@ class ControlPanel:
         self._control_u_pending_until = 0.0
         self._control_u_pending: dict[str, float] = {}
         self._control_u_send_period_s = 1.0 / 30.0
-        self._mock_object_asset = "demo_box"
-        self._mock_object_position = [0.50, 0.0, 0.40]
-        self._mock_object_euler_deg = [0.0, 0.0, 0.0]
-        self._mock_hug_solution: dict[str, object] = {}
-        self._mock_object_message = ""
         self._go2_was_active = False
         # GO2 teleop is a deadman command, not a render-rate stream.  Keep
         # the command cadence below the UI frame rate so a 60/144 Hz display
@@ -180,15 +145,14 @@ class ControlPanel:
         self._camera_imgui_impl = None
         self._workspace_controls_visible = True
         self._workspace_controls_width = 440.0
-        self._workspace_tab = 'Scan'
-        self._workspace_tab_request = 'Scan'
+        self._workspace_tab = 'Visual Servoing'
+        self._workspace_tab_request = 'Visual Servoing'
         self._workspace_error = ''
         self._last_input_at = time.monotonic()
         self._ui_resolution_requested_scale = 1.0
         self._ui_resolution_scale = 1.0
         self._ui_style_base_scalars: dict[str, float] = {}
         self._ui_style_base_vectors: dict[str, tuple[float, float]] = {}
-        self._pending_file_browse: Optional[tuple[str, str]] = None
 
     def respawn_simulation(self) -> None:
         self._clear_respawn_shortcut()
@@ -542,22 +506,6 @@ class ControlPanel:
         self._set_imgui_context(self._main_imgui_context)
         if isinstance(opened, tuple) and len(opened) > 1 and not opened[1]:
             self._hide_camera_window()
-
-    def request_file_browse(self, *, kind: str, initial_path: str) -> None:
-        self._pending_file_browse = (str(kind), str(initial_path))
-
-    def _process_pending_file_browse(self) -> None:
-        pending = self._pending_file_browse
-        if pending is None:
-            return
-        self._pending_file_browse = None
-        kind, initial_path = pending
-        if kind == "perception_detector":
-            from elesim_ui.panels.perception import browse_detector_config_path
-
-            selected = browse_detector_config_path(initial_path)
-            if selected:
-                self._perception_config_path_draft = str(selected)
 
     def _install_ui_font(self, *, install_header: bool = True) -> None:
         io = imgui.get_io()
@@ -949,7 +897,6 @@ class ControlPanel:
                 glfw.poll_events()
                 if self._camera_window is not None and glfw.window_should_close(self._camera_window):
                     self._hide_camera_window()
-                self._process_pending_file_browse()
                 glfw.make_context_current(window)
                 self._set_imgui_context(self._main_imgui_context)
                 main_impl.process_inputs()
