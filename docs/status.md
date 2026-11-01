@@ -6,13 +6,14 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### Genesis 1.4.5 GO2 접촉력 읽기 순서 수정 (2026-11-01, GPU 검증 진행)
+### Genesis 1.4.5 GO2 접촉력 읽기 순서 수정 (2026-11-01)
 
 실제 UI에서 보행 시 `touchdown timeout after 0.30s: FL,FR,RL,RR`가 발생했다.
 Sim process는 살아 있고 restart는 0회였다. 설치된 Genesis 소스를 확인하니
 `set_dofs_position`은 arm DOF만 지정해도 `collider.clear`를 호출해 모든 접촉력까지
 지운다. 기존 loop는 arm 쓰기 뒤 그 live getter를 읽어 실제 지지를 잃은 것으로
-판단할 수 있었다.
+판단했다. GPU2 원본 재현에서는 첫 walk의 실제 접촉력이 각 발 약 13 N인데
+제어기 관측은 모두 0 N이었다. 2.71 sim초에 주저앉아 전진·정지 시험에 실패했다.
 
 완료된 physics step 직후 소유한 contact tensor를 갱신하고 ready/walk 양쪽에서
 그 값을 사용한다. 자세·속도는 기존 current getter로 읽으며 접촉력도 같은 한 번의
@@ -21,14 +22,36 @@ host transfer에 포함한다. 다음 물리 계산의 zero force는 그대로 �
 
 설치된 Sim 이미지의 별도 source 복사본으로 control-state, MPC adapter, contact
 gate, scene ordering, direct arm write, runtime readback **177 passed**다. 기존 앱
-파일의 전후 hash도 일치했다. canonical dev gate의 대체 증거가 아니며 actual
-GPU 보행 비교와 양쪽 정식 배포는 진행 중이다. Host-only 집중 검사는 **36 passed**이며
+파일의 전후 hash도 일치했다. canonical dev gate의 대체 증거가 아니다.
+수정 `3e46240`을 push하고 양쪽 정식 updater로 발행했다. GPU2 비교에서 동일
+config chain bytes와 모델 데이터로 **0.15 m/s 명령 8초 + 정지**를 통과했다.
+실제 X 전진은 **0.570 m**, 정지 명령 뒤 stand 복귀는 **0.8초**다. UI 기본인
+**0.8 m/s 명령 8초 + 정지**도 같은 seed/reset의 **3회 모두 통과**했다.
+각 회 X 전진 **4.735 m**, stand 복귀 **1.4초**이며 최대 |roll|/|pitch|는
+**0.078/0.127 rad**다. 세 회는 같은 결정적 조건의 반복이며 무작위 환경의
+통계 검증이 아니다. DDS·카메라 없는 production physics/MPPI/arm-hold 시험이다.
+장시간 600초, 횡이동/회전과 camera/DDS 부하 동시 보행은 여전히 별도 gate다.
+[조건·결과·원시 증거 SHA](../workbench/evidence/curated/sim/go2_contact_20261101.json).
+양쪽 정식 등록/SROS2 교체와 실제 `test` 활성화를 완료했다. 설치된 Connections
+runner의 전체 start는 **209.47초**였으며 등록 재사용 검사 72.98초, compute 시작
+56.31초, 양쪽 DDS 준비 검사 54.97초가 포함된다. UI/Pilot/Sim의 실제 image ID와
+수정 파일 hash가 manifest/source와 일치하고 Pilot/Sim은 물리 GPU2, restart 0이다.
+실제 UI의 ONLINE·observer/hand-eye LIVE를 확인했다. 기존 원격 container **200개**와
+로컬 sidecar/dev/readiness UI **3개**의 ID도 보존했다. 별도 benchmark는 위에 적은
+범위이며, 실제 앱에서도 정상 touchdown 탐색이 기록되고 새 fault
+latch가 없는 것도 관측했다. Host-only 집중 검사는 **36 passed**이며
 tensor 2개는 Torch 부재로 skip했다. 넓은 host 검사에서는 445 passed와 함께
 Pinocchio/Torch/convex_mpc/CasADi 부재로 43개가 실패했다.
 
 격리 bench가 image dependency PYTHONPATH와 mock catalog 경로를 덮어써 초기화에
 실패하던 문제도 수정했다. Image 자체 경로와 선언된 read-only data만 사용한다.
 해당 Compose 병합·격리·회수 회귀는 **8 passed**다. 원시 실패/재시도 결과도 보존했다.
+
+이 검증에서 파일만 등록했던 `go2_contact_check`는 제거했다. Host remove CLI가
+현재 Docker의 `No such container` 응답을 부재로 인식하지 못하는 별도 결함을
+발견했다. 고정 Engine을 확인하고 기존 Compose service verifier의 실제 부재 조회를
+통과한 registry API로 해당 진단 등록만 제거했으며 Docker 자원 삭제는 하지 않았다.
+CLI 응답 문구 호환 수정은 후속 과제로 남는다.
 
 ### Instance 교체 시 endpoint runtime cache 보존 (2026-11-01)
 
@@ -41,7 +64,9 @@ image는 보존했으나, 활성 `test`의 warm cache는 재생성됐다. Contai
 디렉터리·파일 inode를 유지한다. 새 endpoint의 cache는 생성하고 퇴역 endpoint는
 검증된 registry ID로만 제거한다. 성공, instance/Compose 교체 직후 실패 rollback,
 endpoint 추가·제거와 기존 security/remove/teardown 경로를 포함한 host fallback은
-**72 passed**다. 이 수정의 양쪽 설치 적용과 실제 warm cache 보존 검증은 진행 중이다.
+**72 passed**다. 양쪽 정식 updater와 실제 SROS2/release 등록 교체 뒤 기존 cache
+디렉터리 inode를 유지했고, 서버의 기존 **190개 파일**은 inode·크기·mtime가 모두
+일치했다. 새 준비 cache가 추가되어 총 **274개**가 됐다.
 
 ### 수정 소스의 실제 배포와 Connections 기동 보완 (2026-11-01)
 

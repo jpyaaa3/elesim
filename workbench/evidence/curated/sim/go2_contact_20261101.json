@@ -1,0 +1,428 @@
+{
+  "date": "2026-11-01",
+  "runtime_source_revision": "3e462407fa4647ef85574f15758c8a5b80f385cd",
+  "cache_fix_commit": "ed6e423",
+  "host": "hckang@100.74.222.24",
+  "gpu_index": 2,
+  "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+  "root_cause": "Genesis arm position writes clear collider foot forces before the control read. Preserve the completed physics contact sample and discard it on reset.",
+  "scope": {
+    "physics": true,
+    "mpc": true,
+    "arm_hold": true,
+    "dds": false,
+    "webrtc": false,
+    "cameras": false,
+    "physical_robot": false,
+    "repeat_variation": "Three deterministic resets of the same scene and command; no randomized environments."
+  },
+  "runs": {
+    "go2-baseline-04": {
+      "complete": true,
+      "accepted": false,
+      "parameters": {
+        "duration": 8,
+        "repeat": 1,
+        "cycles": 1,
+        "command": [
+          0.15,
+          0,
+          0
+        ]
+      },
+      "image": "sha256:bd6ca66db38e51cab6c6fb32f2b254d3d0fbf222ebb9a8a9c6e5014776527e08",
+      "packages": {
+        "numpy": "1.26.4",
+        "scipy": "1.15.3",
+        "torch": "2.12.1",
+        "genesis-world": "1.4.5",
+        "jax": "0.4.38",
+        "jaxlib": "0.4.38"
+      },
+      "configuration": {
+        "dt": 0.01,
+        "substeps": 2,
+        "backend": "jax_mppi",
+        "gpu_samples": 4096,
+        "gpu_iterations": 2,
+        "gait_hz": 2.2,
+        "gait_duty": 0.6,
+        "fixed_target": false,
+        "scene_object_count": 0
+      },
+      "trials": [
+        {
+          "trial": 0,
+          "completed": false,
+          "sim_elapsed_s": 2.71,
+          "displacement": [
+            -0.09511905163526535,
+            -1.1943234767386457e-05,
+            -0.17455583810806274
+          ],
+          "cycle_stops": [
+            {
+              "cycle": 1,
+              "completed": false,
+              "last_t": null,
+              "last_stage": null,
+              "stand_after_s": null
+            }
+          ],
+          "max_abs_roll_pitch": [
+            0.0007610770053711603,
+            0.06096922567297769
+          ]
+        }
+      ],
+      "initial_walk_contact": {
+        "t": 2.5,
+        "normal_after_physics_n": [
+          13.063480377197266,
+          13.063767433166504,
+          12.550416946411133,
+          12.549609184265137
+        ],
+        "normal_seen_by_controller_n": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "normal_containers_unchanged": true,
+      "raw": {
+        "ui-workspace-20261101/deploy/go2-baseline-04": {
+          "control/probe.yaml": "a02c73486b2aac3bf26f9bbc48c21d7b80e7ba3998284ad0f733817b7fce91ad",
+          "control/resources.json": "8f1fdf4271cbfefba92be6f6340400b0a6bf77b96ce600dca5ff9729f85b2d95",
+          "logs/probe.log": "8cd6fc874e95c9a4e8a321b6863413d8790160e2e923e109e5e74e509af48b2e",
+          "manifest.json": "55c448089dad261e59d753499e7df3a5206d47005e39253347592e51a76a01b2",
+          "plan.json": "d5934e6aaa47e70a1f9059b6d94fe69135d32284225214835c88e9541fdde3be",
+          "report.txt": "8de206a98e1e836731d8dbb9eec9a0b0c9cc086e721c30ce56bcde738e2d4c0d",
+          "work/metadata/probe.json": "7de16bfc2643221f3228be4e40ea4a587e169f594177015a15891c1de4117ef0",
+          "work/probe/walking.jsonl": "c0c0c6f3e625f408a450b7cabb74a43176564d09360a4293fc09738180bd1f14"
+        }
+      }
+    },
+    "go2-candidate-02": {
+      "complete": true,
+      "accepted": true,
+      "parameters": {
+        "duration": 8,
+        "repeat": 1,
+        "cycles": 1,
+        "command": [
+          0.15,
+          0,
+          0
+        ]
+      },
+      "image": "sha256:0a9afc14c043bd6c4010befc6e97cda08b6405bd03f02590af429bf6fb8398b0",
+      "packages": {
+        "numpy": "1.26.4",
+        "scipy": "1.15.3",
+        "torch": "2.12.1",
+        "genesis-world": "1.4.5",
+        "jax": "0.4.38",
+        "jaxlib": "0.4.38"
+      },
+      "configuration": {
+        "dt": 0.01,
+        "substeps": 2,
+        "backend": "jax_mppi",
+        "gpu_samples": 4096,
+        "gpu_iterations": 2,
+        "gait_hz": 2.2,
+        "gait_duty": 0.6,
+        "fixed_target": false,
+        "scene_object_count": 0
+      },
+      "trials": [
+        {
+          "trial": 0,
+          "completed": true,
+          "sim_elapsed_s": 12.0,
+          "displacement": [
+            0.5701841488480568,
+            -0.04148719997465378,
+            -0.005087763071060181
+          ],
+          "cycle_stops": [
+            {
+              "cycle": 1,
+              "completed": true,
+              "last_t": 11.9,
+              "last_stage": "stand",
+              "stand_after_s": 0.8000000000000007
+            }
+          ],
+          "max_abs_roll_pitch": [
+            0.1354068270506129,
+            0.18227936386378496
+          ]
+        }
+      ],
+      "initial_walk_contact": {
+        "t": 2.5,
+        "normal_after_physics_n": [
+          39.62438201904297,
+          36.60502243041992,
+          43.38526153564453,
+          41.99800491333008
+        ],
+        "normal_seen_by_controller_n": [
+          42.957374572753906,
+          43.47236251831055,
+          36.287052154541016,
+          37.2082633972168
+        ]
+      },
+      "normal_containers_unchanged": true,
+      "raw": {
+        "ui-workspace-20261101/deploy/go2-candidate-02": {
+          "control/probe.yaml": "db806243b0a04944d3661f6d2d94c31ef9f67da37483c34a7c610ed0fe4004ee",
+          "control/resources.json": "2f510d73fcd2242e81130d2e65ca666c380b97fd554339a4ae6b75a61aa195d8",
+          "logs/probe.log": "4c3e312bb08cf7db8a71e792012fda700f025666010cb7e73fa129f398d56789",
+          "manifest.json": "15f6a1b7fd27a91b4fee4f5ec07f8d84c72575d3a83ebff22fb5e4d82874e50d",
+          "plan.json": "44047b2c2023bb481aa379ee27122b2806525435e1025c7f7e95c2117a8bd088",
+          "report.txt": "5d641b999dcd89fc9de4491ec0bd2900fab3490a81726d4d98fd356d2f00c28b",
+          "work/metadata/probe.json": "a7676ae284e3732e901966fa9cd08a8c6334b74cde058f463ca4715aa77c00f2",
+          "work/probe/walking.jsonl": "2b67785ff7d6759b112e3ff40a49488511ed3d5580d63d3fe71bd43cc916676d"
+        }
+      }
+    },
+    "go2-candidate-03": {
+      "complete": true,
+      "accepted": true,
+      "parameters": {
+        "duration": 8,
+        "repeat": 3,
+        "cycles": 1,
+        "command": [
+          0.8,
+          0,
+          0
+        ]
+      },
+      "image": "sha256:0a9afc14c043bd6c4010befc6e97cda08b6405bd03f02590af429bf6fb8398b0",
+      "packages": {
+        "numpy": "1.26.4",
+        "scipy": "1.15.3",
+        "torch": "2.12.1",
+        "genesis-world": "1.4.5",
+        "jax": "0.4.38",
+        "jaxlib": "0.4.38"
+      },
+      "configuration": {
+        "dt": 0.01,
+        "substeps": 2,
+        "backend": "jax_mppi",
+        "gpu_samples": 4096,
+        "gpu_iterations": 2,
+        "gait_hz": 2.2,
+        "gait_duty": 0.6,
+        "fixed_target": false,
+        "scene_object_count": 0
+      },
+      "trials": [
+        {
+          "trial": 0,
+          "completed": true,
+          "sim_elapsed_s": 12.0,
+          "displacement": [
+            4.7345041409134865,
+            0.381282018708589,
+            0.003564774990081787
+          ],
+          "cycle_stops": [
+            {
+              "cycle": 1,
+              "completed": true,
+              "last_t": 11.9,
+              "last_stage": "stand",
+              "stand_after_s": 1.4000000000000004
+            }
+          ],
+          "max_abs_roll_pitch": [
+            0.07798951113896253,
+            0.12688942074962428
+          ]
+        },
+        {
+          "trial": 1,
+          "completed": true,
+          "sim_elapsed_s": 12.0,
+          "displacement": [
+            4.7345041409134865,
+            0.381282018708589,
+            0.003564774990081787
+          ],
+          "cycle_stops": [
+            {
+              "cycle": 1,
+              "completed": true,
+              "last_t": 11.9,
+              "last_stage": "stand",
+              "stand_after_s": 1.4000000000000004
+            }
+          ],
+          "max_abs_roll_pitch": [
+            0.07798951113896253,
+            0.12688942074962428
+          ]
+        },
+        {
+          "trial": 2,
+          "completed": true,
+          "sim_elapsed_s": 12.0,
+          "displacement": [
+            4.7345041409134865,
+            0.381282018708589,
+            0.003564774990081787
+          ],
+          "cycle_stops": [
+            {
+              "cycle": 1,
+              "completed": true,
+              "last_t": 11.9,
+              "last_stage": "stand",
+              "stand_after_s": 1.4000000000000004
+            }
+          ],
+          "max_abs_roll_pitch": [
+            0.07798951113896253,
+            0.12688942074962428
+          ]
+        }
+      ],
+      "initial_walk_contact": {
+        "t": 2.5,
+        "normal_after_physics_n": [
+          39.62438201904297,
+          36.60502243041992,
+          43.38526153564453,
+          41.99800491333008
+        ],
+        "normal_seen_by_controller_n": [
+          42.957374572753906,
+          43.47236251831055,
+          36.287052154541016,
+          37.2082633972168
+        ]
+      },
+      "normal_containers_unchanged": true,
+      "raw": {
+        "ui-workspace-20261101/deploy/go2-candidate-03": {
+          "control/probe.yaml": "f4327ab3356abd1b7afe196a3c44c1d53d2bbb5d14290104c6fa76389d739986",
+          "control/resources.json": "297334186c64feb5ec645fda76a30062e655d47016e097ec0c40f3da987e20bb",
+          "logs/probe.log": "40afab39e0db099fc726fa49983707621c1ae075607c44a3e8b646cd4de0aaed",
+          "manifest.json": "7f1915ee9fead064932a42d8c4f8c3a68246e56f57ce784cc1e7fa371d7384c5",
+          "plan.json": "5ce4b2b72287d3cc3e20d6fe351772dd771ed2737358bf9ad7de37ecdf32f2f9",
+          "report.txt": "d7a05e322f797ac37bd42eb8d6a09bcec2c29c307c2c42d803221c1144e132be",
+          "work/metadata/probe.json": "116e474c1245683b85f97d5d5de64abe634e71609b31f4544c8d92beed6b5ffa",
+          "work/probe/walking.jsonl": "598272d5aa191b4740575f94a37c299d921fa5977de91b44a2e0f65d12c1221e"
+        }
+      }
+    }
+  },
+  "unit_tests": {
+    "installed_image_source_copy_passed": 177,
+    "benchmark_compose_passed": 8,
+    "canonical_required_extended": "not run; generated development wrapper would rebuild/recreate preserved dev attachment",
+    "endpoint_cache_host_fallback_passed": 72,
+    "raw_sha256": {
+      "ui-workspace-20261101/go2-installed-image-units.xml": "95ab4ce78810351a109318fa80647f3aca39edac5d37db7cd41c3ac9e3ac1baa",
+      "ui-workspace-20261101/cache-preservation-tests.xml": "08e2a77098888fdeae28e728261a48be6161e25c41f4829907b47a73eb862e67",
+      "ui-workspace-20261101/bench-path-tests.xml": "1b8d4a32412a433ef7e1e33eed46d1b3d4e52d82e919922a3d54917001a3c201",
+      "ui-workspace-20261101/deploy/go2-installed-image-units-fixtures.log": "dbb0f93d412ccaea63165cfa59c53b8557e858f9d4e69275aa7333130b4ee189"
+    }
+  },
+  "not_proven": [
+    "600-second walking gate",
+    "turning and lateral motion acceptance",
+    "timed repeatable walking gate under camera/DDS load",
+    "physical Robot behavior"
+  ],
+  "cache_replacement": {
+    "root_inode_preserved": true,
+    "old_files_preserved": true,
+    "old_file_count": 190,
+    "new_file_count": 274,
+    "release_key": "df1cf78b5a44da9293445d1b1ee9b57e5aa22e6ec812dbc8e60bbe27e2cb22bd",
+    "security_generation": "g-20261101t073024857570z-33346ffd5dc4",
+    "raw_sha256": "5caacd35c041ae3f36f54feb0891d94b2104dcc8924ecbe90cfecdd6dcfe7ccb"
+  },
+  "activation": {
+    "runtime_revision": "3e462407fa4647ef85574f15758c8a5b80f385cd",
+    "connections_start_s": 209.47,
+    "local_release": "befde965c4d0c127c3f9eaf07da78a3eaae3e26292db2099c9a95912e2c5505f",
+    "remote_release": "df1cf78b5a44da9293445d1b1ee9b57e5aa22e6ec812dbc8e60bbe27e2cb22bd",
+    "security_generation": "g-20261101t073024857570z-33346ffd5dc4",
+    "ui": {
+      "id": "9e21a1529302a06bbfe2cd37db1661c2d1f19963c88c800cf5efe0f1af9d41f8",
+      "image": "sha256:7c319560d9cdbd692391ffc45c2064bb5bd1209525a71969ac88ee0baf5424b4",
+      "running": true,
+      "restarts": 0,
+      "source_sha256": {
+        "main.py": "f34b19196df86bb98b3cc5123103148b28338d3397302c743271386f310730d8",
+        "peer_runtime.py": "e52f0794543e7e9bd105ef5ed717ed4b762eea8d732e4ccd2fbd2203e08cadfc",
+        "zed_preview.py": "9c05a92ae48a24981f0ae5d388a02c57a62f7c24388a5c2bbde2b69b95409ee5"
+      },
+      "source_matches": true
+    },
+    "remote_roles": {
+      "pilot": {
+        "id": "a3e381d60bf9d9794e4801e589d45bed4222edb19c6ec3991d5f65d23e85d350",
+        "image": "sha256:721ad04bd30ba71549841fffc88aab62d6c9d49c7842d643ea9b3d264781c22a",
+        "running": true,
+        "restarts": 0,
+        "gpu": [
+          "2"
+        ]
+      },
+      "sim": {
+        "id": "ecdb1f6ce5550931bcda0065d7d09aab509df3f3907e3f2815fc7c8023168660",
+        "image": "sha256:0a9afc14c043bd6c4010befc6e97cda08b6405bd03f02590af429bf6fb8398b0",
+        "running": true,
+        "restarts": 0,
+        "gpu": [
+          "2"
+        ],
+        "source_sha256": {
+          "runtime.py": "39170eb1ab0cfa1c4cf4f9bb685e7065469e79fb7cd85324ce7819b7ef808ed7",
+          "robot/go2/pympc_controller.py": "b45cdde2f2fc2133cd23db987bfd9313ee670e40190c94023e7db64d25508b51",
+          "simulation/genesis/control_state.py": "cab2c93ab4d24cd600e0725c0c18702edcc992835bdf223e5560648084c46eb8"
+        }
+      }
+    },
+    "scene_media_ready": true,
+    "native_ui_observation": "ONLINE, OBSERVER LIVE and HAND-EYE LIVE in the actual native UI screenshot",
+    "protected_original_containers": {
+      "local": {
+        "count": 3,
+        "all_preserved": true
+      },
+      "remote": {
+        "count": 200,
+        "all_preserved": true
+      }
+    },
+    "cache": {
+      "root_inode_preserved": true,
+      "old_file_inodes_preserved": true,
+      "old_file_count": 190,
+      "current_file_count": 274
+    },
+    "method": "Installed Connections API stop/rotate, then installed ConnectionDeploymentRunner start. Preservation env forwarded only to scoped remote up in the temporary runner process; normal identity, admission and readiness gates retained.",
+    "live_walking_observation": "Normal touchdown search logged through controller sim_time 15.22; no fault latches in the inspected live process log. Operator motion was not a controlled benchmark.",
+    "raw_sha256": {
+      "ui-workspace-20261101/deploy/go2-fix-final-local.json": "f9e1de443f66668875dda1ad7868a493aa5db8b47622a4a2773296c96e4ca071",
+      "ui-workspace-20261101/deploy/go2-fix-final-remote.json": "8e35c0bdccb02e209b07a5146862f7554be2c9199cd271cc36317aaa7d4c6c90",
+      "ui-workspace-20261101/deploy/go2-fix-final-media.json": "3e2d4f1c7c2e41de52f15fe45c4804dd853f2aff0862943e2bb12b4ae58d503c",
+      "ui-workspace-20261101/deploy/go2-fix-start.log": "74ef673f1d49679c2bbd75896477047c3ac21479228e92833ac576dfa7c5a198",
+      "ui-workspace-20261101/deploy/go2-fix-stop-job.json": "9c58b85e386fd7db33f9062bb54b5b323f4935ecd7942f459f6dd66896fa8307",
+      "ui-workspace-20261101/deploy/go2-fix-rotation-retry-job.json": "72f79f5a7c2af005d96f66e115b135fa5ea5d33ff74bbd5c135706b6bf8f1502",
+      "ui-workspace-20261101/deploy/live-ui-go2-fixed.png": "012279a3568202e81f8c511b0dee12f513e11813e742a82acf7a76a76dc3fb2c"
+    }
+  }
+}
