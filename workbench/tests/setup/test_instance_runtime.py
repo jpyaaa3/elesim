@@ -559,6 +559,70 @@ def test_unpinned_docker_backend_is_rejected(local_state):
         InstanceRuntime(state, INSTALL)
 
 
+@pytest.mark.parametrize("failure", [None, "after-instance", "after-compose"])
+def test_release_replacement_preserves_endpoint_cache_inodes(local_state, tmp_path, failure):
+    state = _state(local_state, roles=("pilot", "sim", "ui"))
+    state.prefix_path.mkdir(parents=True)
+    for role in state.roles:
+        shutil.copytree(state.source_path / "payload/config" / role,
+                        state.prefix_path / "apps" / role / "config", dirs_exist_ok=True)
+    generate_role_configs(state)
+    release = _release(state, tmp_path)
+    runtime = InstanceRuntime(state, INSTALL)
+    original = _instance("alpha", release, 11)
+    runtime.register(original)
+    caches = []
+    for endpoint in original.endpoints:
+        cache = state.prefix_path / "instances/alpha/endpoints" / endpoint.endpoint_id / "cache"
+        kernel = cache / "compiled-kernel.bin"
+        kernel.write_bytes(b"cached kernel must survive")
+        caches.append((cache, cache.stat().st_ino, kernel, kernel.stat()))
+    next_root = tmp_path / "next"
+    next_root.mkdir()
+    next_release = _release(state, next_root, tokens_text="def")
+    changed = replace(original, release_key=release_key(next_release), domain_id=12)
+    def inject(step):
+        if step == failure:
+            raise RuntimeError(step)
+    if failure:
+        with pytest.raises(RuntimeError, match=failure):
+            runtime.replace(changed, fail=inject)
+    else:
+        runtime.replace(changed)
+    for cache, inode, kernel, before in caches:
+        assert cache.stat().st_ino == inode
+        assert kernel.read_bytes() == b"cached kernel must survive"
+        assert kernel.stat().st_ino == before.st_ino
+        assert kernel.stat().st_mtime_ns == before.st_mtime_ns
+
+
+def test_endpoint_changes_keep_matching_cache_and_remove_retired_endpoint(local_state, tmp_path):
+    state = _state(local_state, roles=("pilot", "sim", "ui"))
+    state.prefix_path.mkdir(parents=True)
+    for role in state.roles:
+        shutil.copytree(state.source_path / "payload/config" / role,
+                        state.prefix_path / "apps" / role / "config", dirs_exist_ok=True)
+    generate_role_configs(state)
+    release = _release(state, tmp_path)
+    runtime = InstanceRuntime(state, INSTALL)
+    original = _instance("alpha", release, 11)
+    runtime.register(original)
+    endpoints = state.prefix_path / "instances/alpha/endpoints"
+    preserved = endpoints / "alpha-pilot/cache/kernel.bin"
+    preserved.write_bytes(b"hot")
+    inode = preserved.stat().st_ino
+    notes = endpoints / "operator-notes.txt"
+    notes.write_text("retain unrelated entries")
+    runtime.replace(replace(original, sim_id="new-sim", endpoints=(
+        InstanceEndpoint("pilot", "alpha-pilot"), InstanceEndpoint("sim", "new-sim"),
+    )))
+    assert preserved.read_bytes() == b"hot" and preserved.stat().st_ino == inode
+    assert (endpoints / "new-sim/cache").is_dir()
+    assert not (endpoints / "alpha-sim").exists()
+    assert not (endpoints / "alpha-ui").exists()
+    assert notes.read_text() == "retain unrelated entries"
+
+
 def test_failed_replace_restores_target_and_aggregate(local_state, tmp_path: Path):
     state = _state(local_state, roles=("pilot", "sim", "ui"))
     state.prefix_path.mkdir(parents=True)

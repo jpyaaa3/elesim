@@ -6,6 +6,19 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
+### Instance 교체 시 endpoint runtime cache 보존 (2026-11-01)
+
+Release/security 교체가 endpoint 디렉터리 전체를 바꾸면서 등록된 `test`의
+Genesis cache까지 지우는 결함을 확인했다. 이전 배포에서 기존 실험 container와
+image는 보존했으나, 활성 `test`의 warm cache는 재생성됐다. Container/image
+자동 회수 생략 옵션이 endpoint cache까지 보존한다는 설명은 잘못됐다.
+
+공유 endpoint는 생성된 `config`만 transaction으로 교체하고 기존 `cache`의
+디렉터리·파일 inode를 유지한다. 새 endpoint의 cache는 생성하고 퇴역 endpoint는
+검증된 registry ID로만 제거한다. 성공, instance/Compose 교체 직후 실패 rollback,
+endpoint 추가·제거와 기존 security/remove/teardown 경로를 포함한 host fallback은
+**72 passed**다. 이 수정의 양쪽 설치 적용과 실제 warm cache 보존 검증은 진행 중이다.
+
 ### 수정 소스의 실제 배포와 Connections 기동 보완 (2026-11-01)
 
 `eb49daa`와 bootstrap 설정 manifest 누락을 고친 `a98d52b`를 push했다.
@@ -17,7 +30,10 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 실제 화면 검증에서 Robot 없는 graph의 camera preview가 허용되지 않은 Robot
 topic 생성을 반복하는 결함을 확인했다. Preview를 UI 자체의 live Robot discovery로
 지연하고, Robot이 뒤늦게 발견되면 구독을 시작하도록 수정했다. Pilot/control target
-선택에는 의존하지 않는다. UI **194 passed**이며 이 추가 수정의 live 적용을 진행한다.
+선택에는 의존하지 않는다. UI **194 passed**이며 `7a2a94e`를 양쪽에 정식 update하고
+SROS2 generation과 실제 instance pin도 교체했다. Connections 전체 start는
+**207.05초**에 완료했으며 새 UI의 ONLINE과 observer/hand-eye LIVE를 실제 화면 및
+사용자 확인으로 검증했다. GO2 보행은 별도 실패가 있으며 이 기동 결과로 통과를 주장하지 않는다.
 Bootstrap **113 passed**, 실제 배포 source tree **560 files** 검증도 통과했다.
 
 현재 설치를 확인해 로컬 UI와 서버 Pilot/Sim이 이전 immutable image를 실행하고
@@ -36,7 +52,9 @@ Connections network preparation은 새 `elesim-tailscale start`를 호출한다.
 restart한다. 실제 인증 누락은 여전히 명시적인 login을 요구한다. 런타임 namespace
 preflight는 read-only로 유지한다. `ELESIM_KEEP_RUNTIME_ARTIFACTS=1`은 자동
 container/image/alias 회수를 생략하고 읽기 전용 Docker 조회로 release 선택
-목록만 갱신한다. 이번 배포에서 기존 실험 container와 Genesis cache 보존에 쓴다.
+목록만 갱신한다. 서버의 대상 Pilot/Sim 외 기존 **200개 container ID**와 로컬의
+기존 sidecar/dev/readiness UI ID는 보존했다. 활성 test의 endpoint cache는 위 결함으로
+재생성됐으며 다른 실험 cache는 건드리지 않았다.
 
 UI **192 passed**, 연결/설치의 5개 집중 suite **378 passed**, Connections runner와
 updater **50 passed**다. 집중 suite의 첫 sandbox 실행은 Unix/X11 bind 거부로

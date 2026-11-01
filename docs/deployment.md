@@ -88,6 +88,9 @@ fingerprint가 일치하는 기존 이미지는 그대로 재사용해 Compose b
 `ELESIM_KEEP_RUNTIME_ARTIFACTS=1`을 지정한 update/release 또는 공개 instance
 `up`은 자동 회수를 생략한다. 진단용 기존 container/image/별칭의 보존이 필요한
 작업에 사용하며 기본 회수 정책은 그대로다.
+같은 endpoint ID의 release/security 교체는 생성된 설정만 바꾸고 endpoint의
+runtime cache 디렉터리와 기존 파일을 유지한다. 새 endpoint에는 빈 cache를
+생성하며, 명시적으로 퇴역시킨 endpoint의 cache는 해당 endpoint와 함께 제거한다.
 성공한 update/release 및 공개 instance `up` 경로는 설치 lock 아래 종료된
 고아 역할 컨테이너를 먼저 정리하고 미참조 구버전 이미지를 회수한다. 고아는
 설치 UUID, pinned Docker Engine, Compose project/설정 경로와 발행된 역할별

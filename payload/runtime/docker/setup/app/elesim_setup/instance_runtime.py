@@ -1032,7 +1032,27 @@ class InstanceRuntime:
         self._check_tree(compose)
         if compose_backup.exists() or compose_backup.is_symlink():
             raise ValueError("transaction rollback path already exists")
-        mutable = ("state.json", "endpoints", "bin")
+        mutable = [Path("state.json"), Path("endpoints"), Path("bin")]
+        retired: set[Path] = set()
+        if not remove and (target / "endpoints").is_dir():
+            # Runtime cache binds belong to the endpoint, not its generated
+            # configuration. Swapping the whole tree discarded hot kernels
+            # on every release/security replacement and broke live bind mounts.
+            old_state = InstanceState.from_dict(json.loads((target / "state.json").read_text()))
+            new_state = InstanceState.from_dict(json.loads((staged_target / "state.json").read_text()))
+            old_endpoints = {e.endpoint_id for e in old_state.endpoints}
+            new_endpoints = {e.endpoint_id for e in new_state.endpoints}
+            mutable = [Path("state.json"), Path("bin")]
+            for endpoint in sorted(old_endpoints | new_endpoints):
+                relative = Path("endpoints") / endpoint
+                if endpoint in old_endpoints and endpoint in new_endpoints:
+                    mutable.append(relative / "config")
+                    if not (target / relative / "cache").exists():
+                        mutable.append(relative / "cache")
+                else:
+                    mutable.append(relative)
+                    if endpoint not in new_endpoints:
+                        retired.add(relative)
         swaps: list[
             tuple[
                 Path,
@@ -1101,10 +1121,10 @@ class InstanceRuntime:
             for name in mutable:
                 target_child = target / name
                 staged_child = staged_target / name
-                backup = target / f".{name}.rollback-{os.getpid()}"
+                backup = target_child.with_name(f".{target_child.name}.rollback-{os.getpid()}")
                 if backup.exists() or backup.is_symlink():
                     raise ValueError("transaction rollback path already exists")
-                if target_child.is_symlink() or (target_child.exists() and not (target_child.is_file() if name == "state.json" else target_child.is_dir())):
+                if target_child.is_symlink() or (target_child.exists() and not (target_child.is_file() if name == Path("state.json") else target_child.is_dir())):
                     raise ValueError(f"instance mutable path is not a real entry: {target_child}")
                 had_original = os.path.lexists(target_child)
                 if had_original:
@@ -1123,7 +1143,7 @@ class InstanceRuntime:
                         backup_owned,
                     )
                 )
-                if not remove:
+                if not remove and name not in retired:
                     os.replace(staged_child, target_child)
                     published_identity = self._identity(target_child)
                     published_owned = self._owned_tree(target_child)
