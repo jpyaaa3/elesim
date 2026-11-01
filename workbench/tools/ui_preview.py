@@ -190,13 +190,10 @@ def preview_panel(*, robot_camera=False, scenario='offline'):
     return panel, cache
 
 
-def configure_panel(tab, layout, controls, source, scale, scenario='offline', stage=None):
+def configure_panel(tab, controls, source, scale, scenario='offline', stage=None):
     panel, cache = preview_panel(robot_camera=source == 'robot',scenario=scenario)
     panel._workspace_tab_request = tab
     panel._workspace_controls_visible = controls
-    panel._sim_view.state.main_stream = 'hand_eye_preview' if layout == 'hand-eye' else 'observer'
-    panel._sim_view.state.preview_stream = 'observer' if layout == 'hand-eye' else 'hand_eye_preview'
-    panel._sim_view.state.layout = 'split' if layout == 'split' else 'pip'
     panel._ui_resolution_requested_scale = panel._ui_resolution_scale = scale
     if stage is not None:
         panel.servoing.step = ('scene','scan','reconstruction','action').index(stage)
@@ -204,8 +201,8 @@ def configure_panel(tab, layout, controls, source, scale, scenario='offline', st
     return panel, cache
 
 
-def interactive(tab, layout, controls, source, scale, scenario='offline', stage=None):
-    panel, _cache = configure_panel(tab, layout, controls, source, scale,scenario,stage)
+def interactive(tab, controls, source, scale, scenario='offline', stage=None):
+    panel, _cache = configure_panel(tab, controls, source, scale,scenario,stage)
     print('[ui-preview] Opening local mock UI; no runtime or hardware is connected.', flush=True)
     try:
         panel.run(window_title='EleSim - Mock UI')
@@ -215,7 +212,7 @@ def interactive(tab, layout, controls, source, scale, scenario='offline', stage=
         panel.service.close()
 
 
-def render(output: Path, width: int, height: int, tab: str, layout: str, controls: bool,
+def render(output: Path, width: int, height: int, tab: str, controls: bool,
            source: str, scale: float, scenario='offline', stage=None):
     import cv2
     import numpy as np
@@ -245,7 +242,7 @@ def render(output: Path, width: int, height: int, tab: str, layout: str, control
     io.ini_file_name = None
     io.display_size = width, height
     io.delta_time = 1/30
-    panel, cache = configure_panel(tab, layout, controls, source, scale,scenario,stage)
+    panel, cache = configure_panel(tab, controls, source, scale,scenario,stage)
     panel._install_ui_font()
     panel._install_ui_style()
     panel.set_ui_resolution_scale(scale)
@@ -266,7 +263,7 @@ def render(output: Path, width: int, height: int, tab: str, layout: str, control
             raise FileExistsError(output)
         if not cv2.imwrite(str(output), cv2.cvtColor(pixels, cv2.COLOR_RGBA2BGRA)):
             raise RuntimeError('Could not save preview PNG')
-        return dict(output=str(output), width=width, height=height, tab=tab, layout=layout,
+        return dict(output=str(output), width=width, height=height, tab=tab, layout='observer',
                     source=source, scale=scale, controls=controls,scenario=scenario,stage=stage,
                     renderer=GL.glGetString(GL.GL_RENDERER).decode(),
                     requests=len(cache.requests), scope='inert UI fixture; no runtime or hardware')
@@ -290,7 +287,6 @@ def main():
     parser.add_argument('--tab', choices=('Visual Servoing', 'Manual', 'Status'), default='Visual Servoing')
     parser.add_argument('--scenario',choices=SCENARIOS,default='offline',help='inert workflow status fixture')
     parser.add_argument('--stage',choices=('scene','scan','reconstruction','action'),help='open a workflow step')
-    parser.add_argument('--layout', choices=('observer', 'hand-eye', 'split'), default='observer')
     parser.add_argument('--source', choices=('sim', 'robot'), default='sim')
     parser.add_argument('--scale', type=float, choices=(.8, 1., 1.2), default=1.)
     parser.add_argument('--camera-only', action='store_true')
@@ -303,13 +299,13 @@ def main():
             # WSLg exposes WAYLAND_DISPLAY as well, so PyOpenGL otherwise
             # auto-selects EGL while the installed GLFW library uses X11/GLX.
             os.environ['PYOPENGL_PLATFORM'] = 'glx'
-        interactive(args.tab, args.layout, not args.camera_only, args.source, args.scale,args.scenario,args.stage)
+        interactive(args.tab, not args.camera_only, args.source, args.scale,args.scenario,args.stage)
         return
     os.environ.setdefault('PYOPENGL_PLATFORM', 'egl')
     os.environ.setdefault('EGL_PLATFORM', 'surfaceless')
     os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
     print(json.dumps(render(args.output, args.width, args.height, args.tab,
-                            args.layout, not args.camera_only, args.source, args.scale,args.scenario,args.stage)))
+                            not args.camera_only, args.source, args.scale,args.scenario,args.stage)))
 
 
 if __name__ == '__main__':

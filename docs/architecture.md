@@ -82,7 +82,8 @@ Discovery의 I/O 대기는 UI session의 snapshot/frame lock 밖에서 수행하
 좌우 폭은 divider로 조절하며 좁은 창에서는 카메라/작업을
 위아래로 배치한다. 화면 배율은 글자·위젯만 조절하고 창 크기를 고정하지 않는다.
 수동 입력이 숨겨지면 GO2 velocity를 한 번 해제하고 입력을 놓은 뒤 다시 받아들인다.
-Sim 영상은 observer/hand-eye 중 큰 화면을 선택하거나 두 영상을 나란히 보여준다.
+Sim 영상은 observer를 메인으로, hand-eye를 우측 상단의 작은 화면으로 고정한다.
+레이아웃 선택과 두 영상의 메인/서브 교환은 제공하지 않는다.
 Robot 영상은 좌우 함께/한쪽 확대를 선택한다. `Pop out`을 누를 때만 공유 OpenGL
 context의 카메라 창을 만들고 `Dock` 또는 창 닫기로 메인 UI에 복귀한다. 같은
 SimView·session·texture를 사용하며 추가 수신/디코딩 경로를 만들지 않는다.

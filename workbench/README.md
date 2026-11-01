@@ -24,14 +24,15 @@ CPU만 필요한 검사는 의존성이 있는 host에서도 부분 검증으로
 `plan|run` 같은 표기는 각각 별도 명령이라는 뜻이다. 셸에 `|`를 입력하지 않는다.
 
 `ui_preview`는 UI/OpenCV/EGL이 준비된 환경에서 production ImGui 화면을 CPU Mesa로
-그린다. `--width/--height`, `--tab 'Visual Servoing'\|Manual\|Status`, `--layout
-observer\|hand-eye\|split`, `--source sim\|robot`, `--scale 0.8\|1\|1.2`,
+그린다. `--width/--height`, `--tab 'Visual Servoing'\|Manual\|Status`,
+`--source sim\|robot`, `--scale 0.8\|1\|1.2`,
 `--camera-only`로 배치를 바꾼다. 영상과 상태는 동작 실행기가 없는 로컬 fixture다.
+Sim 영상은 observer 메인·hand-eye 보조 화면으로 고정한다.
 DDS·실기기·실제 미디어 수신 검증을 대신하지 않으며 기존 출력 파일을 덮어쓰지 않는다.
 
 `--interactive`는 저장소 루트에서 데스크톱 창 `EleSim - Mock UI`를 연다.
 기존 UI·OpenCV 의존성과 사용 가능한 디스플레이가 필요하며 PNG 출력 경로는 받지
-않는다. `--tab`, `--layout`, `--source`, `--scale`, `--camera-only`도 사용할 수 있다.
+않는다. `--tab`, `--source`, `--scale`, `--camera-only`도 사용할 수 있다.
 WSLg에서는 GLFW와 일치하는 GLX를 이 프로세스에만 선택한다.
 
 새 Visual Servoing은 `--scenario offline|ready|scanning|reconstructed|failed|robot|paused`로
@@ -40,7 +41,7 @@ WSLg에서는 GLFW와 일치하는 GLX를 이 프로세스에만 선택한다.
 실제 연결·모델 실행·파지 성공을 증명하지 않는다.
 
 ```bash
-python3 -m workbench.tools.ui_preview --interactive --scenario reconstructed --layout split
+python3 -m workbench.tools.ui_preview --interactive --scenario reconstructed
 python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/servoing-preview.png --scenario scanning --stage scan --width 1366 --height 768
 ```
 

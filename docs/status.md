@@ -11,8 +11,10 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 작업 탭을 **Visual Servoing / Manual / Status**로 정리했다. 기존 Scan·Legacy 탭과
 Manual의 Mock Object/Wrap 행을 제거하고 **Scene → Scan → Reconstruction → Action**
 네 단계에 배치·관측·재구성·동작 시험을 모았다. 이전 panel 4개와 교체 전 회귀
-원문은 archive ZIP과 SHA inventory로 보존했다. 카메라는 같은 창에서 observer와
-hand-eye를 나란히 또는 큰 화면+보조 화면으로 보며 기존 선택적 pop-out도 유지한다.
+원문은 archive ZIP과 SHA inventory로 보존했다. 후속 요청으로 Sim 카메라는 observer
+메인·우측 상단 hand-eye 보조 화면으로 고정하고 레이아웃 선택·교환을 제거했다.
+기존 선택적 pop-out은 유지한다. 이 후속 변경의 camera/workspace/layout 회귀는
+host **112 passed**다. 아래 303개 UI 전체 검사는 이 레이아웃 단순화 이전 실행이다.
 
 UI는 명시적 intent와 ACK 표시를 소유한다. Pilot 요청은 motion endpoint/boot,
 scene 명령은 UI Sim/boot/session에 묶어 조작 대상과 카메라 선택의 독립성을 유지한다.

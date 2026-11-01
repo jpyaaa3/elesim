@@ -302,19 +302,16 @@ def test_detached_video_is_not_drawn_again_in_main_workspace(ui_context):
     assert drawn == ['video']
 
 
-@pytest.mark.parametrize('layout,main,expected', [
-    ('pip', 'observer', ['observer']),
-    ('pip', 'hand_eye_preview', ['hand_eye_preview']),
-    ('split', 'observer', ['observer', 'hand_eye_preview']),
+@pytest.mark.parametrize('streams', [
+    ('observer', 'hand_eye_preview'), ('observer',), ('hand_eye_preview',),
 ])
-def test_video_layout_uses_same_session_and_can_focus_hand_eye(monkeypatch, ui_context, layout, main, expected):
-    session = NS(snapshot=NS(last_error='', connected_streams=('observer','hand_eye_preview')))
+def test_video_layout_keeps_observer_main_and_hand_eye_inset(monkeypatch, ui_context, streams):
+    session = NS(snapshot=NS(last_error='', connected_streams=streams))
     view = SimView(session)
-    view.state.layout, view.state.main_stream = layout, main
-    view.state.preview_stream = 'observer' if main == 'hand_eye_preview' else 'hand_eye_preview'
     drawn, inset = [], []
-    view._draw_stream = lambda name, **kwargs: (drawn.append(name), (20.,30.,600.,450.))
-    view._draw_pip = lambda rect, **kwargs: inset.append(kwargs['stream'])
+    view._draw_stream = lambda name, **kwargs: (drawn.append((name,kwargs['connected'])), (20.,30.,600.,450.))
+    view._draw_pip = lambda rect, **kwargs: inset.append((kwargs['stream'],kwargs['connected']))
+    monkeypatch.setattr(imgui, 'combo',lambda *a, **kw: pytest.fail('Sim layout selector must be removed'))
     ui_context.display_size = 1000, 700
     imgui.new_frame()
     imgui.begin('video')
@@ -322,8 +319,8 @@ def test_video_layout_uses_same_session_and_can_focus_hand_eye(monkeypatch, ui_c
     imgui.end()
     imgui.render()
     assert view.session is session
-    assert drawn == expected
-    assert inset == ([] if layout == 'split' else [view.state.preview_stream])
+    assert drawn == [('observer','observer' in streams)]
+    assert inset == [('hand_eye_preview','hand_eye_preview' in streams)]
 
 
 def test_missing_primary_track_still_draws_secondary(ui_context):

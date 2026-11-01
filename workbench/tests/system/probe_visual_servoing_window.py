@@ -224,7 +224,6 @@ class WindowDemo:
     def run_panel(self, panel, original, **kwargs):
         self.panel = panel
         panel._sim_view.state.camera_source = 'sim'
-        panel._sim_view.state.layout = 'split'
         panel._workspace_controls_width = 480.
         worker = threading.Thread(target=self.automate,name='native-ui-demo',daemon=True)
         worker.start()

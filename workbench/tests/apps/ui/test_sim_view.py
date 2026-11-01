@@ -7,7 +7,6 @@ import elesim_ui.sim_view as sim_view
 
 from elesim_ui.sim_view import (
     OBSERVER_ASPECT,
-    SimViewState,
     _center_crop_uv,
     _genesis_scroll_zoom_delta,
     _fit_aspect_size,
@@ -89,15 +88,6 @@ def test_hand_eye_operator_view_compensates_the_rolled_mount() -> None:
 
     assert _orient_stream_uv("observer", uv) == uv
     assert _orient_stream_uv("hand_eye_preview", uv) == (0.9, 0.8, 0.1, 0.2)
-
-
-def test_view_state_swaps_named_streams() -> None:
-    state = SimViewState()
-
-    state.swap_streams()
-
-    assert state.main_stream == "hand_eye_preview"
-    assert state.preview_stream == "observer"
 
 
 def test_genesis_wheel_zoom_uses_the_pinned_ninety_percent_ratio() -> None:

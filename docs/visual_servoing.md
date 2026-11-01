@@ -9,6 +9,8 @@
 [실제 전체 창 데모: 97초, 1920×1080, 30 fps](../workbench/evidence/curated/ui/visual_servoing_poisson_demo_20261101.mp4).
 GPU2의 실제 DDS/WebRTC/Genesis와 Pilot 모델을 사용해 OS 입력으로 조작했다.
 [실행 조건과 검증 범위](../workbench/evidence/curated/ui/visual_servoing_poisson_20261101.json).
+위 영상·화면은 레이아웃 정리 전 촬영본이다. 현재 Sim 영상은 observer 메인과
+우측 상단 hand-eye 서브 화면으로 고정하며 레이아웃 선택 메뉴는 없다.
 
 ```mermaid
 flowchart LR
@@ -28,7 +30,7 @@ Action의 메쉬 기반 실행과 유지 검증은 아직 연결되지 않은 �
 ## 조작 순서
 
 1. 위쪽 Control Target과 Camera View를 확인한다. 둘은 독립이다. 같은 창 안에서
-   observer/hand-eye 큰 화면+보조 화면 또는 나란히 보기를 선택한다.
+   observer 메인과 우측 상단 hand-eye 보조 화면을 함께 본다.
 2. Scene에서 실제 물체를 준비하거나 live Sim catalog의 물체를 배치한다.
    위치(m)/회전(deg)은 Placement에 있다. 소환·제거·분리는 UI Sim session 권한을
    쓰며 Pilot의 motion lease를 대신하지 않는다.
@@ -97,7 +99,7 @@ control endpoint/boot에, scene command의 ACK는 UI Sim/boot/session에 묶는�
 저장소 루트에서:
 
 ```bash
-python3 -m workbench.tools.ui_preview --interactive --scenario reconstructed --layout split
+python3 -m workbench.tools.ui_preview --interactive --scenario reconstructed
 ```
 
 `--scenario offline|ready|scanning|reconstructed|failed|robot|paused`과
@@ -105,7 +107,7 @@ python3 -m workbench.tools.ui_preview --interactive --scenario reconstructed --l
 `--tab Manual` 또는 `--tab Status`도 가능하다. PNG 출력 예:
 
 ```bash
-python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/servoing.png --scenario reconstructed --width 1920 --height 1080 --layout split
+python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/servoing.png --scenario reconstructed --width 1920 --height 1080
 ```
 
 실제 production UI를 로컬 fixture로 그리며 `MOCK`으로 표시한다. 버튼 요청은

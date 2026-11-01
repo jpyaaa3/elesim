@@ -13,20 +13,8 @@ from elesim_ui.panels.go2 import (
     _send_go2_velocity,
     _stop_go2,
 )
-from elesim_ui.sim_view import SimViewState
 from elesim_ui.panels import visual_servoing
 from workbench.tools.ui_preview import preview_panel
-
-
-def test_sim_preview_swap_is_explicit_and_reversible() -> None:
-    state = SimViewState()
-
-    state.swap_streams()
-    assert state.main_stream == "hand_eye_preview"
-    assert state.preview_stream == "observer"
-
-    state.swap_streams()
-    assert state.main_stream == "observer"
 
 
 def test_control_slider_draft_survives_delayed_remote_snapshot() -> None:

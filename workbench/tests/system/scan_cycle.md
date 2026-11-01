@@ -22,7 +22,7 @@ UI 컨테이너를 대기 상태로 만든다. 이어 그 실행 폴더에 고�
 `ControlPanel.run()`을 private Xvfb의 1920×1080 창으로 열고 XTest 마우스/키보드와
 X11 화면 녹화를 사용한다. UI 상태·센서 frame·응답을 대체하지 않는다. 디스플레이
 도구는 이 진단 UI 컨테이너 안에만 설치하고, 준비 중 추가한 외부 경로는 DDS/UI
-실행 전에 제거한다. 원본 영상은 30 fps H.264이며 초기 화면 설정은 Sim/Side by side다.
+실행 전에 제거한다. 원본 영상은 30 fps H.264이며 Sim/observer 메인·hand-eye 서브를 쓴다.
 이 모드는 원래 Sim fixture를 숨기지 않고 재구성을 겹쳐 보여준다. 독립 평가도
 기존 hidden-source 기준선과 구분해 원래 fixture의 위치 보존을 요구한다.
 마우스 down/up은 한 XTest 연결에서 수행하고 실제 위젯 반응·단계 전환을 기록한다.

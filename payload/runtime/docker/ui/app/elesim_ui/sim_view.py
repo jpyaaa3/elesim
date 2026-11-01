@@ -167,14 +167,8 @@ def _pip_rect(
 
 @dataclass
 class SimViewState:
-    main_stream: str = "observer"
-    preview_stream: str = "hand_eye_preview"
     camera_source: str = "sim"
-    layout: str = 'pip'
     zed_layout: str = 'stereo'
-
-    def swap_streams(self) -> None:
-        self.main_stream, self.preview_stream = self.preview_stream, self.main_stream
 
 
 class SimView:
@@ -211,40 +205,16 @@ class SimView:
         snapshot = self.session.snapshot
         if snapshot.last_error:
             imgui.text_colored(snapshot.last_error, 0.78, 0.18, 0.18)
-        layout = 2 if self.state.layout == 'split' else int(self.state.main_stream != 'observer')
-        imgui.push_item_width(min(280., float(imgui.get_content_region_available_width())*.65))
-        changed, layout = imgui.combo('Layout##sim-camera-layout', layout,
-            ['Observer + inset', 'Hand-eye + inset', 'Side by side'])
-        imgui.pop_item_width()
-        if changed:
-            self.state.layout = 'split' if layout == 2 else 'pip'
-            if layout < 2:
-                self.state.main_stream = 'observer' if layout == 0 else 'hand_eye_preview'
-                self.state.preview_stream = 'hand_eye_preview' if layout == 0 else 'observer'
         available = max(1.0, float(imgui.get_content_region_available_width()))
         available_height = self._available_content_height(fallback=available * 0.75)
         max_height = max(1.0, available_height - imgui.get_text_line_height_with_spacing())
-        if self.state.layout == 'split':
-            spacing = float(imgui.get_style().item_spacing.x)
-            pane_width = max(1., (available-spacing)*.5)
-            for index, stream in enumerate(('observer', 'hand_eye_preview')):
-                if index:
-                    imgui.same_line()
-                imgui.begin_child('split-'+stream, pane_width, available_height, False)
-                try:
-                    self._draw_stream(stream, width=pane_width, max_height=max_height,
-                        connected=stream in snapshot.connected_streams,
-                        display_aspect=OBSERVER_ASPECT if stream == 'observer' else None)
-                finally:
-                    imgui.end_child()
-            return
-        main, preview = self.state.main_stream, self.state.preview_stream
+        main, preview = 'observer', 'hand_eye_preview'
         _, main_rect = self._draw_stream(
             main,
             width=available,
             max_height=max_height,
             connected=main in snapshot.connected_streams,
-            display_aspect=OBSERVER_ASPECT if main == 'observer' else None,
+            display_aspect=OBSERVER_ASPECT,
             center=True,
             pip_stream=preview,
         )
@@ -258,7 +228,6 @@ class SimView:
                 max_height=max(1., self._available_content_height(fallback=available_height*.55)
                                - imgui.get_text_line_height_with_spacing()),
                 connected=preview in snapshot.connected_streams,
-                display_aspect=OBSERVER_ASPECT if preview == 'observer' else None,
                 center=True,
             )
 
