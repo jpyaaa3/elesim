@@ -1,10 +1,10 @@
 {
   "build": {
     "format_version": 1,
-    "source_assets_sha256": "1733a673bddb2066695e03855c0d83f8348cd805cdb78c0defc2a24e86657604",
+    "source_assets_sha256": "30818600294427a1c151ba69df442d20213a8f22e8f5724574fc2381101d9ff8",
     "use_go2": true
   },
-  "bundle_id": "bce6bd952df400bd52dcfddad8fbc1d53b8a10d2960c8187a984eeaa6eaab526",
+  "bundle_id": "ced0e4d0e460551c8dee3ca1e578d6b5e11ad5ac958125f53917e94c82fac284",
   "bundle_type": "elesim.sim-model",
   "entrypoints": {
     "arm_urdf": "arm.urdf",
@@ -13,8 +13,8 @@
   },
   "files": {
     "arm.urdf": {
-      "sha256": "ccd591eedd3622b0cdc282bee3f2493b89d971f0e4e76f18920a4244752ef2e1",
-      "size": 14816
+      "sha256": "1cfdfdfe180170da6457253acf680b71e31ab3104cfc21a54c37e050adaf2005",
+      "size": 14811
     },
     "assets/camera/camera_frame.json": {
       "sha256": "3d96fba34d35c7284c6f846bb4de6b6cee98787aa2062894cd3d73117fdfd9f2",
@@ -105,12 +105,12 @@
       "size": 241
     },
     "assets/housing/housing_mesh.obj": {
-      "sha256": "7bd8aec718f9b3541f403bd457448a29d60de193f5e29e14c56e05ac70df8e21",
+      "sha256": "72e74010fdb32f0ebe1655ac46dbfb30e44e7820f2aed5fd35afe9785a5153f6",
       "size": 32046
     },
     "assets/housing/housing_physics.json": {
-      "sha256": "b8ba0d8bc6d40bd25afe2262bbe0b086bb5951b21b088c34cf13ed13dbcc93d5",
-      "size": 497
+      "sha256": "32135a3a596ad21cbbb44abd5a62e60958b378cfd4f84b96f774aa10de6457eb",
+      "size": 494
     },
     "assets/node/node_frame.json": {
       "sha256": "4fd395de8107fee83075bcc413d86a738150694374674c2286aed7587ce4955d",
@@ -165,8 +165,8 @@
       "size": 14450
     },
     "robot.urdf": {
-      "sha256": "ef176e20b34d3927246578b7786bf9de268581805769be69bb69b8a901f2a3a3",
-      "size": 35183
+      "sha256": "8f56d5890c9da853728bfc239ac0be1ba822bad42aa23fc94b3e3448dfb02072",
+      "size": 35178
     }
   },
   "schema_version": 1

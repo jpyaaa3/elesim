@@ -1,10 +1,306 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-11-01. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-11-03. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+newhug 세션 인계: [의도·확정 조건·현재 탐색 방식·다음 질문](newhug-handoff.md).
+현재 마지막 쟁점은 원형 수집의 적은 해가 탐색 누락인지 실제 제약인지 구분하는 것이다.
+적응형 국소 탐색/해 가지 추적은 아직 구현하지 않았다.
+
+### hugmap 단일 JSON 지름 테이블·재개·원형 theta 표시 (2026-11-03)
+
+0.4.0 GUI는 기본 지름 50~250 mm/5 mm의 41개 원형 맵을 schema v2
+`hugmap-table` JSON 한 파일에 저장한다. 기본 위치 20 mm이면 총 41,246개
+격자다. 크기별 상태와 결과를 `maps`에 넣고 공통 설정/형상은 metadata에 둔다.
+지름 범위/간격과 x/y/theta 해상도·μ를 입력한다. theta 항목은 원형에서도 열어 두며,
+값을 저장하되 원형 솔브는 theta=0 한 번만 실행한다.
+
+`New table`/`Resume table`, CLI `--table`/`--resume`을 추가했다. 하나의 worker pool에
+반지름을 명시적으로 전달한다. 완료 좌표는 건너뛰고 일부 저장된 고정 작업 묶음의
+앞선 해를 warm start로 연결한다. 10초/크기 완료/중지 시 원자적으로 체크포인트를
+교체한다. 동시 쓰기는 OS 잠금용 `.lock` 보조 파일로 막고, 프로세스 종료 시 잠금은
+해제된다. 모델·제약·solver revision이 다른 파일은 재개하지 않는다. 테이블 결과는
+메모리에 모아 저장하므로 고해상도에서는 메모리 사용도 커진다.
+
+Reader는 지름 선택과 파일 전체 공통 색 범위를 지원하며 기존 schema v1도 읽는다.
+원형 theta=0 데이터는 reader에서 저장된 theta 간격의 `[-180,180)` 층으로 복제한다.
+기본 5도는 72층이다. 기존 100 mm 맵의 22개 해는 1,584개 표시 점으로 확장되지만
+저장된 결과와 발견 개수는 유지한다. 비원형에는 대칭 복제를 하지 않는다. 원본
+계산과 별도의 reader 기능이며, 1,000,000개를 넘는 표시 확장은 오류로 안내한다.
+
+호스트 기존 18개 회귀 통과 후 테이블/reader 집중 검사 **17 passed**:
+41개 맵 단일 파일, 크기별 worker 반지름, 취소·재개와 설정 보존, 부분 작업 묶음
+재개/연속 실행 일치, 완료 좌표 건너뛰기, writer 잠금과 원자 저장 실패 시 원본 보존,
+불일치 metadata 거부, 단일 파일 외부 실행 CLI 및 원형 대칭 확장을 확인했다.
+테스트의 41개 맵 생성은 거친 격자를 사용했으며 실제 기본 41,246개 전체 테이블은
+이번 코드 수정에서 생성하지 않았다. 이전 (20,360,0) 탐색 누락은 수정하지 않았다.
+실제 Tk GUI 조작은 DISPLAY 제한으로 미검증이며 canonical wrapper도 없어
+required/extended/release gates는 미실행이다.
+
+### hugmap 가속 전후 전체 지도 비교: 해 1개 누락 확인 (2026-11-03)
+
+사용자가 제공한 `/home/user/ws/hugmap-20261103-190421.json`(0.1.0, complete)을
+가속 후 `workbench/evidence/generated/hugmap-speed-20261103/map-20mm-v03.json`과
+좌표로 대조했다. `/home/user/ws`의 나머지 JSON은 160 mm newhug 결과이므로
+같은 실험이 아니며 비교에 사용하지 않았다. config/object/coordinates/constraints/
+geometry와 1,006개 좌표 집합은 동일하다.
+
+전 23개, 후 22개 발견. 공통 발견 22개는 접촉 부위가 전부 같고 최대 차이는
+seg1 1.67e-7도, seg2 2.15e-7도, mu_min 2.83e-9 미만이다. 제외 102개와 공통
+미발견 881개도 일치한다. 단 `(20 mm,360 mm,0 deg)`는 전 found / 후 not_found다.
+전 해는 seg1=37.3854153518461도, seg2=-172.63589484977487도,
+mu_min=0.13024283882871812이며 현재 최종 판정기도 통과한다. 현재 cold solve도
+not_found를 재현했다. 유효 해의 탐색 누락으로 확인했으며 이번 비교에서 수정하지 않았다.
+따라서 이전 표본 비교를 전체 결과의 동등성으로 확대하면 안 된다.
+
+파일에 기록된 실행 시간은 1019.48초/95.16초(약 10.71배)이며 실행 당시 부하는
+동일하게 통제한 실험이 아니다. 상세 대조는 같은 generated 디렉터리의
+`full-before-after-comparison.json`에 기록했다.
+
+### hugmap 3D reader 수정 (2026-11-03)
+
+0.3.1에서 사용자 요구를 바로잡아 theta 단면 선택을 제거했다. X/Y/Theta를
+3개 공간축으로 두고 전체 theta의 격자 점을 함께 표시하며 seg1/seg2/mu_min을
+색으로 선택한다. 원형 데이터는 theta=0 평면에 놓인다. Tk/NumPy 직교 3D 투영,
+깊이 버퍼와 picking, 드래그 회전·휠 확대·시점 초기화를 추가했다. X/Y는 공통
+mm 축척, theta는 독립 표시 축척이다. 기본은 발견 해, 선택적으로 미발견/제외도
+표시한다. 추가 의존성은 없다. 계산 솔버는 변경하지 않았다.
+
+reader 집중 검사 **8 passed**: 기존 데이터/색/입력 검사에 더해 3D 투영의
+3축 보존, 카메라 회전·확대, 여러 theta 동시 raster, 깊이 버퍼 picking·clip을
+검사했다. 실제 GUI 창 조작은 기존 DISPLAY :0 연결 제한으로 미검증이다.
+
+### hugmap CPU 배치 솔버 가속 (2026-11-03)
+
+0.3.0에서 배치별 SciPy 다중 솔브/수치 미분을 NumPy 일괄 계산으로 교체했다.
+64개 초기값의 polygon 거리·FK·해석적 Jacobian을 함께 계산하며, 초기값별로
+독립된 감쇠/수락 상태와 관절 bounds/step cap을 갖는 damped Gauss-Newton을 쓴다.
+최종 유효성 판정은 기존 `inspect_pose`의 접촉·충돌·μ 컷오프를 그대로 사용한다.
+유효 후보는 기존 seed 순서로 최대 16개 보존한다. 일괄 실행의 `attempts`는
+실제 평가한 전체 초기값 수(64)를 표시한다. SciPy 의존성을 제거했고 NumPy와
+GUI용 Tkinter만 필요하다. GPU 경로와 비원형 접촉 솔버는 구현하지 않았다.
+
+초기 12개 표본: 기존 121.86초, 시제품 4.35초. 다른 정답군을 포함한 추가 12개
+표본(일부 중복): 기존 92.42초, 신규 4.72초(19.57배); process CPU 합계는
+81.97초/4.22초(19.42배). 추가 표본의 발견 여부는 12/12 일치, 발견 해의 최소 μ
+최대 차이는 8.09e-10 미만이다. 이것은 전체 해공간의 동등성/완전성 증명이 아니다.
+
+기본 20 mm / 원 100 mm / μ 0.5 / 7프로세스의 전체 지도는 **95.16초**에 완료됐다.
+1,006개 고유 좌표, 보호 형상 제외 102개, 수치 풀이 904개 중 발견 22개/미발견
+882개다. 미발견은 불가능 판정이 아니다. 발견 22개는 기존 판정기로 재검사했고
+reader도 전체 JSON을 정상적으로 읽었다. 이전 솔버의 전체 지도는 재실행하지
+않았으므로 전체 지도 가속 배율을 주장하지 않는다.
+
+호스트 기존 14개 검사와 추가 배치 기하/해석 미분 검사 1개, 총 **15개 통과**.
+거리·최근접점은 원래 scalar 기하와, Jacobian은 중앙차분과 비교했다. 단일 파일
+분리 실행, 순차/병렬 결과 일치, 취소/JSON, reader 검사도 포함된다. 실제 GUI
+표시는 DISPLAY 문제로 여전히 미검증이며 canonical wrapper도 없으므로 전체
+required/extended/release gates는 미실행이다.
+근거: `workbench/evidence/generated/hugmap-speed-20261103/`의 `comparison.json`,
+`initial-raw.json`, `extended-raw.json`, `reference-source.txt`, `map-20mm-v03.json`.
+
+### hugmap JSON heatmap reader (2026-11-03)
+
+단일 파일 0.2.0에 `Open JSON reader`와 `--read map.json`을 추가했다.
+물체 `(x,y,theta)`의 theta 단면별 XY 히트맵에서 seg1/seg2/mu_min을 선택한다.
+파일 전체 공통 색 범위, signed seg 각도, hover 수치, 미발견/제외/미저장 구분을
+구현했다. 보간은 하지 않는다. Tk raster를 사용하고 추가 plotting 의존성은 없다.
+영어/ASCII UI를 유지한다. schema·중복 좌표·NaN·격자 해상도를 검증한다.
+
+호스트 focused reader 검사 **5 passed**: theta별 조회와 공통 색 범위, 빈/상수 지도,
+세 가지 무효/미저장 상태, 잘못된 입력 거부, ASCII 및 CLI 옵션을 확인했다.
+기존 solver의 전체 탐색을 반복하지 않았다. Tk DISPLAY :0 연결 불가로 실제
+화면 렌더·마우스 조작은 미검증이다. canonical dev wrapper 부재에 따른 기존
+required/extended/release gate 미실행 상태는 유지한다.
+
+### hugmap 고정 몸체 배치 지도 (2026-11-03)
+
+`workbench/research/support/hugmap.py` 0.1.0을 별도 단일 파일 계산기로 추가했다.
+몸체 중심을 고정하고 지름 100 mm 원의 중심을 전방 반경 500 mm 반원에 배치한다.
+JSON은 물체의 `(x_mm,y_mm,theta_deg)`를 유지하며 circle만 theta=0으로 생략한다.
+비원형 접촉 솔버는 미구현이다. 기본 20×20 mm 격자는 1,006개이고 고정 보호 형상에
+걸리는 102개를 제외한 904개를 계산한다. 두 굽힘은 배치당 최대 64회 초기값 탐색,
+유효 후보 16개 상한이며 최저 발견 μ를 대표로 저장한다. 전역 최적/불가능 증명은 아니다.
+
+기하·충돌·마찰 검사는 newhug에서 독립 복사했다. NumPy/SciPy와 GUI용 Tkinter만
+필요하고 sibling 모듈·CAD 파일은 읽지 않는다. CPU process pool, 고정 4배치 작업,
+작업 묶음 내 warm start, 자식 BLAS 단일 스레드, 접촉쌍 점수 벡터화를 적용했다.
+현재 호스트 자동 선택은 7프로세스이며 CLI `--workers`로 조절할 수 있다.
+GUI 중지 시 완료 결과를 JSON으로 마무리한다. 강제 종료 partial의 자동 이어하기와
+reader는 미구현이다. 실행과 좌표/각도 단위는 `docs/research.md`에 기록했다.
+
+호스트 `.venv/bin/python -m unittest workbench.tests.research.analysis.test_hugmap -v`:
+**9 passed**. 기존 정답의 μ 재현, ±1 mm 이웃 해, 엄격 μ 컷오프, 격자 누락/중복,
+후보·시도 상한, 활성 worker 취소와 JSON 완결, 출력 보존, 단일 파일을 별도 임시
+폴더로 복사한 `python -I` 실행 및 1/2프로세스 결과 일치를 확인했다.
+작은 250 mm 격자에서 1프로세스 16.72초, 2프로세스 12.85초였다. 이 측정은 전체
+20 mm 지도나 코어 수에 비례한 가속을 보증하지 않는다. 기본 전체 지도는 미실행이다.
+Tk는 DISPLAY :0에 연결할 수 없어 실제 GUI 화면 조작은 미검증이다. generated dev
+wrapper가 없어 canonical required/extended/release gates는 미실행이며 실기기 검증도 아니다.
+
+### newhug 기록 μ 하한 제거 (2026-11-03)
+
+Standalone 0.6.1에서 기록 μ 하한 설정·UI·CLI·JSON 필드를 제거했다. 이제
+**최소 필요 μ < 허용 μ**인 유효 해를 전부 기록한다. 낮은 양수·0인 최소 필요 μ도
+허용 μ가 그보다 크면 제외하지 않는다. 기존 전역 상한 컷오프, 몸체·카메라 보호,
+접촉 부위 제한과 band 정렬은 유지한다. 바늘 맵 schema는 3이다.
+
+100/160 mm 원·256회·허용 μ 0.5에서 팔 후보 4/5개가 원본 바늘 맵에도 각각
+4/5개 전부 기록됐다. 기존 기록 하한 0.2에 걸렸던 최소 μ 0.0787/0.1405 등의
+해도 남는다. 관련 host 회귀 **72 passed**, standalone 자체 **37 passed**로
+총 **109 passed**이며 `/home/user/ws/newhug.py`에도 동일하게 반영했다.
+[조건·소스 SHA·수치](../workbench/evidence/curated/planning/newhug_no_lower_mu_20261103.json).
+이전 버전의 하한 필터 설명·수치는 아래 이력에 보존한다. generated dev wrapper
+부재로 canonical required/extended/release gates는 미실행이며 실제 브라우저
+레이아웃·Genesis/실기기 검증은 아니다.
+
+### newhug 전역 μ 컷오프·각도 오차 기능 제거 (2026-11-03)
+
+Standalone 0.6.0에서 `표시 마찰계수`를 **허용 μ 컷오프**로 변경했다.
+일반 솔버는 후보 순위·저장·콜백 전에 `최소 필요 μ < 허용 μ`를 적용하며,
+원본/정렬 바늘·band·JSON/SVG에도 같은 조건을 적용한다. 같은 값은 force closure
+경계라 제외한다. 기존 기록 하한은 유지해 바늘은 `하한 ≤ 최소 필요 μ < 허용 μ`만
+남긴다. 법선 각도 오차 입력·기본 2° 가산·오차 포함 μ 점수와 CLI/JSON 필드를
+제거했고, 비교 runner도 최소 μ 하나를 사용한다. 독립 결과 schema는 5,
+바늘 맵은 2다. EleSim DDS/runtime 계약은 변경하지 않았다.
+
+계산 후 μ를 내리면 현재 팔 자세·원본 바늘·정렬 바늘을 즉시 거르고 band도 다시
+계산한다. 저장은 해당 필터 결과를 사용한다. 현재 작업에서 찾은 해만 메모리에
+보존해 μ를 되돌렸을 때 복원하며, 탐색 당시보다 높은 μ에서 새 해를 찾으려면
+재계산이 필요하다고 표시한다. 새 작업·옛 cutoff revision의 늦은 응답은 거부한다.
+계산 중 μ 변경은 비활성화한다. 현재 작업을 넘어가는 결과 캐시는 추가하지 않았다.
+
+100/160 mm 원·256회·기록 하한 0.2·허용 μ 0.5를 실제 수집해, 팔 후보는 4/5개,
+바늘은 1/4개였다. 컷오프를 넘은 후보 252/251개는 결과에 들어가지 않았다.
+이는 정해진 횟수의 부분 탐색이며 결과 개수는 보장하지 않는다.
+[조건·소스 SHA·수치](../workbench/evidence/curated/planning/newhug_friction_cutoff_20261103.json).
+
+Host cutoff **13**, 바늘 맵 **33**, 몸체 보호 **17**, 실제 localhost API·JavaScript
+**4**, Wrap 비교 **7**의 합 **74 passed**, standalone 자체 **37 passed**로
+관련 검사 **111 passed**다. UI 스크립트는 DOM 대역을 사용하며 실제 브라우저
+레이아웃 검증은 아니다. generated dev wrapper가 없어 canonical
+required/extended/release gates는 미실행이다. 실기기·Genesis 동작 검증은 아니며
+아래 0.5.x 수치는 이전 컷오프·오차 조건의 이력이다.
+
+### newhug 몸체 접근 금지·접촉 부위 제한 (2026-11-03)
+
+Standalone 0.5.1은 접촉 허용을 **seg1·seg2·gripper_base·gripper_claw**로 명시하고,
+카메라·하우징·웨지를 보호 부위로 지정한다. 기존에도 하우징·웨지가 접촉쌍에는
+없었지만 관통 검사만 있어 부수적으로 닿는 해가 통과할 수 있었다. 이제 몸체는
+ZED와 같은 별도 보호 조건으로 **기본 1 mm보다 커야** 하며, 보호 간격 0에서도
+접촉·미세 관통을 거부한다. 일반 접촉 구성·수치 보정·정확한 원 수집·최종 검증에
+적용한다. UI/CLI에서 몸체 보호 간격을 조정하고 보호 외곽을 표시하며 JSON에는
+하우징·웨지별 실제 간격과 허용 접촉 그룹을 기록한다.
+
+100/160 mm 원에서 각 256회·명목 μ 하한 0.2로 다시 수집한 **254개씩 전부**
+보호 간격을 통과했다. 기록된 최소 몸체 간격은 각각 1.796/1.143 mm다.
+신규 보호 부위 회귀 **17**, 기존 바늘 맵 **34**, 실제 loopback API·JavaScript
+**3**, Wrap 비교 **7**의 합 **61 passed**, standalone 자체 검사 **37 passed**로
+관련 host 검사 총 **98 passed**다. 원본 `hug.py`와 runtime은 유지하며
+`/home/user/ws/newhug.py`에 같은 파일을 동기화했다. 기존 서버는 재실행해야 반영된다.
+Canonical dev wrapper 부재로 required/extended/release gates는 실행하지 않았고,
+실기기·Genesis 접근/포획 검증은 아니다. 아래 0.5.0 바늘 그림·수치는 이전 조건의
+이력으로 보존한다.
+
+### standalone newhug 바늘 맵·원형 band 정렬 (2026-11-03)
+
+`workbench/research/support/newhug.py`를 독립 계산기 정본으로 두고 동일한 0.5.0
+파일을 `/home/user/ws/newhug.py`에 동기화했다. 원본 `hug.py`는 유지했다.
+UI·CLI에서 iteration(기본 256), seed, 선택적 시간 상한과 **필요 최소 μ ≥ 기록 하한**을
+설정하고 상위 10개 미리보기 제한 전에 전체 해를 기록한다. 명목/오차 포함 μ를
+선택하며 취소 시 부분 결과를 저장한다. 리니어는 기존 1.5°/mm·260°를 유지한다.
+바늘은 GO2 기준점의 주차 선분이며 현재 장착의 node0 중립 전방 오프셋 343 mm를 쓴다.
+
+원의 수집은 정확한 원/로봇 면 접선·간격을 사용한다. 끌어모으기는 단일 반경에
+강제 정렬하지 않고, 최대 겹침 수의 기본 80%가 지지하는 연속 반경 band를 선택한다.
+안쪽·바깥쪽 부분을 자르고 각 남은 구간을 동일 둘레각으로 회전한다. 서로 다른
+반경을 보존하며 원본 선분·잘린 구간·linear 부분 범위를 함께 저장한다. UI에서
+자동/수동 band, 합의 강도·둘레각 조정과 바늘 클릭 시 팔 자세 표시, JSON/SVG 저장을
+제공한다. 바늘 사이를 보간하지 않는다.
+
+동일 seed·256회·명목 μ 하한 0.2에서 지름 100 mm는 **254개 기록, 179개 잔존,
+band 316.51~386.54 mm**, 160 mm는 **254개 기록, 174개 잔존,
+band 442.30~558.96 mm**였다. 남은 바늘들의 기준 반경도 각각 서로 다르다.
+[원본/정렬 비교](../workbench/evidence/curated/planning/newhug_needle_band_20261103.svg),
+[조건·소스 SHA·수치](../workbench/evidence/curated/planning/newhug_needle_band_20261103.json),
+[사용·재현 방법](research.md#newhug-바늘-맵과-원형-band-정렬).
+
+Host standalone 자체 검사 **37 passed**와 신규 수학·리니어·band **34 passed**,
+실제 loopback API·페이지 JavaScript **3 passed**, 기존 Wrap 비교 **7 passed**로
+총 **81 passed**다. JavaScript 검사는 Node의 DOM 대역을 사용하며 실제 브라우저
+레이아웃 검증을 뜻하지 않는다. 알려진 generated dev wrapper가 없어 canonical
+required/extended/release gates는 실행하지 않았다. Genesis/RL rollout·실기기
+파지, GO2 본체·다리·플레이트 충돌과 접근 경로는 검증하지 않았으며 runtime은
+변경하지 않았다. R0–R5 수용 완료로 승격하지 않는다.
+
+### standalone newhug의 Wrap 유사 과제 (2026-11-02)
+
+`analysis.newhug_wrap_comparison`으로 지름 100 mm, 중심 (0.368, 0.160, 0.550) m의
+기존 Wrap 원기둥에 대해 base 고정·현재 리니어 [-173.33, 0] mm·마디 ±36°·
+manifest의 결합 한계·카메라 1 mm 비접촉 조건을 걸었다. newhug의 FK/프로파일/마찰
+점수를 쓰며 정확한 원의 접선 방정식과 표본화한 관절 탐색으로 **정적 끝 자세만**
+비교했다. 기본 +90°와 runner 안에서 반사한 -90°를 검사하며 standalone UI는
+바꾸지 않았다. -90°에서 리니어 -75.63 mm, 마디 -12.53°/-32.90°의 C자와
+node4/node9 접촉을 찾았고 이상적인 평면 마찰계수 하한 0.1361/법선 2° 오차 포함
+0.1718, 카메라 간격 67.12 mm다. 같은 C자의 +90° 배치는 카메라 관통 9.40 mm로
+거부된다. 기본 +90°의 선두 유효 해는 리니어 -137.32 mm, +25.83°/-36°의 S자다.
+
+독립 URDF 3D FK의 hinge 오차는 2e-16 m 이하, 실제 camera OBJ의 360방향 support
+오차는 3e-10 m 이하다. Host standalone 자체 검사 **37 passed**, 비교 수학·현재
+장착·리니어 회귀 **7 passed**. 새 RL policy rollout/Genesis 접근·들어올리기와
+canonical required/extended gate는 수행하지 않았다. 원격 SSH는 22 연결 거절/
+2222 인증 실패였고 host에는 Torch/Genesis가 없다. 물리 파지·부하·압축 성공이나
+전역 최적성의 증거로 승격하지 않는다.
+[그림](../workbench/evidence/curated/planning/newhug_wrap_20261102.png),
+[조건·수치·소스 SHA](../workbench/evidence/curated/planning/newhug_wrap_20261102.json),
+[재현 방법](research.md#newhug와-고정-배치-wrap-과제-비교).
+
+### 그리퍼를 고정한 Hug 판정 진단 (2026-11-02)
+
+꼬다리는 기존 그리퍼다. 길이 조합을 설계 변수로 둔 초기 실험은 사용자 범위
+정정 뒤 중단하고 원자료를 보존했다. 완료한 본 진단은 **현재 reference 그리퍼
+근사 `n=0.155`와 두 구간 각각 250 mm**를 고정한 8개 형상이다. 실제 그리퍼
+CAD/jaw 접촉이나 ID5 집기를 재현하지 않으며, runtime의 판정·제어·UI는 바꾸지
+않았다. `/home/user/ws/hug.py`도 변경하지 않았다. 현재 vendored reference와
+공통 계산 함수/클래스 52개의 AST가 모두 같다.
+
+원본은 구간 길이를 물체에 맞춰 바꿔 찾으므로 그 결과를 별도 집계했다. 고정 길이
+진단은 연속적인 첫 접촉 위치, 두 감김 방향, 측면/그리퍼 끝점 접촉을 탐색하고
+몸통 간섭·관통 허용 오차·가상 닫힘선의 최소 면적 중심 여유를 검사한다. 형상당
+탐색 상한은 20초/512 solves이며 전수 탐색이 아니다. 구판 exact 판정은 각
+진단 후보에 그대로 다시 적용했다.
+
+| 형상 | 진단 기하 후보 | 같은 후보 중 구판 exact 통과 | 선두 후보 최소 굽힘 여유 | 몸통 간격 |
+| --- | ---: | ---: | ---: | ---: |
+| 지름 160 mm 원형 | 17 | 0 | 9.05° | 5.99 mm |
+| 지름 200 mm 원형 | 1 | 0 | 30.35° | 2.44 mm |
+
+18개 모두 `P2 is behind P1`에 걸렸고 10개는 구판의 무조건적인 polygon
+`crosses`에도 걸렸다. 허용 오차 기반 기하 진단과 구판 exact는 같지 않다.
+나머지 6개 형상은 이번 예산에서 미발견이며 기구적으로 불가능하다는 뜻이 아니다.
+후보 수는 작업 공간 크기나 파지 성공률도 아니다. 선두 두 후보 모두 고정 base와
+같은 재료 접촉 위치에서 두 굽힘만 ±5° 보정하는 제한된 ±1 mm/±1° 국소 탐색은
+0/6이었다. 접근·회수 경로 또는 가능한 모든 자세 보정의 실패를 증명하지 않는다.
+
+선두 후보는 가정한 마찰계수 0.3/0.6에서 이상적인 평면 두 점 force-closure를
+만족하고 마찰 0에서는 만족하지 않는다. 독립 접촉 정상력·면적 중심·검증되지 않은
++Y task 축의 계산일 뿐 실제 부하 여유가 아니다. **ID3/ID4 전류-접촉력 보정,
+구간 결합, 압축·미끄럼·유지와 실물 파지는 미검증**이며 관련 결과는 계속 `null`이다.
+재구성 메쉬에서 실행 가능한 Hug나 RL 대체 실행기가 완성됐다는 뜻이 아니다.
+
+기존 서버 Pilot image를 network-none/GPU 없음/과학 소스 read-only의 CPU 진단으로
+사용했다. 원격 **23 passed / 1 skipped**(24 tests, 선택적 Node probe 부재), 최종
+host 보고서 **5 passed**와 실제 HTML의 8개 행/18개 후보 선택 probe를 통과했다.
+Host에는 Shapely를 설치하지 않았고 전체 기하는 Pilot image에서 검사했다. 현재
+canonical required/extended 및 Genesis/Robot gate를 반복한 결과가 아니다.
+원래 **243개 container ID·image·상태와 그 image 52개**를 보존했고, 새 진단 8개도
+삭제하지 않고 정지했다. 중단한 스윕의 종료 137은 명시적인 stop 결과다. 기존 cache를
+mount/삭제하지 않았으며 정상 dev/Pilot/Sim은 기동하지 않았다.
+[오프라인 후보 viewer](../workbench/evidence/curated/planning/hug_fixed_gripper_20261102.html),
+[실행 조건·수치·소스/원자료 SHA·보존 감사](../workbench/evidence/curated/planning/hug_fixed_gripper_20261102.json).
 
 ### Visual Servoing 통합 UI와 원격 GPU2 회귀 (2026-11-01)
 
@@ -5510,3 +5806,47 @@ elesim-dev python3 workbench/tools/release/verify.py dist/releases
 
 실제 gate 결과는 날짜, topology, host, interface, security profile, source
 revision과 실패 범위를 함께 기록한다.
+
+### Hugmap standalone HTML reader (2026-11-03)
+
+JSON reader UI moved from Tk to `workbench/research/support/hugmap_reader.html`. Offline browser file input supports v1 maps and v2 diameter tables, a stored-diameter slider, shared color ranges, 3D rotation/zoom/picking and display-only circle symmetry. Python launches the sibling HTML; `--read` prints the JSON path for manual browser selection. Solver/storage unchanged. Host reader/table tests: 17 passed. Node checks exercised real legacy JSON, symmetry expansion, table slider, empty maps, validation and canvas rendering with a stub DOM. Actual browser interaction was not verified; no browser tool available.
+
+### CAD-confirmed housing centering (2026-11-03)
+
+Corrected the housing mesh in ZED Mini and D435 by URDF Y=-0.0015 m,
+restoring +/-65 mm about roll. ZED Mini COM Y, assembly/combined/planning
+URDF inertial origins, bundle fingerprints, planning sphere centers and
+source/artifact hashes are updated. Intrinsic inertia and roll height
+155 mm are unchanged. Planning sphere translation preserves the original
+mesh enclosure; all housing X-separation proofs remain unchanged because
+neither X geometry nor joints changed. This is an exact translation of the
+existing cover, not a fresh voxelization (host trimesh is unavailable).
+The D435 COM was already Y=0; its unrelated historical inertia calibration
+was not changed. Pilot IK context was regenerated to a temporary file and
+matched the shipped context exactly. Both profiles' URDFs regenerated from
+blueprints produce COM Y=0.
+
+Updated repository newhug/hugmap plus /home/user/ws/newhug.py; hugmap 0.4.1
+now has x=0 on roll. Old experiment JSON remains evidence for old geometry;
+resume rejects incompatible geometry and HTML labels the legacy offset.
+Regression coverage checks both meshes/roll axes, corrected COM, planning
+hashes and sphere vertex coverage, embedded research geometry and rejection
+of old table checkpoints. Host model suite: 28 passed, 1 skipped (trimesh).
+Hugmap: 27 passed. Protected-body suite: 17 passed. HTML Node checks passed.
+Canonical dev/ROS/GPU/physical gates were not run: no known generated dev
+wrapper is available. No deployment or physical motion performed.
+
+### Hugmap quadrant search (2026-11-03)
+
+Hugmap 0.5.0 enumerates x<=0, y>=0 inside 500 mm. Default 20 mm grid:
+516 placements per diameter, 21,156 across 41 diameters. JSON stores explicit
+region and circle roll-reflection metadata (+90 computed, -90 reflected;
+seg1/seg2/mu unchanged). GUI and HTML reader label the region. This chooses
+roll per side and does not promise every old fixed-roll semicircle solution.
+Old tables remain readable; resume validates region and symmetry metadata.
+Theta handling and worker parallelism are unchanged. Host hugmap suite and
+HTML Node validation used; no physical motion or full table generation.
+
+### Hugmap reader removal (2026-11-03)
+
+Removed the Python GUI reader button, --read CLI, browser launcher and obsolete Python visualization helpers. HTML remains independently usable. SavedMapData only validates saved checkpoints for resume.

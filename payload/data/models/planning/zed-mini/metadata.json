@@ -26,11 +26,11 @@
     ]
   ],
   "sources": {
-    "arm.urdf": "ccd591eedd3622b0cdc282bee3f2493b89d971f0e4e76f18920a4244752ef2e1",
+    "arm.urdf": "1cfdfdfe180170da6457253acf680b71e31ab3104cfc21a54c37e050adaf2005",
     "robot_config.yaml": "9ea504a19c2579c368f1ef11a39eb82b5a1e4a274d9bfb8f7f4381ecc1987e68",
     "arm_model.json": "02a440f7ad8a0037d18c8cfd306d32af081fdb645ee3fb90250bdc5f9d6bd13a",
     "assets/plate/plate_mesh.obj": "77cdc669b8c35c235db6edb951a12a01ce706f379ed5a73ad97ae687a4acea67",
-    "assets/housing/housing_mesh.obj": "7bd8aec718f9b3541f403bd457448a29d60de193f5e29e14c56e05ac70df8e21",
+    "assets/housing/housing_mesh.obj": "72e74010fdb32f0ebe1655ac46dbfb30e44e7820f2aed5fd35afe9785a5153f6",
     "assets/wedge/wedge_mesh.obj": "b466e42154e2ae890b41094e5738412187fbcf352fb634706418286f7f09889d",
     "assets/node/node_mesh.obj": "05a412f156ed8c5261d41fa31c9e8ff36d7cc9512139c8f47ab6e81d658c669a",
     "assets/node_end/node_end_mesh.obj": "b2362cfa1872f04ce988bc2b688f08dc1826c4c7b1a9d126d58d0dc3b228ce65",
@@ -183,8 +183,8 @@
     0.020919999999999994
   ],
   "artifacts": {
-    "arm.urdf": "fd058c264eb807ac0ce6f2088f218fbb9f5b1fc7d740aaa441d1b41ec8210491",
-    "robot.yml": "922089a24713c3e53d829a0bcd4b1b7b0706cebf57fd1b237a4a23d4ece24948"
+    "arm.urdf": "9aa6aef5046ff720109226a41759197b59db0d5fc2e6cc5aff9e8db3448d8299",
+    "robot.yml": "dd0f353fbf2f3196798872e416c8e2965c2e0b7948fdbefee26c241a5cd4d458"
   },
   "bounds_update": {
     "previous_linear_bounds": [
@@ -198,5 +198,14 @@
     },
     "collision_geometry_reused": true,
     "proof": "unchanged geometry/FK/velocity; linear interval subset"
+  },
+  "housing_center_correction": {
+    "translation_m": [
+      0,
+      -0.0015,
+      0
+    ],
+    "method": "Rigid translation of housing mesh and enclosing collision spheres. X-separation bounds unchanged.",
+    "cad_reference": "062222.stp: side planes +/-65 mm around roll axis; axis height 155 mm"
   }
 }

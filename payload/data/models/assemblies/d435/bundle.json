@@ -1,10 +1,10 @@
 {
   "build": {
     "format_version": 1,
-    "source_assets_sha256": "f56fb5911392e8a7ae4f19b0b6df4fc924586b690d145d970b1e97d26ae1cb02",
+    "source_assets_sha256": "5cefe84ef88f6ee7c3176d086804ca1940806f83118d3b51d14dabc4e0dca714",
     "use_go2": true
   },
-  "bundle_id": "a70454b636709f1641889dc3af9d83c70a8fb125dea90df399a4a2d411d7069d",
+  "bundle_id": "dc9f408a04e2c17864db99a028405b2f91d97b5d3074080610a8fd072a8ba5b8",
   "bundle_type": "elesim.sim-model",
   "entrypoints": {
     "arm_urdf": "arm.urdf",
@@ -105,7 +105,7 @@
       "size": 241
     },
     "assets/housing/housing_mesh.obj": {
-      "sha256": "7bd8aec718f9b3541f403bd457448a29d60de193f5e29e14c56e05ac70df8e21",
+      "sha256": "72e74010fdb32f0ebe1655ac46dbfb30e44e7820f2aed5fd35afe9785a5153f6",
       "size": 32046
     },
     "assets/housing/housing_physics.json": {

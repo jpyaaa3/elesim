@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hugmap JSON reader</title>
+<style>
+*{box-sizing:border-box}body{margin:0;color:#222;background:#fff;font:13px system-ui;display:flex;flex-direction:column;height:100vh}header{padding:10px 14px;border-bottom:1px solid #ddd}.controls{display:flex;gap:14px;align-items:center;flex-wrap:wrap}label{display:flex;align-items:center;gap:6px}input[type=file]{max-width:230px}input[type=range]{width:180px}button,select{font:inherit;padding:4px}#status,#legend,small{color:#666;font-size:12px}#status,#legend{display:inline-block;margin:8px 14px 0 0}canvas{display:block;width:100%;flex:1;min-height:200px;touch-action:none}#detail{padding:8px 14px;min-height:48px;border-top:1px solid #ddd;white-space:pre-wrap}#error{color:#b91c1c;margin:6px 0;white-space:pre-wrap}#error:empty{display:none}small{display:block;margin-top:6px}
+</style>
+<header>
+<div class="controls"><label>Open JSON <input id="file" type="file" accept=".json,application/json"></label>
+<label>Diameter <input id="diameter" type="range" min="0" max="0" value="0" step="1" disabled> <output id="size">—</output></label>
+<label>Color <select id="field"><option value="mu_min">mu_min</option><option value="seg1_deg">seg1 (deg)</option><option value="seg2_deg">seg2 (deg)</option><option value="hug_type">Hug type</option></select></label>
+<label><input id="other" type="checkbox"> Show not-found / excluded</label><button id="top" title="Look along the theta axis: X right, Y up. Theta layers overlap.">Top view</button><button id="reset">Reset view</button></div>
+<div id="status">Open a single map or a multi-diameter table.</div><div id="legend"></div><p id="error"></p>
+<small>Drag: rotate · Scroll: zoom · Hover: values</small></header>
+<canvas id="plot"></canvas><div id="detail"></div>
+<script>
+'use strict';
+const $=id=>document.getElementById(id), canvas=$('plot'), ctx=canvas.getContext('2d');
+let maps=[],metadata={},ranges={},points=[],hits=[],yaw=.65,pitch=.55,zoom=1,drag=null,queued=false;
+const finite=v=>typeof v==='number'&&Number.isFinite(v);
+function hugType(row){
+ if(row.status!=='found'||!finite(row.seg1_deg)||!finite(row.seg2_deg))return 'N/A';
+ if(row.seg1_deg===0||row.seg2_deg===0)return 'Zero';
+ return Math.sign(row.seg1_deg)===Math.sign(row.seg2_deg)?'C':'S';
+}
+function parseDocument(doc){
+ const m=doc?.metadata;
+ if(!m || !((m.schema==='hugmap'&&m.schema_version===1)||(m.schema==='hugmap-table'&&m.schema_version===2))) throw Error('Expected Hugmap v1 map or Hugmap table v2.');
+ const entries=m.schema==='hugmap-table'?doc.maps:[{diameter_mm:m.object?.diameter_mm,results:doc.results}];
+ if(!Array.isArray(entries)||!entries.length)throw Error('No diameter maps found.');
+ const seen=new Set(), bounds={mu_min:[Infinity,-Infinity],seg1_deg:[Infinity,-Infinity],seg2_deg:[Infinity,-Infinity]};
+ const parsed=entries.map(e=>{
+  if(e.diameter_mm!=null&&(!finite(e.diameter_mm)||e.diameter_mm<=0))throw Error('Invalid diameter.');
+  if(seen.has(e.diameter_mm))throw Error('Duplicate diameter.');seen.add(e.diameter_mm);
+  if(!Array.isArray(e.results))throw Error('Missing results array.');
+  const poses=new Set();
+  for(const r of e.results){
+   if(!r||!['x_mm','y_mm','theta_deg'].every(k=>finite(r[k])))throw Error('Invalid pose coordinates.');
+   if(!['found','not_found','excluded'].includes(r.status))throw Error('Invalid result status.');
+   const key=[r.x_mm,r.y_mm,r.theta_deg].join(',');if(poses.has(key))throw Error('Duplicate pose: '+key);poses.add(key);
+   if(r.status==='found')for(const k of Object.keys(bounds)){
+    if(!finite(r[k])||(k==='mu_min'&&r[k]<0))throw Error('Invalid '+k);
+    bounds[k][0]=Math.min(bounds[k][0],r[k]);bounds[k][1]=Math.max(bounds[k][1],r[k]);
+   }
+  }
+  return e;
+ }).sort((a,b)=>(a.diameter_mm??0)-(b.diameter_mm??0));
+ for(const k of ['seg1_deg','seg2_deg'])if(Number.isFinite(bounds[k][0])){const b=Math.max(...bounds[k].map(Math.abs));bounds[k]=[-b,b];}
+ return {maps:parsed,metadata:m,ranges:bounds};
+}
+function selectMap(){
+ $('error').textContent='';hits=[];points=[];
+ if(!maps.length)return;
+ const m=maps[+$('diameter').value];$('size').textContent=m.diameter_mm==null?'Unspecified':m.diameter_mm+' mm';
+ const rows=m.results.filter(r=>$('other').checked||r.status==='found');
+ const circle=metadata.object?.shape==='circle'&&m.results.every(r=>r.theta_deg===0);
+ let angles=null;
+ if(circle){const step=metadata.config?.dtheta_deg??5;if(!finite(step)||step<=0||step>360)throw Error('Invalid theta step.');
+  const n=Math.ceil(360/step);if(n*Math.max(1,rows.length)>1000000)throw Error('Over 1,000,000 display points. Hide other statuses or use a larger theta step.');
+  angles=Array.from({length:n},(_,i)=>-180+i*step);
+ }
+ for(const r of rows)for(const t of angles??[r.theta_deg])points.push({row:r,t});
+ const found=m.results.filter(r=>r.status==='found').length;
+ $('status').textContent=`Found: ${found} / ${m.results.length}${circle?' · Circle symmetry':''}${metadata.constraints?.interest_region==='left_forward_quadrant'?' · Mirrored view: roll −90°':''}${metadata.geometry?.profiles?.housing?.[0]?.[0]===-.0665?' · Legacy housing: 1.5 mm offset':''}`;
+ $('detail').textContent='Hover over a point to inspect its pose.';schedule();
+}
+function color(r){
+ if(r.status!=='found')return r.status==='excluded'?'#596476':'#b3bdcc';
+ const k=$('field').value;
+ if(k==='hug_type')return {S:'#2563eb',C:'#dc2626',Zero:'#888888'}[hugType(r)];
+ const [lo,hi]=ranges[k];const t=hi===lo?.5:Math.max(0,Math.min(1,(r[k]-lo)/(hi-lo)));
+ return `hsl(${240*(1-t)} 75% 60%)`;
+}
+function draw(){
+ queued=false;const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;canvas.width=w*dpr;canvas.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);hits=[];
+ if(!maps.length)return;
+ const radius=metadata.constraints?.object_center_semicircle_radius_mm||500;
+ const quadrant=metadata.constraints?.interest_region==='left_forward_quadrant';
+ const xmin=quadrant?0:-radius,xmax=radius,ymin=0,ymax=radius;
+ let tmin=-180,tmax=180;
+ for(const p of points){tmin=Math.min(tmin,p.t);tmax=Math.max(tmax,p.t);}
+ const cx=(xmin+xmax)/2,cy=(ymin+ymax)/2,ct=(tmin+tmax)/2;
+ function rotate(x,y,t){const a=(x-cx)/radius,b=(y-cy)/radius,c=(t-ct)/360;
+  const u=Math.cos(yaw)*a-Math.sin(yaw)*b,v=Math.sin(yaw)*a+Math.cos(yaw)*b;
+  return [u,-(Math.cos(pitch)*c-Math.sin(pitch)*v),Math.sin(pitch)*c+Math.cos(pitch)*v];}
+ const corners=[];for(const x of [xmin,xmax])for(const y of [ymin,ymax])for(const t of [tmin,tmax])corners.push(rotate(x,y,t));
+ const width=Math.max(...corners.map(p=>p[0]))-Math.min(...corners.map(p=>p[0]));
+ const height=Math.max(...corners.map(p=>p[1]))-Math.min(...corners.map(p=>p[1]));
+ const scale=Math.max(1,Math.min((w-140)/Math.max(width,.1),(h-90)/Math.max(height,.1)))*zoom;
+ function project(x,y,t){const p=rotate(x,y,t);return [w/2+scale*p[0],h/2+scale*p[1],p[2]];}
+ const projected=points.map(p=>({p,xyz:project(quadrant?-p.row.x_mm:p.row.x_mm,p.row.y_mm,p.t)})).sort((a,b)=>a.xyz[2]-b.xyz[2]);
+ for(const {p,xyz:[x,y]} of projected){if(x<0||x>w||y<0||y>h)continue;ctx.fillStyle=color(p.row);ctx.fillRect(x-2,y-2,4,4);hits.push({x,y,p});}
+ // Keep the true origin as the axis intersection; restrict only the view limits.
+ const origin=project(0,0,0);
+ ctx.font='12px system-ui';
+ for(const [start,end,label] of [
+  [[xmin,0,0],[xmax,0,0],`X (mm): ${xmax}`],
+  [[0,ymin,0],[0,ymax,0],`Y (mm): ${ymax}`],
+  [[0,0,tmin],[0,0,tmax],`Theta (deg): ${tmax}`]]){
+  if(label.startsWith('Theta')&&Math.abs(Math.cos(pitch))<1e-10)continue;
+  const a=project(...start),b=project(...end);ctx.strokeStyle='#888';ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(origin[0],origin[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();
+  ctx.fillStyle='#333';ctx.fillText(label,Math.max(4,Math.min(w-ctx.measureText(label).width-4,b[0]+6)),Math.max(14,Math.min(h-4,b[1]-6)));
+ }
+ ctx.fillStyle='#222';ctx.beginPath();ctx.arc(origin[0],origin[1],3,0,2*Math.PI);ctx.fill();
+ ctx.fillText('(0, 0, 0)',origin[0]+7,origin[1]+16);
+ const k=$('field').value;
+ if(k==='hug_type'){$('legend').textContent='S-shaped: blue · C-shaped: red · Zero bend: gray';return;}
+ const [lo,hi]=ranges[k];$('legend').textContent=Number.isFinite(lo)?`${k}: ${lo.toPrecision(4)} → ${hi.toPrecision(4)} · blue → red`:'No found solutions in this file.';
+}
+function schedule(){if(!queued){queued=true;requestAnimationFrame(draw);}}
+function safelySelect(){try{selectMap();}catch(e){$('error').textContent=e.message;schedule();}}
+let loadVersion=0;
+$('file').onchange=async()=>{const file=$('file').files[0];if(!file)return;const version=++loadVersion;
+ try{const parsed=parseDocument(JSON.parse(await file.text()));if(version!==loadVersion)return;({maps,metadata,ranges}=parsed);$('diameter').max=maps.length-1;$('diameter').value=0;$('diameter').disabled=maps.length===1;safelySelect();}
+ catch(e){if(version===loadVersion)$('error').textContent='Cannot open JSON: '+e.message;}
+};
+$('diameter').oninput=safelySelect;$('other').onchange=safelySelect;$('field').onchange=schedule;
+$('top').onclick=()=>{yaw=0;pitch=-Math.PI/2;zoom=1;drag=null;schedule();};
+$('reset').onclick=()=>{yaw=.65;pitch=.55;zoom=1;schedule();};
+canvas.onpointerdown=e=>{drag=[e.clientX,e.clientY];canvas.setPointerCapture(e.pointerId);};
+canvas.onpointerup=canvas.onpointercancel=()=>{drag=null;};
+canvas.onpointermove=e=>{
+ if(drag){yaw+=(e.clientX-drag[0])*.008;pitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,pitch+(e.clientY-drag[1])*.008));drag=[e.clientX,e.clientY];schedule();return;}
+ const b=canvas.getBoundingClientRect(),x=e.clientX-b.left,y=e.clientY-b.top;
+ for(let i=hits.length-1;i>=0;i--){const h=hits[i];if(Math.hypot(h.x-x,h.y-y)>6)continue;const r=h.p.row,mirrored=metadata.constraints?.interest_region==='left_forward_quadrant',x=mirrored?-r.x_mm:r.x_mm;
+ $('detail').textContent=`Diameter: ${$('size').textContent} | (${x}, ${r.y_mm}, ${h.p.t}) | ${r.status} | Hug: ${hugType(r)}${mirrored?' | Roll: -90 deg':''}\nseg1: ${r.seg1_deg??'—'} deg | seg2: ${r.seg2_deg??'—'} deg | mu_min: ${r.mu_min??'—'}`;return;}
+};
+canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(.2,Math.min(8,zoom*Math.exp(-e.deltaY*.001)));schedule();},{passive:false});
+new ResizeObserver(schedule).observe(canvas);
+</script></html>
