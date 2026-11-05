@@ -23,11 +23,11 @@ Pilot에는 Sim/Genesis/RL 학습 패키지를 설치할 필요가 없다.
 ```bash
 cd /path/to/integration-checkout
 export PYTHONPATH="$PWD/payload/runtime/common/protocol:$PWD/payload/runtime/docker/sim/app"
-python -m elesim_sim.rl.train \
+python -m workbench.research.experiments.wrap_grasp.train \
   --resume /path/to/old-run/model_best.pt \
   --set train.log_dir=/path/to/new-runs --stamp integration-check
-python -m elesim_sim.rl.eval --checkpoint /path/to/new-run/model_best.pt
-python -m elesim_sim.rl.export \
+python -m workbench.research.experiments.wrap_grasp.eval --checkpoint /path/to/new-run/model_best.pt
+python -m workbench.research.experiments.wrap_grasp.export \
   --checkpoint /path/to/new-run/model_best.pt --out-dir /path/to/new-export
 ```
 

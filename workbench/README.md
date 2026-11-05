@@ -67,6 +67,9 @@ python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/serv
 
 | 모듈 | 유지 이유 |
 | --- | --- |
+| `experiments.wrap_grasp.train`, `.eval`, `.export`, `.export_traj` | 외부 원기둥 Wrap 학습·평가·정책/경로 출력; 공통 실행 API는 Sim 소유 |
+| `experiments.hug_interpolation.experiment` | 두-band configure/check/train/collect/replay/interpolate/validate; [실행 설명](../docs/hug-rl-experiment.md) |
+| `experiments.hug_interpolation.prepare`, `experiments.hug_interpolation` | v3 두-band 국소 기준점 분할과 경로 보간 후보 생성; 물리 검증과 별개 |
 | `analysis.analyze_contact_metrics` | 발 접촉·미끄럼·힘 오차 CSV 분석 |
 | `analysis.walking_motion` | 실제 이동 방향·속도 분석 |
 | `analysis.walking_swing` | 발 궤적·스윙 추종 분석 |

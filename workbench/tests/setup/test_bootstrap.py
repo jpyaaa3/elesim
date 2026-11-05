@@ -698,7 +698,8 @@ def test_download_source_caches_only_install_source_boundary(
             "workbench/research/dummy.bin": b"research-only\n",
             "workbench/tools/setup_preview.py": b"raise AssertionError\n",
             "docs/README.md": b"repository-only docs\n",
-            "payload/runtime/docker/sim/app/elesim_sim/rl/train.py": b"raise AssertionError\n",
+            "payload/runtime/docker/sim/app/elesim_sim/rl/runner.py": b"# generic RL runner\n",
+            "workbench/research/experiments/wrap_grasp/train.py": b"raise AssertionError\n",
         },
     )
     monkeypatch.setattr(
@@ -732,7 +733,8 @@ def test_download_source_caches_only_install_source_boundary(
     assert not (root / "workbench/research").exists()
     assert not (root / "workbench/tools/setup_preview.py").exists()
     assert not (root / "docs").exists()
-    assert not (root / "payload/runtime/docker/sim/app/elesim_sim/rl").exists()
+    assert (root / "payload/runtime/docker/sim/app/elesim_sim/rl/runner.py").is_file()
+    assert not (root / "workbench/research/experiments/wrap_grasp/train.py").exists()
 
 
 def test_download_source_validates_completed_snapshot_with_conditional_get(

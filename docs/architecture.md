@@ -895,3 +895,39 @@ cached meshes as green alpha-blended debug objects, never as a physics entity.
 Wall-clock playback continues while paused (15 Hz visual updates); each camera
 process owns its Ghost objects. Observer/native viewer show them, hand-eye RGB-D
 does not. No application imports a sibling implementation.
+
+
+### RL execution and external tasks (2026-11-05)
+
+`elesim_sim.rl` is a Sim-owned library, not an additional process or role. It
+provides lazy Genesis scene construction (`scene`), robot joint mapping
+(`arm_kinematics`), command timing and terminal snapshots (`execution`), an
+optional PPO adapter accepting an already-created environment (`runner`), and
+versioned timed-command artifacts and task-owned replay (`trajectory`, `replay`).
+Importing the package does not initialize Genesis or import Torch/rsl_rl.
+
+Tasks own their entities, reset distribution, observation/action definitions,
+reward, termination and evaluation. The common library does not discover or
+import task packages. In particular, it has no cylinder/ellipse/box task switch.
+External tasks may import this Sim API; no runtime package imports `workbench`.
+The existing cylinder Wrap experiment now lives at
+`workbench/research/experiments/wrap_grasp`. Its old observation/action semantics
+and Pilot export format remain unchanged; old task module entrypoints have been
+removed rather than silently redirected. The generic library ships in Sim;
+external experiments do not ship in release or bootstrap snapshots.
+
+`workbench/research/experiments/hug_interpolation` owns the two-band interpolation
+candidate generator. A band label alone is not a proof of local connectedness.
+The caller declares a local branch, and anchor replay must succeed under matching
+model/physics/frame metadata before interpolation. Runtime replay delegates
+success to the task and never invokes an optimizer. Generated candidates are not
+marked physics-validated until evaluated by a real task adapter.
+
+The external Hug package also owns its batched two-action MDP and experiment
+CLI. It builds a task-local robot URDF with explicit bend/roll limits, frozen
+zero-opening jaws and protected camera collision geometry; source model bundles
+are untouched. The policy uses fixed-roll, fixed-linear episodes with a timed
+approach and kick/hold evaluation. Physics assumptions and dataset/source/model
+digests are recorded by `configure`. No training or physics run occurs merely
+by importing the package or generating an experiment. Full run instructions
+and the unexecuted GPU gate are in [hug-rl-experiment.md](hug-rl-experiment.md).

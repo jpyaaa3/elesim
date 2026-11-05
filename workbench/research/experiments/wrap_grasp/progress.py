@@ -1,0 +1,180 @@
+"""Has this training run stopped improving?
+
+Three tests, all read off a train log:
+
+* the reverse curriculum has walked the start point back to Home,
+* the success rate has stopped moving,
+* the wrap angle has stopped moving.
+
+A run that passes all three has nothing left to gain from more iterations.
+What remains is a configuration or task change: measured limits like the coil
+not reaching a 80 mm cylinder, or the position jitter not covering +/-60 mm, do
+not yield to a longer run.
+
+The comparison is between two adjacent windows rather than against a peak, so a
+noisy plateau reads as flat instead of as decline.
+
+The window is sized from the data, not picked.  What it has to do is separate a
+real change of SUCCESS_EPS from the metric's own noise, and the standard error
+of the difference between two windows of W iterations is
+`sd * sqrt(2 * tau / W)`, where `tau` is the integrated autocorrelation time --
+successive iterations are not independent, since the policy moves slowly.
+Measured on a converged run, sd is 0.0023 and tau about 15 iterations, so W of
+26 already puts that error at half the threshold.  The default of 100 leaves a
+factor of four.
+
+An earlier default of 500 came from "the run converged around iteration 2000",
+which is when a plateau *arrives* and says nothing about how many samples it
+takes to recognise one.  Those are different questions.
+
+Windows are in iterations and need no rescaling for environment count.  More
+environments cut the sampling noise per iteration, which would allow a smaller
+window; they do not change how far the policy moves per iteration, since PPO
+takes the same twenty gradient steps either way and the adaptive KL schedule
+caps the step.  The second is what binds, so the window stays put.
+
+Run::
+
+    python -m workbench.research.experiments.wrap_grasp.progress ~/elesim/logs/srv_v4.log
+    python -m workbench.research.experiments.wrap_grasp.progress var/rl/sim/eval/stage2_srv_v4/curve.csv
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import math
+import re
+import statistics
+from pathlib import Path
+from typing import Optional, Sequence
+
+#: Change over the comparison window counted as flat.
+SUCCESS_EPS = 0.005          # fraction, so half a point
+PHI_EPS = 0.05               # radians, about 3 degrees
+
+#: Iterations per comparison window, sized from the measured noise: see the
+#: module docstring.  Four times what separating SUCCESS_EPS requires.
+DEFAULT_LOG_WINDOW = 100
+#: Checkpoints per window for a `watch_eval` curve, which is far coarser.
+DEFAULT_CURVE_WINDOW = 3
+
+
+def series_from_log(text: str, key: str) -> list[float]:
+    """Every value logged under `key`, in order."""
+    return [
+        float(m.group(1))
+        for m in re.finditer(rf"{re.escape(key)}:\s+([-\d.]+)", text)
+    ]
+
+
+def series_from_csv(path: Path) -> dict[str, list[float]]:
+    """The same three series out of a `watch_eval` curve.
+
+    The curve is per-checkpoint rather than per-iteration, so its windows are
+    coarser; the thresholds are the same because they are about the size of the
+    change, not how many samples produced it.
+    """
+    rows: list[dict[str, str]] = []
+    with path.open(newline="", encoding="utf-8") as fh:
+        rows = [r for r in csv.DictReader(fh) if (r.get("iteration") or "").isdigit()]
+    rows.sort(key=lambda r: int(r["iteration"]))
+    return {
+        "iteration": [float(r["iteration"]) for r in rows],
+        "success": [float(r["success_rate"]) for r in rows],
+        "phi": [math.radians(float(r["phi_mean_deg"])) for r in rows],
+        "curriculum": [],
+    }
+
+
+def read(path: Path) -> dict[str, list[float]]:
+    if path.suffix.lower() == ".csv":
+        return series_from_csv(path)
+    text = path.read_text(errors="replace")
+    return {
+        "iteration": [
+            float(i + 1) for i in range(len(re.findall(r"Iteration time:", text)))
+        ],
+        "success": series_from_log(text, "term/success"),
+        "phi": series_from_log(text, "wrap/phi_rad"),
+        # The low end, not the high one: the window keeps its width, so `t_hi`
+        # stops at that width while `t_lo` is what reaches Home.
+        "curriculum": series_from_log(text, "curriculum/start_t_lo"),
+    }
+
+
+def verdict(data: dict[str, list[float]], window: int) -> tuple[str, list[str]]:
+    """A recommendation, and the lines explaining it."""
+    lines: list[str] = []
+    success, phi, curr = data["success"], data["phi"], data["curriculum"]
+    n = min(len(success), len(phi))
+    lines.append(f"Recorded points: {n}")
+
+    curriculum_done = True
+    if curr:
+        t = curr[-1]
+        curriculum_done = t <= 1e-6
+        lines.append(
+            f"  Curriculum t_hi   {t:.2f}   "
+            + ("complete (starting from Home)" if curriculum_done
+               else "still retreating — keep running")
+        )
+    else:
+        lines.append("  Curriculum t_hi   not recorded (not present in the evaluation curve)")
+
+    if n < 2 * window:
+        lines.append(f"  Need {2 * window} points to decide (currently {n})")
+        return "Continue — not enough points to decide yet", lines
+
+    def mean(v: list[float], a: int, b: int) -> float:
+        return statistics.mean(v[a:b])
+
+    s_prev, s_now = mean(success, n - 2 * window, n - window), mean(success, n - window, n)
+    p_prev, p_now = mean(phi, n - 2 * window, n - window), mean(phi, n - window, n)
+    s_flat = abs(s_now - s_prev) < SUCCESS_EPS
+    p_flat = abs(p_now - p_prev) < PHI_EPS
+    lines.append(
+        f"  Success rate   {s_prev:.4f} -> {s_now:.4f}   change {(s_now - s_prev) * 100:+.2f}%p"
+        f"   {'flat' if s_flat else 'still moving'}"
+    )
+    lines.append(
+        f"  Φ             {p_prev:.3f} -> {p_now:.3f} rad   change {p_now - p_prev:+.3f}"
+        f"   {'flat' if p_flat else 'still moving'}"
+    )
+
+    if not curriculum_done:
+        return "Continue — the curriculum has not retreated to Home yet", lines
+    if s_flat and p_flat:
+        return "You can stop — more iterations are unlikely to help", lines
+    return "Continue — still improving", lines
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("path", help="train log, or a watch_eval curve.csv")
+    parser.add_argument(
+        "--window", type=int, default=None,
+        help=(
+            f"iterations per comparison window (default: {DEFAULT_LOG_WINDOW} for a "
+            f"log, {DEFAULT_CURVE_WINDOW} for a curve)"
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    path = Path(args.path).expanduser()
+    if not path.is_file():
+        raise SystemExit(f"File not found: {path}")
+    data = read(path)
+    window = args.window or (
+        DEFAULT_CURVE_WINDOW if path.suffix.lower() == ".csv" else DEFAULT_LOG_WINDOW
+    )
+    call, lines = verdict(data, window)
+    for line in lines:
+        print(line)
+    print()
+    print(f"  => {call}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

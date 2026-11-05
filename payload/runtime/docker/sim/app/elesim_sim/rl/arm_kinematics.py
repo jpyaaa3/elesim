@@ -26,11 +26,10 @@ scene.  The existing runtime is left untouched.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import torch
 
-from .configs.loader import ArmConfig
 
 
 @dataclass(frozen=True)
@@ -46,7 +45,7 @@ class ArmDofIndex:
         return (self.linear, self.roll, *self.bend)
 
 
-def resolve_dof_index(entity, cfg: ArmConfig) -> ArmDofIndex:
+def resolve_dof_index(entity, cfg: Any) -> ArmDofIndex:
     """Look up the arm's local DOF indices on a built Genesis entity.
 
     Raises rather than guessing: a silently mismatched index would drive the
@@ -82,7 +81,7 @@ class ArmWaypointMapper:
 
     def __init__(
         self,
-        cfg: ArmConfig,
+        cfg: Any,
         *,
         n_envs: int,
         device: torch.device,
@@ -107,37 +106,8 @@ class ArmWaypointMapper:
             device=device,
             dtype=torch.float32,
         )
-        # Coupled cap on how far the two segments may curl the same way at
-        # once, keeping the grossest self-folds out of the action space.
-        #
-        # The backbone reaches its own housing when both segments curl the same
-        # way far enough.  Swept over a 9x9 (theta1, theta2) grid with the
-        # object parked away, every folding cell and every clean one is
-        # separated exactly by |1.5*theta1 + theta2| > 60 deg per node -- not by
-        # the plain sum: (24, 24) is clean at 48 while (30, 18) folds at the
-        # same 48, because segment 1 is the one that swings back towards the
-        # base.  Opposite signs, the S shape, never fold; their curls cancel and
-        # the signed form handles that on its own.
-        #
-        # Cap on how far the two segments may curl the same way at once, which
-        # keeps the deep self-folds out of the action space.  That is all it
-        # does, and all it can do.
-        #
-        # Measured statically -- joints written directly, so the pose is the
-        # only variable -- the backbone reaches its own housing at curl 52 for
-        # roll 0, 54 for +/-45 deg and 61 for +/-90.  Curl is the variable and
-        # roll shifts the threshold by about 10 deg.  But wrapping needs curl
-        # 58.5, which folds in free space at every roll bar +/-90 and is
-        # marginal even there, so no cap on the commanded pose can both admit
-        # the wrap and forbid the fold: what makes the wrap pose safe is the
-        # object holding the coil open, and that is a contact condition.
-        #
-        # So the cap is set just above what the wrap needs.  Keeping the fold
-        # out of the *reachable* set is reward.self_contact's job, and getting
-        # the policy to surround the object before closing on it is
-        # enclosure_progress's.
-        #
-        # None disables the cap.
+        # Optional caller-owned coupled limit. The mapper enforces the supplied
+        # bounds; task geometry and collision validity are evaluated externally.
         self.theta1_curl_weight = float(cfg.limits.theta1_curl_weight)
         self.curl_limit = (
             None

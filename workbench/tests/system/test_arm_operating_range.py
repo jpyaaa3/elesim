@@ -35,7 +35,7 @@ def test_role_defaults_and_rl_share_operating_range():
     from elesim_pilot.config import load_app_config as pilot_config
     from elesim_sim.config import load_app_config as sim_config
     from elesim_robot.config import load_config as robot_config
-    from elesim_sim.rl.app_config import load_mechanism
+    from workbench.research.experiments.wrap_grasp.app_config import load_mechanism
 
     mappings = [
         SimMappingConfig(),
@@ -52,7 +52,7 @@ def test_role_defaults_and_rl_share_operating_range():
 
 
 def test_rl_respects_a_custom_operating_cap(tmp_path):
-    from elesim_sim.rl.app_config import load_mechanism
+    from workbench.research.experiments.wrap_grasp.app_config import load_mechanism
     config = yaml.safe_load((ROOT / "payload/config/sim/config.yaml").read_text())
     config["robot"]["arm"]["mapping"]["linear_u_limit_deg"] = 150.0
     path = tmp_path / "sim.yaml"

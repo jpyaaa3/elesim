@@ -418,3 +418,61 @@ preserving every solution of the earlier fixed-roll semicircle search.
 The legacy radius metadata key is retained for reader compatibility; the
 new `interest_region` and `lateral_half_plane` explicitly restrict the grid.
 Old semicircle tables remain readable but cannot resume into a quadrant run.
+
+
+## External RL tasks and two-band interpolation
+
+The old cylinder Wrap task is now repository-only. See
+[RL integration](rl-integration.md) for train/eval/export commands using
+`python -m workbench.research.experiments.wrap_grasp.<command>`.
+Its configuration, reward, curriculum and diagnostics live together outside
+payload. The generic Sim API accepts caller-created environments and does not
+know what object is being grasped. Existing checkpoints remain task artifacts;
+Pilot still consumes the existing exported policy/interface pair.
+
+The first offline interpolation tool runs with NumPy and the Sim package:
+
+```bash
+python -m workbench.research.experiments.hug_interpolation \
+  --anchors anchor-a.json anchor-b.json anchor-c.json \
+  --target target.json --output candidate.json
+```
+
+Anchors use `elesim-command-trajectory` schema v1 with `times_s`, `commands`,
+`channels`, `metadata` and `diagnostics`. Channels are `linear_m`, `roll_rad`,
+`theta1_rad`, `theta2_rad`; bend angles are **per node**, not total degrees.
+Five nodes per segment are assumed by this experiment. Metadata must supply
+`case_id`, `xy_mm`, `band`, `roll_deg`, `diameter_mm`, a local connected `branch`,
+and matching `simulation_context` (model digest, coordinate convention, physics,
+controller and initial-state conditions). `diagnostics.replay_success` must be
+true for every anchor, based on physical replay of that original trajectory.
+
+Target JSON supplies that same metadata plus `start_command`, `goal_command` and
+`duration_s`. The goal comes from the geometric solution at the target point.
+The tool blends time-normalized residuals around each path's start-to-goal line,
+using barycentric weights inside the three XY anchors. Diameter and roll remain
+fixed. It refuses extrapolation, incompatible contexts, positive seg2 commands
+and bend-limit violations. This is a local candidate generator, not a global
+band fit or an event-aligned/contact-feedback controller. Its output explicitly
+has `physics_validated=false`; no arbitrary gap is certified as connected.
+
+`elesim_sim.rl.replay.replay` accepts a task-owned reset/command/step/measure/
+evaluate adapter and samples the trajectory at physics ticks. The task defines
+success, including any hold/tug protocol. Replay never trains. An output path is
+created exclusively so previous evidence is not overwritten.
+
+`python -m workbench.research.experiments.hug_interpolation.prepare kyung.json
+--output pilot.json` selects three training anchors per roll at D=150 mm and
+separate validation/test points in a small fully sampled triangle. It requires
+schema v3 and refuses legacy fixed-roll maps. The source digest and split are
+saved before training. These six anchors cover only two local triangles.
+
+The external two-band MDP and configure/check/train/collect/replay/interpolate/
+validate CLI are now implemented. Follow [the executable experiment runbook](hug-rl-experiment.md)
+for the complete command sequence, fixed physical assumptions, original-path
+replay gate and held-out evaluation. The task uses its own goal/contact/hold
+reward and criterion, not the old Wrap reward. Physical execution is still
+unverified here: no GPU training or Genesis replay was run during implementation.
+The supplied v3 map is copied to
+`workbench/evidence/generated/hug_interpolation/input/map.json`; `gaga.json` was
+not substituted. Generated inputs/results are ignored by Git.

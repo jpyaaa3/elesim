@@ -727,9 +727,9 @@ legacy generated path가 manifest 없이 남아 있으면 자동 adopt하지 않
 | `elesim-uninstall`의 `No such image` 오류 | 다른 정리 작업이 해당 install-owned image를 먼저 제거했는지 | 최신 host uninstaller는 소유권 검증 후 발생한 정확한 Docker `No such image`만 이미 완료된 삭제로 처리하고 계속한다. 그 외 image 삭제 오류는 계속 실패한다. |
 | `The current Docker daemon differs from the one pinned` | `docker info --format '{{.ID}}'`와 설치 state의 `docker_engine_id` | Docker Desktop/Engine을 재생성하면 ID가 바뀐다. 기존 설치는 다른 daemon에 자동 재바인드하지 않고 fail-closed한다. 설치 소유권을 확인한 뒤 명시적인 재설치/복구 절차를 선택해야 한다. |
 
-curl bootstrap은 runtime에 필요하지 않은 `payload/runtime/docker/sim/app/elesim_sim/rl` 연구/학습
-스택을 source snapshot에서 제외한다. 이 디렉터리는 저장소에는 남아 있으므로
-연구 코드를 별도로 실행할 때는 checkout을 사용한다. GO2 `pympc` 이미지 빌드에
+curl bootstrap은 `workbench`의 과제별 연구/학습 코드를 source snapshot에서 제외한다.
+`elesim_sim.rl`의 공통 실행·기록·재생 API는 Sim payload에 포함한다.
+원기둥 Wrap 등 외부 과제를 실행할 때는 checkout을 사용한다. GO2 `pympc` 이미지 빌드에
 필요한 shared 설치 스크립트와 solver 생성기는 bootstrap source snapshot에 포함된다.
 
 ## 12. 자동 검증과 수동 gate

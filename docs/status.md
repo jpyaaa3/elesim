@@ -5850,3 +5850,80 @@ HTML Node validation used; no physical motion or full table generation.
 ### Hugmap reader removal (2026-11-03)
 
 Removed the Python GUI reader button, --read CLI, browser launcher and obsolete Python visualization helpers. HTML remains independently usable. SavedMapData only validates saved checkpoints for resume.
+
+
+### RL playground extraction (2026-11-05)
+
+Implemented: generic `elesim_sim.rl` scene/runner/command timing/trajectory/replay
+APIs; cylinder-specific Wrap code and its regression suite moved to
+`workbench/research/experiments/wrap_grasp` and the matching research test tree.
+The old required Wrap checks remain a required `wrap-grasp` quality gate.
+Tracked originals were archived before removal; no runtime depends on that ZIP.
+Bootstrap now includes the common RL library and still excludes all workbench
+experiments. Existing Pilot policy export contracts were not changed.
+Terminal waypoint/state capture now occurs before automatic episode reset.
+
+The external Hug experiment can prepare a six-anchor local pilot from v3 maps
+and generate fixed-D, fixed-roll barycentric residual trajectory candidates.
+It refuses extrapolation, context/branch mismatches and un-replayed anchors.
+Candidates explicitly do not claim physics validation. This completes library
+extraction and offline experiment preparation, not the two-band RL experiment.
+The dedicated two-band physical MDP, calibrated map-to-world placement, new
+training/collection driver and hold/tug replay adapter are still outstanding.
+
+Host evidence: 40 tests passed for command timing, terminal snapshots, replay,
+trajectory roundtrip, local pilot splits, interpolation and migrated Wrap
+configuration/progress; bootstrap suite 113 and quality routing/UI wrapper suite 13 passed. Python compilation and
+`git diff --check` passed. The full migrated Torch-dependent task suite and
+canonical required/extended/release/GPU gates were not run: host lacks Torch,
+Genesis, tensordict and rsl_rl, and no usable generated development attachment
+is known for this checkout. No dependencies were installed into host Python.
+The requested current `kyung.json` is absent from `/home/user/ws`; the available
+`gaga.json` is schema v2 with old fixed-roll semantics and was not substituted.
+No training process, deployment, policy artifact or original map was modified.
+
+
+### Two-band RL execution paths and home runbook (2026-11-05)
+
+This supersedes the incomplete-physics-task boundary in the extraction entry
+above. The user requested executable paths and instructions, explicitly not an
+actual training run. The full runbook is [hug-rl-experiment.md](hug-rl-experiment.md).
+
+Implemented the external Hug MDP and configure/check/train/collect/replay/
+interpolate/validate commands. The task fixes roll/linear, controls two segment
+angles, uses exact requested cylinder diameter and explicit mass/height/friction,
+and evaluates two-role contact plus a timed kick/hold criterion. It creates a
+local robot URDF with physical bend/roll limits, fixed zero-opening jaws and
+camera collision geometry, leaving the source model unchanged. URDF/map frame
+conversion, pre-training FK checks, solver-state resets, finite-state checks,
+per-tick command recording and original-path replay are wired. A low-friction
+ungrasped control must fail the retention criterion during physics preflight.
+PPO/Genesis API usage was checked against the pinned upstream source, not
+validated by executing those dependencies here.
+
+`/home/user/ws/hugmap/map.json` was copied without modifying the original to
+`workbench/evidence/generated/hug_interpolation/input/map.json`; SHA-256
+`c28a6f9535e8859fa400300903d145ca6d9663ef805db83d04a2fe9f1782b1ee`.
+Prepared 150 mm train/validation/test split is 6/22/2 across two local triangles.
+Ready pilot/experiment inputs are in the sibling `home-ready/` directory. These
+inputs/results are ignored by Git and must be transferred separately if needed.
+
+Current evidence: 56 host tests passed, Python compilation and diff whitespace
+checks passed. The real input passed offline configuration and digest checks.
+Host dependency preflight exits 2 with Torch, Genesis, tensordict and rsl_rl
+missing, as expected. No host dependencies were installed. No generated dev
+wrapper is known for this checkout. GPU smoke/learning/collection/physical
+replay and canonical required/extended/release gates remain unrun. No learning
+success or physical interpolation success is claimed. No deployment, hardware
+motion, commit or push was performed.
+
+
+### Publishable RL example (2026-11-05)
+
+The repository README now links to the Hug learning example. Its English README
+contains setup, physics check, training, original replay and interpolation
+commands. `example_pilot.json` includes the actual 30-case, 150 mm subset with
+source digest and train/validation/test splits (6/22/2); no full map download is
+required for that example. The 82 MB source map, generated experiment files,
+checkpoints and training outputs remain untracked. The bundled-input regression
+brings the focused host suite to 57 passing tests. GPU execution remains unrun.

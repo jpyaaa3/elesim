@@ -16,6 +16,7 @@ class QualityMatrixTests(unittest.TestCase):
                 "robot",
                 "pilot",
                 "sim",
+                "wrap-grasp",
                 "ui",
                 "model-builder",
                 "setup-tools",

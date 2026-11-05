@@ -101,3 +101,12 @@ loss. The default linear calibration is **1.5°/mm, max 260° (173.333 mm)**.
 [Research](docs/research.md)
 
 [외부 모델 연결 계약과 실행 예제](docs/model_integration.md)
+
+
+## RL training example
+
+[Two-band cylinder hugging](workbench/research/experiments/hug_interpolation/README.md)
+shows how to define an external task on EleSim's common RL APIs, train six local
+anchors, collect trajectories, and evaluate interpolation without additional RL.
+A small real-map input is included; the full Hugmap table is not required.
+See the example for prerequisites and the current validation boundary.

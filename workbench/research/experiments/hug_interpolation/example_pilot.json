@@ -1,0 +1,798 @@
+{
+  "schema": "elesim-hug-pilot",
+  "schema_version": 1,
+  "source_sha256": "c28a6f9535e8859fa400300903d145ca6d9663ef805db83d04a2fe9f1782b1ee",
+  "source_coordinates": {
+    "position_unit": "mm",
+    "angle_unit": "degree",
+    "origin": "fixed housing rectangle center; x=0 on roll axis; not physical Go2 base",
+    "position": "object center (x_mm,y_mm) in body frame; +y forward, +x right",
+    "orientation": "object theta_deg relative to fixed body; circle uses 0 only",
+    "angle_output": "total bend per five-node group; per-node angle = group/5",
+    "linear": "fixed at neutral",
+    "node0_from_body_center_mm": [
+      -0.0,
+      144.50000000000003
+    ]
+  },
+  "cases": [
+    {
+      "case_id": "b1-x-100-y320-d150",
+      "split": "train",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -100.0,
+        320.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.026324729523202417,
+        -0.5251657240014942
+      ],
+      "mu_min": 0.2778828373953906
+    },
+    {
+      "case_id": "b1-x-100-y325-d150",
+      "split": "validation",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -100.0,
+        325.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.024933959998734573,
+        -0.5204584834844863
+      ],
+      "mu_min": 0.28984788105101833
+    },
+    {
+      "case_id": "b1-x-100-y330-d150",
+      "split": "validation",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -100.0,
+        330.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.02368991103003607,
+        -0.5154121360608087
+      ],
+      "mu_min": 0.302895333162496
+    },
+    {
+      "case_id": "b1-x-100-y335-d150",
+      "split": "validation",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -100.0,
+        335.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.02256955497923417,
+        -0.5101175269120763
+      ],
+      "mu_min": 0.31678876614495066
+    },
+    {
+      "case_id": "b1-x-100-y340-d150",
+      "split": "train",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -100.0,
+        340.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.021554610891318982,
+        -0.5044733424266068
+      ],
+      "mu_min": 0.33182259716136775
+    },
+    {
+      "case_id": "b1-x-95-y320-d150",
+      "split": "validation",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -95.0,
+        320.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.04052937009002315,
+        -0.5314689405053561
+      ],
+      "mu_min": 0.2896621193856418
+    },
+    {
+      "case_id": "b1-x-95-y325-d150",
+      "split": "validation",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -95.0,
+        325.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.03841563480836263,
+        -0.5266869142698427
+      ],
+      "mu_min": 0.2802999861958002
+    },
+    {
+      "case_id": "b1-x-95-y330-d150",
+      "split": "validation",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -95.0,
+        330.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.03639278782362576,
+        -0.5216689910178888
+      ],
+      "mu_min": 0.2927804269928945
+    },
+    {
+      "case_id": "b1-x-95-y335-d150",
+      "split": "validation",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -95.0,
+        335.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.03458725215395957,
+        -0.5163168309968824
+      ],
+      "mu_min": 0.3063780270904567
+    },
+    {
+      "case_id": "b1-x-90-y320-d150",
+      "split": "validation",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -90.0,
+        320.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.05449185505556629,
+        -0.5376604391471151
+      ],
+      "mu_min": 0.3207021955965255
+    },
+    {
+      "case_id": "b1-x-90-y325-d150",
+      "split": "test",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -90.0,
+        325.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.05253002497998347,
+        -0.5328236610791596
+      ],
+      "mu_min": 0.290449016249272
+    },
+    {
+      "case_id": "b1-x-90-y330-d150",
+      "split": "validation",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -90.0,
+        330.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.04973026530000268,
+        -0.5277227056935188
+      ],
+      "mu_min": 0.2836117151211676
+    },
+    {
+      "case_id": "b1-x-85-y320-d150",
+      "split": "validation",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -85.0,
+        320.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.06812733876600376,
+        -0.5437143741920433
+      ],
+      "mu_min": 0.3501244784401972
+    },
+    {
+      "case_id": "b1-x-85-y325-d150",
+      "split": "validation",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -85.0,
+        325.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0664238381233218,
+        -0.5388423476219806
+      ],
+      "mu_min": 0.32058829856311244
+    },
+    {
+      "case_id": "b1-x-80-y320-d150",
+      "split": "train",
+      "band": 1,
+      "roll_deg": -90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -80.0,
+        320.0
+      ],
+      "branch": "band-1-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        0.08528039304897443,
+        -0.5500222570687269
+      ],
+      "mu_min": 0.20466366206274852
+    },
+    {
+      "case_id": "b2-x-135-y350-d150",
+      "split": "train",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -135.0,
+        350.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.40772204307304455,
+        -0.5641355200609939
+      ],
+      "mu_min": 0.3813413060959381
+    },
+    {
+      "case_id": "b2-x-135-y355-d150",
+      "split": "validation",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -135.0,
+        355.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.3932017993317377,
+        -0.5542592045200729
+      ],
+      "mu_min": 0.4014424099513936
+    },
+    {
+      "case_id": "b2-x-135-y360-d150",
+      "split": "validation",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -135.0,
+        360.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.37992088616957326,
+        -0.5444274206154459
+      ],
+      "mu_min": 0.3941531318378676
+    },
+    {
+      "case_id": "b2-x-135-y365-d150",
+      "split": "validation",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -135.0,
+        365.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.3657986245421232,
+        -0.5338389698370561
+      ],
+      "mu_min": 0.34794355358267287
+    },
+    {
+      "case_id": "b2-x-135-y370-d150",
+      "split": "train",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -135.0,
+        370.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.3498438873802879,
+        -0.5219445671674546
+      ],
+      "mu_min": 0.2949849072725765
+    },
+    {
+      "case_id": "b2-x-130-y350-d150",
+      "split": "validation",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -130.0,
+        350.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.4087139110662278,
+        -0.5690599730506949
+      ],
+      "mu_min": 0.36786800603016545
+    },
+    {
+      "case_id": "b2-x-130-y355-d150",
+      "split": "validation",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -130.0,
+        355.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.3932310060570772,
+        -0.558973386444883
+      ],
+      "mu_min": 0.3878382706595772
+    },
+    {
+      "case_id": "b2-x-130-y360-d150",
+      "split": "validation",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -130.0,
+        360.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.3794831163275967,
+        -0.5491224010312752
+      ],
+      "mu_min": 0.4084060275170875
+    },
+    {
+      "case_id": "b2-x-130-y365-d150",
+      "split": "validation",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -130.0,
+        365.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.36618225897154577,
+        -0.5390064701790676
+      ],
+      "mu_min": 0.3731145773149864
+    },
+    {
+      "case_id": "b2-x-125-y350-d150",
+      "split": "validation",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -125.0,
+        350.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.4098579980465768,
+        -0.5738195731523646
+      ],
+      "mu_min": 0.3550610243970928
+    },
+    {
+      "case_id": "b2-x-125-y355-d150",
+      "split": "test",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -125.0,
+        355.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.39326382456394315,
+        -0.5634579945115296
+      ],
+      "mu_min": 0.3750143520131192
+    },
+    {
+      "case_id": "b2-x-125-y360-d150",
+      "split": "validation",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -125.0,
+        360.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.3787573154167839,
+        -0.5534757918501207
+      ],
+      "mu_min": 0.3953432527864713
+    },
+    {
+      "case_id": "b2-x-120-y350-d150",
+      "split": "validation",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -120.0,
+        350.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.4109393639575991,
+        -0.5783559675788079
+      ],
+      "mu_min": 0.36644660730545237
+    },
+    {
+      "case_id": "b2-x-120-y355-d150",
+      "split": "validation",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -120.0,
+        355.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.39330097094246586,
+        -0.5677258748364035
+      ],
+      "mu_min": 0.3629131733507426
+    },
+    {
+      "case_id": "b2-x-115-y350-d150",
+      "split": "train",
+      "band": 2,
+      "roll_deg": 90,
+      "diameter_mm": 150.0,
+      "xy_mm": [
+        -115.0,
+        350.0
+      ],
+      "branch": "band-2-local-c28a6f9535e8",
+      "start_command": [
+        0.0,
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "goal_command": [
+        0.0,
+        1.5707963267948966,
+        0.4109040066421369,
+        -0.5823260179108714
+      ],
+      "mu_min": 0.3930562732061891
+    }
+  ],
+  "triangles": [
+    {
+      "branch": "band-1-local-c28a6f9535e8",
+      "anchor_ids": [
+        "b1-x-100-y320-d150",
+        "b1-x-100-y340-d150",
+        "b1-x-80-y320-d150"
+      ],
+      "continuous_interior_verified": false
+    },
+    {
+      "branch": "band-2-local-c28a6f9535e8",
+      "anchor_ids": [
+        "b2-x-135-y350-d150",
+        "b2-x-135-y370-d150",
+        "b2-x-115-y350-d150"
+      ],
+      "continuous_interior_verified": false
+    }
+  ],
+  "simulation_context": null,
+  "readiness": "needs-world-frame-and-physics-calibration",
+  "example_provenance": {
+    "source": "Hugmap v3 circle table, map.json",
+    "selection": "Two fully sampled local triangles at D=150 mm",
+    "scope": "Static geometric solutions, not learned trajectories or measured success",
+    "full_map_required": false
+  }
+}

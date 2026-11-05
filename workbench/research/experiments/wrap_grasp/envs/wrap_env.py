@@ -1,0 +1,1087 @@
+"""Macro-step wrap-grasp environment (rsl_rl VecEnv).
+
+This is a **macro-step MDP**, not a 50 Hz reactive controller.  One
+``step(action)`` is:
+
+1. apply a rate-limited waypoint increment to the 4-DoF command,
+2. run the arm to that waypoint over ``macro_step.substeps`` physics substeps,
+3. observe the *settled* state.
+
+Episodes are a handful of macro steps (``macro_step.max_steps``), so the policy
+plans a sequence of poses rather than servoing a trajectory.
+
+Two invariants the rest of the code depends on:
+
+* **Collisions and object disturbance are judged over the whole substep
+  window.**  Reading only the settled pose misses a link that swept through
+  the floor and came back out, which is exactly what the collision penalty
+  exists to catch.  :class:`ContactAggregator` does that accumulation.
+
+* **The actor never observes simulator truth.**  Its joint state arrives
+  through the beta estimator, the object pose is noised, and there is an
+  optional macro-step delay.  Ground-truth joints, contact forces and the
+  exact object pose go to the ``privileged`` group, which only the critic
+  reads.
+"""
+
+from __future__ import annotations
+
+import math
+from typing import Any, Optional
+
+import numpy as np
+import torch
+from tensordict import TensorDict
+
+from elesim_sim.rl.arm_kinematics import ArmWaypointMapper
+from ..beta_model import BetaModel
+from ..configs.loader import WrapGraspConfig
+from ..scene import WrapGraspScene
+from .observations import ObservationBuilder
+from .episode_metrics import EpisodeMetrics
+from .contacts import ContactAggregator, ContactClassifier
+from .coverage import CoverageMeter, quat_to_axis
+from .lift_test import GeometricCriterion, LiftObservation, LiftTest, TugTest
+
+_TWO_PI = 2.0 * math.pi
+
+def choose_object_entity(
+    built: torch.Tensor,
+    *,
+    requested: torch.Tensor,
+    radius_range: tuple[float, float],
+    randomise: bool,
+    generator: Optional[torch.Generator] = None,
+) -> torch.Tensor:
+    """Which built cylinder each env is handed.
+
+    Genesis fixes a morph's geometry at build time, so the radius an env gets is
+    decided by *which* entity it is handed and not by a number written at reset.
+
+    A pinned size -- `_eval_override`, or a radius that is not being randomised
+    -- snaps to the nearest built one and is kept.  Drawing over the range there
+    instead discards it: a 1728-episode evaluation reported a column of three
+    radii while every condition sampled the whole span, which is why 45, 67 and
+    100 mm all came back at about 71%, and a clip row labelled 45 mm showed
+    three visibly different cylinders.
+
+    Otherwise the entity is drawn uniformly over the built sizes inside the
+    range, rather than by sampling a radius and snapping.  Snapping weights a
+    size by how wide its basin happens to be, and the basins are set by where
+    the neighbouring sizes fall: over 256 envs on a seven-size scene, 35 mm drew
+    16 and 87 mm drew 58 -- the hardest size getting the fewest episodes.
+    """
+    if not randomise:
+        return (requested.unsqueeze(-1) - built.unsqueeze(0)).abs().argmin(dim=-1)
+    lo, hi = (float(v) for v in radius_range)
+    inside = (built >= lo - 1e-9) & (built <= hi + 1e-9)
+    if not bool(inside.any()):
+        # Nothing built inside the range: the nearest single size is what a
+        # range no entity satisfies can mean.
+        mid = torch.full((1,), 0.5 * (lo + hi), device=built.device)
+        inside = torch.zeros_like(built, dtype=torch.bool)
+        inside[(built - mid).abs().argmin()] = True
+    eligible = inside.nonzero(as_tuple=False).flatten()
+    draw = torch.randint(
+        len(eligible), (requested.shape[0],), device=built.device, generator=generator
+    )
+    return eligible[draw]
+
+
+class WrapGraspEnv:
+    """Parallel macro-step environment satisfying rsl_rl's VecEnv contract."""
+
+    def __init__(
+        self,
+        cfg: WrapGraspConfig,
+        *,
+        n_envs: Optional[int] = None,
+        scene: Optional[WrapGraspScene] = None,
+    ) -> None:
+        self.cfg = cfg.resolved_for_curriculum()
+        self.scene = scene if scene is not None else WrapGraspScene(self.cfg, n_envs=n_envs).build()
+        if not self.scene.built:
+            self.scene.build()
+        self.device = self.scene.device
+        self.num_envs = self.scene.n_envs
+        #: Waypoint DoFs the policy steers: linear, roll, theta1, theta2.
+        self.num_waypoint_actions = 4
+        #: ...plus, under `success.lift.policy_triggered`, one more column the
+        #: policy uses to say "lift now".  The waypoint columns are the first
+        #: four either way, so everything that indexes them is unaffected.
+        self._lift_action = bool(
+            self.cfg.success.criterion == "lift"
+            and self.cfg.success.lift.policy_triggered
+        )
+        self.num_actions = self.num_waypoint_actions + int(self._lift_action)
+        self.max_episode_length = int(self.cfg.macro_step.max_steps)
+
+        rate = self.cfg.macro_step.rate_limit
+        self.mapper = ArmWaypointMapper(
+            self.cfg.arm,
+            n_envs=self.num_envs,
+            device=self.device,
+            rate_limit=(rate.linear_m, rate.roll_rad, rate.theta_rad, rate.theta_rad),
+        )
+        self._home_waypoint = torch.tensor(
+            [float(v) for v in self.cfg.arm.home_waypoint],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        self._generator = torch.Generator(device=self.device)
+        self._generator.manual_seed(int(self.cfg.runtime.seed))
+
+        self.beta = BetaModel(
+            self.cfg.beta,
+            n_envs=self.num_envs,
+            n_joints=len(self.cfg.arm.bend_joints),
+            device=self.device,
+            generator=self._generator,
+        )
+        self.coverage = CoverageMeter(
+            n_bins=self.cfg.reward.coverage.n_bins,
+            radial_band_m=self.cfg.reward.coverage.radial_band_m,
+            device=self.device,
+        )
+        self_contact = self.cfg.reward.self_contact
+        self.classifier = ContactClassifier(
+            self.scene, structural_prefixes=self_contact.structural_prefixes
+        )
+        self.contacts = ContactAggregator(
+            self.classifier,
+            n_envs=self.num_envs,
+            self_contact_all_is_failure=self_contact.all_is_failure,
+            self_contact_terminates=self_contact.terminates,
+        )
+
+        from .rewards import RewardBook  # local import keeps the module graph flat
+
+        self.rewards = RewardBook(
+            self.cfg.reward,
+            n_envs=self.num_envs,
+            device=self.device,
+            wrap_threshold_rad=self.cfg.success.coverage_target_rad,
+            shallow_lift_reference_rad=(
+                self.cfg.reward.coverage.shallow_lift_reference_rad
+            ),
+        )
+        self.geometric = GeometricCriterion(self.cfg.success, device=self.device)
+        self.lift: Optional[LiftTest] = (
+            LiftTest(self.cfg.success, n_envs=self.num_envs, device=self.device)
+            if self.cfg.success.criterion == "lift"
+            else None
+        )
+        self.tug: Optional[TugTest] = (
+            TugTest(self.cfg.success, n_envs=self.num_envs, device=self.device)
+            if self.cfg.success.criterion == "tug"
+            else None
+        )
+        # Whichever scripted test is active, or None for the geometric gate.
+        # Both freeze the policy for the envs they have taken over and both
+        # report retention, so the shared paths go through this.
+        self.script = self.lift if self.lift is not None else self.tug
+        if self.tug is not None:
+            # External forces go through the solver, not the entity: the
+            # entity API exposes joint forces only, and the object is a free
+            # body with no joints.  Gravity is read rather than assumed so the
+            # tug force stays a multiple of the object's weight *in this
+            # scene*.
+            self._rigid_solver = self.scene.scene.sim.rigid_solver
+            self._object_link_ids = [
+                int(link.idx) for link in self.scene.object.links
+            ]
+            self._gravity_mag = float(
+                torch.tensor(self.scene.scene.sim.gravity).norm()
+            )
+
+        self._arm_dofs = list(self.scene.arm_dofs.all_indices)
+        self._bend_slice = slice(2, 2 + len(self.cfg.arm.bend_joints))
+        # Robot-*local* indices: get_links_pos is indexed per entity, while
+        # links.arm holds the scene-global ids that get_contacts reports.
+        self._arm_link_ids = torch.tensor(
+            sorted(self.scene.links.arm_local), device=self.device, dtype=torch.long
+        )
+        self._anchor_link = int(self.scene.links.segment2_mid_local)
+
+        z = lambda *shape: torch.zeros(*shape, device=self.device, dtype=torch.float32)  # noqa: E731
+        self.episode_length_buf = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.long
+        )
+        #: Envs whose physics diverged during the current macro step.  Their
+        #: state was nan, so `step` ends those episodes rather than reporting
+        #: anything from them.
+        self._diverged = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.bool
+        )
+        self._object_radius = z(self.num_envs)
+        self._object_height = z(self.num_envs)
+        self._object_mass = z(self.num_envs)
+        self._object_pos0 = z(self.num_envs, 3)
+        self._object_axis0 = z(self.num_envs, 3)
+        self._object_base0 = z(self.num_envs, 3)
+        start = self.cfg.start_pose
+        #: Home, then every via point, then the near pose: the polyline the
+        #: reset interpolates along.
+        self._start_path = torch.tensor(
+            [list(w) for w in start.waypoints()],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        self._start_t_lo = float(start.t_range[0])
+        self._start_t_hi = float(start.t_range[1])
+        self._start_window_n = 0
+        self._start_window_ok = 0
+        #: Macro steps since the curriculum last moved, for `cooldown_updates`.
+        self._start_steps_since_move = 0
+        self._load_proxy = z(self.num_envs, self.num_waypoint_actions)
+        self._last_joint_cmd = z(self.num_envs, len(self._arm_dofs))
+        self._waypoint_from = z(self.num_envs, self.num_waypoint_actions)
+        #: Whether the policy asked for a lift on the current step.
+        self._lift_request = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.bool
+        )
+        #: Which envs armed the lift on this step, for the shallow-lift penalty.
+        self._lift_armed = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.bool
+        )
+        #: Set by eval to pin one object condition across every env, so a batch
+        #: is just a faster way to collect episodes of the *same* condition
+        #: rather than a mixture the per-condition table could not separate.
+        self._eval_override: Optional[dict[str, float]] = None
+        self._last_reasons: dict[str, torch.Tensor] = {}
+        #: Optional callback invoked after every physics substep, as
+        #: ``monitor(env, substep_index)``.  Used by the divergence diagnostic
+        #: to sample state at the resolution the solver actually fails at; a
+        #: macro-step-level look is far too coarse to catch it.
+        self.substep_monitor: Optional[Any] = None
+        self.metrics = EpisodeMetrics(self)
+        self.observations = ObservationBuilder(self)
+        self.obs_spec = self.observations.specification()
+
+        self._reset_idx(None)
+        self._settle_at_home_and_baseline_contacts()
+        self._obs = self.observations.build()
+
+    def move_support_to(self, dx_m: float, dy_m: float) -> None:
+        """Shift the support so it stays under an offset object.
+
+        An eval condition that moved the object without the support would be
+        measuring free fall, not placement: the cylinder is a free body and its
+        post is only 40 mm across.
+        """
+        if self.scene.support is None:
+            return
+        cx, cy = self.cfg.support.center_xy
+        top = float(self.cfg.support.height_m)
+        target = torch.tensor(
+            [[float(cx) + float(dx_m), float(cy) + float(dy_m), top * 0.5]],
+            device=self.device,
+            dtype=torch.float32,
+        ).expand(self.num_envs, 3)
+        self.scene.support.set_pos(target)
+
+    @property
+    def start_pose_range(self) -> tuple[float, float]:
+        """Where the reverse curriculum has got to, as (t_lo, t_hi)."""
+        return (self._start_t_lo, self._start_t_hi)
+
+    @start_pose_range.setter
+    def start_pose_range(self, value: tuple[float, float]) -> None:
+        """Restore a curriculum position, as a window of the configured width.
+
+        The window is defined by its top, so the low end is derived rather than
+        taken from `value`: a checkpoint written before the window kept its
+        width records (0, 0) at the bottom, and restoring that literally would
+        start every episode at exactly Home -- the state that took one run from
+        13.2% success to 1.9%.  It cannot recover on its own either, since a
+        policy sitting between the retreat and advance gates never moves.
+        """
+        width = abs(
+            float(self.cfg.start_pose.t_range[1])
+            - float(self.cfg.start_pose.t_range[0])
+        )
+        hi = min(1.0, max(float(value[1]), width))
+        self._start_t_hi = hi
+        self._start_t_lo = max(0.0, hi - width)
+        self._start_window_n = 0
+        self._start_window_ok = 0
+        self._start_steps_since_move = 0
+
+    def freeze_start_pose_at_home(self) -> None:
+        """Pin every episode to Home and stop the curriculum advancing.
+
+        Evaluation measures the deployed task, which starts at Home.  The
+        curriculum position lives on the env rather than in the checkpoint, so
+        a freshly built env would otherwise reset to the configured `t_range`
+        and evaluate the policy three steps from the goal.
+        """
+        self._start_t_lo = 0.0
+        self._start_t_hi = 0.0
+        self._start_window_n = 0
+        self._start_window_ok = 0
+        self._start_steps_since_move = 0
+
+    def _apply_start_pose(self, env_ids: Optional[torch.Tensor], n: int) -> None:
+        """Interpolate the reset waypoint from Home towards the near-goal pose.
+
+        Per env rather than per batch, so a single rollout spans a spread of
+        difficulties instead of all envs sitting at one point of the curriculum.
+        """
+        t = torch.rand(n, 1, device=self.device, generator=self._generator)
+        t = self._start_t_lo + t * (self._start_t_hi - self._start_t_lo)
+        home = self._home_waypoint.to(self.device, torch.float32).reshape(1, 4)
+        # Walk the polyline Home -> via... -> near, each leg an equal share of
+        # t.  A straight line to the near pose is not a path: it runs through
+        # the object, and the reset alone left the pole 17 deg tilted at t = 0.7
+        # before the policy had acted.
+        pts = torch.cat((home, self._start_path), dim=0)   # (K+1, 4)
+        legs = pts.shape[0] - 1
+        u = (t * legs).clamp(0.0, float(legs))
+        i = u.floor().clamp(max=float(legs - 1)).long()    # (n, 1)
+        frac = u - i.to(u.dtype)
+        a = pts[i.squeeze(-1)]
+        b = pts[(i + 1).squeeze(-1)]
+        target = a + frac * (b - a)
+        if env_ids is None:
+            self.mapper.waypoint[:] = target
+        else:
+            self.mapper.waypoint[env_ids] = target
+        # The cap is roll-independent but still has to hold at reset.
+        self.mapper.waypoint = self.mapper._project_curl(self.mapper.waypoint)
+
+    def _note_start_pose_outcome(self, dones: torch.Tensor, success: torch.Tensor) -> None:
+        """Move the start range on the evidence, in either direction.
+
+        Towards Home when the policy can finish from where it starts, and back
+        away from it when it cannot.  The second half is not symmetry for its
+        own sake: without it the curriculum is a ratchet, and a run that outran
+        its policy sat at `success 0.0000, phi 4 deg, topple 0.42` for 130
+        iterations with no way back.
+
+        `cooldown_updates` bounds how fast it can move, which is a guard rather
+        than what that run needed -- it moved four steps in fifty iterations and
+        would have passed the bound.  The hazard it covers is real all the same:
+        at 2048 envs a 512-episode window fills in about two macro steps, so
+        nothing else stops the range walking several steps inside one iteration
+        whenever the success rate holds up.
+        """
+        cfg = self.cfg.start_pose
+        if not cfg.enable:
+            return
+        if cfg.advance_at is None and cfg.retreat_at is None:
+            return
+        self._start_steps_since_move += 1
+        finished = int(dones.sum())
+        if finished == 0:
+            return
+        self._start_window_n += finished
+        self._start_window_ok += int((dones & success).sum())
+        if self._start_window_n < int(cfg.window):
+            return
+        rate = self._start_window_ok / max(self._start_window_n, 1)
+        self._start_window_n = 0
+        self._start_window_ok = 0
+
+        # One "update" is a rollout of num_steps_per_env macro steps.
+        per_update = max(1, int(self.cfg.train.num_steps_per_env))
+        if self._start_steps_since_move < int(cfg.cooldown_updates) * per_update:
+            return
+
+        # The range is a window of fixed width that slides, and the width is
+        # what makes a rollout span a spread of difficulties instead of one
+        # point.  It used to collapse: advancing floored `t_lo` at 0 while
+        # `t_hi` kept coming down, both reached 0, and from then on every
+        # episode started at exactly Home -- and retreating could not reopen it,
+        # since `t_lo` was clamped to `t_hi`.  A run walked to Home by iteration
+        # 100 with 13.2% success there, lost the easier starts the moment it
+        # arrived, and fell to 1.9% by iteration 200.  The window bottoms out at
+        # [0, width] instead, so Home is always in the support and never all of
+        # it.
+        step = float(cfg.step)
+        width = abs(float(cfg.t_range[1]) - float(cfg.t_range[0]))
+        if cfg.advance_at is not None and rate >= float(cfg.advance_at):
+            if self._start_t_hi <= width + 1e-9:
+                return
+            self._start_t_hi = max(width, self._start_t_hi - step)
+        elif cfg.retreat_at is not None and rate <= float(cfg.retreat_at):
+            if self._start_t_hi >= 1.0:
+                return
+            self._start_t_hi = min(1.0, self._start_t_hi + step)
+        else:
+            return
+        self._start_t_lo = max(0.0, self._start_t_hi - width)
+        self._start_steps_since_move = 0
+
+    def _settle_at_home_and_baseline_contacts(self) -> None:
+        """Let the arm settle at Home, then baseline the contacts it rests on.
+
+        The reset writes joint positions directly, so the first physics steps
+        resolve whatever overlap the Home pose starts with.  Only once that has
+        settled is the contact set a fair description of "resting at Home"
+        rather than of the reset transient.  Done once at construction: the
+        excluded set is a property of the pose, not of an individual episode.
+
+        Home is forced here rather than taken from wherever the constructor's
+        reset left the arm.  Under the reverse curriculum that reset lands on
+        the *start* pose, and with a start pose close enough to the goal the arm
+        is already touching the object -- so every arm-object pair got baselined
+        as something the arm "rests on at Home" and excluded for the rest of the
+        run.  The wrap angle then reads 0 no matter how well the arm wraps:
+        measured on the same pose, 7 links in contact and 262 deg by hand
+        against 0 links and 0 deg through the constructor.
+        """
+        saved = self.mapper.waypoint.clone()
+        home = self._home_waypoint.to(self.device, torch.float32).reshape(1, 4)
+        self.mapper.waypoint[:] = home
+        targets = self.mapper.joint_targets()
+        self.scene.robot.set_dofs_position(targets, dofs_idx_local=self._arm_dofs)
+        for _ in range(int(self.cfg.macro_step.substeps)):
+            self.scene.robot.control_dofs_position(
+                targets, dofs_idx_local=self._arm_dofs
+            )
+            self.scene.step()
+        excluded = self.classifier.set_baseline_from_current_contacts()
+        if excluded:
+            print(
+                f"[wrap-env] excluding {excluded} link pair(s) already in "
+                f"contact at the Home pose"
+            )
+        # Put the arm and the object back where the episode is meant to start:
+        # settling at Home moved the arm across the scene, and anything it
+        # brushed on the way stays brushed.
+        self.mapper.waypoint[:] = saved
+        self._reset_idx(None)
+        self.contacts.reset()
+
+    # -- rsl_rl contract ---------------------------------------------------
+
+    def get_observations(self) -> TensorDict:
+        return self._obs
+
+    def reset(self) -> tuple[TensorDict, dict]:
+        self._reset_idx(None)
+        self._obs = self.observations.build()
+        return self._obs, {}
+
+    def step(
+        self, actions: torch.Tensor
+    ) -> tuple[TensorDict, torch.Tensor, torch.Tensor, dict]:
+        from .rewards import RewardInputs
+
+        actions = actions.to(self.device, torch.float32)
+        self._apply_action(actions)
+        self.contacts.reset()
+        self._simulate_macro_step()
+
+        contact = self.contacts.result()
+        state = self._read_state(contact)
+
+        success = self._evaluate_success(state, contact)
+        reward_out = self.rewards.step(
+            RewardInputs(
+                phi=state["phi"],
+                enclosure=state["enclosure"],
+                surface_dist=self._shaping_distance(state),
+                object_touch=contact.object_touch,
+                non_target_collision=contact.non_target_collision,
+                terminating_collision=contact.terminating_collision,
+                object_displacement=state["displacement"],
+                object_tilt=state["tilt"],
+                success=success,
+                lift_armed=self._lift_armed,
+                under_test=(
+                    None
+                    if self.script is None
+                    else ~self.script.follows_policy
+                    if hasattr(self.script, "follows_policy")
+                    else None
+                ),
+            )
+        )
+
+        self.episode_length_buf += 1
+        timeout = self.episode_length_buf >= self.max_episode_length
+        dones = reward_out.terminate | timeout | self._diverged
+
+        self._last_reasons = reward_out.termination_reason
+        extras: dict[str, Any] = {
+            "log": self.metrics.logging_extras(reward_out, contact, state, timeout),
+            "time_outs": timeout,
+            # Exposed so evaluation can classify a finished episode; the done
+            # flag alone cannot tell a collision from a dropped object.
+            "termination_reason": reward_out.termination_reason,
+        }
+        self.metrics.tally(reward_out, timeout, dones)
+        self._note_start_pose_outcome(dones, reward_out.termination_reason["success"])
+
+        done_ids = dones.nonzero(as_tuple=False).flatten()
+        if done_ids.numel():
+            from elesim_sim.rl.execution import snapshot
+            extras["terminal"] = snapshot({
+                "env_ids": done_ids,
+                "waypoints": self.mapper.waypoint[done_ids],
+                "state": {key: value[done_ids] for key, value in state.items()},
+            })
+            self._reset_idx(done_ids)
+        recovered = self._diverged.clone()
+        self._diverged[:] = False
+        self._obs = self.observations.build()
+        self.observations.sanitise_recovered(recovered)
+        return self._obs, reward_out.total, dones, extras
+
+    # -- action and simulation --------------------------------------------
+
+    def _apply_action(self, actions: torch.Tensor) -> None:
+        """Advance the waypoint, then override roll for envs under lift script."""
+        follows_policy = (
+            self.script.follows_policy
+            if self.script is not None
+            else torch.ones(self.num_envs, device=self.device, dtype=torch.bool)
+        )
+        waypoint = actions[:, : self.num_waypoint_actions]
+        if self._lift_action:
+            # Positive means "lift now".  Zero-centred so an untrained policy
+            # asks about half the time, which is what puts the bonus inside
+            # reach of exploration at the top of the curriculum, where the arm
+            # resets already wrapped.
+            self._lift_request = actions[:, self.num_waypoint_actions] > 0.0
+        masked = torch.where(
+            follows_policy.unsqueeze(-1), waypoint, torch.zeros_like(waypoint)
+        )
+        self._waypoint_from = self.mapper.waypoint.clone()
+        self.mapper.apply_action(masked)
+
+    def _commanded_joints(self) -> torch.Tensor:
+        return self.mapper.joint_targets()
+
+    def _realised_joints(self, commanded: torch.Tensor) -> torch.Tensor:
+        """Inject the beta residual into the bend joints only.
+
+        Roll and the linear stage are geared differently and the residual model
+        is identified for the bend backbone, so applying it to all four DoFs
+        would be inventing data the config cannot back up.
+        """
+        realised = commanded.clone()
+        bend_cmd = commanded[:, self._bend_slice]
+        prev_bend = self._last_joint_cmd[:, self._bend_slice]
+        realised[:, self._bend_slice] = self.beta.corrupt(
+            bend_cmd, load_kg=self._object_mass, previous_commanded=prev_bend
+        )
+        self._last_joint_cmd = commanded.clone()
+        return realised
+
+    def _step_scene_or_recover(self) -> None:
+        """Advance the physics, surviving a solver divergence.
+
+        Genesis raises for the whole scene when the constraint solver produces
+        nan -- "Invalid constraint forces causing 'nan'" -- and a 600 iteration
+        run died at 1266 because of one such step.  The errno behind it is
+        per-env and writable, so the envs that actually diverged can be found,
+        put back, and the rest of the batch carried on.
+
+        The affected episodes are flagged and terminated by `step`: their state
+        was nan, so nothing they would report is worth learning from.
+        """
+        try:
+            self.scene.step()
+            return
+        except Exception as exc:                     # gs.GenesisException
+            # A solver mask can outlive the exception that populated it.  Do
+            # not let that stale state turn an unrelated scene failure into a
+            # recoverable per-env divergence.  This is the diagnostic emitted
+            # by Genesis for the failure this path is designed to handle.
+            error = str(exc).lower()
+            if "invalid constraint forces" not in error or "nan" not in error:
+                raise
+            solver = getattr(getattr(self.scene.scene, "sim", None), "rigid_solver", None)
+            mask = None
+            if solver is not None and hasattr(solver, "get_error_envs_mask"):
+                try:
+                    candidate = solver.get_error_envs_mask()
+                    if not isinstance(candidate, torch.Tensor):
+                        raise TypeError("solver error mask is not a torch tensor")
+                    if candidate.ndim != 1 or candidate.numel() != self.num_envs:
+                        raise ValueError(
+                            "solver error mask must be a 1-D vector with one "
+                            f"entry per env (got shape {tuple(candidate.shape)})"
+                        )
+                    if candidate.dtype is not torch.bool:
+                        raise TypeError(
+                            "solver error mask must have boolean dtype "
+                            f"(got {candidate.dtype})"
+                        )
+                    mask = candidate.to(self.device)
+                except Exception:
+                    mask = None
+            if mask is None or not bool(mask.any()):
+                # Not something this can attribute to particular envs.
+                raise
+            ids = mask.nonzero(as_tuple=False).flatten()
+            self._diverged[ids] = True
+            try:
+                from genesis.utils.misc import qd_to_torch
+
+                qd_to_torch(solver._errno).zero_()
+            except Exception:
+                raise exc
+            # Put the diverged envs back at Home with the object upright, so the
+            # next substep does not start from the nan state that caused this.
+            self._reset_idx(ids)
+            self._zero_object_velocity(ids)
+            print(
+                f"[env] solver diverged in {int(mask.sum())} env(s); reset and "
+                "continuing",
+                flush=True,
+            )
+
+    def _simulate_macro_step(self) -> None:
+        settle = self.cfg.macro_step.settle
+        substeps = int(self.cfg.macro_step.substeps)
+        # Interpolate the joint target across the moving portion of the window
+        # instead of stepping it to the new waypoint at once.  A whole rate
+        # limit applied in one substep is an impulse, and the arm knocks the
+        # object out of place before it can close around it.
+        start = self._waypoint_from
+        end = self.mapper.waypoint
+        hold = 0
+        scripted_active = (
+            self.script is not None
+            and hasattr(self.script, "follows_policy")
+            and bool((~self.script.follows_policy).any())
+        )
+
+        from elesim_sim.rl.execution import MotionClock
+        clock = MotionClock(float(self.cfg.scene.dt),substeps,float(self.cfg.macro_step.move_fraction))
+        for i, waypoint in clock.targets(start,end):
+            targets = self._realised_joints(self.mapper.joint_targets(waypoint))
+            if self.lift is not None:
+                targets = self._apply_lift_script(targets)
+            self.scene.robot.control_dofs_position(
+                targets, dofs_idx_local=self._arm_dofs
+            )
+            if self.tug is not None:
+                self._apply_tug_force()
+            self._step_scene_or_recover()
+            self.contacts.accumulate()
+            if self.substep_monitor is not None:
+                self.substep_monitor(self, i)
+
+            if self.script is not None:
+                self.script.advance(self._lift_observation())
+                if hasattr(self.script, "follows_policy"):
+                    scripted_active = bool((~self.script.follows_policy).any())
+
+            # Not while a scripted success test is running.  The early break
+            # exists to skip substeps in which nothing moves, but the lift's
+            # rotation, settle and hold are counted in substeps, so breaking out
+            # of them stops the test's own clock: at 40 substeps a macro step
+            # the manoeuvre needs 211 of them, and a batch that keeps breaking
+            # at 12 never finishes one inside the episode.
+            if (
+                settle.mode == "velocity"
+                and (i + 1) >= int(settle.min_substeps)
+                and not scripted_active
+            ):
+                if bool(self._is_settled().all()):
+                    hold += 1
+                    if hold >= int(settle.hold_substeps):
+                        break
+                else:
+                    hold = 0
+
+        self._load_proxy = self._read_load_proxy()
+
+    def _apply_lift_script(self, targets: torch.Tensor) -> torch.Tensor:
+        """Override the roll column for envs the lift state machine controls."""
+        assert self.lift is not None
+        scripted = ~self.lift.follows_policy
+        if not bool(scripted.any()):
+            return targets
+        out = targets.clone()
+        # Clamped to the joint's own range.  This path writes the roll column of
+        # the joint target directly, so it bypasses the waypoint clamp that
+        # holds every policy action inside the limits -- a `roll_target_rad`
+        # outside them would be commanded as given.
+        lo, hi = self.cfg.arm.limits.roll_rad
+        roll = self.lift.roll_command.clamp(float(lo), float(hi))
+        roll = roll * float(self.cfg.arm.roll_axis_sign)
+        out[:, 1] = torch.where(scripted, roll, out[:, 1])
+        return out
+
+    def _apply_tug_force(self) -> None:
+        """Push the object for the envs under test; zero force for the rest.
+
+        Applied every substep because Genesis clears external forces as it
+        steps, and to all envs at once rather than to a subset, so the call
+        count does not depend on how many envs happen to be under test.
+        """
+        assert self.tug is not None
+        force = self.tug.external_force()
+        if not bool((force != 0).any()):
+            return
+        self._rigid_solver.apply_links_external_force(
+            force.unsqueeze(1), self._object_link_ids
+        )
+
+    def _is_settled(self) -> torch.Tensor:
+        vel = self.scene.robot.get_dofs_velocity(dofs_idx_local=self._arm_dofs)
+        joint_ok = vel.abs().amax(dim=-1) < float(
+            self.cfg.macro_step.settle.joint_vel_thresh
+        )
+        obj_ok = self.scene.object.get_vel().norm(dim=-1) < float(
+            self.cfg.macro_step.settle.object_vel_thresh
+        )
+        return joint_ok & obj_ok
+
+    def _read_load_proxy(self) -> torch.Tensor:
+        """Per-DoF torque, the stand-in for the real arm's motor current.
+
+        The hardware has no contact sensing, but it does report load, which is
+        why this is allowed in the actor's observation while contact forces are
+        not.
+        """
+        force = self.scene.robot.get_dofs_force(dofs_idx_local=self._arm_dofs)
+        bend = force[:, self._bend_slice].mean(dim=-1, keepdim=True)
+        return torch.cat((force[:, 0:1], force[:, 1:2], bend, bend), dim=-1)
+
+    # -- state -------------------------------------------------------------
+
+    def _lift_observation(self) -> LiftObservation:
+        pos = self.scene.robot.get_links_pos()
+        quat = self.scene.robot.get_links_quat()
+        obj_pos = self.scene.object.get_pos()
+        obj_quat = self.scene.object.get_quat()
+        return LiftObservation(
+            object_pos=obj_pos,
+            object_quat=obj_quat,
+            anchor_pos=pos[:, self._anchor_link, :],
+            anchor_quat=quat[:, self._anchor_link, :],
+            clearance=self._object_clearance(obj_pos, obj_quat),
+            object_contacts=self.contacts.last.object_link_hits.sum(dim=-1),
+        )
+
+    def _object_clearance(
+        self, obj_pos: torch.Tensor, obj_quat: torch.Tensor
+    ) -> torch.Tensor:
+        """Height of the cylinder's lowest point above the floor.
+
+        Closed form rather than a contact query: the lowest point of a cylinder
+        of radius r and height h whose axis has world-z component `az` sits
+        `|az| * h/2 + r * sqrt(1 - az^2)` below the centre -- the end cap when
+        upright, the side when lying down, and the rim in between.  The floor is
+        at z = 0.
+        """
+        az = quat_to_axis(obj_quat)[:, 2]
+        drop = az.abs() * self._object_height * 0.5 + self._object_radius * (
+            1.0 - az * az
+        ).clamp_min(0.0).sqrt()
+        return obj_pos[:, 2] - drop
+
+    def _shaping_distance(self, state: dict[str, torch.Tensor]) -> torch.Tensor:
+        """Distance approach_shaping is measured against.
+
+        The segment-2 midpoint is a bad proxy for "am I getting closer".  The
+        wrap needs roll near +/-90 deg to put the bend plane horizontal, and
+        that rotation swings the midpoint *away* from the object before the
+        curl brings it back: measured along a scripted wrap, its distance runs
+        236 -> 250 mm over the six macro steps of roll while the arm is doing
+        exactly the right thing.  Shaping on it pays -0.5 for the manoeuvre the
+        task cannot be done without, which makes standing still the better
+        move, and two runs to iteration 300 came back with every episode
+        classified `no_reach`.
+
+        The nearest arm link falls monotonically over the same trajectory --
+        97 -> 78 mm through the roll, then 10 -> 0.9 mm as the coil closes -- so
+        it rewards the roll instead of punishing it.
+        """
+        if self.cfg.reward.approach_shaping_source == "anchor_link":
+            return state["surface_dist"]
+        return state["min_surface_dist"]
+
+    def _read_state(self, contact: Optional[Any] = None) -> dict[str, torch.Tensor]:
+        obj_pos = self.scene.object.get_pos()
+        obj_quat = self.scene.object.get_quat()
+        link_pos = self.scene.robot.get_links_pos()[:, self._arm_link_ids, :]
+        # Contact-based coverage needs the contact set for this macro step, so
+        # the aggregate is passed in rather than re-read: it is accumulated
+        # across the substep window, and a coverage computed from the settled
+        # instant alone would miss links that touched during the motion.
+        mask = None
+        rule = "span"
+        source = self.cfg.reward.coverage.source
+        if source != "proximity":
+            aggregate = contact if contact is not None else self.contacts.result()
+            mask = aggregate.object_link_hits
+            rule = "span" if source == "contact_span" else "strict"
+        cov = self.coverage.measure(
+            link_pos,
+            obj_pos,
+            obj_quat,
+            radius_m=self._object_radius,
+            height_m=self._object_height,
+            link_radius_m=self.cfg.reward.coverage.link_radius_m,
+            contact_mask=mask,
+            contact_rule=rule,
+        )
+        anchor = self.scene.robot.get_links_pos()[:, self._anchor_link, :]
+        radial = (anchor - obj_pos)
+        axis = quat_to_axis(obj_quat)
+        along = (radial * axis).sum(dim=-1, keepdim=True)
+        planar = radial - along * axis
+        anchor_surface = planar.norm(dim=-1) - self._object_radius
+
+        # Displacement is measured at the end the object stands on, not at its
+        # centre.  For a 1.1 m cylinder the centre sits 0.55 m up, so tipping it
+        # by an angle theta moves the centre by 0.55*sin(theta): the 60 mm
+        # displacement gate then fires at 6.3 deg of tilt, 5.5x stricter than
+        # the 34 deg tilt gate that was meant to catch tipping.  Any contact
+        # firm enough to wrap tips the object past that -- a scripted wrap that
+        # succeeds passes through 3 deg -- so `topple` fired on every episode
+        # that touched the object, and the policy learned not to touch it: at
+        # iteration 350 the eval reported 13817 of 13824 episodes as `no_reach`
+        # with zero collisions and zero topples.
+        #
+        # Measured at the base, the two failures stay separate: sliding moves
+        # the base, tipping does not.
+        base = obj_pos - axis * (self._object_height * 0.5).unsqueeze(-1)
+        displacement = (base - self._object_base0).norm(dim=-1)
+        tilt = torch.acos(
+            (axis * self._object_axis0).sum(dim=-1).abs().clamp(max=1.0)
+        )
+        joints = self.scene.robot.get_dofs_position(dofs_idx_local=self._arm_dofs)
+        joint_vel = self.scene.robot.get_dofs_velocity(dofs_idx_local=self._arm_dofs)
+        return {
+            "phi": cov.phi_rad,
+            "caged": cov.caged,
+            "gap_rad": cov.gap_rad,
+            "gap_width_m": cov.gap_width_m,
+            "gap_bearing": cov.gap_bearing_rad,
+            "enclosure_raw": cov.enclosure_rad,
+            "plane_alignment": cov.plane_alignment,
+            # What the reward sees.  Bearing enclosure on its own credits a
+            # coil curled beside the object in a vertical plane, since
+            # projecting to the horizontal throws away the difference; the
+            # alignment factor is what distinguishes them.
+            "enclosure": cov.enclosure_rad * cov.plane_alignment,
+            "coverage_near": cov.n_near_links.to(torch.float32),
+            "surface_dist": anchor_surface,
+            "min_surface_dist": cov.min_surface_dist,
+            "displacement": displacement,
+            "tilt": tilt,
+            "object_pos": obj_pos,
+            "object_quat": obj_quat,
+            "joints": joints,
+            "joint_vel": joint_vel,
+        }
+
+    def _evaluate_success(
+        self, state: dict[str, torch.Tensor], contact: Any
+    ) -> torch.Tensor:
+        if self.tug is not None:
+            self.tug.arm(
+                state["phi"],
+                self._lift_observation(),
+                gap_bearing_rad=state["gap_bearing"],
+                weight_n=self._object_mass * self._gravity_mag,
+            )
+            return self.tug.passed
+        if self.lift is None:
+            reached = self.geometric.evaluate(state["phi"])
+            if self.cfg.reward.coverage.require_caging:
+                reached = reached & state["caged"]
+            return reached
+        roll_now = state["joints"][:, 1] * float(self.cfg.arm.roll_axis_sign)
+        self._lift_armed = self.lift.arm(
+            state["phi"],
+            roll_now,
+            self._lift_observation(),
+            request=self._lift_request if self._lift_action else None,
+        )
+        return self.lift.passed
+
+    # -- observations ------------------------------------------------------
+
+    # -- reset -------------------------------------------------------------
+
+    def _zero_object_velocity(self, env_ids: Optional[torch.Tensor]) -> None:
+        """Clear the object's velocity on reset.
+
+        A cylinder respawned mid-flight keeps its momentum, which shows up as
+        phantom "disturbance" on the first macro step of the next episode.
+        """
+        n = self.num_envs if env_ids is None else int(env_ids.numel())
+        zeros = torch.zeros((n, 3), device=self.device, dtype=torch.float32)
+        for setter_name in ("set_vel", "set_ang"):
+            setter = getattr(self.scene.object, setter_name, None)
+            if not callable(setter):
+                continue
+            try:
+                if env_ids is None:
+                    setter(zeros)
+                else:
+                    setter(zeros, envs_idx=env_ids)
+            except Exception:
+                # Older Genesis builds expose different signatures here; a
+                # missing reset is a small physics artefact, not worth aborting.
+                pass
+
+    def _reset_idx(self, env_ids: Optional[torch.Tensor]) -> None:
+        n = self.num_envs if env_ids is None else int(env_ids.numel())
+        if n == 0:
+            return
+        dr = self.cfg.domain_randomisation
+        obj = self.cfg.object
+
+        def rnd(shape, lo, hi):
+            if hi <= lo:
+                return torch.full(shape, float(lo), device=self.device, dtype=torch.float32)
+            u = torch.rand(shape, device=self.device, generator=self._generator)
+            return lo + u * (hi - lo)
+
+        override = self._eval_override
+        if override is not None:
+            radius = torch.full((n,), float(override["radius_m"]), device=self.device)
+            mass = torch.full((n,), float(obj.mass_kg), device=self.device)
+            jitter = torch.zeros((n, 3), device=self.device)
+            jitter[:, 0] = float(override.get("dx_m", 0.0))
+            jitter[:, 1] = float(override.get("dy_m", 0.0))
+            yaw = torch.full((n,), float(override["yaw_rad"]), device=self.device)
+        elif dr.enable:
+            radius = rnd((n,), *dr.object_radius_m)
+            mass = rnd((n,), *dr.object_mass_kg)
+            jitter = torch.stack(
+                [
+                    rnd((n,), -j, j) if j > 0 else torch.zeros(n, device=self.device)
+                    for j in dr.object_pos_jitter_m
+                ],
+                dim=-1,
+            )
+            yaw = rnd((n,), -dr.object_yaw_jitter_rad, dr.object_yaw_jitter_rad)
+        else:
+            radius = torch.full((n,), float(obj.radius_m), device=self.device)
+            mass = torch.full((n,), float(obj.mass_kg), device=self.device)
+            jitter = torch.zeros((n, 3), device=self.device)
+            yaw = torch.zeros((n,), device=self.device)
+
+        centre = torch.tensor(
+            [float(v) for v in self.cfg.object_center()],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        pos = centre.unsqueeze(0) + jitter
+        half = torch.cos(yaw * 0.5)
+        quat = torch.stack(
+            (half, torch.zeros_like(half), torch.zeros_like(half), torch.sin(yaw * 0.5)),
+            dim=-1,
+        )
+        zeros3 = torch.zeros((n, 3), device=self.device)
+
+        # Genesis fixes each morph's geometry at build time, so the radius an
+        # env gets is decided by *which cylinder it is handed*, not by a number
+        # written at reset.  Believing a size the object does not have would
+        # corrupt every surface distance derived from it.
+        #
+        # Which one it is handed is drawn uniformly over the built sizes inside
+        # the configured range, rather than by sampling a radius and snapping it
+        # to the nearest.  Snapping weights a size by how wide its basin
+        # happens to be, and the basins are set by where the neighbouring sizes
+        # fall: measured over 256 envs on a seven-size scene, 35 mm drew 16 and
+        # 87 mm drew 58.  The hardest size got the fewest episodes, which is
+        # backwards.
+        built = torch.tensor(
+            self.scene.object.radii, device=self.device, dtype=torch.float32
+        )
+        choice = choose_object_entity(
+            built,
+            requested=radius,
+            radius_range=dr.object_radius_m,
+            randomise=(override is None and dr.enable),
+            generator=self._generator,
+        )
+        radius = built[choice]
+        if env_ids is None:
+            self.scene.object.assignment[:] = choice
+        else:
+            self.scene.object.assignment[env_ids] = choice
+        if env_ids is None:
+            self._object_radius[:] = radius
+            self._object_height[:] = float(obj.height_m)
+            self._object_mass[:] = mass
+            self._object_pos0[:] = pos
+            self._object_base0[:] = pos - quat_to_axis(quat) * (
+                float(obj.height_m) * 0.5
+            )
+            self.scene.object.set_pos(pos)
+            self.scene.object.set_quat(quat)
+            self._zero_object_velocity(None)
+            self._object_axis0[:] = quat_to_axis(quat)
+            self.scene.object.park_unassigned(None)
+            self.episode_length_buf[:] = 0
+            self._load_proxy[:] = 0.0
+            self._last_joint_cmd[:] = 0.0
+        else:
+            self._object_radius[env_ids] = radius
+            self._object_height[env_ids] = float(obj.height_m)
+            self._object_mass[env_ids] = mass
+            self._object_pos0[env_ids] = pos
+            self._object_base0[env_ids] = pos - quat_to_axis(quat) * (
+                float(obj.height_m) * 0.5
+            )
+            self.scene.object.set_pos(pos, envs_idx=env_ids)
+            self.scene.object.set_quat(quat, envs_idx=env_ids)
+            self._zero_object_velocity(env_ids)
+            self._object_axis0[env_ids] = quat_to_axis(quat)
+            self.scene.object.park_unassigned(env_ids)
+            self.episode_length_buf[env_ids] = 0
+            self._load_proxy[env_ids] = 0.0
+            self._last_joint_cmd[env_ids] = 0.0
+
+        # Reset to the configured Home pose, not to an implicit all-zeros that
+        # happens to mean "arm straight out" -- a configuration the real arm
+        # never starts from.
+        #
+        # Or, under the reverse curriculum, part-way towards a pose from which
+        # the wrap is a few steps away.  Success had never once been paid: over
+        # roughly 50,000 episodes to iteration 100 the bonus never fired and the
+        # wrap angle stayed at zero, so the objective contributed nothing to the
+        # gradient and the policy was shaped entirely by the dense proxies, each
+        # of which has a degenerate optimum two or three steps from Home.
+        # Starting near the goal puts the bonus inside reach of exploration; the
+        # range then walks back towards Home as the success rate allows.
+        self.mapper.reset(env_ids, home=self._home_waypoint)
+        if self.cfg.start_pose.enable:
+            self._apply_start_pose(env_ids, n)
+        if env_ids is None:
+            self._waypoint_from[:] = self.mapper.waypoint
+        else:
+            self._waypoint_from[env_ids] = self.mapper.waypoint[env_ids]
+        self.beta.reset(env_ids)
+        if self.script is not None:
+            self.script.reset(env_ids)
+
+        home = self.mapper.joint_targets()
+        if env_ids is None:
+            self.scene.robot.set_dofs_position(home, dofs_idx_local=self._arm_dofs)
+        else:
+            self.scene.robot.set_dofs_position(
+                home[env_ids], dofs_idx_local=self._arm_dofs, envs_idx=env_ids
+            )
+
+        self.observations.reset_delay(env_ids, n)
+
+        state = self._read_state()
+        self.rewards.reset(
+            env_ids,
+            phi0=state["phi"],
+            dist0=self._shaping_distance(state),
+            enclosure0=state["enclosure"],
+        )
+
+    def take_recent_success_rate(self, min_episodes: int = 1) -> tuple[float, int]:
+        return self.metrics.take_recent_success_rate(min_episodes)
+
+    def statistics(self) -> dict[str, float]:
+        return self.metrics.statistics()
+
+    def metadata(self) -> dict[str, Any]:
+        return self.metrics.metadata()

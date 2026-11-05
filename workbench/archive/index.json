@@ -309,6 +309,253 @@
           "reason": "Unified Visual Servoing UI replaces legacy forms; regression assertions migrated to the unified controls."
         }
       ]
+    },
+    {
+      "file": "rl-before-task-extraction-20261105.zip",
+      "sha256": "70e717ff07d7bf57644288f3ae4d1b114808056b15d9da3a93844a654721bf7e",
+      "bytes": 157858,
+      "entries": [
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/README.md",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/README.md",
+          "sha256": "2432b4f76d33f32bee3f8f003f0651f08353aa2cccb8515622606f26e5040dc4",
+          "bytes": 10008,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/__init__.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/__init__.py",
+          "sha256": "c8e859f97716ade1f1ff08be59ab7e1a69bcdc7600247ef70f2da196a6fc30b7",
+          "bytes": 1128,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/app_config.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/app_config.py",
+          "sha256": "d731f95571d0dab1035bd5ecd2e83020379700c2d6ff55c5ca24318cc393b4c8",
+          "bytes": 4882,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/arm_kinematics.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/arm_kinematics.py",
+          "sha256": "65e2afe7d6447e0fc1d7024287e6f8087cf4e0c389614769abcf801295f3af05",
+          "bytes": 13100,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/benchmark.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/benchmark.py",
+          "sha256": "1d51debfb861504d3e901e6c447ec4ef9b8857d40c2659c3261db008fd845440",
+          "bytes": 14185,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/beta_model.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/beta_model.py",
+          "sha256": "efb9f15abbccad51990f65ce6aa182b6b1c7913014a182b2af376d36c460109b",
+          "bytes": 7163,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/configs/__init__.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/configs/__init__.py",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/configs/default.yaml",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/configs/default.yaml",
+          "sha256": "168c2e7b3c22474eab4aade769cb69ce94946625b72eb3424d8783a92aca3feb",
+          "bytes": 54067,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/configs/loader.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/configs/loader.py",
+          "sha256": "6b06fafde982af5fcf5c63d3f67cdb459a73cd5bcec5d5895f72bf6a598147a4",
+          "bytes": 33511,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/deploy.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/deploy.py",
+          "sha256": "b0381a1f1d1d199adf23fc9c85d6447a81043b0f8558480c4178b9a651b0f93f",
+          "bytes": 13926,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/diagnose_nan.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/diagnose_nan.py",
+          "sha256": "1552149753381034ec2b7aefbf612993449f0005bbbf10c3471bcf59f5fe1527",
+          "bytes": 8829,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/envs/__init__.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/envs/__init__.py",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/envs/contacts.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/envs/contacts.py",
+          "sha256": "71bbfd2776285dd4b2af6b3571c4e97fef263714c22666a94c8e9b031ad93509",
+          "bytes": 17935,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/envs/coverage.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/envs/coverage.py",
+          "sha256": "91fec9e00899eed368a7dcf253aaf28f1837989cd97bce3a8988cfebc383cd79",
+          "bytes": 18340,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/envs/episode_metrics.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/envs/episode_metrics.py",
+          "sha256": "fa7be1297d47fba3f2caf8e346aeda6cd9ffa42e83dc0eda0b49b81dd5ea0ea5",
+          "bytes": 7151,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/envs/lift_test.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/envs/lift_test.py",
+          "sha256": "c30df415e830508426cc6e126bd5c032140fb143a7590ba8cc42255c5e6c9493",
+          "bytes": 20090,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/envs/observations.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/envs/observations.py",
+          "sha256": "9c1009bd2107929a8c8157b3fc486a4f06c443e0e66f3b812093a918f3bcdf54",
+          "bytes": 11491,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/envs/rewards.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/envs/rewards.py",
+          "sha256": "95eea580909f0348b014be6aca404b9716de744323e8e6878faf7f487b415dfe",
+          "bytes": 13129,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/envs/wrap_env.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/envs/wrap_env.py",
+          "sha256": "2841c7be9f05a175788dd5065109b5acb5e9a5188fd54b5f01b0ea38f5beda60",
+          "bytes": 49659,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/eval.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/eval.py",
+          "sha256": "c133eec34283ac6b17efe4180ab7d9d1f351843ab9bbc4fdc18fbe7ab54fdf8a",
+          "bytes": 24426,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/export.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/export.py",
+          "sha256": "eed340d236644772a3c3b3f1f4c5a36cb34a488289d4745ee9c22165d3da46a5",
+          "bytes": 15877,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/export_traj.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/export_traj.py",
+          "sha256": "314d8182ea7d4cc403c422f6fe04031c8cd0871eab16322886d52f20fbd23e68",
+          "bytes": 9231,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/headless_gl.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/headless_gl.py",
+          "sha256": "8c33e27630b37f719e275f2821a9d31901046bc48ef1f84613049cc6b34bcc91",
+          "bytes": 1247,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/progress.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/progress.py",
+          "sha256": "1d6b5929218a509fd7a9d90c6e799197f44bde65714fdc77d5292bcb1b39e916",
+          "bytes": 6955,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/render_scene.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/render_scene.py",
+          "sha256": "861e27de388519bfd715627178ed87bec5e0fa7dcc53dd7120d4d70f8bedb6f5",
+          "bytes": 8588,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/scene.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/scene.py",
+          "sha256": "0d743025fa70b52fae05b474545404e02fe15f7676cefdb88b336d56c9bf1e6a",
+          "bytes": 22825,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/supervise.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/supervise.py",
+          "sha256": "78a0a7d19f8a3525934898583a6f1824490a879c2fafdd985307c8818c1124d7",
+          "bytes": 7561,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/train.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/train.py",
+          "sha256": "aaaf0fb1a6b2360db740ff8fb06284393829b49d8ba537afbbe020815137a9cc",
+          "bytes": 12398,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/watch_eval.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/watch_eval.py",
+          "sha256": "aef6317949558afd17eabb0ee1c28ace30d8aead9692968ea0b67d10ed069d5d",
+          "bytes": 20533,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        },
+        {
+          "original_path": "payload/runtime/docker/sim/app/elesim_sim/rl/workspace_probe.py",
+          "member": "worktree/payload/runtime/docker/sim/app/elesim_sim/rl/workspace_probe.py",
+          "sha256": "f7106815e14bd380139f5faf336c7d3ed323a36844af2ceb824ba808abf9edef",
+          "bytes": 24301,
+          "origin": "working-tree",
+          "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
+        }
+      ]
     }
   ],
   "policy": "ZIP contents are local and ignored by Git. This inventory is tracked. Active code must not import from archives.",

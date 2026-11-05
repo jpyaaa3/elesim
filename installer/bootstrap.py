@@ -319,7 +319,7 @@ _BOOTSTRAP_SOURCE_ONLY_COMPONENTS = frozenset(
         "coturn",
     )
 )
-_BOOTSTRAP_SOURCE_ONLY_PATHS = (PurePosixPath("payload/runtime/docker/sim/app/elesim_sim/rl"),)
+_BOOTSTRAP_SOURCE_ONLY_PATHS: tuple[PurePosixPath, ...] = ()
 
 
 class BootstrapError(RuntimeError):

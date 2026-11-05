@@ -64,6 +64,12 @@ CHECKS: tuple[Check, ...] = (
         description="Genesis endpoint and virtual-robot behavior",
     ),
     Check(
+        "wrap-grasp",
+        ("workbench/tests/research/experiments/wrap_grasp",),
+        (PROTOCOL_SRC, "payload/runtime/docker/sim/app"),
+        description="External Wrap task regressions preserved from the Sim gate",
+    ),
+    Check(
         "ui",
         ("workbench/tests/apps/ui",),
         (PROTOCOL_SRC, "payload/runtime/docker/ui/app"),
