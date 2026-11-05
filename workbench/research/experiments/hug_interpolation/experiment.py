@@ -98,29 +98,68 @@ def train(args):
     return 0
 
 
-def collect(args):
-    import torch
-    record = json.loads((args.run/'run.json').read_text())
-    # Reuse the normal integrity check, without modifying the saved manifest.
+def export(args):
+    from .policy import export_policy
     exp = load_experiment(args.experiment)
+    record = json.loads((args.run/'run.json').read_text())
     if record['experiment'] != exp:
         raise ValueError('Run and experiment differ')
-    case = case_by_id(exp, record['case_id'])
+    if args.output.suffix.lower() != '.npz' or args.output.exists():
+        raise ValueError('Choose a new .npz output')
     checkpoint = args.checkpoint or args.run/'model_final.pt'
     if not checkpoint.is_file():
         raise FileNotFoundError(checkpoint)
-    env = create_env(exp, case, args.run, args)
+    env = create_env(exp, case_by_id(exp, record['case_id']), args.run, args)
     policy_runner = runner(env, None)
     policy_runner.load(str(checkpoint))
-    policy = policy_runner.get_inference_policy(device=env.device)
+    error = export_policy(policy_runner.alg.get_policy(), args.output,
+                          dict(env.metadata(), checkpoint_sha256=sha(checkpoint)))
+    print(f'Exported policy weights to {args.output}; NumPy/Torch max error {error:.3g}')
+    return 0
+
+
+def collect(args):
+    import torch
+    from .policy import NumpyPolicy
+    exp = load_experiment(args.experiment)
+    if args.output.suffix.lower() != '.npz' or args.output.exists():
+        raise ValueError('Choose a new .npz trajectory output')
+    if args.policy:
+        if args.checkpoint or args.run:
+            raise ValueError('Use --policy alone, or --run with optional --checkpoint')
+        policy = NumpyPolicy(args.policy)
+        if policy.metadata['simulation_context'] != exp['simulation_context']:
+            raise ValueError('Policy and experiment context differ')
+        case = case_by_id(exp, policy.metadata['case_id'])
+        origin = dict(policy_sha256=sha(args.policy))
+        env = create_env(exp, case, args.output.parent, args)
+    else:
+        if args.run is None:
+            raise ValueError('Provide --policy or --run')
+        record = json.loads((args.run/'run.json').read_text())
+        if record['experiment'] != exp:
+            raise ValueError('Run and experiment differ')
+        case = case_by_id(exp, record['case_id'])
+        checkpoint = args.checkpoint or args.run/'model_final.pt'
+        if not checkpoint.is_file():
+            raise FileNotFoundError(checkpoint)
+        env = create_env(exp, case, args.run, args)
+        policy_runner = runner(env, None)
+        policy_runner.load(str(checkpoint))
+        policy = policy_runner.get_inference_policy(device=env.device)
+        origin = dict(checkpoint_sha256=sha(checkpoint))
     obs, _ = env.reset()
     env.record = [env.start.detach().cpu().numpy().copy()]
     with torch.inference_mode():
         for _ in range(env.max_episode_length):
-            obs, _, _, _ = env.step(policy(obs))
+            if args.policy:
+                actions = torch.as_tensor(policy(obs['policy'].cpu().numpy()), device=env.device)
+            else:
+                actions = policy(obs)
+            obs, _, _, _ = env.step(actions)
     result = env.measure()
     trajectory = Trajectory(np.arange(len(env.record))*exp['settings']['dt'], np.asarray(env.record),
-                            CHANNELS, dict(env.metadata(), checkpoint_sha256=sha(checkpoint)),
+                            CHANNELS, dict(env.metadata(), **origin),
                             dict(collection=result, replay_success=None, physics_validated=False))
     trajectory.save(args.output)
     print(json.dumps(result, indent=2))
@@ -147,7 +186,7 @@ def replay_one(args):
 def make_candidates(args):
     exp = load_experiment(args.experiment)
     by_id = {}
-    for path in args.anchors.glob('*.json'):
+    for path in args.anchors.glob('*.npz'):
         trace = Trajectory.load(path)
         cid = trace.metadata['case_id']
         if cid in by_id:
@@ -172,7 +211,7 @@ def make_candidates(args):
         prepared.append(interpolate(anchors, target, samples=round(duration/exp['settings']['dt'])+1))
     args.output.mkdir(parents=True, exist_ok=False)
     for trace in prepared:
-        trace.save(args.output/(trace.metadata['case_id']+'.json'))
+        trace.save(args.output/(trace.metadata['case_id']+'.npz'))
     print(f'Wrote {len(prepared)} {args.split} candidates; no extra RL performed.')
     return 0
 
@@ -180,7 +219,7 @@ def make_candidates(args):
 def validate(args):
     from .environment import ReplayAdapter
     exp = load_experiment(args.experiment)
-    paths = sorted(args.trajectories.glob('*.json'))
+    paths = sorted(args.trajectories.glob('*.npz'))
     if not paths:
         raise ValueError('No trajectories')
     results = []; env = None
@@ -255,7 +294,7 @@ def main(argv=None):
     commands = p.add_subparsers(dest='command', required=True)
     c = commands.add_parser('configure'); c.add_argument('--pilot', type=Path, required=True)
     c.add_argument('--settings', type=Path); c.add_argument('--output', type=Path, required=True)
-    for name in ('check', 'train', 'collect', 'replay', 'interpolate', 'validate'):
+    for name in ('check', 'train', 'export', 'collect', 'replay', 'interpolate', 'validate'):
         c = commands.add_parser(name); c.add_argument('--experiment', type=Path, required=True)
         c.add_argument('--backend', choices=('gpu', 'cpu'), default='gpu')
         if name in ('check', 'collect', 'replay', 'validate'):
@@ -266,8 +305,10 @@ def main(argv=None):
             c.add_argument('--case'); c.add_argument('--all', action='store_true')
             c.add_argument('--runs', type=Path, required=True); c.add_argument('--num-envs', type=int, default=256)
             c.add_argument('--iterations', type=int, default=2000); c.add_argument('--resume', action='store_true')
-        elif name == 'collect':
-            c.add_argument('--run', type=Path, required=True); c.add_argument('--checkpoint', type=Path)
+        elif name in ('export', 'collect'):
+            if name == 'collect':
+                c.add_argument('--policy', type=Path)
+            c.add_argument('--run', type=Path, required=name == 'export'); c.add_argument('--checkpoint', type=Path)
             c.add_argument('--output', type=Path, required=True)
         elif name == 'replay':
             c.add_argument('--trajectory', type=Path, required=True); c.add_argument('--output', type=Path, required=True)
@@ -282,7 +323,7 @@ def main(argv=None):
     if args.command == 'configure':
         overrides = json.loads(args.settings.read_text()) if args.settings else None
         write_json(args.output, configure(args.pilot, overrides)); return 0
-    return {'check': check, 'train': train, 'collect': collect, 'replay': replay_one,
+    return {'check': check, 'train': train, 'export': export, 'collect': collect, 'replay': replay_one,
             'interpolate': make_candidates, 'validate': validate}[args.command](args)
 
 

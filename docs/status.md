@@ -5927,3 +5927,23 @@ source digest and train/validation/test splits (6/22/2); no full map download is
 required for that example. The 82 MB source map, generated experiment files,
 checkpoints and training outputs remain untracked. The bundled-input regression
 brings the focused host suite to 57 passing tests. GPU execution remains unrun.
+
+
+### Hug NPZ policy and trajectory artifacts (2026-11-05)
+
+Switched trajectory writes and directory-based interpolation/validation to
+compressed NPZ v2. Numeric arrays retain float32 commands; metadata/diagnostics
+are Unicode JSON strings, loaded with pickle disabled. Legacy JSON trajectory
+reads remain available for explicit conversion. Reports/configuration remain JSON.
+Added separate Hug policy NPZ export and `collect --policy`: the policy stores
+ELU MLP weights, normalization, observation names and case/context metadata.
+Export performs a NumPy/Torch parity check before publication. The seven-input,
+two-output Hug contract is not the old Wrap hardware policy contract.
+Example commands now export policy NPZ before collecting/replaying trajectory
+NPZ. Host tests cover roundtrip/dtype/no-pickle, legacy conversion, distinct
+artifact schemas, normalization/ELU inference and split routing. Actual Torch
+export parity and Genesis policy execution remain unrun on this host.
+
+NPZ-focused plus existing configuration/progress host regression suite: 64 passed.
+The unexecuted example configuration was regenerated under `home-ready-npz/`;
+the earlier generated inputs were preserved.

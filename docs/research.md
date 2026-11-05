@@ -434,12 +434,12 @@ The first offline interpolation tool runs with NumPy and the Sim package:
 
 ```bash
 python -m workbench.research.experiments.hug_interpolation \
-  --anchors anchor-a.json anchor-b.json anchor-c.json \
-  --target target.json --output candidate.json
+  --anchors anchor-a.npz anchor-b.npz anchor-c.npz \
+  --target target.json --output candidate.npz
 ```
 
-Anchors use `elesim-command-trajectory` schema v1 with `times_s`, `commands`,
-`channels`, `metadata` and `diagnostics`. Channels are `linear_m`, `roll_rad`,
+Anchors use `elesim-command-trajectory` NPZ schema v2 with numeric `times_s` and `commands`,
+Unicode `channels`, and JSON-string `metadata_json` / `diagnostics_json` arrays. Channels are `linear_m`, `roll_rad`,
 `theta1_rad`, `theta2_rad`; bend angles are **per node**, not total degrees.
 Five nodes per segment are assumed by this experiment. Metadata must supply
 `case_id`, `xy_mm`, `band`, `roll_deg`, `diameter_mm`, a local connected `branch`,

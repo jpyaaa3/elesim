@@ -26,7 +26,7 @@ def test_terminal_snapshot_survives_in_place_reset():
 
 
 def test_trajectory_roundtrip_refuses_overwrite(tmp_path):
-    path = tmp_path/'trace.json'
+    path = tmp_path/'trace.npz'
     trace = Trajectory([0, .2], [[0], [2]], ('joint_rad',), {'frame': 'joint'})
     trace.save(path)
     np.testing.assert_allclose(Trajectory.load(path).sample([0, .1, .2]), [[0], [1], [2]])
@@ -98,7 +98,7 @@ def test_runner_accepts_external_environment_without_discovery(monkeypatch, tmp_
 
 def test_unserializable_metadata_leaves_no_artifact(tmp_path):
     trace = Trajectory([0, 1], [[0], [1]], ('q',), {'bad': float('nan')})
-    path = tmp_path/'bad.json'
+    path = tmp_path/'bad.npz'
     with pytest.raises(ValueError):
         trace.save(path)
     assert not path.exists()
@@ -114,3 +114,29 @@ def test_evaluation_runner_does_not_create_a_literal_none_log_directory(monkeypa
     monkeypatch.setitem(sys.modules, 'rsl_rl.runners', SimpleNamespace(OnPolicyRunner=construct))
     make_runner(SimpleNamespace(device='cpu'), {}, None)
     assert calls[0]['log_dir'] is None
+
+
+def test_npz_arrays_preserve_float32_without_pickle(tmp_path):
+    trace = Trajectory([0, 1], np.array([[0, 1], [2, 3]], dtype=np.float32), ('a', 'b'),
+                       {'case': 'example'}, {'replay_success': True})
+    path = tmp_path/'trajectory.npz'
+    trace.save(path)
+    with np.load(path, allow_pickle=False) as data:
+        assert data['commands'].dtype == np.float32
+        assert data['schema_version'].item() == 2
+        assert all(data[key].dtype.kind != 'O' for key in data.files)
+    loaded = Trajectory.load(path)
+    assert loaded.metadata == trace.metadata
+    assert loaded.diagnostics == trace.diagnostics
+    assert loaded.commands.dtype == np.float32
+
+
+def test_legacy_json_can_be_migrated_but_new_json_writes_are_rejected(tmp_path):
+    import json
+    path = tmp_path/'legacy.json'
+    path.write_text(json.dumps(dict(schema='elesim-command-trajectory', schema_version=1,
+                                   times_s=[0, 1], commands=[[0], [1]], channels=['q'])))
+    trace = Trajectory.load(path)
+    trace.save(tmp_path/'converted.npz')
+    with pytest.raises(ValueError, match='npz'):
+        trace.save(tmp_path/'new.json')

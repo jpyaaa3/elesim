@@ -91,8 +91,8 @@ python -m pip install -e payload/runtime/common/protocol -e 'payload/runtime/doc
 이 작업에서 미리 생성한 입력은 다음 경로에도 있다.
 
 ```text
-workbench/evidence/generated/hug_interpolation/home-ready/pilot.json
-workbench/evidence/generated/hug_interpolation/home-ready/experiment.json
+workbench/evidence/generated/hug_interpolation/home-ready-npz/pilot.json
+workbench/evidence/generated/hug_interpolation/home-ready-npz/experiment.json
 ```
 
 같은 코드·모델을 가져간 경우 그대로 사용할 수 있다. 아래 명령은 결과를 섞지 않도록
@@ -206,9 +206,10 @@ hug train --experiment "$OUT/experiment.json" \
 기존 디렉터리에 `--resume` 없이 학습하면 거부한다. OOM이면 새 run 경로에서 128/64 등으로
 줄인다. 이 첫 실험에서는 병렬 수를 바꾼 resume를 자동 허용하지 않는다.
 
-## 5. 원본 경로 수집 → 같은 위치에서 재생
+## 5. Policy NPZ 내보내기 → 경로 수집 → 같은 위치에서 재생
 
-다음은 각 정책을 결정론적으로 한 번 실행하여 **물리 tick마다 실제 보낸 PD 목표**를 기록한다.
+먼저 `export`로 신경망 가중치를 `policy.npz`로 내보내고 NumPy/Torch 출력 오차를
+검사한다. 이어 `collect --policy`가 그 NPZ 정책을 결정론적으로 한 번 실행하여 **물리 tick마다 실제 보낸 PD 목표**를 기록한다.
 policy action만 저장하거나 종료 후 reset된 관절값을 마지막 경로로 기록하지 않는다.
 그다음 같은 케이스에서 정책 없이 경로만 재생한다. 원본 재생을 통과한 파일만 보간에 넣는다.
 
@@ -218,19 +219,22 @@ policy action만 저장하거나 종료 후 reset된 관절값을 마지막 경�
   for run in "$OUT"/runs/*; do
     [ -d "$run" ] || continue
     cid=$(basename "$run")
-    hug collect --experiment "$OUT/experiment.json" --run "$run" \
-      --output "$OUT/collected/$cid.json"
+    hug export --experiment "$OUT/experiment.json" --run "$run" \
+      --output "$OUT/policies/$cid.npz"
+    hug collect --experiment "$OUT/experiment.json" --policy "$OUT/policies/$cid.npz" \
+      --output "$OUT/collected/$cid.npz"
     hug replay --experiment "$OUT/experiment.json" \
-      --trajectory "$OUT/collected/$cid.json" \
+      --trajectory "$OUT/collected/$cid.npz" \
       --output "$OUT/original-replay/$cid.json" \
-      --verified-output "$OUT/anchors/$cid.json"
+      --verified-output "$OUT/anchors/$cid.npz"
   done
 )
 ```
 
 수집 또는 재생 성공 판정이 실패하면 파일은 남고 종료 코드 1을 반환한다. 위 subshell은
 그 케이스에서 멈춘다. 실패한 원본을 억지로 `replay_success=true`로 바꾸지 않는다.
-`collect --checkpoint "$run/model_1000.pt"`처럼 다른 checkpoint를 명시할 수 있다.
+`export --checkpoint "$run/model_1000.pt"`로 다른 checkpoint를 내보낼 수 있다.
+PT 직접 실행은 `collect --run "$run" --checkpoint "$run/model_1000.pt"`도 지원한다.
 재시도는 새로운 출력 이름/디렉터리를 사용한다. 최종 anchors 폴더에는 각 기준점당
 **성공한 원본 재생 경로 하나씩, 총 6개만** 둔다. 중복 case ID는 거부한다.
 
@@ -331,3 +335,37 @@ Host-only 회귀 56개 통과: URDF→맵 축/각도, 실험용 URDF의 한계·
 설정/진행 판정 회귀. Python compilation과 `git diff --check`도 통과했다.
 호스트 의존성 점검은 Torch/Genesis/tensordict/rsl_rl 누락을 보고하고 코드 2로 끝났다.
 GPU smoke, 실제 PPO 학습, 수집, 원본/보간 경로 물리 재생은 실행하지 않았다.
+
+
+## NPZ 정책과 NPZ 경로의 구분
+
+현재 출력은 다음과 같다.
+
+| 파일 | 내용 | 소비 명령 |
+| --- | --- | --- |
+| `model_*.pt` | 학습 가중치·optimizer·iteration | `train --resume`, `export`, `collect --run` |
+| `policies/<case>.npz` | 정책 MLP 가중치·관측 정규화·관측 규약·context | `collect --policy` 또는 `NumpyPolicy` |
+| `collected/<case>.npz`, `anchors/<case>.npz`, 보간 경로 `.npz` | 시간 배열과 4채널 관절 명령 | `replay`, `interpolate`, `validate` |
+| `*-report.json` | 평가 결과 | 사람이 읽거나 분석 |
+
+예전 Wrap의 `policy.npz` 역시 **신경망 가중치**였고 경로 배열이 아니었다.
+새 Hug 정책의 관측 7개/행동 2개는 예전 Wrap의 관측·행동 규약과 다르므로 기존
+하드웨어 policy 재생기에 파일만 바꿔 넣는 호환성을 주장하지 않는다.
+새 `collect --policy`가 이 규약을 적용하는 Genesis 실행 경로다.
+
+정책 NPZ는 `norm_mean`, `norm_std`, `norm_eps`, `n_layers`, `w0/b0` 등의 배열을
+포함한다. 내보내기 때 128개 입력에 대해 NumPy와 Torch의 최대 절대 오차가
+`1e-4` 이내인지 확인한다. host에서는 Torch가 없어 이 실제 내보내기 검증을 실행하지 않았다.
+경로 NPZ는 schema v2의 `times_s`, `commands`, `channels`와 Unicode JSON 문자열인
+`metadata_json` / `diagnostics_json`을 포함한다. 둘 다 pickle 없이 읽는다.
+경로와 정책을 서로의 loader에 넣으면 거부한다.
+
+이전 경로 JSON을 파일 형식만 변환하려면 다음을 사용한다. 기존 metadata는 보존되며,
+실험의 코드/model/context 검사까지 자동 우회하거나 갱신하지 않는다.
+
+```python
+from elesim_sim.rl.trajectory import Trajectory
+Trajectory.load("old-trajectory.json").save("trajectory.npz")
+```
+
+현재 `anchors` 및 검증 입력 디렉터리는 `.npz` 경로 파일을 사용한다.

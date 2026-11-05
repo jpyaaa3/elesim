@@ -931,3 +931,10 @@ approach and kick/hold evaluation. Physics assumptions and dataset/source/model
 digests are recorded by `configure`. No training or physics run occurs merely
 by importing the package or generating an experiment. Full run instructions
 and the unexecuted GPU gate are in [hug-rl-experiment.md](hug-rl-experiment.md).
+
+Timed command artifacts now write compressed NPZ schema v2, with numeric arrays
+and Unicode JSON metadata; legacy JSON trajectories remain read-only inputs.
+Hug policy export is a separate NPZ schema containing ELU MLP weights and actor
+normalization. `collect --policy` executes that policy under the Hug MDP, while
+`replay` consumes timed commands. Both loaders disable pickle and reject the
+other artifact kind. This does not change the existing Pilot policy contract.

@@ -125,11 +125,11 @@ def test_offline_cli_split_routing_with_explicit_test_fixtures(tmp_path):
             continue
         metadata = dict(case, simulation_context=exp['simulation_context'], duration_s=4., motion_end_s=3.)
         Trajectory([0, 3, 4], [case['start_command'], case['goal_command'], case['goal_command']],
-                   CHANNELS, metadata, {'replay_success': True}).save(anchors/(case['case_id']+'.json'))
+                   CHANNELS, metadata, {'replay_success': True}).save(anchors/(case['case_id']+'.npz'))
     output = tmp_path/'candidates'
     assert main(['interpolate', '--experiment', str(path), '--anchors', str(anchors),
                  '--split', 'validation', '--output', str(output)]) == 0
-    results = [Trajectory.load(p) for p in output.glob('*.json')]
+    results = [Trajectory.load(p) for p in output.glob('*.npz')]
     assert len(results) == 2
     assert all(t.metadata['split'] == 'validation' for t in results)
     assert all(t.diagnostics['physics_validated'] is False for t in results)

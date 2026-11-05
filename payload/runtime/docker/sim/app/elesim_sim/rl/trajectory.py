@@ -20,7 +20,11 @@ class Trajectory:
 
     def validate(self):
         self.times = np.asarray(self.times, dtype=float)
-        self.commands = np.asarray(self.commands, dtype=float)
+        self.commands = np.asarray(self.commands)
+        if self.commands.dtype.kind not in 'fiu':
+            raise ValueError('Commands must be real numeric arrays')
+        if self.commands.dtype.kind != 'f':
+            self.commands = self.commands.astype(float)
         self.channels = tuple(self.channels)
         if (self.times.ndim != 1 or len(self.times) < 2
                 or self.commands.shape != (len(self.times), len(self.channels))):
@@ -49,23 +53,35 @@ class Trajectory:
 
     def save(self, path):
         self.validate()
-        # Serialize before creating an artifact so bad metadata leaves no file.
-        body = json.dumps({
-            'schema': 'elesim-command-trajectory', 'schema_version': 1,
-            'times_s': self.times.tolist(), 'commands': self.commands.tolist(),
-            'channels': list(self.channels), 'metadata': self.metadata,
-            'diagnostics': self.diagnostics,
-        }, allow_nan=False, indent=2)
         path = Path(path)
+        if path.suffix.lower() != '.npz':
+            raise ValueError('Trajectory output must end in .npz')
+        metadata = json.dumps(self.metadata, allow_nan=False)
+        diagnostics = json.dumps(self.diagnostics, allow_nan=False)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open('x', encoding='utf-8') as stream:
-            stream.write(body + '\n')
+        with path.open('xb') as stream:
+            np.savez_compressed(
+                stream, schema=np.asarray('elesim-command-trajectory'),
+                schema_version=np.asarray(2), times_s=self.times, commands=self.commands,
+                channels=np.asarray(self.channels, dtype=str),
+                metadata_json=np.asarray(metadata), diagnostics_json=np.asarray(diagnostics),
+            )
 
     @classmethod
     def load(cls, path):
-        data = json.loads(Path(path).read_text(encoding='utf-8'))
-        if (not isinstance(data, dict) or data.get('schema') != 'elesim-command-trajectory'
-                or data.get('schema_version') != 1):
-            raise ValueError('Unsupported trajectory')
-        return cls(data['times_s'], data['commands'], tuple(data['channels']),
-                   data.get('metadata', {}), data.get('diagnostics', {})).validate()
+        path = Path(path)
+        if path.suffix.lower() == '.json':
+            # Read-only migration path for previously collected trajectories.
+            data = json.loads(path.read_text(encoding='utf-8'))
+            if data.get('schema') != 'elesim-command-trajectory' or data.get('schema_version') != 1:
+                raise ValueError('Unsupported legacy trajectory')
+            return cls(data['times_s'], data['commands'], tuple(data['channels']),
+                       data.get('metadata', {}), data.get('diagnostics', {})).validate()
+        with np.load(path, allow_pickle=False) as data:
+            if (str(data['schema'].item()) != 'elesim-command-trajectory'
+                    or int(data['schema_version'].item()) != 2):
+                raise ValueError('Unsupported trajectory NPZ')
+            return cls(data['times_s'].copy(), data['commands'].copy(),
+                       tuple(data['channels'].tolist()),
+                       json.loads(str(data['metadata_json'].item())),
+                       json.loads(str(data['diagnostics_json'].item()))).validate()

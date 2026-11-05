@@ -16,7 +16,7 @@ No trained checkpoint or success-rate claim is included.
   and two held-out test cases. Source SHA-256 and map coordinates are retained.
 - `environment.py`: the external two-action task, reward, reset and contact/hold
   criterion. Band 1 uses roll −90°; band 2 uses roll +90°.
-- `experiment.py`: configure, check, train, collect, replay, interpolate, validate.
+- `experiment.py`: configure, check, train, export, collect, replay, interpolate, validate.
 - `interpolate.py`: local barycentric interpolation of trajectory residuals.
 - `configure.py`: URDF/map conversion, task-local robot assets and provenance.
 
@@ -73,7 +73,17 @@ These are starting budgets, not a convergence guarantee. Each case gets its own
 run directory and checkpoints. The runbook explains memory sizing, resume and
 choosing an earlier checkpoint if the final one does not succeed.
 
-## Collect and replay the original motions
+## Export a policy, then collect and replay the original motions
+
+`export` writes `policy.npz`: ELU MLP weights and observation normalization, plus
+case/context metadata. It checks NumPy predictions against Torch before saving.
+`collect --policy` executes those NPZ weights and records `trajectory.npz`.
+The alternative `collect --run` path can still execute a `.pt` checkpoint.
+
+These are distinct artifacts: policy NPZ maps seven observations to two actions;
+trajectory NPZ contains `times_s` and `(N, 4)` `commands`. They are not
+interchangeable. Training resumes from `.pt`; evaluation reports remain JSON.
+
 
 ```bash
 (
@@ -81,12 +91,14 @@ choosing an earlier checkpoint if the final one does not succeed.
   for run in "$OUT"/runs/*; do
     [ -d "$run" ] || continue
     cid=$(basename "$run")
-    hug collect --experiment "$OUT/experiment.json" --run "$run" \
-      --output "$OUT/collected/$cid.json"
+    hug export --experiment "$OUT/experiment.json" --run "$run" \
+      --output "$OUT/policies/$cid.npz"
+    hug collect --experiment "$OUT/experiment.json" --policy "$OUT/policies/$cid.npz" \
+      --output "$OUT/collected/$cid.npz"
     hug replay --experiment "$OUT/experiment.json" \
-      --trajectory "$OUT/collected/$cid.json" \
+      --trajectory "$OUT/collected/$cid.npz" \
       --output "$OUT/original-replay/$cid.json" \
-      --verified-output "$OUT/anchors/$cid.json"
+      --verified-output "$OUT/anchors/$cid.npz"
   done
 )
 ```
@@ -131,3 +143,30 @@ and criterion rather than add a cylinder/ellipse/box switch to the payload.
 To select new cases from a full v3 map, use `python3 -m
 workbench.research.experiments.hug_interpolation.prepare --help`. The full map is
 not needed to run the bundled example.
+
+
+## NPZ formats
+
+Both formats load with `allow_pickle=False`. Trajectory files use compressed
+`elesim-command-trajectory` schema v2: `times_s`, `commands`, `channels`,
+`metadata_json`, `diagnostics_json`, plus the schema/version scalars. Metadata is
+a Unicode JSON string, not a pickled Python object. Command float32 arrays retain
+their dtype. Legacy trajectory JSON is read-only supported for conversion.
+
+Policy files use `elesim-hug-policy` schema v1 and contain `norm_mean`, `norm_std`,
+`norm_eps`, `n_layers`, `w0`, `b0`, …, `observation_names` and `metadata_json`.
+The model is a deterministic ELU MLP. To evaluate it with NumPy alone:
+
+```python
+from workbench.research.experiments.hug_interpolation.policy import NumpyPolicy
+policy = NumpyPolicy("policy.npz")
+action = policy(observations)  # observations: (batch, 7), action: (batch, 2)
+```
+
+Observation order: actual segment angles (2), commanded segment angles (2), goal
+segment angles (2), episode fraction (1). Angles are radians per node. The Hug
+MDP clips actions to [-1, 1], applies `action_delta_rad`, joint bounds, fixed
+roll/linear and the hold phase. `NumpyPolicy` itself only computes the network.
+This seven-observation/two-action contract differs from the old 100 mm Wrap
+policy; the old robot controller is not automatically compatible. NumPy policy
+inference needs no Torch, but Genesis-based collection/replay still does.
