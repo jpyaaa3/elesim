@@ -68,6 +68,7 @@ python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/serv
 | 모듈 | 유지 이유 |
 | --- | --- |
 | `experiments.wrap_grasp.train`, `.eval`, `.export`, `.export_traj` | 외부 원기둥 Wrap 학습·평가·정책/경로 출력; 공통 실행 API는 Sim 소유 |
+| `experiments.hug_c.prepare`, `.experiment`, `.study`, `.collection` | mapper 함수의 C형 q3/q4 삼각형; Home에서 네 축 자유 제어·들어올리기 5초 유지·경로 보간. 직경별 독립 수집과 `(x,y,D)` 선택. [실행 설명](research/experiments/hug_c/README.md) |
 | `experiments.hug_interpolation.experiment` | 두-band configure/check/train/collect/replay/interpolate/validate; [실행 설명](../docs/hug-rl-experiment.md) |
 | `experiments.hug_interpolation.prepare`, `experiments.hug_interpolation` | v3 두-band 국소 기준점 분할과 경로 보간 후보 생성; 물리 검증과 별개 |
 | `analysis.analyze_contact_metrics` | 발 접촉·미끄럼·힘 오차 CSV 분석 |
@@ -75,11 +76,17 @@ python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/serv
 | `analysis.walking_swing` | 발 궤적·스윙 추종 분석 |
 | `analysis.arm_scan_plot` | 현재 multiview 원자료의 RGB/팔 자세/통합 점군 그림 |
 | `analysis.visual_tilt_plot` | 현재 시각 보정 평가 그림 |
+| `analysis.hug_diagnostics` | 현재 그리퍼 근사와 두 구간 길이를 고정하고 기존 Hug 판정·접촉·각도 여유를 오프라인 진단 |
+| `analysis.hug_diagnostic_report` | Hug 진단 JSON을 외부 의존성 없는 HTML/SVG 비교 화면으로 변환 |
+| `analysis.newhug_wrap_comparison` | 명시한 standalone newhug를 현재 Wrap 원기둥·고정 base·리니어·카메라 조건에서 정적으로 비교 |
+| `support.newhug` | 독립 최소 마찰계수 계산기 UI·CLI, 전체 바늘 맵 기록과 원형 consensus band 회전 정렬 |
+| `support.hugmap` | 독립 고정 몸체·원형 물체 배치 격자 솔버, CPU 병렬 탐색과 JSON 저장 |
 | `debug.profile_fixed_foot` | 몸통 고정 상태에서 발 추종 원인 분리, 접촉 회귀용 trace 획득 |
 | `debug.sim_camera_preview` | 실제 DDS RGB-D 수신·깊이 미리보기 |
 | `debug.probe_scene_rebuild` | 실행 중 OBJ 교체·controller/state 보존·카메라 복구·rollback 실측 |
 | `analysis.render_scan_cycle_demo` | 실제 UI WebRTC 녹화와 측정된 단계 기록으로 1배속 MP4 구성 |
 | `support.ui_window_run` | 격리 scan-cycle의 실제 production UI 창과 OS 입력을 1080p X11 영상으로 기록 |
+| `support.hug_study_run` | 알려진 서버 설치의 기존 Pilot 이미지를 CPU 전용 일회성 진단으로 실행하고 원래 컨테이너 보존 검사 |
 | `analysis.compare_voxel_mesh` | 동일한 저장 점군과 고정된 생성점 필터로 20/10/5 mm 메쉬·CPU 시간·형상·회전 viewer 비교 |
 | `analysis.compare_surface_mesh` | 같은 점군의 voxel/Poisson·거리장 표면 비교, mesh topology·양방향 sampling·진단; Open3D 필요 |
 | `debug.scan_cycle_native` | 격리 scan Pilot의 private PID namespace에서 네이티브 크래시 수집 |
@@ -96,12 +103,12 @@ python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/serv
 
 | 경로 | 파일 |
 | --- | --- |
-| `research/analysis/` | `analyze_contact_metrics.py`, `analyze_walking_metrics.py`, `arm_scan_compare.py`, `arm_scan_plot.py`, `compare_surface_mesh.py`, `compare_voxel_mesh.py`, `evaluate_scan_cycle.py`, `profile_scan_models.py`, `render_scan_cycle_demo.py`, `visual_tilt_plot.py`, `walking_motion.py`, `walking_swing.py` |
+| `research/analysis/` | `analyze_contact_metrics.py`, `analyze_walking_metrics.py`, `arm_scan_compare.py`, `arm_scan_plot.py`, `compare_surface_mesh.py`, `compare_voxel_mesh.py`, `evaluate_scan_cycle.py`, `hug_diagnostics.py`, `hug_diagnostic_report.py`, `newhug_wrap_comparison.py`, `profile_scan_models.py`, `render_scan_cycle_demo.py`, `visual_tilt_plot.py`, `walking_motion.py`, `walking_swing.py` |
 | `research/debug/` | `profile_fixed_foot.py`, `profile_sim_walking.py`, `probe_scene_rebuild.py`, `pilot_native_repro.py`, `scan_cycle_native.py`, `sim_camera_preview.py`, `trace_viewer.py` |
 | `research/experiments/` · 보행 | `batch_readiness.py`, `config_overlay.py`, `run_walking_baseline_batch.py`, `walking_baseline.py`, `walking_scenarios.py`, `walking_suite.py`, `walking_suites.json` |
 | `research/experiments/` · 시각 | `vision_arm_scene.py`, `vision_reconstruct.py`, `vision_tilt_evaluate.py`, `arm_scan.py`, `arm_scan_scene.py`, `arm_scan_evaluate.py` |
 | `research/experiments/` · 완성 | `adapointr.py`, `adapointr_inputs.py`, `adapointr_infer.py`, `adapointr_evaluate.py`, `adapointr_gpu_smoke.py` |
-| `research/support/` | `adapointr_backend.py`, `adapointr_ops.py`, `adapointr_profiles.py`, `output.py`, `pilot_runtime.py`, `scan_cycle_install.py`, `scan_cycle_run.py`, `ssh_mss_proxy.py`, `thread_stacks.py`, `ui_window_run.py`, `worker.py` |
+| `research/support/` | `adapointr_backend.py`, `adapointr_ops.py`, `adapointr_profiles.py`, `hug_study_run.py`, `hugmap.py`, `newhug.py`, `output.py`, `pilot_runtime.py`, `scan_cycle_install.py`, `scan_cycle_run.py`, `ssh_mss_proxy.py`, `thread_stacks.py`, `ui_window_run.py`, `worker.py` |
 
 정상 설치의 Pilot/Sim/UI 이미지 세 개로 실행하는 scan 운영 경로 검사는
 [`tests/system/scan_cycle.md`](tests/system/scan_cycle.md)를 따른다. 역할별 probe와

@@ -1,10 +1,172 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-11-03. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-11-06. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### Connections 버튼 갱신과 WSLg UI GPU 시작 수정 (2026-11-06)
+
+- 주기 조회의 `checking` placeholder가 매번 `runtimeReady=false`로 바꿔 시작 버튼과
+  GPU 옵션을 잠그던 것을 수정했다. 이미 검증한 같은 topology에서는 조회 중 상태를
+  유지하고, 실제 host/정책 실패·topology 변경·작업 전환에서는 다시 잠근다. 최초 조회는
+  여전히 검증 완료 전까지 잠근다. 같은 GPU 목록의 DOM을 재생성하지 않으며 실패한
+  start의 GPU/Viewer 선택은 복원 후 편집해 재시도할 수 있다.
+- 실제 manager의 최종 오류는 operator UI의 `NVIDIA UI rendering requested, found
+  Mesa: llvmpipe`였다. 일반 Linux용 NVIDIA GLX 설정만 생성하고 WSLg의 `/dev/dxg`와
+  WSL 라이브러리를 노출하지 않던 문제다. WSLg에서는 Mesa D3D12와 선택 index/UUID에
+  대응하는 adapter 이름을 생성한다. Tools에는 외부 host의 WSLg·GPU 목록만 넘기고
+  자신의 GPU 권한을 요구하지 않는다. 선택 GPU의 이름이 모호하면 등록을 거부한다.
+- 수정된 생성기가 만든 Compose 설정과 수정된 graphics 소스를 기존 고정 UI 이미지에
+  일회성으로 적용해 실제 `D3D12 (NVIDIA GeForce RTX 3050 Laptop GPU)` 렌더링을
+  확인했다. llvmpipe 강제 대조군은 의도대로 거부했다. DDS/물리 동작은 시작하지 않았다.
+- 최종 host setup 전체 **1,386 passed**, 별도 UI graphics **7 passed**. Setup이 실행하는
+  Node 동작 검사는 **12 passed**로 위 setup 수에 포함된 하위 검사다. 한 차례 setup
+  전체 검사에서 bootstrap 상대 import manifest 규칙 위반을 찾아 고쳤고 최종 전체를
+  다시 통과했다. Host UI 전체는 `av` 부재로 collection 오류이며 의존성을 설치하지 않았다.
+- 알려진 설치의 generated dev wrapper로 required gate를 시도했으나 개발 이미지 빌드가
+  외부 APT 다운로드 단계에서 완료되지 않아 테스트가 시작되지 않았다. 마지막 빌드 로그만
+  남았고 최종 exit 증거는 확보하지 못했다. Canonical required/extended/release build/
+  isolated verify는 미완료·미실행이며 통과로 취급하지 않는다.
+- **소스와 검증만 완료했으며 현재 설치·실행 중 manager에는 아직 배포하지 않았다.**
+  갱신된 setup/tools 배포와 UI 이미지 갱신, instance 재등록이 활성화 경로다. 기존 image
+  pin은 update만으로 바뀌지 않는다. 실제 두 host 전체 시작 성공은 추가 확인이 필요하다.
+  [소스 SHA·검증 범위](../workbench/evidence/curated/planning/connections_wslg_gpu_20261106.json).
+
+### 함수 기반 C형 Home→들어올리기·q 보간 실험 (2026-11-06)
+
+- `workbench/research/experiments/hug_c`에 새 외부 실험을 추가했다. 기존
+  `hug_interpolation` 두-band 실험과 그 실제 결과를 보존한다. payload에는
+  원기둥 전용 기능이나 새 역할을 추가하지 않는다. 실행법은
+  [`hug_c/README.md`](../workbench/research/experiments/hug_c/README.md)다.
+- `/home/user/ws/hugmap/mapper.html`의 작도 함수와 CAD 검사 함수를 추출해
+  실행한다. HTML의 `DATA` 점군이나 map.json은 케이스 선정에 사용하지 않는다.
+  사용자 선택에 따라 **100/125/150/175/200 mm를 직경별 독립 수집**한다.
+  μ_min≤0.4, 1° 총 굽힘각 raster에서 유효 셀은 각각 863/1577/1592/1140/703개,
+  선택한 q 삼각형의 영역 커버율은 약 72.87/86.18/88.49/79.72/77.29%다.
+  직경마다 3 train / 30 validation / 100 held-out test를 실제 함수로 생성했다.
+  합계 15개 맨땅 RL 기준점이며 직경을 섞어 학습하는 구성이 아니다. 전역 최적
+  증명이나 동작 성공률이 아니며, 함수 영역과 삼각형의 교집합 면적을 최적화한다.
+  준비 자료는 `workbench/evidence/generated/c-hug-four-dof/diameters/collection.json`
+  및 각 직경 폴더의 `triangle.html`, `pilot.json`, `catalog.json`이다.
+- 모든 episode는 실제 Home preset에서 시작한다. 현재 UI `(180,180,10,10)`을
+  실제 매핑으로 변환한 값은 linear −120 mm, roll 0°, q3 −170°, q4 +170°다.
+  q3/q4는 세그먼트 총 굽힘각이며 Sim/NPZ 경계에서만 노드당 rad로 변환한다.
+  **Go2만 고정하고 linear·roll·q3·q4를 정책이 첫 action부터 조절**한다.
+  전개·회전·들어올림 시점을 강제하는 시간표를 제거했다. 함수 목표 q는 관측과
+  목표 진행 보상에 남기며, 실제 두 역할의 C 접촉 이후 목표 유도 보상을 해제해
+  들어올리기에 자세를 바꿀 수 있게 했다. Home의 양수 q4는 유효하다.
+- 성공은 **5초 연속** 원기둥 최저점의 지면 여유 ≥20 mm, 지면 접촉 없음,
+  그리퍼 상대 미끄러짐 ≤10 mm, 두 접촉 역할 유지율 ≥80%, C형 유지와
+  금지 충돌/한도 fault 없음이다. 그리퍼 포즈에는 local link ID를 사용하고
+  접촉 쌍에는 global ID를 사용한다. 낙하·과도한 미끄러짐·C형 이탈은 유지 시간을
+  초기화한다. 20초 episode 내 시작 시점과 최종 linear/roll은 자유이며, 들어올림은
+  필수다. 5초는 본 실험의 기본 설정이다. 금지 충돌 이후 양의 shaping도 차단한다.
+- 일치하는 실제 physics preflight가 있어야 train이 가능하다. **512병렬**/최대
+  2,000회/500회 평가가 기본이며, 각 원본의 정책 수집과 명령 경로 3회 재생이
+  통과해야 다음 anchor와 q 보간으로 간다. MP4와 policy/trajectory NPZ를 저장한다.
+  30점 검증 후 그중 5점에 ±5/±10 mm 배치 오차 80회를 추가 평가하고, 통과하면
+  100점 최종 시험을 실행한다. 실패 점에 자동으로 추가 RL을 돌리지 않는다.
+  q 가중치로 네 채널 전체 경로를 보간하며, 짧은 원본을 가장 긴 원본 시간으로
+  늘린다. 기준점별 수집/재생 성공이 없으면 보간·정책 선택으로 넘어가지 않는다.
+- `collection`은 `(x,y,D)`에서 정확히 일치하는 직경을 찾고 mapper 역함수와 CAD/
+  μ/삼각형 조건을 검사하여 3개 policy/trajectory NPZ와 q 가중치를 선택한다.
+  직경별 완료된 검증·배치 오차·시험과 원본 3회 재생을 확인한다. 없는 D를 가까운
+  직경으로 대체하지 않으며 직경 간 보간은 아직 없다. 110 mm 같은 새 직경은
+  입력과 study만 추가하므로 기존 5개 직경의 NPZ·프로필을 변경하지 않는다.
+- 호스트 관련 신·구 실험 회귀 **64 passed / 1 skipped**(Torch 부재)다.
+  C형 전용 두 파일의 **32 passed**는 Home/네 축 제어·총각 변환·5초 유지와
+  초기화·면적 목적·함수 전용 분할·경로/NPZ·preflight·orchestration·직경 추가
+  보존·정책 선택 게이트를 검사한다. 실제 다섯 직경의 함수점에서 XY 역산도
+  확인했으며 동적 성공 증거는 아니다. 호스트에는 Torch/Genesis/tensordict/rsl_rl이
+  없어 `check --physics`는 종료 2, `physics_tested=false`를 기록했다.
+  **수정된 네 축 방식의 GPU 물리 preflight·PPO·들어올리기·보간 검증은 미실행이며,
+  사용자의 새 시작 지시를 기다린다.** 원격 프로세스와 Newton-Gym은 이 수정 중
+  건드리지 않았다. Canonical required/extended/release gate도 이번 작업에서
+  실행하지 않았다. 준비된 canonical 개발 환경이 없으며 현재 attachment 빌드
+  미완료 상황은 상단의 설치 검증 기록을 따른다.
+  [현재 코드·모델 해시와 직경별 준비 요약](../workbench/evidence/curated/planning/c_hug_four_dof_20261106.json).
+- 이전에는 사용자 승인으로 서버 `hckang@100.74.222.24:~/elesim`의 GPU2에서 실험을
+  실행했다. 최초 run `c-hug-rl-20261106T060616Z`는 세 번째 꼭짓점의 Home/목표
+  충돌로 사전 점검에서 중단했고 학습하지 않았다. 실패 결과와 당시 소스를 보존했다.
+  `hug_c.catalog_preflight`로 함수 후보 1,592개를 64병렬/자세당 10 tick씩 검사해
+  Home·목표 모두 fault 없는 1,572개를 확인했다. 검사 모델·물리 설정과 source
+  kernel digest가 일치해야 재선정에 쓸 수 있다. q 삼각형을 이 후보들로 다시
+  선정한 뒤 자체 3점 physics preflight도 ready=true를 확인했다.
+- 중단된 이전 실행은 `workbench/evidence/generated/c-hug-rl-20261106T061027Z`다.
+  GPU2 UUID `GPU-a40782b2-881c-e285-2a8e-66cae9162a01`, study PID `2077627`,
+  첫 256병렬 PPO PID `2078254`이며 25회 이상 실제 optimizer 진행과 `model_0.pt`
+  생성을 확인했다. 재선정 꼭짓점은 `(-104.5,-129.5)`, `(-0.5,-136.5)`,
+  `(-1.5,-163.5)`도, 정적 통과 영역의 면적 커버율은 약 88.826%다. 이 수치는
+  동작 성공률이 아니다. 포인터는 서버 `.git/c-hug-active-run.json`이다.
+- 초기 비교용 `baseline/baseline.mp4`와 경로 NPZ를 저장했다. 학습하지 않은
+  기준 동작은 fault=false지만 지면 접촉/유지 실패로 success=false다. 원기둥을
+  실제 들어올리는 성공은 아직 확인하지 않았다. 500회마다 정책 평가 MP4/NPZ와
+  원본 3회 재생을 자동 저장했고, 당시 사용자 지시로 Luna가 읽기 전용 감시했다.
+  중간 상태·초기 사전 점검·영상은 로컬의 같은 generated 경로에도 보관한다.
+- 이전 256환경 학습 중 GPU2를 1초 간격으로 30회 측정했다. 사용률 평균 65.63%,
+  중앙값 69%, 범위 19~73%, 최대 메모리 3,175/49,140 MiB, 평균 전력 130.65 W다.
+  최근 20 iteration 평균은 2.7765초였다. 사용자 지시에 따라 **다음 새 GPU2
+  study는 512환경**으로 시작하는 프리셋을 `hug_c/gpu2-next-study.json` 및 서버
+  `.git/c-hug-next-run.json`에 기록했다. 이후 이전 실행은 중단했고 새 시작은 미지시다.
+  512/1024환경 처리량과 수렴 속도는 아직 측정하지 않았다.
+- 이후 사용자 지적으로 이 run의 고정 전개 계약을 재검토했다. Home 출발에서
+  linear/roll을 2초 시간표로 강제하면서 정책에는 q3/q4 보정만 허용하여,
+  필요한 전개·회전 순서를 선택할 수 없었다. 이를 학습 부족으로 간주하고
+  계속 돌리는 것은 부적절하여 해당 소유 process group `2077627`만 SIGTERM했다.
+  상태는 `stopped-invalid-approach-contract`이며 체크포인트·500/1000회 평가 영상과
+  원자료는 보존했다. 계약을 수정한 뒤에도 새 시작 지시 전에는 재시작하지 않는다.
+  이 결과는 C형 끌어안기나 들어올리기 자체의 불가능성 증거가 아니다.
+
+### 두 밴드 Hug RL의 첫 GPU 실행 준비와 보고 영상 (2026-11-06)
+
+- 사용자 승인으로 `hckang@100.74.222.24`의 `/home/hckang/elesim`에서 물리 GPU
+  2(A6000, UUID `GPU-a40782b2-881c-e285-2a8e-66cae9162a01`) 전용 실행을 시작했다.
+  기존 Conda 환경을 보존하고 `.venv/hug-rl-20261106`에 Genesis 1.4.5,
+  Quadrants 1.3.3을 격리했다. Torch 2.12.1, rsl-rl-lib 5.4.0,
+  tensordict 0.14.2를 사용하며 `pip check`가 통과했다.
+- 실제 GPU 초기 물리 검사에서 대표 6개 모두 초기 fault가 없었고 FK와
+  PPO/environment interface 검사가 통과했다. 비파지 대조군의 외란 뒤 이동은
+  50.828 mm로, 10 mm hold 판정과 구별됐다. 이는 초기 구성의 검사이며 학습
+  수렴이나 파지 성공의 증거가 아니다.
+- `study`는 별도 32환경/20회 smoke 후 대표 6개를 각각 256환경/2,000회로
+  순차 실행한다. 500회마다 NPZ 정책·경로와 25 fps 탑뷰 MP4, 원본 재생 수치를
+  저장한다. 성공한 원본 6개가 필요하며, validation 실패 시 test를 열지 않는다.
+  `collect`/`replay --video`는 한 평가 환경에만 카메라를 만들고 physics tick에
+  프레임을 채집한다. 실패한 평가도 보존한다.
+- 실제 Torch 내보내기 probe에서 공유 ELU 인스턴스를 `modules()`가 중복 제거하는
+  문제를 찾아 Sequential의 위치 순서를 직접 검사하도록 수정했다. 실제 RSL
+  MLP의 Torch/NumPy 최대 오차는 `7.45e-8`이다. RSL 5.4의 resume은 마지막 완료
+  iteration 다음부터 이어가도록 보정했다.
+- 호스트 관련 회귀는 **51 passed / 1 skipped**(호스트 Torch 부재)다. 실제 Torch
+  내보내기는 위 서버 CPU probe로 별도 확인했다. canonical required/extended와
+  release gates는 이번 실험에서 실행하지 않았다. 학습/영상/보간 검증 결과는
+  실행 산출물로 확인해야 하며 이 준비 결과를 성공률로 취급하지 않는다.
+- 원자료 루트는 서버
+  `workbench/evidence/generated/hug-rl-20261106-005955/attempt-02/`다.
+  `status.json`, `study.log`, `logs/`, `reports/`에 단계·명령·중간 결과를 남긴다.
+  이전 준비 시도와 교체 이유도 상위 디렉터리에 보존한다. 기존 설치·다른 GPU의
+  작업·물리 Robot은 조작하지 않았다.
+- 32환경/20회 smoke의 PPO 실행·정책 NPZ 내보내기·수집·원본 재생과 MP4 저장이
+  실제 완료됐다. smoke는 fault=false지만 목표 각도 오차 0.06532 rad,
+  hold 이동 20.847 mm로 성공 기준을 충족하지 않았다. 수집과 원본 경로 재생의
+  판정·측정값은 일치했다. 영상은 H.264 960×720, 25 fps, 101 frame/4.04초로
+  파일과 실제 장면을 확인했다. 이후 첫 대표 256환경 학습 PID `1948093`에서
+  PPO iteration 1~14가 진행되는 것을 확인했다. 사용자 요청에 따라 Luna
+  subagent가 프로세스·로그·체크포인트·영상 저장을 읽기 전용으로 감시한다.
+- 최종 실행은 2026-11-06 09:25:52 KST에 `finished-anchor-failures`로 종료했다.
+  실제 study 경과는 29,724.701초(약 8시간 15분 25초), 대표 6개 각각 2,000회다.
+  밴드 1의 대표 3개는 각각 성공한 수집·원본 재생 체크포인트를 확보했고 선택된
+  학습 횟수는 `b1-x-100-y320-d150:2000`, `b1-x-100-y340-d150:500`,
+  `b1-x-80-y320-d150:1500`이다. 밴드 2의 대표 3개는 500/1000/1500/2000
+  네 체크포인트 모두 실패했다. 이는 그 실험 조건의 학습·평가 결과이며 기하학적
+  불가능의 증명이 아니다. 6개 성공 원본 조건이 충족되지 않아 보간/validation/test는
+  실행하지 않았다. 들어올리기는 이번 MDP/판정에 포함되지 않는다.
+- MP4는 smoke 1개와 대표별 4개씩 총 **25개**다. 최종 상태·24개 checkpoint
+  평가·영상 25개·성공 원본 3개 NPZ와 선택된 정책 NPZ는 로컬의 같은 generated
+  상대 경로에도 수신했다. 학습 프로세스와 GPU2 실험 프로세스가 종료됐고 Luna
+  감시도 완료됐다. 실행 오류·NaN·영상 저장 누락은 발견하지 않았다.
 
 newhug 세션 인계: [의도·확정 조건·현재 탐색 방식·다음 질문](newhug-handoff.md).
 현재 마지막 쟁점은 원형 수집의 적은 해가 탐색 누락인지 실제 제약인지 구분하는 것이다.

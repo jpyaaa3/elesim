@@ -1,0 +1,48 @@
+{
+  "schema": "elesim-c-hug-next-study",
+  "schema_version": 1,
+  "num_envs": 512,
+  "iterations": 2000,
+  "report_every": 500,
+  "apply_to": "next new four-action study only; old scripted 256-env run is stopped and incompatible",
+  "control_mode": "policy-four-dof-home-lift-v2",
+  "start_requires_separate_instruction": true,
+  "hold_duration_s": 5.0,
+  "diameters_mm": [100, 125, 150, 175, 200],
+  "training_anchors_per_diameter": 3,
+  "protect_other_jobs": ["Newton-Gym"],
+  "gpu_index": 2,
+  "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+  "python": "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+  "measurement": {
+    "samples": 30,
+    "gpu_pct": {
+      "min": 19.0,
+      "median": 69.0,
+      "mean": 65.63333333333334,
+      "max": 73.0
+    },
+    "memory_used_mib": 3175.0,
+    "memory_total_mib": 49140.0,
+    "power_w_mean": 130.65333333333334,
+    "phase": "anchor-train",
+    "case_id": "c-train-000-d150",
+    "iteration": [
+      "435",
+      "500"
+    ],
+    "last_20_iteration_s_mean": 2.7765
+  },
+  "measurement_utc": "2026-11-06T06:31:41.919487+00:00",
+  "rationale": "Measured GPU mean 65.6%, median 69%; 3175/49140 MiB. Start next study at 512 and measure samples/s before considering 1024.",
+  "command_options": [
+    "--num-envs",
+    "512",
+    "--iterations",
+    "2000",
+    "--report-every",
+    "500"
+  ],
+  "stopped_previous_run": "/home/hckang/elesim/workbench/evidence/generated/c-hug-rl-20261106T061027Z",
+  "created_utc": "2026-11-06T06:32:37.611746+00:00"
+}

@@ -930,7 +930,27 @@ are untouched. The policy uses fixed-roll, fixed-linear episodes with a timed
 approach and kick/hold evaluation. Physics assumptions and dataset/source/model
 digests are recorded by `configure`. No training or physics run occurs merely
 by importing the package or generating an experiment. Full run instructions
-and the unexecuted GPU gate are in [hug-rl-experiment.md](hug-rl-experiment.md).
+are in [hug-rl-experiment.md](hug-rl-experiment.md); current GPU execution evidence
+and remaining gates are recorded separately in [status.md](status.md).
+
+The revised `workbench/research/experiments/hug_c` task uses the standalone
+mapper's analytic/CAD functions without its stored point cloud. It selects
+three C targets by covered q3/q4 solution area independently for diameters
+100/125/150/175/200 mm. q3 and q4 are total segment bends; per-node conversion
+occurs at the Sim command boundary. Every episode starts at the application
+Home preset. The policy controls linear, roll and both bends, with no scripted
+deployment or lift timeline. The analytic goal remains an observation/reward
+hint. Success requires five continuous seconds of loaded ground clearance,
+gripper-relative retention and C posture without faults. Three successful
+original replays per anchor precede q-space blending of all four command paths,
+time-normalized to the longest original duration. Validation, position-error
+sweeps and held-out tests do not train. A diameter collection indexes separate
+studies and exact (x,y,D) selection using the analytic inverse; adding a diameter
+preserves existing NPZ artifacts. There is no cross-diameter interpolation or
+nearest-diameter fallback. This task stays outside the payload and does not change the older
+two-band experiment or the Pilot policy contract. Its source/model/settings
+context and successful physics preflight must match before training. See the
+[C-hug runbook](../workbench/research/experiments/hug_c/README.md).
 
 Timed command artifacts now write compressed NPZ schema v2, with numeric arrays
 and Unicode JSON metadata; legacy JSON trajectories remain read-only inputs.

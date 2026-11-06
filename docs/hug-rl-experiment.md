@@ -1,5 +1,15 @@
 # 두 band의 경로 학습과 보간 실험 실행법
 
+현재 Home 출발·C형·들어올리기·q3/q4 보간 실험은
+[`hug_c` 실행 문서](../workbench/research/experiments/hug_c/README.md)를 따른다.
+새 계약은 512병렬에서 linear·roll·q3·q4를 정책이 처음부터 조절하며, 고정 전개/
+들어올리기 시간표 없이 실제 들어올린 뒤 5초 연속 유지를 요구한다. 함수의 목표
+q는 관측/보상 힌트로 유지한다. 100/125/150/175/200 mm는 직경별 독립 3점 학습과
+검증으로 수집하며, `collection`이 입력 생성과 `(x,y,D)`별 NPZ 선택을 담당한다.
+현재는 코드·입력 준비 단계이며 수정된 방식의 RL은 별도 시작 지시를 기다린다.
+아래는 이전 고정-roll 두-band 실험의 재현 절차다. 그 실제 실행 결과는
+[`status.md`](status.md)의 2026-11-06 보고에 기록돼 있다.
+
 2026-11-05. **실행 경로는 구현했지만 이 checkout에서 GPU 학습·물리 재생은 실행하지 않았다.**
 아래 순서에서 처음 실행할 것은 `check --physics`다. 이것이 실패하면 학습을 시작하지 않는다.
 이 문서는 현재 코드로 실행할 명령, 생성 파일, 판정과 재시작 방법을 설명한다.
@@ -369,3 +379,30 @@ Trajectory.load("old-trajectory.json").save("trajectory.npz")
 ```
 
 현재 `anchors` 및 검증 입력 디렉터리는 `.npz` 경로 파일을 사용한다.
+
+## 중간 영상과 순차 실행
+
+준비된 CUDA 환경에서 새 출력 경로를 정한 뒤 전체 순서를 실행할 수 있다.
+
+```bash
+python3 -u -m workbench.research.experiments.hug_interpolation.study \
+  --output "$OUT" --num-envs 256 --iterations 2000 --report-every 500
+```
+
+`OUT`에 기존 `experiment.json`이나 `status.json`이 있으면 거부한다. 의존성·물리
+점검과 별도 32병렬/20회 smoke를 거쳐, 6개 대표를 각각 256병렬로 순차 학습한다.
+대표당 500회마다 멈춰서 정책 NPZ, 실제 수집 경로 NPZ, 탑뷰 MP4, 원본 경로
+재생 판정과 수치를 `reports/<case>/updates-*/`에 남긴다. 영상은 기본 시간
+간격에서 25 fps이며 접근과 마지막 hold 구간을 함께 포함한다. 학습 환경에는
+카메라를 만들지 않고 한 환경의 평가 실행에만 카메라를 추가한다.
+
+진행 상태는 원자적으로 갱신하는 `status.json`, 각 단계의 정확한 명령과 로그는
+`logs/`에 남는다. 실패한 수집/재생도 결과로 보존하며, 기존 대표의 수집과 원본
+재생이 모두 성공한 체크포인트만 보간의 원본으로 선택한다. 성공한 대표가 6개
+모이지 않으면 보간하지 않는다. Validation에 실패하면 test는 열지 않는다.
+실패를 자동으로 추가 RL로 바꾸거나 성공으로 표시하지 않는다.
+
+수동 실행에서는 `collect` 또는 `replay`에 `--video report.mp4`를 추가하면 된다.
+기존 영상 파일은 덮어쓰지 않는다. CPU의 cadence/lifecycle 테스트는 영상 렌더나
+학습 성공의 증거가 아니며, 실제 GPU 실행 상태와 결과는 `docs/status.md`에 별도로
+기록한다.

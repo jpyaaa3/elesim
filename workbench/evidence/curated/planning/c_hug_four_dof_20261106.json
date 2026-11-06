@@ -1,0 +1,175 @@
+{
+  "schema": "elesim-c-hug-four-dof-readiness",
+  "schema_version": 1,
+  "control_mode": "policy-four-dof-home-lift-v2",
+  "num_envs": 512,
+  "action_names": [
+    "linear",
+    "roll",
+    "q3_total",
+    "q4_total"
+  ],
+  "observation_names": [
+    "linear_m",
+    "roll_rad",
+    "q3_total_rad",
+    "q4_total_rad",
+    "command_linear_m",
+    "command_roll_rad",
+    "command_q3_total_rad",
+    "command_q4_total_rad",
+    "goal_linear_m",
+    "goal_roll_rad",
+    "goal_q3_total_rad",
+    "goal_q4_total_rad",
+    "object_gripper_dx_m",
+    "object_gripper_dy_m",
+    "object_gripper_dz_m",
+    "object_vx_m_s",
+    "object_vy_m_s",
+    "object_vz_m_s",
+    "diameter_m",
+    "grasp_seen",
+    "hold_fraction",
+    "episode_fraction"
+  ],
+  "hold_duration_s": 5.0,
+  "episode_limit_s": 20,
+  "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+  "code_sha256": "809af8f67e035e334b2911f891f4d208867eff7e161dff3ff95cb49482c6ec92",
+  "mapper_kernel_sha256": "ea0b75ba13788f557e1d57d05ade269c206737ec04c95b703e0f145cb09745d2",
+  "source_point_data_used": false,
+  "physics_tested": false,
+  "training_started": false,
+  "remote_processes_touched": false,
+  "host_tests": {
+    "passed": 64,
+    "skipped": 1,
+    "skip_reason": "Torch export check: Torch is not installed"
+  },
+  "dependency_report": "workbench/evidence/generated/c-hug-four-dof/dependency-check.json",
+  "profiles": [
+    {
+      "diameter_mm": 100.0,
+      "feasible_samples": 863,
+      "geometric_coverage": 0.7286898899188876,
+      "splits": {
+        "train": 3,
+        "validation": 30,
+        "test": 100
+      },
+      "q_triangle": [
+        [
+          -3.5,
+          -178.5
+        ],
+        [
+          -92.5,
+          -158.5
+        ],
+        [
+          -0.5,
+          -163.5
+        ]
+      ]
+    },
+    {
+      "diameter_mm": 125.0,
+      "feasible_samples": 1577,
+      "geometric_coverage": 0.8618288945256817,
+      "splits": {
+        "train": 3,
+        "validation": 30,
+        "test": 100
+      },
+      "q_triangle": [
+        [
+          -0.5,
+          -170.5
+        ],
+        [
+          -0.5,
+          -143.5
+        ],
+        [
+          -103.5,
+          -143.5
+        ]
+      ]
+    },
+    {
+      "diameter_mm": 150.0,
+      "feasible_samples": 1592,
+      "geometric_coverage": 0.8849497949302764,
+      "splits": {
+        "train": 3,
+        "validation": 30,
+        "test": 100
+      },
+      "q_triangle": [
+        [
+          -1.5,
+          -163.5
+        ],
+        [
+          -0.5,
+          -136.5
+        ],
+        [
+          -105.5,
+          -129.5
+        ]
+      ]
+    },
+    {
+      "diameter_mm": 175.0,
+      "feasible_samples": 1140,
+      "geometric_coverage": 0.7971644414342106,
+      "splits": {
+        "train": 3,
+        "validation": 30,
+        "test": 100
+      },
+      "q_triangle": [
+        [
+          -14.5,
+          -154.5
+        ],
+        [
+          -90.5,
+          -120.5
+        ],
+        [
+          -0.5,
+          -136.5
+        ]
+      ]
+    },
+    {
+      "diameter_mm": 200.0,
+      "feasible_samples": 703,
+      "geometric_coverage": 0.7728709851450924,
+      "splits": {
+        "train": 3,
+        "validation": 30,
+        "test": 100
+      },
+      "q_triangle": [
+        [
+          -0.5,
+          -136.5
+        ],
+        [
+          -75.5,
+          -114.5
+        ],
+        [
+          -16.5,
+          -146.5
+        ]
+      ]
+    }
+  ],
+  "dataset_root": "workbench/evidence/generated/c-hug-four-dof/diameters",
+  "next_step": "Await user start instruction; then matching GPU preflight before learning. Preserve Newton-Gym and all unrelated jobs."
+}

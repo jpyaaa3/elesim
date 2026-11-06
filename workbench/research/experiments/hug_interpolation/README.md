@@ -5,9 +5,12 @@ interpolated trajectories instead of separate RL runs. This example uses the
 same robot assets as EleSim and runs directly in Genesis, without starting
 Pilot, UI, Robot, DDS, or a physical robot.
 
-**Status:** experimental. Offline tests pass; GPU training and physical replay
-have not been validated in this checkout. Start with the physics check below.
-No trained checkpoint or success-rate claim is included.
+**Status:** experimental. Initial GPU physics checks, a short PPO smoke, NPZ
+export and recorded replay were exercised on 2026-11-06. The six-anchor budget
+finished: each of the three band-1 anchors had a successful checkpoint, while
+none of the band-2 anchors passed. Interpolation was not run because the current
+study requires all six successful originals. The short smoke did not meet the
+grasp criterion. No trained checkpoint is bundled. Start with the physics check below.
 
 ## What is included
 
@@ -73,6 +76,23 @@ These are starting budgets, not a convergence guarantee. Each case gets its own
 run directory and checkpoints. The runbook explains memory sizing, resume and
 choosing an earlier checkpoint if the final one does not succeed.
 
+For a complete sequential run with progress reports and videos, use:
+
+```bash
+python3 -u -m workbench.research.experiments.hug_interpolation.study \
+  --output "$OUT" --num-envs 256 --iterations 2000 --report-every 500
+```
+
+Choose a fresh `OUT` for this command: it performs configure, dependency/physics
+checks, a separate 20-update smoke, then the six original anchor runs. Every
+500 updates it exports NPZ weights and saves `reports/<case>/updates-*/policy.mp4`,
+the trajectory NPZ, and original-replay metrics. Video uses one evaluation
+environment and physics-tick sampling (25 fps at the default timestep), so
+parallel training has no cameras. Failed evaluations are saved as failures.
+`status.json` and `logs/` retain current stage, timings and exact commands.
+Only anchors with successful collection and original replay enter interpolation;
+validation/test stages remain held out if their prerequisites fail.
+
 ## Export a policy, then collect and replay the original motions
 
 `export` writes `policy.npz`: ELU MLP weights and observation normalization, plus
@@ -106,6 +126,7 @@ interchangeable. Training resumes from `.pt`; evaluation reports remain JSON.
 Commands are recorded at physics ticks and replayed without a policy. Failed
 collection/replay returns exit code 1 and preserves the result. Resolve original
 replay failures before testing interpolation; do not relabel failed anchors.
+Add `--video report.mp4` to `collect` or `replay` to save a top-view episode.
 
 ## Interpolate and evaluate — no additional RL
 

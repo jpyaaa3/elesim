@@ -42,3 +42,27 @@ def test_policy_and_trajectory_npz_are_not_interchangeable(tmp_path):
     Trajectory([0, 1], [[0], [1]], ('q',)).save(path)
     with pytest.raises(ValueError):
         NumpyPolicy(path)
+
+
+def test_torch_export_keeps_repeated_activation_positions(tmp_path):
+    torch = pytest.importorskip('torch')
+    from types import SimpleNamespace
+    from workbench.research.experiments.hug_interpolation.policy import export_policy
+
+    class Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            activation = torch.nn.ELU()
+            self.mlp = torch.nn.Sequential(torch.nn.Linear(7, 8), activation,
+                                           torch.nn.Linear(8, 8), activation, torch.nn.Linear(8, 2))
+            self.obs_normalizer = SimpleNamespace(_mean=torch.zeros(7), _std=torch.ones(7), eps=1e-8)
+
+        def forward(self, observations):
+            return self.mlp(observations/(1+self.obs_normalizer.eps))
+
+        def as_jit(self):
+            return self
+
+    error = export_policy(Model(), tmp_path/'policy.npz', {'fixture': True})
+    assert error < 1e-5
+    assert len(NumpyPolicy(tmp_path/'policy.npz').layers) == 3

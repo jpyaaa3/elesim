@@ -16,6 +16,7 @@ from elesim_sim.rl.trajectory import Trajectory
 from elesim_sim.rl.replay import replay
 from .configure import configure, load_experiment, write_json, sha, VERSIONS
 from .interpolate import CHANNELS, interpolate
+from .video import record_video
 
 
 def case_by_id(experiment, case_id):
@@ -44,7 +45,8 @@ def create_env(experiment, case, directory, args, n_envs=1, auto_reset=False):
     check_versions()
     from .environment import HugEnv
     return HugEnv(experiment, case, Path(directory)/'assets', n_envs=n_envs,
-                  backend=args.backend, viewer=getattr(args, 'viewer', False), auto_reset=auto_reset)
+                  backend=args.backend, viewer=getattr(args, 'viewer', False), auto_reset=auto_reset,
+                  video=bool(getattr(args, 'video', None)))
 
 
 def train(args):
@@ -89,6 +91,9 @@ def train(args):
     policy_runner = runner(env, run)
     if resume:
         policy_runner.load(str(resume))
+        # rsl_rl 5.4 saves the last completed index, while learn() starts at
+        # current_learning_iteration. Continue at the next update index.
+        policy_runner.current_learning_iteration += 1
     started = time.monotonic()
     policy_runner.learn(num_learning_iterations=args.iterations, init_at_random_ep_len=False)
     policy_runner.save(str(run/'model_final.pt'))
@@ -150,7 +155,7 @@ def collect(args):
         origin = dict(checkpoint_sha256=sha(checkpoint))
     obs, _ = env.reset()
     env.record = [env.start.detach().cpu().numpy().copy()]
-    with torch.inference_mode():
+    with record_video(env, getattr(args, 'video', None)), torch.inference_mode():
         for _ in range(env.max_episode_length):
             if args.policy:
                 actions = torch.as_tensor(policy(obs['policy'].cpu().numpy()), device=env.device)
@@ -172,7 +177,8 @@ def replay_one(args):
     trajectory = Trajectory.load(args.trajectory)
     case = case_by_id(exp, trajectory.metadata['case_id'])
     env = create_env(exp, case, args.output.parent, args)
-    result = replay(trajectory, ReplayAdapter(env), dt=exp['settings']['dt'])
+    with record_video(env, getattr(args, 'video', None)):
+        result = replay(trajectory, ReplayAdapter(env), dt=exp['settings']['dt'])
     result['trajectory_sha256'] = sha(args.trajectory)
     write_json(args.output, result)
     if args.verified_output:
@@ -299,6 +305,8 @@ def main(argv=None):
         c.add_argument('--backend', choices=('gpu', 'cpu'), default='gpu')
         if name in ('check', 'collect', 'replay', 'validate'):
             c.add_argument('--viewer', action='store_true')
+        if name in ('collect', 'replay'):
+            c.add_argument('--video', type=Path, help='Save a single-environment top-view MP4 at physics ticks')
         if name == 'check':
             c.add_argument('--physics', action='store_true'); c.add_argument('--output', type=Path, required=True)
         elif name == 'train':

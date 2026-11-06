@@ -56,12 +56,15 @@ def export_policy(policy, path, metadata):
     if path.suffix.lower() != '.npz':
         raise ValueError('Policy output must end in .npz')
     jit = policy.as_jit().to('cpu').eval()
-    leaves = [m for m in jit.mlp.modules() if not list(m.children())]
+    # Sequential may reuse one ELU instance in several positions. modules()
+    # deduplicates those instances and loses the actual forward ordering.
+    leaves = list(jit.mlp)
     if any(not isinstance(m, (torch.nn.Linear, torch.nn.ELU)) for m in leaves):
         raise ValueError('Only Linear/ELU MLP export is supported')
     layers = [m for m in leaves if isinstance(m, torch.nn.Linear)]
     expected = [torch.nn.Linear if i % 2 == 0 else torch.nn.ELU for i in range(2*len(layers)-1)]
-    if [type(m) for m in leaves] != expected or any(isinstance(m, torch.nn.ELU) and m.alpha != 1 for m in leaves):
+    if (len(leaves) != len(expected) or any(not isinstance(m, kind) for m, kind in zip(leaves, expected))
+            or any(isinstance(m, torch.nn.ELU) and m.alpha != 1 for m in leaves)):
         raise ValueError('Unsupported activation ordering/alpha')
     norm = jit.obs_normalizer
     arrays = dict(schema=np.asarray('elesim-hug-policy'), schema_version=np.asarray(1),

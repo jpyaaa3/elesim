@@ -23,7 +23,7 @@ from workbench.research.experiments.wrap_grasp.scene import WrapGraspScene
 
 class Scene(WrapGraspScene):
     """Reuse robot indexing/gains only; this task owns entities and materials."""
-    def build_task(self, experiment, case, asset_dir):
+    def build_task(self, experiment, case, asset_dir, *, video=False):
         import genesis as gs
         s = experiment['settings']
         init_genesis(self.cfg.runtime.backend, s['seed'])
@@ -41,6 +41,11 @@ class Scene(WrapGraspScene):
             # Genesis mixes pair friction using max: low object/floor friction,
             # high robot friction gives the desired arm/object coefficient.
             material=gs.materials.Rigid(rho=s['mass_kg']/(math.pi*radius**2*s['height_m']), friction=s['floor_friction']))
+        self.cameras = {}
+        if video:
+            self.cameras['report'] = self.scene.add_camera(
+                res=(960, 720), pos=(.55, 0., 1.9), lookat=(.55, 0., .52),
+                up=(0., 1., 0.), fov=50, GUI=False)
         self.scene.build(n_envs=self.n_envs, env_spacing=(3., 3.), center_envs_at_origin=False)
         self._built = True
         self.robot.set_friction(s['friction'])
@@ -61,7 +66,8 @@ class Scene(WrapGraspScene):
 class HugEnv:
     num_actions = 2
 
-    def __init__(self, experiment, case, asset_dir, *, n_envs=256, backend='gpu', viewer=False, auto_reset=True):
+    def __init__(self, experiment, case, asset_dir, *, n_envs=256, backend='gpu', viewer=False, auto_reset=True,
+                 video=False):
         self.experiment, self.case = experiment, case
         self.s = s = experiment['settings']
         self.cfg = {'task': 'hug_interpolation', 'settings': s, 'case': case}
@@ -74,7 +80,7 @@ class HugEnv:
                       torch_device='cuda' if backend == 'gpu' else 'cpu'),
                       scene=replace(cfg.scene, show_viewer=viewer, friction=None,
                                     go2=replace(cfg.scene.go2, spawn_xyz=(0., 0., s['spawn_height_m']))))
-        self.scene = Scene(cfg, n_envs=n_envs).build_task(experiment, case, asset_dir)
+        self.scene = Scene(cfg, n_envs=n_envs).build_task(experiment, case, asset_dir, video=video)
         self.device = self.scene.device
         self.mapper = ArmWaypointMapper(arm, n_envs=n_envs, device=self.device, rate_limit=(0, 0, s['action_delta_rad'], s['action_delta_rad']))
         self.dofs = self.scene.arm_dofs.all_indices
@@ -88,6 +94,7 @@ class HugEnv:
         self.last_touch = torch.zeros((n_envs, 2), device=self.device)
         self.last_fault = torch.zeros(n_envs, dtype=torch.bool, device=self.device)
         self.record = None
+        self.tick_monitor = None
         names = self.scene.links.name_by_index
         self.proximal = self._indices([k for k, name in names.items() if name in {f'node{i}' for i in range(5)}])
         self.distal = self._indices([k for k, name in names.items() if name in {f'node{i}' for i in range(5, 10)} or name.startswith('gripper')])
@@ -227,6 +234,8 @@ class HugEnv:
         self.hold_hits += holding.float()*(touch.min(1).values > 0).float()
         if self.record is not None:
             self.record.append(command[0].detach().cpu().numpy().copy())
+        if self.tick_monitor is not None:
+            self.tick_monitor(self)
 
     def outcome(self):
         s = self.s
