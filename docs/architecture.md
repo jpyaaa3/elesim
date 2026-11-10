@@ -939,9 +939,20 @@ three C targets by covered q3/q4 solution area independently for diameters
 100/125/150/175/200 mm. q3 and q4 are total segment bends; per-node conversion
 occurs at the Sim command boundary. Every episode starts at the application
 Home preset. The policy controls linear, roll and both bends, with no scripted
-deployment or lift timeline. The analytic goal remains an observation/reward
-hint. Success requires five continuous seconds of loaded ground clearance,
-gripper-relative retention and C posture without faults. Three successful
+deployment or lift timeline. Only analytic q3/q4 goals remain as actor targets
+and a bounded potential-based hint; linear/roll do not enter that potential.
+Roll completion gates physical lift milestones. Reward-v5 uses task-local gamma
+0.995, terminal potential zero, one-time confirmed
+grasp credit and episode-record lift/hold budgets. Camera-side contact is
+classified in actual link frames with the pinned Genesis B-to-A normal
+convention; it blocks all positive credit for that policy step. Time, wrong-face
+contact and drops incur costs; forbidden faults pay once and terminate. Success
+requires five continuous seconds of loaded ground clearance,
+gripper-relative retention, C posture and measured roll0 within5 degrees
+without faults. This is the90-degree rotation from nominal wrap roll-90; no
+scripted approach/lift timing is imposed. Reward-v5 lift progress also requires
+roll progress; full hold/success and hold-time exemption require final roll.
+Experiment schema5/policy schema4 reject earlier partial-lift artifacts. Three successful
 original replays per anchor precede q-space blending of all four command paths,
 time-normalized to the longest original duration. Validation, position-error
 sweeps and held-out tests do not train. A diameter collection indexes separate
@@ -951,6 +962,9 @@ nearest-diameter fallback. This task stays outside the payload and does not chan
 two-band experiment or the Pilot policy contract. Its source/model/settings
 context and successful physics preflight must match before training. See the
 [C-hug runbook](../workbench/research/experiments/hug_c/README.md).
+Current policy schema4 and experiment schema5 reject earlier partial-lift checkpoints;
+this actor has 20 observations and four actions. Data from the failed v2 study
+remains available for diagnosis. No runtime role or wire contract changes.
 
 Timed command artifacts now write compressed NPZ schema v2, with numeric arrays
 and Unicode JSON metadata; legacy JSON trajectories remain read-only inputs.
@@ -958,3 +972,41 @@ Hug policy export is a separate NPZ schema containing ELU MLP weights and actor
 normalization. `collect --policy` executes that policy under the Hug MDP, while
 `replay` consumes timed commands. Both loaders disable pickle and reject the
 other artifact kind. This does not change the existing Pilot policy contract.
+
+
+The external `hug_reverse_rl` task adds a PPO reset curriculum from verified
+`hug_reverse_ga` release paths. Its preparation and replay validation are separate
+from training. A task-owned adapter rebuilds full Genesis snapshot banks from the
+admitted reverse prefix, retaining robot/cylinder velocities and fixed nominal
+object reference. Selective resets leave other lanes unchanged, clear reward/hold
+history, and initialize the q potential at measured q. Grasp-neighborhood lift
+success precedes frontier advancement toward Home, with retention, retreat and a
+final nominal-Home mixture. Checkpoints pair policy/optimizer state with curriculum
+progress and reset RNG. Original-Home evaluation is explicit. Payload APIs, wire
+contracts, the frozen C-hug rewards and prior experiments are unchanged. See the
+[reverse curriculum runbook](../workbench/research/experiments/hug_reverse_rl/README.md).
+
+The subsequent external `hug_home_rl` task starts from a verified nominal-Home
+forward prefix and learns back from its handoff endpoint to original Home. It
+reuses the four-action C-hug MDP and existing policy/normalization with a new
+optimizer and reset curriculum. Prefix commands only rebuild full physical
+reset states; learned episodes receive no scripted approach. Overlapping reset
+windows credit the new hard edge separately from retained easy states. A
+task-local, lift-armed command-variation cost has an episode budget of at most
+one point; no runtime motion filter or new protocol is introduced. Its plans
+and paired checkpoints distinguish the forward reset contract and new reward
+from older reverse-GA experiments. See the
+[Home-prefix runbook](../workbench/research/experiments/hug_home_rl/README.md).
+
+### Cylinder research pipeline
+
+`workbench/research/experiments/hug_pipeline` coordinates function-derived C-band
+anchors, reverse GA, policy-free forward-reference repair, cold-start full-state
+reverse-curriculum PPO, and separately verified command interpolation. It consumes
+the Sim RL playground through existing APIs; runtime roles do not import it.
+The reference is used only to construct episode reset states. Deployed Home
+policy evaluation has no scripted prefix. Each stage runs in a separate process
+with an immutable study contract, per-case identity and shared physics identity.
+Model changes invalidate plans; failed learning/physical gates cannot publish
+policies as ready. Timed interpolation artifacts are explicitly distinct from
+closed-loop policy NPZ exports.

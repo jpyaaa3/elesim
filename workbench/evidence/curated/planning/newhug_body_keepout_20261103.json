@@ -1,0 +1,43 @@
+{
+  "version": "0.5.1",
+  "source_sha256": "a88808046966e39f6bf4173e88f94b815f73959b6f4819a9df49256a57023ed3",
+  "allowed_contact_groups": [
+    "seg1",
+    "seg2",
+    "gripper_base",
+    "gripper_claw"
+  ],
+  "protected_part_names": [
+    "camera",
+    "housing",
+    "wedge"
+  ],
+  "body_clearance_m": 0.001,
+  "tests": {
+    "protected_body": 17,
+    "needle_map": 34,
+    "http_and_js": 3,
+    "wrap_comparison": 7,
+    "standalone": 37
+  },
+  "cases": [
+    {
+      "diameter_mm": 100,
+      "iterations": 256,
+      "recorded_needles": 254,
+      "min_body_clearance_m": 0.0017959008535510454,
+      "all_contacts_allowlisted": true,
+      "raw_json_path": "workbench/evidence/generated/newhug-protected-body-20261103-100.json",
+      "raw_sha256": "3c24eeac573afe2848f5b610f456d1f5b0808b78a29d05d919670cc002309256"
+    },
+    {
+      "diameter_mm": 160,
+      "iterations": 256,
+      "recorded_needles": 254,
+      "min_body_clearance_m": 0.001143196885100714,
+      "all_contacts_allowlisted": true,
+      "raw_json_path": "workbench/evidence/generated/newhug-protected-body-20261103-160.json",
+      "raw_sha256": "f2c3de4d4d3990f4ca92879a4b89de6f6f4034bd3dca1f412dbd1726e99d9d01"
+    }
+  ]
+}

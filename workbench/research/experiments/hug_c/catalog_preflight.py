@@ -54,21 +54,25 @@ def screen(args):
             env.scene.robot.control_dofs_position(targets, dofs_idx_local=env.dofs)
             for _ in range(args.ticks):
                 env.tick(command)
-            checks[phase] = env.fault.detach().cpu().tolist()
+            checks[phase] = dict(fault=env.fault.detach().cpu().tolist(),
+                                 wrong_face=(env.macro_wrong>0).detach().cpu().tolist(),
+                                 drift_mm=(torch.linalg.vector_norm(env.scene.object.get_pos()[:,:2]-positions[:,:2],dim=1)*1000).detach().cpu().tolist())
         for index, row in enumerate(subset):
-            results.append(dict(row, home_fault=checks['home'][index], goal_fault=checks['goal'][index],
-                                static_ready=not (checks['home'][index] or checks['goal'][index])))
+            facts={phase+'_'+kind:checks[phase][kind][index]
+                   for phase in ('home','goal') for kind in ('fault','wrong_face')}
+            home_drift=checks['home']['drift_mm'][index]
+            results.append(dict(row,**facts,home_drift_mm=home_drift,static_ready=not any(facts.values()) and home_drift<=1.))
         progress = dict(visited=len(results), total=len(rows), static_ready=sum(r['static_ready'] for r in results))
         temp = args.output/'progress.json.tmp'
         temp.write_text(json.dumps(progress, indent=2))
         temp.replace(args.output/'progress.json')
         print(json.dumps(progress), flush=True)
-    report = dict(schema='elesim-c-hug-catalog-preflight', schema_version=1,
+    report = dict(schema='elesim-c-hug-catalog-preflight', schema_version=3,
                   source=catalog['source'], diameter_mm=catalog['diameter_mm'],
                   step_deg=catalog['step_deg'], mu_max=catalog['mu_max'],
                   simulation_context=experiment['simulation_context'],
                   ticks_per_pose=args.ticks, batch=args.batch,
-                  criterion='Home and directly placed goal have no faults; approach/lift untested',
+                  criterion='Home and directly placed goal have no faults/camera-side contacts; Home XY drift <=1 mm; preparation/closing/lift untested',
                   results=results)
     write_json(args.output/'report.json', report)
 

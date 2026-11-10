@@ -217,6 +217,49 @@ Theta(deg)는 별도 표시 축척을 사용한다.
 마우스를 점 위에 올리면 좌표·각도·μ·상태를 확인한다. 깊이순으로 그린 앞쪽 점을 선택한다.
 독립 HTML의 Canvas와 JavaScript로 3D 투영을 구현하며 외부 라이브러리나 CDN 의존성은 없다. UI 문구는 영어다.
 
+### mapper의 Home→Extend Arm 충돌 기준
+
+공유용 `/home/user/ws/hugmap/mapper.html`은 최종 파지 자세의 투영 충돌과
+Home→Extend Arm 전개의 충돌 envelope를 함께 적용한다. XY·q 화면의 작도,
+픽셀 역산 보완, RL용 `hug_c.source` 함수 추출이 같은 `objectCollision`을 쓴다.
+`finalObjectCollision`은 최종 자세만 따로 검사하며 기존 팔 접촉의 1 mm 형상
+근사 허용, 카메라/하우징/웨지 1 mm 보호 간격, 자기 충돌 0.05 mm 수치 허용을
+유지한다. 이 1 mm 접촉 근사를 전개에 적용하지 않는다.
+
+전개는 실제 앱 매핑의 Home(linear −120 mm, roll 0°, q3 −170°, q4 +170°)에서
+Extend Arm(linear −10 mm, roll 0°, q3/q4 0°)까지 네 명령을 선형 보간한다.
+이는 명시한 준비 동작이며, 실제 Pilot의 버튼 명령에 대한 동적 제어 경로와 같다고
+가정하지 않는다. q3/q4는 총각이고 계산 시 다섯 관절에 나눈다. 실제 URDF의
+팔·카메라·하우징·웨지와 고정된 Go2 몸체/다리 충돌 형상을 사용한다. 각 부품이
+전개 중 차지하는 XY의 convex hull을 구해 물체 원과 검사한다. 물체는 이 형상의
+높이를 가로지르는 고정된 수직 원기둥으로 가정한다.
+
+기준은 `distance(object centre, preparation envelope) > D/2 + 1 mm + ε`다.
+현재 340구간에서 관절 변화와 실제 체인 길이로 계산한 표본 사이 보정 ε는
+약 **0.04268 mm**다. 원통/구 충돌 primitive는 외접 다각형으로 보수적으로
+근사한다. 부품별 convex envelope는 빈 공간을 포함할 수 있으므로 회색 판정은
+이 준비 동작에 대한 보수적 제외다. 모든 가능한 접근의 불가능성을 뜻하지 않는다.
+
+`Home → Extend Arm envelope` 체크박스는 XY의 제외 영역 표시만 켜고 끈다.
+충돌 필터는 계속 적용된다. 회색 후보의 설명에는 최종 자세와 전개 중 어느 조건에
+걸렸는지, 부품명과 signed gap을 표시한다. 이후 roll·감싸기·물체 이동·들어올리기는
+검사하지 않으므로 전개 필터 통과를 전체 접근 성공으로 해석하면 안 된다.
+
+모델이나 프리셋이 바뀌면 현재 HTML을 입력으로 재생성한다. 출력 HTML에는 필요한
+형상이 모두 포함되며 공유받은 사용자는 Python이나 서버 없이 파일 하나로 실행한다.
+
+```bash
+PYTHONPATH=payload/runtime/common/protocol:payload/runtime/docker/sim/app:. \
+python3 -m workbench.research.analysis.rebuild_mapper_collision \
+  /home/user/ws/hugmap/mapper.html \
+  --output workbench/evidence/generated/mapper-collision/mapper.html \
+  --report workbench/evidence/generated/mapper-collision/build.json
+```
+
+이 명령은 검토할 출력 파일을 생성하며 입력 HTML을 바꾸지 않는다. NumPy/SciPy와
+앱 설정 로더는 재생성 시에만 필요하다. 임의 상수로 114 mm 선을 넓히거나, 기존
+JSON에서 실패 점을 골라 추가 제외하는 방식이 아니다.
+
 ## newhug와 고정 배치 Wrap 과제 비교
 
 독립 실행형 `/home/user/ws/newhug.py`의 프로파일·FK·마찰 점수를 명시적으로
@@ -476,3 +519,42 @@ unverified here: no GPU training or Genesis replay was run during implementation
 The supplied v3 map is copied to
 `workbench/evidence/generated/hug_interpolation/input/map.json`; `gaga.json` was
 not substituted. Generated inputs/results are ignored by Git.
+
+
+`workbench.research.experiments.hug_reverse_rl.experiment` provides explicit
+`prepare`, `check`, `train` and `evaluate` commands for a verified reverse-GA
+reset curriculum. It learns lift/hold near the solver grasp and expands starts
+toward Home using clean frontier episode success. Full-state prefix replay and
+selective-restore checks gate training. Policy NPZ exports and videos use the
+existing actor/renderer; evaluation includes Home with the original object pose.
+[Commands and evidence boundaries](../workbench/research/experiments/hug_reverse_rl/README.md).
+
+### Mapper C triangle overlay
+
+`ws/hugmap/mapper.html` can embed the current study's exact A/B/C anchors and a
+standalone worker for function-domain triangle selection. `Current RL anchors`
+restores the physical-admission-screened study triangle; `Select C triangle`
+samples the chosen diameter, mu cutoff and total-angle resolution through the
+same mapper/CAD/preparation functions, then maximizes occupied q-area inside the
+triangle. Clearance, worst anchor mu and conditioning are the tie-breaks.
+Browser random starts use a portable JS stream; the small-catalog exhaustive
+method and imported actual RL vertices match Python exactly. General seeded
+searches share the objective/search procedure without a bitwise RNG promise.
+
+The q plot shows the interpolation triangle. XY dashed edges only join its three
+anchors; nonlinear q-to-XY mapping does not turn them into XY interpolation
+boundaries. Click an anchor to inspect its total q3/q4 angles. Parameter changes
+invalidate the displayed selection and cancel stale worker replies. Construction
+remains responsive during selection. The page stays one standalone HTML file.
+
+To embed or refresh a completed physical catalog and selected study anchors:
+
+```bash
+PYTHONPATH=payload/runtime/common/protocol:payload/runtime/docker/sim/app:. \
+python3 -m workbench.research.analysis.mapper_triangle /path/to/mapper.html \
+  --study workbench/evidence/generated/STUDY --output /path/to/updated-mapper.html
+```
+
+The builder checks the study/kernel match, recomputes the exact Python triangle,
+keeps the original geometry script unchanged, and is idempotent. Browser-only
+candidates have no Genesis admission test; the UI labels that distinction.

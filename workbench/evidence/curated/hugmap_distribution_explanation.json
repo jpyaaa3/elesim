@@ -1,0 +1,1418 @@
+{
+  "source_sha256": "811d04da3bf2191ab4959b987671a5475f4fa713405af68681e155fc69ff0e92",
+  "mu_allow": 0.5,
+  "elapsed_s": 67.10244804399554,
+  "catalog": [
+    [
+      [
+        "node0",
+        "e",
+        1
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        0
+      ]
+    ],
+    [
+      [
+        "node0",
+        "v",
+        1
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        0
+      ]
+    ],
+    [
+      [
+        "node1",
+        "e",
+        1
+      ],
+      [
+        "gripper_claw_left",
+        "e",
+        0
+      ]
+    ],
+    [
+      [
+        "node1",
+        "e",
+        1
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        0
+      ]
+    ],
+    [
+      [
+        "node1",
+        "v",
+        1
+      ],
+      [
+        "gripper_claw_left",
+        "e",
+        0
+      ]
+    ],
+    [
+      [
+        "node1",
+        "v",
+        1
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        0
+      ]
+    ],
+    [
+      [
+        "node1",
+        "v",
+        2
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        0
+      ]
+    ],
+    [
+      [
+        "node2",
+        "e",
+        1
+      ],
+      [
+        "gripper_claw_left",
+        "e",
+        0
+      ]
+    ],
+    [
+      [
+        "node2",
+        "e",
+        1
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        0
+      ]
+    ],
+    [
+      [
+        "node2",
+        "e",
+        4
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        7
+      ]
+    ],
+    [
+      [
+        "node2",
+        "v",
+        1
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        0
+      ]
+    ],
+    [
+      [
+        "node2",
+        "v",
+        2
+      ],
+      [
+        "gripper_claw_left",
+        "e",
+        0
+      ]
+    ],
+    [
+      [
+        "node2",
+        "v",
+        2
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        0
+      ]
+    ],
+    [
+      [
+        "node2",
+        "v",
+        5
+      ],
+      [
+        "gripper_claw_left",
+        "e",
+        6
+      ]
+    ],
+    [
+      [
+        "node2",
+        "v",
+        5
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        7
+      ]
+    ],
+    [
+      [
+        "node3",
+        "e",
+        4
+      ],
+      [
+        "gripper_base",
+        "e",
+        3
+      ]
+    ],
+    [
+      [
+        "node3",
+        "e",
+        4
+      ],
+      [
+        "gripper_claw_left",
+        "e",
+        6
+      ]
+    ],
+    [
+      [
+        "node3",
+        "e",
+        4
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        6
+      ]
+    ],
+    [
+      [
+        "node3",
+        "e",
+        4
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        7
+      ]
+    ],
+    [
+      [
+        "node3",
+        "v",
+        4
+      ],
+      [
+        "gripper_claw_left",
+        "e",
+        6
+      ]
+    ],
+    [
+      [
+        "node3",
+        "v",
+        4
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        7
+      ]
+    ],
+    [
+      [
+        "node3",
+        "v",
+        5
+      ],
+      [
+        "gripper_base",
+        "e",
+        3
+      ]
+    ],
+    [
+      [
+        "node3",
+        "v",
+        5
+      ],
+      [
+        "gripper_claw_left",
+        "e",
+        6
+      ]
+    ],
+    [
+      [
+        "node3",
+        "v",
+        5
+      ],
+      [
+        "gripper_claw_left",
+        "v",
+        6
+      ]
+    ],
+    [
+      [
+        "node4",
+        "e",
+        4
+      ],
+      [
+        "node9",
+        "e",
+        4
+      ]
+    ],
+    [
+      [
+        "node4",
+        "v",
+        4
+      ],
+      [
+        "gripper_base",
+        "e",
+        3
+      ]
+    ],
+    [
+      [
+        "node4",
+        "v",
+        4
+      ],
+      [
+        "gripper_base",
+        "v",
+        3
+      ]
+    ],
+    [
+      [
+        "node4",
+        "v",
+        4
+      ],
+      [
+        "node9",
+        "e",
+        4
+      ]
+    ]
+  ],
+  "scope": "Every not_found cell cardinally adjacent to an observed success. Exact contacts; empirical 28-pair catalog; joint counterfactuals limited to 200 deg. No universal impossibility claims.",
+  "labeling": "A recovered candidate passes original inspect_pose. Other labels summarize the least-violating candidates; mixed means different or simultaneous failures. Unresolved means no finite-feature candidate in the searched catalog.",
+  "summaries": [
+    {
+      "D": 100.0,
+      "bands": {
+        "1": {
+          "count": 24,
+          "node_counts": {
+            "node1": 20,
+            "node0": 3,
+            "node2": 1
+          },
+          "q2_abs": {
+            "median": 176.92750802104587,
+            "p95": 179.74554107650428,
+            "max": 179.97844756236967
+          },
+          "joint_within_2deg": 10,
+          "mu_above_point45": 0
+        },
+        "2": {
+          "count": 330,
+          "node_counts": {
+            "node4": 139,
+            "node3": 191
+          },
+          "q2_abs": {
+            "median": 174.4355432030414,
+            "p95": 179.40939180664984,
+            "max": 180.0
+          },
+          "joint_within_2deg": 62,
+          "mu_above_point45": 0
+        }
+      },
+      "probes": {
+        "object_collision": 65,
+        "recovered": 92,
+        "mixed": 53,
+        "joint": 10
+      },
+      "interior": {
+        "recovered": 13
+      }
+    },
+    {
+      "D": 105.0,
+      "bands": {
+        "1": {
+          "count": 21,
+          "node_counts": {
+            "node1": 15,
+            "node0": 3,
+            "node2": 3
+          },
+          "q2_abs": {
+            "median": 176.71318150843854,
+            "p95": 179.78908946735189,
+            "max": 179.87037872551278
+          },
+          "joint_within_2deg": 8,
+          "mu_above_point45": 0
+        },
+        "2": {
+          "count": 403,
+          "node_counts": {
+            "node4": 135,
+            "node3": 266,
+            "node2": 2
+          },
+          "q2_abs": {
+            "median": 173.08496135814048,
+            "p95": 179.2639128871462,
+            "max": 179.90806104449427
+          },
+          "joint_within_2deg": 61,
+          "mu_above_point45": 0
+        }
+      },
+      "probes": {
+        "object_collision": 67,
+        "recovered": 86,
+        "mixed": 56,
+        "joint": 10
+      },
+      "interior": {
+        "recovered": 9
+      }
+    },
+    {
+      "D": 110.0,
+      "bands": {
+        "1": {
+          "count": 29,
+          "node_counts": {
+            "node1": 18,
+            "node2": 9,
+            "node0": 2
+          },
+          "q2_abs": {
+            "median": 176.30130401627792,
+            "p95": 179.74501662869216,
+            "max": 180.0
+          },
+          "joint_within_2deg": 9,
+          "mu_above_point45": 0
+        },
+        "2": {
+          "count": 475,
+          "node_counts": {
+            "node4": 145,
+            "node3": 327,
+            "node2": 3
+          },
+          "q2_abs": {
+            "median": 171.09381104369868,
+            "p95": 178.93579432491157,
+            "max": 179.99197870360456
+          },
+          "joint_within_2deg": 59,
+          "mu_above_point45": 0
+        }
+      },
+      "probes": {
+        "object_collision": 88,
+        "recovered": 94,
+        "mixed": 64,
+        "joint": 8
+      },
+      "interior": {
+        "recovered": 9
+      }
+    },
+    {
+      "D": 115.0,
+      "bands": {
+        "1": {
+          "count": 37,
+          "node_counts": {
+            "node1": 23,
+            "node0": 3,
+            "node2": 11
+          },
+          "q2_abs": {
+            "median": 177.131408670598,
+            "p95": 179.3780516729156,
+            "max": 179.87442764057386
+          },
+          "joint_within_2deg": 10,
+          "mu_above_point45": 0
+        },
+        "2": {
+          "count": 505,
+          "node_counts": {
+            "node4": 129,
+            "node3": 361,
+            "node2": 15
+          },
+          "q2_abs": {
+            "median": 169.77274053775724,
+            "p95": 178.88958662745083,
+            "max": 179.96545691296615
+          },
+          "joint_within_2deg": 48,
+          "mu_above_point45": 0
+        }
+      },
+      "probes": {
+        "recovered": 101,
+        "object_collision": 82,
+        "mixed": 59,
+        "joint": 7
+      },
+      "interior": {
+        "recovered": 8
+      }
+    },
+    {
+      "D": 120.0,
+      "bands": {
+        "1": {
+          "count": 31,
+          "node_counts": {
+            "node0": 1,
+            "node1": 20,
+            "node2": 10
+          },
+          "q2_abs": {
+            "median": 176.4033251930034,
+            "p95": 179.77452077734586,
+            "max": 180.0
+          },
+          "joint_within_2deg": 9,
+          "mu_above_point45": 0
+        },
+        "2": {
+          "count": 525,
+          "node_counts": {
+            "node4": 118,
+            "node3": 390,
+            "node2": 17
+          },
+          "q2_abs": {
+            "median": 168.30378458493865,
+            "p95": 178.58555839583246,
+            "max": 179.9035726068306
+          },
+          "joint_within_2deg": 47,
+          "mu_above_point45": 3
+        }
+      },
+      "probes": {
+        "object_collision": 77,
+        "unresolved": 1,
+        "recovered": 98,
+        "mixed": 64,
+        "joint": 6
+      },
+      "interior": {
+        "recovered": 10
+      }
+    },
+    {
+      "D": 125.0,
+      "bands": {
+        "1": {
+          "count": 49,
+          "node_counts": {
+            "node1": 25,
+            "node0": 3,
+            "node2": 21
+          },
+          "q2_abs": {
+            "median": 175.25985281524356,
+            "p95": 179.77178245744037,
+            "max": 179.93172060048857
+          },
+          "joint_within_2deg": 13,
+          "mu_above_point45": 0
+        },
+        "2": {
+          "count": 568,
+          "node_counts": {
+            "node4": 138,
+            "node3": 406,
+            "node2": 24
+          },
+          "q2_abs": {
+            "median": 166.45466240512008,
+            "p95": 178.04766585262016,
+            "max": 179.9572628408251
+          },
+          "joint_within_2deg": 37,
+          "mu_above_point45": 14
+        }
+      },
+      "probes": {
+        "object_collision": 84,
+        "recovered": 108,
+        "mixed": 67,
+        "joint": 7,
+        "friction": 2
+      },
+      "interior": {
+        "recovered": 13,
+        "mixed": 1
+      }
+    },
+    {
+      "D": 130.0,
+      "bands": {
+        "1": {
+          "count": 54,
+          "node_counts": {
+            "node1": 26,
+            "node0": 1,
+            "node2": 27
+          },
+          "q2_abs": {
+            "median": 176.06408289600492,
+            "p95": 179.9130549795224,
+            "max": 179.96195258105683
+          },
+          "joint_within_2deg": 18,
+          "mu_above_point45": 1
+        },
+        "2": {
+          "count": 604,
+          "node_counts": {
+            "node4": 161,
+            "node3": 415,
+            "node2": 28
+          },
+          "q2_abs": {
+            "median": 163.86798854295444,
+            "p95": 176.34657308238417,
+            "max": 180.0
+          },
+          "joint_within_2deg": 22,
+          "mu_above_point45": 26
+        }
+      },
+      "probes": {
+        "object_collision": 88,
+        "recovered": 102,
+        "mixed": 58,
+        "joint": 7,
+        "friction": 12
+      },
+      "interior": {
+        "recovered": 9,
+        "joint": 1,
+        "mixed": 1,
+        "object_collision": 1
+      }
+    },
+    {
+      "D": 135.0,
+      "bands": {
+        "1": {
+          "count": 68,
+          "node_counts": {
+            "node1": 28,
+            "node0": 2,
+            "node2": 38
+          },
+          "q2_abs": {
+            "median": 175.58125856702918,
+            "p95": 179.7246801337162,
+            "max": 179.99947320669668
+          },
+          "joint_within_2deg": 18,
+          "mu_above_point45": 3
+        },
+        "2": {
+          "count": 588,
+          "node_counts": {
+            "node4": 148,
+            "node3": 417,
+            "node2": 23
+          },
+          "q2_abs": {
+            "median": 161.98013788794736,
+            "p95": 175.20965197118088,
+            "max": 180.0
+          },
+          "joint_within_2deg": 13,
+          "mu_above_point45": 37
+        }
+      },
+      "probes": {
+        "object_collision": 80,
+        "recovered": 102,
+        "joint": 3,
+        "mixed": 65,
+        "friction": 32
+      },
+      "interior": {
+        "friction": 3,
+        "recovered": 15,
+        "mixed": 5
+      }
+    },
+    {
+      "D": 140.0,
+      "bands": {
+        "1": {
+          "count": 70,
+          "node_counts": {
+            "node1": 27,
+            "node0": 1,
+            "node2": 42
+          },
+          "q2_abs": {
+            "median": 175.13612013728726,
+            "p95": 178.9214574696936,
+            "max": 179.8977141793233
+          },
+          "joint_within_2deg": 13,
+          "mu_above_point45": 5
+        },
+        "2": {
+          "count": 570,
+          "node_counts": {
+            "node4": 146,
+            "node3": 402,
+            "node2": 22
+          },
+          "q2_abs": {
+            "median": 160.04645316299917,
+            "p95": 173.08608740830775,
+            "max": 179.22840216157442
+          },
+          "joint_within_2deg": 5,
+          "mu_above_point45": 42
+        }
+      },
+      "probes": {
+        "object_collision": 78,
+        "recovered": 95,
+        "mixed": 58,
+        "joint": 5,
+        "friction": 51
+      },
+      "interior": {
+        "friction": 5,
+        "mixed": 8,
+        "recovered": 13
+      }
+    },
+    {
+      "D": 145.0,
+      "bands": {
+        "1": {
+          "count": 75,
+          "node_counts": {
+            "node1": 24,
+            "node0": 2,
+            "node2": 49
+          },
+          "q2_abs": {
+            "median": 174.77506829880033,
+            "p95": 179.3405124235162,
+            "max": 179.99031437661102
+          },
+          "joint_within_2deg": 12,
+          "mu_above_point45": 13
+        },
+        "2": {
+          "count": 541,
+          "node_counts": {
+            "node4": 120,
+            "node3": 406,
+            "node2": 15
+          },
+          "q2_abs": {
+            "median": 158.95006970147375,
+            "p95": 171.56272737968928,
+            "max": 178.34344864852562
+          },
+          "joint_within_2deg": 6,
+          "mu_above_point45": 59
+        }
+      },
+      "probes": {
+        "mixed": 71,
+        "recovered": 85,
+        "object_collision": 70,
+        "friction": 61,
+        "joint": 1
+      },
+      "interior": {
+        "friction": 5,
+        "mixed": 10,
+        "recovered": 7
+      }
+    },
+    {
+      "D": 150.0,
+      "bands": {
+        "1": {
+          "count": 74,
+          "node_counts": {
+            "node1": 27,
+            "node0": 1,
+            "node2": 46
+          },
+          "q2_abs": {
+            "median": 173.17969356993024,
+            "p95": 177.61626409244988,
+            "max": 178.92520991282268
+          },
+          "joint_within_2deg": 2,
+          "mu_above_point45": 16
+        },
+        "2": {
+          "count": 497,
+          "node_counts": {
+            "node4": 97,
+            "node3": 382,
+            "node2": 18
+          },
+          "q2_abs": {
+            "median": 157.25889605310036,
+            "p95": 170.14508489982288,
+            "max": 176.9100680202333
+          },
+          "joint_within_2deg": 4,
+          "mu_above_point45": 73
+        }
+      },
+      "probes": {
+        "mixed": 99,
+        "recovered": 68,
+        "object_collision": 51,
+        "friction": 70
+      },
+      "interior": {
+        "recovered": 6,
+        "mixed": 10
+      }
+    },
+    {
+      "D": 155.0,
+      "bands": {
+        "1": {
+          "count": 61,
+          "node_counts": {
+            "node0": 1,
+            "node1": 22,
+            "node2": 38
+          },
+          "q2_abs": {
+            "median": 171.90927838588942,
+            "p95": 176.09710915699512,
+            "max": 177.03054014593354
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 12
+        },
+        "2": {
+          "count": 464,
+          "node_counts": {
+            "node4": 67,
+            "node3": 380,
+            "node2": 17
+          },
+          "q2_abs": {
+            "median": 155.86412199650874,
+            "p95": 168.6668669133601,
+            "max": 176.20856428177788
+          },
+          "joint_within_2deg": 5,
+          "mu_above_point45": 75
+        }
+      },
+      "probes": {
+        "mixed": 117,
+        "recovered": 61,
+        "friction": 98,
+        "object_collision": 39
+      },
+      "interior": {
+        "mixed": 11,
+        "recovered": 4
+      }
+    },
+    {
+      "D": 160.0,
+      "bands": {
+        "1": {
+          "count": 54,
+          "node_counts": {
+            "node1": 25,
+            "node0": 1,
+            "node2": 28
+          },
+          "q2_abs": {
+            "median": 169.64361931983476,
+            "p95": 174.38230442015666,
+            "max": 175.04664821147884
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 14
+        },
+        "2": {
+          "count": 428,
+          "node_counts": {
+            "node4": 33,
+            "node3": 377,
+            "node2": 18
+          },
+          "q2_abs": {
+            "median": 155.13822893837025,
+            "p95": 166.48097498632598,
+            "max": 175.38649679773206
+          },
+          "joint_within_2deg": 4,
+          "mu_above_point45": 92
+        }
+      },
+      "probes": {
+        "friction": 113,
+        "mixed": 94,
+        "recovered": 33,
+        "joint": 1,
+        "object_collision": 37
+      },
+      "interior": {
+        "mixed": 4,
+        "recovered": 3
+      }
+    },
+    {
+      "D": 165.0,
+      "bands": {
+        "1": {
+          "count": 45,
+          "node_counts": {
+            "node0": 1,
+            "node1": 19,
+            "node2": 25
+          },
+          "q2_abs": {
+            "median": 168.2452701637864,
+            "p95": 172.46820343441286,
+            "max": 173.23268953294664
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 14
+        },
+        "2": {
+          "count": 397,
+          "node_counts": {
+            "node4": 16,
+            "node3": 366,
+            "node2": 15
+          },
+          "q2_abs": {
+            "median": 153.61494010322002,
+            "p95": 165.0490227326897,
+            "max": 172.7983182587672
+          },
+          "joint_within_2deg": 4,
+          "mu_above_point45": 101
+        }
+      },
+      "probes": {
+        "mixed": 100,
+        "recovered": 31,
+        "friction": 112,
+        "object_collision": 36
+      },
+      "interior": {
+        "friction": 4,
+        "mixed": 8,
+        "recovered": 3
+      }
+    },
+    {
+      "D": 170.0,
+      "bands": {
+        "1": {
+          "count": 32,
+          "node_counts": {
+            "node1": 17,
+            "node0": 1,
+            "node2": 14
+          },
+          "q2_abs": {
+            "median": 166.82573896602378,
+            "p95": 171.43434528725157,
+            "max": 172.08822815181395
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 14
+        },
+        "2": {
+          "count": 356,
+          "node_counts": {
+            "node3": 342,
+            "node4": 3,
+            "node2": 11
+          },
+          "q2_abs": {
+            "median": 151.32883536312838,
+            "p95": 163.1523656864171,
+            "max": 170.5961048866372
+          },
+          "joint_within_2deg": 2,
+          "mu_above_point45": 139
+        }
+      },
+      "probes": {
+        "friction": 95,
+        "mixed": 85,
+        "joint": 1,
+        "recovered": 28,
+        "object_collision": 29
+      },
+      "interior": {
+        "friction": 12,
+        "mixed": 1,
+        "recovered": 2
+      }
+    },
+    {
+      "D": 175.0,
+      "bands": {
+        "1": {
+          "count": 30,
+          "node_counts": {
+            "node1": 19,
+            "node2": 11
+          },
+          "q2_abs": {
+            "median": 164.43380612853548,
+            "p95": 169.75456848584116,
+            "max": 170.6496715806225
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 11
+        },
+        "2": {
+          "count": 314,
+          "node_counts": {
+            "node4": 9,
+            "node3": 290,
+            "node2": 15
+          },
+          "q2_abs": {
+            "median": 148.49550970931216,
+            "p95": 162.41950664886176,
+            "max": 168.10159987796868
+          },
+          "joint_within_2deg": 1,
+          "mu_above_point45": 158
+        }
+      },
+      "probes": {
+        "mixed": 90,
+        "recovered": 29,
+        "friction": 129,
+        "object_collision": 29
+      },
+      "interior": {
+        "friction": 6,
+        "mixed": 4,
+        "recovered": 1
+      }
+    },
+    {
+      "D": 180.0,
+      "bands": {
+        "1": {
+          "count": 16,
+          "node_counts": {
+            "node1": 12,
+            "node0": 1,
+            "node2": 3
+          },
+          "q2_abs": {
+            "median": 162.6975989063522,
+            "p95": 167.26312583004554,
+            "max": 168.13304932817147
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 4
+        },
+        "2": {
+          "count": 236,
+          "node_counts": {
+            "node3": 231,
+            "node2": 5
+          },
+          "q2_abs": {
+            "median": 145.26688838174812,
+            "p95": 158.04203305798652,
+            "max": 164.98975212722826
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 141
+        }
+      },
+      "probes": {
+        "friction": 88,
+        "recovered": 21,
+        "mixed": 66,
+        "object_collision": 21
+      },
+      "interior": {
+        "friction": 7,
+        "mixed": 2,
+        "recovered": 1
+      }
+    },
+    {
+      "D": 185.0,
+      "bands": {
+        "1": {
+          "count": 15,
+          "node_counts": {
+            "node1": 13,
+            "node2": 2
+          },
+          "q2_abs": {
+            "median": 158.32321925490578,
+            "p95": 166.2415352351648,
+            "max": 167.27240048079983
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 4
+        },
+        "2": {
+          "count": 169,
+          "node_counts": {
+            "node3": 162,
+            "node2": 7
+          },
+          "q2_abs": {
+            "median": 144.22606376944253,
+            "p95": 156.41946254000393,
+            "max": 161.28726146547632
+          },
+          "joint_within_2deg": 1,
+          "mu_above_point45": 123
+        }
+      },
+      "probes": {
+        "friction": 106,
+        "object_collision": 18,
+        "mixed": 69,
+        "recovered": 20
+      },
+      "interior": {
+        "friction": 9,
+        "recovered": 1,
+        "mixed": 3
+      }
+    },
+    {
+      "D": 190.0,
+      "bands": {
+        "1": {
+          "count": 14,
+          "node_counts": {
+            "node1": 13,
+            "node2": 1
+          },
+          "q2_abs": {
+            "median": 160.43987543594153,
+            "p95": 165.8303329070109,
+            "max": 167.7332028962478
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 6
+        },
+        "2": {
+          "count": 114,
+          "node_counts": {
+            "node3": 112,
+            "node2": 2
+          },
+          "q2_abs": {
+            "median": 140.04696921839238,
+            "p95": 153.19558613347772,
+            "max": 158.4925555067439
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 99
+        }
+      },
+      "probes": {
+        "friction": 103,
+        "mixed": 60,
+        "recovered": 17,
+        "object_collision": 13
+      },
+      "interior": {
+        "recovered": 2
+      }
+    },
+    {
+      "D": 195.0,
+      "bands": {
+        "1": {
+          "count": 11,
+          "node_counts": {
+            "node1": 11
+          },
+          "q2_abs": {
+            "median": 155.6343172265225,
+            "p95": 162.09271028080917,
+            "max": 164.09585597024693
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 2
+        },
+        "2": {
+          "count": 66,
+          "node_counts": {
+            "node3": 60,
+            "node2": 6
+          },
+          "q2_abs": {
+            "median": 139.42145313507075,
+            "p95": 156.43455139502362,
+            "max": 158.62809477128295
+          },
+          "joint_within_2deg": 1,
+          "mu_above_point45": 64
+        }
+      },
+      "probes": {
+        "friction": 86,
+        "object_collision": 13,
+        "mixed": 60,
+        "recovered": 10
+      },
+      "interior": {
+        "recovered": 1
+      }
+    },
+    {
+      "D": 200.0,
+      "bands": {
+        "1": {
+          "count": 7,
+          "node_counts": {
+            "node1": 7
+          },
+          "q2_abs": {
+            "median": 158.00487761376186,
+            "p95": 161.9471693560824,
+            "max": 163.12286217791856
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 3
+        },
+        "2": {
+          "count": 13,
+          "node_counts": {
+            "node3": 12,
+            "node2": 1
+          },
+          "q2_abs": {
+            "median": 136.52674625705978,
+            "p95": 152.17877955304218,
+            "max": 154.78488843039057
+          },
+          "joint_within_2deg": 0,
+          "mu_above_point45": 13
+        }
+      },
+      "probes": {
+        "friction": 37,
+        "mixed": 18,
+        "object_collision": 8
+      },
+      "interior": {}
+    }
+  ],
+  "total_probes": 5089,
+  "probe_labels": {
+    "object_collision": 1073,
+    "recovered": 1281,
+    "mixed": 1473,
+    "joint": 66,
+    "unresolved": 1,
+    "friction": 1195
+  },
+  "interior_labels": {
+    "recovered": 130,
+    "mixed": 68,
+    "joint": 1,
+    "object_collision": 1,
+    "friction": 51
+  },
+  "examples": {
+    "joint": {
+      "D": 100.0,
+      "x": -65.0,
+      "y": 345.0,
+      "interior": false,
+      "label": "joint",
+      "candidate_count": 1,
+      "raw_roots": 43,
+      "degenerate": false,
+      "reasons": [
+        [
+          "joint"
+        ]
+      ],
+      "best": {
+        "violations": [
+          "joint"
+        ],
+        "obstacles": [],
+        "mu_min": 0.19733811277410832,
+        "seg1_deg": 89.50700250311124,
+        "seg2_deg": -180.3394845810082,
+        "features": [
+          [
+            "node3",
+            "v",
+            4
+          ],
+          [
+            "gripper_claw_left",
+            "e",
+            6
+          ]
+        ]
+      },
+      "recovered": []
+    },
+    "camera": {
+      "D": 150.0,
+      "x": -70.0,
+      "y": 315.0,
+      "interior": false,
+      "label": "object_collision",
+      "candidate_count": 2,
+      "raw_roots": 38,
+      "degenerate": false,
+      "reasons": [
+        [
+          "object_collision"
+        ]
+      ],
+      "best": {
+        "violations": [
+          "object_collision"
+        ],
+        "obstacles": [
+          "camera",
+          "camera_clearance"
+        ],
+        "mu_min": 0.25840952131137135,
+        "seg1_deg": -36.97605824043288,
+        "seg2_deg": 169.76608726878288,
+        "features": [
+          [
+            "node2",
+            "e",
+            1
+          ],
+          [
+            "gripper_claw_left",
+            "v",
+            0
+          ]
+        ]
+      },
+      "recovered": []
+    },
+    "friction": {
+      "D": 190.0,
+      "x": -115.0,
+      "y": 380.0,
+      "interior": false,
+      "label": "friction",
+      "candidate_count": 1,
+      "raw_roots": 46,
+      "degenerate": false,
+      "reasons": [
+        [
+          "friction"
+        ]
+      ],
+      "best": {
+        "violations": [
+          "friction"
+        ],
+        "obstacles": [],
+        "mu_min": 0.5033696520934544,
+        "seg1_deg": 108.0518255757262,
+        "seg2_deg": -148.17177235995848,
+        "features": [
+          [
+            "node3",
+            "e",
+            4
+          ],
+          [
+            "gripper_claw_left",
+            "e",
+            6
+          ]
+        ]
+      },
+      "recovered": []
+    }
+  }
+}

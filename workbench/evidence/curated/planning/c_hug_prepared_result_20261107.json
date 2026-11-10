@@ -1,0 +1,88 @@
+{
+  "schema": "elesim-c-hug-prepared-study-result",
+  "schema_version": 1,
+  "checked_utc": "2026-11-07T03:15:33.024238+00:00",
+  "run": "c-hug-ready-triangles-20261107",
+  "phase": "finished-anchor-failures",
+  "case_id": "c-train-000-d100",
+  "updates": 2000,
+  "started_utc": "2026-11-06T16:58:30.634543+00:00",
+  "finished_utc": "2026-11-06T19:07:27.249968+00:00",
+  "first_anchor_failed": true,
+  "other_anchors_started": false,
+  "new_training_started": false,
+  "interpretation": "1500/2000 evaluation commands remain fully folded and retracted without grasp/lift; this is a failed learned policy, not a geometric impossibility proof.",
+  "evaluations": [
+    {
+      "updates": 500,
+      "success": false,
+      "grasp": false,
+      "lift_fraction": 0.0,
+      "hold_s": 0.0,
+      "fault": false,
+      "reward_total": -7.824382781982422,
+      "final_command": [
+        -1.3390130959578528e-07,
+        1.5727835893630981,
+        -0.6283160448074341,
+        0.3757491409778595
+      ],
+      "video": "workbench/evidence/generated/c-hug-ready-triangles-20261107/d100/study/reports/c-train-000-d100/updates-00500/policy.mp4",
+      "report_sha256": "2790604304e01f9effd07daacfff60a6a4b37505f852f83ec755ff8eaa08f959"
+    },
+    {
+      "updates": 1000,
+      "success": false,
+      "grasp": false,
+      "lift_fraction": 0.0,
+      "hold_s": 0.0,
+      "fault": true,
+      "reward_total": -31.525039672851562,
+      "final_command": [
+        -6.3484999373031314e-06,
+        -1.5662873983383179,
+        -0.4859071373939514,
+        0.3023931086063385
+      ],
+      "video": "workbench/evidence/generated/c-hug-ready-triangles-20261107/d100/study/reports/c-train-000-d100/updates-01000/policy.mp4",
+      "report_sha256": "9d1cbf737962f791ef16c459852071ff952582d988752d48bc4a074b27eee2b3"
+    },
+    {
+      "updates": 1500,
+      "success": false,
+      "grasp": false,
+      "lift_fraction": 0.0,
+      "hold_s": 0.0,
+      "fault": false,
+      "reward_total": -7.660932540893555,
+      "final_command": [
+        -0.17333191633224487,
+        1.572556734085083,
+        -0.6283166408538818,
+        0.6283165812492371
+      ],
+      "video": "workbench/evidence/generated/c-hug-ready-triangles-20261107/d100/study/reports/c-train-000-d100/updates-01500/policy.mp4",
+      "report_sha256": "b3c48af0be2f418f00ef252560545d82ce3701f6b45b26af0fb484a040b8fbad"
+    },
+    {
+      "updates": 2000,
+      "success": false,
+      "grasp": false,
+      "lift_fraction": 0.0,
+      "hold_s": 0.0,
+      "fault": false,
+      "reward_total": -7.656566143035889,
+      "final_command": [
+        -0.17333191633224487,
+        1.5725536346435547,
+        -0.6283190250396729,
+        0.6283165812492371
+      ],
+      "video": "workbench/evidence/generated/c-hug-ready-triangles-20261107/d100/study/reports/c-train-000-d100/updates-02000/policy.mp4",
+      "report_sha256": "93a8d35e331bac91286d49a741f73ce59be561585593723debee6b2aeb9d67e5"
+    }
+  ],
+  "guard_sha256": "ce2cff0f8b5539a30acdaa01de132ffb30abbf197093ad85e49f1c87d8c99b48",
+  "processes_alive": false,
+  "artifacts_copied_and_hash_verified": true
+}

@@ -1,3 +1,5 @@
+> Hug GA/RL: see [current and retired workflows](research/experiments/HUG_WORKFLOWS.md). Old training instructions are historical, not the recommended entrypoints.
+
 # 현재 사용하는 Workbench
 
 자동 회귀는 `tools/quality/check.py`, 무거운 실험은 `tools/bench/`로 실행한다.
@@ -67,10 +69,10 @@ python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/serv
 
 | 모듈 | 유지 이유 |
 | --- | --- |
-| `experiments.wrap_grasp.train`, `.eval`, `.export`, `.export_traj` | 외부 원기둥 Wrap 학습·평가·정책/경로 출력; 공통 실행 API는 Sim 소유 |
-| `experiments.hug_c.prepare`, `.experiment`, `.study`, `.collection` | mapper 함수의 C형 q3/q4 삼각형; Home에서 네 축 자유 제어·들어올리기 5초 유지·경로 보간. 직경별 독립 수집과 `(x,y,D)` 선택. [실행 설명](research/experiments/hug_c/README.md) |
-| `experiments.hug_interpolation.experiment` | 두-band configure/check/train/collect/replay/interpolate/validate; [실행 설명](../docs/hug-rl-experiment.md) |
-| `experiments.hug_interpolation.prepare`, `experiments.hug_interpolation` | v3 두-band 국소 기준점 분할과 경로 보간 후보 생성; 물리 검증과 별개 |
+| `experiments.hug_pipeline` | 솔버→역GA→정방향 검증→Home PPO→보간의 재개 가능한 통합 실행기. [실행 설명](research/experiments/hug_pipeline/README.md) |
+| `experiments.hug_c.prepare`, `.collection`, `.reward_audit` (shared geometry/diagnostics; old training retired) | mapper 전개 필터·후보 전체 물리 검사 후 C형 q3/q4 삼각형 선정; Home 네 축 자유 제어·들어올리기 5초 유지·경로 보간. `collection screen/check`는 학습 없이 검사. [실행 설명](research/experiments/hug_c/README.md) |
+| `experiments.hug_home_rl.experiment` | 검증된 Home→인계 경로로 출발 범위를 역확장하는 PPO, 리프트·유지 중 상한 있는 명령 변화 감점. [실행 설명](research/experiments/hug_home_rl/README.md) |
+| `analysis.export_home_checkpoint` | 새 Home-prefix 체크포인트를 업데이트 없이 정책 NPZ로 내보내어 중간 영상 평가에 사용 |
 | `analysis.analyze_contact_metrics` | 발 접촉·미끄럼·힘 오차 CSV 분석 |
 | `analysis.walking_motion` | 실제 이동 방향·속도 분석 |
 | `analysis.walking_swing` | 발 궤적·스윙 추종 분석 |
@@ -78,15 +80,17 @@ python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/serv
 | `analysis.visual_tilt_plot` | 현재 시각 보정 평가 그림 |
 | `analysis.hug_diagnostics` | 현재 그리퍼 근사와 두 구간 길이를 고정하고 기존 Hug 판정·접촉·각도 여유를 오프라인 진단 |
 | `analysis.hug_diagnostic_report` | Hug 진단 JSON을 외부 의존성 없는 HTML/SVG 비교 화면으로 변환 |
+| `analysis.record_hug_video`, `.watch_hug_population` | C-hug 정책을 팔 쪽 사선 위 시점으로 녹화하고, 서버에서 체크포인트별 영상·최종 재생 결과를 보존; 학습 소스·정책 변경 없음 |
 | `analysis.newhug_wrap_comparison` | 명시한 standalone newhug를 현재 Wrap 원기둥·고정 base·리니어·카메라 조건에서 정적으로 비교 |
 | `support.newhug` | 독립 최소 마찰계수 계산기 UI·CLI, 전체 바늘 맵 기록과 원형 consensus band 회전 정렬 |
 | `support.hugmap` | 독립 고정 몸체·원형 물체 배치 격자 솔버, CPU 병렬 탐색과 JSON 저장 |
+| `analysis.mapper_triangle` | standalone mapper에 C형 q 삼각형 선택과 실제 RL 앵커를 삽입; 후보 면적·clearance·μ·conditioning 기준 및 worker 계산 |
+| `analysis.rebuild_mapper_collision` | 실제 URDF와 Home/Extend Arm 프리셋으로 standalone mapper의 전개 충돌 envelope 재생성; [기준·명령](../docs/research.md#mapper의-homeextend-arm-충돌-기준) |
 | `debug.profile_fixed_foot` | 몸통 고정 상태에서 발 추종 원인 분리, 접촉 회귀용 trace 획득 |
 | `debug.sim_camera_preview` | 실제 DDS RGB-D 수신·깊이 미리보기 |
 | `debug.probe_scene_rebuild` | 실행 중 OBJ 교체·controller/state 보존·카메라 복구·rollback 실측 |
 | `analysis.render_scan_cycle_demo` | 실제 UI WebRTC 녹화와 측정된 단계 기록으로 1배속 MP4 구성 |
 | `support.ui_window_run` | 격리 scan-cycle의 실제 production UI 창과 OS 입력을 1080p X11 영상으로 기록 |
-| `support.hug_study_run` | 알려진 서버 설치의 기존 Pilot 이미지를 CPU 전용 일회성 진단으로 실행하고 원래 컨테이너 보존 검사 |
 | `analysis.compare_voxel_mesh` | 동일한 저장 점군과 고정된 생성점 필터로 20/10/5 mm 메쉬·CPU 시간·형상·회전 viewer 비교 |
 | `analysis.compare_surface_mesh` | 같은 점군의 voxel/Poisson·거리장 표면 비교, mesh topology·양방향 sampling·진단; Open3D 필요 |
 | `debug.scan_cycle_native` | 격리 scan Pilot의 private PID namespace에서 네이티브 크래시 수집 |
@@ -108,7 +112,7 @@ python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/serv
 | `research/experiments/` · 보행 | `batch_readiness.py`, `config_overlay.py`, `run_walking_baseline_batch.py`, `walking_baseline.py`, `walking_scenarios.py`, `walking_suite.py`, `walking_suites.json` |
 | `research/experiments/` · 시각 | `vision_arm_scene.py`, `vision_reconstruct.py`, `vision_tilt_evaluate.py`, `arm_scan.py`, `arm_scan_scene.py`, `arm_scan_evaluate.py` |
 | `research/experiments/` · 완성 | `adapointr.py`, `adapointr_inputs.py`, `adapointr_infer.py`, `adapointr_evaluate.py`, `adapointr_gpu_smoke.py` |
-| `research/support/` | `adapointr_backend.py`, `adapointr_ops.py`, `adapointr_profiles.py`, `hug_study_run.py`, `hugmap.py`, `newhug.py`, `output.py`, `pilot_runtime.py`, `scan_cycle_install.py`, `scan_cycle_run.py`, `ssh_mss_proxy.py`, `thread_stacks.py`, `ui_window_run.py`, `worker.py` |
+| `research/support/` | `adapointr_backend.py`, `adapointr_ops.py`, `adapointr_profiles.py`, `hugmap.py`, `newhug.py`, `output.py`, `pilot_runtime.py`, `scan_cycle_install.py`, `scan_cycle_run.py`, `ssh_mss_proxy.py`, `thread_stacks.py`, `ui_window_run.py`, `worker.py` |
 
 정상 설치의 Pilot/Sim/UI 이미지 세 개로 실행하는 scan 운영 경로 검사는
 [`tests/system/scan_cycle.md`](tests/system/scan_cycle.md)를 따른다. 역할별 probe와
@@ -133,3 +137,19 @@ cuRobo용 `tools/setup_curobo_jetson.sh`, `tools/patch_curobo.py`다. runtime �
 보존했다. 계산 함수의 AST와 기존 assertion을 유지하며, 벤치/runtime은
 테스트 helper나 archive를 import하지 않는다. 원자료는 계속
 `evidence/generated/`, 선별된 보고서·사진은 `evidence/curated/`에 둔다.
+
+
+### Solver-grasp → Home reverse GA
+
+`python3 -m workbench.research.experiments.hug_reverse_ga.experiment prepare|run`
+accepts mapper XY and cylinder diameter, builds an exact solver endpoint, and
+evolves a physical release path to Home. Preparation is CPU-only; simulation is
+explicit. See [commands and validation limits](research/experiments/hug_reverse_ga/README.md).
+
+
+### Historical PPO reverse curriculum (shared code retained)
+
+`python3 -m workbench.research.experiments.hug_reverse_rl.experiment prepare|check|train|evaluate`
+connects verified reverse GA state paths to PPO resets, with full-state restore
+checks, an adaptive frontier and nominal Home evaluation. Training is explicit.
+See [the runbook](research/experiments/hug_reverse_rl/README.md).

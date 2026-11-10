@@ -1,0 +1,150 @@
+{
+  "schema": "hug-reverse-ga-legpd-result",
+  "schema_version": 1,
+  "launch": {
+    "name": "hug-reverse-ga-legpd-20261109T074421Z",
+    "remote_root": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ga-legpd-20261109T074421Z",
+    "ga_pid": 2536382,
+    "command": [
+      "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+      "-u",
+      "-m",
+      "workbench.research.experiments.hug_reverse_ga.experiment",
+      "run",
+      "--plan",
+      "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ga-legpd-20261109T074421Z",
+      "--backend",
+      "gpu"
+    ],
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "population": 128,
+    "target_generations": 100,
+    "started_utc": "2026-11-09T07:44:24.608642+00:00",
+    "controller": "standing-leg-PD-after-every-snapshot",
+    "monitor": "parent-direct",
+    "automatic_ppo": false,
+    "local_root": "/home/user/ws/elesim/workbench/evidence/generated/hug-reverse-ga-legpd-20261109T074421Z"
+  },
+  "completion": {
+    "status": "reverse_path_verified",
+    "generations_evaluated": 3,
+    "replays": [
+      true,
+      true,
+      true
+    ],
+    "elapsed_s": 239.6591843124479,
+    "automatic_ppo_launch": false
+  },
+  "best": {
+    "candidate": 83,
+    "success": true,
+    "rejected": false,
+    "first_violation_tick": -1,
+    "reasons": [],
+    "last_valid_error": 0.04758143356188218,
+    "valid_ticks": 589,
+    "duration_s": 5.89,
+    "home_window_s": 1.0,
+    "home_error": 0.04758143356188218,
+    "path_length": 3.932600803061942,
+    "peak_xy_m": 0.03680418766769919,
+    "peak_tilt_rad": 0.05527774905446282,
+    "object_contact_force_n": 0.0
+  },
+  "successful_search_candidates": 3,
+  "independent_replays": [
+    {
+      "replay": 1,
+      "successes": 128,
+      "total": 128
+    },
+    {
+      "replay": 2,
+      "successes": 128,
+      "total": 128
+    },
+    {
+      "replay": 3,
+      "successes": 128,
+      "total": 128
+    }
+  ],
+  "winner_closeup": {
+    "source": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ga-legpd-20261109T074421Z",
+    "candidate": 83,
+    "generation": 3,
+    "result": {
+      "candidate": 0,
+      "success": true,
+      "rejected": false,
+      "first_violation_tick": -1,
+      "reasons": [],
+      "last_valid_error": 0.04758143356188218,
+      "valid_ticks": 589,
+      "duration_s": 5.89,
+      "home_window_s": 1.0,
+      "home_error": 0.04758143356188218,
+      "path_length": 3.932600803061942,
+      "peak_xy_m": 0.03680418766769919,
+      "peak_tilt_rad": 0.05527774905446282,
+      "object_contact_force_n": 0.0
+    },
+    "leg_hold": {
+      "max_target_error_rad": 0.005414137616753578,
+      "max_speed_rad_s": 2.3169313863036223e-05
+    },
+    "training": false
+  },
+  "leg_max_speed_deg_s": 0.001327503898565925,
+  "leg_max_target_error_deg": 0.31020723514299803,
+  "peak_object_xy_mm": 36.80418766769919,
+  "peak_object_tilt_deg": 3.1671817218039964,
+  "media_verification": {
+    "media": {
+      "run/final-population/parade.mp4": {
+        "programs": [],
+        "streams": [
+          {
+            "width": 1920,
+            "height": 1080
+          }
+        ],
+        "format": {
+          "duration": "20.000000"
+        }
+      },
+      "winner-closeup/winner.mp4": {
+        "programs": [],
+        "streams": [
+          {
+            "width": 960,
+            "height": 720
+          }
+        ],
+        "format": {
+          "duration": "5.920000"
+        }
+      }
+    },
+    "checked_utc": "2026-11-09T08:28:34.789609+00:00",
+    "compute": "GPU-bfaeeedd-48aa-e675-4daa-17955c1769db, 2036331, 352 MiB\n"
+  },
+  "files": {
+    "run/final-population/parade.mp4": {
+      "path": "workbench/evidence/generated/hug-reverse-ga-legpd-20261109T074421Z/run/final-population/parade.mp4",
+      "sha256": "134873c4e4aa1786d59b67bf9c20dce7c36a7d9478b2d0ff60676a72a059e1e6"
+    },
+    "winner-closeup/winner.mp4": {
+      "path": "workbench/evidence/generated/hug-reverse-ga-legpd-20261109T074421Z/winner-closeup/winner.mp4",
+      "sha256": "b843b2d964c947aef85a771c9d819c8f01138049693c45700c0796865a33bda7"
+    }
+  },
+  "direct_monitoring": true,
+  "visual_review": [
+    "winner-review.png",
+    "parade-review.png"
+  ],
+  "ppo_restarted": false,
+  "note": "Nominal reverse release verified; not a forward lift certificate. Final population contains failed candidates whose physics may continue after scoring termination."
+}

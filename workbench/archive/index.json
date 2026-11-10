@@ -556,6 +556,778 @@
           "reason": "Extract cylinder-specific Wrap task from runtime RL playground"
         }
       ]
+    },
+    {
+      "file": "retired-hug-pipelines-20261110.zip",
+      "sha256": "e81fabb16fbcdae9c7904419c9fb2182e3272b36711cd1e719cdd53865d82243",
+      "bytes": 344682,
+      "entries": [
+        {
+          "original_path": "docs/hug-rl-experiment.md",
+          "member": "worktree/docs/hug-rl-experiment.md",
+          "sha256": "a99cbe32baf5753fbd352065782e1bb7097dd3a61603c5af615c5a9cc683b156",
+          "bytes": 25095,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/README.md",
+          "member": "worktree/workbench/README.md",
+          "sha256": "bacaef1ed3318ded5f568f190227d0920f86e70fc29f63676b12ac5fd3adf2d5",
+          "bytes": 12538,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/analysis/record_ga_candidate.py",
+          "member": "worktree/workbench/research/analysis/record_ga_candidate.py",
+          "sha256": "f4f4c6ccdca1ca5bffcdad15a72751e55ce301dcacae6d462ce2ccd28d6bef47",
+          "bytes": 6048,
+          "origin": "working-tree",
+          "disposition": "removed",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/analysis/record_reverse_ppo.py",
+          "member": "worktree/workbench/research/analysis/record_reverse_ppo.py",
+          "sha256": "31df8a82fbd0ae7a35638ca9ce8ec424a248b0962ab84f973e5bbc509e7c79ca",
+          "bytes": 4227,
+          "origin": "working-tree",
+          "disposition": "removed",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/analysis/watch_reverse_ppo.py",
+          "member": "worktree/workbench/research/analysis/watch_reverse_ppo.py",
+          "sha256": "96dccdb8e237aed1f6e702ce3463b12f118c50fadb40da8292d87f7baa24d9ad",
+          "bytes": 3158,
+          "origin": "working-tree",
+          "disposition": "removed",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/README.md",
+          "member": "worktree/workbench/research/experiments/hug_c/README.md",
+          "sha256": "03572870557841aeb02c7f062abcfe516815345ec8c87b85a07a6788af56de4d",
+          "bytes": 38450,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/__init__.py",
+          "member": "worktree/workbench/research/experiments/hug_c/__init__.py",
+          "sha256": "2f51021bae2af149022181201373ed2e3d045d21b32cf151be8e3bc86ed9803a",
+          "bytes": 148,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/catalog_preflight.py",
+          "member": "worktree/workbench/research/experiments/hug_c/catalog_preflight.py",
+          "sha256": "f122ba6877f845ee45b22eaf73b2ab9467e05632742298f3c379876db0d0bf8f",
+          "bytes": 4511,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/collection.py",
+          "member": "worktree/workbench/research/experiments/hug_c/collection.py",
+          "sha256": "19c12624990a5706d7c4b7df20543533cb721a70c000feec08d60514a847ffb0",
+          "bytes": 17235,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/configure.py",
+          "member": "worktree/workbench/research/experiments/hug_c/configure.py",
+          "sha256": "0b06f9c23b9ec09f9844afcdda940643fed916ecdd57ede99fb39ea3d517e812",
+          "bytes": 12659,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/contacts.py",
+          "member": "worktree/workbench/research/experiments/hug_c/contacts.py",
+          "sha256": "b6e086867e1ca8f24a655582271a88f97ed0c2f3a1f719f63368f63bbc8e831e",
+          "bytes": 3172,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/control.py",
+          "member": "worktree/workbench/research/experiments/hug_c/control.py",
+          "sha256": "6ad357fcd0d896aca6d2a4d641d279630a80fdc5eaebd26c0119205eef9878a1",
+          "bytes": 1338,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/environment.py",
+          "member": "worktree/workbench/research/experiments/hug_c/environment.py",
+          "sha256": "8b0da4f7858d8d037a2c6b027d8b32b007ba385f9add55cdc180754e01439b67",
+          "bytes": 25446,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/example_pilot.json",
+          "member": "worktree/workbench/research/experiments/hug_c/example_pilot.json",
+          "sha256": "8c9400cb19578ffeae90ad6b7ed1c337da2c42ca769622a3abfdf01de8cfc465",
+          "bytes": 91388,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/experiment.py",
+          "member": "worktree/workbench/research/experiments/hug_c/experiment.py",
+          "sha256": "06d0a6a77c20904392e5e449aca5b176eccce3919eec833f147ac2a7b6d56c7d",
+          "bytes": 22102,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/gpu2-next-study.json",
+          "member": "worktree/workbench/research/experiments/hug_c/gpu2-next-study.json",
+          "sha256": "6824bc31e264d96ac2638b1751beb447e9bb9e97eb98e185822a5f2ce556a9b0",
+          "bytes": 2015,
+          "origin": "working-tree",
+          "disposition": "removed",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/interpolate.py",
+          "member": "worktree/workbench/research/experiments/hug_c/interpolate.py",
+          "sha256": "91dfcc92674c09cc1cd1c134933b87e64b84ca2871e154fe4f3c1d857e8b5436",
+          "bytes": 3095,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/metrics.py",
+          "member": "worktree/workbench/research/experiments/hug_c/metrics.py",
+          "sha256": "5c3ee8a5d8e829db313d09d6c6ad37dbf1bf49714dbe00ce5686c2859feb1a9a",
+          "bytes": 4561,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/policy.py",
+          "member": "worktree/workbench/research/experiments/hug_c/policy.py",
+          "sha256": "bed3e15468870b962a77729af41961e4ad134274df1438aedb72e3e5a6b6aeb3",
+          "bytes": 5213,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/population.py",
+          "member": "worktree/workbench/research/experiments/hug_c/population.py",
+          "sha256": "95181164a2fce614acba9ef542aef27db58ac29a086d6f7819a40a8b3e231c99",
+          "bytes": 22682,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/population_batch.py",
+          "member": "worktree/workbench/research/experiments/hug_c/population_batch.py",
+          "sha256": "d08bc14ccfc92acf9eee258c584af011cc229c9b9298d8402fc4518dd814306d",
+          "bytes": 7069,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/preparation.py",
+          "member": "worktree/workbench/research/experiments/hug_c/preparation.py",
+          "sha256": "4760ed919c1bfe2fea0fc1520cfe7713fcabe071fc98b01597943770352a43e5",
+          "bytes": 2644,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/prepare.py",
+          "member": "worktree/workbench/research/experiments/hug_c/prepare.py",
+          "sha256": "61a4b154c501aa7195241bf945ef0f95dce8b17b8f808f011c748edb687649e3",
+          "bytes": 6067,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/preview.py",
+          "member": "worktree/workbench/research/experiments/hug_c/preview.py",
+          "sha256": "74dbec2b89fbf535535bfb384e9fa0ae07165aec908f9b192c46e125dc83a44f",
+          "bytes": 4256,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/reward_audit.py",
+          "member": "worktree/workbench/research/experiments/hug_c/reward_audit.py",
+          "sha256": "efd0908d56a0fa5891640299e74818237c0e32b43cb94a21db0b246b9115e28b",
+          "bytes": 6018,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/rewards.py",
+          "member": "worktree/workbench/research/experiments/hug_c/rewards.py",
+          "sha256": "91cfa68930944cddacdffb520933bfb6bcd49676c7dbef3814a09920b1480ae4",
+          "bytes": 3953,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/source.py",
+          "member": "worktree/workbench/research/experiments/hug_c/source.py",
+          "sha256": "cc187085835c5b95421f389aa0cc450a661502a3fb58ee32ecfda56c02b3bffe",
+          "bytes": 6533,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/study.py",
+          "member": "worktree/workbench/research/experiments/hug_c/study.py",
+          "sha256": "a34762b73ea492bdf7b2b85cd5bf2a84e08bbcde10d5843397ae76ccf58a0a7f",
+          "bytes": 9648,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/triangle.py",
+          "member": "worktree/workbench/research/experiments/hug_c/triangle.py",
+          "sha256": "eb73b3c31e57388cb9b753b6419d51b318cc944fe78023b893f93062f357c56f",
+          "bytes": 7396,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_c/workspace.py",
+          "member": "worktree/workbench/research/experiments/hug_c/workspace.py",
+          "sha256": "e873ae9ff361aa54d9b691e0ebadb5d0558211c3d52dd8b06856221dcbc9c66f",
+          "bytes": 6112,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_ga/README.md",
+          "member": "worktree/workbench/research/experiments/hug_ga/README.md",
+          "sha256": "cb1ba21ec3e483161cdb10f27e061baff254f7b128ed2aaf83d7ca244e078a47",
+          "bytes": 13770,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_ga/__init__.py",
+          "member": "worktree/workbench/research/experiments/hug_ga/__init__.py",
+          "sha256": "650e4d0b8725f9a9448f14f329cb1f3290080a251f55a02cf27ebf612a7a1638",
+          "bytes": 75,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_ga/constraints.py",
+          "member": "worktree/workbench/research/experiments/hug_ga/constraints.py",
+          "sha256": "901aa763308e7329a34130d1cc91625799210a34d59f7fea183a1e9360a3bce1",
+          "bytes": 4008,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_ga/experiment.py",
+          "member": "worktree/workbench/research/experiments/hug_ga/experiment.py",
+          "sha256": "a1eaa43501a85fe37c003ac63da85ad5bcbc2b1ef7a68ad4a711283f1142d57c",
+          "bytes": 14357,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_ga/handoff.py",
+          "member": "worktree/workbench/research/experiments/hug_ga/handoff.py",
+          "sha256": "b7fcf45850ac5213de280ef489c6ce5139646ef910d4b66d0bf2de635874949d",
+          "bytes": 12047,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_ga/parade.py",
+          "member": "worktree/workbench/research/experiments/hug_ga/parade.py",
+          "sha256": "371955e4f99a4f77afdcf8924e6d36fb9720e58cd201295342f5153c0444aeeb",
+          "bytes": 3838,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_ga/search.py",
+          "member": "worktree/workbench/research/experiments/hug_ga/search.py",
+          "sha256": "7cafeb2587e6210d1422fd3d17ad6833b80a2379be089840f957eb3fbf1a53c3",
+          "bytes": 2774,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_interpolation/README.md",
+          "member": "worktree/workbench/research/experiments/hug_interpolation/README.md",
+          "sha256": "31eef0fc032f64e428339507434462ca25f47022ad3697ca5c972cb58a760463",
+          "bytes": 9412,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_interpolation/__init__.py",
+          "member": "worktree/workbench/research/experiments/hug_interpolation/__init__.py",
+          "sha256": "f2f2b26f2d46edcb8a4bdb4b3fd060d4677a489a45263394c1cf4da72597e438",
+          "bytes": 68,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_interpolation/__main__.py",
+          "member": "worktree/workbench/research/experiments/hug_interpolation/__main__.py",
+          "sha256": "70bf5814c1db48b91b69467555261c14e7f7340268af89ae8bf4186f0ac3c286",
+          "bytes": 876,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_interpolation/configure.py",
+          "member": "worktree/workbench/research/experiments/hug_interpolation/configure.py",
+          "sha256": "6219d6108d601f2423e88ffd73c6e3952bec465dec2e9c5fee0dfad0418e2ca7",
+          "bytes": 10689,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_interpolation/environment.py",
+          "member": "worktree/workbench/research/experiments/hug_interpolation/environment.py",
+          "sha256": "627a53c65fdc55f70380b638f29c92ef35f70c0f1f439b30c7b2be3374f3e036",
+          "bytes": 18563,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_interpolation/example_pilot.json",
+          "member": "worktree/workbench/research/experiments/hug_interpolation/example_pilot.json",
+          "sha256": "2a3e40b04d439c65aabc06f7eb7d76a0d542240fd7caad59813d88c430de8afb",
+          "bytes": 16943,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_interpolation/experiment.py",
+          "member": "worktree/workbench/research/experiments/hug_interpolation/experiment.py",
+          "sha256": "8243b2f6f7141df9dac8d3511030972aa7ce219322fe8c0dfa5bb7451565d734",
+          "bytes": 17134,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_interpolation/interpolate.py",
+          "member": "worktree/workbench/research/experiments/hug_interpolation/interpolate.py",
+          "sha256": "7794abbb1366a52aa4f1667d5d24dee3cda1523f3aa6bf0b6b5d5c5d6b355382",
+          "bytes": 4883,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_interpolation/policy.py",
+          "member": "worktree/workbench/research/experiments/hug_interpolation/policy.py",
+          "sha256": "d595f207e566695b9836a4da8f3150bb9d3163fc07be4a1eb4e09c7e8b76595d",
+          "bytes": 5037,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_interpolation/prepare.py",
+          "member": "worktree/workbench/research/experiments/hug_interpolation/prepare.py",
+          "sha256": "127e2ae2ddd266f148d1612d1f1abfdd83a96f89056d5ebf2744fb66b31dc473",
+          "bytes": 4927,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_interpolation/study.py",
+          "member": "worktree/workbench/research/experiments/hug_interpolation/study.py",
+          "sha256": "7e037b5f797a2b980455bc54c718c18fb956936fb75f636f6d96fe80fc06bb4f",
+          "bytes": 8849,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_interpolation/video.py",
+          "member": "worktree/workbench/research/experiments/hug_interpolation/video.py",
+          "sha256": "7a287c6b24224a35408a1059ec701dc26855d8efff311ad0edaf6f735e325eee",
+          "bytes": 1239,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_reverse_rl/README.md",
+          "member": "worktree/workbench/research/experiments/hug_reverse_rl/README.md",
+          "sha256": "98739ad0ac0fe74598b22188afe6e42f4dfdc64bc4869b6e20dcbe88b4d0a816",
+          "bytes": 10180,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_reverse_rl/__init__.py",
+          "member": "worktree/workbench/research/experiments/hug_reverse_rl/__init__.py",
+          "sha256": "0a1d1b6f21197113df7897653fa28f4668856bd9dc2e4ec8066268361b47aef1",
+          "bytes": 75,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_reverse_rl/bank.py",
+          "member": "worktree/workbench/research/experiments/hug_reverse_rl/bank.py",
+          "sha256": "a776e1eea6443db97e91da73de81fe6da433261f46409160bca518314120a3ee",
+          "bytes": 5445,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_reverse_rl/data.py",
+          "member": "worktree/workbench/research/experiments/hug_reverse_rl/data.py",
+          "sha256": "ae3b173ea5c6f9b23416527684fc230401ba2380ba803846c6bf23b15ae5b6c1",
+          "bytes": 9223,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_reverse_rl/environment.py",
+          "member": "worktree/workbench/research/experiments/hug_reverse_rl/environment.py",
+          "sha256": "1e65d0acda8cf10f30d297caaa6eede1c9346d8f8b87cedfe73d5130bf57ae73",
+          "bytes": 4228,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_reverse_rl/experiment.py",
+          "member": "worktree/workbench/research/experiments/hug_reverse_rl/experiment.py",
+          "sha256": "b1a6f527edca2fd5e204df537bd2f7a5566ae39a5ceee7727a12560987bc08b5",
+          "bytes": 7772,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/hug_reverse_rl/schedule.py",
+          "member": "worktree/workbench/research/experiments/hug_reverse_rl/schedule.py",
+          "sha256": "a7978ce9e8d503b7c728ca4df942880088457fc45d8ba4536d31658b01a06960",
+          "bytes": 4032,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/README.md",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/README.md",
+          "sha256": "02fac18e33db8769db04527ad715b80dc66c9117f9657f7e2d79e55b03d9aa94",
+          "bytes": 10372,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/__init__.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/__init__.py",
+          "sha256": "b9d4ad82e663d339c61d3381f80e3433c14477af72fa118048d5b5fe10df60bc",
+          "bytes": 126,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/app_config.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/app_config.py",
+          "sha256": "3f2046df2e00004e2ecf5076b8952beaf38b016d5240dc662a1771814133f4df",
+          "bytes": 4902,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/benchmark.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/benchmark.py",
+          "sha256": "4f62290227fef6a3032918a98b53a5afcaa8cc55c7b80b1a9a6127fd335898b1",
+          "bytes": 14302,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/beta_model.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/beta_model.py",
+          "sha256": "efb9f15abbccad51990f65ce6aa182b6b1c7913014a182b2af376d36c460109b",
+          "bytes": 7163,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/configs/__init__.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/configs/__init__.py",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/configs/default.yaml",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/configs/default.yaml",
+          "sha256": "3654fc2ed33ff8612dbfd3e7bc7c4d61c15bb2ef34e5c7dca93934aa594b1749",
+          "bytes": 54123,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/configs/loader.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/configs/loader.py",
+          "sha256": "6b06fafde982af5fcf5c63d3f67cdb459a73cd5bcec5d5895f72bf6a598147a4",
+          "bytes": 33511,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/deploy.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/deploy.py",
+          "sha256": "8a0a7b65bb220671a95640ddb59fabe7dcde0ab12f53de70316060f66d50203e",
+          "bytes": 13939,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/diagnose_nan.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/diagnose_nan.py",
+          "sha256": "f5d5e41dcf459fe7540f3ee1f6e763c68e98372fbfb796077d64d7277a13f531",
+          "bytes": 8877,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/envs/__init__.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/envs/__init__.py",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/envs/contacts.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/envs/contacts.py",
+          "sha256": "105768392033a1523cb3e81bcd296adc07bdfea9681674db32f7811be48fb9aa",
+          "bytes": 17963,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/envs/coverage.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/envs/coverage.py",
+          "sha256": "91fec9e00899eed368a7dcf253aaf28f1837989cd97bce3a8988cfebc383cd79",
+          "bytes": 18340,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/envs/episode_metrics.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/envs/episode_metrics.py",
+          "sha256": "fa7be1297d47fba3f2caf8e346aeda6cd9ffa42e83dc0eda0b49b81dd5ea0ea5",
+          "bytes": 7151,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/envs/lift_test.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/envs/lift_test.py",
+          "sha256": "c30df415e830508426cc6e126bd5c032140fb143a7590ba8cc42255c5e6c9493",
+          "bytes": 20090,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/envs/observations.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/envs/observations.py",
+          "sha256": "9c1009bd2107929a8c8157b3fc486a4f06c443e0e66f3b812093a918f3bcdf54",
+          "bytes": 11491,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/envs/rewards.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/envs/rewards.py",
+          "sha256": "95eea580909f0348b014be6aca404b9716de744323e8e6878faf7f487b415dfe",
+          "bytes": 13129,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/envs/wrap_env.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/envs/wrap_env.py",
+          "sha256": "2a6e401c6f685e4ff80dfc69a4587f2a4e297506f5dce7107e09437f70c5bfd4",
+          "bytes": 49943,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/eval.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/eval.py",
+          "sha256": "f3e7f68249c674eecccbdd50d5d1049b24f0930ed5907f16e4c18e74be93c62e",
+          "bytes": 24487,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/export.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/export.py",
+          "sha256": "5b6900218ba22514595fb5035172f8f9380a432c20bbae78b3b91904d3058225",
+          "bytes": 15925,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/export_traj.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/export_traj.py",
+          "sha256": "66813a25840e2eaf85f7cb6f7e21f7c3740cd00311f1b771514b287a90743496",
+          "bytes": 9569,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/progress.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/progress.py",
+          "sha256": "6f8c10364427adb4fd31a6b7555a876c7ca3c8f155a72f6ee694cbf45bd7f107",
+          "bytes": 7011,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/render_scene.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/render_scene.py",
+          "sha256": "b770c04404aff998991d7c8d0fccdd5b3d26c979dc6e9f62958f970d1f574e48",
+          "bytes": 8718,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/scene.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/scene.py",
+          "sha256": "50112a29346d43051e15c71c2c3370de849fd6cc5508e5e7cedc2ed5e4335aa6",
+          "bytes": 22646,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/supervise.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/supervise.py",
+          "sha256": "89318657a1c62eee1f470ebc5017c8b8c2f82831c8350993f08f80e59163d843",
+          "bytes": 7645,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/train.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/train.py",
+          "sha256": "f05763a597b7b4119187551d5f5bd6660cfac3d8ce147920c86f57468a268c70",
+          "bytes": 12437,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/watch_eval.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/watch_eval.py",
+          "sha256": "f373f8e10cf419d0fc3891836c6519fb5eb8f27e33905961639ffadb1f520eb0",
+          "bytes": 20609,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/experiments/wrap_grasp/workspace_probe.py",
+          "member": "worktree/workbench/research/experiments/wrap_grasp/workspace_probe.py",
+          "sha256": "60667a834e6109bbb3bc7800b22606f1321f260d456df186390a0cb2cc9cc436",
+          "bytes": 24375,
+          "origin": "working-tree",
+          "disposition": "retained-frozen-dependency-or-regression",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        },
+        {
+          "original_path": "workbench/research/support/hug_study_run.py",
+          "member": "worktree/workbench/research/support/hug_study_run.py",
+          "sha256": "18af1924ef8386fa3c3f8d8affb5ba9a9d2230dfc560a8bdf7f18966236e324f",
+          "bytes": 7382,
+          "origin": "working-tree",
+          "disposition": "removed",
+          "reason": "Superseded training workflow; shared implementation and regression dependencies retained"
+        }
+      ]
     }
   ],
   "policy": "ZIP contents are local and ignored by Git. This inventory is tracked. Active code must not import from archives.",

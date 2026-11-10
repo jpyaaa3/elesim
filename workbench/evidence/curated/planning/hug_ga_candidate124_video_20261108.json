@@ -1,0 +1,97 @@
+{
+  "schema": "hug-ga-candidate-video-review",
+  "report": {
+    "schema": "hug-ga-single-candidate-video",
+    "source": {
+      "rollouts": "/home/hckang/elesim/workbench/evidence/generated/hug-ga-d100-20261108T103534Z/search/generation-0013/rollouts.npz",
+      "sha256": "e190935c10d5e31cf8e3584f1ff14c866c902218440bec99d599d0219438140e",
+      "candidate": 124,
+      "valid_source_actions": 198
+    },
+    "collection": {
+      "success": true,
+      "fault": false,
+      "current_hold_duration_s": 5.079999923706055,
+      "minimum_hold_clearance_m": 0.04893413931131363,
+      "maximum_hold_slip_m": 0.00807714182883501,
+      "hold_contact_fraction": 1.0,
+      "goal_error_normalized": 0.032906897366046906,
+      "wrong_face_contact": false,
+      "grasp_confirmed": true,
+      "wrong_face_contact_any": false,
+      "highest_lift_fraction": 1.0,
+      "highest_hold_fraction": 1.0,
+      "workspace_peak_excess_m": 0.22405733168125153,
+      "reward_total": 29.236900329589844,
+      "object_xyz_m": [
+        0.38773566484451294,
+        0.15913577377796173,
+        0.5532770156860352
+      ],
+      "actual_command": [
+        -0.010271115228533745,
+        -0.9650909900665283,
+        -0.2742116153240204,
+        -0.5830615162849426
+      ],
+      "clearance_m": 0.04893413931131363,
+      "action_cost_basis": "requested-policy-action",
+      "reward_components": {
+        "q_hint": -1.1108603477478027,
+        "grasp": 3.0,
+        "lift": 5.0,
+        "hold": 10.0,
+        "success": 30.0,
+        "wrong_face": 0.0,
+        "drop": -12.0,
+        "fault": 0.0,
+        "timeout": 0.0,
+        "action": -0.07454031705856323,
+        "time": -3.9299967288970947,
+        "workspace": -1.6477015018463135
+      }
+    },
+    "accepted": true,
+    "wrong_face_any_episode": false,
+    "terminal_seen": true,
+    "report_camera": {
+      "name": "arm-side-oblique-v1",
+      "pos": [
+        0.85,
+        -1.15,
+        1.6
+      ],
+      "lookat": [
+        0.35,
+        0.05,
+        0.4
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "optimizer_used": false,
+    "replay_count": 1,
+    "independent_replay_verified": false,
+    "note": "One replay; three repeats required for demonstration approval"
+  },
+  "artifacts": {
+    "candidate.mp4": {
+      "sha256": "b630e92e8d921a03146d4955967145ecaa68a1677e3900ba04af1208e2196458",
+      "bytes": 357422
+    },
+    "trajectory.npz": {
+      "sha256": "33b074c39fbffcc68e58722aeaf48ffe3ca93569bdfb82281a0ff4615633f5a4",
+      "bytes": 28800
+    },
+    "report.json": {
+      "sha256": "a57512535c449d370ae40e61479030ad89855ab32d95905373ee13295161f3fa",
+      "bytes": 2052
+    }
+  },
+  "video": "workbench/evidence/generated/hug-ga-d100-20261108T103534Z/candidate-124-video-20261108T112228Z/candidate.mp4",
+  "visual_review": "Arm wraps and holds the tilted cylinder clear of the floor; one nominal replay, not perturbation robustness",
+  "optimizer_used": false
+}

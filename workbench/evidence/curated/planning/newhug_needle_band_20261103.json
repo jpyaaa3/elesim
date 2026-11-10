@@ -1,0 +1,54 @@
+{
+  "calculator_version": "0.5.0",
+  "source": "workbench/research/support/newhug.py",
+  "source_sha256": "d5bd51dc18a97d2176becb373871eb249428726f5b6834cb396399c2f1352074",
+  "filter": "finite mu_critical >= 0.2",
+  "iterations": 256,
+  "seed": 0,
+  "band_support_fraction": 0.8,
+  "tests": {
+    "standalone": 37,
+    "needle_geometry": 34,
+    "real_http_and_page_javascript": 3,
+    "wrap_comparison": 7
+  },
+  "scope": "Static planar arm/camera geometry; GO2 body/legs/plate, approach and holding unverified.",
+  "cases": [
+    {
+      "diameter_mm": 100,
+      "candidate_evaluations": 256,
+      "recorded_needles": 254,
+      "gathered_segments": 179,
+      "outside_band": 75,
+      "band_mm": [
+        316.5123368962464,
+        386.5359354114411
+      ],
+      "anchor_radius_range_mm": [
+        321.5317829744367,
+        386.2082126507826
+      ],
+      "solver_elapsed_s": 3.8951306220001243,
+      "raw_json_path": "workbench/evidence/generated/newhug-band-20261103-100-verified.json",
+      "raw_json_sha256": "a1d6435899439d08dd30e07306d0010b36074391af96727a81b977c9f0051060"
+    },
+    {
+      "diameter_mm": 160,
+      "candidate_evaluations": 256,
+      "recorded_needles": 254,
+      "gathered_segments": 174,
+      "outside_band": 80,
+      "band_mm": [
+        442.2957910664198,
+        558.9612292164697
+      ],
+      "anchor_radius_range_mm": [
+        442.9719584890238,
+        543.6875004716807
+      ],
+      "solver_elapsed_s": 4.450582397000289,
+      "raw_json_path": "workbench/evidence/generated/newhug-band-20261103-160-verified.json",
+      "raw_json_sha256": "0de60f89cbc6ea0a16718eeda6ca219a8a3e33117eb45b11a8edc4bc3f738253"
+    }
+  ]
+}

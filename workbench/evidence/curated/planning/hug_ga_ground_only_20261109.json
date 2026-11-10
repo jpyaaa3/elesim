@@ -1,0 +1,50 @@
+{
+  "schema": "hug-ga-ground-only-motion-change-v1",
+  "date_kst": "2026-11-09",
+  "request": "Code only: exempt airborne object translation from the 50mm XY cutoff; await a separate launch instruction.",
+  "constraints": {
+    "schema": "hug-ga-object-motion-v2",
+    "metric": "world-xy-center-displacement",
+    "reference": "initial-object-center",
+    "max_object_xy_mm": 50,
+    "sampling": "physics-tick",
+    "comparison": "strictly-greater-than",
+    "scope": "ground-contact-only",
+    "airborne_rule": "no-floor-contact-and-positive-bottom-clearance",
+    "landing_reactivates_limit": true,
+    "earlier_ground_violation_remains": true
+  },
+  "ga_source_sha256": "ddcdecee025e3ff4e23cc074c80e9b7db6256a10b4c22b7ea4bba2ec8e2258d0",
+  "shared_task_code_sha256": "5e62f15239711d6e883bc2d6cd449fe8c535a47d2952490ce22a4006cd889684",
+  "unchanged_shared_task_files": 40,
+  "host_tests": {
+    "passed": 31,
+    "command": "PYTHONPATH=payload/runtime/common/protocol:payload/runtime/docker/sim/app:. python3 -m pytest -q workbench/tests/research/experiments/test_hug_ga.py workbench/tests/research/experiments/test_hug_ga_motion.py workbench/tests/research/experiments/test_hug_ga_handoff.py workbench/tests/research/experiments/test_hug_ga_parade.py workbench/tests/research/experiments/test_hug_lift90.py"
+  },
+  "server_cpu_checks": {
+    "checks_passed": [
+      "numpy ground/air/landing/sticky violation and separate peaks",
+      "numpy legacy whole-episode scope",
+      "torch-cpu ground/air/landing/sticky violation and separate peaks",
+      "torch-cpu legacy whole-episode scope",
+      "physics-tick monitor wiring, callback chain and normal/exception restoration"
+    ],
+    "torch_version": "2.12.1+cu130",
+    "device": "cpu",
+    "ga_source_sha256": "ddcdecee025e3ff4e23cc074c80e9b7db6256a10b4c22b7ea4bba2ec8e2258d0",
+    "genesis_imported": false,
+    "physics_rollout_started": false,
+    "search_started": false,
+    "training_started": false
+  },
+  "server_code_sync_record": "workbench/evidence/generated/hug-ga-ground-only-code-sync-20261109.json",
+  "historical_v1_evidence_scope_preserved": true,
+  "new_plan_prepared": false,
+  "physics_rollout_started": false,
+  "search_started": false,
+  "training_started": false,
+  "canonical_gates": {
+    "run": false,
+    "reason": "No usable generated development wrapper in this checkout; relevant host-only tests and existing server CPU environment used."
+  }
+}

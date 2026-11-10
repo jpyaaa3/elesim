@@ -1,0 +1,103 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gaga — contact geometry and boundary audit</title>
+<style>
+*{box-sizing:border-box}body{font:14px system-ui;margin:0;color:#222;background:white}header{padding:14px 20px;border-bottom:1px solid #ddd}h1{font-size:20px;margin:0 0 8px}label{display:inline-flex;gap:7px;align-items:center;margin:4px 15px 4px 0}select,button{font:inherit;padding:4px}input[type=range]{width:220px}.muted{color:#666;font-size:12px;line-height:1.6}.layout{display:grid;grid-template-columns:minmax(380px,1fr) 390px;gap:12px;padding:12px 20px}canvas{width:100%;display:block}#map{height:600px;border:1px solid #ddd}#arm{height:300px;border:1px solid #ddd}#trend{height:150px}#info{white-space:pre-wrap;font-size:13px;line-height:1.5;margin:10px 0}#legend{line-height:1.7;margin-top:6px}#status{margin:8px 0}details{padding:12px 20px}table{border-collapse:collapse;font-size:12px}td,th{padding:5px 12px;border-bottom:1px solid #ddd;text-align:right}footer{padding:12px 20px;color:#666;font-size:12px}@media(max-width:850px){.layout{grid-template-columns:1fr}#map{height:500px}}
+</style>
+<header><h1>Why these bands? Contact geometry and boundary audit</h1><div class="muted"><b>Historical model:</b> gaga fixed roll at +90° and allowed both seg2 signs. This audit does not apply the newer always-away-from-ZED roll policy.</div>
+<label>Diameter <input id="diameter" type="range" min="0" max="20" step="1" value="10"><output id="size"></output></label>
+<label>View <select id="view"><option value="contacts">Observed contact features</option><option value="audit">Boundary audit</option><option value="joint">Joint margin</option><option value="mu">Required friction</option></select></label>
+<label>Band <select id="band"><option value="both">Both</option><option value="1">1: seg2 positive</option><option value="2">2: seg2 negative</option></select></label>
+<div><button data-example="joint">Small circle: bend limit</button> <button data-example="camera">Band 1: camera obstruction</button> <button data-example="friction">Large circle: friction cutoff</button></div>
+<div id="status"></div><div id="legend" class="muted"></div>
+</header>
+<div class="layout"><section><canvas id="map"></canvas><div class="muted">Display X = −JSON x; Y points forward. Hover or click a point to see the actual arm and circle.</div></section>
+<aside><canvas id="arm"></canvas><div id="info">Select a point.</div><canvas id="trend"></canvas><div class="muted">Solid: recorded successes. Dashed: recorded + newly recovered locations, per band. This is not an exhaustive new map.</div></aside></div>
+<details open><summary>What this explains</summary><div id="findings" class="muted"></div></details>
+<details><summary>How to read the audit</summary><div class="muted">
+Only blank cells directly adjacent to a recorded success were probed. All 28 observed contact-feature pairs were tried using polynomial roots.<br>
+<b>Recovered:</b> an exact-contact candidate passes the original collision/friction validator.<br>
+<b>Joint / friction / object / self:</b> the candidates with the fewest violations fail only that test. This describes candidates in the tested catalog, not a proof that no other grasp exists.<br>
+<b>Mixed:</b> different candidates fail different tests, or the least-violating candidates fail multiple tests.<br>
+<b>Unresolved:</b> no finite-feature candidate was found in this catalog. Joint counterfactuals were searched only up to ±200°; valid poses still require ±180°.<br>
+The boundary audit considers both bands together. Blank uncolored space was not tested. Contact construction uses exact tangency; the original solver permits 0.05 mm contact tolerance.
+</div></details>
+<details><summary>Counts by diameter</summary><div id="table"></div></details>
+<footer id="provenance"></footer>
+<script id="data" type="application/json">__EXPLANATION_DATA__</script>
+<script>
+'use strict';
+const report=JSON.parse(document.getElementById('data').textContent),$=id=>document.getElementById(id);
+const labels={recovered:'Recovered',joint:'Joint limit',friction:'Friction',object_collision:'Object collision',self_collision:'Self-collision',mixed:'Mixed constraints',unresolved:'Unresolved'};
+const colors={recovered:'#149151',joint:'#8b4dc1',friction:'#ed9525',object_collision:'#db4141',self_collision:'#a5254f',mixed:'#c8a42d',unresolved:'#a5a9af'};
+let hits=[],selected=null;
+function current(){return report.maps[+$('diameter').value];}
+function setup(id){const c=$(id),d=devicePixelRatio||1;c.width=c.clientWidth*d;c.height=c.clientHeight*d;const ctx=c.getContext('2d');ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,c.clientWidth,c.clientHeight);return [ctx,c.clientWidth,c.clientHeight];}
+function numericColor(value,maximum){const t=Math.max(0,Math.min(1,value/maximum));return `hsl(${240*(1-t)} 75% 47%)`;}
+function observedColor(r){if($('view').value==='joint')return numericColor(r.joint_margin_deg,40);if($('view').value==='mu')return numericColor(r.mu,report.mu_allow);return numericColor(Number(r.features[0][0].slice(4)),4);}
+function render(){
+ const m=current(),audit=$('view').value==='audit',band=$('band').value;$('band').disabled=audit;
+ $('size').textContent=m.D+' mm';const [ctx,w,h]=setup('map'),scale=Math.min((w-65)/500,(h-55)/500),ox=45,oy=h-35;
+ hits=[];ctx.font='12px system-ui';ctx.strokeStyle='#ddd';ctx.fillStyle='#666';
+ for(let tick=0;tick<=500;tick+=100){const x=ox+tick*scale,y=oy-tick*scale;ctx.beginPath();ctx.moveTo(x,oy);ctx.lineTo(x,oy-500*scale);ctx.moveTo(ox,y);ctx.lineTo(ox+500*scale,y);ctx.stroke();ctx.fillText(tick,x-8,oy+18);ctx.fillText(tick,8,y+4);}
+ ctx.fillText('X (mm)',ox+430*scale,oy+33);ctx.fillText('Y (mm)',5,15);
+ for(const r of m.found){if(!audit&&band!=='both'&&r.band!==+band)continue;const x=ox-r.x*scale,y=oy-r.y*scale;
+  ctx.fillStyle=audit?'#d0d0d0':observedColor(r);ctx.beginPath();
+  if(r.features[1][0].startsWith('node')){ctx.moveTo(x,y-3);ctx.lineTo(x+3,y);ctx.lineTo(x,y+3);ctx.lineTo(x-3,y);ctx.closePath();ctx.fill();}
+  else if(r.features[1][1]==='v'){ctx.arc(x,y,2.4,0,Math.PI*2);ctx.fill();}else ctx.fillRect(x-2.3,y-2.3,4.6,4.6);
+  hits.push({x,y,r,type:'found'});
+ }
+ if(audit)for(const r of m.probes){const x=ox-r.x*scale,y=oy-r.y*scale;ctx.fillStyle=colors[r.label];ctx.fillRect(x-2.4,y-2.4,4.8,4.8);hits.push({x,y,r,type:'probe'});}
+ const recovered=m.probes.filter(p=>p.label==='recovered').length,holes=m.probes.filter(p=>p.interior),filled=holes.filter(p=>p.label==='recovered').length;
+ $('status').textContent=`Recorded: ${m.found.length} · Boundary cells tested: ${m.probes.length} · Recovered: ${recovered} · Opposite-neighbor holes: ${filled}/${holes.length} recovered`;
+ if(audit)$('legend').innerHTML=Object.keys(labels).map(k=>`<span style="color:${colors[k]}">■ ${labels[k]}</span>`).join(' · ');
+ else if($('view').value==='contacts')$('legend').textContent='Color: node0 blue → node4 red. Circle: gripper corner · Square: gripper edge · Diamond: arm–arm contact.';
+ else $('legend').textContent=$('view').value==='joint'?'Remaining bend margin: 0° blue → 40° red. Small margin means close to a joint limit.':'Required friction: 0 blue → 0.5 red. High values are close to the friction cutoff.';
+ drawTrend();
+ if(!selected||selected.D!==m.D){const r=m.found.find(r=>band==='both'||r.band===+band);selected=r?{type:'found',r,D:m.D}:null;}
+ if(selected&&selected.D===m.D){ctx.strokeStyle='#111';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(ox-selected.r.x*scale,oy-selected.r.y*scale,6,0,2*Math.PI);ctx.stroke();}
+ showSelected();
+}
+function rotation(p,a){const c=Math.cos(a),s=Math.sin(a);return [c*p[0]-s*p[1],s*p[0]+c*p[1]];}
+function polygons(q1,q2){const profiles=report.geometry.profiles;let hinge=[0,0],out=[];q1*=Math.PI/180;q2*=Math.PI/180;
+ for(let i=0;i<10;i++){const a=i<5?(i+1)*q1/5:q1+(i-4)*q2/5,p=profiles[i===9?'node_end':'node'];out.push({name:'node'+i,points:p.map(v=>rotation(v,a).map((u,j)=>1000*(u+hinge[j])))});const d=rotation([0,.05],a);hinge=hinge.map((v,j)=>v+d[j]);}
+ for(const name of ['gripper_base','gripper_claw_left','gripper_claw_right','camera'])out.push({name,points:profiles[name].map(v=>rotation(v,q1+q2).map((u,j)=>1000*(u+hinge[j])))});
+ for(const name of ['housing','wedge'])out.push({name,points:profiles[name].map(v=>v.map(x=>x*1000))});return out;
+}
+function showSelected(){
+ const [ctx,w,h]=setup('arm');if(!selected){$('info').textContent='No selected point.';return;}
+ const {r,type,D}=selected,candidate=type==='found'?{seg1_deg:r.q1,seg2_deg:r.q2,features:r.features,mu_min:r.mu,violations:[],obstacles:[]}:r.best;
+ let message=`D=${D} mm, JSON (x,y)=(${r.x}, ${r.y})\n`;
+ if(type==='found')message+=`Recorded band ${r.band}\nJoint margin: ${r.joint_margin_deg.toFixed(2)}°\n`;
+ else message+=`${labels[r.label]} · ${r.candidate_count} finite-feature candidates\n${r.interior?'Between opposite successful neighbors.\n':''}`;
+ if(!candidate){$('info').textContent=message+'No candidate to draw. This does not prove infeasibility.';return;}
+ message+=`seg1=${candidate.seg1_deg.toFixed(3)}°, seg2=${candidate.seg2_deg.toFixed(3)}°\nmu=${candidate.mu_min===null?'undefined':candidate.mu_min.toFixed(4)}\n`;
+ message+=candidate.features.map(s=>`${s[0]} ${s[1]==='e'?'edge':'vertex'} ${s[2]}`).join(' ↔ ');
+ if(candidate.violations.length)message+='\nFailed: '+candidate.violations.join(', ')+(candidate.obstacles.length?'\nObject overlaps/clearance: '+candidate.obstacles.join(', '):'')+'\nCounterfactual candidate, NOT a valid grasp.';
+ if(type==='probe'&&r.reasons.length>1)message+='\nOther least-violating candidates: '+r.reasons.map(s=>s.join('+')).join(' / ');
+ $('info').textContent=message;
+ const robot=polygons(candidate.seg1_deg,candidate.seg2_deg),center=[r.x,r.y+1000*report.geometry.body_center[1]],radius=D/2;
+ const vertices=robot.flatMap(p=>p.points).concat([[center[0]-radius,center[1]-radius],[center[0]+radius,center[1]+radius]]);
+ const xs=vertices.map(p=>-p[0]),ys=vertices.map(p=>p[1]),xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys),s=Math.min((w-30)/(xmax-xmin),(h-30)/(ymax-ymin));
+ const project=p=>[w/2+(-p[0]-(xmin+xmax)/2)*s,h/2-(p[1]-(ymin+ymax)/2)*s];
+ for(const p of robot){const v=p.points.map(project);ctx.beginPath();ctx.moveTo(...v[0]);for(const point of v.slice(1))ctx.lineTo(...point);ctx.closePath();ctx.fillStyle=candidate.obstacles.includes(p.name)?'#ffb4b4':p.name==='camera'?'#b7d5eb':'#e6e6e6';ctx.fill();ctx.strokeStyle=candidate.features.some(f=>f[0]===p.name)?'#d36b18':'#888';ctx.lineWidth=candidate.features.some(f=>f[0]===p.name)?2:1;ctx.stroke();}
+ const c=project(center);ctx.beginPath();ctx.arc(...c,radius*s,0,2*Math.PI);ctx.strokeStyle=candidate.violations.length?'#d32f2f':'#168751';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle='#333';ctx.font='12px system-ui';ctx.fillText(candidate.violations.length?'Failed candidate':'Validated / recorded grasp',8,15);
+}
+function drawTrend(){const [ctx,w,h]=setup('trend'),left=30,bottom=h-25,top=15,right=w-10;const values=report.maps.map(m=>[1,2].map(b=>{const n=m.found.filter(r=>r.band===b).length;return [n,n+m.probes.filter(p=>p.recovered.some(r=>(r.seg2_deg>0?1:2)===b)).length];}));const max=Math.max(1,...values.flat(2));ctx.font='10px system-ui';ctx.fillStyle='#666';ctx.fillText(String(max),0,top);ctx.fillText('100 mm',left,bottom+18);ctx.fillText('200 mm',right-40,bottom+18);
+ for(let b=0;b<2;b++)for(let type=0;type<2;type++){ctx.strokeStyle=b===0?'#d95353':'#3f78c2';ctx.setLineDash(type?[3,3]:[]);ctx.beginPath();values.forEach((v,i)=>{const x=left+i*(right-left)/(values.length-1),y=bottom-v[b][type]/max*(bottom-top);if(i)ctx.lineTo(x,y);else ctx.moveTo(x,y);});ctx.stroke();}ctx.setLineDash([]);const x=left+Number($('diameter').value)*(right-left)/(values.length-1);ctx.strokeStyle='#999';ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,bottom);ctx.stroke();}
+$('map').onpointermove=e=>{const box=$('map').getBoundingClientRect(),x=e.clientX-box.left,y=e.clientY-box.top;let best=null,dist=8;for(const h of hits){const d=Math.hypot(h.x-x,h.y-y);if(d<dist){best=h;dist=d;}}if(best&&(selected?.r!==best.r||selected?.D!==current().D)){selected={...best,D:current().D};render();}};
+$('map').onclick=$('map').onpointermove;
+const examples={joint:[100,-65,345],camera:[150,-70,315],friction:[190,-115,380]};
+for(const button of document.querySelectorAll('[data-example]'))button.onclick=()=>{const [D,x,y]=examples[button.dataset.example],index=report.maps.findIndex(m=>m.D===D);if(index<0)return;const r=report.maps[index].probes.find(p=>p.x===x&&p.y===y);if(!r)return;$('diameter').value=index;$('view').value='audit';selected={r,type:'probe',D};render();};
+$('diameter').max=report.maps.length-1;$('diameter').oninput=render;$('view').onchange=render;$('band').onchange=()=>{selected=null;render();};
+$('table').innerHTML='<table><tr><th>D</th><th>Band 1</th><th>Band 2</th><th>Recovered</th><th>Joint</th><th>Friction</th><th>Object</th><th>Self</th><th>Mixed</th><th>Unresolved</th></tr>'+report.summaries.map(s=>'<tr>'+[s.D,s.bands['1'].count,s.bands['2'].count,...['recovered','joint','friction','object_collision','self_collision','mixed','unresolved'].map(k=>s.probes[k]||0)].map(v=>`<td>${v}</td>`).join('')+'</tr>').join('')+'</table>';
+const probes=report.maps.flatMap(m=>m.probes),holes=probes.filter(p=>p.interior),b1=report.maps.flatMap(m=>m.found.filter(r=>r.band===1));
+let b1object=0,b1camera=0,b1cameraOnly=0;
+for(const m of report.maps){const lookup=new Map(m.found.map(r=>[[r.x,r.y].join(','),r.band]));for(const p of m.probes){const adjacent=new Set([[p.x-5,p.y],[p.x+5,p.y],[p.x,p.y-5],[p.x,p.y+5]].map(v=>lookup.get(v.join(','))).filter(v=>v!==undefined));if(adjacent.size===1&&adjacent.has(1)&&p.label==='object_collision'){b1object++;if(p.best.obstacles.some(o=>o.startsWith('camera')))b1camera++;if(p.best.obstacles.every(o=>o.startsWith('camera')))b1cameraOnly++;}}}
+$('findings').innerHTML=`<b>Two contact families:</b> band 1 uses early nodes against the gripper claw (${b1.filter(r=>r.features[1][1]==='v').length}/${b1.length} recorded contacts are at a claw corner); band 2 mainly uses later nodes against the gripper side/base. The arm geometry makes these tangent circle centers trace different curved regions.<br>
+<b>Band 1 has a protected-camera boundary:</b> among blank cells adjacent exclusively to band 1, ${b1object} received the object-collision label. The displayed representative includes camera interference at ${b1camera} of these; at ${b1cameraOnly}, the camera is its only obstacle. These are catalog-candidate statements, not universal impossibility claims.<br>
+<b>Small and large circles fail differently:</b> use the three example buttons. The small-circle example exceeds the bend limit; the large-circle example is collision-free but needs more than the allowed friction. Contact points must remain on finite arm surfaces.<br>
+<b>Not every gap is geometric:</b> ${probes.filter(p=>p.label==='recovered').length}/${probes.length} audited boundary blanks were recovered, including ${holes.filter(p=>p.label==='recovered').length}/${holes.length} opposite-neighbor holes. Raw fragmentation cannot be treated as a physical boundary.<br>
+<b>Scope:</b> these are static 2D contact explanations. Untested branches, numerical degeneracies, and motion dynamics remain outside this audit.`;
+$('provenance').textContent=`Read-only analysis snapshot · Source SHA-256: ${report.source_sha256} · Numerical contact roots, not a proof of global feasibility.`;
+new ResizeObserver(render).observe($('map'));render();
+</script></html>

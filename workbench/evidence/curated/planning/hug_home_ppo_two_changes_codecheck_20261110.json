@@ -1,0 +1,816 @@
+{
+  "schema": "hug-home-ppo-two-changes-codecheck",
+  "version": 1,
+  "recorded_utc": "2026-11-10T02:34:49.095368+00:00",
+  "source_sha256": "c7b12823ec137f40688ab52c4b5b7dc7cc62cfdca6fab4ba04df4dfa9228d8cf",
+  "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+  "local_root": "/home/user/ws/elesim/workbench/evidence/generated/hug-home-rl-codecheck-20261110/revision-2",
+  "remote_root": "/home/hckang/elesim/workbench/evidence/generated/hug-home-rl-codecheck-20261110/revision-2",
+  "changes": [
+    "Forward nominal-Home prefix reset curriculum with overlapping windows and explicit warm start",
+    "Episode-bounded applied-command variation cost armed during lift/hold"
+  ],
+  "host_checks": {
+    "passed": 59,
+    "skipped": 9,
+    "skip_reason": "Host Torch/tensordict unavailable"
+  },
+  "server_cpu_torch_tests": 4,
+  "gpu_validation": {
+    "two_env": {
+      "physical_reset_pool_validated": true,
+      "source_sha256": "c7b12823ec137f40688ab52c4b5b7dc7cc62cfdca6fab4ba04df4dfa9228d8cf",
+      "reference_path_sha256": "7f96c86a2805257d96bb17450ab66fbbc563762e94c09b326e0e1612ec2d6443",
+      "num_envs": 2,
+      "bins": 23,
+      "nominal_home_checked": true,
+      "subset_restore_checked": true,
+      "untouched_lane_forward_tick_checked": true,
+      "prefix_checks": [
+        {
+          "bin": 22,
+          "tick": 0,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 21,
+          "tick": 5,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 20,
+          "tick": 10,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 19,
+          "tick": 15,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 18,
+          "tick": 20,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 17,
+          "tick": 25,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 16,
+          "tick": 30,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 15,
+          "tick": 35,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 14,
+          "tick": 40,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 13,
+          "tick": 45,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 12,
+          "tick": 50,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 11,
+          "tick": 55,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 10,
+          "tick": 60,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 9,
+          "tick": 65,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 8,
+          "tick": 70,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 7,
+          "tick": 75,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 6,
+          "tick": 80,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 5,
+          "tick": 85,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 4,
+          "tick": 90,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 3,
+          "tick": 95,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 2,
+          "tick": 100,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 1,
+          "tick": 105,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 0,
+          "tick": 110,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        }
+      ],
+      "forward_grasp_or_lift_verified": false,
+      "reset_direction": "nominal Home to handoff",
+      "note": "Reset safety verification; PPO must independently learn Home success",
+      "training_started": false
+    },
+    "parallel512": {
+      "physical_reset_pool_validated": true,
+      "source_sha256": "c7b12823ec137f40688ab52c4b5b7dc7cc62cfdca6fab4ba04df4dfa9228d8cf",
+      "reference_path_sha256": "7f96c86a2805257d96bb17450ab66fbbc563762e94c09b326e0e1612ec2d6443",
+      "num_envs": 512,
+      "bins": 23,
+      "nominal_home_checked": true,
+      "subset_restore_checked": true,
+      "untouched_lane_forward_tick_checked": true,
+      "prefix_checks": [
+        {
+          "bin": 22,
+          "tick": 0,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 21,
+          "tick": 5,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 20,
+          "tick": 10,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 19,
+          "tick": 15,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 18,
+          "tick": 20,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 17,
+          "tick": 25,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 16,
+          "tick": 30,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 15,
+          "tick": 35,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 14,
+          "tick": 40,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 13,
+          "tick": 45,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 12,
+          "tick": 50,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 11,
+          "tick": 55,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 10,
+          "tick": 60,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 9,
+          "tick": 65,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 8,
+          "tick": 70,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 7,
+          "tick": 75,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 6,
+          "tick": 80,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 5,
+          "tick": 85,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 4,
+          "tick": 90,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 3,
+          "tick": 95,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 2,
+          "tick": 100,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 1,
+          "tick": 105,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        },
+        {
+          "bin": 0,
+          "tick": 110,
+          "replay_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        }
+      ],
+      "forward_grasp_or_lift_verified": false,
+      "reset_direction": "nominal Home to handoff",
+      "note": "Reset safety verification; PPO must independently learn Home success",
+      "training_started": false
+    },
+    "handoff_baseline": {
+      "start": "fixed",
+      "results": [
+        {
+          "repetition": 1,
+          "start": "fixed",
+          "bin": 0,
+          "initial_policy": true,
+          "successes": 1,
+          "total": 1,
+          "fault_episodes": 0,
+          "wrong_face_episodes": 0,
+          "smoothness_spent": [
+            0.7347054481506348
+          ],
+          "returns": [
+            44.241233825683594
+          ]
+        },
+        {
+          "repetition": 2,
+          "start": "fixed",
+          "bin": 0,
+          "initial_policy": true,
+          "successes": 1,
+          "total": 1,
+          "fault_episodes": 0,
+          "wrong_face_episodes": 0,
+          "smoothness_spent": [
+            0.7347054481506348
+          ],
+          "returns": [
+            44.241233825683594
+          ]
+        },
+        {
+          "repetition": 3,
+          "start": "fixed",
+          "bin": 0,
+          "initial_policy": true,
+          "successes": 1,
+          "total": 1,
+          "fault_episodes": 0,
+          "wrong_face_episodes": 0,
+          "smoothness_spent": [
+            0.7347054481506348
+          ],
+          "returns": [
+            44.241233825683594
+          ]
+        }
+      ],
+      "accepted": true,
+      "nominal_home": false,
+      "training_updates": 0
+    },
+    "untrained_home_baseline": {
+      "start": "nominal-home",
+      "results": [
+        {
+          "repetition": 1,
+          "start": "nominal-home",
+          "bin": 0,
+          "initial_policy": true,
+          "successes": 0,
+          "total": 1,
+          "fault_episodes": 1,
+          "wrong_face_episodes": 0,
+          "smoothness_spent": [
+            0.0
+          ],
+          "returns": [
+            -31.773550033569336
+          ]
+        }
+      ],
+      "accepted": false,
+      "nominal_home": true,
+      "training_updates": 0
+    },
+    "warm_start": {
+      "source_checkpoint_sha256": "69135776875fc56d3e20784ca45fb9e2f8ff209c6525749443808cb57690f9b4",
+      "optimizer_restored": false,
+      "curriculum_restored": false,
+      "actor_normalization_restored": true,
+      "max_actor_error": 0.0
+    },
+    "one_update": {
+      "status": "training_budget_finished",
+      "elapsed_s": 18.00967471022159,
+      "curriculum": {
+        "stages": 23,
+        "options": {
+          "advance_at": 0.7,
+          "retreat_at": 0.2,
+          "window": 512,
+          "cooldown_steps": 80,
+          "retention_fraction": 0.2,
+          "nominal_fraction": 0.5,
+          "seed": 42,
+          "overlap_bins": 3,
+          "hard_fraction": 0.5
+        },
+        "frontier": 0,
+        "epoch": 0,
+        "steps": 16,
+        "last_move": 0,
+        "outcomes": [],
+        "nominal_outcomes": [],
+        "nominal_ready": false,
+        "rng": {
+          "bit_generator": "PCG64",
+          "state": {
+            "state": 274674114334540486603088602300644985544,
+            "inc": 332724090758049132448979897138935081983
+          },
+          "has_uint32": 0,
+          "uinteger": 0
+        }
+      },
+      "nominal_home_policy_verified": false
+    },
+    "resume_one_update": {
+      "status": "training_budget_finished",
+      "elapsed_s": 18.379848124459386,
+      "curriculum": {
+        "stages": 23,
+        "options": {
+          "advance_at": 0.7,
+          "retreat_at": 0.2,
+          "window": 512,
+          "cooldown_steps": 80,
+          "retention_fraction": 0.2,
+          "nominal_fraction": 0.5,
+          "seed": 42,
+          "overlap_bins": 3,
+          "hard_fraction": 0.5
+        },
+        "frontier": 0,
+        "epoch": 0,
+        "steps": 32,
+        "last_move": 0,
+        "outcomes": [],
+        "nominal_outcomes": [],
+        "nominal_ready": false,
+        "rng": {
+          "bit_generator": "PCG64",
+          "state": {
+            "state": 274674114334540486603088602300644985544,
+            "inc": 332724090758049132448979897138935081983
+          },
+          "has_uint32": 0,
+          "uinteger": 0
+        }
+      },
+      "nominal_home_policy_verified": false
+    },
+    "checkpoint_export": {
+      "checkpoint": "/home/hckang/elesim/workbench/evidence/generated/hug-home-rl-codecheck-20261110/revision-2/train-smoke/model_initial.pt",
+      "checkpoint_sha256": "4096e4da61bd569d16aab30e1fdce8cd4ae7b6b23499917bed225d3da2476148",
+      "frontier": 0,
+      "prefix_time_s": 1.1,
+      "training_updates": 0
+    },
+    "video_replay": {
+      "start": "fixed",
+      "results": [
+        {
+          "repetition": 1,
+          "start": "fixed",
+          "bin": 0,
+          "initial_policy": false,
+          "successes": 1,
+          "total": 1,
+          "fault_episodes": 0,
+          "wrong_face_episodes": 0,
+          "smoothness_spent": [
+            0.7347054481506348
+          ],
+          "returns": [
+            44.241233825683594
+          ]
+        }
+      ],
+      "accepted": true,
+      "nominal_home": false,
+      "training_updates": 0
+    }
+  },
+  "validation_ppo_updates": 2,
+  "full_training_started": false,
+  "home_policy_learned": false,
+  "smooth_motion_learned": false,
+  "gpu2_compute_active": false,
+  "canonical_gates": {
+    "run": false,
+    "reason": "Generated development wrapper unavailable; host scientific stack incomplete"
+  },
+  "source_files_sha256": {
+    "workbench/research/experiments/hug_home_rl/smoothness.py": "d2c86d0fce3ca68fc6bf1583f9bd2d159c8d33ec7ab4f270301fd5ada6df3519",
+    "workbench/research/experiments/hug_home_rl/data.py": "91896e179a062d5ae7e29e27052e1f48909ecbedbce4ff138d9e83f6dc31d8a1",
+    "workbench/research/experiments/hug_home_rl/bank.py": "79ca6c5d4933769e8744b9d39c9ea7a698ac9e0b2032a244ba372a1cde058959",
+    "workbench/research/experiments/hug_home_rl/__init__.py": "785d209d3fb17a963135accbf681acf8321bb5939dd4f90aa6b0917a2dfed9ce",
+    "workbench/research/experiments/hug_home_rl/schedule.py": "abb0c9685c2824908df5c22dc2259274bc8c94dd7ed7cabb9e829887db037bf9",
+    "workbench/research/experiments/hug_home_rl/environment.py": "ea274cc408f5e09b1b1fc3fb0fbc68e165483acaad5768a8e89c7e61cfea85ff",
+    "workbench/research/experiments/hug_home_rl/experiment.py": "3f67d846f85797d965c5cda212ccc5277a3c57d22d3e4c35c0df5d9d86993d46",
+    "workbench/research/experiments/hug_home_rl/README.md": "e4c9e32713cc600e2f2b6275bcf110c467d98888d0300ff9f992f90f229ccddd",
+    "workbench/research/analysis/export_home_checkpoint.py": "d8bba62cd939c7461ec10712350f274f5e7b0580cab3163a599bf6488e58e7d5",
+    "workbench/tests/research/experiments/test_hug_home_rl.py": "f18fd7cd6726d963ba5c3565877cb73ef60558eee29637655885f34926c38bf1",
+    "workbench/tests/research/experiments/test_hug_home_rl_torch.py": "ce64c4c041ebd9cebc918b0c0aca00c0d96c25e1abe349b08bb4aaffa543849c"
+  },
+  "video_inspected": true
+}

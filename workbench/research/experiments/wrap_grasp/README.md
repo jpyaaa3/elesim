@@ -1,3 +1,8 @@
+> **Historical workflow — retired 2026-11-10.** Do not use the commands below for new training.
+> Source remains only where current tasks or regression tests depend on it.
+> Use `hug_reverse_ga` and `hug_home_rl`; see [workflow status](../HUG_WORKFLOWS.md).
+> The exact pre-retirement sources and instructions are preserved in the local archive inventory.
+
 # Wrap-grasp reinforcement learning
 
 Trains a 4-DoF continuum arm on a GO2 quadruped to wrap and lift an upright

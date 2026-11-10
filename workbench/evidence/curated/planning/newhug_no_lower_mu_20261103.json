@@ -1,0 +1,30 @@
+{
+  "version": "0.6.1",
+  "source_sha256": "f1ac8c53756652ff60bc79f61abe798e75673f74c8032ccae02ab294b22d8cdc",
+  "cutoff_rule": "mu_critical < operating_mu",
+  "recording_lower_bound_removed": true,
+  "tests": {
+    "related_host_regressions": 72,
+    "standalone": 37
+  },
+  "cases": [
+    {
+      "diameter_mm": 100,
+      "iterations": 256,
+      "arm_candidates": 4,
+      "recorded_needles": 4,
+      "smallest_required_mu": 0.07870170682461718,
+      "raw_json_path": "workbench/evidence/generated/newhug-no-lower-mu-20261103-100.json",
+      "raw_sha256": "d19c11d184dcabe84bfc51d6f0b3d3e4cc95b2c7b7506d0cd9f0513dfe610570"
+    },
+    {
+      "diameter_mm": 160,
+      "iterations": 256,
+      "arm_candidates": 5,
+      "recorded_needles": 5,
+      "smallest_required_mu": 0.14054083470239273,
+      "raw_json_path": "workbench/evidence/generated/newhug-no-lower-mu-20261103-160.json",
+      "raw_sha256": "96f869cad6325e77db1fa18edf3c2b9b7915d2080554da06de176683b3f3aeab"
+    }
+  ]
+}

@@ -25,9 +25,5 @@ def advance_command(command, actions, settings, xp=np):
 
 
 def pose_error(actual, target, settings, xp=np):
-    convert = actual.new_tensor if hasattr(actual, 'new_tensor') else np.asarray
-    scale = convert([settings['linear_max_m']-settings['linear_min_m'],
-                     settings['roll_max_rad']-settings['roll_min_rad'],
-                     settings['bend_per_node_rad'], settings['bend_per_node_rad']])
-    delta = (actual-target)/scale
+    delta = (actual[...,2:]-target[...,2:])/(2*settings['bend_per_node_rad'])
     return xp.sqrt((delta*delta).sum(-1))

@@ -1,0 +1,188 @@
+{
+  "schema": "hug-ga-xy50-progress-audit",
+  "schema_version": 1,
+  "history_sha256": "41111425a46fd17e55243397f2213cd439f64551fe78ade2369538a24dcf520d",
+  "generations": 100,
+  "candidates": 12800,
+  "record_events": [
+    {
+      "generation": 4,
+      "grasp": 0.0,
+      "lift": 0.0,
+      "hold": 0.0,
+      "final_roll_error_deg": 54.554022051928726,
+      "peak_xy_mm": 0.0,
+      "distance_m": 0.3627285063266754,
+      "candidate": 75,
+      "lift_increase": 0
+    },
+    {
+      "generation": 6,
+      "grasp": 0.0,
+      "lift": 0.0,
+      "hold": 0.0,
+      "final_roll_error_deg": 73.23646431884077,
+      "peak_xy_mm": 43.007442474365234,
+      "distance_m": 0.3352903425693512,
+      "candidate": 67,
+      "lift_increase": 0.0
+    },
+    {
+      "generation": 9,
+      "grasp": 0.0,
+      "lift": 0.0,
+      "hold": 0.0,
+      "final_roll_error_deg": 7.09495120790454,
+      "peak_xy_mm": 7.895771503448486,
+      "distance_m": 0.28727948665618896,
+      "candidate": 72,
+      "lift_increase": 0.0
+    },
+    {
+      "generation": 10,
+      "grasp": 0.0,
+      "lift": 0.0,
+      "hold": 0.0,
+      "final_roll_error_deg": 9.082975096032424,
+      "peak_xy_mm": 0.0,
+      "distance_m": 0.24375773966312408,
+      "candidate": 27,
+      "lift_increase": 0.0
+    },
+    {
+      "generation": 13,
+      "grasp": 0.0,
+      "lift": 0.0,
+      "hold": 0.0,
+      "final_roll_error_deg": 2.5825169367400354,
+      "peak_xy_mm": 7.758278846740723,
+      "distance_m": 0.21418075263500214,
+      "candidate": 111,
+      "lift_increase": 0.0
+    },
+    {
+      "generation": 14,
+      "grasp": 0.0,
+      "lift": 0.0,
+      "hold": 0.0,
+      "final_roll_error_deg": 74.74890042751338,
+      "peak_xy_mm": 0.0,
+      "distance_m": 0.19247207045555115,
+      "candidate": 72,
+      "lift_increase": 0.0
+    },
+    {
+      "generation": 21,
+      "grasp": 0.0,
+      "lift": 0.0,
+      "hold": 0.0,
+      "final_roll_error_deg": 73.23462016776487,
+      "peak_xy_mm": 0.0,
+      "distance_m": 0.1474466770887375,
+      "candidate": 109,
+      "lift_increase": 0.0
+    },
+    {
+      "generation": 24,
+      "grasp": 1.0,
+      "lift": 0.22332175076007843,
+      "hold": 0.0,
+      "final_roll_error_deg": 69.08226813355814,
+      "peak_xy_mm": 32.45863723754883,
+      "distance_m": 0.1284279227256775,
+      "candidate": 105,
+      "lift_increase": 0.22332175076007843
+    },
+    {
+      "generation": 34,
+      "grasp": 1.0,
+      "lift": 0.24525070190429688,
+      "hold": 0.0,
+      "final_roll_error_deg": 69.02925903540968,
+      "peak_xy_mm": 33.31424331665039,
+      "distance_m": 0.1291823834180832,
+      "candidate": 20,
+      "lift_increase": 0.021928951144218445
+    },
+    {
+      "generation": 46,
+      "grasp": 1.0,
+      "lift": 0.24528300762176514,
+      "hold": 0.0,
+      "final_roll_error_deg": 69.15896432774822,
+      "peak_xy_mm": 32.101016998291016,
+      "distance_m": 0.12682834267616272,
+      "candidate": 23,
+      "lift_increase": 3.230571746826172e-05
+    },
+    {
+      "generation": 52,
+      "grasp": 1.0,
+      "lift": 0.37731295824050903,
+      "hold": 0.0,
+      "final_roll_error_deg": 57.95097223940497,
+      "peak_xy_mm": 45.61785125732422,
+      "distance_m": 0.1757359355688095,
+      "candidate": 99,
+      "lift_increase": 0.1320299506187439
+    },
+    {
+      "generation": 63,
+      "grasp": 1.0,
+      "lift": 0.3773985505104065,
+      "hold": 0.0,
+      "final_roll_error_deg": 57.95714673041466,
+      "peak_xy_mm": 47.60335922241211,
+      "distance_m": 0.17876625061035156,
+      "candidate": 96,
+      "lift_increase": 8.559226989746094e-05
+    },
+    {
+      "generation": 77,
+      "grasp": 1.0,
+      "lift": 0.4150393605232239,
+      "hold": 0.0,
+      "final_roll_error_deg": 54.762455519735425,
+      "peak_xy_mm": 48.587257385253906,
+      "distance_m": 0.18438774347305298,
+      "candidate": 41,
+      "lift_increase": 0.03764081001281738
+    },
+    {
+      "generation": 94,
+      "grasp": 1.0,
+      "lift": 0.4150681495666504,
+      "hold": 0.0,
+      "final_roll_error_deg": 54.746199669510794,
+      "peak_xy_mm": 47.89395523071289,
+      "distance_m": 0.21307697892189026,
+      "candidate": 31,
+      "lift_increase": 2.8789043426513672e-05
+    }
+  ],
+  "last_lift_gain_at_least_0_001": {
+    "generation": 77,
+    "grasp": 1.0,
+    "lift": 0.4150393605232239,
+    "hold": 0.0,
+    "final_roll_error_deg": 54.762455519735425,
+    "peak_xy_mm": 48.587257385253906,
+    "distance_m": 0.18438774347305298,
+    "candidate": 41,
+    "lift_increase": 0.03764081001281738
+  },
+  "last_record": {
+    "generation": 94,
+    "grasp": 1.0,
+    "lift": 0.4150681495666504,
+    "hold": 0.0,
+    "final_roll_error_deg": 54.746199669510794,
+    "peak_xy_mm": 47.89395523071289,
+    "distance_m": 0.21307697892189026,
+    "candidate": 31,
+    "lift_increase": 2.8789043426513672e-05
+  },
+  "late_roll_error_improvement_deg": 0.016255850224631274,
+  "interpretation": "Substantial lift progress continued through generation77; generations78-100 show only a tiny final-angle improvement at94 and no qualified hold. More budget alone has weak support from this trace.",
+  "limitation": "Single seed and finite search; no success probability estimate or physical impossibility proof"
+}

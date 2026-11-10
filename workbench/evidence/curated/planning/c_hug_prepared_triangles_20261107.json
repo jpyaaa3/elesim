@@ -1,0 +1,578 @@
+{
+  "schema": "elesim-c-hug-prepared-triangles-audit",
+  "schema_version": 1,
+  "date_kst": "2026-11-07",
+  "request": "Redesign C-hug RL anchor triangles after mapper preparation collision recalculation; prepare and validate without starting RL.",
+  "selection_contract": "preparation-clear-area-v2",
+  "objective": "maximize rasterized area(S_ready intersect triangle); S_ready passes final CAD, Home-to-Extend Arm conservative envelope and physical Home/goal catalog checks",
+  "pipeline": [
+    "Updated mapper function kernel; ignore embedded DATA",
+    "Function q3/q4 raster with mu<=.4 and Home/Extend envelope",
+    "Physical whole-catalog Home/goal screen including Home XY drift<=1 mm",
+    "Select 3 anchors per diameter by occupied intersection area",
+    "Independently check all 15 anchors at Home, physical Home-to-Extend Arm, and direct goal",
+    "Later explicit run trains from Home with all four free controls; no forced preparation schedule"
+  ],
+  "prepared_collection": "workbench/evidence/generated/c-hug-ready-triangles-20261107/collection.json",
+  "review_html": "workbench/evidence/generated/c-hug-ready-triangles-20261107/index.html",
+  "remote_collection": "/home/hckang/elesim/workbench/evidence/generated/c-hug-ready-triangles-20261107/collection.json",
+  "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+  "code_sha256": "318dd14f73fef42e9e46837a4efc0282f397c7fff57b1572a1b7ec94c7002d69",
+  "collection_sha256": "088b7ffa5daf140da09eef0b9da66b1c30bccfec9a626ab9fff98c18196fc318",
+  "kernel_sha256": "e6712cd27802e75e76c5d850548136ab3ee581d3cd61f985ba3f3c58b80fbcd9",
+  "physical_catalog": {
+    "tested": 4204,
+    "passed": 4154,
+    "batch": 64,
+    "ticks_per_pose": 10,
+    "schema_version": 3
+  },
+  "profiles": [
+    {
+      "diameter_mm": 100.0,
+      "preparation_clear_catalog_samples": 585,
+      "static_ready_catalog_samples": 584,
+      "coverage": 0.579855165525685,
+      "anchor_q_total_deg": [
+        [
+          -89.5,
+          -162.5
+        ],
+        [
+          -12.5,
+          -171.5
+        ],
+        [
+          -5.5,
+          -163.5
+        ]
+      ],
+      "anchors": [
+        {
+          "case_id": "c-train-000-d100",
+          "q_deg": [
+            -89.5,
+            -162.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 4.456971185975771e-06,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        },
+        {
+          "case_id": "c-train-001-d100",
+          "q_deg": [
+            -12.5,
+            -171.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 3.0254270787833137e-06,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        },
+        {
+          "case_id": "c-train-002-d100",
+          "q_deg": [
+            -5.5,
+            -163.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 2.7891400696090513e-05,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        }
+      ],
+      "first_envelope_only_triangle_failed_cases": [],
+      "splits": {
+        "train": 3,
+        "validation": 30,
+        "test": 100
+      },
+      "pilot_sha256": "7ad2faee016eb1df7190c7c81546fedd7a6887ffaf1c8412488a3f3fd310dbd1",
+      "catalog_sha256": "619e3970feea065b16724e61e86a7ef8307def2dc13d2f6e2217379662555023",
+      "physical_report_sha256": "3edbb65ead7d4a2dab661e0969d315aefcd2962ec810749f6a57132f54373018",
+      "catalog_screen_report_sha256": "eccfc723bb19a09c840c4356b411059878a3454125433ebb752ec7122fe80708"
+    },
+    {
+      "diameter_mm": 125.0,
+      "preparation_clear_catalog_samples": 1217,
+      "static_ready_catalog_samples": 1211,
+      "coverage": 0.7283236994219653,
+      "anchor_q_total_deg": [
+        [
+          -17.5,
+          -161.5
+        ],
+        [
+          -103.5,
+          -143.5
+        ],
+        [
+          -5.5,
+          -143.5
+        ]
+      ],
+      "anchors": [
+        {
+          "case_id": "c-train-000-d125",
+          "q_deg": [
+            -17.5,
+            -161.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 6.681912166894268e-06,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        },
+        {
+          "case_id": "c-train-001-d125",
+          "q_deg": [
+            -103.5,
+            -143.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 1.3290609082959226e-05,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        },
+        {
+          "case_id": "c-train-002-d125",
+          "q_deg": [
+            -5.5,
+            -143.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 3.874383518113435e-06,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        }
+      ],
+      "first_envelope_only_triangle_failed_cases": [],
+      "splits": {
+        "train": 3,
+        "validation": 30,
+        "test": 100
+      },
+      "pilot_sha256": "ff024e98887e7e696cfe508a87ccac8359a20261a485f3ded74034ccdac2ee3b",
+      "catalog_sha256": "4834f1d08b122437ebe50bc88a253df7155291417d489006ab642d0fa57a9d2f",
+      "physical_report_sha256": "66aa2f243590461c31bd76784f222e05f7ef31f210660cd2a5494a476df8bd18",
+      "catalog_screen_report_sha256": "fd143e7f33d74d6b4511c6e3905aa907a9388dfa8c423ae8e1a9342b766ce265"
+    },
+    {
+      "diameter_mm": 150.0,
+      "preparation_clear_catalog_samples": 1204,
+      "static_ready_catalog_samples": 1196,
+      "coverage": 0.7449800114966555,
+      "anchor_q_total_deg": [
+        [
+          -23.5,
+          -153.5
+        ],
+        [
+          -104.5,
+          -129.5
+        ],
+        [
+          -6.5,
+          -136.5
+        ]
+      ],
+      "anchors": [
+        {
+          "case_id": "c-train-000-d150",
+          "q_deg": [
+            -23.5,
+            -153.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 1.2042790535517957e-05,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        },
+        {
+          "case_id": "c-train-001-d150",
+          "q_deg": [
+            -104.5,
+            -129.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 9.270962498023014e-06,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        },
+        {
+          "case_id": "c-train-002-d150",
+          "q_deg": [
+            -6.5,
+            -136.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 3.7181486671280655e-06,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        }
+      ],
+      "first_envelope_only_triangle_failed_cases": [
+        "c-train-000-d150"
+      ],
+      "splits": {
+        "train": 3,
+        "validation": 30,
+        "test": 100
+      },
+      "pilot_sha256": "8c9400cb19578ffeae90ad6b7ed1c337da2c42ca769622a3abfdf01de8cfc465",
+      "catalog_sha256": "47d6ea6ac09f3fe39e25f294653ef72bc9fa6c33ca1882abb23d75dfbb99922c",
+      "physical_report_sha256": "3f90b5e6df8c5ac1b4ba51308d2f0dacdcd38021b9c51d81bc5710bf353c57de",
+      "catalog_screen_report_sha256": "c929504e01c3e66f4fd21a1babb1ae9d112aa4d62d59bb53997d695a9283edaa"
+    },
+    {
+      "diameter_mm": 175.0,
+      "preparation_clear_catalog_samples": 779,
+      "static_ready_catalog_samples": 764,
+      "coverage": 0.6781485193062827,
+      "anchor_q_total_deg": [
+        [
+          -28.5,
+          -144.5
+        ],
+        [
+          -89.5,
+          -120.5
+        ],
+        [
+          -10.5,
+          -134.5
+        ]
+      ],
+      "anchors": [
+        {
+          "case_id": "c-train-000-d175",
+          "q_deg": [
+            -28.5,
+            -144.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 7.159335823628629e-06,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        },
+        {
+          "case_id": "c-train-001-d175",
+          "q_deg": [
+            -89.5,
+            -120.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 0.5516830279209134,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        },
+        {
+          "case_id": "c-train-002-d175",
+          "q_deg": [
+            -10.5,
+            -134.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 8.545243786901323e-06,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        }
+      ],
+      "first_envelope_only_triangle_failed_cases": [
+        "c-train-001-d175"
+      ],
+      "splits": {
+        "train": 3,
+        "validation": 30,
+        "test": 100
+      },
+      "pilot_sha256": "e34a7b526c1aa9c219c9e958a05abec275b533f1abe0308bb5437ddd285e31ee",
+      "catalog_sha256": "170996356c85bef2f86ca78cc117f6049d86f70c0504ffe5b6977fe727acc81f",
+      "physical_report_sha256": "8f1d3ee54812f928987152d78a3c1acdea0840a38bd4fd65aba9a3a2a4df1a4b",
+      "catalog_screen_report_sha256": "91ef614062f934ee5a9b58588806caefee3888c2466170528b32c3cb65e0244a"
+    },
+    {
+      "diameter_mm": 200.0,
+      "preparation_clear_catalog_samples": 419,
+      "static_ready_catalog_samples": 399,
+      "coverage": 0.6465251670852131,
+      "anchor_q_total_deg": [
+        [
+          -11.5,
+          -133.5
+        ],
+        [
+          -72.5,
+          -115.5
+        ],
+        [
+          -33.5,
+          -135.5
+        ]
+      ],
+      "anchors": [
+        {
+          "case_id": "c-train-000-d200",
+          "q_deg": [
+            -11.5,
+            -133.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 1.0188012518633548e-05,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        },
+        {
+          "case_id": "c-train-001-d200",
+          "q_deg": [
+            -72.5,
+            -115.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 4.5297417529007084e-06,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        },
+        {
+          "case_id": "c-train-002-d200",
+          "q_deg": [
+            -33.5,
+            -135.5
+          ],
+          "preparation": {
+            "passed": true,
+            "completed": true,
+            "contact_ticks": 0,
+            "first_contact_s": null,
+            "fault": false,
+            "max_object_displacement_mm": 7.836455706008706e-06,
+            "tested": true,
+            "duration_s": 3.3000000000000003,
+            "criterion": "Home→Extend Arm: no robot-object contact, no fault, <=1 mm object XY drift",
+            "policy_schedule_forced": false
+          },
+          "home_fault": false,
+          "home_wrong_face": false,
+          "goal_fault": false,
+          "goal_wrong_face": false
+        }
+      ],
+      "first_envelope_only_triangle_failed_cases": [
+        "c-train-001-d200"
+      ],
+      "splits": {
+        "train": 3,
+        "validation": 30,
+        "test": 100
+      },
+      "pilot_sha256": "00750ac68e7623e7d3af7296f4a183a47b9f5a44f58429c89caeba8759a40f55",
+      "catalog_sha256": "d440a64e7d7266d3656fe04fd125961f30c0c260314bdda9cb3e9031cdfc0194",
+      "physical_report_sha256": "2f16055100d855d7519fc215ef35cb11f41fc86b7e4462beca7224aab6e6ba17",
+      "catalog_screen_report_sha256": "3a32f5ac0dba760aae9c098179230feaf34edce6de45624b022c33362f9acc0f"
+    }
+  ],
+  "validation": {
+    "host_tests_passed": 67,
+    "host_test_command": "PYTHONPATH=payload/runtime/common/protocol:payload/runtime/docker/sim/app:. python3 -m pytest -q workbench/tests/research/experiments/test_hug_c.py workbench/tests/research/experiments/test_hug_c_collection.py workbench/tests/research/experiments/test_hug_c_rewards.py workbench/tests/research/analysis/test_mapper_preparation_collision.py",
+    "physical_ready": true,
+    "physically_checked_anchors": 15,
+    "preparation_contact_ticks": 0,
+    "max_preparation_xy_drift_mm": 0.5516830279209134,
+    "source_hash_matches_gpu_reports": true,
+    "exact_function_target_checks": 665,
+    "syntax_and_diff_checks": "passed",
+    "canonical_gates_run": false,
+    "canonical_not_run_reason": "No usable prepared canonical development attachment in this checkout; relevant host regressions and existing authorized GPU2 CUDA environment used. No host dependencies installed."
+  },
+  "preserves": [
+    "Home start with free linear/roll/q3/q4 from first action",
+    "q3/q4-only hint, reward v3, mandatory lifted 5-second hold",
+    "Exactly 3 training anchors per each of 5 independent diameters; 30 validation and 100 test each",
+    "Old checkpoints, videos and policy/trajectory NPZ",
+    "Newton-Gym"
+  ],
+  "new_rl_started": false,
+  "optimizer_updates_executed": 0,
+  "limitations": [
+    "Preparation envelope is conservative; it is not a global reachability certificate.",
+    "Physical preflight checks the declared Home-to-Extend Arm primitive, not all possible starts/paths.",
+    "Subsequent roll, closing, lifting and interpolated command paths remain untested until explicit RL and replay.",
+    "Physical catalog screening is finite raster/endpoints; exact held-out queries also require matching ready cells, and physical validation remains required.",
+    "Continuous global optimum is not proven."
+  ],
+  "artifacts_sha256": {
+    "workbench/evidence/generated/c-hug-ready-triangles-20261107/collection.json": "088b7ffa5daf140da09eef0b9da66b1c30bccfec9a626ab9fff98c18196fc318",
+    "workbench/evidence/generated/c-hug-ready-triangles-20261107/physics-checks/report.json": "87bbeede2a8f999b7f664b9702d52e3708bc8f7ae59c83851006bd7a69615620",
+    "workbench/evidence/generated/c-hug-ready-triangles-20261107/validated-hug-c-source.zip": "8d69c0acded45c2df0083e6d6b983486fbf9efe7a476eb64569f75eb77705cfe",
+    "workbench/research/experiments/hug_c/example_pilot.json": "8c9400cb19578ffeae90ad6b7ed1c337da2c42ca769622a3abfdf01de8cfc465"
+  }
+}

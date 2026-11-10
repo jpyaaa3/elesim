@@ -1,0 +1,266 @@
+{
+  "schema": "elesim-c-hug-contact-parking-findings",
+  "schema_version": 1,
+  "policy_updates": 500,
+  "simulation_context": {
+    "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+    "code_sha256": "b58659c11ba05c42c3d00ad0fe9f6e59fc82188762a11c84244b3bbc36a0d66b",
+    "pilot_sha256": "28352de65972010a70b08782721a34227b500896bec6da3747fb9554108dff89",
+    "settings": {
+      "dt": 0.01,
+      "solver_substeps": 4,
+      "max_collision_pairs": 256,
+      "max_contacts": 512,
+      "action_ticks": 10,
+      "episode_steps": 200,
+      "hold_duration_s": 5.0,
+      "action_delta_linear_m": 0.005,
+      "action_delta_roll_rad": 0.1,
+      "action_delta_bend_total_rad": 0.15,
+      "friction": 0.5,
+      "floor_friction": 0.01,
+      "mass_kg": 0.3,
+      "height_m": 1.1,
+      "spawn_height_m": 0.32,
+      "lift_clearance_m": 0.02,
+      "hold_slip_m": 0.01,
+      "hold_contact_fraction": 0.8,
+      "max_penetration_m": 0.005,
+      "max_joint_spread_rad": 0.05,
+      "kp": 200.0,
+      "kv": 20.0,
+      "torque_limit": 100.0,
+      "linear_min_m": -0.17333333333333334,
+      "linear_max_m": 0.0,
+      "roll_min_rad": -1.5707963267948966,
+      "roll_max_rad": 1.5707963267948966,
+      "bend_per_node_rad": 0.6283185307179586,
+      "seed": 42,
+      "reward_gamma": 0.995,
+      "reward_q_hint": 1.0,
+      "reward_grasp": 3.0,
+      "reward_lift": 5.0,
+      "reward_hold": 10.0,
+      "reward_success": 30.0,
+      "penalty_wrong_face_per_s": 1.0,
+      "penalty_drop": 3.0,
+      "penalty_fault": 30.0,
+      "penalty_timeout": 5.0,
+      "penalty_action": 0.001,
+      "penalty_time_per_s": 0.3,
+      "grasp_confirm_s": 0.2,
+      "penalty_workspace_per_s": 0.2,
+      "workspace_margin_m": 0.05,
+      "workspace_scale_m": 0.1,
+      "face_margin_m": 0.001,
+      "face_normal_tolerance": 0.15,
+      "face_force_min_n": 0.01
+    },
+    "versions": {
+      "torch": "2.12.1",
+      "genesis-world": "1.4.5",
+      "tensordict": "0.14.2",
+      "rsl-rl-lib": "5.4.0"
+    },
+    "criterion": "Free four-DoF motion from Home; C grasp and sustained loaded lift for 5 s",
+    "control_mode": "policy-four-dof-home-lift-v3",
+    "action_names": [
+      "linear",
+      "roll",
+      "q3_total",
+      "q4_total"
+    ],
+    "observation_names": [
+      "linear_m",
+      "roll_rad",
+      "q3_total_rad",
+      "q4_total_rad",
+      "command_linear_m",
+      "command_roll_rad",
+      "command_q3_total_rad",
+      "command_q4_total_rad",
+      "goal_q3_total_rad",
+      "goal_q4_total_rad",
+      "object_gripper_dx_m",
+      "object_gripper_dy_m",
+      "object_gripper_dz_m",
+      "object_vx_m_s",
+      "object_vy_m_s",
+      "object_vz_m_s",
+      "diameter_m",
+      "grasp_seen",
+      "hold_fraction",
+      "episode_fraction"
+    ],
+    "reward_contract": "bounded-milestones-compact-workspace-time-v4",
+    "workspace_contract": "fixed XY hull of Home/goal arm collision boxes and initial object, soft margin",
+    "camera_side_axes": {
+      "node0": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node1": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node2": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node3": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node4": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node5": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node6": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node7": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node8": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node9": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "gripper_base": [
+        -1.0,
+        0.0,
+        3.205103515924179e-09
+      ],
+      "gripper_claw_left": [
+        -1.0,
+        3.205103515924179e-09,
+        -1.0272688547789535e-17
+      ],
+      "gripper_claw_right": [
+        -1.0,
+        3.205103515924179e-09,
+        -1.0272688547789535e-17
+      ]
+    },
+    "reward_gamma": 0.995,
+    "preparation_contract": {
+      "schema": "elesim-mapper-preparation-envelope",
+      "schema_version": 1,
+      "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+      "home_command": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "extend_command": [
+        -0.01,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "command_units": [
+        "linear_m",
+        "roll_rad",
+        "q3_per_node_rad",
+        "q4_per_node_rad"
+      ],
+      "home_total_deg": [
+        -170.0,
+        170.0
+      ],
+      "frame": "map x=-world Y, y=world X; nominal housing centre",
+      "body_center_world_m": [
+        0.1985,
+        0.0,
+        0.19697349999999997
+      ],
+      "leg_pose_rad": [
+        0.0,
+        0.9,
+        -1.8
+      ],
+      "clearance_mm": 1.0,
+      "sampling_padding_mm": 0.042675702606548196,
+      "intervals": 340,
+      "chain_radius_bound_m": 1.120742277613113,
+      "total_joint_delta_rad": 5.93411945678072,
+      "construction": "Per-part convex XY hull over linear interpolation Home\u2192Extend Arm; curvature-bound padding; circumscribed URDF primitives",
+      "scope": "Stationary tall vertical cylinder; fixed Go2 and legs. Subsequent roll, closing and lift untested. Envelope rejection is conservative, not global impossibility."
+    },
+    "goal_error_convention": "q3/q4 only, normalized by full physical bend range",
+    "command_convention": "linear m, roll rad, theta1/theta2 per-node rad; q3/q4=5*theta",
+    "frame": "map x=-world Y, y=world X; housing centre; node0 offset (0,144.5) mm"
+  },
+  "optimizer_used": false,
+  "training_modified": false,
+  "video_policy_sha256": "75431819ec376d88910b6917a8a74c7f8ad8b463b593358d1056f05f3c3a2a4b",
+  "video_and_probe_policy_match": true,
+  "observations": {
+    "duration_s": 20.0,
+    "first_loaded_contact_s": 0.4,
+    "loaded_link_contact_seconds": {
+      "node9": 0.04
+    },
+    "contact_seconds": {
+      "proximal_proper_ticks": 0.0,
+      "distal_proper_ticks": 0.04,
+      "both_proper_ticks": 0.0,
+      "gripper_only_loaded_ticks": 0.0,
+      "any_loaded_contact_ticks": 0.04,
+      "wrong_face_ticks": 0.0
+    },
+    "object_xy_displacement_mm": 623.6081248514736,
+    "time_cost_waived_s": 0.0,
+    "rewards": {
+      "q_hint": -0.6519531607627869,
+      "grasp": 0.0,
+      "lift": 0.0,
+      "hold": 0.0,
+      "success": 0.0,
+      "wrong_face": 0.0,
+      "drop": 0.0,
+      "fault": 0.0,
+      "timeout": -5.0,
+      "action": -0.04791497811675072,
+      "time": -6.0000104904174805,
+      "workspace": 0.0
+    },
+    "confirmed_grasp": false,
+    "lift_fraction": 0.0
+  },
+  "comparison": {
+    "idle_total": -11.654149055480957,
+    "policy_total": -11.699878692626953,
+    "idle_discounted": -5.970305828120223,
+    "policy_discounted": -6.00634934354144,
+    "policy_preferred_by_evolution": true,
+    "policy_better_ppo_return": false
+  },
+  "conclusions": {
+    "time_exemption_exploit_observed": false,
+    "gripper_only_sustained_contact_observed": false,
+    "transient_contact_is_preserved_by_evolution": true,
+    "physical_grasp_or_lift_observed": false
+  },
+  "limitation": "One deterministic 500-update policy replay and one feasible idle baseline; no claim about all stochastic training episodes"
+}

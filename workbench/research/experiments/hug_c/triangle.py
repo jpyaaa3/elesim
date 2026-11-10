@@ -3,6 +3,8 @@ import itertools
 import math
 import numpy as np
 
+SELECTION_CONTRACT='preparation-clear-area-v2'
+
 
 def cross(a,b):
     return a[...,0]*b[...,1]-a[...,1]*b[...,0]
@@ -85,15 +87,18 @@ def select(rows, step, *, seed=42, pool_size=64, restarts=12):
     else:
         pool = np.array(boundary)
     mu = np.array([r['mu_min'] for r in rows])
+    margin=np.array([r.get('preparation_margin_mm',0.) for r in rows])
+    if any('preparation_passed' in r for r in rows) and any(r.get('preparation_passed') is not True or not np.isfinite(m) or m<=0 for r,m in zip(rows,margin)):
+        raise ValueError('Triangle candidates must all pass the preparation envelope')
 
     def score(ids):
         v = p[list(ids)]
         area = abs(cross(v[1]-v[0], v[2]-v[0]))/2
         if area < 1e-8:
-            return (-1, -math.inf, -math.inf)
+            return (-1, -math.inf, -math.inf, -math.inf)
         count = round(min(area,raster.covered(v)),9)
         perimeter2 = sum(float(np.sum((v[i]-v[(i+1)%3])**2)) for i in range(3))
-        return count, -float(mu[list(ids)].max()), area/perimeter2
+        return count, float(margin[list(ids)].min()), -float(mu[list(ids)].max()), area/perimeter2
 
     exact = len(rows) <= 24
     if exact:
@@ -139,4 +144,7 @@ def select(rows, step, *, seed=42, pool_size=64, restarts=12):
         solution_area_deg2=len(rows)*step**2, covered_area_deg2=result[0],
         triangle_area_deg2=area, discarded_area_deg2=max(0., area-result[0]),
         discarded_area_note='Occupied-cell area with fractional x edges and 4 y subsamples per cell',
+        objective='maximize area(S_ready intersect triangle); S_ready excludes final/preparation collisions',
+        tie_breaks=['larger minimum preparation margin', 'lower worst anchor mu', 'triangle conditioning'],
+        anchor_preparation_margin_mm=margin[list(best)].tolist(),
         vertices_total_deg=v.tolist(), search_seed=seed)

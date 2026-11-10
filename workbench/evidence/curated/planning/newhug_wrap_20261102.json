@@ -1,0 +1,229 @@
+{
+  "schema": 1,
+  "scope": "static_endpoint_not_Genesis_or_policy_rollout",
+  "task": {
+    "radius_m": 0.05,
+    "object_xyz_m": [
+      0.368,
+      0.16,
+      0.55
+    ],
+    "neutral_hinge_xyz_m": [
+      0.343,
+      0.0,
+      0.562
+    ],
+    "linear_limits_m": [
+      -0.17333333333333334,
+      0.0
+    ],
+    "coupled_weight": 1.5,
+    "coupled_cap_rad": 1.0647,
+    "node_limit_deg": 36.0,
+    "camera_margin_m": 0.001,
+    "tolerance_m": 5e-05
+  },
+  "solver_path": "/home/user/ws/newhug.py",
+  "solver_sha256": "5c9341036b4124ad7a8cd2e65d1374e3e558832db10093535b5052b0bda69fda",
+  "sources_sha256": {
+    "payload/data/models/assemblies/zed-mini/robot.urdf": "ef176e20b34d3927246578b7786bf9de268581805769be69bb69b8a901f2a3a3",
+    "payload/config/pilot/wrap_grasp.yaml": "3bd8af825d57b609062c0be7d8f7cedc65c9d4684727cc822bbb6f5dad090b59",
+    "payload/config/pilot/config.yaml": "c1e4e24b267d8bded0a4608000a60418cf93b37010c306a02fae8eb55834c295",
+    "payload/data/models/arm/default.json": "02a440f7ad8a0037d18c8cfd306d32af081fdb645ee3fb90250bdc5f9d6bd13a",
+    "payload/data/policies/wrap-grasp/interface.json": "55e1807b9af0d36c7a4058b32589921f30594980d8500edfe8755ef482e10442"
+  },
+  "independent_urdf_checks": [
+    {
+      "roll_deg": 90,
+      "max_hinge_fk_error_m": 1.5700924586837752e-16,
+      "camera_hull_support_error_m": 2.99387847846333e-10,
+      "arm_plane_z_m": 0.562,
+      "source": "independent robot.urdf 3-D FK + camera OBJ"
+    },
+    {
+      "roll_deg": -90,
+      "max_hinge_fk_error_m": 1.689731085869606e-16,
+      "camera_hull_support_error_m": 2.9939609125229083e-10,
+      "arm_plane_z_m": 0.562,
+      "source": "independent robot.urdf 3-D FK + camera OBJ"
+    }
+  ],
+  "search_complete": false,
+  "limitations": [
+    "finite q2 sampling; no impossibility/global optimality certificate",
+    "2-D rigid profiles; no motor torque, approach, deformation, gravity/lift test",
+    "configuration nominal command is not measured RL policy behavior"
+  ],
+  "runs": [
+    {
+      "roll_deg": 90,
+      "elapsed_s": 15.73671171197202,
+      "counts": {
+        "root_attempts": 826,
+        "object_penetration": 715,
+        "contact_foot_outside_face": 213,
+        "linear_limit": 202,
+        "valid": 69,
+        "q2_slices": 114,
+        "coupled_cap": 10,
+        "camera_clearance": 104
+      },
+      "best": {
+        "valid": true,
+        "reasons": [],
+        "roll_deg": 90,
+        "node_bends_deg": [
+          25.830056272965354,
+          -36.0
+        ],
+        "effective_node_bends_deg": [
+          25.830056272965354,
+          -36.0
+        ],
+        "linear_m": -0.13731919988680338,
+        "centre_local_m": [
+          -0.16000000000000006,
+          0.16231919988680335
+        ],
+        "coupled_curl_deg": 2.7450844094480287,
+        "friction": {
+          "mu_critical": 0.22930663969695417,
+          "mu_robust": 0.2663603064718162,
+          "angles_deg": [
+            12.915028136482677,
+            12.915028136482649
+          ],
+          "worst_angle_deg": 12.915028136482677,
+          "normal_error_deg": 2.0,
+          "contact_separation_m": 0.09747026042858344
+        },
+        "min_object_gap_m": -3.469446951953614e-17,
+        "camera_clearance_m": 0.06922958724904525,
+        "min_self_gap_m": -7.00266206132838e-10,
+        "contacts": [
+          {
+            "part": "node3",
+            "edge": 4,
+            "fraction": 0.7365469760722566,
+            "point_local_m": [
+              -0.14848033752080592,
+              0.11366431959339962
+            ],
+            "inward_normal": [
+              -0.23039324958388266,
+              0.9730976058680747
+            ]
+          },
+          {
+            "part": "gripper_claw_left",
+            "edge": 6,
+            "fraction": 0.3645756302465866,
+            "point_local_m": [
+              -0.19156783018508844,
+              0.2010938320243933
+            ],
+            "inward_normal": [
+              0.6313566037017677,
+              -0.7754926427517989
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "roll_deg": -90,
+      "elapsed_s": 27.31493211397901,
+      "counts": {
+        "root_attempts": 1677,
+        "object_penetration": 1121,
+        "contact_foot_outside_face": 157,
+        "camera_clearance": 13,
+        "linear_limit": 34,
+        "q2_slices": 114,
+        "valid": 450,
+        "coupled_cap": 38
+      },
+      "best": {
+        "valid": true,
+        "reasons": [],
+        "roll_deg": -90,
+        "node_bends_deg": [
+          -12.53238972855385,
+          -32.9
+        ],
+        "effective_node_bends_deg": [
+          12.53238972855385,
+          32.9
+        ],
+        "linear_m": -0.07562917107655259,
+        "centre_local_m": [
+          -0.15999999999999967,
+          0.10062917107655256
+        ],
+        "coupled_curl_deg": 51.69858459283078,
+        "friction": {
+          "mu_critical": 0.1360940270821237,
+          "mu_robust": 0.17183142683012534,
+          "angles_deg": [
+            7.75000000000001,
+            7.749999999999916
+          ],
+          "worst_angle_deg": 7.75000000000001,
+          "normal_error_deg": 2.0,
+          "contact_separation_m": 0.09908658973868824
+        },
+        "min_object_gap_m": -6.938893903907228e-18,
+        "camera_clearance_m": 0.06712352078952384,
+        "min_self_gap_m": 0.0,
+        "contacts": [
+          {
+            "part": "node4",
+            "edge": 1,
+            "fraction": 0.5890066398266871,
+            "point_local_m": [
+              -0.1370380198461459,
+              0.1450447929613582
+            ],
+            "inward_normal": [
+              -0.45923960307707534,
+              -0.8883124376961128
+            ]
+          },
+          {
+            "part": "node9",
+            "edge": 1,
+            "fraction": 0.5843993766406727,
+            "point_local_m": [
+              -0.19399642200722655,
+              0.06396524751801151
+            ],
+            "inward_normal": [
+              0.6799284401445373,
+              0.7332784711708209
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "same_c_shape_in_default_positive_roll": {
+    "valid": false,
+    "reasons": [
+      "object_penetration",
+      "camera_clearance"
+    ],
+    "camera_clearance_m": -0.009397165019060703,
+    "min_object_gap_m": -0.009397165019060703
+  },
+  "verification": {
+    "standalone_self_tests_passed": 37,
+    "comparison_tests_passed": 7,
+    "fresh_policy_rollout": false,
+    "genesis_execution": false,
+    "hardware_motion": false,
+    "canonical_required_extended_run": false
+  },
+  "raw_report_path": "workbench/evidence/generated/newhug-wrap-20261102-final/comparison.json",
+  "raw_report_sha256": "eff30e0b5c933668746d3c26fe752273db7437f8eb302395c15cffbfa1b77703",
+  "figure_sha256": "7bf0b2c51b1b97bf2718da8ea51e9e3f77b66210e3eb171d0dea02ebcc7f094a"
+}

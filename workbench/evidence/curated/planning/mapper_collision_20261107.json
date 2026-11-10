@@ -1,0 +1,269 @@
+{
+  "schema": "elesim-mapper-collision-audit",
+  "schema_version": 1,
+  "date_kst": "2026-11-07",
+  "applied": {
+    "target": "/home/user/ws/hugmap/mapper.html",
+    "backup": "/home/user/ws/elesim/workbench/evidence/generated/mapper-collision-20261107/before-mapper.html",
+    "before_sha256": "64fae8cfffc8f41f8bf758d26b040b555cfff0bd2f5be49ab7a8a24f9024e70a",
+    "after_sha256": "1d9d2ab06a2a0c1db984632d6dbbafb102bddf91a2391209d38da78d0a777cda",
+    "bytes": 3513590
+  },
+  "criteria": {
+    "final_pose": "Preserved finalObjectCollision: arm-object reconstruction overlap <=1 mm, protected parts 1 mm, self numerical tolerance .05 mm",
+    "preparation": "Fixed tall vertical cylinder versus actual URDF per-part Home-to-Extend Arm XY convex envelope; require centre distance > D/2 + 1 mm + curvature padding",
+    "envelope": {
+      "schema": "elesim-mapper-preparation-envelope",
+      "schema_version": 1,
+      "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+      "home_command": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "extend_command": [
+        -0.01,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "command_units": [
+        "linear_m",
+        "roll_rad",
+        "q3_per_node_rad",
+        "q4_per_node_rad"
+      ],
+      "home_total_deg": [
+        -170.0,
+        170.0
+      ],
+      "frame": "map x=-world Y, y=world X; nominal housing centre",
+      "body_center_world_m": [
+        0.1985,
+        0.0,
+        0.19697349999999997
+      ],
+      "leg_pose_rad": [
+        0.0,
+        0.9,
+        -1.8
+      ],
+      "clearance_mm": 1.0,
+      "sampling_padding_mm": 0.042675702606548196,
+      "intervals": 340,
+      "chain_radius_bound_m": 1.120742277613113,
+      "total_joint_delta_rad": 5.93411945678072,
+      "construction": "Per-part convex XY hull over linear interpolation Home→Extend Arm; curvature-bound padding; circumscribed URDF primitives",
+      "scope": "Stationary tall vertical cylinder; fixed Go2 and legs. Subsequent roll, closing and lift untested. Envelope rejection is conservative, not global impossibility."
+    },
+    "collision_parts": 44,
+    "vertices": 747
+  },
+  "pipeline": "objectCollision = finalObjectCollision OR preparationCollision; shared by XY scan, q scan, inverse pixel repair and extracted RL forward/inverse kernel",
+  "provenance": {
+    "kind": "mapper-function",
+    "path": "/home/user/ws/hugmap/mapper.html",
+    "html_sha256": "1d9d2ab06a2a0c1db984632d6dbbafb102bddf91a2391209d38da78d0a777cda",
+    "kernel_sha256": "e6712cd27802e75e76c5d850548136ab3ee581d3cd61f985ba3f3c58b80fbcd9",
+    "point_data_used": false,
+    "collision_tolerance_mm": 1.0
+  },
+  "raster_summary": {
+    "mu_max": 0.4,
+    "total_angle_step_deg": 1.0,
+    "raster_centres": "-179.5 through -0.5 degrees in both q3/q4",
+    "counts": [
+      {
+        "diameter_mm": 100,
+        "final_pose_samples": 863,
+        "preparation_clear_samples": 585
+      },
+      {
+        "diameter_mm": 125,
+        "final_pose_samples": 1577,
+        "preparation_clear_samples": 1217
+      },
+      {
+        "diameter_mm": 150,
+        "final_pose_samples": 1592,
+        "preparation_clear_samples": 1204
+      },
+      {
+        "diameter_mm": 175,
+        "final_pose_samples": 1140,
+        "preparation_clear_samples": 779
+      },
+      {
+        "diameter_mm": 200,
+        "final_pose_samples": 703,
+        "preparation_clear_samples": 419
+      }
+    ]
+  },
+  "old_saved_DATA_preserved": true,
+  "standalone_no_external_scripts": true,
+  "tests": {
+    "host_passed": 19,
+    "command": "PYTHONPATH=payload/runtime/common/protocol:payload/runtime/docker/sim/app:. python3 -m unittest workbench.tests.research.analysis.test_mapper_preparation_collision workbench.tests.research.analysis.test_mapper_collision_tolerance workbench.tests.research.analysis.test_mapper_collision_optimization workbench.tests.research.analysis.test_mapper_gap_repair workbench.tests.research.analysis.test_mapper_q_plane",
+    "coverage": [
+      "Original static contact tolerance and optimized/reference geometry preserved",
+      "Failed actual anchor filtered; clear control retained; diameter-dependent expansion",
+      "Independent FK points between bake samples stay inside padded envelopes",
+      "Actual Pilot preset constants match",
+      "Forward/inverse exported kernel cannot admit blocked anchor",
+      "Visibility checkbox cannot disable filter; XY/q and inverse gap repair remain consistent",
+      "Rebuild is idempotent"
+    ]
+  },
+  "dense_scans": [
+    {
+      "roll": -90,
+      "diameter": 150,
+      "scanMs": 12559.295127,
+      "repairMs": 169.72125499999856,
+      "targets": 8896,
+      "repaired": 415,
+      "added": 24,
+      "lowered": 391,
+      "lost": 0,
+      "invalid": 0,
+      "maxResidual": 4.914887097798948e-09,
+      "thresholdCounts": [
+        {
+          "mu": 0.01,
+          "before": 24,
+          "after": 50
+        },
+        {
+          "mu": 0.05,
+          "before": 183,
+          "after": 211
+        },
+        {
+          "mu": 0.1,
+          "before": 529,
+          "after": 554
+        },
+        {
+          "mu": 0.5,
+          "before": 7574,
+          "after": 7598
+        },
+        {
+          "mu": 1,
+          "before": 7574,
+          "after": 7598
+        },
+        {
+          "mu": 2,
+          "before": 7574,
+          "after": 7598
+        }
+      ],
+      "angle_samples": 6481800,
+      "environment": "Node Canvas stub, no browser rasterization"
+    },
+    {
+      "roll": 90,
+      "diameter": 150,
+      "scanMs": 10937.358558,
+      "repairMs": 138.70330099999956,
+      "targets": 13983,
+      "repaired": 0,
+      "added": 0,
+      "lowered": 0,
+      "lost": 0,
+      "invalid": 0,
+      "maxResidual": 0,
+      "thresholdCounts": [
+        {
+          "mu": 0.01,
+          "before": 0,
+          "after": 0
+        },
+        {
+          "mu": 0.05,
+          "before": 0,
+          "after": 0
+        },
+        {
+          "mu": 0.1,
+          "before": 0,
+          "after": 0
+        },
+        {
+          "mu": 0.5,
+          "before": 11289,
+          "after": 11289
+        },
+        {
+          "mu": 1,
+          "before": 12089,
+          "after": 12089
+        },
+        {
+          "mu": 2,
+          "before": 12089,
+          "after": 12089
+        }
+      ],
+      "angle_samples": 6481800,
+      "environment": "Node Canvas stub, no browser rasterization"
+    }
+  ],
+  "physical_controls": [
+    {
+      "label": "previous failing placement",
+      "case_id": "c-train-000-d100",
+      "xy_mm": [
+        -85.18650136838987,
+        222.71820844304784
+      ],
+      "diameter_mm": 100,
+      "first_object_contact": {
+        "time_s": 0.48,
+        "forces_n": {
+          "gripper_base": 4.387651443481445
+        }
+      },
+      "first_wrong_face_s": 0.48,
+      "first_fault_s": null,
+      "max_object_displacement_mm": 105.55352176818059,
+      "duration_s": 3.2,
+      "report_path": "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/home-extend-arm/report.json",
+      "report_sha256": "50ca614651e3f41de474464559685971072e618800726455ef7c74c023d651c8"
+    },
+    {
+      "label": "new clear preparation control",
+      "case_id": "c-train-000-d100",
+      "xy_mm": [
+        -113.3127080913172,
+        177.58581371059853
+      ],
+      "diameter_mm": 100,
+      "first_object_contact": null,
+      "first_wrong_face_s": null,
+      "first_fault_s": null,
+      "max_object_displacement_mm": 4.456971185975771e-06,
+      "duration_s": 3.2,
+      "report_path": "workbench/evidence/generated/mapper-collision-20261107/clear-control/report.json",
+      "report_sha256": "2210fa34d51febd0c4801b88754934d0b479d2c6624af4eafad54f5a750935c1"
+    }
+  ],
+  "limitations": [
+    "Per-part convex swept envelopes and circumscribed primitive polygons are conservative; a rejection is not proof of global impossibility.",
+    "This gate checks the declared linear Home-to-Extend Arm primitive with fixed Go2 legs and zero display offsets. It is not a general approach planner or a replay of the Pilot controller.",
+    "Vertical object must span the relevant robot heights. No finite-height object test is encoded.",
+    "Roll after extension, closing, dynamic contact, servo tracking error and lifting are not certified.",
+    "Actual browser rasterization was not tested: no browser/Playwright installed. Node tests cover JS/DOM handlers using a Canvas stub.",
+    "Canonical development attachment gates not run; source checkout lacks a usable prepared wrapper. No host dependencies were installed."
+  ],
+  "existing_rl_inputs_regenerated": false,
+  "new_rl_started": false,
+  "sources_sha256": {
+    "workbench/research/analysis/rebuild_mapper_collision.py": "4b0ac15a682f641588d7bf59dc694ebc7ed7e05e7b4147bd3b461b035e3a227b",
+    "workbench/research/support/hugmap_preparation_collision.js": "3c66defae864f5e0122683a83b9cdd9698796202a46ec2a9baf1c21afaee4e49",
+    "workbench/tests/research/analysis/test_mapper_preparation_collision.py": "8bba45183382c459f3922b29a0dea13784aea5b45cd6e958fcda589ddeb075ac"
+  }
+}

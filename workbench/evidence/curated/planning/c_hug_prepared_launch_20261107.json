@@ -1,0 +1,102 @@
+{
+  "schema": "elesim-c-hug-prepared-training-launch",
+  "schema_version": 1,
+  "date_kst": "2026-11-07",
+  "user_authorized": true,
+  "launch": {
+    "schema": "elesim-c-hug-live-collection",
+    "schema_version": 1,
+    "name": "c-hug-ready-triangles-20261107",
+    "remote_root": "/home/hckang/elesim/workbench/evidence/generated/c-hug-ready-triangles-20261107",
+    "local_root": "/home/user/ws/elesim/workbench/evidence/generated/c-hug-ready-triangles-20261107",
+    "collection": "/home/hckang/elesim/workbench/evidence/generated/c-hug-ready-triangles-20261107/collection.json",
+    "num_envs": 512,
+    "diameters_mm": [
+      100,
+      125,
+      150,
+      175,
+      200
+    ],
+    "training_anchors_per_diameter": 3,
+    "control_mode": "policy-four-dof-home-lift-v3",
+    "selection_contract": "preparation-clear-area-v2",
+    "code_sha256": "318dd14f73fef42e9e46837a4efc0282f397c7fff57b1572a1b7ec94c7002d69",
+    "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "collection_pid": 2329235,
+    "process_group": 2329235,
+    "command": [
+      "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+      "-u",
+      "-m",
+      "workbench.research.experiments.hug_c.collection",
+      "run",
+      "--collection",
+      "/home/hckang/elesim/workbench/evidence/generated/c-hug-ready-triangles-20261107/collection.json",
+      "--num-envs",
+      "512",
+      "--iterations",
+      "2000",
+      "--report-every",
+      "500"
+    ],
+    "stage": "anchor-train",
+    "learning_authorized": true,
+    "training_started": true,
+    "started_utc": "2026-11-06T16:58:30.634543+00:00",
+    "report_every_updates": 500,
+    "max_updates_per_anchor": 2000,
+    "policy_initialization": "fresh-v3-preparation-clear",
+    "all_15_anchors_preflight_passed": true,
+    "study_pid": 2329239,
+    "train_pids": [
+      2329369
+    ],
+    "current_diameter_mm": 100,
+    "current_case_id": "c-train-000-d100",
+    "latest_iteration": 32,
+    "latest_chunk_target": 500,
+    "confirmed_utc": "2026-11-06T17:01:20.792842+00:00",
+    "checkpoint_files": [
+      "d100/study/runs/c-train-000-d100/model_0.pt"
+    ],
+    "first_anchor_preflight": true,
+    "luna_guard": "/root/luna_prepared_triangle_guard",
+    "source_revision": "851b25c628a23438933a71819f48e583b877237d",
+    "source_modified": true
+  },
+  "evidence": {
+    "actual_optimizer_iteration": 32,
+    "checkpoint_files": [
+      "d100/study/runs/c-train-000-d100/model_0.pt"
+    ],
+    "all_15_anchors_previously_passed": true,
+    "first_study_rechecked_preparation": true,
+    "prior_audit": "workbench/evidence/curated/planning/c_hug_prepared_triangles_20261107.json"
+  },
+  "contract": {
+    "home_start": true,
+    "four_free_actions": true,
+    "forced_deployment_or_roll_schedule": false,
+    "goal": "C grasp, loaded lift with >=20 mm bottom clearance, >=5 seconds continuous hold",
+    "policy_initialization": "fresh; no failed prior policy resumed",
+    "failure_gate": "Stop the collection if an anchor exhausts 2000 updates; do not train through failed validation"
+  },
+  "reporting": {
+    "every_updates": 500,
+    "artifacts": [
+      "policy.mp4",
+      "policy.npz",
+      "trajectory.npz",
+      "verified.npz",
+      "report.json",
+      "replay.json"
+    ],
+    "guard": "/root/luna_prepared_triangle_guard",
+    "remote_guard_mode": "read-only; no process/source/config changes"
+  },
+  "newton_gym_changed": false,
+  "success_established": false,
+  "record_sha256": "fd1df5eb20763771694cce535d89c62e722d0fff1251304c12c9a688bd76cd94"
+}

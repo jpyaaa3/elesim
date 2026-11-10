@@ -1,0 +1,200 @@
+{
+  "schema": "hug-ga-xy50-launch",
+  "schema_version": 1,
+  "launch": {
+    "name": "hug-ga-xy50-20261108T133605Z",
+    "local_root": "/home/user/ws/elesim/workbench/evidence/generated/hug-ga-xy50-20261108T133605Z",
+    "remote_root": "/home/hckang/elesim/workbench/evidence/generated/hug-ga-xy50-20261108T133605Z",
+    "ga_source_sha256": "a4eba37d43088d528ed2cddf98563d5922c9069e36455945fdcc05eababedf0d",
+    "stage": "ga-search",
+    "object_xy_limit_mm": 50,
+    "search_root": "/home/hckang/elesim/workbench/evidence/generated/hug-ga-xy50-20261108T133605Z/search",
+    "ga_pid": 2484281,
+    "process_group": 2484281,
+    "ga_command": [
+      "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+      "-u",
+      "-m",
+      "workbench.research.experiments.hug_ga.experiment",
+      "run",
+      "--plan",
+      "/home/hckang/elesim/workbench/evidence/generated/hug-ga-xy50-20261108T133605Z/search",
+      "--backend",
+      "gpu"
+    ],
+    "ga_started_utc": "2026-11-08T13:39:12.199665+00:00",
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "population": 128,
+    "target_generations": 100,
+    "parade_every": 10,
+    "start": "home",
+    "case_id": "c-train-000-d100",
+    "diameter_mm": 100,
+    "task_code_sha256": "5e62f15239711d6e883bc2d6cd449fe8c535a47d2952490ce22a4006cd889684",
+    "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+    "constraints": {
+      "schema": "hug-ga-object-motion-v1",
+      "metric": "world-xy-center-displacement",
+      "reference": "initial-object-center",
+      "max_object_xy_mm": 50.0,
+      "sampling": "physics-tick",
+      "comparison": "strictly-greater-than"
+    },
+    "criterion": "Free four-DoF motion from Home; C grasp, loaded clearance and roll 0 +/- 5 deg for 5 s",
+    "episode_limit_s": 20,
+    "automatic_ppo": false,
+    "user_authorized": true,
+    "counterfactual_previous_winner_rejected": true,
+    "gpu_assignment_verified": true,
+    "detached_parent_pid": 1,
+    "completed_generations_observed": 2
+  },
+  "verification": {
+    "checked_utc": "2026-11-08T13:40:12.539061+00:00",
+    "status.json": {
+      "completed_generations": 2,
+      "candidate_evaluations": 256,
+      "target_generations": 100,
+      "population": 128,
+      "constraints": {
+        "schema": "hug-ga-object-motion-v1",
+        "metric": "world-xy-center-displacement",
+        "reference": "initial-object-center",
+        "max_object_xy_mm": 50.0,
+        "sampling": "physics-tick",
+        "comparison": "strictly-greater-than"
+      },
+      "updated_utc": "2026-11-08T13:39:59.151825+00:00",
+      "initialization_s": 14.270852491259575,
+      "generation_wall_s": 20.624194921925664,
+      "elapsed_s": 46.69446756411344,
+      "estimated_remaining_s": 1588.260297877714,
+      "estimate_note": "Recent generation mean; video overhead uncertain until first parade",
+      "rejection_counts": {
+        "object_motion_limit": 104,
+        "forbidden_contact_or_limit": 24
+      },
+      "best": {
+        "candidate": 0,
+        "success": false,
+        "fault": false,
+        "wrong_face_any": true,
+        "grasp_fraction": 0.0,
+        "lift_fraction": 0.0,
+        "hold_fraction": 0.0,
+        "lift_posture_complete": false,
+        "lift_roll_error_rad": 0.6029608249664307,
+        "object_motion_violation": true,
+        "max_object_xy_displacement_mm": 50.35463333129883,
+        "first_object_motion_violation_tick": 339,
+        "object_motion_limit_mm": 50.0,
+        "terminal_distance_m": 0.4311850070953369,
+        "duration_s": 3.4000000000000004,
+        "reason": "object_motion_limit",
+        "imitation_eligible": false,
+        "requires_independent_replay": false
+      },
+      "phase": "searching"
+    },
+    "alive": true,
+    "parent_pid": 1,
+    "gpu_processes": "GPU-bfaeeedd-48aa-e675-4daa-17955c1769db, 2036331, 352 MiB\nGPU-a40782b2-881c-e285-2a8e-66cae9162a01, 2484281, 1074 MiB\n",
+    "log_tail": "0, \"terminal_distance_m\": 0.4311850070953369, \"duration_s\": 3.4000000000000004, \"reason\": \"object_motion_limit\", \"imitation_eligible\": false, \"requires_independent_replay\": false}, \"phase\": \"searching\"}\n{\"completed_generations\": 2, \"candidate_evaluations\": 256, \"target_generations\": 100, \"population\": 128, \"constraints\": {\"schema\": \"hug-ga-object-motion-v1\", \"metric\": \"world-xy-center-displacement\", \"reference\": \"initial-object-center\", \"max_object_xy_mm\": 50.0, \"sampling\": \"physics-tick\", \"comparison\": \"strictly-greater-than\"}, \"updated_utc\": \"2026-11-08T13:39:59.151825+00:00\", \"initialization_s\": 14.270852491259575, \"generation_wall_s\": 20.624194921925664, \"elapsed_s\": 46.69446756411344, \"estimated_remaining_s\": 1588.260297877714, \"estimate_note\": \"Recent generation mean; video overhead uncertain until first parade\", \"rejection_counts\": {\"object_motion_limit\": 104, \"forbidden_contact_or_limit\": 24}, \"best\": {\"candidate\": 0, \"success\": false, \"fault\": false, \"wrong_face_any\": true, \"grasp_fraction\": 0.0, \"lift_fraction\": 0.0, \"hold_fraction\": 0.0, \"lift_posture_complete\": false, \"lift_roll_error_rad\": 0.6029608249664307, \"object_motion_violation\": true, \"max_object_xy_displacement_mm\": 50.35463333129883, \"first_object_motion_violation_tick\": 339, \"object_motion_limit_mm\": 50.0, \"terminal_distance_m\": 0.4311850070953369, \"duration_s\": 3.4000000000000004, \"reason\": \"object_motion_limit\", \"imitation_eligible\": false, \"requires_independent_replay\": false}, \"phase\": \"searching\"}\n"
+  },
+  "host_tests_passed": 26,
+  "remote_numpy_torch_checks_passed": true,
+  "counterfactual": {
+    "schema": "hug-ga-single-candidate-video",
+    "source": {
+      "rollouts": "/home/hckang/elesim/workbench/evidence/generated/hug-ga-lift90-20261108/search/generation-0083/rollouts.npz",
+      "sha256": "f3523b39ce8962da6b45ecbdfe9b2d676ca4907fe0d2397b73d7ffcd6cf21825",
+      "candidate": 22,
+      "valid_source_actions": 185
+    },
+    "collection": {
+      "success": false,
+      "fault": false,
+      "current_hold_duration_s": 0.0,
+      "minimum_hold_clearance_m": null,
+      "maximum_hold_slip_m": 0.0,
+      "hold_contact_fraction": 0.0,
+      "goal_error_normalized": 0.05298919975757599,
+      "lift_roll_error_rad": 0.9384034276008606,
+      "lift_posture_complete": false,
+      "lift_posture_fraction": 0.4262757897377014,
+      "wrong_face_contact": false,
+      "grasp_confirmed": false,
+      "wrong_face_contact_any": false,
+      "highest_lift_fraction": 0.0,
+      "highest_hold_fraction": 0.0,
+      "workspace_peak_excess_m": 0.38284075260162354,
+      "reward_total": -4.782961368560791,
+      "object_xyz_m": [
+        0.3191893696784973,
+        0.12603804469108582,
+        0.550662636756897
+      ],
+      "actual_command": [
+        -0.06460101157426834,
+        -0.9384034276008606,
+        -0.2684488892555237,
+        -0.5172213912010193
+      ],
+      "clearance_m": -2.710428088903427e-05,
+      "action_cost_basis": "requested-policy-action",
+      "reward_components": {
+        "q_hint": 0.36318591237068176,
+        "grasp": 0.0,
+        "lift": 0.0,
+        "hold": 0.0,
+        "success": 0.0,
+        "wrong_face": 0.0,
+        "drop": 0.0,
+        "fault": 0.0,
+        "timeout": 0.0,
+        "action": -0.147327721118927,
+        "time": -3.2099974155426025,
+        "workspace": -1.788822054862976
+      }
+    },
+    "constraints": {
+      "schema": "hug-ga-object-motion-v1",
+      "metric": "world-xy-center-displacement",
+      "reference": "initial-object-center",
+      "max_object_xy_mm": 50.0,
+      "sampling": "physics-tick",
+      "comparison": "strictly-greater-than"
+    },
+    "object_motion_violation": true,
+    "max_object_xy_displacement_mm": 58.302146911621094,
+    "first_object_motion_violation_tick": 1061,
+    "accepted": false,
+    "wrong_face_any_episode": false,
+    "terminal_seen": false,
+    "report_camera": {
+      "name": "arm-side-oblique-v1",
+      "pos": [
+        0.85,
+        -1.15,
+        1.6
+      ],
+      "lookat": [
+        0.35,
+        0.05,
+        0.4
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "optimizer_used": false,
+    "replay_count": 1,
+    "independent_replay_verified": false,
+    "note": "One replay; three repeats required for demonstration approval"
+  },
+  "old_run_preserved": "hug-ga-lift90-20261108",
+  "rewards_changed": false,
+  "ppo_started": false
+}

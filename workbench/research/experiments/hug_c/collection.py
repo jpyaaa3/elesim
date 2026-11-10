@@ -17,7 +17,7 @@ from .configure import (ACTIONS, OBSERVATIONS, CHANNELS, CONTROL_MODE, DEFAULT_N
                         asset_digest, load_experiment, sha, write_json)
 from .prepare import prepare
 from .source import read_kernel, inverse
-from .triangle import weights
+from .triangle import weights, SELECTION_CONTRACT
 
 DIAMETERS = (100.,125.,150.,175.,200.)
 
@@ -27,6 +27,7 @@ def load_collection(path):
     plan=json.loads(path.read_text())
     if (plan.get('schema')!='elesim-c-hug-collection' or plan.get('schema_version')!=1
             or plan.get('control_mode')!=CONTROL_MODE
+            or plan.get('contract',{}).get('selection_contract')!=SELECTION_CONTRACT
             or plan.get('contract',{}).get('action_names')!=list(ACTIONS)
             or plan.get('contract',{}).get('observation_names')!=list(OBSERVATIONS)):
         raise ValueError('Unsupported diameter collection/control mode')
@@ -48,14 +49,16 @@ def save_plan(path, plan):
 
 
 def prepare_collection(mapper, output, *, diameters=DIAMETERS, mu_max=.4, step=1., seed=42,
-                       validation=30, test=100):
+                       validation=30, test=100,catalog_preflights=None):
     ds=[float(d) for d in diameters]
     if not ds or len(ds)!=len(set(ds)) or any(not math.isfinite(d) or not 0<d<=1000 for d in ds):
         raise ValueError('Require unique positive diameters')
-    _,source=read_kernel(mapper)
+    _,source=read_kernel(mapper,require_preparation=True)
     output=Path(output);index=output/'collection.json'
-    selection=dict(mu_max=mu_max,step_deg=step,seed=seed,validation=validation,test=test)
+    selection=dict(mu_max=mu_max,step_deg=step,seed=seed,validation=validation,test=test,
+                   static_catalog_screened=catalog_preflights is not None)
     contract=dict(kernel_sha256=source['kernel_sha256'],model_sha256=asset_digest(),
+                  selection_contract=SELECTION_CONTRACT,
                   action_names=list(ACTIONS),observation_names=list(OBSERVATIONS))
     if index.exists():
         plan=load_collection(index)
@@ -74,7 +77,8 @@ def prepare_collection(mapper, output, *, diameters=DIAMETERS, mu_max=.4, step=1
             raise ValueError(f'Incomplete/foreign profile directory: {directory}')
         pilot=prepare(mapper,diameter=diameter,mu_max=mu_max,step=step,seed=seed,
                       validation=validation,test=test,preview=directory/'triangle.html',
-                      catalog=directory/'catalog.json')
+                      catalog=directory/'catalog.json',catalog_preflight=
+                      Path(catalog_preflights)/tag/'report.json' if catalog_preflights is not None else None)
         write_json(directory/'pilot.json',pilot)
         profile=dict(diameter_mm=diameter,pilot=f'{tag}/pilot.json',catalog=f'{tag}/catalog.json',
                      study=f'{tag}/study',pilot_sha256=sha(directory/'pilot.json'),
@@ -83,11 +87,13 @@ def prepare_collection(mapper, output, *, diameters=DIAMETERS, mu_max=.4, step=1
                      q_triangle=pilot['selection']['vertices_total_deg'],
                      geometric_coverage=pilot['selection']['coverage'],
                      splits=dict(train=3,validation=validation,test=test),
-                     readiness='geometry-only; physics preflight and training not run')
+                     readiness='preparation-envelope-filtered; physical Home/Extend/goal preflight and training not run')
         plan['profiles'].append(profile)
         save_plan(index,plan)
         print(f'D={diameter:g} mm: {profile["feasible_samples"]} feasible q cells; '
               f'{100*profile["geometric_coverage"]:.2f}% covered; no RL executed.',flush=True)
+    from .preview import write_collection_preview
+    write_collection_preview(output,plan)
     return plan
 
 
@@ -151,8 +157,11 @@ def resolve(index, mapper, xy, diameter, *, require_trained=True):
     rows=catalog['rows'];points=np.asarray([r['xy_mm'] for r in rows])
     nearest=np.argsort(np.sum((points-np.asarray(xy))**2,axis=1))[:32]
     candidates=inverse(kernel,diameter,xy,[rows[i] for i in nearest],mu_max=plan['selection']['mu_max'])
+    ready_cells={tuple(np.floor((np.asarray(r['q_deg'])+180)/plan['selection']['step_deg']).astype(int)) for r in rows}
     feasible=[]
     for row in candidates:
+        cell=tuple(np.floor((np.asarray(row['q_deg'])+180)/plan['selection']['step_deg']).astype(int))
+        if pilot['selection'].get('static_catalog_screened') and cell not in ready_cells:continue
         w=weights(profile['q_triangle'],row['q_deg'])
         if np.all(w>=-1e-9):
             w=np.maximum(w,0);w/=w.sum();feasible.append((row,w))
@@ -193,6 +202,48 @@ def run_collection(index, *, diameters=None, num_envs=DEFAULT_NUM_ENVS, iteratio
     return 0
 
 
+def screen_collection(index,output,*,batch=64,ticks=10):
+    """Screen every prepared catalog before selecting a physical q triangle."""
+    plan=load_collection(index);base=Path(index).resolve().parent;output=Path(output)
+    output.mkdir(parents=True,exist_ok=False)
+    for profile in plan['profiles']:
+        tag=f'd{profile["diameter_mm"]:g}'
+        command=[sys.executable,'-u','-m',__package__+'.catalog_preflight',
+                 '--pilot',str(base/profile['pilot']),'--catalog',str(base/profile['catalog']),
+                 '--output',str(output/tag),'--batch',str(batch),'--ticks',str(ticks)]
+        with (output/(tag+'.log')).open('xb') as stream:
+            result=subprocess.run(command,stdout=stream,stderr=subprocess.STDOUT)
+        if result.returncode:return result.returncode
+        report=json.loads((output/tag/'report.json').read_text())
+        print(json.dumps(dict(diameter_mm=profile['diameter_mm'],static_ready=sum(r['static_ready'] for r in report['results']),total=len(report['results']))),flush=True)
+    return 0
+
+
+def check_collection(index,output,*,backend='gpu'):
+    """Configure and physically check every diameter without starting learning."""
+    from .configure import configure
+    plan=load_collection(index);base=Path(index).resolve().parent;output=Path(output)
+    output.mkdir(parents=True,exist_ok=False)
+    summary=dict(schema='elesim-c-hug-collection-preflight',schema_version=1,
+                 collection_sha256=sha(index),training_started=False,ready=False,profiles=[])
+    for profile in plan['profiles']:
+        directory=output/f'd{profile["diameter_mm"]:g}'
+        experiment=directory/'experiment.json';report=directory/'preflight.json'
+        write_json(experiment,configure(base/profile['pilot']))
+        command=[sys.executable,'-u','-m',__package__+'.experiment','check','--physics',
+                 '--experiment',str(experiment),'--output',str(report),'--backend',backend]
+        with (directory/'check.log').open('xb') as stream:
+            result=subprocess.run(command,stdout=stream,stderr=subprocess.STDOUT)
+        facts=json.loads(report.read_text()) if report.exists() else {}
+        summary['profiles'].append(dict(diameter_mm=profile['diameter_mm'],returncode=result.returncode,
+                                       ready=facts.get('ready') is True,report=str(report)))
+        summary['ready']=len(summary['profiles'])==len(plan['profiles']) and all(p['ready'] for p in summary['profiles'])
+        save_plan(output/'report.json',summary)
+        print(json.dumps(summary['profiles'][-1]),flush=True)
+        if result.returncode not in (0,1):return result.returncode
+    return 0 if summary['ready'] else 1
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     commands=parser.add_subparsers(dest='command',required=True)
@@ -201,10 +252,15 @@ def main(argv=None):
     p.add_argument('--diameters-mm',type=float,nargs='+',default=DIAMETERS)
     p.add_argument('--mu-max',type=float,default=.4);p.add_argument('--step-deg',type=float,default=1.)
     p.add_argument('--seed',type=int,default=42)
+    p.add_argument('--catalog-preflights',type=Path,help='Per-diameter physical catalog reports; select the triangle after screening')
+    p=commands.add_parser('screen');p.add_argument('--collection',type=Path,required=True)
+    p.add_argument('--output',type=Path,required=True);p.add_argument('--batch',type=int,default=64);p.add_argument('--ticks',type=int,default=10)
     p=commands.add_parser('run');p.add_argument('--collection',type=Path,required=True)
     p.add_argument('--diameters-mm',type=float,nargs='+')
     p.add_argument('--num-envs',type=int,default=DEFAULT_NUM_ENVS)
     p.add_argument('--iterations',type=int,default=2000);p.add_argument('--report-every',type=int,default=500)
+    p=commands.add_parser('check');p.add_argument('--collection',type=Path,required=True)
+    p.add_argument('--output',type=Path,required=True);p.add_argument('--backend',choices=('cpu','gpu'),default='gpu')
     p=commands.add_parser('resolve');p.add_argument('--collection',type=Path,required=True)
     p.add_argument('--mapper',type=Path,required=True)
     p.add_argument('--x-mm',type=float,required=True);p.add_argument('--y-mm',type=float,required=True)
@@ -213,11 +269,13 @@ def main(argv=None):
     args=parser.parse_args(argv)
     if args.command=='prepare':
         prepare_collection(args.mapper,args.output,diameters=args.diameters_mm,mu_max=args.mu_max,
-                           step=args.step_deg,seed=args.seed)
+                           step=args.step_deg,seed=args.seed,catalog_preflights=args.catalog_preflights)
         return 0
+    if args.command=='screen':return screen_collection(args.collection,args.output,batch=args.batch,ticks=args.ticks)
     if args.command=='run':
         return run_collection(args.collection,diameters=args.diameters_mm,num_envs=args.num_envs,
                               iterations=args.iterations,report_every=args.report_every)
+    if args.command=='check':return check_collection(args.collection,args.output,backend=args.backend)
     write_json(args.output,resolve(args.collection,args.mapper,[args.x_mm,args.y_mm],args.diameter_mm,
                                   require_trained=not args.geometry_only))
     return 0

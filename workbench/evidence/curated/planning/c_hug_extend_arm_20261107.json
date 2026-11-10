@@ -1,0 +1,155 @@
+{
+  "schema": "elesim-c-hug-extend-arm-audit",
+  "schema_version": 1,
+  "audit_date_kst": "2026-11-07",
+  "question": "Does real Home to the Extend Arm preset contact the cylinder at the current first D100 training placement?",
+  "object_contact_observed": true,
+  "training_modified": false,
+  "all_approaches_proven_impossible": false,
+  "scope": "Only c-train-000-d100; zero display offsets; actual UI preset targets with the RL control-rate-bounded interpolation, not a replay of the interactive Pilot controller.",
+  "verdict": "Reject this placement for the Home-to-Extend-Arm contact-free preparation procedure.",
+  "endpoint_convex_projection_overlap_mm": 8.813498631610129,
+  "report": {
+    "schema": "elesim-c-hug-Home-approach-replay",
+    "schema_version": 1,
+    "case": {
+      "q_deg": [
+        -0.5,
+        -178.5
+      ],
+      "xy_mm": [
+        -85.18650136838987,
+        222.71820844304784
+      ],
+      "mu_min": 0.37672531020241107,
+      "feature": "tip",
+      "root": 1,
+      "case_id": "c-train-000-d100",
+      "split": "train",
+      "diameter_mm": 100,
+      "branch": "c-q-triangle-ea0b75ba1378",
+      "q_barycentric": [
+        1.0,
+        -0.0,
+        0.0
+      ],
+      "band": 1,
+      "roll_deg": -90,
+      "start_command": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        -0.0017453292519943296,
+        -0.6230825429619757
+      ],
+      "object_xyz_m": [
+        0.42121820844304786,
+        0.08518650136838987,
+        0.55
+      ]
+    },
+    "started_at_home": true,
+    "optimizer_used": false,
+    "training_modified": false,
+    "declared_waypoints": [
+      [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      [
+        -0.01,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        -0.01,
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "duration_s": 3.2,
+    "max_object_displacement_mm": 105.55352176818059,
+    "first_object_motion_over_1mm_s": 0.5,
+    "first_fault_s": null,
+    "first_wrong_face_s": 0.48,
+    "waypoint_source": {
+      "preset": "extend_arm",
+      "ui_controls": {
+        "u_linear": 15.0,
+        "u_roll": 180.0,
+        "u_s1": 180.0,
+        "u_s2": 180.0
+      },
+      "mechanism_config": "/home/hckang/elesim/payload/config/sim/config.yaml",
+      "display_offsets": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "first_object_contact": {
+      "time_s": 0.48,
+      "forces_n": {
+        "gripper_base": 4.387651443481445
+      }
+    },
+    "evaluation": {
+      "success": false,
+      "fault": false,
+      "current_hold_duration_s": 0.0,
+      "minimum_hold_clearance_m": null,
+      "maximum_hold_slip_m": 0.0,
+      "hold_contact_fraction": 0.0,
+      "goal_error_normalized": 0.49660226702690125,
+      "wrong_face_contact": false,
+      "grasp_confirmed": false,
+      "wrong_face_contact_any": false,
+      "highest_lift_fraction": 0.0,
+      "highest_hold_fraction": 0.0,
+      "reward_total": -0.05722910165786743,
+      "object_xyz_m": [
+        0.5022529363632202,
+        0.15279214084148407,
+        0.5499998927116394
+      ],
+      "actual_command": [
+        -0.010163288563489914,
+        7.817542791599408e-05,
+        0.0030353388283401728,
+        0.0009479906293563545
+      ],
+      "clearance_m": -1.1920928955078125e-07,
+      "reward_components": {
+        "q_hint": 0.33034035563468933,
+        "grasp": 0.0,
+        "lift": 0.0,
+        "hold": 0.0,
+        "success": 0.0,
+        "wrong_face": -0.010000000707805157,
+        "drop": 0.0,
+        "fault": 0.0,
+        "timeout": 0.0,
+        "action": -0.057569459080696106,
+        "time": -0.3199999928474426
+      }
+    },
+    "video": "/home/hckang/elesim/workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/home-extend-arm/approach.mp4"
+  },
+  "evidence_sha256": {
+    "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/home-extend-arm/approach.mp4": "d6aad16a9b56c02cc842298af01d4a630ad3797bc65ebab546dc8845b9563d84",
+    "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/home-extend-arm/commands.npz": "7d0c502f0e717fa5193496eabcf3cbeacd5b6c1e62183d8bb73ed6c31257694d",
+    "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/home-extend-arm/replay.json": "4b600e217ea2b4b7d0375cb2965051d44211d1891a335f80be93a98c2a67c5fb",
+    "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/home-extend-arm/report.json": "50ca614651e3f41de474464559685971072e618800726455ef7c74c023d651c8"
+  },
+  "reproduce": "PYTHONPATH=payload/runtime/common/protocol:payload/runtime/docker/sim/app:. CUDA_VISIBLE_DEVICES=GPU-a40782b2-881c-e285-2a8e-66cae9162a01 .venv/hug-rl-20261106/bin/python -m workbench.research.analysis.replay_hug_approach --experiment workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/screened/d100/study/experiment.json --case c-train-000-d100 --preset extend_arm --output <fresh-output-directory>"
+}

@@ -1,0 +1,78 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb}
+\usepackage[margin=24mm]{geometry}
+\title{Band functions with the corrected roll and bend policy}
+\author{}\date{4 November 2026}
+\begin{document}\maketitle
+
+\section{The operating constraint}
+In the current logical joint convention, positive segment-2 bending is toward the ZED side. The corrected policy is
+\[
+\boxed{q_2<0,\qquad \rho\in\{-90^\circ,+90^\circ\}.}
+\]
+The rule is independent of C/S classification. C corresponds to $q_1q_2>0$ and S to $q_1q_2<0$.
+This is a logical geometry convention, not a raw Dynamixel command-polarity specification.
+
+For the left quadrant used by the table, define band 1 by roll $-90^\circ$, and band 2 by roll $+90^\circ$. Their effective planar second bends have opposite signs even though both physical logical $q_2$ values are negative.
+
+The intrinsic model was built at roll $+90^\circ$. For an input $(x,y,D)$ in millimetres, evaluate that model at
+\[
+\boxed{c_\rho=\begin{pmatrix}(\rho/90^\circ)x\\ y-144.5\end{pmatrix},\qquad R=D/2.}
+\]
+The housing/wedge footprints are laterally symmetric; the gripper and camera rotate with the arm. This is the existing planar projection, not a full 3D approach or height-clearance model.
+
+\section{Two callable functions}
+Let $\mathcal Q_k(x,y,D)$ be the finite set of computed contact roots for roll $\rho_k$, after exact feature membership, joint limits, negative $q_2$, object clearance and self-collision checks. The empirical contact catalog has been expanded with opposite-side features. Define
+\[
+\mu_k^{\rm req}(x,y,D)=\min_{q\in\mathcal Q_k(x,y,D)}\mu_{\rm crit}(q,c_{\rho_k},D),
+\]
+with $\min\varnothing=+\infty$, and
+\[
+\boxed{f_1(x,y,D)=\bar\mu-\mu_1^{\rm req}(x,y,D),\qquad
+f_2(x,y,D)=\bar\mu-\mu_2^{\rm req}(x,y,D).}
+\]
+The catalog function region is $f_k>0$. A value of zero is excluded by the strict friction cutoff. These are piecewise algebraic numerical functions, not elementary closed-form band equations. The roots and empirical catalog do not provide a global completeness proof; $-\infty$ means no catalog candidate, not proven physical impossibility.
+
+\section{Why simply negating old angles is insufficient}
+Changing roll and negating both bends preserves the ideal symmetric centerline, but the actual gripper is offset and asymmetric about the arm centerline. Its contact location must be solved again. An observed contact index can guide candidate enumeration but is not a substitute for evaluating the actual profiles.
+
+For example, at $(x,y,D)=(-70,315,150)$ mm, the old fixed-roll candidate collided with the camera. The corrected model gives approximately
+\[
+\rho=-90^\circ,\quad q_1=36.976058^\circ,\quad q_2=-162.992221^\circ,
+\quad \mu_{\rm crit}=0.302242.
+\]
+It passes the unchanged geometric collision/friction validator in the correctly transformed frame.
+
+\section{An elementary camera-clearance result}
+Consider contact at the opposite upper claw corner
+\[
+v=(35.46,89)\ \mathrm{mm}.
+\]
+The camera profile lies entirely within $w_x\leq-28.762$ and $w_y\leq35.271$ mm. The corner's exterior contact-normal cone has $u=(\cos\phi,\sin\phi)$, $0\leq\phi\leq\pi/2$. A tangent circle center is $C=v+Ru$. For every camera point $w$,
+\[
+\begin{aligned}
+\|C-w\|-R
+&\geq u^\mathsf T(v-w)\\
+&\geq64.222\cos\phi+53.729\sin\phi\\
+&\geq53.729\ \mathrm{mm}.
+\end{aligned}
+\]
+Thus this particular corner-contact branch is camera-clear by construction in the model, for any positive radius. This does not prove clearance from other arm parts or validity of every roll/bend configuration. It explains why the camera boundary inferred from the old opposite corner must not be carried over to this branch.
+
+\section{A separate elementary boundary for band 2}
+For node3 right-side contact against the gripper right side, the friction-limited relative angle is
+\[
+\delta_*=-2\arctan(1/\bar\mu),\qquad q_2=\delta_*-q_1/5.
+\]
+Evaluate the known trigonometric arm geometry at these angles. If the two side normals are $n_a,n_b$ and points on the sides are $A,B$, the boundary center is
+\[
+\boxed{C(q_1,D)=
+\begin{pmatrix}n_a^\mathsf T\\ n_b^\mathsf T\end{pmatrix}^{-1}
+\left[\begin{pmatrix}n_a^\mathsf TA\\n_b^\mathsf TB\end{pmatrix}
++\frac D2\begin{pmatrix}1\\1\end{pmatrix}\right].}
+\]
+This reference boundary uses only trigonometry and line intersection. Finite-edge membership and collision tests determine its valid subarcs. It is one branch boundary, not the whole two-band solution.
+
+\section{How to interpret the preview}
+The offline preview is a coarse geometry-function evaluation, with explicit roll shown for each candidate. The legacy \texttt{gaga.json} fixed roll at $+90^\circ$ and allowed both bending signs. Its difference from the corrected model is not merely interpolation error. Production Hugmap now uses the same roll/bend policy and sequential polynomial-root method. Map schema v2 and table schema v3 preserve the best solution at each roll. Legacy tables remain readable but cannot be resumed into the new solver.
+\end{document}

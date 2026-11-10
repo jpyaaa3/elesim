@@ -69,9 +69,11 @@ class HugEnv:
                  auto_reset=True,video=False):
         from .control import action_rates
         from .metrics import HoldTracker,local_link_index
+        from .rewards import RewardLedger
+        from .contacts import camera_side_axes
         self.experiment,self.case=experiment,case;self.s=s=experiment['settings']
         self.num_envs,self.auto_reset=n_envs,auto_reset
-        self.cfg={'task':'c-hug-free-four-dof-v2','settings':s,'case':case}
+        self.cfg={'task':CONTROL_MODE,'settings':s,'case':case}
         cfg=load_config()
         arm=replace(cfg.arm,limits=replace(cfg.arm.limits,curl_limit_per_node_rad=None,
                     linear_m=(s['linear_min_m'],s['linear_max_m']),roll_rad=(s['roll_min_rad'],s['roll_max_rad']),
@@ -91,10 +93,15 @@ class HugEnv:
         self.fault=torch.zeros(n_envs,dtype=torch.bool,device=self.device)
         self.success=torch.zeros_like(self.fault)
         self.grasp_tick=torch.full_like(self.ticks,-1)
+        self.grasp_ticks=torch.zeros_like(self.ticks)
         self.hold=HoldTracker(n_envs,s,torch,self.device)
+        self.ledger=RewardLedger(n_envs,s,torch,self.device)
         self.last_touch=torch.zeros((n_envs,2),device=self.device)
         self.last_fault=torch.zeros_like(self.fault)
-        self.record=None;self.tick_monitor=None
+        self.last_wrong_face=torch.zeros_like(self.fault);self.last_floor=torch.zeros_like(self.fault)
+        self.drop_armed=torch.zeros_like(self.fault)
+        self.macro_wrong=torch.zeros(n_envs,device=self.device);self.macro_drops=torch.zeros_like(self.macro_wrong)
+        self.record=None;self.record_env_indices=None;self.tick_monitor=None
         names=self.scene.links.name_by_index
         self.proximal=self._indices([k for k,n in names.items() if n in {f'node{i}' for i in range(5)}])
         self.distal=self._indices([k for k,n in names.items() if n in {f'node{i}' for i in range(5,10)} or n.startswith('gripper')])
@@ -102,7 +109,23 @@ class HugEnv:
         self.protected=self._indices([k for k,n in names.items() if n in ('housing','wedge','camera') or k in self.scene.links.go2])
         self.camera=self._indices([k for k,n in names.items() if n=='camera'])
         self.obj=self._indices(self.scene.links.object_);self.floor=self._indices(self.scene.links.floor)
+        size=max(names)+1
+        self.contact_local=torch.zeros(size,dtype=torch.long,device=self.device)
+        self.contact_axes=torch.zeros((size,3),device=self.device)
+        self.contact_roles=torch.zeros(size,dtype=torch.long,device=self.device)
+        self.contact_objects=torch.zeros(size,dtype=torch.bool,device=self.device);self.contact_objects[self.obj]=True
+        axes=camera_side_axes()
+        for link in self.scene.robot.links:
+            self.contact_local[link.idx]=link.idx_local
+            if link.name in axes:self.contact_axes[link.idx]=torch.tensor(axes[link.name],device=self.device)
+        self.contact_roles[self.proximal]=1;self.contact_roles[self.distal]=2
         self.anchor=local_link_index(self.scene.robot,'gripper_base')
+        from .workspace import marker_geometry
+        self.workspace_owners,markers=marker_geometry()
+        self.workspace_markers=torch.tensor(markers,device=self.device,dtype=torch.float32)
+        self.workspace_links=torch.tensor([local_link_index(self.scene.robot,name) for name in self.workspace_owners],device=self.device)
+        self.workspace_exposure=torch.zeros(n_envs,device=self.device)
+        self.workspace_peak=torch.zeros(n_envs,device=self.device)
         by_name={v:k for k,v in names.items()}
         pairs=[(by_name[f'node{i}'],by_name[f'node{i+1}']) for i in range(9)]
         pairs.append((by_name['wedge'],by_name['node0']))
@@ -122,6 +145,9 @@ class HugEnv:
         self.start=torch.tensor(case['start_command'],device=self.device,dtype=torch.float32)
         self.goal=torch.tensor(case['goal_command'],device=self.device,dtype=torch.float32)
         self.origin=torch.tensor(case['object_xyz_m'],device=self.device,dtype=torch.float32)
+        from .workspace import envelope
+        self.workspace_polygon=torch.tensor(envelope(case,self.s,self.workspace_owners,
+            self.workspace_markers.detach().cpu().numpy()),device=self.device,dtype=torch.float32)
 
 
     def reset(self, ids=None):
@@ -139,8 +165,10 @@ class HugEnv:
         self.scene.object.set_pos(self.origin.expand(n,3),envs_idx=ids)
         self.scene.object.set_quat(torch.tensor([1.,0,0,0],device=self.device).expand(n,4),envs_idx=ids)
         self.scene.object.set_dofs_velocity(torch.zeros((n,6),device=self.device),envs_idx=ids)
-        for a in (self.episode_length_buf,self.ticks,self.fault,self.success,self.last_touch,self.last_fault):a[ids]=0
-        self.grasp_tick[ids]=-1;self.hold.reset(ids)
+        for a in (self.episode_length_buf,self.ticks,self.fault,self.success,self.last_touch,self.last_fault,
+                  self.grasp_ticks,self.last_wrong_face,self.last_floor,self.drop_armed,self.macro_wrong,self.macro_drops):a[ids]=0
+        self.workspace_exposure[ids]=0;self.workspace_peak[ids]=0
+        self.grasp_tick[ids]=-1;self.hold.reset(ids);self.ledger.reset(ids,self.start.expand(n,4),self.goal)
         return self.get_observations(),{}
 
 
@@ -165,22 +193,28 @@ class HugEnv:
     def get_observations(self):
         scale=torch.tensor([1.,1.,5.,5.],device=self.device)
         policy=torch.cat((self.actual()*scale,self.mapper.waypoint*scale,
-            (self.goal*scale).expand(self.num_envs,4),self.relative_object(),self.scene.object.get_vel(),
+            (self.goal[2:]*5).expand(self.num_envs,2),self.relative_object(),self.scene.object.get_vel(),
             torch.full((self.num_envs,1),self.case['diameter_mm']/1000,device=self.device),
             (self.grasp_tick>=0).float()[:,None],
             (self.hold.count/self.hold.required_ticks).clamp(0,1)[:,None],
             (self.ticks/(self.max_episode_length*self.s['action_ticks']))[:,None]),dim=1)
         if policy.shape[1]!=len(OBSERVATIONS) or not torch.isfinite(policy).all():raise RuntimeError('Invalid C-hug observation')
-        return TensorDict({'policy':policy,'privileged':self.last_touch.clone()},batch_size=[self.num_envs])
+        privileged=torch.cat((self.last_touch,self.last_wrong_face.float()[:,None],
+            (self.grasp_ticks/(self.s['grasp_confirm_s']/self.s['dt'])).clamp(0,1)[:,None],
+            self.ledger.best_lift[:,None],self.ledger.best_hold[:,None],
+            self.ledger.grasp_paid.float()[:,None],self.drop_armed.float()[:,None]),dim=1)
+        return TensorDict({'policy':policy,'privileged':privileged},batch_size=[self.num_envs])
 
     def contacts(self):
         raw=self.scene.robot.get_contacts(exclude_self_contact=False,is_padded=True)
         valid=raw['valid_mask'].to(self.device)
-        if valid.shape[-1]==0:return torch.zeros_like(self.last_touch),torch.zeros_like(self.fault)
+        if valid.shape[-1]==0:return torch.zeros_like(self.last_touch),torch.zeros_like(self.fault),torch.zeros_like(self.fault)
         a,b=raw['link_a'].to(self.device).long(),raw['link_b'].to(self.device).long()
         force=raw['force_a'].to(self.device).norm(dim=-1);active=valid&(force>1e-4)
         def pair(l,r):return (torch.isin(a,l)&torch.isin(b,r))|(torch.isin(b,l)&torch.isin(a,r))
-        touch=torch.stack(((active&pair(self.proximal,self.obj)).any(1),(active&pair(self.distal,self.obj)).any(1)),dim=1).float()
+        from .contacts import object_contact_faces
+        touch,wrong=object_contact_faces(raw,self.scene.robot.get_links_pos(),self.scene.robot.get_links_quat(),
+            self.contact_local,self.contact_axes,self.contact_roles,self.contact_objects,self.s,torch)
         assembly=torch.zeros_like(valid)
         for l,r in self.assembly_pairs:assembly|=((a==l)&(b==r))|((a==r)&(b==l))
         forbidden=pair(self.moving,self.protected)|pair(self.moving,self.moving)|pair(self.obj,self.protected)
@@ -188,7 +222,10 @@ class HugEnv:
         relevant=torch.isin(a,self.moving)|torch.isin(b,self.moving)|torch.isin(a,self.camera)|torch.isin(b,self.camera)|pair(self.obj,self.protected)
         bad=(active&forbidden&~assembly).any(1)
         bad|=(valid&relevant&~assembly&(raw['penetration'].to(self.device)>self.s['max_penetration_m'])).any(1)
-        bad|=(valid&~torch.isfinite(force)).any(1);return touch,bad
+        bad|=(valid&~torch.isfinite(force)).any(1)
+        bad|=(active&pair(self.moving,self.obj)&(~torch.isfinite(raw['normal']).all(-1)
+              |~torch.isfinite(raw['position']).all(-1)|(raw['normal'].norm(dim=-1)<.5))).any(1)
+        return touch.float(),bad,wrong
 
 
     def object_clearance(self):
@@ -215,7 +252,14 @@ class HugEnv:
         self.mapper.waypoint[:]=command
         self.scene.robot.control_dofs_position(self.mapper.joint_targets(),dofs_idx_local=self.dofs)
         self.scene.step();self.ticks+=1
-        touch,bad=self.contacts();self.last_touch,self.last_fault=touch,bad
+        from .workspace import transform_markers,workspace_excess,workspace_fraction
+        markers=transform_markers(self.scene.robot.get_links_pos()[:,self.workspace_links],
+            self.scene.robot.get_links_quat()[:,self.workspace_links],self.workspace_markers,torch)
+        excess=workspace_excess(markers,self.workspace_polygon,self.s,torch)
+        self.workspace_exposure+=workspace_fraction(excess,self.s,torch)
+        self.workspace_peak[:]=torch.maximum(self.workspace_peak,excess)
+        touch,bad,wrong=self.contacts();self.last_touch,self.last_fault,self.last_wrong_face=touch,bad,wrong
+        self.macro_wrong+=wrong.float()
         raw=self.scene.robot.get_dofs_position(dofs_idx_local=self.dofs)
         bad|=(raw[:,2:].abs()>self.s['bend_per_node_rad']+.025).any(1)
         bad|=(raw[:,0]<self.s['linear_min_m']-.003)|(raw[:,0]>self.s['linear_max_m']+.003)
@@ -226,46 +270,83 @@ class HugEnv:
         bad|=(pos-self.origin).norm(dim=1)>1.
         self.fault|=bad
         actual=self.actual();c_shape=(actual[:,2]<0)&(actual[:,3]<0)
-        grasp=(touch[:,0]>0)&(touch[:,1]>0)&c_shape&~self.fault
-        self.grasp_tick=torch.where(grasp&(self.grasp_tick<0),self.ticks,self.grasp_tick)
-        valid_hold=self.hold.update(self.object_clearance(),self.floor_contact(),touch,actual,self.fault,self.relative_object())
-        self.success[:]=valid_hold
-        if self.record is not None:self.record.append(command[0].detach().cpu().numpy().copy())
+        grasp=(touch[:,0]>0)&(touch[:,1]>0)&c_shape&~self.fault&~wrong
+        self.grasp_ticks=torch.where(grasp,self.grasp_ticks+1,torch.zeros_like(self.grasp_ticks))
+        confirmed=self.grasp_ticks>=round(self.s['grasp_confirm_s']/self.s['dt'])
+        self.grasp_tick=torch.where(confirmed&(self.grasp_tick<0),self.ticks,self.grasp_tick)
+        self.last_floor=self.floor_contact();clearance=self.object_clearance()
+        valid_hold=self.hold.update(clearance,self.last_floor,touch,actual,self.fault,self.relative_object(),wrong)
+        dropped=self.drop_armed&self.hold.interrupted
+        self.macro_drops+=dropped.float();self.drop_armed&=~dropped
+        self.drop_armed|=confirmed&(clearance>=self.s['lift_clearance_m'])&~self.last_floor&~self.fault&~wrong
+        self.success[:]=valid_hold&(self.grasp_tick>=0)
+        if self.record is not None:
+            recorded=command[0] if self.record_env_indices is None else command[self.record_env_indices]
+            self.record.append(recorded.detach().cpu().numpy().copy())
         if self.tick_monitor is not None:self.tick_monitor(self)
 
     def outcome(self):
         from .control import pose_error
+        from .metrics import lift_roll_error,lift_posture_complete,lift_posture_fraction
+        actual=self.actual()
         return dict(success=self.success&~self.fault,fault=self.fault,
             current_hold_duration_s=self.hold.count*self.s['dt'],
             minimum_hold_clearance_m=self.hold.minimum_clearance,
             maximum_hold_slip_m=self.hold.maximum_slip,hold_contact_fraction=self.hold.fraction(),
-            goal_error_normalized=pose_error(self.actual(),self.goal,self.s,torch))
+            goal_error_normalized=pose_error(actual,self.goal,self.s,torch),
+            lift_roll_error_rad=lift_roll_error(actual,self.s,torch),
+            lift_posture_complete=lift_posture_complete(actual,self.s,torch),
+            lift_posture_fraction=lift_posture_fraction(actual,self.s,torch),
+            wrong_face_contact=self.last_wrong_face,grasp_confirmed=self.grasp_ticks>=round(self.s['grasp_confirm_s']/self.s['dt']),
+            wrong_face_contact_any=self.macro_wrong>0,
+            highest_lift_fraction=self.ledger.best_lift,highest_hold_fraction=self.ledger.best_hold,
+            workspace_peak_excess_m=self.workspace_peak,
+            reward_total=sum(self.ledger.totals.values()))
 
     def step(self,actions):
-        from .control import advance_command,pose_error
+        from .control import advance_command
         if actions.shape!=(self.num_envs,4) or not torch.isfinite(actions).all():raise RuntimeError('Expected finite four-DoF policy actions')
-        before=pose_error(self.actual(),self.goal,self.s,torch)
-        guide=(self.grasp_tick<0).float()
+        self.begin_action()
         start=self.mapper.waypoint.clone();end=advance_command(start,actions,self.s,torch)
         for _,command in self.clock.targets(start,end):self.tick(command)
-        self.episode_length_buf+=1;result=self.outcome();after=pose_error(self.actual(),self.goal,self.s,torch)
-        done=(self.episode_length_buf>=self.max_episode_length)|result['success']
-        loaded=(self.last_touch[:,0]>0)&(self.last_touch[:,1]>0)&(self.actual()[:,2]<0)&(self.actual()[:,3]<0)
-        safe=(~self.fault).float()
-        reward=4*(before-after)*guide*safe+.05*self.last_touch.sum(1)*safe
-        reward+=loaded.float()*safe*2*(self.object_clearance()/self.s['lift_clearance_m']).clamp(0,1)
-        reward-=.01*(actions**2).sum(1)+2*self.fault.float()
-        reward+=done.float()*(30*result['success'].float()-5*(~result['success']).float())
+        reward,done,terms=self.finish_action(start,actions)
+        result=self.outcome()
         extras={'time_outs':torch.zeros_like(done),'log':{'c_hug/success':result['success'].float().mean(),
-                'c_hug/fault':self.fault.float().mean(),'c_hug/hold_s':(self.hold.count.float()*self.s['dt']).mean()}}
+                'c_hug/fault':self.fault.float().mean(),'c_hug/hold_s':(self.hold.count.float()*self.s['dt']).mean(),
+                'c_hug/wrong_face_fraction':(self.macro_wrong/self.s['action_ticks']).mean(),
+                **{'reward/'+k:v.float().mean() for k,v in terms.items()}}}
         if self.auto_reset and done.any():self.reset(done.nonzero(as_tuple=False).flatten())
         return self.get_observations(),reward,done,extras
+
+    def begin_action(self):
+        self.macro_wrong.zero_();self.macro_drops.zero_();self.workspace_exposure.zero_()
+
+    def finish_action(self,start,requested_actions=None):
+        from .control import action_rates
+        self.episode_length_buf+=1
+        self.success&=(self.macro_wrong==0)&~self.fault
+        confirmed=self.grasp_ticks>=round(self.s['grasp_confirm_s']/self.s['dt'])
+        lift=(self.object_clearance()/self.s['lift_clearance_m']).clamp(0,1)
+        lift=torch.where(~self.last_floor,lift,torch.zeros_like(lift))
+        hold=(self.hold.count/self.hold.required_ticks).clamp(0,1)
+        hold*=((self.hold.fraction()>=self.s['hold_contact_fraction'])&(self.grasp_tick>=0)).float()
+        applied=(self.mapper.waypoint-start)/start.new_tensor(action_rates(self.s))
+        # Policy rollouts charge requested effort even if joint bounds clip it.
+        # A command-only trajectory replay cannot reconstruct rejected requests.
+        effort=applied if requested_actions is None else requested_actions
+        self.effort_basis='applied-command lower bound' if requested_actions is None else 'requested-policy-action'
+        return self.ledger.step(self.actual(),self.goal,effort,confirmed_grasp=confirmed,
+            lift_fraction=lift,hold_fraction=hold,wrong_fraction=self.macro_wrong/self.s['action_ticks'],
+            fault=self.fault,success=self.success,timeout=self.episode_length_buf>=self.max_episode_length,drops=self.macro_drops,
+            workspace_fraction=self.workspace_exposure/self.s['action_ticks'])
 
     def measure(self):
         result={k:v[0].detach().cpu().item() for k,v in self.outcome().items()}
         if not math.isfinite(result['minimum_hold_clearance_m']):result['minimum_hold_clearance_m']=None
         result.update(object_xyz_m=self.scene.object.get_pos()[0].detach().cpu().tolist(),
-            actual_command=self.actual()[0].detach().cpu().tolist(),clearance_m=float(self.object_clearance()[0]))
+            actual_command=self.actual()[0].detach().cpu().tolist(),clearance_m=float(self.object_clearance()[0]),
+            action_cost_basis=getattr(self,'effort_basis','no policy step'))
+        result['reward_components']={k:float(v[0]) for k,v in self.ledger.totals.items()}
         return result
 
     def metadata(self):
@@ -300,6 +381,10 @@ class ReplayAdapter:
         self.previous=value.copy()
         self.commanded=torch.tensor(value,device=self.env.device,dtype=torch.float32).reshape(1,4)
 
-    def step(self):self.env.tick(self.commanded)
+    def step(self):
+        if int(self.env.ticks[0])%self.env.s['action_ticks']==0:
+            self.env.begin_action();self.action_start=self.env.mapper.waypoint.clone()
+        self.env.tick(self.commanded)
+        if int(self.env.ticks[0])%self.env.s['action_ticks']==0:self.env.finish_action(self.action_start)
     def measure(self):return self.env.measure()
     def evaluate(self,samples):return self.env.measure()

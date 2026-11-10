@@ -1,0 +1,144 @@
+{
+  "schema": "hug-ga-first-result",
+  "schema_version": 1,
+  "launch": {
+    "remote_root": "/home/hckang/elesim/workbench/evidence/generated/hug-ga-d100-20261108T103534Z",
+    "name": "hug-ga-d100-20261108T103534Z",
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "smoke_pid": 2471813,
+    "smoke_command": [
+      "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+      "-u",
+      "-m",
+      "workbench.research.experiments.hug_ga.experiment",
+      "smoke",
+      "--experiment",
+      "/home/hckang/elesim/workbench/evidence/generated/c-hug-concurrent-20261107T1025Z/experiment.json",
+      "--case",
+      "c-train-000-d100",
+      "--output",
+      "/home/hckang/elesim/workbench/evidence/generated/hug-ga-d100-20261108T103534Z/smoke",
+      "--population",
+      "128",
+      "--steps",
+      "10"
+    ],
+    "started_utc": "2026-11-08T10:35:35.871365+00:00",
+    "population": 128,
+    "target_generations": 100,
+    "automatic_ppo": false,
+    "local_root": "/home/user/ws/elesim/workbench/evidence/generated/hug-ga-d100-20261108T103534Z",
+    "grid_smoke_pid": 2472139,
+    "stage": "success-found",
+    "ga_pid": 2472536,
+    "process_group": 2472536,
+    "ga_command": [
+      "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+      "-u",
+      "-m",
+      "workbench.research.experiments.hug_ga.experiment",
+      "run",
+      "--plan",
+      "/home/hckang/elesim/workbench/evidence/generated/hug-ga-d100-20261108T103534Z/search",
+      "--backend",
+      "gpu"
+    ],
+    "ga_started_utc": "2026-11-08T10:39:40.099393+00:00",
+    "ga_source_sha256": "74487b99882e36721ad244d4ca2e6565906abcec8730ec345d78013f34a1c528",
+    "task_code_sha256": "b58659c11ba05c42c3d00ad0fe9f6e59fc82188762a11c84244b3bbc36a0d66b",
+    "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+    "parade_every": 10,
+    "search_root": "/home/hckang/elesim/workbench/evidence/generated/hug-ga-d100-20261108T103534Z/search",
+    "start": "home",
+    "case_id": "c-train-000-d100",
+    "diameter_mm": 100,
+    "smoke_passed": true,
+    "gpu_assignment_verified": true,
+    "detached_parent_pid": 1,
+    "first_generation_completed": true,
+    "first_generation_wall_s": 34.65059023164213,
+    "first_generation_completed_utc": "2026-11-08T10:40:29.211455+00:00",
+    "caption_free_preview_checked": true,
+    "physics_smoke_passed": true,
+    "ga_running": false,
+    "completed_generations": 14,
+    "candidate_evaluations": 1792,
+    "finished_utc": "2026-11-08T10:48:20.846218+00:00",
+    "success_candidate": 124,
+    "independent_replay_verified": false
+  },
+  "status": {
+    "completed_generations": 14,
+    "candidate_evaluations": 1792,
+    "target_generations": 100,
+    "population": 128,
+    "updated_utc": "2026-11-08T10:48:20.844961+00:00",
+    "initialization_s": 14.21272498369217,
+    "generation_wall_s": 34.984657804481685,
+    "elapsed_s": 520.4990107053891,
+    "estimated_remaining_s": 3156.5632265189665,
+    "estimate_note": "Recent generation mean; video overhead uncertain until first parade",
+    "rejection_counts": {
+      "hold_incomplete": 8,
+      "no_lift": 6,
+      "no_grasp": 49,
+      "forbidden_contact_or_limit": 56,
+      "wrong_face": 8,
+      "success": 1
+    },
+    "best": {
+      "candidate": 124,
+      "success": true,
+      "fault": false,
+      "wrong_face_any": false,
+      "grasp_fraction": 1.0,
+      "lift_fraction": 1.0,
+      "hold_fraction": 1.0,
+      "terminal_distance_m": 0.1402786821126938,
+      "duration_s": 19.8,
+      "reason": "success",
+      "imitation_eligible": false,
+      "requires_independent_replay": true
+    },
+    "phase": "success-found"
+  },
+  "completion": {
+    "started_utc": "2026-11-08T10:39:40.226327+00:00",
+    "finished_utc": "2026-11-08T10:48:20.846218+00:00",
+    "returncode": 0,
+    "status": "success-found",
+    "automatic_ppo_started": false
+  },
+  "retrieval": {
+    "search/status.json": {
+      "sha256": "c12a441b2fbf7b429ab22da8798527f518a3f498e489ec3bae94f52d072477cc",
+      "bytes": 978
+    },
+    "search/completion.json": {
+      "sha256": "807974d84a29ee05722a418ecfb305c37a95d527abde8b84a576dfe24cf4d865",
+      "bytes": 191
+    },
+    "search/generation-0013/report.json": {
+      "sha256": "2f4aa432d5e16090ff04083bfba2436aa2b1c470867ea4aba6ec6e1237ab882c",
+      "bytes": 50083
+    },
+    "search/generation-0013/candidates.npz": {
+      "sha256": "6f7b3b78d70d18eed8e4b15f6d9255a721af8d977ce676e6f9a24ebb144af5e4",
+      "bytes": 534889
+    },
+    "search/generation-0013/rollouts.npz": {
+      "sha256": "e190935c10d5e31cf8e3584f1ff14c866c902218440bec99d599d0219438140e",
+      "bytes": 1575485
+    },
+    "search/generation-0009/parade.mp4": {
+      "sha256": "8aa762028a994faa49cb76c8eb6603eead76266593eacb079038367920aff65f",
+      "bytes": 2651983
+    },
+    "search/generation-0009/report.json": {
+      "sha256": "224e14d5564caeb55df20b76ac1bebc19b5c70afc3b72062f52b3c9e02741368",
+      "bytes": 50044
+    }
+  },
+  "independent_replay_verified": false,
+  "automatic_ppo_started": false
+}

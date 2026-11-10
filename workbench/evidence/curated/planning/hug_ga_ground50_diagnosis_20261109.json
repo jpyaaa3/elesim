@@ -1,0 +1,55 @@
+{
+  "schema": "hug-ga-ground50-stall-diagnosis-v1",
+  "source_run": "hug-ga-ground50-20261108T153727Z",
+  "artifact_generation_index": 99,
+  "candidate": 0,
+  "source_report": {
+    "candidate": 0,
+    "success": false,
+    "fault": false,
+    "wrong_face_any": false,
+    "grasp_fraction": 1.0,
+    "lift_fraction": 0.4915168285369873,
+    "hold_fraction": 0.0,
+    "lift_posture_complete": false,
+    "lift_roll_error_rad": 0.8424431085586548,
+    "object_motion_violation": false,
+    "max_object_xy_displacement_mm": 86.1448745727539,
+    "max_ground_object_xy_displacement_mm": 45.568904876708984,
+    "first_object_motion_violation_tick": -1,
+    "object_motion_limit_mm": 50.0,
+    "terminal_distance_m": 0.1985596865415573,
+    "duration_s": 20.0,
+    "reason": "lift_incomplete",
+    "imitation_eligible": false,
+    "requires_independent_replay": false
+  },
+  "observations_timing": "before action; contacts after action at 0.1s macro endpoints",
+  "first_grasp_seen_s": 14.9,
+  "last_command_change_s": 14.9,
+  "terminal_command_roll_deg": -48.03954074344708,
+  "last_observed_actual_roll_deg": -48.268001556396484,
+  "final_sample_roll_tracking_error_deg": 0.22846297919750214,
+  "episode_duration_s": 20.0,
+  "remaining_after_grasp_seen_s": 5.1,
+  "roll_command_rate_rad_s": 1.0,
+  "nominal_roll_sweep_to_tolerance_plus_hold_s": 5.7543499891405485,
+  "both_contact_macro_endpoint_samples_final_5_s": 50,
+  "representation": {
+    "knots": 6,
+    "last_knot_time_s": 13.333333333333334,
+    "last_third_uses_final_knot_target": true,
+    "slew_limiter_may_delay_settling": true
+  },
+  "selection": {
+    "incomplete_candidates_receive_no_early_grasp_or_duration_preference": true,
+    "uses_peak_progress": true,
+    "ppo_return_not_used": true
+  },
+  "interpretation": "Winning genome reaches grasp late and ends in a partial roll target, then holds that target; current tail contains no further lift. Source and artifact evidence identify a search plateau, not physical impossibility.",
+  "limits": [
+    "No per-tick floor, clearance, orientation, force or slip log in this saved GA rollout.",
+    "No new physics replay, continuation, GA, BC or PPO was run.",
+    "The 49.15% metric combines clearance and roll progress; it is not a fraction of lift height."
+  ]
+}

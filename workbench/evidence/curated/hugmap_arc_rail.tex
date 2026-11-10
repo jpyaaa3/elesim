@@ -1,0 +1,113 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=22mm]{geometry}
+\usepackage{amsmath,amssymb,booktabs}
+\title{Two hug bands: one arc and one terminal rail}
+\date{5 November 2026}
+\begin{document}\maketitle
+\noindent\textbf{Finding.} At fixed seg1 angle and object diameter, object centres
+approximately lie on one circle. Seg2 rotates a terminal rail, selecting a point
+on that circle. Both rolls use this same relation. This is a closed-form smooth
+surrogate, not an exact closed-form description of every CAD-feasible pose.
+All lengths below are millimetres and joint angles are radians.
+
+\section*{1. The short relation shared by both bands}
+Write $q_1=\mathrm{seg1}$, $R=D/2$, $A=R+35$, $Y=y-119.5$ and
+$X=(r/90^\circ)x$, where $r=-90^\circ$ for band 1 and $r=+90^\circ$ for band 2.
+The regular 50-mm chain gives
+\[
+ \kappa=25\cot(q_1/10),\qquad
+ \boxed{(X+\kappa)^2+Y^2\simeq(\kappa+A)^2.}
+\]
+This is a family of circles, indexed by the first bend. Solving directly gives
+\[
+ \boxed{q_1\simeq10\arctan
+ \left(\frac{50(X-A)}{A^2-X^2-Y^2}\right).}
+\]
+No fitted coefficient, inverse solver or polynomial root is used.
+The $q_1=0$ limit is the straight line $X=R+35$.
+For band 1 this gives the particularly simple C/S transition
+\[
+ \boxed{|x|=D/2+35.}
+\]
+Every one of the 15,634 saved band-1 poses with $|q_1|>10^{-6}$ degrees
+obeys $q_1>0$ on the $|x|<D/2+35$ side and $q_1<0$ on the other side.
+All 181 numerically straight poses lie exactly on the line. Since $q_2<0$,
+these are the S and C regions respectively. At $D=150$, the transition is
+$|x|=110$ mm. The change of the sign label is not itself a break in the family.
+
+\textbf{Why this circle?} Every hinge in the first five-link chain is obtained
+by rotation about $K=(-\kappa,119.5)$. Its node right-side lines have the same
+signed distance $\kappa+35$ from that centre. For an actual right-side edge
+contact, the exact relation is
+\[
+ (X+\kappa)^2+Y^2=(\kappa+A)^2+t^2,
+ \qquad |t|\le13.627811.
+\]
+Here $t$ is the contact's local longitudinal displacement from the middle of
+the node side. Dropping this small squared term gives the circular envelope.
+Node-corner contacts introduce additional error; this is not an exact relation
+for every polygon contact.
+
+\section*{2. Seg2 selects a point by circle--line intersection}
+The right sides of node9, the gripper base and the claw are nearly aligned:
+their lateral offsets are 35, 35.50 and 35.46 mm. Their combined longitudinal
+span in the gripper frame is approximately $[-38.627811,89]$ mm.
+Model this as one rail at lateral offset $w_g=35.46$.
+
+Let $\mathcal R$ be the planar rotation matrix and define the exact five-link
+endpoint, with its continuous limit $p(0)=(0,250)^T$,
+\[
+ p(q)=50\frac{\sin(q/2)}{\sin(q/10)}
+ \begin{pmatrix}-\sin(3q/5)\\\cos(3q/5)\end{pmatrix}.
+\]
+The rail origin and directions in intrinsic body coordinates are
+\[
+ G=\begin{pmatrix}0\\144.5\end{pmatrix}+p(q_1)+\mathcal R(q_1)p(q_2),
+ \quad n=\begin{pmatrix}\cos(q_1+q_2)\\\sin(q_1+q_2)\end{pmatrix},
+ \quad t=\begin{pmatrix}-n_y\\n_x\end{pmatrix}.
+\]
+Set $a=\kappa+R+35$ (signed), $d=R+w_g+n^T(G-K)$. Then
+\[
+ \boxed{C=K+dn\ \pm\sqrt{a^2-d^2}\,t.}
+\]
+This directly parameterizes the object centre by $(q_1,q_2,D)$.
+Return to the saved coordinates by $x=(r/90^\circ)C_x$, $y=C_y$.
+The square root must be real; the first arc span and finite rail span must
+also be respected. At the rail endpoints the continuation is a circle--circle
+intersection instead, still a square-root construction. The implementation
+includes these endpoint caps.
+
+\section*{3. Friction cuts the continuous geometric family}
+For side contact the two unit contact normals satisfy $n_1^Tn_2=d/a$.
+Thus the two-point planar friction threshold reduces to
+\[
+ \boxed{\mu_{\min}^2=\frac{1+d/a}{1-d/a},\qquad
+ \mu_{\min}<0.5\iff d/a<-0.6.}
+\]
+The centre can vary continuously while crossing this inequality's boundary.
+Consequently a gap in the allowed-friction map need not be a missing geometric
+branch. This surrogate can explain that mechanism, but does not certify the
+exact positions of the splits in the polygon CAD map.
+
+\section*{4. Validation on kyung.json}
+The first equation predicts seg1 directly from $(x,y,D)$.
+The forward construction uses each saved $(q_1,q_2,D)$ and compares its nearest
+admissible reconstructed centre with the saved centre. No parameters were fitted.
+\begin{center}
+\begin{tabular}{lrr}\toprule
+ & Band 1 & Band 2\\\midrule
+Saved roll solutions & 15,815 & 13,068\\
+Seg1 absolute error, median & $0.079^\circ$ & $0.261^\circ$\\
+Seg1 absolute error, 95th percentile & $0.875^\circ$ & $1.772^\circ$\\
+Forward centres within 5 mm / all saved & 93.65\% & 94.74\%\\
+Forward centre error, median of returned centres & 0.396 mm & 0.657 mm\\
+Forward centre error, 95th percentile of returned centres & 4.683 mm & 5.145 mm\\\bottomrule
+\end{tabular}
+\end{center}
+There are important exceptions: 281 band-1 cases return no centre; some other
+band-1 cases select a distant surrogate branch (maximum error 157.4 mm).
+Band-2 maximum error is 16.7 mm. These are not safe motion commands.
+This validation is reconstruction at known angles, not independent full-map
+coverage. Camera/housing/arm collisions, joint limits and actual polygon contact
+validity still determine which part of the smooth family can be used.
+\end{document}

@@ -1,0 +1,100 @@
+{
+  "schema": "hug-ga-lift90-single-replay",
+  "report": {
+    "schema": "hug-ga-single-candidate-video",
+    "source": {
+      "rollouts": "/home/hckang/elesim/workbench/evidence/generated/hug-ga-lift90-20261108/search/generation-0083/rollouts.npz",
+      "sha256": "f3523b39ce8962da6b45ecbdfe9b2d676ca4907fe0d2397b73d7ffcd6cf21825",
+      "candidate": 22,
+      "valid_source_actions": 185
+    },
+    "collection": {
+      "success": true,
+      "fault": false,
+      "current_hold_duration_s": 5.039999961853027,
+      "minimum_hold_clearance_m": 0.47488266229629517,
+      "maximum_hold_slip_m": 0.008406395092606544,
+      "hold_contact_fraction": 1.0,
+      "goal_error_normalized": 0.049310196191072464,
+      "lift_roll_error_rad": 0.06595690548419952,
+      "lift_posture_complete": true,
+      "lift_posture_fraction": 1.0,
+      "wrong_face_contact": false,
+      "grasp_confirmed": true,
+      "wrong_face_contact_any": false,
+      "highest_lift_fraction": 1.0,
+      "highest_hold_fraction": 1.0,
+      "workspace_peak_excess_m": 0.38284075260162354,
+      "reward_total": 38.17287063598633,
+      "object_xyz_m": [
+        0.21821098029613495,
+        0.1483432501554489,
+        0.665703296661377
+      ],
+      "actual_command": [
+        -0.16818426549434662,
+        0.06595690548419952,
+        -0.2518976628780365,
+        -0.580552875995636
+      ],
+      "clearance_m": 0.5028407573699951,
+      "action_cost_basis": "requested-policy-action",
+      "reward_components": {
+        "q_hint": -0.9714999198913574,
+        "grasp": 3.0,
+        "lift": 5.0,
+        "hold": 10.000000953674316,
+        "success": 30.0,
+        "wrong_face": 0.0,
+        "drop": -3.0,
+        "fault": 0.0,
+        "timeout": 0.0,
+        "action": -0.16681191325187683,
+        "time": -3.899996757507324,
+        "workspace": -1.788822054862976
+      }
+    },
+    "accepted": true,
+    "wrong_face_any_episode": false,
+    "terminal_seen": true,
+    "report_camera": {
+      "name": "arm-side-oblique-v1",
+      "pos": [
+        0.85,
+        -1.15,
+        1.6
+      ],
+      "lookat": [
+        0.35,
+        0.05,
+        0.4
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "optimizer_used": false,
+    "replay_count": 1,
+    "independent_replay_verified": false,
+    "note": "One replay; three repeats required for demonstration approval"
+  },
+  "video": "workbench/evidence/generated/hug-ga-lift90-20261108/candidate-22-video-20261108T130513Z/candidate.mp4",
+  "artifacts": {
+    "candidate.mp4": {
+      "sha256": "4d83996073a3a85a1076dc129c3565748387619e6bf97de58747ee3de7fb7593",
+      "bytes": 401372
+    },
+    "trajectory.npz": {
+      "sha256": "dc938e3e153e9aeee2a393c0295764f03daec9dfe09cb6082f853981b5e4d589",
+      "bytes": 29254
+    },
+    "report.json": {
+      "sha256": "51756b2fa4504e36c423e2264489777207f910f8e6fc0ca021496661dcba0b3c",
+      "bytes": 2168
+    }
+  },
+  "visually_reviewed": true,
+  "three_repeat_approval": false
+}

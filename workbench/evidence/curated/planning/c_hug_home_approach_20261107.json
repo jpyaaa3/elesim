@@ -1,0 +1,210 @@
+{
+  "schema": "elesim-c-hug-home-approach-audit",
+  "schema_version": 1,
+  "audit_date_kst": "2026-11-07",
+  "run": "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z",
+  "case": {
+    "q_deg": [
+      -0.5,
+      -178.5
+    ],
+    "xy_mm": [
+      -85.18650136838987,
+      222.71820844304784
+    ],
+    "mu_min": 0.37672531020241107,
+    "feature": "tip",
+    "root": 1,
+    "case_id": "c-train-000-d100",
+    "split": "train",
+    "diameter_mm": 100,
+    "branch": "c-q-triangle-ea0b75ba1378",
+    "q_barycentric": [
+      1.0,
+      -0.0,
+      0.0
+    ],
+    "band": 1,
+    "roll_deg": -90,
+    "start_command": [
+      -0.12,
+      0.0,
+      -0.593411945678072,
+      0.593411945678072
+    ],
+    "goal_command": [
+      0.0,
+      -1.5707963267948966,
+      -0.0017453292519943296,
+      -0.6230825429619757
+    ],
+    "object_xyz_m": [
+      0.42121820844304786,
+      0.08518650136838987,
+      0.55
+    ]
+  },
+  "question": "Can the real Home reach this target without the fixed cylinder obstructing the approach?",
+  "conclusion": "Home approach is not certified. Direct motion pushes the cylinder and no fixed-object bypass was found; static endpoints are insufficient to admit this anchor.",
+  "continuous_impossibility_proven": false,
+  "geometry_limits": [
+    "XY convex projections of the actual node and terminal meshes conservatively approximate cylinder collisions.",
+    "RRT searches are finite and failure does not prove impossibility.",
+    "Six-neighbor finite-grid disconnection may miss narrow continuous paths.",
+    "The necessary-condition grid checks seg1 only, ignoring seg2 and robot body.",
+    "Geometric search holds the cylinder fixed; contact-driven object motion is a different dynamic reachability problem."
+  ],
+  "direct_genesis_replay": {
+    "duration_s": 5.1,
+    "started_at_home": true,
+    "optimizer_used": false,
+    "training_modified": false,
+    "max_object_displacement_mm": 333.86111519054674,
+    "first_object_motion_over_1mm_s": 0.46,
+    "first_fault_s": null,
+    "first_wrong_face_s": 0.44,
+    "evaluation": {
+      "success": false,
+      "fault": false,
+      "current_hold_duration_s": 0.0,
+      "minimum_hold_clearance_m": null,
+      "maximum_hold_slip_m": 0.0,
+      "hold_contact_fraction": 0.0,
+      "goal_error_normalized": 1.6945830338954693e-06,
+      "wrong_face_contact": false,
+      "grasp_confirmed": false,
+      "wrong_face_contact_any": false,
+      "highest_lift_fraction": 0.0,
+      "highest_hold_fraction": 0.0,
+      "reward_total": -0.04551112651824951,
+      "object_xyz_m": [
+        0.7525394558906555,
+        0.04408327490091324,
+        0.5499763488769531
+      ],
+      "actual_command": [
+        -0.0001466897374484688,
+        -1.5716290473937988,
+        -0.001746723777614534,
+        -0.6230809092521667
+      ],
+      "clearance_m": -2.3663043975830078e-05,
+      "reward_components": {
+        "q_hint": 0.6041470766067505,
+        "grasp": 0.0,
+        "lift": 0.0,
+        "hold": 0.0,
+        "success": 0.0,
+        "wrong_face": -0.07000000774860382,
+        "drop": 0.0,
+        "fault": 0.0,
+        "timeout": 0.0,
+        "action": -0.06965839862823486,
+        "time": -0.5099998116493225
+      }
+    }
+  },
+  "rrt": {
+    "found": false,
+    "reason": "finite RRT search exhausted; not an impossibility proof",
+    "elapsed_s": 60.00072149100015,
+    "geometry_calls": 81305,
+    "tree_sizes": [
+      4068,
+      4062
+    ],
+    "schema": "elesim-c-hug-home-approach-search",
+    "schema_version": 1,
+    "command_units": [
+      "linear_mm",
+      "roll_deg",
+      "q3_total_deg",
+      "q4_total_deg"
+    ],
+    "physics_validated": false,
+    "includes_self_body_collision": false,
+    "training_modified": false
+  },
+  "seg1_coarse_grid": {
+    "grid_shape": [
+      19,
+      23,
+      79
+    ],
+    "total_cells": 34523,
+    "free_cells": 17972,
+    "components": 2,
+    "home_component": {
+      "id": 1,
+      "cells": 8986,
+      "q3_range_deg": [
+        -180.0,
+        2.0
+      ]
+    },
+    "goal_component": {
+      "id": 2,
+      "cells": 8986,
+      "q3_range_deg": [
+        -2.0,
+        180.0
+      ]
+    },
+    "connected": false,
+    "elapsed_s": 6.088709314004518,
+    "fixed_object": true,
+    "geometry": "only seg1 convex XY projections; ignore seg2 and robot body",
+    "continuous_impossibility_proven": false
+  },
+  "seg1_fine_grid": {
+    "grid_shape": [
+      36,
+      45,
+      153
+    ],
+    "total_cells": 247860,
+    "free_cells": 129196,
+    "components": 2,
+    "home_component": {
+      "id": 1,
+      "cells": 64598,
+      "q3_range_deg": [
+        -180.0,
+        2.5
+      ]
+    },
+    "goal_component": {
+      "id": 2,
+      "cells": 64598,
+      "q3_range_deg": [
+        -2.5,
+        180.0
+      ]
+    },
+    "connected": false,
+    "elapsed_s": 53.779405666020466,
+    "fixed_object": true,
+    "geometry": "only seg1 convex XY projections; ignore seg2 and robot body",
+    "continuous_impossibility_proven": false,
+    "fine": true
+  },
+  "scope": "Only first D100 training anchor audited; this is not a conclusion about all C grasps or all diameters.",
+  "training_source_changed": false,
+  "training_process_stopped": false,
+  "newton_gym_changed": false,
+  "follow_up": "Require a verified Home approach with permitted contact faces, or reselect the placement/start configuration before treating endpoint-feasible anchors as learnable.",
+  "evidence_sha256": {
+    "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/screened/d100/study/experiment.json": "4549f539aa39e3f0fff42edeadddf343e307cc3e7e18cb46c590c182543909f4",
+    "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/home-direct-approach/report.json": "41907028d1525d2e7439e8b248644cde2435aceafb5622bb3a672b892c6a5757",
+    "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/home-direct-approach/approach.mp4": "b04bb302f8f8d8930b09a83f8570b22258c1900a65b6a4b217d57801bfe564ad",
+    "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/home-direct-approach/commands.npz": "dbe0d26f136ed95351d3553c2fb8c4f403166ab40dc735bada39a4fdc44d121d",
+    "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/home-approach-search.json": "6270075eeec17a5cf945d8bc3e9629b7ae716543ea32c44b9c544e69d582855b",
+    "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/first-segment-home-connectivity.json": "8e04ca351685f22bd1a1c0c3b3d98a9f9c2e5a5855bf187f6a2a4bd6603df196",
+    "workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/first-segment-home-connectivity-fine.json": "6bdfd9cf1fe9b3fb87bfb49cfc4b8affaf090b06557ed9bd5b9f8f6381c8d9a8"
+  },
+  "reproduction": [
+    "PYTHONPATH=payload/runtime/common/protocol:payload/runtime/docker/sim/app:. python3 -m workbench.research.analysis.check_hug_approach --experiment workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/screened/d100/study/experiment.json --case c-train-000-d100 --seconds 60 --first-segment-grid --output <fresh-output.json>",
+    "The fine grid is first_segment_components(..., fine=True) in check_hug_approach.py.",
+    "On the authorized GPU host: PYTHONPATH=payload/runtime/common/protocol:payload/runtime/docker/sim/app:. CUDA_VISIBLE_DEVICES=GPU-a40782b2-881c-e285-2a8e-66cae9162a01 .venv/hug-rl-20261106/bin/python -m workbench.research.analysis.replay_hug_approach --experiment workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z/screened/d100/study/experiment.json --case c-train-000-d100 --output <fresh-output-directory>"
+  ]
+}

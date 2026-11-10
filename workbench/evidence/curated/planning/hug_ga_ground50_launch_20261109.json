@@ -1,0 +1,118 @@
+{
+  "schema": "hug-ga-ground50-launch",
+  "schema_version": 1,
+  "launch": {
+    "name": "hug-ga-ground50-20261108T153727Z",
+    "remote_root": "/home/hckang/elesim/workbench/evidence/generated/hug-ga-ground50-20261108T153727Z",
+    "search_root": "/home/hckang/elesim/workbench/evidence/generated/hug-ga-ground50-20261108T153727Z/search",
+    "stage": "ga-search",
+    "ga_pid": 2490977,
+    "process_group": 2490977,
+    "ga_command": [
+      "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+      "-u",
+      "-m",
+      "workbench.research.experiments.hug_ga.experiment",
+      "run",
+      "--plan",
+      "/home/hckang/elesim/workbench/evidence/generated/hug-ga-ground50-20261108T153727Z/search",
+      "--backend",
+      "gpu"
+    ],
+    "ga_started_utc": "2026-11-08T15:37:27.904229+00:00",
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "population": 128,
+    "target_generations": 100,
+    "parade_every": 10,
+    "start": "home",
+    "case_id": "c-train-000-d100",
+    "diameter_mm": 100,
+    "ga_source_sha256": "ddcdecee025e3ff4e23cc074c80e9b7db6256a10b4c22b7ea4bba2ec8e2258d0",
+    "task_code_sha256": "5e62f15239711d6e883bc2d6cd449fe8c535a47d2952490ce22a4006cd889684",
+    "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+    "constraints": {
+      "schema": "hug-ga-object-motion-v2",
+      "metric": "world-xy-center-displacement",
+      "reference": "initial-object-center",
+      "max_object_xy_mm": 50.0,
+      "sampling": "physics-tick",
+      "comparison": "strictly-greater-than",
+      "scope": "ground-contact-only",
+      "airborne_rule": "no-floor-contact-and-positive-bottom-clearance"
+    },
+    "criterion": "Free four-DoF motion from Home; C grasp, loaded clearance and roll 0 +/- 5 deg for 5 s",
+    "episode_limit_s": 20,
+    "automatic_ppo": false,
+    "user_authorized": true,
+    "old_run_preserved": "hug-ga-xy50-20261108T133605Z",
+    "local_root": "/home/user/ws/elesim/workbench/evidence/generated/hug-ga-ground50-20261108T153727Z",
+    "gpu_assignment_verified": true,
+    "detached_parent_pid": 1
+  },
+  "verification": {
+    "checked_utc": "2026-11-08T15:38:21.527353+00:00",
+    "alive": true,
+    "state": "R",
+    "parent_pid": 1,
+    "cuda_environment": [
+      "CUDA_VISIBLE_DEVICES=GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+    ],
+    "gpu_assignment_verified": true,
+    "gpu_processes": "GPU-bfaeeedd-48aa-e675-4daa-17955c1769db, 2036331, 352 MiB\nGPU-bfaeeedd-48aa-e675-4daa-17955c1769db, 2485342, 1300 MiB\nGPU-bad354e5-f275-d990-caab-8aa0025827d1, 2485497, 1300 MiB\nGPU-a40782b2-881c-e285-2a8e-66cae9162a01, 2490977, 1074 MiB\n",
+    "generation_dirs": [
+      "generation-0000",
+      "generation-0001",
+      "generation-0002"
+    ],
+    "log_tail": "bottom-clearance\"}, \"updated_utc\": \"2026-11-08T15:37:55.821763+00:00\", \"initialization_s\": 15.118539098650217, \"generation_wall_s\": 12.556038519367576, \"elapsed_s\": 27.678110462613404, \"estimated_remaining_s\": 1243.04781341739, \"estimate_note\": \"Recent generation mean; video overhead uncertain until first parade\", \"rejection_counts\": {\"object_motion_limit\": 118, \"forbidden_contact_or_limit\": 10}, \"best\": {\"candidate\": 0, \"success\": false, \"fault\": false, \"wrong_face_any\": true, \"grasp_fraction\": 0.0, \"lift_fraction\": 0.0, \"hold_fraction\": 0.0, \"lift_posture_complete\": false, \"lift_roll_error_rad\": 0.6029608249664307, \"object_motion_violation\": true, \"max_object_xy_displacement_mm\": 50.35463333129883, \"max_ground_object_xy_displacement_mm\": 50.35463333129883, \"first_object_motion_violation_tick\": 339, \"object_motion_limit_mm\": 50.0, \"terminal_distance_m\": 0.4311850070953369, \"duration_s\": 3.4000000000000004, \"reason\": \"object_motion_limit\", \"imitation_eligible\": false, \"requires_independent_replay\": false}, \"phase\": \"searching\"}\n{\"completed_generations\": 2, \"candidate_evaluations\": 256, \"target_generations\": 100, \"population\": 128, \"constraints\": {\"schema\": \"hug-ga-object-motion-v2\", \"metric\": \"world-xy-center-displacement\", \"reference\": \"initial-object-center\", \"max_object_xy_mm\": 50.0, \"sampling\": \"physics-tick\", \"comparison\": \"strictly-greater-than\", \"scope\": \"ground-contact-only\", \"airborne_rule\": \"no-floor-contact-and-positive-bottom-clearance\"}, \"updated_utc\": \"2026-11-08T15:38:17.421851+00:00\", \"initialization_s\": 15.118539098650217, \"generation_wall_s\": 21.59255567844957, \"elapsed_s\": 49.278192793019116, \"estimated_remaining_s\": 1673.2811156930402, \"estimate_note\": \"Recent generation mean; video overhead uncertain until first parade\", \"rejection_counts\": {\"object_motion_limit\": 104, \"forbidden_contact_or_limit\": 24}, \"best\": {\"candidate\": 0, \"success\": false, \"fault\": false, \"wrong_face_any\": true, \"grasp_fraction\": 0.0, \"lift_fraction\": 0.0, \"hold_fraction\": 0.0, \"lift_posture_complete\": false, \"lift_roll_error_rad\": 0.6029608249664307, \"object_motion_violation\": true, \"max_object_xy_displacement_mm\": 50.35463333129883, \"max_ground_object_xy_displacement_mm\": 50.35463333129883, \"first_object_motion_violation_tick\": 339, \"object_motion_limit_mm\": 50.0, \"terminal_distance_m\": 0.4311850070953369, \"duration_s\": 3.4000000000000004, \"reason\": \"object_motion_limit\", \"imitation_eligible\": false, \"requires_independent_replay\": false}, \"phase\": \"searching\"}\n",
+    "status.json": {
+      "completed_generations": 2,
+      "candidate_evaluations": 256,
+      "target_generations": 100,
+      "population": 128,
+      "constraints": {
+        "schema": "hug-ga-object-motion-v2",
+        "metric": "world-xy-center-displacement",
+        "reference": "initial-object-center",
+        "max_object_xy_mm": 50.0,
+        "sampling": "physics-tick",
+        "comparison": "strictly-greater-than",
+        "scope": "ground-contact-only",
+        "airborne_rule": "no-floor-contact-and-positive-bottom-clearance"
+      },
+      "updated_utc": "2026-11-08T15:38:17.421851+00:00",
+      "initialization_s": 15.118539098650217,
+      "generation_wall_s": 21.59255567844957,
+      "elapsed_s": 49.278192793019116,
+      "estimated_remaining_s": 1673.2811156930402,
+      "estimate_note": "Recent generation mean; video overhead uncertain until first parade",
+      "rejection_counts": {
+        "object_motion_limit": 104,
+        "forbidden_contact_or_limit": 24
+      },
+      "best": {
+        "candidate": 0,
+        "success": false,
+        "fault": false,
+        "wrong_face_any": true,
+        "grasp_fraction": 0.0,
+        "lift_fraction": 0.0,
+        "hold_fraction": 0.0,
+        "lift_posture_complete": false,
+        "lift_roll_error_rad": 0.6029608249664307,
+        "object_motion_violation": true,
+        "max_object_xy_displacement_mm": 50.35463333129883,
+        "max_ground_object_xy_displacement_mm": 50.35463333129883,
+        "first_object_motion_violation_tick": 339,
+        "object_motion_limit_mm": 50.0,
+        "terminal_distance_m": 0.4311850070953369,
+        "duration_s": 3.4000000000000004,
+        "reason": "object_motion_limit",
+        "imitation_eligible": false,
+        "requires_independent_replay": false
+      },
+      "phase": "searching"
+    }
+  },
+  "scope": "GA only; no automatic BC/PPO; other GPU jobs unchanged"
+}

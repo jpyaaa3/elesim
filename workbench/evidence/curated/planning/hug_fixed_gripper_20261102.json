@@ -1,0 +1,1043 @@
+{
+  "schema_version": 1,
+  "complete": true,
+  "scope": "Existing gripper held fixed; offline reference geometry/criteria audit only.",
+  "settings": {
+    "length_m": 0.25,
+    "body_length_m": 0.0875,
+    "body_width_m": 0.07,
+    "turn_limit_rad": 3.141592653589793,
+    "budget_s": 20.0,
+    "legacy_budget_s": 2.0,
+    "pair_limit": 32,
+    "max_solves": 512,
+    "max_evaluations": 60,
+    "correction_deg": 5.0
+  },
+  "gripper": {
+    "present": true,
+    "ratio": 0.155,
+    "fixed": true,
+    "model": "Existing hug.py straight terminal approximation; not a CAD/contact model of the jaws.",
+    "scope": "Gripper geometry is fixed input, never a design variable; no ID5 jaw-closing action."
+  },
+  "reference": {
+    "path": "/study/source/reference/hug.py",
+    "sha256": "a434bfeefc8441de54a78f522c4fd385a46871cb3dbd422a2a4852abb17706e1"
+  },
+  "limitations": [
+    "Zero-thickness constant-curvature sections and simple 2-D polygon targets.",
+    "Sparse/compressible objects are not represented by this rigid geometry model.",
+    "Search and local recovery are bounded, not exhaustive; no-solution is not a mechanical impossibility proof.",
+    "Force proxies assume two independent point contacts; no actuator, ID3/ID4 current, friction or material calibration.",
+    "Original centroid/forward gates are recorded unchanged; no runtime criterion is relaxed."
+  ],
+  "report_sha256": "3c63c4c5b0b660ae607ac3f9c16014e541dc53e6b651030fa15d600352203ce2",
+  "summaries": [
+    {
+      "case": "circle-120",
+      "terminal_ratio": 0.155,
+      "terminal_mm": 38.75,
+      "candidates": 0,
+      "legacy_gate_pass": 0,
+      "forward_rejected": 0,
+      "endpoint_non_tangent": 0,
+      "solves": 465,
+      "search_s": 20.000064835883677,
+      "status": "not_found_within_budget_budget_exhausted",
+      "best_headroom_deg": null,
+      "best_centroid_margin_mm": null,
+      "sampled_recovery": null,
+      "best_candidate": null,
+      "legacy_variable_lengths_mm": [
+        183.71269203888215,
+        183.71269203888227,
+        156.9225570770473
+      ],
+      "hold_verified": null,
+      "motor_load_margin": null,
+      "compression_margin": null
+    },
+    {
+      "case": "circle-160",
+      "terminal_ratio": 0.155,
+      "terminal_mm": 38.75,
+      "candidates": 17,
+      "legacy_gate_pass": 0,
+      "forward_rejected": 17,
+      "endpoint_non_tangent": 9,
+      "solves": 481,
+      "search_s": 20.000235090963542,
+      "status": "candidates_found_budget_exhausted",
+      "best_headroom_deg": 9.047783333994255,
+      "best_centroid_margin_mm": 3.925414026848675,
+      "sampled_recovery": 0,
+      "best_candidate": {
+        "turns_deg": [
+          76.21272954535941,
+          170.95221666600574
+        ],
+        "first_contact_a": 0.4341210043644237,
+        "second_contact_mode": "stick",
+        "metrics": {
+          "geometric_proxy_pass": true,
+          "reasons": [],
+          "centroid_captured": true,
+          "centroid_margin_m": 0.003925414026848675,
+          "capture_score": 0.02394634200042799,
+          "forward_projection_m": -0.007841371377029865,
+          "legacy_forward_pass": false,
+          "contact_gaps_m": [
+            5.62093170857609e-18,
+            2.8910436503840167e-10
+          ],
+          "body_target_clearance_m": 0.005994830843038745,
+          "opening_chord_m": 0.1601753599384692,
+          "section_angle_margins": {
+            "lower_deg": [
+              256.2127295453594,
+              350.9522166660057
+            ],
+            "upper_deg": [
+              103.78727045464059,
+              9.047783333994255
+            ],
+            "minimum_deg": 9.047783333994255
+          },
+          "hold_verified": null,
+          "motor_load_margin": null,
+          "compression_margin": null
+        },
+        "legacy_gate": {
+          "pass_": false,
+          "violations": [
+            "finger crosses target",
+            "P2 is behind P1"
+          ],
+          "score": 0.0
+        },
+        "contact_proxies": {
+          "assumptions": "Two planar point contacts, chosen feature normals, Coulomb friction; one ideal normal-force unit per contact for a fixed base-plane +Y task proxy; this axis is not a verified gravity direction; area centroid as torque origin. No actuator coupling, compliance or measured mass/force model.",
+          "by_friction": [
+            {
+              "mu": 0.0,
+              "closure": false,
+              "rank": 2,
+              "positive_span_margin": 0.0,
+              "task_support_per_assumed_normal_unit": 0.11698560119067043
+            },
+            {
+              "mu": 0.3,
+              "closure": true,
+              "rank": 3,
+              "positive_span_margin": 0.209060958525444,
+              "task_support_per_assumed_normal_unit": 0.585729403557697
+            },
+            {
+              "mu": 0.6,
+              "closure": true,
+              "rank": 3,
+              "positive_span_margin": 0.2295304792627221,
+              "task_support_per_assumed_normal_unit": 0.8406523265927106
+            }
+          ]
+        },
+        "local_recovery": {
+          "scope": "Six sampled pose errors; fixed base, same material contact locations; two bend axes limited to +/-5 deg corrections. A failed local solve is not proof of impossibility.",
+          "successes": 0,
+          "trials": 6,
+          "rows": [
+            {
+              "perturbation": "+x",
+              "recovered_geometrically": false,
+              "corrections_deg": [
+                -2.050040068387554,
+                0.6082428935156265
+              ],
+              "reasons": [
+                "target_penetration_beyond_tolerance"
+              ]
+            },
+            {
+              "perturbation": "-x",
+              "recovered_geometrically": false,
+              "corrections_deg": [
+                2.1408955648747514,
+                -0.43179236278183825
+              ],
+              "reasons": [
+                "target_penetration_beyond_tolerance"
+              ]
+            },
+            {
+              "perturbation": "+y",
+              "recovered_geometrically": false,
+              "corrections_deg": [
+                -1.2506924343811763,
+                0.4240434170576177
+              ],
+              "reasons": [
+                "target_penetration_beyond_tolerance"
+              ]
+            },
+            {
+              "perturbation": "-y",
+              "recovered_geometrically": false,
+              "corrections_deg": [
+                1.481237074074358,
+                -0.358012946758643
+              ],
+              "reasons": [
+                "target_penetration_beyond_tolerance"
+              ]
+            },
+            {
+              "perturbation": "+rotation",
+              "recovered_geometrically": false,
+              "corrections_deg": [
+                0.14009696110915013,
+                0.010907168279354968
+              ],
+              "reasons": [
+                "target_penetration_beyond_tolerance"
+              ]
+            },
+            {
+              "perturbation": "-rotation",
+              "recovered_geometrically": false,
+              "corrections_deg": [
+                0.14182610953734687,
+                0.02181516040267508
+              ],
+              "reasons": [
+                "target_penetration_beyond_tolerance"
+              ]
+            }
+          ],
+          "compression_margin": null,
+          "motor_load_margin": null,
+          "hold_verified": null
+        }
+      },
+      "legacy_variable_lengths_mm": [
+        244.95025605184307
+      ],
+      "hold_verified": null,
+      "motor_load_margin": null,
+      "compression_margin": null
+    },
+    {
+      "case": "circle-200",
+      "terminal_ratio": 0.155,
+      "terminal_mm": 38.75,
+      "candidates": 1,
+      "legacy_gate_pass": 0,
+      "forward_rejected": 1,
+      "endpoint_non_tangent": 1,
+      "solves": 480,
+      "search_s": 20.000115673057735,
+      "status": "candidates_found_budget_exhausted",
+      "best_headroom_deg": 30.350728232797977,
+      "best_centroid_margin_mm": 4.906767261587385,
+      "sampled_recovery": 0,
+      "best_candidate": {
+        "turns_deg": [
+          -89.70750210207181,
+          -149.64927176720204
+        ],
+        "first_contact_a": 0.6081591840108879,
+        "second_contact_mode": "stick",
+        "metrics": {
+          "geometric_proxy_pass": true,
+          "reasons": [],
+          "centroid_captured": true,
+          "centroid_margin_m": 0.004906767261587385,
+          "capture_score": 0.023946340704908604,
+          "forward_projection_m": -0.009801714276958855,
+          "legacy_forward_pass": false,
+          "contact_gaps_m": [
+            0.0,
+            4.5573030531349773e-10
+          ],
+          "body_target_clearance_m": 0.002443731888393975,
+          "opening_chord_m": 0.17890817583553864,
+          "section_angle_margins": {
+            "lower_deg": [
+              90.29249789792819,
+              30.350728232797977
+            ],
+            "upper_deg": [
+              269.70750210207177,
+              329.649271767202
+            ],
+            "minimum_deg": 30.350728232797977
+          },
+          "hold_verified": null,
+          "motor_load_margin": null,
+          "compression_margin": null
+        },
+        "legacy_gate": {
+          "pass_": false,
+          "violations": [
+            "P2 is behind P1"
+          ],
+          "score": 0.0
+        },
+        "contact_proxies": {
+          "assumptions": "Two planar point contacts, chosen feature normals, Coulomb friction; one ideal normal-force unit per contact for a fixed base-plane +Y task proxy; this axis is not a verified gravity direction; area centroid as torque origin. No actuator coupling, compliance or measured mass/force model.",
+          "by_friction": [
+            {
+              "mu": 0.0,
+              "closure": false,
+              "rank": 2,
+              "positive_span_margin": 0.0,
+              "task_support_per_assumed_normal_unit": -0.0
+            },
+            {
+              "mu": 0.3,
+              "closure": true,
+              "rank": 3,
+              "positive_span_margin": 0.2089349711065956,
+              "task_support_per_assumed_normal_unit": 0.6473951285501236
+            },
+            {
+              "mu": 0.6,
+              "closure": true,
+              "rank": 3,
+              "positive_span_margin": 0.2293921561973668,
+              "task_support_per_assumed_normal_unit": 0.823494632593822
+            }
+          ]
+        },
+        "local_recovery": {
+          "scope": "Six sampled pose errors; fixed base, same material contact locations; two bend axes limited to +/-5 deg corrections. A failed local solve is not proof of impossibility.",
+          "successes": 0,
+          "trials": 6,
+          "rows": [
+            {
+              "perturbation": "+x",
+              "recovered_geometrically": false,
+              "corrections_deg": [
+                -0.81547643192533,
+                -0.06078103927176455
+              ],
+              "reasons": [
+                "target_penetration_beyond_tolerance"
+              ]
+            },
+            {
+              "perturbation": "-x",
+              "recovered_geometrically": false,
+              "corrections_deg": [
+                0.734386664481784,
+                -0.1183205181153763
+              ],
+              "reasons": [
+                "target_penetration_beyond_tolerance"
+              ]
+            },
+            {
+              "perturbation": "+y",
+              "recovered_geometrically": false,
+              "corrections_deg": [
+                1.0355307426720197,
+                -0.20589602037862131
+              ],
+              "reasons": [
+                "target_penetration_beyond_tolerance"
+              ]
+            },
+            {
+              "perturbation": "-y",
+              "recovered_geometrically": false,
+              "corrections_deg": [
+                -1.1446455280674692,
+                0.061378977558798675
+              ],
+              "reasons": [
+                "target_penetration_beyond_tolerance"
+              ]
+            },
+            {
+              "perturbation": "+rotation",
+              "recovered_geometrically": false,
+              "corrections_deg": [
+                -0.09520327715010792,
+                -0.0736257376411663
+              ],
+              "reasons": [
+                "target_penetration_beyond_tolerance"
+              ]
+            },
+            {
+              "perturbation": "-rotation",
+              "recovered_geometrically": false,
+              "corrections_deg": [
+                -0.09325370736918483,
+                -0.05983382909577087
+              ],
+              "reasons": [
+                "target_penetration_beyond_tolerance"
+              ]
+            }
+          ],
+          "compression_margin": null,
+          "motor_load_margin": null,
+          "hold_verified": null
+        }
+      },
+      "legacy_variable_lengths_mm": [
+        261.5375951284123,
+        283.5989228663447,
+        283.5989228663449
+      ],
+      "hold_verified": null,
+      "motor_load_margin": null,
+      "compression_margin": null
+    },
+    {
+      "case": "circle-240",
+      "terminal_ratio": 0.155,
+      "terminal_mm": 38.75,
+      "candidates": 0,
+      "legacy_gate_pass": 0,
+      "forward_rejected": 0,
+      "endpoint_non_tangent": 0,
+      "solves": 478,
+      "search_s": 20.00003233924508,
+      "status": "not_found_within_budget_budget_exhausted",
+      "best_headroom_deg": null,
+      "best_centroid_margin_mm": null,
+      "sampled_recovery": null,
+      "best_candidate": null,
+      "legacy_variable_lengths_mm": [
+        367.4253840777643,
+        367.42538407776453,
+        313.8451141540946
+      ],
+      "hold_verified": null,
+      "motor_load_margin": null,
+      "compression_margin": null
+    },
+    {
+      "case": "ellipse",
+      "terminal_ratio": 0.155,
+      "terminal_mm": 38.75,
+      "candidates": 0,
+      "legacy_gate_pass": 0,
+      "forward_rejected": 0,
+      "endpoint_non_tangent": 0,
+      "solves": 494,
+      "search_s": 20.000080823898315,
+      "status": "not_found_within_budget_budget_exhausted",
+      "best_headroom_deg": null,
+      "best_centroid_margin_mm": null,
+      "sampled_recovery": null,
+      "best_candidate": null,
+      "legacy_variable_lengths_mm": [
+        242.73141847311157,
+        240.59782908575212,
+        205.46509810670045
+      ],
+      "hold_verified": null,
+      "motor_load_margin": null,
+      "compression_margin": null
+    },
+    {
+      "case": "rectangle",
+      "terminal_ratio": 0.155,
+      "terminal_mm": 38.75,
+      "candidates": 0,
+      "legacy_gate_pass": 0,
+      "forward_rejected": 0,
+      "endpoint_non_tangent": 0,
+      "solves": 470,
+      "search_s": 20.00010722875595,
+      "status": "not_found_within_budget_budget_exhausted",
+      "best_headroom_deg": null,
+      "best_centroid_margin_mm": null,
+      "sampled_recovery": null,
+      "best_candidate": null,
+      "legacy_variable_lengths_mm": [
+        383.7780303502065,
+        330.07291969346204,
+        355.2878344826829
+      ],
+      "hold_verified": null,
+      "motor_load_margin": null,
+      "compression_margin": null
+    },
+    {
+      "case": "triangle",
+      "terminal_ratio": 0.155,
+      "terminal_mm": 38.75,
+      "candidates": 0,
+      "legacy_gate_pass": 0,
+      "forward_rejected": 0,
+      "endpoint_non_tangent": 0,
+      "solves": 479,
+      "search_s": 20.000056453049183,
+      "status": "not_found_within_budget_budget_exhausted",
+      "best_headroom_deg": null,
+      "best_centroid_margin_mm": null,
+      "sampled_recovery": null,
+      "best_candidate": null,
+      "legacy_variable_lengths_mm": [],
+      "hold_verified": null,
+      "motor_load_margin": null,
+      "compression_margin": null
+    },
+    {
+      "case": "jar-outline",
+      "terminal_ratio": 0.155,
+      "terminal_mm": 38.75,
+      "candidates": 0,
+      "legacy_gate_pass": 0,
+      "forward_rejected": 0,
+      "endpoint_non_tangent": 0,
+      "solves": 503,
+      "search_s": 20.000141127966344,
+      "status": "not_found_within_budget_budget_exhausted",
+      "best_headroom_deg": null,
+      "best_centroid_margin_mm": null,
+      "sampled_recovery": null,
+      "best_candidate": null,
+      "legacy_variable_lengths_mm": [
+        343.85685292835143,
+        357.01774684227115,
+        359.9842209245094
+      ],
+      "hold_verified": null,
+      "motor_load_margin": null,
+      "compression_margin": null
+    }
+  ],
+  "completed_cases": 8,
+  "geometric_candidate_count": 18,
+  "interpretation": "Candidates are geometric proxies, not verified grasps. Six other shapes were not found within the bounded search. No hardware/control/UI behavior changed.",
+  "source_identity": {
+    "original_path": "/home/user/ws/hug.py",
+    "original_sha256": "a434bfeefc8441de54a78f522c4fd385a46871cb3dbd422a2a4852abb17706e1",
+    "vendored_sha256": "3d414cf9758ad423e266a930973ae063b134ba00be41f6234083cf51fba421be",
+    "identical_top_level_definitions": [
+      "Candidate",
+      "ContactFeature",
+      "DesignError",
+      "DistanceField",
+      "Gripper",
+      "Settings",
+      "Solution",
+      "Target",
+      "_Pair",
+      "_adaptive_samples",
+      "_cancelled",
+      "_candidate_key",
+      "_canonical_arc_xy",
+      "_capture_for_candidate",
+      "_clean_vertices",
+      "_coarse_check",
+      "_construct_candidate",
+      "_contact_geometry",
+      "_contact_geometry_xy",
+      "_contact_pairs",
+      "_contact_position",
+      "_cyclic_distance",
+      "_deadline_decision",
+      "_distance_field",
+      "_finite_region",
+      "_geometry_coordinates",
+      "_inverse_transform",
+      "_mesh",
+      "_point_segment_distance",
+      "_root_candidates",
+      "_same_solution",
+      "_select_pairs",
+      "_target_polygon",
+      "_transform",
+      "_turn2",
+      "arc_point",
+      "boundary_features",
+      "build_gripper",
+      "cross2",
+      "evaluate_exact",
+      "major_axis_length",
+      "make_custom_target",
+      "make_target",
+      "make_template_target",
+      "rank_solutions",
+      "resize_major_axis",
+      "rot90",
+      "rotate",
+      "solve_target",
+      "template_vertices",
+      "wrap_line",
+      "wrap_pi"
+    ],
+    "executed_source_snapshot": {
+      "payload/runtime/docker/pilot/app/elesim_pilot/pick/hug_reference.py": "3d414cf9758ad423e266a930973ae063b134ba00be41f6234083cf51fba421be",
+      "reference/hug.py": "a434bfeefc8441de54a78f522c4fd385a46871cb3dbd422a2a4852abb17706e1",
+      "workbench/research/analysis/hug_diagnostic_report.py": "7ec6f618f56c002d48f9a63f110f360a3eb9b29f84330cdf23e96d698247a7a9",
+      "workbench/research/analysis/hug_diagnostics.py": "8e5d8ebeb35e02c54cf67a70ff4b0f95da581ede3496436154fb1e6bcb66e5b0",
+      "workbench/research/support/hug_study_run.py": "18af1924ef8386fa3c3f8d8affb5ba9a9d2230dfc560a8bdf7f18966236e324f",
+      "workbench/tests/research/analysis/test_hug_diagnostic_report.py": "8d8bb90c13e9b371b8a0c2597b662c8347b0151d4c27b746f07a7eed3e70bf05",
+      "workbench/tests/research/analysis/test_hug_diagnostics.py": "d235291e2bbf847fda426c7586e0f9775709f9df2889de301daccc29e0f23e9a"
+    },
+    "current_scientific_sources_match_snapshot": true,
+    "renderer_sources": {
+      "workbench/research/analysis/hug_diagnostic_report.py": "15fc2708cf374961785c528bb6476d73d4a356823ca44a781d9bbe6a4d20393c",
+      "workbench/tests/research/analysis/test_hug_diagnostic_report.py": "6aecf9c53ffae96feea6b240123eb0c031f75a9ce1f64fa7b1029852b34fd2af"
+    }
+  },
+  "execution": {
+    "job": "hug-full-1793596943498179287",
+    "image_id": "sha256:0e4e881398efa8a2acb9c8ea13c45c1268f762fa4440987e3ef7f77c77cc9ceb",
+    "install_uuid": "6c83e40f-8d1e-48b5-83c3-286cc8d7f50b",
+    "source": "/home/hckang/ws/elesim-hug-diagnostics-20261102/source-05",
+    "command": [
+      "-m",
+      "workbench.research.analysis.hug_diagnostics",
+      "--reference",
+      "/study/source/reference/hug.py",
+      "--output",
+      "/study/output/study",
+      "--budget",
+      "20.0"
+    ],
+    "started": 1793596945.621696,
+    "complete": true,
+    "scope": "Offline CPU-only generated Pilot service; registered instances unchanged.",
+    "exit_code": 0,
+    "container": {
+      "id": "dce2e38fcbe080793d12c65c9c5ba620f47690ed36d44029760f8007006bdd3e",
+      "state": "exited",
+      "exit_code": 0,
+      "network": "none",
+      "device_requests": null,
+      "mounts": [
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/elesim-hug-diagnostics-20261102/source-05",
+          "Destination": "/study/source",
+          "Mode": "ro",
+          "RW": false,
+          "Propagation": "rprivate"
+        },
+        {
+          "Type": "bind",
+          "Source": "/home/hckang/ws/elesim-hug-diagnostics-20261102/hug-full-1793596943498179287/output",
+          "Destination": "/study/output",
+          "Mode": "rw",
+          "RW": true,
+          "Propagation": "rprivate"
+        }
+      ]
+    },
+    "preservation": {
+      "before": 250,
+      "after": 251,
+      "missing": [],
+      "changed": []
+    },
+    "source_unchanged": true,
+    "finished": 1793597125.3938615
+  },
+  "tests": {
+    "remote": {
+      "job": "hug-tests-1793596931562817611",
+      "image_id": "sha256:0e4e881398efa8a2acb9c8ea13c45c1268f762fa4440987e3ef7f77c77cc9ceb",
+      "install_uuid": "6c83e40f-8d1e-48b5-83c3-286cc8d7f50b",
+      "source": "/home/hckang/ws/elesim-hug-diagnostics-20261102/source-05",
+      "command": [
+        "-m",
+        "unittest",
+        "workbench.tests.research.analysis.test_hug_diagnostics",
+        "workbench.tests.research.analysis.test_hug_diagnostic_report",
+        "-v"
+      ],
+      "started": 1793596933.7134106,
+      "complete": true,
+      "scope": "Offline CPU-only generated Pilot service; registered instances unchanged.",
+      "exit_code": 0,
+      "container": {
+        "id": "cdc97e1440482e1c3b5c79ba69ea89b781b80607d9a8d7c041ca8dc2daf8ec5c",
+        "state": "exited",
+        "exit_code": 0,
+        "network": "none",
+        "device_requests": null,
+        "mounts": [
+          {
+            "Type": "bind",
+            "Source": "/home/hckang/ws/elesim-hug-diagnostics-20261102/hug-tests-1793596931562817611/output",
+            "Destination": "/study/output",
+            "Mode": "rw",
+            "RW": true,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/home/hckang/ws/elesim-hug-diagnostics-20261102/source-05",
+            "Destination": "/study/source",
+            "Mode": "ro",
+            "RW": false,
+            "Propagation": "rprivate"
+          }
+        ]
+      },
+      "preservation": {
+        "before": 249,
+        "after": 250,
+        "missing": [],
+        "changed": []
+      },
+      "source_unchanged": true,
+      "finished": 1793596937.6417732
+    },
+    "result": "23 passed, 1 optional Node viewer probe skipped; 24 tests total",
+    "host_final_viewer": "5 passed; actual HTML renders all 8 rows / 18 candidates under the Node DOM probe",
+    "canonical": "Full required/extended/runtime/hardware gates were not run for this repository-only offline diagnostic."
+  },
+  "preservation": {
+    "time": 1793597182.51234,
+    "original_containers": 243,
+    "containers_now": 251,
+    "missing": [],
+    "changed": [],
+    "original_container_images_present": 52,
+    "new_diagnostics": [
+      {
+        "id": "dce2e38fcbe080793d12c65c9c5ba620f47690ed36d44029760f8007006bdd3e",
+        "name": "/hug-full-1793596943498179287",
+        "status": "exited",
+        "exit_code": 0
+      },
+      {
+        "id": "cdc97e1440482e1c3b5c79ba69ea89b781b80607d9a8d7c041ca8dc2daf8ec5c",
+        "name": "/hug-tests-1793596931562817611",
+        "status": "exited",
+        "exit_code": 0
+      },
+      {
+        "id": "07d23f92cfd8ea1e28214d506d33ec52eec6dbfc031cc016cd79ab310535aa5b",
+        "name": "/hug-full-1793596601398820873",
+        "status": "exited",
+        "exit_code": 137
+      },
+      {
+        "id": "0485a074ecb0ed2c0a3879dadba245a768705d5f14b08fe13a4381d26c9609b8",
+        "name": "/hug-tests-1793596490564902414",
+        "status": "exited",
+        "exit_code": 0
+      },
+      {
+        "id": "422ad5c229c629b7db77d8176b65522fdab5f0c81709b6b4e185e1e1b5ab31a5",
+        "name": "/hug-smoke-1793596249314436724",
+        "status": "exited",
+        "exit_code": 0
+      },
+      {
+        "id": "349993bb2f7d0a1023ab36f7249acd2b2206407fc03f002077fafed851d4c6ea",
+        "name": "/hug-tests-1793596224495772074",
+        "status": "exited",
+        "exit_code": 0
+      },
+      {
+        "id": "4432ec474d6a59c71b466b3a13138922f4a06b3b3d1a300099e50ea30d2928e8",
+        "name": "/hug-smoke-1793595923912894210",
+        "status": "exited",
+        "exit_code": 0
+      },
+      {
+        "id": "8211b0c2e90d0dc98fa72c7b4b6a3cae29837c5aa7f5922a053cf415c74289b9",
+        "name": "/hug-tests-1793595887993402372",
+        "status": "exited",
+        "exit_code": 0
+      }
+    ],
+    "running": [
+      {
+        "id": "496b0562278148432a125a7a20d3817c522bad8208360c95914b2047efcb852e",
+        "name": "/doosan_kos"
+      }
+    ],
+    "cache_scope": "No existing cache mounted or removed; diagnostic mounts only immutable source and fresh output.",
+    "deletion": false
+  },
+  "superseded_sweep": {
+    "job": "hug-full-1793596601398820873",
+    "complete": false,
+    "reason": "Stopped after user clarified that the terminal is the existing gripper, not a design variable.",
+    "exit_code": 137,
+    "deleted": false
+  },
+  "artifacts": {
+    "viewer": {
+      "path": "hug_fixed_gripper_20261102.html",
+      "sha256": "77f1407f70cbe37486142d8f77b048ac3f5c6076b062fbda748be10c5290e360"
+    },
+    "selected_two_circle_examples": {
+      "path": "hug_fixed_gripper_20261102.png",
+      "sha256": "fbc85fff0acae93c393baa855b6550708999cab2f971bb2fb392757ee1b94657"
+    },
+    "raw_report": {
+      "path": "workbench/evidence/generated/hug-diagnostics-20261102/hug-full-1793596943498179287/output/study/report.json",
+      "sha256": "3c63c4c5b0b660ae607ac3f9c16014e541dc53e6b651030fa15d600352203ce2"
+    }
+  },
+  "raw_evidence_inventory": [
+    {
+      "path": "hug-full-1793596601398820873/containers-before.json",
+      "sha256": "9ed341e51f8ca9e818061e35e1a91ee6adb6e6f28c6c89a6db03fa6d1a96f582",
+      "bytes": 60914
+    },
+    {
+      "path": "hug-full-1793596601398820873/cpu.compose.yaml",
+      "sha256": "08683c30802391bc7ad208bdb0f56b23996a72b0c3c8d3989f6addef29cb950c",
+      "bytes": 1260
+    },
+    {
+      "path": "hug-full-1793596601398820873/output/study/report.json",
+      "sha256": "37bf272f70b9bd29d7f9f1058c3261c867dd1fd5f94f72ddbadb9fafd0c236fc",
+      "bytes": 261924
+    },
+    {
+      "path": "hug-full-1793596601398820873/run.json",
+      "sha256": "deb3960cc1dbb9df3d71a46ac669918888cb9a8efa04b37f4ed7ccbf5d375b83",
+      "bytes": 1512
+    },
+    {
+      "path": "hug-full-1793596601398820873/run.log",
+      "sha256": "373223d6ef5f832fdd0bb0f4897ff3eaafa40816a92ce634dd8e143ab30b62d0",
+      "bytes": 5586
+    },
+    {
+      "path": "hug-full-1793596601398820873/source-manifest.json",
+      "sha256": "1d8fa37a7d1b8ee613eb0f585e78338ce07202812951858b57e76943d503ca3b",
+      "bytes": 602
+    },
+    {
+      "path": "hug-full-1793596601398820873/user-scope-correction.json",
+      "sha256": "b4ee6cff160dc604c1355d8f2a1a64b13a13b3fba4a9e0900ff9a0c1f7b0d1a1",
+      "bytes": 188
+    },
+    {
+      "path": "hug-full-1793596943498179287/containers-before.json",
+      "sha256": "096a6550cceff18369e7e2f546ad11f6c59207bdf88a7a1c1780fe0ec74fd092",
+      "bytes": 61381
+    },
+    {
+      "path": "hug-full-1793596943498179287/cpu.compose.yaml",
+      "sha256": "a8fa365e44498c31b73d5d84722ff6b2cb99a53560143a1c2c1e68f84945ff28",
+      "bytes": 1260
+    },
+    {
+      "path": "hug-full-1793596943498179287/output/study/report.json",
+      "sha256": "3c63c4c5b0b660ae607ac3f9c16014e541dc53e6b651030fa15d600352203ce2",
+      "bytes": 139760
+    },
+    {
+      "path": "hug-full-1793596943498179287/run.json",
+      "sha256": "5e4f02e10f67abbe36097c9afd67c65566f53435c537f2a916cd1c3132e438a7",
+      "bytes": 1506
+    },
+    {
+      "path": "hug-full-1793596943498179287/run.log",
+      "sha256": "05ece9ee957067a54d3b4ffe8cd7d55d701c9405b9d6afed2ba98ab4934dd27a",
+      "bytes": 5493
+    },
+    {
+      "path": "hug-full-1793596943498179287/source-manifest.json",
+      "sha256": "8a65942b3580bb2294b999084a3451fe6a9f6b14a9e3d5550c3505d041884722",
+      "bytes": 865
+    },
+    {
+      "path": "hug-smoke-1793595923912894210/containers-before.json",
+      "sha256": "39842a4e0d6312a809d7b3a1b7e6086b5a9152ab635f069a5216f09367eac036",
+      "bytes": 59978
+    },
+    {
+      "path": "hug-smoke-1793595923912894210/cpu.compose.yaml",
+      "sha256": "99ac9134723744b7938a2e455879069f8f492f01378bccbb162b7d5af9d5d127",
+      "bytes": 1261
+    },
+    {
+      "path": "hug-smoke-1793595923912894210/output/study/report.json",
+      "sha256": "dd4e770b62178bef62bdce60cfd79e9bb5d4562533bdd42d1a5f739bbae500b4",
+      "bytes": 29035
+    },
+    {
+      "path": "hug-smoke-1793595923912894210/run.json",
+      "sha256": "fd5f5686f7ccace9cf56dcff062666df902c4387b657ea91c5185f8c0bab1caa",
+      "bytes": 1630
+    },
+    {
+      "path": "hug-smoke-1793595923912894210/run.log",
+      "sha256": "9aa6f05d11dd8d85df2db44ee30b89752fcc895e664fd1fb3db87c4add30470c",
+      "bytes": 4704
+    },
+    {
+      "path": "hug-smoke-1793595923912894210/source-manifest.json",
+      "sha256": "6f142a584224f05cef64b928d08519e6f4b98aabe341bd5eee9403e26ee90834",
+      "bytes": 602
+    },
+    {
+      "path": "hug-smoke-1793596249314436724/containers-before.json",
+      "sha256": "720bed27d458ab575b2dbda8f7dce5d739c62fcd6fa333550eda1656031092d6",
+      "bytes": 60446
+    },
+    {
+      "path": "hug-smoke-1793596249314436724/cpu.compose.yaml",
+      "sha256": "2bbc6dd3a812c2fbd65b415b6fe2793c5a25845e357b9a653606b81dbc7b0f59",
+      "bytes": 1261
+    },
+    {
+      "path": "hug-smoke-1793596249314436724/output/study/report.json",
+      "sha256": "e4e590f0d5f0751179a0db0772098a9ffecb869f336ffe0c2a14cda91c7c0a4c",
+      "bytes": 35980
+    },
+    {
+      "path": "hug-smoke-1793596249314436724/run.json",
+      "sha256": "a460cc25f6640dd9b29f2ea433ec35da42a95f1efdaffbd994e9c03f4d133772",
+      "bytes": 1631
+    },
+    {
+      "path": "hug-smoke-1793596249314436724/run.log",
+      "sha256": "9d8fbef9b5916e533818c63e5f5a097372b0c8738f66d851e574bc1dd69c6f2a",
+      "bytes": 4767
+    },
+    {
+      "path": "hug-smoke-1793596249314436724/source-manifest.json",
+      "sha256": "a36f9c51282af0c3c9fe4652b19a41bbd34c75a99d41f5229d338be62da3ec30",
+      "bytes": 602
+    },
+    {
+      "path": "hug-tests-1793595803811343940/containers-before.json",
+      "sha256": "8826800579f0689f609659ce45880980186e5732202bd8f5c836efc4a5af1013",
+      "bytes": 59744
+    },
+    {
+      "path": "hug-tests-1793595803811343940/cpu.compose.yaml",
+      "sha256": "8c99ecf1017424a962a1d2530324baaea971595628e4b1484e5d6cdf438cf55c",
+      "bytes": 1144
+    },
+    {
+      "path": "hug-tests-1793595803811343940/run.json",
+      "sha256": "920cf4182a28c7444d658e6f24a83ef7738b7328cb7eae64f3da1b1e8de857cc",
+      "bytes": 702
+    },
+    {
+      "path": "hug-tests-1793595803811343940/run.log",
+      "sha256": "e79ab2d529822ae1dcf07a8a6feec88861a8f05b2911292005070a0cf53001e1",
+      "bytes": 126
+    },
+    {
+      "path": "hug-tests-1793595803811343940/source-manifest.json",
+      "sha256": "9da4971ab0839483626b54e4b9efee94e05cee0fb4c06d4467be4bdcbd3a702e",
+      "bytes": 602
+    },
+    {
+      "path": "hug-tests-1793595887993402372/containers-before.json",
+      "sha256": "8826800579f0689f609659ce45880980186e5732202bd8f5c836efc4a5af1013",
+      "bytes": 59744
+    },
+    {
+      "path": "hug-tests-1793595887993402372/cpu.compose.yaml",
+      "sha256": "7b74ba9ab87f445d40414fb948223fba292251d9e3c652db60ee8a9762a94036",
+      "bytes": 1261
+    },
+    {
+      "path": "hug-tests-1793595887993402372/run.json",
+      "sha256": "3eada5f4373675a02a5bb33a13ca4e2d655dff0b3f0721e9f42b500caa2201eb",
+      "bytes": 1418
+    },
+    {
+      "path": "hug-tests-1793595887993402372/run.log",
+      "sha256": "e905abed67bd37061190bb30a6e76378f6b71c4d28aa4243018f28835cfdd6bb",
+      "bytes": 6299
+    },
+    {
+      "path": "hug-tests-1793595887993402372/source-manifest.json",
+      "sha256": "6f142a584224f05cef64b928d08519e6f4b98aabe341bd5eee9403e26ee90834",
+      "bytes": 602
+    },
+    {
+      "path": "hug-tests-1793596224495772074/containers-before.json",
+      "sha256": "c46f2394d50524a312c6866c06b0f091178ce245e16dc3da5d28085596c2e6e8",
+      "bytes": 60212
+    },
+    {
+      "path": "hug-tests-1793596224495772074/cpu.compose.yaml",
+      "sha256": "c94ca8c49ac01abc1d0f5a805d30db47970548f424bce8bfd7d0f1e879b33ef7",
+      "bytes": 1261
+    },
+    {
+      "path": "hug-tests-1793596224495772074/run.json",
+      "sha256": "9240ff9d481e92ca4f7fd4ba25d31552a9152dedc448e41dddd13d3155883e32",
+      "bytes": 1418
+    },
+    {
+      "path": "hug-tests-1793596224495772074/run.log",
+      "sha256": "13809dcb20f2c7f65c06a4a19c42fafc88a887d6e20c1ce4824985efaf29147f",
+      "bytes": 6645
+    },
+    {
+      "path": "hug-tests-1793596224495772074/source-manifest.json",
+      "sha256": "a36f9c51282af0c3c9fe4652b19a41bbd34c75a99d41f5229d338be62da3ec30",
+      "bytes": 602
+    },
+    {
+      "path": "hug-tests-1793596490564902414/containers-before.json",
+      "sha256": "b151ba21a2756083d6016598fe4cb34441e6616840b3ad6e7fddcccacaf8c5b1",
+      "bytes": 60680
+    },
+    {
+      "path": "hug-tests-1793596490564902414/cpu.compose.yaml",
+      "sha256": "63593a99477704e02c9c47f018dca3b773e20fd2686bec0b54f190d3e421c1d1",
+      "bytes": 1261
+    },
+    {
+      "path": "hug-tests-1793596490564902414/run.json",
+      "sha256": "b87b1c25aab9f4f7ff89f9c425e47e58c0c2a9a6fe84cf5c43c46de2563ad521",
+      "bytes": 1416
+    },
+    {
+      "path": "hug-tests-1793596490564902414/run.log",
+      "sha256": "26aa404fd8fccbb8eeed37cb057ce6054f9f05cd4eefa4af51f1ce46ad54716c",
+      "bytes": 6843
+    },
+    {
+      "path": "hug-tests-1793596490564902414/source-manifest.json",
+      "sha256": "1d8fa37a7d1b8ee613eb0f585e78338ce07202812951858b57e76943d503ca3b",
+      "bytes": 602
+    },
+    {
+      "path": "hug-tests-1793596931562817611/containers-before.json",
+      "sha256": "ceb2968f6d828c93ea4604ed71a534ac421387c884be753d4011dbcdcde724f7",
+      "bytes": 61147
+    },
+    {
+      "path": "hug-tests-1793596931562817611/cpu.compose.yaml",
+      "sha256": "ae9eedc4b856770680038c934daa178673bda1899c0681f1f70c759043f73dba",
+      "bytes": 1261
+    },
+    {
+      "path": "hug-tests-1793596931562817611/run.json",
+      "sha256": "8ab0f51ecbe8e9d2a9733b940e52dee60dd8acce12d0cd1e78ff564302663d9c",
+      "bytes": 1486
+    },
+    {
+      "path": "hug-tests-1793596931562817611/run.log",
+      "sha256": "53afcdd1aab13d8615d8ec32a439b4de71ba196fde967f0c8222b03675bf53ff",
+      "bytes": 7658
+    },
+    {
+      "path": "hug-tests-1793596931562817611/source-manifest.json",
+      "sha256": "8a65942b3580bb2294b999084a3451fe6a9f6b14a9e3d5550c3505d041884722",
+      "bytes": 865
+    },
+    {
+      "path": "final-preservation.json",
+      "sha256": "8590a4c46acd367fa0c59b4fae4e70b1ca66453490dc09f1a9ccc6af1a0d9031",
+      "bytes": 1971
+    }
+  ]
+}

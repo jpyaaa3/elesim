@@ -11,8 +11,8 @@ No repository imports or model/data files are required. Geometry and collision
 primitives are copied from newhug 0.6.1. Object: circle, default diameter table 50..250 mm in 5 mm steps.
 Fixed body origin: center of the embedded 130 x 233 mm HOUSING rectangle, a
 planar body proxy, NOT the actual Go2 base/legs. Linear joint fixed at neutral.
-Object centers cover the left-forward 500 mm quadrant (x<=0, y>=0), roll +90 deg.
-For circles, reflect x and use roll -90 deg with unchanged seg1/seg2 and mu.
+Object centers cover the left-forward 500 mm quadrant (x<=0, y>=0), roll -90/+90 deg are solved independently with physical seg2 < 0 (away from ZED).
+For circles, reflecting x negates the selected roll; seg1/seg2 and mu are unchanged.
 Object poses keep (x,y,theta); circle evaluates theta=0 only. Noncircular solving
 is not yet implemented.
 seg1_deg/seg2_deg are TOTAL five-node group bends, each node receives 1/5.
@@ -23,6 +23,7 @@ import argparse
 from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 from collections import Counter
 from dataclasses import dataclass, asdict
+from functools import lru_cache
 from datetime import datetime, timezone
 import itertools
 import json
@@ -36,6 +37,7 @@ import tempfile
 import time
 try:
     import numpy as np
+    from numpy.polynomial import polynomial as poly
 except ImportError as exc:
     raise SystemExit("Hugmap requires NumPy: python -m pip install numpy\n" + str(exc))
 
@@ -397,15 +399,14 @@ def circle_gap(polygon,radius,centre=(0.,0.)):
     return float(signed_distances(np.asarray([centre]),polygon)[0])-radius
 
 
-VERSION = "0.5.0"
+VERSION = "0.7.0"
+SOLVER_REVISION = "algebraic-away-zed-roll-v1"
+ROLLS = (-90, 90)
 OBJECT_SHAPE = "circle"
 RADIUS = 0.05
 REACH = 0.5
 CLEARANCE = 0.001
 TOL = 0.00005
-MAX_ATTEMPTS = 64
-MAX_CANDIDATES = 16
-MAX_NFEV = 80
 HOUSING = np.asarray(REFERENCE['profiles']['housing'])
 BODY_CENTER = (HOUSING.min(axis=0) + HOUSING.max(axis=0)) / 2
 G = Geometry()
@@ -567,69 +568,165 @@ def batched_contacts(q,parts,center,radius=None):
     jac=np.einsum('nki,nkij->nkj',(p-center)/np.maximum(dist[...,None],1e-30)*sign[...,None],deriv)
     return gap,jac,p
 
-def solve_placement(center,mu_allow,stop=None,warm=None,radius=None):
-    """Solve all 64 deterministic starts together with bounded damped Gauss-Newton.
+OBSERVED_CATALOG = ((('node0', 'e', 1), ('gripper_claw_left', 'v', 0)), (('node0', 'v', 1), ('gripper_claw_left', 'v', 0)), (('node1', 'e', 1), ('gripper_claw_left', 'e', 0)), (('node1', 'e', 1), ('gripper_claw_left', 'v', 0)), (('node1', 'v', 1), ('gripper_claw_left', 'e', 0)), (('node1', 'v', 1), ('gripper_claw_left', 'v', 0)), (('node1', 'v', 2), ('gripper_claw_left', 'v', 0)), (('node2', 'e', 1), ('gripper_claw_left', 'e', 0)), (('node2', 'e', 1), ('gripper_claw_left', 'v', 0)), (('node2', 'e', 4), ('gripper_claw_left', 'v', 7)), (('node2', 'v', 1), ('gripper_claw_left', 'v', 0)), (('node2', 'v', 2), ('gripper_claw_left', 'e', 0)), (('node2', 'v', 2), ('gripper_claw_left', 'v', 0)), (('node2', 'v', 5), ('gripper_claw_left', 'e', 6)), (('node2', 'v', 5), ('gripper_claw_left', 'v', 7)), (('node3', 'e', 4), ('gripper_base', 'e', 3)), (('node3', 'e', 4), ('gripper_claw_left', 'e', 6)), (('node3', 'e', 4), ('gripper_claw_left', 'v', 6)), (('node3', 'e', 4), ('gripper_claw_left', 'v', 7)), (('node3', 'v', 4), ('gripper_claw_left', 'e', 6)), (('node3', 'v', 4), ('gripper_claw_left', 'v', 7)), (('node3', 'v', 5), ('gripper_base', 'e', 3)), (('node3', 'v', 5), ('gripper_claw_left', 'e', 6)), (('node3', 'v', 5), ('gripper_claw_left', 'v', 6)), (('node4', 'e', 4), ('node9', 'e', 4)), (('node4', 'v', 4), ('gripper_base', 'e', 3)), (('node4', 'v', 4), ('gripper_base', 'v', 3)), (('node4', 'v', 4), ('node9', 'e', 4)))
 
-    Each start keeps its own contact pair, damping and accepted iterate. A trial
-    is accepted only when its squared contact-gap residual decreases. Group
-    bounds and a 0.35 rad trust-step cap apply to each start independently.
-    Final candidates pass the unchanged original collision/friction validator.
-    Unlike serial early termination, attempts reports all starts in the batch;
-    at most MAX_CANDIDATES distinct valid poses are retained in seed order.
+
+def mirror_feature(spec):
+    """Corresponding opposite-side feature, not a transformed collision model."""
+    name,kind,index=spec;vertices=PROFILES[PART_NAMES.index(name)]
+    axis=(vertices[:,0].min()+vertices[:,0].max())/2
+    reflected=vertices.copy();reflected[:,0]=2*axis-reflected[:,0]
+    mapping=[int(np.argmin(np.linalg.norm(vertices-point,axis=1))) for point in reflected]
+    if max(np.linalg.norm(vertices[j]-point) for point,j in zip(reflected,mapping))>1e-8:
+        raise ValueError('Contact profile is not laterally symmetric about its own center')
+    if kind=='v':return name,kind,mapping[index]
+    # Reflection reverses polygon winding.
+    return name,kind,mapping[(index+1)%len(vertices)]
+
+
+CATALOG=tuple(sorted(set(OBSERVED_CATALOG)|{tuple(mirror_feature(s) for s in pair) for pair in OBSERVED_CATALOG}))
+
+
+def contact_feature(q, spec):
+    name,kind,index=spec
+    hinges,angles=fk_frames(q)
+    vertices=polygon_at(PART_NAMES.index(name),hinges,angles)
+    if kind=='v':return dict(kind='v',point=vertices[index])
+    a=vertices[index];b=vertices[(index+1)%len(vertices)]
+    length=np.linalg.norm(b-a);t=(b-a)/length
+    area=np.sum(vertices[:,0]*np.roll(vertices[:,1],-1)-vertices[:,1]*np.roll(vertices[:,0],-1))
+    return dict(kind='e',point=a,t=t,n=np.sign(area)*np.array([t[1],-t[0]]),length=length)
+
+
+def contact_residual(q, center, radius, spec):
+    f=contact_feature(q,spec);delta=center-f['point']
+    return float(delta@delta-radius**2) if f['kind']=='v' else float(f['n']@delta-radius)
+
+
+def contact_matches(q, specs, center, radius):
+    hinges,angles=fk_frames(q)
+    for spec in specs:
+        f=contact_feature(q,spec)
+        if f['kind']=='v':point=f['point']
+        else:
+            along=(center-f['point'])@f['t']
+            if along < -1e-7 or along > f['length']+1e-7:return False
+            point=f['point']+along*f['t']
+        vertices=polygon_at(PART_NAMES.index(spec[0]),hinges,angles)
+        gap,nearest,_=nearest_boundary([center],vertices)
+        if abs(gap[0]-radius)>1e-7 or np.linalg.norm(nearest[0]-point)>1e-7:return False
+        if inside_polygon([center],vertices)[0]:return False
+    return True
+
+
+def tan_polynomial(function, harmonics):
+    """Exact finite Fourier interpolation in exact arithmetic (not data fitting).
+
+    function(a) has frequencies -m..m. Evaluate it at 2m+1 fixed angles;
+    substitute exp(i*a)=(1+i*u)/(1-i*u) and clear (1+u*u)**m.
+    """
+    m=harmonics;n=2*m+1
+    values=np.array([function(2*np.pi*j/n) for j in range(n)])
+    fourier=np.fft.fft(values)/n
+    coefficients=np.zeros(2*m+1,complex)
+    for k in range(-m,m+1):
+        term=poly.polymul(poly.polypow([1,1j],m+k),poly.polypow([1,-1j],m-k))
+        coefficients[:len(term)]+=fourier[k%n]*term
+    if np.max(np.abs(coefficients.imag))>1e-8:raise ArithmeticError('Non-real polynomial')
+    return coefficients.real
+
+
+def polynomial_angles(coefficients):
+    scale=float(np.max(np.abs(coefficients)))
+    if scale<1e-13:
+        raise ArithmeticError('Degenerate contact equation: continuous family')
+    normalized=coefficients/scale
+    while len(normalized)>1 and abs(normalized[-1])<1e-12:normalized=normalized[:-1]
+    candidates=[]
+    for u in poly.polyroots(normalized):
+        if abs(u.imag)>1e-7:continue
+        angle=10*math.atan(float(u.real))
+        if abs(angle)>np.pi+1e-8:continue
+        angle=float(np.clip(angle,-np.pi,np.pi))
+        if not any(abs(angle-other)<1e-7 for other in candidates):candidates.append(angle)
+    return sorted(candidates)
+
+
+def angle_roots(function,harmonics):
+    return [q for q in polynomial_angles(tan_polynomial(function,harmonics))
+            if abs(function(q/5))<=1e-8]
+
+
+@lru_cache(maxsize=None)
+def feature_polynomials(spec):
+    part=PART_NAMES.index(spec[0]);first=part<5
+    m=part+1 if first else min(part-4,5)
+    def coefficients(center):
+        return tan_polynomial(lambda a:contact_residual([5*a,0] if first else [0,5*a],center,0,spec),m)
+    constant=coefficients(np.zeros(2));denominator=poly.polypow([1.,0.,1.],m)
+    xterm=coefficients(np.array([1.,0.]))-constant
+    yterm=coefficients(np.array([0.,1.]))-constant
+    if spec[1]=='v':xterm-=denominator;yterm-=denominator
+    return constant,xterm,yterm,denominator
+
+
+def feature_angles(center,radius,spec):
+    constant,xterm,yterm,denominator=feature_polynomials(tuple(spec));x,y=center
+    term=x*x+y*y-radius*radius if spec[1]=='v' else -radius
+    return polynomial_angles(constant+x*xterm+y*yterm+term*denominator)
+
+
+def second_center(q1,center):
+    hinges,_=fk_frames([q1,0])
+    return np.array([0.,G.length1_m])+rotate(center-hinges[5],-q1)
+
+
+def solve_placement(center,mu_allow,stop=None,warm=None,radius=None):
+    """Independent finite-root solves at both rolls, with physical seg2 < 0.
+
+    warm is retained only for call compatibility; no seed or iteration budget
+    is used. Catalog root enumeration is not a completeness certificate.
+    Returned contact coordinates are in the fixed node0 frame (roll applied).
     """
     radius=RADIUS if radius is None else radius
     stop=stop or threading.Event()
-    if stop.is_set():raise Cancelled()
-    starts=[np.radians(np.array(p)*5) for p in [(-12,-33),(-12,-28),(12,33),(24,-36),(-24,36),(-6,-30),(6,30)]]
-    lattice=[np.radians([a,b]) for a in np.linspace(-171,171,8) for b in np.linspace(-171,171,8)]
-    starts += [lattice[k] for k in np.linspace(0,len(lattice)-1,MAX_ATTEMPTS-len(starts),dtype=int)]
-    if warm is not None:starts=[np.radians([warm['seg1_deg'],warm['seg2_deg']])]+starts[:-1]
-    q=np.array(starts);n=len(q);ix=np.arange(n)
-    allgap,alljac,points=batched_contacts(q,np.arange(CAMERA_INDEX),center,radius)
-    norm=center-points;length=np.linalg.norm(norm,axis=-1);norm/=np.maximum(length[...,None],1e-30)
-    i,j=PAIR_IDS.T;chord=points[:,j]-points[:,i];cl=np.linalg.norm(chord,axis=-1);direction=chord/np.maximum(cl[...,None],1e-30)
-    cosine=np.clip(np.minimum(np.sum(norm[:,i]*direction,axis=-1),np.sum(-norm[:,j]*direction,axis=-1)),-1,1)
-    mu=np.where(cosine>0,np.sqrt(np.maximum(0,1-cosine*cosine))/np.maximum(cosine,1e-30),10.)
-    priority=np.abs(allgap[:,i])+np.abs(allgap[:,j])+.02*np.minimum(mu,10.)
-    priority[(cl<1e-8)|(length[:,i]<1e-10)|(length[:,j]<1e-10)]=np.inf
-    selected=np.argsort(priority,axis=1,kind='stable')[ix,ix%4];pairs=PAIR_IDS[selected]
-    if warm is not None:pairs[0]=[PART_NAMES.index(name) for name in warm['contact_parts']]
-    # Preserve exact valid seeds before fitting; vector screen avoids full checks on impossible seeds.
-    originals={}
-    possible=np.sort(np.abs(allgap),axis=1)[:,1]<=TOL
-    for k in np.flatnonzero(possible):
-        sol=inspect_pose(q[k],center,mu_allow,radius)
-        if sol is not None:originals[k]=sol
-    r=allgap[ix[:,None],pairs]/.05;jac=alljac[ix[:,None],pairs]/.05
-    damping=np.full(n,.001);active=np.ones(n,bool)
-    for k in originals:active[k]=False
-    for step in range(MAX_NFEV-1):
-        if stop.is_set():raise Cancelled()
-        active &= np.max(np.abs(r),axis=1)>.00000001
-        if not active.any():break
-        H=np.einsum('nki,nkj->nij',jac,jac);g=np.einsum('nki,nk->ni',jac,r)
-        aa=H[:,0,0]+damping*np.maximum(H[:,0,0],1e-4);dd=H[:,1,1]+damping*np.maximum(H[:,1,1],1e-4);bb=H[:,0,1]
-        det=np.maximum(aa*dd-bb*bb,1e-30)
-        delta=np.stack(((-dd*g[:,0]+bb*g[:,1])/det,(bb*g[:,0]-aa*g[:,1])/det),axis=-1)
-        delta*=np.minimum(1,.35/np.maximum(np.linalg.norm(delta,axis=1),1e-30))[:,None]
-        trial=np.clip(q+delta,-np.pi,np.pi)
-        rr,jj,_=batched_contacts(trial,pairs,center,radius);rr/=.05;jj/=.05
-        accepted=(np.sum(rr*rr,axis=1)<np.sum(r*r,axis=1))&active
-        q[accepted]=trial[accepted];r[accepted]=rr[accepted];jac[accepted]=jj[accepted]
-        damping=np.where(accepted,np.maximum(damping/3,1e-9),np.minimum(damping*5,1e12))
-        active &= damping<1e12
-    candidates=[]
-    for k in range(n):
-        if stop.is_set():raise Cancelled()
-        sol=originals.get(k)
-        if sol is None and np.max(np.abs(r[k]))*.05<=TOL:
-            sol=inspect_pose(q[k],center,mu_allow,radius)
-        if sol is not None and not any(max(abs(sol[key]-s[key]) for key in ('seg1_deg','seg2_deg'))<.1 for s in candidates):
-            candidates.append(sol)
-        if len(candidates)>=MAX_CANDIDATES:break
-    best=min(candidates,key=lambda s:s['mu_min']) if candidates else None
-    return dict(status='found' if best else 'not_found',attempts=n,candidate_count=len(candidates),numerical_failures=int(np.sum(~np.isfinite(r).all(axis=1))),
-    termination='candidate_limit' if len(candidates)>=MAX_CANDIDATES else 'attempt_limit',seg1_deg=None,seg2_deg=None,mu_min=None,**({'best':best} if best else {}))
+    solutions=[];roll_status={};attempts=0;candidate_count=0;failures=0
+    for roll in ROLLS:
+        sign=roll/90
+        target=np.asarray(center)*np.array([sign,1.])
+        first_angles={};second_angles={};checked=set();best=None
+        for first,second in CATALOG:
+            if stop.is_set():raise Cancelled()
+            try:
+                if first not in first_angles:first_angles[first]=feature_angles(target,radius,first)
+                for q1 in first_angles[first]:
+                    key=(q1,second)
+                    if key not in second_angles:second_angles[key]=feature_angles(second_center(q1,target),radius,second)
+                    for q2 in second_angles[key]:
+                        if stop.is_set():raise Cancelled()
+                        if q2>=0:continue
+                        attempts+=1;q=np.array([q1,q2])
+                        if not contact_matches(q,(first,second),target,radius):continue
+                        pose=(round(q1,8),round(q2,8))
+                        if pose in checked:continue
+                        checked.add(pose)
+                        sol=inspect_pose(q,target,mu_allow,radius)
+                        if sol is None:continue
+                        candidate_count+=1
+                        if best is None or sol['mu_min']<best['mu_min']:best=sol
+            except (ArithmeticError,np.linalg.LinAlgError):
+                failures+=1
+        roll_status[str(roll)]='found' if best else 'not_found'
+        if best:
+            best=dict(best,roll_deg=roll)
+            best['contacts_node0_m']=(np.asarray(best['contacts_node0_m'])*[sign,1.]).tolist()
+            solutions.append(best)
+    best=min(solutions,key=lambda sol:(sol['mu_min'],sol['roll_deg'])) if solutions else None
+    return dict(status='found' if best else 'not_found',attempts=attempts,
+        candidate_count=candidate_count,numerical_failures=failures,
+        termination='catalog_degeneracy' if failures else 'catalog_complete',
+        seg1_deg=None,seg2_deg=None,mu_min=None,roll_deg=None,
+        roll_solutions=solutions,roll_status=roll_status,**({'best':best} if best else {}))
 
 
 class JsonWriter:
@@ -685,32 +782,28 @@ def worker_init(stop):
 
 
 def solve_batch(batch, mu_allow, radius=None):
-    """Fixed-size batches retain neighboring warm starts regardless of CPU count."""
+    """Independent first-pass solves; batches only amortize process overhead."""
     rows = []
-    warm = None
     for item in batch:
         pose, aliases = item[:2]
         if len(item) == 3 and item[2] is not None:
-            saved = item[2]
-            warm = saved if saved["status"] == "found" else None
             continue
         if _WORKER_STOP.is_set():
             break
         try:
-            row = solve_placement(local_center(*pose), mu_allow, _WORKER_STOP, warm, radius)
+            row = solve_placement(local_center(*pose), mu_allow, _WORKER_STOP, None, radius)
         except Cancelled:
             break
         best = row.pop('best',None)
         if best:
             row.update(best)
-        warm = best
         rows.append((aliases,row))
     return rows
 
 
 def map_metadata(config,workers,diameter_mm=100.):
     total=grid_size(config)
-    return dict(schema='hugmap', schema_version=1, version=VERSION,
+    return dict(schema='hugmap', schema_version=2, version=VERSION,
         created_utc=datetime.now(timezone.utc).isoformat(), config=asdict(config),
         object=dict(shape=OBJECT_SHAPE,diameter_mm=diameter_mm,position='varies per result'),
         coordinates=dict(position_unit='mm',angle_unit='degree',
@@ -723,17 +816,20 @@ def map_metadata(config,workers,diameter_mm=100.):
             lateral_half_plane="x <= 0",
             clearance_mm=CLEARANCE*1000,
             contact_tolerance_mm=TOL*1000,group_bend_limit_deg=180,
-            max_attempts=MAX_ATTEMPTS,max_candidates=MAX_CANDIDATES,max_nfev=MAX_NFEV),
-        execution=dict(workers=workers,batch_size=4,solver='batched-damped-gauss-newton',
-            jacobian='analytic',starts_per_batch=MAX_ATTEMPTS,
+            seg2_deg_interval=[-180,0],seg2_upper_bound_exclusive=True,roll_deg=list(ROLLS)),
+        operating_policy=dict(name='seg2-away-from-zed',logical_seg2='negative',roll_deg=list(ROLLS),
+            solution_selection='minimum mu per roll; overall minimum in top-level fields'),
+        execution=dict(workers=workers,batch_size=4,solver='sequential-polynomial-roots',
+            catalog_size=len(CATALOG),catalog_scope='observed feature pairs plus opposite-side counterparts; not exhaustive',
+            maximum_polynomial_degree=10,
             result_order='completion order; use coordinate keys, not array indices',
             contact_coordinates='node0-local meters; add node0_from_body_center_mm to plot in body frame'),
         grid_total=total,geometry=REFERENCE,
-        symmetry=dict(kind='circle_roll_reflection',computed_roll_deg=90,
-            reflected_roll_deg=-90,position_rule='(x,y) -> (-x,y)',
+        symmetry=dict(kind='circle_roll_reflection',computed_roll_deg=list(ROLLS),
+            reflected_roll_rule='roll_deg -> -roll_deg',position_rule='(x,y) -> (-x,y)',
             angle_rule='seg1 and seg2 unchanged',mu_rule='unchanged',
             scope='top-view circle model; 3D height and approach collisions not evaluated'),
-        semantics='Lowest mu among discovered eligible candidates, not certified global minimum. '
+        semantics='Lowest mu among discovered catalog roots, not certified global minimum. '
                   'not_found does not mean impossible. Static contacts, not approach/holding proof.')
 
 
@@ -749,6 +845,7 @@ def run_map(config, output, stop=None, progress=None, workers=None):
     metadata = map_metadata(config,workers)
     writer = JsonWriter(output,metadata)
     counts = Counter()
+    records = {}
     start = time.monotonic()
     status = 'complete'
     error = None
@@ -759,7 +856,7 @@ def run_map(config, output, stop=None, progress=None, workers=None):
     def emit(poses,row):
         nonlocal visited,last_report
         for u,v,theta in poses:
-            writer.append(dict(row,x_mm=u,y_mm=v,theta_deg=theta))
+            records[(u,v,theta)] = dict(row,x_mm=u,y_mm=v,theta_deg=theta)
             visited += 1
             counts[row['status']] += 1
         now = time.monotonic()
@@ -775,7 +872,8 @@ def run_map(config, output, stop=None, progress=None, workers=None):
                 return
             reason = exclusion(local_center(*p))
             if reason:
-                emit([p],dict(status='excluded',reason=reason,attempts=0,candidate_count=0,
+                emit([p],dict(status='excluded',reason=reason,attempts=0,candidate_count=0,roll_deg=None,
+                              roll_solutions=[],roll_status={str(r):'excluded' for r in ROLLS},
                               seg1_deg=None,seg2_deg=None,mu_min=None))
                 continue
             batch.append((p,[p]))
@@ -838,6 +936,8 @@ def run_map(config, output, stop=None, progress=None, workers=None):
     summary = dict(status=status,visited=visited,total=total,counts=dict(counts),
                    unique_solves=solved,workers=workers,
                    elapsed_s=time.monotonic()-start,error=error)
+    for row in records.values():
+        writer.append(row)
     writer.finish(summary)
     return summary
 
@@ -920,7 +1020,7 @@ class TableCheckpoint:
 
 def table_map_document(document,entry):
     metadata=dict(document['metadata'])
-    metadata.update(schema='hugmap',schema_version=1,
+    metadata.update(schema='hugmap',schema_version=2 if document['metadata']['schema_version']==3 else 1,
                     object=dict(shape='circle',diameter_mm=entry['diameter_mm'],position='varies per result'))
     summary=dict(entry.get('summary',{}),status=entry.get('status','pending'))
     return dict(metadata=metadata,results=entry['results'],summary=summary)
@@ -930,8 +1030,8 @@ def validate_table(document,for_resume=False):
     if not isinstance(document,dict) or not isinstance(document.get('metadata'),dict):
         raise ValueError('Expected a Hugmap table JSON object')
     metadata=document['metadata']
-    if metadata.get('schema')!='hugmap-table' or metadata.get('schema_version')!=2:
-        raise ValueError('Expected Hugmap table schema version 2')
+    if metadata.get('schema')!='hugmap-table' or metadata.get('schema_version') not in (2,3):
+        raise ValueError('Expected Hugmap table schema version 2 or 3')
     if not isinstance(metadata.get('object'),dict) or metadata['object'].get('shape')!='circle':
         raise ValueError('Expected a circle diameter table')
     if not isinstance(metadata.get('config'),dict):
@@ -952,10 +1052,10 @@ def validate_table(document,for_resume=False):
         raise ValueError('Invalid table summary')
     if for_resume:
         expected=map_metadata(config,1)
-        for key in ('geometry','constraints','coordinates','symmetry'):
+        for key in ('geometry','constraints','coordinates','symmetry','operating_policy'):
             if metadata.get(key)!=expected[key]:
                 raise ValueError(f'Table {key} is incompatible with this solver')
-        if metadata.get('solver_revision')!='batch-gn-v1':
+        if metadata.get('solver_revision')!=SOLVER_REVISION or metadata.get('schema_version')!=3:
             raise ValueError('Cannot resume a table from a different solver revision')
         if metadata.get('object',{}).get('shape')!='circle':
             raise ValueError('Only circle tables can be resumed')
@@ -989,7 +1089,7 @@ def run_table(config,output,minimum=50.,maximum=250.,step=5.,stop=None,progress=
             config.checked()
             diameters=diameter_values(minimum,maximum,step)
             metadata=map_metadata(config,workers)
-            metadata.update(schema='hugmap-table',schema_version=2,solver_revision='batch-gn-v1',
+            metadata.update(schema='hugmap-table',schema_version=3,solver_revision=SOLVER_REVISION,
                 object=dict(shape='circle'),diameters_mm=diameters,
                 diameter_range=dict(min_mm=minimum,max_mm=maximum,step_mm=step))
             document=dict(metadata=metadata,maps=[dict(diameter_mm=d,status='pending',results=[],summary={})
@@ -1035,9 +1135,10 @@ def run_table(config,output,minimum=50.,maximum=250.,step=5.,stop=None,progress=
             if progress and (now-last_report>=.2 or visited==total):
                 progress(dict(visited=visited,total=total,counts=dict(counts),current=list(p),
                     diameter_mm=d,completed_maps=sum(e['status']=='complete' for e in document['maps']),
-                    total_maps=len(entries),elapsed_s=now-start,workers=workers))
+                    total_maps=len(entries),elapsed_s=now-start,workers=workers,
+                    resumed_visited=resumed_visited,computed_this_run=computed))
                 last_report=now
-            if now-last_save>=10 or entry['status']=='complete':
+            if now-last_save>=10:
                 checkpoint.save(dict(document,summary=summary()));last_save=now
 
         def jobs():
@@ -1050,7 +1151,8 @@ def run_table(config,output,minimum=50.,maximum=250.,step=5.,stop=None,progress=
                     reason=exclusion(local_center(*p),d/2000)
                     if reason:
                         if cached is None:
-                            emit(d,[p],dict(status='excluded',reason=reason,attempts=0,candidate_count=0,
+                            emit(d,[p],dict(status='excluded',reason=reason,attempts=0,candidate_count=0,roll_deg=None,
+                              roll_solutions=[],roll_status={str(r):'excluded' for r in ROLLS},
                                            seg1_deg=None,seg2_deg=None,mu_min=None))
                         continue
                     batch.append((p,[p],cached))
@@ -1104,6 +1206,36 @@ def run_table(config,output,minimum=50.,maximum=250.,step=5.,stop=None,progress=
 HEATMAP_FIELDS = {'seg1': 'seg1_deg', 'seg2': 'seg2_deg', 'mu_min': 'mu_min'}
 
 
+def validate_roll_record(row, mu_allow):
+    solutions=row.get('roll_solutions');statuses=row.get('roll_status')
+    if not isinstance(solutions,list) or not isinstance(statuses,dict) or set(statuses)!={'-90','90'}:
+        raise ValueError('Missing two-roll result data')
+    seen=set()
+    for sol in solutions:
+        if not isinstance(sol,dict):raise ValueError('Invalid roll solution')
+        roll=sol.get('roll_deg')
+        if roll not in ROLLS or roll in seen:raise ValueError('Invalid or duplicate roll solution')
+        seen.add(roll)
+        for key in ('seg1_deg','seg2_deg','mu_min'):
+            value=sol.get(key)
+            if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value):raise ValueError('Invalid roll angle/friction')
+        if abs(sol['seg1_deg'])>180+1e-8 or not -180-1e-8<=sol['seg2_deg']<0:
+            raise ValueError('Roll solution violates away-from-ZED joint limits')
+        if not 0<=sol['mu_min']<mu_allow:raise ValueError('Roll solution violates friction cutoff')
+        points=np.asarray(sol.get('contacts_node0_m'),dtype=float)
+        if points.shape!=(2,2) or not np.isfinite(points).all():raise ValueError('Invalid fixed-frame contact coordinates')
+    if row['status']=='found':
+        if not solutions:raise ValueError('Found row has no roll solution')
+        best=min(solutions,key=lambda r:(r['mu_min'],r['roll_deg']))
+        if any(row.get(k)!=best[k] for k in ('roll_deg','seg1_deg','seg2_deg','mu_min')):
+            raise ValueError('Top-level solution is not the minimum-mu roll solution')
+    elif solutions or row.get('roll_deg') is not None:
+        raise ValueError('Unsolved row contains a roll solution')
+    for roll in ROLLS:
+        expected='excluded' if row['status']=='excluded' else 'found' if roll in seen else 'not_found'
+        if statuses[str(roll)]!=expected:raise ValueError('Roll status disagrees with solutions')
+
+
 class SavedMapData:
     """Validated sparse (x,y,theta) map; missing cells are never interpolated."""
     def __init__(self, document):
@@ -1112,8 +1244,8 @@ class SavedMapData:
         metadata = document.get('metadata',{})
         if not isinstance(metadata,dict):
             raise ValueError('metadata must be an object')
-        if metadata.get('schema') != 'hugmap' or metadata.get('schema_version') != 1:
-            raise ValueError('Expected Hugmap JSON schema version 1')
+        if metadata.get('schema') != 'hugmap' or metadata.get('schema_version') not in (1,2):
+            raise ValueError('Expected Hugmap JSON schema version 1 or 2')
         config = metadata.get('config',{})
         if not isinstance(config,dict):
             raise ValueError('metadata.config must be an object')
@@ -1147,6 +1279,8 @@ class SavedMapData:
             if (ix,iy) in layer:
                 raise ValueError(f'Duplicate pose: ({x}, {y}, {t})')
             layer[ix,iy] = row
+            if metadata.get('schema_version')==2:
+                validate_roll_record(row,self.number(config.get('mu_allow'),'mu_allow',positive=True))
             if row['status'] == 'found':
                 for field,key in HEATMAP_FIELDS.items():
                     value = self.number(row.get(key),key)
@@ -1184,6 +1318,24 @@ class SavedMapData:
         iy = math.floor(y/self.dy+.5)
         return self.slices.get(theta,{}).get((ix,iy))
 
+def progress_eta(p):
+    remaining=max(0,p['total']-p['visited'])
+    if remaining==0:return 0.
+    processed=p['visited']-p.get('resumed_visited',0)
+    elapsed=p['elapsed_s']
+    if processed<=0 or elapsed<2 or p.get('computed_this_run',p.get('unique_solves',0))<=0:
+        return None
+    return elapsed*remaining/processed
+
+
+def duration_text(seconds):
+    if seconds is None:return 'Estimating...'
+    seconds=max(0,math.ceil(seconds))
+    hours,seconds=divmod(seconds,3600)
+    minutes,seconds=divmod(seconds,60)
+    return f'{hours:02d}:{minutes:02d}:{seconds:02d}'
+
+
 def gui():
     try:
         import tkinter as tk
@@ -1193,8 +1345,8 @@ def gui():
     root=tk.Tk();root.title('Hugmap - Circle rainbow table');root.geometry('820x620')
     frame=ttk.Frame(root,padding=18);frame.pack(fill='both',expand=True)
     ttk.Label(frame,text='Hugmap circle table',font=('',20,'bold')).pack(anchor='w')
-    ttk.Label(frame,text='One JSON file for all diameters | Fixed body | Left-forward quadrant: 500 mm | Roll: +90 deg\n'
-              f'64 starts / 16 candidates | CPU workers: {available_workers()} | Circle ignores theta step',
+    ttk.Label(frame,text='One JSON file for all diameters | Fixed body | Left-forward quadrant: 500 mm | Roll: -90 / +90 deg\n'
+              f'Polynomial roots | Seg2 away from ZED | CPU workers: {available_workers()} | Circle ignores theta step',
               justify='left').pack(anchor='w',pady=8)
     fields=ttk.Frame(frame);fields.pack(fill='x')
     defaults=dict(asdict(Config()),diameter_min_mm=50.,diameter_max_mm=250.,diameter_step_mm=5.)
@@ -1260,7 +1412,7 @@ def gui():
         running=True;stop.clear();bar['value']=0
         start_button.config(state='disabled');resume_button.config(state='disabled');cancel_button.config(state='normal')
         for v,e in entries.values():e.config(state='disabled')
-        state.set('Running. Checkpoints are saved automatically; Stop finalizes the same JSON.')
+        state.set('Running | Remaining: Estimating... | Checkpoints are saved automatically.')
         def worker():
             try:
                 result=run_table(cfg,path,*bounds,stop=stop,progress=report,resume=resume)
@@ -1281,7 +1433,8 @@ def gui():
         try:
             p=events.get_nowait();bar['value']=p['visited']/p['total']
             state.set(f"{p['visited']:,}/{p['total']:,} | Diameter: {p['diameter_mm']:g} mm | "
-                      f"Maps: {p['completed_maps']}/{p['total_maps']} | Found: {p['counts'].get('found',0):,} | {p['elapsed_s']:.0f}s")
+                      f"Maps: {p['completed_maps']}/{p['total_maps']} | Found: {p['counts'].get('found',0):,}\n"
+                      f"Elapsed: {duration_text(p['elapsed_s'])} | Remaining (estimated): {duration_text(progress_eta(p))}")
         except queue.Empty:pass
         try:
             result,path,error=done.get_nowait();running=False
@@ -1334,7 +1487,7 @@ def main():
         def progress(p):
             now=time.monotonic()
             if now-last[0]>2:
-                print(f"{p['visited']}/{p['total']} {p['counts']}",flush=True); last[0]=now
+                print(f"{p['visited']}/{p['total']} {p['counts']} | Remaining (estimated): {duration_text(progress_eta(p))}",flush=True); last[0]=now
         if args.table or args.resume:
             summary=run_table(cfg,args.resume or args.output,args.diameter_min_mm,args.diameter_max_mm,
                 args.diameter_step_mm,progress=progress,workers=args.workers,resume=bool(args.resume))

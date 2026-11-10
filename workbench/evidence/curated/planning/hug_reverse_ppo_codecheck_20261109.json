@@ -1,0 +1,314 @@
+{
+  "schema": "hug-reverse-ppo-implementation-check",
+  "schema_version": 1,
+  "source_sha256": "661dcb182f196fd584ae7beb4b565f5d52aabeca65304b6eecc3ebcfa29ac44b",
+  "reference_path_sha256": "5a4f24c4f5be65912dad198f015d3e1052b5cffdcf3571a1108dd50d0b6deed9",
+  "source_files": {
+    "workbench/research/experiments/hug_reverse_rl/__init__.py": "0a1d1b6f21197113df7897653fa28f4668856bd9dc2e4ec8066268361b47aef1",
+    "workbench/research/experiments/hug_reverse_rl/bank.py": "6ee820b518c47a1db0056bb4a18a2169e063016a1273a245e125ec3761453537",
+    "workbench/research/experiments/hug_reverse_rl/data.py": "ae3b173ea5c6f9b23416527684fc230401ba2380ba803846c6bf23b15ae5b6c1",
+    "workbench/research/experiments/hug_reverse_rl/environment.py": "1e65d0acda8cf10f30d297caaa6eede1c9346d8f8b87cedfe73d5130bf57ae73",
+    "workbench/research/experiments/hug_reverse_rl/experiment.py": "b1a6f527edca2fd5e204df537bd2f7a5566ae39a5ceee7727a12560987bc08b5",
+    "workbench/research/experiments/hug_reverse_rl/schedule.py": "a7978ce9e8d503b7c728ca4df942880088457fc45d8ba4536d31658b01a06960"
+  },
+  "host_tests": {
+    "passed": 48,
+    "skipped": 6,
+    "reason": "Host lacks Torch/tensordict"
+  },
+  "remote_torch_cpu_tests": {
+    "passed": 5,
+    "optimizer_updates": 0,
+    "checks": [
+      "reset position/velocity/object preservation",
+      "terminal outcome before reset",
+      "historical wrong-face disqualification",
+      "actual PPO model construction",
+      "actual paired checkpoint save/load"
+    ]
+  },
+  "gpu2_physics_check": {
+    "physical_reset_pool_validated": true,
+    "source_sha256": "661dcb182f196fd584ae7beb4b565f5d52aabeca65304b6eecc3ebcfa29ac44b",
+    "reference_path_sha256": "5a4f24c4f5be65912dad198f015d3e1052b5cffdcf3571a1108dd50d0b6deed9",
+    "num_envs": 2,
+    "bins": 21,
+    "nominal_home_checked": true,
+    "subset_restore_checked": true,
+    "prefix_checks": [
+      {
+        "bin": 0,
+        "tick": 0,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 1,
+        "tick": 25,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 2,
+        "tick": 50,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 3,
+        "tick": 75,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 4,
+        "tick": 100,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 5,
+        "tick": 125,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 6,
+        "tick": 150,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 7,
+        "tick": 175,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 8,
+        "tick": 200,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 9,
+        "tick": 225,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 10,
+        "tick": 250,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 11,
+        "tick": 275,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 12,
+        "tick": 300,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 13,
+        "tick": 325,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 14,
+        "tick": 350,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 15,
+        "tick": 375,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 16,
+        "tick": 400,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 17,
+        "tick": 425,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 18,
+        "tick": 450,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 19,
+        "tick": 475,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 20,
+        "tick": 490,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      }
+    ],
+    "forward_grasp_or_lift_verified": false,
+    "note": "One-tick reset safety probes; successful PPO lift remains required",
+    "training_started": false
+  },
+  "cpu_physics_check": {
+    "physical_reset_pool_validated": false,
+    "error": "RuntimeError('Physical state mismatch object_quat: 0.0003046831116080284 > 0.0001')"
+  },
+  "scope": {
+    "reset_bins": 21,
+    "validation_num_envs": 2,
+    "default_training_num_envs": 512,
+    "training_started": false,
+    "policy_trained": false,
+    "canonical_dev_gates": "not run; generated dev wrapper/scientific host stack unavailable"
+  },
+  "inputs": {
+    "ga_run": "hug-reverse-ga-d100-20261109T050108Z",
+    "lane": 83,
+    "direction": "grasp-to-home"
+  },
+  "raw_artifacts": "workbench/evidence/generated/hug-reverse-ppo-codecheck-20261109"
+}

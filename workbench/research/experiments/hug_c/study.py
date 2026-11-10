@@ -89,6 +89,11 @@ class Study:
         self.command('physics-check', 'check', '--physics', '--experiment', self.exp_path,
                      '--output', self.out/'physics-check.json')
         anchors = [case for case in exp['cases'] if case['split'] == 'train']
+        selected_case = getattr(args, 'case', None)
+        if selected_case:
+            anchors = [case for case in anchors if case['case_id'] == selected_case]
+            if not anchors:
+                raise ValueError('Choose an existing training anchor for --case')
         # Each of exactly three anchors starts independently from the true Home.
         successful = self.out/'anchors'; successful.mkdir()
         policies = self.out/'policies'; policies.mkdir()
@@ -119,6 +124,9 @@ class Study:
             else:
                 self.publish(phase='finished-anchor-failures',failed_anchors=[cid],validation='not run: three successful replays required',finished_utc=self.now())
                 return 1
+        if selected_case:
+            self.publish(phase='finished-anchor-pilot', validation='not run: single-anchor pilot', finished_utc=self.now())
+            return 0
         self.command('interpolate-validation', 'interpolate', '--experiment', self.exp_path,
                      '--anchors', successful, '--split', 'validation', '--output', self.out/'validation-trajectories')
         validation = self.command('validate', 'validate', '--experiment', self.exp_path,
@@ -148,6 +156,7 @@ def main(argv=None):
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--pilot',type=Path,required=True)
     parser.add_argument('--settings',type=Path)
+    parser.add_argument('--case', help='Train/evaluate only this anchor; stop before interpolation')
     parser.add_argument('--num-envs', type=int, default=DEFAULT_NUM_ENVS)
     parser.add_argument('--iterations', type=int, default=2000)
     parser.add_argument('--report-every', type=int, default=500)

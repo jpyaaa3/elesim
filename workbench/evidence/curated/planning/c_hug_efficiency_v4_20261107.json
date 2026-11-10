@@ -1,0 +1,69 @@
+{
+  "schema": "elesim-c-hug-efficiency-audit",
+  "schema_version": 1,
+  "training_modified": false,
+  "code_sha256": "2a302ed3abd82dbdd4f33f3faaf50fa2f892358fcf05edeced4dda3ecd8a152a",
+  "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+  "method": "sample saved commanded poses every 0.1 s; kinematic workspace estimate, not measured physical exposure",
+  "settings": {
+    "penalty_time_per_s": 0.3,
+    "penalty_workspace_per_s": 0.2,
+    "workspace_margin_m": 0.05,
+    "workspace_scale_m": 0.1
+  },
+  "trajectories": [
+    {
+      "name": "guard-reports/updates-00100",
+      "duration_s": 20.0,
+      "peak_commanded_excess_mm": 101.05653330312713,
+      "mean_cost_fraction": 0.14211644827053402,
+      "estimated_workspace_cost": -0.5684657930821362,
+      "old_time_cost": -2.0,
+      "new_time_cost": -6.0,
+      "grasp_or_lift_success": false,
+      "workspace_polygon_vertices": 21
+    },
+    {
+      "name": "user-review/updates-00800",
+      "duration_s": 20.0,
+      "peak_commanded_excess_mm": 277.79114873949555,
+      "mean_cost_fraction": 0.9853861059791494,
+      "estimated_workspace_cost": -3.941544423916598,
+      "old_time_cost": -2.0,
+      "new_time_cost": -6.0,
+      "grasp_or_lift_success": false,
+      "workspace_polygon_vertices": 21
+    }
+  ],
+  "experiment_schema_version": 4,
+  "reward_contract": "bounded-milestones-compact-workspace-time-v4",
+  "server_training_updated": false,
+  "new_training_started": false,
+  "host_tests": {
+    "focused_passed": 73,
+    "torch_skipped": 5,
+    "reporting_tests_passed": 5
+  },
+  "remote_cpu_tests": {
+    "passed": 15,
+    "real_ppo_api": true,
+    "genesis_scene_created": false,
+    "server_source_changed": false
+  },
+  "mutation_schedule": {
+    "counter": "actual variation attempts, persisted",
+    "interventions_at_generations": [
+      3,
+      6,
+      9,
+      12
+    ],
+    "expected_modes": [
+      "exploration",
+      "weights",
+      "rewind",
+      "exploration"
+    ]
+  },
+  "verification_limit": "No real Genesis rollout with the new workspace cost; fresh configure/preflight required before deployment"
+}

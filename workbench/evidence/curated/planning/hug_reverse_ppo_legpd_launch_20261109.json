@@ -1,0 +1,421 @@
+{
+  "schema": "hug-reverse-ppo-launch-evidence",
+  "version": 1,
+  "recorded_utc": "2026-11-09T14:54:26.329166+00:00",
+  "launch": {
+    "name": "hug-reverse-ppo-legpd-20261109T144613Z",
+    "pid": 2554799,
+    "root": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z",
+    "plan": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z/plan",
+    "command": [
+      "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+      "-u",
+      "-m",
+      "workbench.research.experiments.hug_reverse_rl.experiment",
+      "train",
+      "--plan",
+      "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z/plan",
+      "--output",
+      "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z/training",
+      "--num-envs",
+      "512",
+      "--iterations",
+      "2000"
+    ],
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "num_envs": 512,
+    "iterations": 2000,
+    "started_utc": "2026-11-09T14:46:14.089758+00:00",
+    "status": "training",
+    "sources": {
+      "ppo_source": "f6ede8b98d05ee15ef7947646003ee3e7cb12ffc18f9caab90478de0792290e2",
+      "ga_source": "097fb8fd3ae8bf18097dbdff97349f71cc377d803762c0033f8efaf8f29c7946",
+      "model": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb"
+    },
+    "reverse_run": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ga-legpd-20261109T074421Z",
+    "case": {
+      "q_deg": [
+        -89.49999999999997,
+        -162.4999999922562
+      ],
+      "xy_mm": [
+        -113.31270805725585,
+        177.58581368395997
+      ],
+      "mu_min": 0.17657992405352427,
+      "feature": "side",
+      "root": 1,
+      "preparation_passed": true,
+      "preparation_gap_mm": 19.312708057255847,
+      "preparation_margin_mm": 18.2700323546493,
+      "case_id": "reverse-xyD",
+      "split": "train",
+      "diameter_mm": 100.0,
+      "band": 1,
+      "roll_deg": -90,
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        -0.3124139361069849,
+        -0.5672320068711261
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        -0.3124139361069849,
+        -0.5672320068711261
+      ],
+      "home_command": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "object_xyz_m": [
+        0.37608581371059857,
+        0.1133127080913172,
+        0.55
+      ]
+    },
+    "reset_bins": 21,
+    "curriculum": {
+      "advance_at": 0.7,
+      "retreat_at": 0.2,
+      "window": 512,
+      "cooldown_steps": 80,
+      "retention_fraction": 0.2,
+      "nominal_fraction": 0.5,
+      "seed": 42
+    },
+    "leg_controller": "standing PD after every snapshot restore",
+    "old_checkpoint_resumed": false,
+    "watcher_pid": 2555447,
+    "video_checkpoints": [
+      100,
+      500,
+      1000,
+      1500,
+      "final"
+    ],
+    "final_evaluation": "original Home, original object placement, 3 replays"
+  },
+  "reset_bank": {
+    "physical_reset_pool_validated": true,
+    "source_sha256": "f6ede8b98d05ee15ef7947646003ee3e7cb12ffc18f9caab90478de0792290e2",
+    "reference_path_sha256": "15f75e1fda981b1162d50257a49174898e579a1dbb85b17e7b256f2ab132779a",
+    "num_envs": 512,
+    "bins": 21,
+    "nominal_home_checked": true,
+    "subset_restore_checked": true,
+    "prefix_checks": [
+      {
+        "bin": 0,
+        "tick": 0,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 1,
+        "tick": 25,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 2,
+        "tick": 50,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 3,
+        "tick": 75,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 4,
+        "tick": 100,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 5,
+        "tick": 125,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 6,
+        "tick": 150,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 7,
+        "tick": 175,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 8,
+        "tick": 200,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 9,
+        "tick": 225,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 10,
+        "tick": 250,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 11,
+        "tick": 275,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 12,
+        "tick": 300,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 13,
+        "tick": 325,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 14,
+        "tick": 350,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 15,
+        "tick": 375,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 16,
+        "tick": 400,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 17,
+        "tick": 425,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 18,
+        "tick": 450,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 19,
+        "tick": 475,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      },
+      {
+        "bin": 20,
+        "tick": 490,
+        "replay_errors": {
+          "joint_q": 0.0,
+          "joint_qd": 0.0,
+          "object_pos": 0.0,
+          "object_quat": 0.0,
+          "object_vel": 0.0,
+          "object_ang": 0.0
+        }
+      }
+    ],
+    "forward_grasp_or_lift_verified": false,
+    "note": "One-tick reset safety probes; successful PPO lift remains required"
+  },
+  "first_report": {
+    "checkpoint": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z/training/model_0.pt",
+    "checkpoint_sha256": "f7a8c876e9d77dbda762f3cad1dee73e90a4372091b2bf589cb116c3c1169b16",
+    "frontier": 0,
+    "frontier_reverse_time_s": 0.0,
+    "results": [
+      {
+        "start": "frontier",
+        "bin": 0,
+        "success": false,
+        "wrong_face": false,
+        "fault": true,
+        "control_steps": 27
+      },
+      {
+        "start": "nominal-home",
+        "bin": -1,
+        "success": false,
+        "wrong_face": false,
+        "fault": false,
+        "control_steps": 200
+      }
+    ],
+    "training_updates": 0,
+    "note": "Single deterministic checkpoint demonstrations, not a success-rate evaluation."
+  },
+  "training_observed": {
+    "iteration": 88,
+    "frontier": 2,
+    "source": "Luna guard read of training.log",
+    "nominal_home_success_verified": false
+  },
+  "monitor": "luna_reverse_ppo_guard",
+  "video_watcher": {
+    "pid": 2555447,
+    "checkpoints": [
+      100,
+      500,
+      1000,
+      1500,
+      "final"
+    ],
+    "original_home_final_repetitions": 3
+  },
+  "checks": {
+    "host_passed": 25,
+    "host_skipped": 5,
+    "skip_reason": "Torch/tensordict unavailable",
+    "canonical_dev_release_run": false,
+    "canonical_reason": "generated development wrapper unavailable",
+    "live_physics_reset_bank": true,
+    "live_checkpoint_video": true
+  },
+  "local_root": "/home/user/ws/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z"
+}

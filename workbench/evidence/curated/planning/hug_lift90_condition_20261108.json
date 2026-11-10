@@ -1,0 +1,78 @@
+{
+  "schema": "elesim-hug-lift90-change",
+  "schema_version": 1,
+  "contract": "canonical-wrap-minus90-to-roll0-hold-v1",
+  "criterion": "Free four-DoF motion from Home; C grasp, loaded clearance and roll 0 +/- 5 deg for 5 s",
+  "experiment_schema": 5,
+  "policy_schema": 4,
+  "task_code_sha256": "5e62f15239711d6e883bc2d6cd449fe8c535a47d2952490ce22a4006cd889684",
+  "ga_code_sha256": "35f3065776fe006c7710cf3a6f09fa3878a1932f3fcde0ca1210e2120ec5d4ab",
+  "settings": {
+    "lift_roll_target_rad": 0.0,
+    "lift_roll_tolerance_rad": 0.08726646259971647,
+    "lift_clearance_m": 0.02,
+    "hold_duration_s": 5.0,
+    "hold_contact_fraction": 0.8,
+    "hold_slip_m": 0.01
+  },
+  "host_tests_passed": 91,
+  "host_torch_skips": 7,
+  "remote_cpu_check": {
+    "code_sha256": "5e62f15239711d6e883bc2d6cd449fe8c535a47d2952490ce22a4006cd889684",
+    "results": [
+      {
+        "backend": "numpy",
+        "hold_ticks": [
+          0,
+          500
+        ],
+        "success": [
+          false,
+          true
+        ],
+        "lift_credit": [
+          2.0414328575134277,
+          5.0
+        ],
+        "hold_credit": [
+          0.0,
+          10.0
+        ],
+        "success_credit": [
+          0.0,
+          30.0
+        ]
+      },
+      {
+        "backend": "torch",
+        "hold_ticks": [
+          0,
+          500
+        ],
+        "success": [
+          false,
+          true
+        ],
+        "lift_credit": [
+          2.0414328575134277,
+          5.0
+        ],
+        "hold_credit": [
+          0.0,
+          10.0
+        ],
+        "success_credit": [
+          0.0,
+          30.0
+        ]
+      }
+    ],
+    "physics_tested": false
+  },
+  "physics_tested": false,
+  "search_started": false,
+  "ppo_started": false,
+  "old_sources_preserved": "hug-ga-d100-20261108T103534Z/pre-lift90-task-source.zip",
+  "prepared_experiment": "workbench/evidence/generated/hug-ga-lift90-20261108/experiment.json",
+  "prepared_plan": "workbench/evidence/generated/hug-ga-lift90-20261108/search/plan.json"
+}

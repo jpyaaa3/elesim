@@ -1,0 +1,738 @@
+{
+  "schema": "elesim-c-hug-policy-stall-audit",
+  "schema_version": 1,
+  "date_kst": "2026-11-07",
+  "run": "c-hug-ready-triangles-20261107",
+  "case": {
+    "q_deg": [
+      -89.5,
+      -162.5
+    ],
+    "xy_mm": [
+      -113.3127080913172,
+      177.58581371059853
+    ],
+    "mu_min": 0.1765799238208682,
+    "feature": "side",
+    "root": 1,
+    "preparation_passed": true,
+    "preparation_gap_mm": 19.312708091317205,
+    "preparation_margin_mm": 18.270032388710657,
+    "case_id": "c-train-000-d100",
+    "split": "train",
+    "diameter_mm": 100.0,
+    "branch": "c-q-prepared-triangle-e6712cd27802",
+    "q_barycentric": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "band": 1,
+    "roll_deg": -90,
+    "start_command": [
+      -0.12,
+      0.0,
+      -0.593411945678072,
+      0.593411945678072
+    ],
+    "goal_command": [
+      0.0,
+      -1.5707963267948966,
+      -0.312413936106985,
+      -0.5672320068981571
+    ],
+    "object_xyz_m": [
+      0.37608581371059857,
+      0.1133127080913172,
+      0.55
+    ]
+  },
+  "source_context": {
+    "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+    "code_sha256": "318dd14f73fef42e9e46837a4efc0282f397c7fff57b1572a1b7ec94c7002d69",
+    "pilot_sha256": "28352de65972010a70b08782721a34227b500896bec6da3747fb9554108dff89",
+    "settings": {
+      "dt": 0.01,
+      "solver_substeps": 4,
+      "max_collision_pairs": 256,
+      "max_contacts": 512,
+      "action_ticks": 10,
+      "episode_steps": 200,
+      "hold_duration_s": 5.0,
+      "action_delta_linear_m": 0.005,
+      "action_delta_roll_rad": 0.1,
+      "action_delta_bend_total_rad": 0.15,
+      "friction": 0.5,
+      "floor_friction": 0.01,
+      "mass_kg": 0.3,
+      "height_m": 1.1,
+      "spawn_height_m": 0.32,
+      "lift_clearance_m": 0.02,
+      "hold_slip_m": 0.01,
+      "hold_contact_fraction": 0.8,
+      "max_penetration_m": 0.005,
+      "max_joint_spread_rad": 0.05,
+      "kp": 200.0,
+      "kv": 20.0,
+      "torque_limit": 100.0,
+      "linear_min_m": -0.17333333333333334,
+      "linear_max_m": 0.0,
+      "roll_min_rad": -1.5707963267948966,
+      "roll_max_rad": 1.5707963267948966,
+      "bend_per_node_rad": 0.6283185307179586,
+      "seed": 42,
+      "reward_gamma": 0.995,
+      "reward_q_hint": 1.0,
+      "reward_grasp": 3.0,
+      "reward_lift": 5.0,
+      "reward_hold": 10.0,
+      "reward_success": 30.0,
+      "penalty_wrong_face_per_s": 1.0,
+      "penalty_drop": 3.0,
+      "penalty_fault": 30.0,
+      "penalty_timeout": 5.0,
+      "penalty_action": 0.001,
+      "penalty_time_per_s": 0.1,
+      "grasp_confirm_s": 0.2,
+      "face_margin_m": 0.001,
+      "face_normal_tolerance": 0.15,
+      "face_force_min_n": 0.01
+    },
+    "versions": {
+      "torch": "2.12.1",
+      "genesis-world": "1.4.5",
+      "tensordict": "0.14.2",
+      "rsl-rl-lib": "5.4.0"
+    },
+    "criterion": "Free four-DoF motion from Home; C grasp and sustained loaded lift for 5 s",
+    "control_mode": "policy-four-dof-home-lift-v3",
+    "action_names": [
+      "linear",
+      "roll",
+      "q3_total",
+      "q4_total"
+    ],
+    "observation_names": [
+      "linear_m",
+      "roll_rad",
+      "q3_total_rad",
+      "q4_total_rad",
+      "command_linear_m",
+      "command_roll_rad",
+      "command_q3_total_rad",
+      "command_q4_total_rad",
+      "goal_q3_total_rad",
+      "goal_q4_total_rad",
+      "object_gripper_dx_m",
+      "object_gripper_dy_m",
+      "object_gripper_dz_m",
+      "object_vx_m_s",
+      "object_vy_m_s",
+      "object_vz_m_s",
+      "diameter_m",
+      "grasp_seen",
+      "hold_fraction",
+      "episode_fraction"
+    ],
+    "reward_contract": "bounded-milestones-q-only-no-camera-face-credit-v3",
+    "camera_side_axes": {
+      "node0": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node1": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node2": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node3": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node4": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node5": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node6": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node7": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node8": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "node9": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "gripper_base": [
+        -1.0,
+        0.0,
+        3.205103515924179e-09
+      ],
+      "gripper_claw_left": [
+        -1.0,
+        3.205103515924179e-09,
+        -1.0272688547789535e-17
+      ],
+      "gripper_claw_right": [
+        -1.0,
+        3.205103515924179e-09,
+        -1.0272688547789535e-17
+      ]
+    },
+    "reward_gamma": 0.995,
+    "preparation_contract": {
+      "schema": "elesim-mapper-preparation-envelope",
+      "schema_version": 1,
+      "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+      "home_command": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "extend_command": [
+        -0.01,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "command_units": [
+        "linear_m",
+        "roll_rad",
+        "q3_per_node_rad",
+        "q4_per_node_rad"
+      ],
+      "home_total_deg": [
+        -170.0,
+        170.0
+      ],
+      "frame": "map x=-world Y, y=world X; nominal housing centre",
+      "body_center_world_m": [
+        0.1985,
+        0.0,
+        0.19697349999999997
+      ],
+      "leg_pose_rad": [
+        0.0,
+        0.9,
+        -1.8
+      ],
+      "clearance_mm": 1.0,
+      "sampling_padding_mm": 0.042675702606548196,
+      "intervals": 340,
+      "chain_radius_bound_m": 1.120742277613113,
+      "total_joint_delta_rad": 5.93411945678072,
+      "construction": "Per-part convex XY hull over linear interpolation Home→Extend Arm; curvature-bound padding; circumscribed URDF primitives",
+      "scope": "Stationary tall vertical cylinder; fixed Go2 and legs. Subsequent roll, closing and lift untested. Envelope rejection is conservative, not global impossibility."
+    },
+    "goal_error_convention": "q3/q4 only, normalized by full physical bend range",
+    "command_convention": "linear m, roll rad, theta1/theta2 per-node rad; q3/q4=5*theta",
+    "frame": "map x=-world Y, y=world X; housing centre; node0 offset (0,144.5) mm"
+  },
+  "observations": {
+    "final_replay": {
+      "updates": 2000,
+      "stationary_after_s": 9.1,
+      "steps": 200,
+      "contacts": {
+        "proximal_ticks": 0,
+        "distal_ticks": 0,
+        "both_ticks": 0,
+        "wrong_face_ticks": 0
+      },
+      "final": {
+        "success": false,
+        "fault": false,
+        "current_hold_duration_s": 0.0,
+        "minimum_hold_clearance_m": null,
+        "maximum_hold_slip_m": 0.0,
+        "hold_contact_fraction": 0.0,
+        "goal_error_normalized": 0.984039843082428,
+        "wrong_face_contact": false,
+        "grasp_confirmed": false,
+        "wrong_face_contact_any": false,
+        "highest_lift_fraction": 0.0,
+        "highest_hold_fraction": 0.0,
+        "reward_total": -7.656566143035889,
+        "object_xyz_m": [
+          0.3760858178138733,
+          0.11331270635128021,
+          0.5499998331069946
+        ],
+        "actual_command": [
+          -0.17333191633224487,
+          1.5725536346435547,
+          -0.6283190250396729,
+          0.6283165812492371
+        ],
+        "clearance_m": -1.7881393432617188e-07,
+        "reward_components": {
+          "q_hint": -0.6492950916290283,
+          "grasp": 0.0,
+          "lift": 0.0,
+          "hold": 0.0,
+          "success": 0.0,
+          "wrong_face": 0.0,
+          "drop": 0.0,
+          "fault": 0.0,
+          "timeout": -5.0,
+          "action": -0.007272878661751747,
+          "time": -1.9999984502792358
+        }
+      },
+      "last_policy_mean": [
+        -0.8709520697593689,
+        1.0303269624710083,
+        -0.7664339542388916,
+        0.7018247246742249
+      ],
+      "last_applied_action": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "last_outward_at_limit": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "discounted_rewards": {
+        "q_hint": -0.3280406162744893,
+        "grasp": 0.0,
+        "lift": 0.0,
+        "hold": 0.0,
+        "success": 0.0,
+        "wrong_face": 0.0,
+        "drop": 0.0,
+        "fault": 0.0,
+        "timeout": -1.8440091544028494,
+        "action": -0.005305446666610926,
+        "time": -1.2660834642159253
+      },
+      "minimum_q_error": 0.9088307619094849,
+      "total_tracking_error_max": [
+        0.0027779489755630493,
+        0.025492072105407715,
+        0.0019258856773376465,
+        0.008350670337677002
+      ]
+    },
+    "discounted_reward_audit": {
+      "schema": "elesim-c-hug-reward-failure-analysis",
+      "initial_phi": 0.3280403979478206,
+      "home_total_deg": [
+        -170.0,
+        170.0
+      ],
+      "target_total_deg": [
+        -89.5,
+        -162.5
+      ],
+      "q4_change_deg": -332.5,
+      "max_bend_change_per_action_deg": 8.594366926962348,
+      "min_coherent_q4_steps": 39,
+      "discounted_constant_home_no_contact_return": -3.438133908898335,
+      "discounted_q_identity": "sum gamma^t*(gamma*Phi[t+1]-Phi[t]) = -Phi[0] with terminal Phi=0",
+      "evaluations": [
+        {
+          "updates": 500,
+          "discounted_terms": {
+            "q_hint": -0.3280403192694077,
+            "grasp": 0.0,
+            "lift": 0.0,
+            "hold": 0.0,
+            "success": 0.0,
+            "wrong_face": 0.0,
+            "drop": 0.0,
+            "fault": 0.0,
+            "timeout": -1.8440091544028494,
+            "action": -0.01801148392010404,
+            "time": -1.2660834642159253
+          },
+          "discounted_return": -3.4561444218082866,
+          "initial_phi": 0.3280403979478206,
+          "discounted_q_plus_initial_phi": 7.867841289588284e-08
+        },
+        {
+          "updates": 1000,
+          "discounted_terms": {
+            "q_hint": -0.32804026536661735,
+            "grasp": 0.0,
+            "lift": 0.0,
+            "hold": 0.0,
+            "success": 0.0,
+            "wrong_face": 0.0,
+            "drop": 0.0,
+            "fault": -18.9166698106676,
+            "timeout": 0.0,
+            "action": -0.020688291772626675,
+            "time": -0.7451938042134404
+          },
+          "discounted_return": -20.01059217202028,
+          "initial_phi": 0.3280403979478206,
+          "discounted_q_plus_initial_phi": 1.3258120323822453e-07
+        },
+        {
+          "updates": 1500,
+          "discounted_terms": {
+            "q_hint": -0.3280405887595882,
+            "grasp": 0.0,
+            "lift": 0.0,
+            "hold": 0.0,
+            "success": 0.0,
+            "wrong_face": 0.0,
+            "drop": 0.0,
+            "fault": 0.0,
+            "timeout": -1.8440091544028494,
+            "action": -0.010153863268925981,
+            "time": -1.2660834642159253
+          },
+          "discounted_return": -3.448287070647289,
+          "initial_phi": 0.3280403979478206,
+          "discounted_q_plus_initial_phi": -1.9081176760860075e-07
+        },
+        {
+          "updates": 2000,
+          "discounted_terms": {
+            "q_hint": -0.3280406162744893,
+            "grasp": 0.0,
+            "lift": 0.0,
+            "hold": 0.0,
+            "success": 0.0,
+            "wrong_face": 0.0,
+            "drop": 0.0,
+            "fault": 0.0,
+            "timeout": -1.8440091544028494,
+            "action": -0.005305446666610926,
+            "time": -1.2660834642159253
+          },
+          "discounted_return": -3.443438681559875,
+          "initial_phi": 0.3280403979478206,
+          "discounted_q_plus_initial_phi": -2.183266687438845e-07
+        }
+      ]
+    },
+    "training_signal": [
+      {
+        "log": "003-anchor-train.log",
+        "reward/grasp": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "reward/lift": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "reward/hold": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "c_hug/success": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "c_hug/fault": {
+          "count": 500,
+          "max": 0.011,
+          "nonzero": 50,
+          "first": 0.0001,
+          "last": 0.0
+        },
+        "Mean action std": {
+          "count": 500,
+          "max": 0.54,
+          "nonzero": 500,
+          "first": 0.5,
+          "last": 0.25
+        },
+        "Mean value loss": {
+          "count": 500,
+          "max": 44.719,
+          "nonzero": 426,
+          "first": 0.8792,
+          "last": 0.0008
+        }
+      },
+      {
+        "log": "007-anchor-train.log",
+        "reward/grasp": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "reward/lift": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "reward/hold": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "c_hug/success": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "c_hug/fault": {
+          "count": 500,
+          "max": 0.0171,
+          "nonzero": 23,
+          "first": 0.0,
+          "last": 0.0034
+        },
+        "Mean action std": {
+          "count": 500,
+          "max": 0.25,
+          "nonzero": 500,
+          "first": 0.25,
+          "last": 0.16
+        },
+        "Mean value loss": {
+          "count": 500,
+          "max": 34774.5676,
+          "nonzero": 468,
+          "first": 0.0009,
+          "last": 568.8974
+        }
+      },
+      {
+        "log": "011-anchor-train.log",
+        "reward/grasp": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "reward/lift": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "reward/hold": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "c_hug/success": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "c_hug/fault": {
+          "count": 500,
+          "max": 0.0092,
+          "nonzero": 52,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "Mean action std": {
+          "count": 500,
+          "max": 0.25,
+          "nonzero": 500,
+          "first": 0.16,
+          "last": 0.13
+        },
+        "Mean value loss": {
+          "count": 500,
+          "max": 1885.7496,
+          "nonzero": 337,
+          "first": 1885.7496,
+          "last": 0.0002
+        }
+      },
+      {
+        "log": "015-anchor-train.log",
+        "reward/grasp": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "reward/lift": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "reward/hold": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "c_hug/success": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "c_hug/fault": {
+          "count": 500,
+          "max": 0.0,
+          "nonzero": 0,
+          "first": 0.0,
+          "last": 0.0
+        },
+        "Mean action std": {
+          "count": 500,
+          "max": 0.12,
+          "nonzero": 500,
+          "first": 0.12,
+          "last": 0.08
+        },
+        "Mean value loss": {
+          "count": 500,
+          "max": 0.0966,
+          "nonzero": 167,
+          "first": 0.0,
+          "last": 0.0317
+        }
+      }
+    ],
+    "c_shape_audit": {
+      "reward_only_comparisons": [
+        {
+          "label": "stay at Home",
+          "discounted_total_ignoring_action_cost": -3.438133055420839,
+          "discounted_q_hint": -0.3280395444703256
+        },
+        {
+          "label": "move q to target; no contact (reward-only counterfactual)",
+          "discounted_total_ignoring_action_cost": -3.4381339295306477,
+          "discounted_q_hint": -0.3280404185801323
+        }
+      ],
+      "c_shape_in_evaluations": [
+        {
+          "updates": 500,
+          "q3_total_range_deg": [
+            -180.39921249047066,
+            -169.99999334703236
+          ],
+          "q4_total_range_deg": [
+            67.31005431754058,
+            169.99999334703236
+          ],
+          "ever_c_shape": false
+        },
+        {
+          "updates": 1000,
+          "q3_total_range_deg": [
+            -169.99999334703236,
+            -129.87798513396945
+          ],
+          "q4_total_range_deg": [
+            19.91290212655031,
+            169.99999334703236
+          ],
+          "ever_c_shape": false
+        },
+        {
+          "updates": 1500,
+          "q3_total_range_deg": [
+            -180.11862831936654,
+            -169.99999334703236
+          ],
+          "q4_total_range_deg": [
+            143.29117039019573,
+            180.1337571883781
+          ],
+          "ever_c_shape": false
+        },
+        {
+          "updates": 2000,
+          "q3_total_range_deg": [
+            -180.16896681354953,
+            -169.01817072931595
+          ],
+          "q4_total_range_deg": [
+            151.86997336509637,
+            179.9994415183498
+          ],
+          "ever_c_shape": false
+        }
+      ]
+    }
+  },
+  "findings": [
+    "The deterministic 2000 policy reaches the four command bounds by 9.1 s and keeps requesting outward motion; applied increments are zero. No object contact occurs during this replay.",
+    "All four saved evaluation trajectories keep q4 positive, while the target is q4=-162.5 total degrees. They never enter the task C-shape condition.",
+    "All 2000 printed training entries have zero grasp/lift/hold reward; these are rounded batch summaries, not raw episode event counters.",
+    "With terminal potential zero, discounted q shaping telescopes to -Phi(initial). All four actual evaluations confirm -0.3280404, despite different q errors.",
+    "The action penalty uses actual increments after joint-bound clipping, so persistent outward requests at the bounds cost zero in that term.",
+    "Reported learned action std drops from .5 to .08. The 2000 actor mean at the final frame is [-.871,1.030,-.766,.702], consistently toward the bounds."
+  ],
+  "causal_interpretation": "Sparse positive grasp experience, policy-invariant q shaping without imitation, and cheap bound-saturated actions are consistent with a safe-failure local policy. This explains the observed stall, but does not prove a unique causal contribution of each design choice.",
+  "limitations": [
+    "No ablation retraining was performed.",
+    "A complete collision-free Home-to-grasp-and-lift trajectory has not been certified.",
+    "The reward-only target-pose comparison is not a physics-feasible path claim."
+  ],
+  "optimizer_used": false,
+  "training_modified": false,
+  "newton_gym_changed": false,
+  "files_sha256": {
+    "workbench/evidence/generated/c-hug-ready-triangles-20261107/policy-diagnosis-v2/report.json": "5cec2608d117e9ae54f67c8e0696e28a47e842b085b1a4836a5f5506948278e9",
+    "workbench/evidence/generated/c-hug-ready-triangles-20261107/reward-failure-analysis.json": "418c15a6a67bef8199d56f9685e51daa39ffb5681cbc81ba8085b34b38de3203",
+    "workbench/evidence/generated/c-hug-ready-triangles-20261107/training-signal-audit.json": "0248ae0325272a0e45f88ca28cda6864449b6f619f3208b4da4e68eaed9ce038",
+    "workbench/evidence/generated/c-hug-ready-triangles-20261107/reward-counterfactual.json": "fafab6d52d81ff93609ad8920d62856761b1636d6d416cfed3837708dc0ff5a2"
+  }
+}

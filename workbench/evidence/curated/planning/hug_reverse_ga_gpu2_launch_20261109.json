@@ -1,0 +1,74 @@
+{
+  "schema": "hug-reverse-ga-gpu2-launch",
+  "schema_version": 1,
+  "launch": {
+    "name": "hug-reverse-ga-d100-20261109T050108Z",
+    "remote_root": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ga-d100-20261109T050108Z",
+    "ga_pid": 2527763,
+    "process_group": 2527763,
+    "command": [
+      "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+      "-u",
+      "-m",
+      "workbench.research.experiments.hug_reverse_ga.experiment",
+      "run",
+      "--plan",
+      "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ga-d100-20261109T050108Z",
+      "--backend",
+      "gpu"
+    ],
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "started_utc": "2026-11-09T05:01:35.493933+00:00",
+    "population": 128,
+    "target_generations": 100,
+    "parade_every": 10,
+    "input_xyD_mm": [
+      -113.3127080913172,
+      177.58581371059853,
+      100.0
+    ],
+    "goal_q_deg": [
+      -89.49999999999997,
+      -162.4999999922562
+    ],
+    "source_sha256": "7b75326db0eb5b40c3feec94b8f66a53bd23ce406569b01118e5d9d5fa61f1c0",
+    "direction": "grasp-to-home",
+    "automatic_ppo": false,
+    "local_root": "/home/user/ws/elesim/workbench/evidence/generated/hug-reverse-ga-d100-20261109T050108Z"
+  },
+  "first_attempt": {
+    "name": "hug-reverse-ga-d100-20261109T045807Z",
+    "pid": 2527230,
+    "status": "execution_error",
+    "admission": "128/128 passed",
+    "reason": "In-place update to inference tensor during reset",
+    "fix": "Use no_grad for individual tick so later reset can mutate bookkeeping"
+  },
+  "verification": {
+    "host_tests": "23 passed, 1 skipped (no host Torch)",
+    "remote_torch_cpu_regression": "passed",
+    "source_model_versions": "matched",
+    "remote_pytest": "not available; not installed",
+    "startup": {
+      "checked_utc": "2026-11-09T05:02:43.818630+00:00",
+      "pid": 2527763,
+      "alive": true,
+      "process": "    PID    PPID STAT     ELAPSED COMMAND\n2527763       1 Rsl        01:08 /home/hckang/elesim/.venv/hug-rl-20261106/bin/python -u -m workbench.research.experiments.hug_reverse_ga.experiment run --plan /home/hckang/elesim/workbench/evidence/generated/hug-reverse-ga-d100-20261109T050108Z --backend gpu\n",
+      "gpu_processes": "GPU-bfaeeedd-48aa-e675-4daa-17955c1769db, 2036331, 352 MiB\nGPU-a40782b2-881c-e285-2a8e-66cae9162a01, 2527763, 1074 MiB\n",
+      "log_tail": "\u001b[38;5;226m[Genesis] [14:01:45] [WARNING] Neutral robot position (qpos0) exceeds joint limits.\u001b[0m\n\u001b[38;5;226m[Genesis] [14:01:46] [WARNING] Filtered out geometry pairs causing self-collision for the neutral configuration (qpos0): (8, 9), (14, 15), (20, 21), (26, 27). Consider tuning Morph option 'decompose_robot_error_threshold' or specify dedicated collision meshes. This behavior can be disabled by setting Morph option 'enable_neutral_collision=True'.\u001b[0m\n{\"generation\": 1, \"generations\": 100, \"best\": {\"candidate\": 69, \"success\": false, \"rejected\": true, \"first_violation_tick\": 507, \"reasons\": [\"xy_limit\"], \"last_valid_error\": 40.4846166360183, \"valid_ticks\": 506, \"duration_s\": 5.07, \"home_window_s\": 0.0, \"home_error\": 40.51716248741341, \"path_length\": 1.7875234892510583, \"peak_xy_m\": 0.05135854905876815, \"peak_tilt_rad\": 0.00023441178422418642, \"object_contact_force_n\": 0.4319647252559662}, \"successes\": 0, \"clean\": 0, \"direction\": \"grasp-to-home\"}\n{\"generation\": 2, \"generations\": 100, \"best\": {\"candidate\": 69, \"success\": false, \"rejected\": true, \"first_violation_tick\": 539, \"reasons\": [\"xy_limit\"], \"last_valid_error\": 40.24702850573941, \"valid_ticks\": 538, \"duration_s\": 5.39, \"home_window_s\": 0.0, \"home_error\": 40.27216217892897, \"path_length\": 1.6164115638955008, \"peak_xy_m\": 0.05014583692174908, \"peak_tilt_rad\": 6.419788438193851e-05, \"object_contact_force_n\": 0.587915301322937}, \"successes\": 0, \"clean\": 0, \"direction\": \"grasp-to-home\"}\n",
+      "generations": [
+        "generation-0000",
+        "generation-0001",
+        "generation-0002"
+      ],
+      "admission_summary": {
+        "status": "admitted",
+        "passed": 128,
+        "total": 128,
+        "max_xy_mm": 1.5650564318949185
+      }
+    }
+  },
+  "guard": "luna_reverse_ga_guard",
+  "scope": "Reverse GA from exact solver grasp to Home; no automatic PPO"
+}

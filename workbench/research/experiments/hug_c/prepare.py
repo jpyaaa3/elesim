@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import numpy as np
 from .source import read_kernel, evaluate
-from .triangle import select, weights
+from .triangle import select, weights, SELECTION_CONTRACT
 from .configure import write_json, asset_digest
 
 
@@ -15,7 +15,7 @@ def prepare(source, *, diameter=150., mu_max=.4, step=1., seed=42, validation=30
         raise ValueError('Invalid diameter, friction cutoff, or angle resolution')
     if validation<1 or test<1:
         raise ValueError('Require nonempty validation and test splits')
-    kernel,provenance=read_kernel(source)
+    kernel,provenance=read_kernel(source,require_preparation=True)
     rows=evaluate(kernel,diameter,step=step,mu_max=mu_max)
     original_count=len(rows); screened=None
     if catalog_preflight is not None:
@@ -30,6 +30,7 @@ def prepare(source, *, diameter=150., mu_max=.4, step=1., seed=42, validation=30
         rows=[r for r in rows if tuple(r['q_deg']) in ready]
         provenance['catalog_preflight_sha256']=hashlib.sha256(raw).hexdigest()
         provenance['catalog_physics_settings']=screened['simulation_context']['settings']
+        provenance['catalog_contact_filtered']=screened.get('schema_version',1)>=2
         ready_cells={tuple(np.floor((np.array(q)+180)/step).astype(int)) for q in ready}
     excluded=excluded or []
     if excluded:
@@ -44,16 +45,19 @@ def prepare(source, *, diameter=150., mu_max=.4, step=1., seed=42, validation=30
                     (screened is None or tuple(np.floor((np.array(r['q_deg'])+180)/step).astype(int)) in ready_cells));attempts+=1
     if len(held)<validation+test:
         raise ValueError('Insufficient valid triangle interior; increase sampling budget or inspect the chart')
-    branch='c-q-triangle-'+provenance['kernel_sha256'][:12]
+    branch='c-q-prepared-triangle-'+provenance['kernel_sha256'][:12]
     cases=[]
     for i,(row,split) in enumerate([(r,'train') for r in anchors]+[(r,'validation' if i<validation else 'test') for i,r in enumerate(held[:validation+test])]):
         c=dict(row,case_id=f'c-{split}-{i:03d}-d{diameter:g}',split=split,diameter_mm=diameter,
                branch=branch,q_barycentric=weights(v,np.array(row['q_deg'])).tolist())
         cases.append(c)
     selection.update(mu_max=mu_max,diameter_mm=diameter,roll_deg=-90,shape='C: q3*q4>0; q4<0',
+                     selection_contract=SELECTION_CONTRACT,
                      excluded_q_total_deg=excluded,continuous_interior_assumed_valid=False,
                      original_geometric_samples=original_count,static_catalog_screened=screened is not None,
-                     coverage_denominator='static-ready raster cells' if screened else 'geometric raster cells')
+                     preparation_envelope_required=True,
+                     selection_domain='final-pose CAD + Home-to-Extend Arm envelope clear'+(' + physical Home/goal catalog' if screened else ''),
+                     coverage_denominator='preparation-clear and static-ready raster cells' if screened else 'preparation-clear raster cells')
     if preview is not None:
         from .preview import write_preview
         write_preview(preview,rows,v,selection)
@@ -63,7 +67,7 @@ def prepare(source, *, diameter=150., mu_max=.4, step=1., seed=42, validation=30
     return dict(schema='elesim-c-hug-pilot',schema_version=1,source=provenance,selection=selection,
                 cases=cases,triangle=dict(branch=branch,anchor_ids=[c['case_id'] for c in cases[:3]],
                                          coordinate_space='q3/q4 total degrees'),
-                readiness='geometry-only; Home/approach/lift require Genesis preflight')
+                readiness='preparation-envelope-filtered; physical Home/Extend/goal preflight required; closing/lift untested')
 
 
 def main():

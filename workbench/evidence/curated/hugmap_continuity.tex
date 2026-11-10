@@ -1,0 +1,119 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=24mm]{geometry}
+\usepackage{amsmath,amssymb,hyperref}
+\title{Hugmap: contact branches and continuity}
+\date{5 November 2026}
+\begin{document}\maketitle
+\section{What the function describes}
+This is a static, planar circle-contact model, not a proof of convergence of a moving grasp.
+Use a separate function for each fixed roll $r\in\{-90^\circ,+90^\circ\}$.
+The physical logical bend satisfies $-\pi\le q_2<0$, and $|q_1|\le\pi$.
+Changing roll is not a continuous operation within this planar model.
+For input $z=(x,y,D)$ in millimetres, the intrinsic object centre and radius are
+\[
+ c_r(z)=\begin{pmatrix}(r/90^\circ)x/1000\\y/1000-0.1445\end{pmatrix},
+ \qquad R=D/2000.
+\]
+The housing-centre origin is not the physical Go2 base origin.
+
+\section{A finite composition of geometric functions}
+Let $\ell=0.05$ metres and
+\[
+ S_n(a)=\ell\sum_{j=1}^{n}\begin{pmatrix}-\sin(ja)\\\cos(ja)\end{pmatrix}.
+\]
+Equivalently, away from removable singularities,
+\[
+ S_n(a)=\ell\frac{\sin(na/2)}{\sin(a/2)}
+ \begin{pmatrix}-\sin((n+1)a/2)\\\cos((n+1)a/2)\end{pmatrix}.
+\]
+The five-link segment endpoints are $p_5=S_5(q_1/5)$ and
+$p_{10}=p_5+\mathcal R(q_1)S_5(q_2/5)$.
+Intermediate vertices and edge normals follow from these same rigid transforms
+and the fixed CAD polygons. Thus no fitted spatial basis is needed.
+
+For a chosen contact feature $a$, define its contact equation by
+\[
+ F_a(q,c,R)=
+ \begin{cases}
+ \|c-v_a(q)\|^2-R^2,&\text{vertex},\\
+ n_a(q)^T(c-v_a(q))-R,&\text{edge with outward unit normal}.
+ \end{cases}
+\]
+The finite edge interval, vertex normal cone, nonpenetration, protected-part
+clearance, self-collision and joint limits are additional validity conditions.
+For $a$ on segment 1 and $b$ on segment 2 or the gripper, solve
+\[
+ F_a(q_1,c_r(z),R)=0,\qquad F_b(q_1,q_2,c_r(z),R)=0.
+\]
+With $u=\tan(q_1/10)$ and $v=\tan(q_2/10)$, these become sequential polynomials
+of degree at most ten. The implemented branch function is
+\[
+ Q_{r,a,b,j,k}(z)=
+ \begin{pmatrix}
+ 10\arctan\bigl(u_j(z)\bigr)\\
+ 10\arctan\bigl(v_k(z,u_j(z))\bigr)
+ \end{pmatrix}.
+\]
+Here $u_j$ and $v_k$ are admissible real roots. Root indices alone are not stable
+branch identifiers; continuation must match joint configurations and contact domains.
+The roots are evaluated numerically. This is a piecewise algebraic/trigonometric
+construction, not a radicals-only closed form.
+
+For two distinct circle contact points, write $d=n_1^Tn_2$, where the normals
+are unit radial normals, and define
+\[
+ M(Q,z)=\sqrt{\frac{1+d}{1-d}}.
+\]
+This is the planar two-point friction threshold; antipodal contacts have zero
+threshold, while coincident contact directions are singular. The implementation
+checks the actual contact points and may choose the best pair when more than two
+parts touch. The physical grasp still needs a strict friction margin.
+The branch functions combine as
+\[
+ f_r(z)=\min_{Q\in\mathcal A_r(z)} M(Q,z),\qquad
+ \mathcal B_r(\mu)=\{z:f_r(z)<\mu\},
+\]
+where $\mathcal A_r(z)$ is the set of valid enumerated contact roots. A missing
+catalog root is reported as unknown coverage, not a proof of physical impossibility.
+
+\section{Precisely when a branch is continuous}
+Inside one contact domain, with strict collision and joint-limit margins,
+\[
+ J_q=
+ \begin{pmatrix}
+ \partial F_a/\partial q_1&0\\
+ \partial F_b/\partial q_1&\partial F_b/\partial q_2
+ \end{pmatrix}.
+\]
+If $\det J_q\ne0$, the implicit function theorem gives a locally smooth joint
+branch $Q(z)$, with
+\[
+ \frac{\partial Q}{\partial z}=-J_q^{-1}\frac{\partial F}{\partial z}.
+\]
+This is a conditional local statement, not a certificate for the entire map.
+There are several distinct events:
+\begin{enumerate}
+\item $M=0.5$: the posture can remain continuous while crossing out of the
+allowed-friction set. A gap in the coloured map need not be a gap in geometry.
+\item A feature changes from edge to vertex: two descriptions may join at the
+same posture; the derivative can change without a posture jump.
+\item Two candidate costs cross: the minimum cost can remain continuous while
+selecting the cheapest posture causes a jump between distinct branches.
+\item A collision, joint limit or singular root terminates a valid branch.
+There may be no allowed continuation along the selected input path.
+\end{enumerate}
+The minimum of finitely many continuous costs is continuous where those branches
+remain valid on a common neighbourhood. Their validity domains cannot be ignored.
+
+\section{Numerical evidence and its limits}
+The companion audit examines saved neighbours in $x,y,D$ separately at each roll,
+then solves intermediate points rather than interpolating joint angles.
+It computes the path minimizing the largest adjacent joint jump over the sampled
+candidate layers, both with and without the friction cutoff. Refinement tests
+whether the jump decreases with sampling distance.
+This tests selected straight paths, not all paths in three-dimensional input space.
+Neither the empirical feature catalog nor floating-point polynomial roots certify
+exhaustive feasibility, and static continuation does not establish dynamic stability.
+See \texttt{kyung-continuity/continuity.json} for measured results and the HTML
+report for the posture and friction curves.
+\end{document}

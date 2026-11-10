@@ -9,13 +9,14 @@ import pytest
 
 from elesim_sim.rl.trajectory import Trajectory
 from workbench.research.experiments.hug_c import collection, configure as cfg
+from workbench.tests.research.experiments.hug_c_fixtures import with_preparation
 
 
 @pytest.fixture
 def prepared(tmp_path):
     # Embedded DATA deliberately throws. The toy linear XY map is not robot geometry.
     mapper=tmp_path/'mapper.html'
-    mapper.write_text('''const DATA=(()=>{throw Error("stored points are forbidden")})();
+    mapper.write_text(with_preparation('''const DATA=(()=>{throw Error("stored points are forbidden")})();
 const rot=()=>{};
 function model(q3,q4){if(q3<-25||q4<-25)return {candidates:[]};return {candidates:[{x:q3,y:200-q4,mu:.2,kind:'side',branch:-1}]};}
 let current=[];
@@ -26,7 +27,7 @@ function objectCollision(){return false;}
 function inverseContactPose(x,y,D,roll,seed){
  const q3=x,q4=200-y;return {q3,q4,c:model(q3,q4).candidates[0]};
 }
-function muLimit(){}''')
+function muLimit(){}'''))
     output=tmp_path/'collection'
     plan=collection.prepare_collection(mapper,output,step=10,validation=3,test=4)
     return mapper,output,plan
@@ -99,7 +100,7 @@ def synthetic_finished_study(output,profile):
         folder=root/'policies';folder.mkdir(exist_ok=True)
         n=len(cfg.OBSERVATIONS)
         np.savez_compressed(folder/(c['case_id']+'.npz'),schema=np.asarray('elesim-c-hug-policy'),
-                            schema_version=np.asarray(2),observation_names=np.asarray(cfg.OBSERVATIONS),
+                            schema_version=np.asarray(cfg.POLICY_VERSION),observation_names=np.asarray(cfg.OBSERVATIONS),
                             action_names=np.asarray(cfg.ACTIONS),metadata_json=np.asarray(json.dumps(metadata)),
                             norm_mean=np.zeros(n),norm_std=np.ones(n),norm_eps=np.asarray(1e-8),
                             n_layers=np.asarray(1),w0=np.zeros((4,n)),b0=np.zeros(4))
@@ -134,3 +135,65 @@ def test_collection_rejects_modified_inputs(prepared):
     pilot=output/plan['profiles'][0]['pilot'];pilot.write_text(pilot.read_text()+' ')
     with pytest.raises(ValueError,match='input changed'):
         collection.load_collection(output/'collection.json')
+
+
+def test_collection_check_runs_physics_only_without_optimizer(prepared,monkeypatch):
+    _,output,_=prepared;calls=[]
+    def check(argv,**kwargs):
+        calls.append(argv)
+        cfg.write_json(Path(argv[argv.index('--output')+1]),dict(ready=True,physics_tested=True,preparation_tested=True))
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(collection.subprocess,'run',check)
+    destination=output/'checks'
+    assert collection.check_collection(output/'collection.json',destination)==0
+    assert len(calls)==5 and all('check' in c and '--physics' in c and 'train' not in c for c in calls)
+    report=json.loads((destination/'report.json').read_text())
+    assert report['ready'] and not report['training_started']
+
+
+def test_catalog_screen_routes_all_diameters_without_learning(prepared,monkeypatch):
+    _,output,_=prepared;calls=[]
+    def screen(argv,**kwargs):
+        calls.append(argv)
+        destination=Path(argv[argv.index('--output')+1])
+        cfg.write_json(destination/'report.json',dict(results=[dict(static_ready=True),dict(static_ready=False)]))
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(collection.subprocess,'run',screen)
+    assert collection.screen_collection(output/'collection.json',output/'screens')==0
+    assert len(calls)==5 and all('workbench.research.experiments.hug_c.catalog_preflight' in c and 'train' not in c for c in calls)
+
+
+def test_triangle_is_selected_after_physical_catalog_filter(prepared):
+    mapper,output,plan=prepared;screened=output/'screens'
+    ready=[[-25.,-25.],[-15.,-25.],[-25.,-15.]]
+    original=(output/'collection.json').read_bytes()
+    for profile in plan['profiles']:
+        pilot=json.loads((output/profile['pilot']).read_text())
+        report=dict(schema='elesim-c-hug-catalog-preflight',schema_version=3,source=pilot['source'],
+                    diameter_mm=profile['diameter_mm'],step_deg=10.,mu_max=.4,
+                    simulation_context=dict(model_sha256=cfg.asset_digest(),settings=cfg.DEFAULTS),
+                    results=[dict(q_deg=q,static_ready=True) for q in ready])
+        cfg.write_json(screened/f'd{profile["diameter_mm"]:g}'/'report.json',report)
+    destination=output/'reselected'
+    new=collection.prepare_collection(mapper,destination,step=10,validation=3,test=4,catalog_preflights=screened)
+    assert new['selection']['static_catalog_screened']
+    for profile in new['profiles']:
+        pilot=json.loads((destination/profile['pilot']).read_text())
+        assert profile['feasible_samples']==3
+        assert {tuple(c['q_deg']) for c in pilot['cases'][:3]}==set(map(tuple,ready))
+        assert all(c['preparation_passed'] for c in pilot['cases'])
+    assert (output/'collection.json').read_bytes()==original
+
+
+def test_exact_xy_selector_rejects_an_excluded_physical_cell_inside_triangle(prepared):
+    mapper,output,plan=prepared;profile=plan['profiles'][2];xy=target(plan)
+    cell=tuple(np.floor((np.array([xy[0],200-xy[1]])+180)/10).astype(int))
+    catalog_path=output/profile['catalog'];catalog=json.loads(catalog_path.read_text())
+    catalog['rows']=[r for r in catalog['rows'] if tuple(np.floor((np.array(r['q_deg'])+180)/10).astype(int))!=cell]
+    catalog_path.write_text(json.dumps(catalog));profile['catalog_sha256']=cfg.sha(catalog_path)
+    pilot_path=output/profile['pilot'];pilot=json.loads(pilot_path.read_text())
+    pilot['selection']['static_catalog_screened']=True
+    pilot_path.write_text(json.dumps(pilot));profile['pilot_sha256']=cfg.sha(pilot_path)
+    collection.save_plan(output/'collection.json',plan)
+    with pytest.raises(ValueError,match='No valid C solution'):
+        collection.resolve(output/'collection.json',mapper,xy,150,require_trained=False)

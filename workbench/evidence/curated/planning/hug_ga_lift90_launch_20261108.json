@@ -1,0 +1,57 @@
+{
+  "schema": "hug-ga-lift90-launch",
+  "schema_version": 1,
+  "launch": {
+    "name": "hug-ga-lift90-20261108",
+    "remote_root": "/home/hckang/elesim/workbench/evidence/generated/hug-ga-lift90-20261108",
+    "search_root": "/home/hckang/elesim/workbench/evidence/generated/hug-ga-lift90-20261108/search",
+    "stage": "ga-search",
+    "ga_pid": 2475925,
+    "process_group": 2475925,
+    "ga_command": [
+      "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+      "-u",
+      "-m",
+      "workbench.research.experiments.hug_ga.experiment",
+      "run",
+      "--plan",
+      "/home/hckang/elesim/workbench/evidence/generated/hug-ga-lift90-20261108/search",
+      "--backend",
+      "gpu"
+    ],
+    "ga_started_utc": "2026-11-08T11:39:19.874063+00:00",
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "population": 128,
+    "target_generations": 100,
+    "parade_every": 10,
+    "start": "home",
+    "case_id": "c-train-000-d100",
+    "diameter_mm": 100,
+    "ga_source_sha256": "35f3065776fe006c7710cf3a6f09fa3878a1932f3fcde0ca1210e2120ec5d4ab",
+    "task_code_sha256": "5e62f15239711d6e883bc2d6cd449fe8c535a47d2952490ce22a4006cd889684",
+    "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+    "criterion": "Free four-DoF motion from Home; C grasp, loaded clearance and roll 0 +/- 5 deg for 5 s",
+    "automatic_ppo": false,
+    "user_authorized": true,
+    "local_root": "/home/user/ws/elesim/workbench/evidence/generated/hug-ga-lift90-20261108",
+    "gpu_assignment_verified": true,
+    "detached_parent_pid": 1,
+    "initial_generation_started": true
+  },
+  "verification": {
+    "checked_utc": "2026-11-08T11:39:50.029713+00:00",
+    "alive": true,
+    "state": "R",
+    "parent_pid": 1,
+    "cuda_environment": [
+      "CUDA_VISIBLE_DEVICES=GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+    ],
+    "generation_dirs": [
+      "generation-0000"
+    ],
+    "gpu_processes": "GPU-bfaeeedd-48aa-e675-4daa-17955c1769db, 2036331, 352 MiB\nGPU-bfaeeedd-48aa-e675-4daa-17955c1769db, 2457346, 1300 MiB\nGPU-bad354e5-f275-d990-caab-8aa0025827d1, 2457209, 1300 MiB\nGPU-a40782b2-881c-e285-2a8e-66cae9162a01, 2475925, 1074 MiB\n",
+    "log_tail": "\u001b[38;5;226m[Genesis] [20:39:29] [WARNING] Neutral robot position (qpos0) exceeds joint limits.\u001b[0m\n\u001b[38;5;226m[Genesis] [20:39:30] [WARNING] Filtered out geometry pairs causing self-collision for the neutral configuration (qpos0): (8, 9), (14, 15), (20, 21), (26, 27). Consider tuning Morph option 'decompose_robot_error_threshold' or specify dedicated collision meshes. This behavior can be disabled by setting Morph option 'enable_neutral_collision=True'.\u001b[0m\n"
+  },
+  "scope": "GA only; no automatic BC/PPO",
+  "prior_run_preserved": "hug-ga-d100-20261108T103534Z"
+}

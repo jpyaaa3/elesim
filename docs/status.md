@@ -1,6 +1,6 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-11-06. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-11-10. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
@@ -34,7 +34,202 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   pin은 update만으로 바뀌지 않는다. 실제 두 host 전체 시작 성공은 추가 확인이 필요하다.
   [소스 SHA·검증 범위](../workbench/evidence/curated/planning/connections_wslg_gpu_20261106.json).
 
-### 함수 기반 C형 Home→들어올리기·q 보간 실험 (2026-11-06)
+### C형 상벌점 v3 재설정과 검증 (2026-11-06)
+
+- 사용자의 상벌점 수정 승인에 따라 `hug_c`를 보상 계약 v3로 변경했다.
+  함수 목표 보상/actor 목표 관측에는 **q3/q4만** 남기고 linear/roll 목표를
+  제거했다. 네 축 action, 실제 Home, C형 파지·들어올린 뒤 5초 유지 조건은
+  유지한다. Actor는 20관측→4제어이며 critic에는 접촉/최고기록 등 8개 추가
+  관측을 준다. 이전 v2 정책을 새 학습으로 resume하지 않도록 experiment/
+  policy schema와 control mode를 v3로 바꿨다. 이전 자료는 보존한다.
+- 상벌점은 정상 두 접촉의 C 파지 0.2초 확인 후 +3(한 번), 새로운 최저점
+  여유 20 mm까지 +5, 새로운 연속 유지 5초까지 +10, 최종 성공 +30이다.
+  들어올림/유지 최고기록은 낙하 후에도 보존하여 같은 진도를 재지급하지 않는다.
+  공중 파지 후 놓침 −3/회, 제드 면 접촉 −1/초, 시간 −0.1/초, 적용 action
+  제곱합 ×−0.001, 금지 충돌/한도 fault −30 후 종료, 시간 초과 −5다.
+  제드 면 접촉이 섞인 **정책 스텝 전체의 양의 보상과 기록 갱신을 차단**한다.
+  물체의 통상적인 XY 이동 자체에는 벌점을 추가하지 않았다.
+- q 힌트 잠재값은 0~1이며 `gamma*Phi(next)-Phi(previous)`로 지급하고 종료
+  잠재값은 0으로 정산한다. PPO와 shaping에 같은 **gamma=0.995**를 적용해
+  물체 없이 목표 q만 맞추어도 에피소드 수익이 증가하던 허점을 막았다.
+  이전 Wrap 실험의 설정은 변경하지 않았다. 각 보상 항을 독립 로그와
+  수집/재생 결과에 기록한다. [상벌점 정의](../workbench/research/experiments/hug_c/README.md).
+- 접촉 위치·법선을 각 링크 좌표로 변환한다. 실제 모델의 제드 쪽 축은
+  node-local −Z이고 그리퍼/클로는 장착 회전을 거쳐 −X다. 양의 면 반대인
+  cap/tip 접촉도 반쪽 면과 법선 일관성으로 판정한다. 실제 GPU의 box/plane
+  검사가 Genesis 1.4.5 법선의 **B→A 방향**을 확인했고, 이 과정에서 초안의
+  반대 부호를 발견해 바로잡았다. Roll ±90°, A/B 순서, global/local ID와
+  padding의 영향을 회귀로 검사했다.
+- 관련 호스트 회귀는 **81 passed / 1 skipped**(host Torch 부재)다. 서버에는
+  pytest가 없어 설치하지 않았고, 실제 Torch CPU/GPU의 6환경×200스텝 보상,
+  500 tick 유지 및 접촉 parser를 NumPy와 직접 비교해 통과했다. 실제 Genesis
+  100 mm의 세 Home/목표 자세와 runner 생성·zero-action 보상 스텝은
+  `ready=true`, `physics_tested=true`, `reward_step_tested=true`다. 이는 초기
+  소프트웨어·물리 검사이며 학습 수렴/들어올리기 성공 증거가 아니다.
+  원자료는 `workbench/evidence/generated/c-hug-reward-v3/`에 보관한다.
+  Canonical 개발 attachment가 준비되지 않아 required/extended/release gates는
+  이번 수정에서 실행하지 않았다. Host에 과학 스택은 추가 설치하지 않았다.
+- 기존 실패 명령을 새 코드에서 실제 재생했을 때 500회 경로는 **−10.27점**,
+  2000회 경로는 **−8.37점**이며 제드 면 접촉은 각각 259/22 physics tick
+  (2.59/0.22초) 감지됐다. 파지·들어올림·유지·성공 보상은 두 경로 모두 0이다.
+  선언한 synthetic 시나리오의 할인 합계는 빠른 성공 +28.85, 느린 성공 +23.20,
+  목표 q만 맞춘 실패 −3.38, 제드 면 밀기 −8.08로 의도한 순서를 확인했다.
+  Synthetic 순서와 기존 경로 재채점은 새 정책의 학습 성공을 뜻하지 않는다.
+  [상벌점·소스 해시·검증 보고](../workbench/evidence/curated/planning/c_hug_reward_v3_20261106.json).
+- 이전 v2 run은 첫 100 mm 기준점에서 **2,000회 모두 실패**하고
+  `finished-anchor-failures`로 자동 종료됐다. 500/1000/1500/2000회 영상과
+  policy/trajectory/verified NPZ, 재생 보고는 모두 로컬 수집됐다. 다른 직경은
+  시작되지 않았다. 이 시점에는 v3 소스·검사만 적용했고 RL을 시작하지 않았다.
+  Newton-Gym과 다른 작업에는 종료/재시작/설정 변경을 하지 않았다.
+- 이후 사용자 `이제 서버컴에서 RL 시작하세요` 지시로 GPU2에 새 run
+  `workbench/evidence/generated/c-hug-reward-v3-20261106T135818Z`를 시작했다.
+  v3의 제드 면/몸체 기준으로 5개 직경 전체를 다시 정적 검사하고 통과 후보로
+  입력을 재생성했다. 통과 수는 841/863, 1559/1577, 1572/1592, 1109/1140,
+  670/703이다. 100 mm 세 기준점의 독립 physics preflight·보상 스텝도 통과했고,
+  **512환경 실제 PPO optimizer 진행**을 확인했다. q 힌트만 주는 새 20관측/
+  4action·gamma 0.995이며 이전 정책을 resume하지 않고 새로 시작했다.
+  Collection PID/PGID `2313130`, 첫 study `2313139`, 첫 train `2313237`이다.
+  100→125→150→175→200 mm 순차, 각 3기준점·최대2000회·500회마다 평가 영상/
+  NPZ·원본 재생, 실패 시 중단하는 기존 규칙을 유지한다. Luna
+  `luna_reward_v3_guard`가 60초 간격 읽기 전용 감시와 완성된 영상/NPZ 수집을
+  인계받았다. 초반 측정은 약 3.8초/iteration으로, 전체 순수 학습은 각 anchor가
+  500회 성공이면 약8시간, 모두2000회까지가면 약32시간이며 검증 시간이 추가된다.
+  초기 로그는 성공 증거가 아니고 최종 들어올리기/보간 성공은 아직 미확인이다.
+
+### 첫 C형 기준점의 Home 접근 검사 (2026-11-07)
+
+- 사용자 지적으로 첫 100 mm 기준점 `c-train-000-d100`의 **Home→목표 경로**를
+  별도 검사했다. 기존 `physics preflight`는 Home과 목표 각각의 정적 충돌 검사이며,
+  두 자세 사이의 접근 경로를 검증하지 않았다. 통과 결과를 접근 가능성으로 해석하면 안 된다.
+- 실제 Genesis에서 속도 한도를 지킨 단순 보간 경로는 0.44초에 제드 면으로 접촉하고,
+  0.46초부터 원기둥을 1 mm 이상 움직인다. 5.1초 재생의 최대 XY 이동은 **333.86 mm**이고
+  파지·들어올리기·유지는 실패했다. 이는 한 경로의 실패이며 모든 동작의 불가능 증명은 아니다.
+- 실제 mesh의 보수적 XY convex projection으로 원기둥을 고정한 네 축 RRT를 60초간
+  검사했으나 우회 경로를 찾지 못했다. seg1만 검사한 34,523셀 및 247,860셀 격자 모두
+  Home과 목표가 서로 다른 두 자유공간 성분에 속했다. q4는 seg1의 장애물을 해소할 수 없다.
+  유한 격자·탐색과 보수적 형상 근사이므로 연속 공간의 불가능성을 증명한 결과는 아니다.
+- **현재 첫 anchor는 Home 접근이 검증되지 않은 대상**이다. 이 결과를 RL 성능 문제만으로
+  해석하지 않으며, 다른 기준점·직경으로 일반화하지 않는다. 다음 선정에는 허용 면 접촉을
+  지키는 실제 Home 접근 경로 확인이 필요하다. 동적 접촉으로 원기둥을 옮기는 전략의
+  도달 가능성도 이번 고정 물체 기하 검사로 판정하지 않았다.
+- 독립 검사 모듈은 `research/analysis/`에 추가하여 실행 중 `hug_c` 소스 해시를 보존했다.
+  학습/경비와 Newton-Gym을 변경하지 않았다. 원자료와 MP4는 기존 v3 run 아래
+  `home-direct-approach/`에 수집했다.
+  [검사 범위·수치·증거 해시](../workbench/evidence/curated/planning/c_hug_home_approach_20261107.json).
+- 이후 사용자 지시로 같은 배치에서 실제 UI `Extend Arm` 목표만 재생했다. 프리셋은
+  linear −10 mm, roll 0°, q3/q4 0°이며, RL 제어 속도 한도로 2.2초 이동 후 1초
+  유지했다. 0.48초에 **gripper_base가 4.39 N으로 최초 접촉**하며 제드 면 접촉도
+  감지됐고, 원기둥 최대 XY 이동은 **105.55 mm**다. 따라서 이 기준점은
+  Home→Extend Arm 무접촉 준비 절차에서 제외해야 한다. 모든 접근 전략의 불가능성을
+  증명한 결과는 아니며, 학습 소스/프로세스는 변경하지 않았다. 독립 MP4·명령 NPZ와
+  보고는 기존 run의 `home-extend-arm/`에 수집했다.
+  [Extend Arm 측정 결과·재현 명령](../workbench/evidence/curated/planning/c_hug_extend_arm_20261107.json).
+
+### Standalone mapper 전개 충돌 기준 재계산 (2026-11-07)
+
+- 사용자 지시에 따라 `/home/user/ws/hugmap/mapper.html`에 실제 Home→Extend Arm
+  전개 충돌 envelope를 추가했다. 35 mm는 눕힌 노드의 반폭이며, roll 0°에서
+  전개하는 노드의 실제 반폭은 **44 mm**다. 최종 파지의 평면 충돌만으로 전개
+  가능성을 판단하던 누락을 보완한다. 기존 최종 자세의 1 mm 접촉 근사 허용과
+  보호 부품 간격은 `finalObjectCollision`에 유지한다.
+- 실제 URDF의 44개 충돌 형상(카메라 visual을 RL처럼 collision으로 포함)과
+  앱 Home/Extend Arm 매핑, 고정 Go2 다리 자세로 340구간을 계산했다. 부품별
+  전개 XY convex hull에 물체 반지름과 **1 mm + 0.04268 mm**를 적용한다.
+  0.04268 mm는 실제 체인 길이·총 관절 변화에서 얻은 표본 사이 곡률 보정이다.
+  외접 primitive 및 부품별 convex hull은 보수적이며 모든 접근의 불가능 판정이 아니다.
+- XY와 q 화면, 역함수 픽셀 보완, RL 함수 export가 같은 합성 판정을 사용한다.
+  회색 설명은 최종 자세와 Home/Extend Arm envelope를 구분하고 부품·signed gap을
+  표시한다. 제외 영역 체크박스는 표시만 바꾸며 판정을 끄지 않는다. 기존 DATA는
+  보존했고 출력은 계속 외부 라이브러리 없는 HTML 한 파일이다. 원본을 generated에
+  백업한 뒤 검증된 파일 SHA를 확인하여 지정 경로에 적용했다.
+- 관련 host 회귀 **19 passed**: 기존 최종 기하/허용 오차 유지, 실패 기준점 제외,
+  정상 대조군·지름 효과, 독립 FK의 표본 사이 포함, UI 프리셋 일치, XY/q/픽셀 및
+  RL forward/inverse 일치와 재생성 멱등성을 검사했다. 150 mm 두 밴드의 각
+  6,481,800각도 전수 scan·픽셀 보완도 invalid/lost=0이다. 이 scan은 Node Canvas
+  stub이며 실제 브라우저 rasterization 검사는 아니다. 브라우저가 설치되지 않아
+  실제 브라우저 검사는 실행하지 않았다. Canonical 개발 attachment/gates도 미실행이다.
+- 독립 GPU 물리 대조군 `(x,y)=(-113.313,177.586) mm, D=100 mm`은 3.2초
+  Home→Extend Arm 재생에서 물체 접촉/제드 면 접촉/fault가 없었다. 기존 실패
+  기준점은 새 기준에서 제외되며 실제로는 105.55 mm 밀림을 기록했다. 둘 다 이후
+  roll·감싸기·들어올리기를 검사한 것은 아니다. 기존 RL 자료를 새 기준으로 재선정하거나
+  새 학습을 시작하지 않았다. 실행 중이던 v3는 이후 자체 2000회 실패 게이트로
+  `finished-anchor-failures` 종료했고 다른 직경은 시작되지 않았다. Newton-Gym은 보존했다.
+- [재생성·가정·기준](research.md#mapper의-homeextend-arm-충돌-기준),
+  [형상·소스 SHA·검증 보고](../workbench/evidence/curated/planning/mapper_collision_20261107.json).
+
+### RL 삼각형을 전개 가능 영역에서 재선정 (2026-11-07)
+
+- 사용자 지시로 C형 RL 기준점 선정을 `preparation-clear-area-v2` 계약으로 변경했다.
+  목적은 계속 **새 유효 영역과 삼각형의 교집합 면적 최대화**다. 유효 영역은 최종
+  자세 CAD와 실제 mapper의 Home→Extend Arm envelope를 모두 통과해야 한다.
+  면적 동률이면 최소 전개 여유, 최악 μ, 삼각형 조건 순으로 선택한다. 삼각형 안의
+  제외 영역은 허용하지만 train/validation/test와 정확 XY 역함수에서는 매번 제거한다.
+- 전개 envelope가 없는 옛 mapper, 다른 모델/프리셋, 옛 삼각형 collection은 거부한다.
+  모든 후보/기준점/held-out 점에 전개 통과 여부와 여유를 저장한다. 기존 512환경,
+  Home 출발 네 축 자유 제어, q3/q4 힌트와 보상 v3, 5초 들어올림 유지·NPZ 경로
+  보간 계약은 유지한다. **정책에 Extend Arm이나 회전 시간표를 강제하지 않는다.**
+- 새 5직경 입력과 그림은
+  `workbench/evidence/generated/c-hug-ready-triangles-20261107/index.html`이다.
+  먼저 전개 envelope를 통과한 4,204개 후보 전체를 실제 GPU에서 Home/목표 검사하고,
+  100/125/150/175/200 mm에서 584/1211/1196/764/399개 통과 q 셀 중
+  57.99/72.83/74.50/67.81/64.65%를 덮는 세 기준점을 각각 선정했다. μ≤0.4,
+  총각 1° grid이며 연속 전역 최적성·성공률을 뜻하지 않는다. 총 15 train,
+  150 validation, 500 test를 생성했고 예시 pilot도 새 D150 삼각형으로 갱신했다.
+- 학습 전 실제 physics check는 이제 각 기준점에서 Home 유지, Home→Extend Arm
+  전개와 1초 settle, 별도로 직접 놓은 목표 자세를 검사한다. 전개 중 한 번이라도
+  로봇/물체 접촉, fault, XY 1 mm 초과 이동이 있으면 실패다. 과거 정적 ready 보고만으로
+  `train`을 시작할 수 없다. `collection check`로 다섯 직경을 학습 없이 검사할 수 있다.
+  이후 roll·감싸기·들어올리기 전체 경로는 이번 준비 검사로 보증하지 않는다.
+- 전개 envelope만으로 고른 첫 삼각형은 150/175/200 mm 각 한 점에서 실제
+  Home/목표 충돌 또는 물체 이동으로 실패했다. 실패 원자료를 보존하고, 후보 전체
+  물리 검사를 **삼각형 선정 전에** 적용하도록 `collection screen`과
+  `prepare --catalog-preflights` 경로를 연결했다. 단순히 실패 꼭짓점만 삭제하지 않는다.
+- 관련 host 회귀 **67 passed**이며 실제 GPU2의 재선정한 **15개 기준점 전부**
+  Home·전개·직접 배치 목표 검사를 통과했다. 전개 중 물체 접촉 tick은 모두 0이며,
+  최대 XY 이동은 0.552 mm(기준 ≤1 mm), Home/목표 fault·제드 면 위반도 없다. 소스 hash는
+  `318dd14f73fef42e9e46837a4efc0282f397c7fff57b1572a1b7ec94c7002d69`다.
+  상세 결과와 model/input SHA는 아래 선별 보고에 기록한다. 새 학습·optimizer
+  update는 실행하지 않았다. Newton-Gym은 보존했고 이전 실패 자료는 변경하지 않았다.
+  Canonical 개발 attachment/gates는 준비된 환경 부재로 미실행이다.
+  [선정·검증 보고](../workbench/evidence/curated/planning/c_hug_prepared_triangles_20261107.json),
+  [사용법](../workbench/research/experiments/hug_c/README.md).
+- 이후 사용자 시작 지시로 같은 검증 소스의 새 collection을 GPU2에서 실행했다.
+  첫 D100 study가 자체 전개 사전 검사도 통과했고 **512환경 PPO 32회 이상** 및
+  `model_0.pt` 생성을 확인했다. Collection PID/PGID `2329235`, study `2329239`,
+  첫 train `2329369`다. 새 삼각형의 첫 기준점은 q3/q4 `(-89.5,-162.5)°`이며,
+  이전 실패 policy를 resume하지 않았다. 100→125→150→175→200 mm 순차,
+  각 3기준점·최대2000회·500회마다 MP4/NPZ·3회 원본 재생과 실패 중단 규칙을
+  유지한다. 출력은 `workbench/evidence/generated/c-hug-ready-triangles-20261107`다.
+  Luna `luna_prepared_triangle_guard`에 읽기 전용 감시와 완성 영상/NPZ 수집을
+  인계했다. 초기 optimizer 진행은 파지·들어올림 성공 증거가 아니다.
+  [실행·PID·검증 기록](../workbench/evidence/curated/planning/c_hug_prepared_launch_20261107.json).
+- 이 실행은 첫 새 D100 기준점에서 **2,000회 평가도 실패**하여
+  `2026-11-07 04:07 KST`에 `finished-anchor-failures`로 자동 종료됐다. 시작부터
+  약 2시간 9분이며 나머지 기준점·직경은 학습하지 않았다. 500/1000/1500/2000회
+  평가 모두 파지·들어올림·유지 보상 0이며 1000회에는 fault도 발생했다. 마지막은
+  fault 없이 linear −173.33 mm, roll +90.10°, q3/q4 약 −180/+180°의 접은
+  자세로 시간 초과했다. 영상과 명령값상 물체를 잡는 동작을 얻지 못했으며, 이를
+  기하적 불가능성으로 해석하지 않는다. 네 평가의 MP4·policy/trajectory/verified
+  NPZ·report/replay 24개를 Luna가 로컬에 수집하고 원격/로컬 SHA를 확인했다.
+  현재 owned collection/study/train 프로세스는 없고 새 재학습은 실행하지 않았다.
+  [최종 평가 기록](../workbench/evidence/curated/planning/c_hug_prepared_result_20261107.json).
+- 사용자 영상 원인 분석 요청으로 기존 policy를 별도 1환경에서 다시 재생했다.
+  2000회 정책은 **9.1초부터 네 명령 한계에 포화**되고 마지막 raw action 평균은
+  `[-0.871,+1.030,-0.766,+0.702]`로 모두 한계 바깥을 향한다. 적용 증분은 네 축
+  모두 0이며 이 재생에서 proximal/distal 물체 접촉 tick은 0이다. 직접적인 정지는
+  물체에 걸린 것보다 정책의 한계 방향 요청이 clip되는 현상으로 확인됐다.
+  네 저장 평가 모두 q4가 양수여서 목표 C형 조건에 진입하지 않았다.
+- 학습 로그 2000개 출력에서 파지·들기·유지 보상은 모두 0, 표시 action std는
+  0.5→0.08이다. 단, 이 출력은 반올림된 batch 요약이다. 종료 potential을 0으로
+  정산하는 q shaping의 할인 합계는 실제 네 평가 모두 약 −0.3280404로 같았다.
+  이 shaping은 단기 진행 신호를 줄 수 있으나 정답 모방을 구현한 것은 아니다.
+  행동 벌점은 한계 clip 뒤 적용 증분에 붙으므로 한계 바깥 요청을 계속해도 그 항은
+  0이다. 희박한 양성 경험·동등한 실패 q 수익·값싼 포화 행동의 조합이 안전한 실패
+  정책으로 굳은 원인으로 보이며, 각 요인의 인과 기여를 분리한 재학습은 하지 않았다.
+  훈련 소스/설정과 Newton-Gym은 변경하지 않았다.
+  [정책 출력·접촉·보상 항등식 측정](../workbench/evidence/curated/planning/c_hug_policy_stall_20261107.json).
+
+### 함수 기반 C형 Home→들어올리기·q 보간 실험 — 이전 v2 이력 (2026-11-06)
 
 - `workbench/research/experiments/hug_c`에 새 외부 실험을 추가했다. 기존
   `hug_interpolation` 두-band 실험과 그 실제 결과를 보존한다. payload에는
@@ -81,12 +276,24 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   보존·정책 선택 게이트를 검사한다. 실제 다섯 직경의 함수점에서 XY 역산도
   확인했으며 동적 성공 증거는 아니다. 호스트에는 Torch/Genesis/tensordict/rsl_rl이
   없어 `check --physics`는 종료 2, `physics_tested=false`를 기록했다.
-  **수정된 네 축 방식의 GPU 물리 preflight·PPO·들어올리기·보간 검증은 미실행이며,
-  사용자의 새 시작 지시를 기다린다.** 원격 프로세스와 Newton-Gym은 이 수정 중
-  건드리지 않았다. Canonical required/extended/release gate도 이번 작업에서
+  코드 준비 단계에서는 수정된 방식의 GPU 실험을 시작하지 않았고, 이후 아래의
+  명시적 시작 지시로 실행했다. 들어올리기 성공과 경로 보간 성공은 아직 미확인이다.
+  Newton-Gym은 건드리지 않았다. Canonical required/extended/release gate도 이번 작업에서
   실행하지 않았다. 준비된 canonical 개발 환경이 없으며 현재 attachment 빌드
   미완료 상황은 상단의 설치 검증 기록을 따른다.
   [현재 코드·모델 해시와 직경별 준비 요약](../workbench/evidence/curated/planning/c_hug_four_dof_20261106.json).
+- 이후 사용자 `학습 시작. Luna한테 맡기고 자러가세요` 지시로 새 collection
+  `workbench/evidence/generated/c-hug-four-dof-20261106T080153Z`를 GPU2에서 실행했다.
+  다섯 직경 전체의 Home/목표 정적 검사에서 통과한 후보는 각각
+  **841/863, 1559/1577, 1572/1592, 1109/1140, 670/703**개다. 이 후보로 q 삼각형과
+  분할을 다시 생성했으며 이전 함수 전용 입력과 이전 run은 보존했다.
+  첫 100 mm의 세 기준점 physics preflight도 ready=true이며 실제 PPO update와
+  actor 22관측→4제어, critic 24관측을 확인했다. Collection PID/PGID는 `2284822`,
+  첫 study PID는 `2284831`이다. 512환경, 기준점당 최대 2000회, 500회마다 자동
+  MP4/NPZ·원본 재생 평가를 수행한다. 100→125→150→175→200 mm 순서이고 기존
+  실패 중단 게이트를 유지한다. `.git/c-hug-active-run.json`은 새 collection을
+  가리킨다. Luna `luna_four_dof_guard`가 읽기 전용 감시와 완성된 보고 영상/NPZ
+  수집을 인계받았다. 서버 Torch의 네 축 증분·500 tick 유지 계산도 통과했다.
 - 이전에는 사용자 승인으로 서버 `hckang@100.74.222.24:~/elesim`의 GPU2에서 실험을
   실행했다. 최초 run `c-hug-rl-20261106T060616Z`는 세 번째 꼭짓점의 Home/목표
   충돌로 사전 점검에서 중단했고 학습하지 않았다. 실패 결과와 당시 소스를 보존했다.
@@ -6109,3 +6316,845 @@ export parity and Genesis policy execution remain unrun on this host.
 NPZ-focused plus existing configuration/progress host regression suite: 64 passed.
 The unexecuted example configuration was regenerated under `home-ready-npz/`;
 the earlier generated inputs were preserved.
+
+### C-hug evolutionary PPO population — 2026-11-07 (not launched)
+
+- `hug_c/experiment train` defaults to an independent four-policy population;
+  `--strategy single` keeps the baseline. Total 512 rollout allocation is four
+  sequential 128-environment members sharing physics, not 512 concurrent robots.
+  Home, free four-axis actions, q-only hint, rewards and lift/hold remain unchanged.
+- `hug_c/population.py` adds stagnation-triggered single-member replacement,
+  checkpoint rewind, exploration-floor perturbation, output-bounded actor mutation,
+  niche-local strategy archives, physical admission checks, immutable generation
+  checkpoints/NPZ, historical champion publication, and complete-generation resume.
+  Novel safe approach strategies may survive weaker global fitness; PPO rollout
+  buffers and optimizers remain independent. Evaluation costs are counted separately.
+- Reviewed Bai et al. EvoRL survey (arXiv:2303.04150), original ERL, PBT,
+  PGA-MAP-Elites, Safe Mutations and the survey's Supe-RL comparison. References,
+  departures, descriptor bias, launch command and limitations are in
+  `workbench/research/experiments/hug_c/README.md`. This is a task-specific hybrid,
+  not a reproduced paper algorithm or evidence of escaping the observed stall.
+- Local focused host suite passed 65 tests with 3 Torch-dependent skips. The server's existing pinned Torch/rsl_rl CPU environment
+  passed all nine population checks, including real PPO on a synthetic environment,
+  mutation acceptance/rejection, NPZ export, multi-generation branching and resume.
+  No Genesis scene or GPU training was started; Newton-Gym was untouched. Canonical
+  development-container gates and a real Genesis population smoke remain unrun;
+  no generated development wrapper is available in this checkout and local Torch/
+  Genesis are absent. A fresh experiment and physics preflight are required by the
+  changed source digest before real training. Existing failed-run evidence is intact.
+
+### C-hug evolutionary PPO pilot launched — 2026-11-07 14:24 KST
+
+- User authorized execution. GPU2 UUID
+  `GPU-a40782b2-881c-e285-2a8e-66cae9162a01`, process/PGID `2368570`,
+  output `workbench/evidence/generated/c-hug-evolution-20261107T0518Z`.
+  Only D100 `c-train-000-d100` is being trained, from fresh initialization.
+  Four PPO members share 128 physics lanes sequentially, with 512 total rollout
+  allocation, 100 updates/generation and at most 2000 updates/member. The raw
+  train process stays resident throughout; no reporting-chunk runner reloads.
+- New code hash `7ae2b8dc88a1471e40844cbecea994c655a441991b8747122f067dde77ddc231`;
+  model remains `f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb`.
+  Fresh real-GPU Home/Extend/goal preflight passed all three D100 anchors.
+  A separate Genesis smoke completed one real PPO update, physical evaluation,
+  checkpoint and policy NPZ export for each of four members on 3 lanes/member.
+  This is pipeline evidence, not successful grasp/lift learning.
+- Added single-anchor study selection and atomic population phase/progress files
+  for operational monitoring. Focused host suite: 67 passed, 3 Torch skips.
+  Remote source was backed up before applying only the Hug research modules;
+  exact new source ZIP and manifests are saved with the run. No Git push was made.
+- Luna guard `/root/luna_evolution_guard` monitors the run, captures first-100 and
+  subsequent 500/1000/1500/2000-update policy videos, and collects artifacts.
+  Final replay/hold success remains to be evaluated. Newton-Gym was not changed;
+  its existing process `2292112` remains assigned to GPU1.
+- Launch audit: `workbench/evidence/curated/planning/c_hug_evolution_launch_20261107.json`.
+  Current pointer: `workbench/evidence/generated/c-hug-evolution/active-launch.json`.
+
+### C-hug report camera moved to the arm side — 2026-11-07 19:58 KST
+
+- The user reported cylinder occlusion in policy videos. The new report-only
+  `analysis.record_hug_video` entrypoint uses position `(0.85,-1.15,1.60)` m,
+  look-at `(0.35,0.05,0.40)` m and world Z up, viewing the arm from the opposite
+  side of the C-target cylinder. `analysis.watch_hug_population` now uses this
+  collector for future milestone videos. Camera metadata is stored in both the
+  trajectory diagnostics and report JSON; original videos are preserved.
+- The actual 500-update policy was recorded again on GPU2. Its 20-second video
+  was visually checked: the arm silhouette and separation from the cylinder are
+  visible. The 2,001 timed command samples, full collection measurements and
+  policy metadata match the original recording exactly (maximum command
+  difference 0). The recording changes presentation, not the failed grasp/lift
+  result. Downloaded MP4/NPZ/report hashes were verified. Artifacts:
+  `c-hug-concurrent-20261107T1025Z/server-reports/camera-review-00500/`.
+- Eight focused host tests passed for watcher reporting and recording cadence.
+  No host scientific dependencies were installed. Canonical container gates
+  remain unrun because this checkout has no usable generated development wrapper.
+- Only the idle report watcher was replaced: `2395904` → `2401099`, preserving
+  milestone completion records and the original remaining watch deadline.
+  Training PID `2395787` continued to 700 completed updates; Newton-Gym
+  `2292112` stayed alive. Task source SHA remains `b58659c11ba05c42c3d00ad0fe9f6e59fc82188762a11c84244b3bbc36a0d66b`.
+  No rewards, selection criteria, policies or experiment hashes were changed.
+  Audit: `workbench/evidence/curated/planning/c_hug_report_camera_20261107.json`.
+
+### C-hug reports independent of Codex login — 2026-11-07
+
+- Added `workbench/research/analysis/watch_hug_population.py`, outside the frozen
+  experiment digest, so video reporting survives the operator session. Reporting
+  process PID/PGID/SID `2371391` runs detached on the server and never changes or
+  restarts training. It polls every 60 seconds for 500/1000/1500/2000 milestones,
+  saves policy/video/trajectory reports and a final replay under the run's
+  `server-reports/`, and exits on training completion or an 8-hour reporting limit.
+- Original training PID `2368570` is unchanged. Tests: five host regressions pass
+  for PID identity, completed-generation selection, failed-grasp report handling,
+  replay errors and read-only polling. Remote `--once` probe passed; both detached
+  processes were confirmed alive from a separate SSH connection. Frozen Hug code
+  and reward settings were not edited for this change.
+- Luna completed and hash-verified the first 100-update video under
+  `guard-reports/updates-00100/`. It now observes/collects only; subsequent rendering
+  belongs to the server watcher to avoid duplicate GPU report jobs.
+- Evidence: `workbench/evidence/generated/c-hug-evolution-20261107T0518Z/server-watch-confirmed.json`.
+  Results remain on the server while the operator is logged out and can be
+  collected after reconnecting. No notification service was added.
+
+### C-hug next reward revision v4: time and compact footprint — 2026-11-07 (local only)
+
+- User requested stronger delay and workspace costs after reviewing 100/800-update
+  videos. Implemented next experiment schema v4, reward contract
+  `bounded-milestones-compact-workspace-time-v4`. Time is -0.3/s (was -0.1),
+  exempt only during a currently confirmed qualified loaded hold. Touching/rubbing
+  or a historical grasp does not exempt waiting. The 20-second limit and 5-second
+  physical verification are retained.
+- New `hug_c/workspace.py` uses actual collision-box corners of ten nodes and
+  three gripper links. Fixed convex XY envelope covers Home/goal plus initial
+  object footprint, with 50 mm allowance; squared excess cost caps at -0.2/s at
+  100 mm excess. Actual link poses are sampled every physics tick. Vertical lift
+  is exempt from this footprint preference; necessary detours remain possible.
+  It is not a new hard collision boundary or an approach-feasibility proof.
+- Policy steps now charge requested action effort at the existing coefficient,
+  closing the zero-cost blocked-command hole. Command-only replay explicitly
+  labels its action-cost lower bound. One-time/record milestone credits prevent
+  rubbing or repeated contacts from paying for delay.
+- Population schema v3 fixes the observed generation-modulo/stagnation lock by
+  choosing variation type with a persisted actual-attempt counter. Regression
+  interventions at 3/6/9/12 yield exploration/weights/rewind/exploration. Equal
+  task/approach progress also reports efficiency costs, consistently with the
+  next reporting selector.
+- Focused host tests: 73 passed, 5 Torch skips; reporting tests: 5 passed. Separate
+  server CPU process loaded proposed modules in memory and passed 15 geometry,
+  Torch effort, mutation and real-PPO synthetic/resume checks. No host dependency
+  installation, server source update, GPU scene or new training was performed.
+  Canonical development-container gates remain unavailable; the new physical
+  workspace integration still requires a fresh configure/Genesis preflight.
+- Kinematic audit of saved commanded poses estimates extra workspace costs
+  -0.57 (100-update best) versus -3.94 (800-update policy), with time -6 instead
+  of -2 for both failed 20-second rollouts. These are offline command estimates,
+  not newly measured physical returns or evidence of improved RL convergence.
+- Live GPU2 run `c-hug-evolution-20261107T0518Z` remains frozen at its original
+  source/reward contract; Luna/server watcher continue monitoring it. The new
+  code was not inserted mid-run. Audit:
+  `workbench/evidence/curated/planning/c_hug_efficiency_v4_20261107.json`.
+
+### C-hug v4 replacement launched — 2026-11-07 17:47 KST
+
+- User explicitly requested stopping the current run and restarting v4. Verified
+  exact process identity/group ownership before terminating old training `2368570`
+  and watcher `2371391`; old run had completed 900 updates/9 generations. Its
+  state, partial tenth generation, videos, checkpoints and 39-file exact training
+  source ZIP remain under `c-hug-evolution-20261107T0518Z`. Newton-Gym process
+  `2292112` stayed alive on GPU1 and was not changed.
+- New root `workbench/evidence/generated/c-hug-evolution-v4-20261107T0840Z`.
+  Code SHA `2a302ed3abd82dbdd4f33f3faaf50fa2f892358fcf05edeced4dda3ecd8a152a`;
+  model SHA `f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb`.
+  Fresh schema-v4 configuration passed actual GPU preflight for all three D100
+  anchors, plus a new four-replica footprint diagnostic: Home/goal excess 0 in
+  every lane; extended-pose excess 0.405066 m and cost fraction 1 in every lane.
+  The latter is direct-placement numerical evidence, not an approach proof.
+- Four-member real Genesis smoke completed one PPO update, physical evaluation,
+  checkpoint and NPZ export per member using the new costs. Main process/PGID/SID
+  `2384143`, started `2026-11-07T08:47:06.582152+00:00`, was confirmed detached
+  (PPID 1) and actually assigned GPU2 UUID
+  `GPU-a40782b2-881c-e285-2a8e-66cae9162a01` from a separate SSH connection.
+  Scope remains only D100 `c-train-000-d100`, fresh weights, four sequential
+  128-environment members, 20 generations/2000 updates per member.
+- Detached report watcher `2384249` records 100/500/1000/1500/2000-update videos
+  plus final replay for up to 12 hours, without Codex login. Luna guard was
+  redirected to new status/JSON/MP4 collection and does not start duplicate
+  renderer jobs. Both watcher and main process were confirmed alive. No new
+  grasp/lift success is established by startup checks.
+- Current pointer: `workbench/evidence/generated/c-hug-evolution/active-launch.json`.
+  Audit: `workbench/evidence/curated/planning/c_hug_efficiency_v4_launch_20261107.json`.
+  Previous canonical-container gates remain unrun; this launch adds real GPU
+  task startup evidence rather than general release/hardware acceptance.
+
+### C-hug permanent simultaneous population — 2026-11-07 19:29 KST
+
+- User requested four policies running together, and explicitly required the
+  same configuration for future launches. Population schema v4 now defaults to
+  `simultaneous-shared-physics`: one 512-environment scene, four disjoint 128-lane
+  PPO groups. `population_batch.py` combines four action blocks, advances physics
+  once and sends observations/rewards/dones/timeouts only to the owning learner.
+  Normalizers, buffers, optimizers and adaptive learning rates remain private.
+  Evaluation also advances all policies together and records each representative
+  path only through its own done. The training sample budget is unchanged.
+- Regression evidence: 80 host tests passed, 7 Torch skips. Fourteen server CPU
+  checks passed, including real PPO simultaneous rollout/resume and explicit
+  compatible-task migration. Additional real-PPO regression exercised immediate
+  rewind after transfer. Unit routing proves 3 updates x2 rollout steps call
+  physics six times rather than 24 while each learner receives its correct data.
+  No host dependency installation or canonical development-container gate was run.
+- Previous sequential v4 processes `2384143` / watcher `2384249` were stopped after
+  identity validation. Its 400 fully completed updates, four-policy continuation
+  checkpoints, optimizer states, staleness, archive, floors, historical champion
+  and one actual variation attempt were explicitly transferred. Partial later
+  generation evidence and exact old source remain in the previous run. No old
+  experiment hashes were rewritten. Fifteen transferred checkpoint files were
+  verified byte-for-byte against their originals; transferred champion NPZ has a
+  new context plus explicit original checkpoint hashes.
+- New root: `workbench/evidence/generated/c-hug-concurrent-20261107T1025Z`.
+  Source SHA `b58659c11ba05c42c3d00ad0fe9f6e59fc82188762a11c84244b3bbc36a0d66b`;
+  model remains `f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb`.
+  Actual GPU preflight passed; a 512-robot/four-policy real PPO smoke completed
+  simultaneous update/evaluation/NPZ export before launch. This is execution
+  evidence, not successful grasp/lift evidence.
+- Main `2395787` started at `2026-11-07T10:29:25.443830+00:00`, detached PPID1
+  and assigned the same GPU2 UUID. It inherits 400 updates and adds only 1600,
+  retaining the 2000-update target. At 10:31 UTC, progress showed all four policies
+  beyond 20 joint PPO updates with `physical_num_envs=512`. Each generation has
+  one shared `training_wall_s`; do not sum duplicated per-member wall durations.
+- Detached watcher `2395904` owns 500/1000/1500/2000 videos/final replay; Luna
+  monitors and collects without duplicate renderer jobs. Existing Newton-Gym
+  `2292112` remains alive on GPU1. Scope stays the first D100 anchor.
+- CLI defaults, `gpu2-next-study.json` and the task README now describe actual
+  simultaneous 512 robots. `--population-from` is explicit compatible sequential
+  migration; strict `--resume` is for an already-concurrent run.
+  Audit: `workbench/evidence/curated/planning/c_hug_concurrent_launch_20261107.json`.
+  Current pointer: `workbench/evidence/generated/c-hug-evolution/active-launch.json`.
+
+### Independent GA to BC to ordinary PPO setup — 2026-11-08
+
+Research-only `hug_ga.handoff` adds explicit verify-demo/bc/ppo entrypoints.
+Three successful Home action replays gate demonstration publication; matching
+case/context and valid finite data gate BC. BC trains the pinned actor with its
+normalization and exports actor-only Torch state plus standard policy NPZ.
+PPO creates a fresh critic/optimizer, verifies actor transfer and three nominal
+physical evaluations before updates, then uses one ordinary policy over 512
+lanes. Existing reward-v4 is preserved; evolution is not called. Final PPO is
+not automatically accepted as an improvement. No training run was launched.
+Five host tests passed; pinned server CPU synthetic BC reduced MSE from .3773
+to .1413, transferred deterministic actor outputs exactly, and exported NPZ
+within 2.4e-7 of Torch. Actual GPU pipeline remains untested pending successful
+GA data. Canonical development-container gates remain unrun (no usable generated
+wrapper); no host scientific dependencies were installed. New prepared inputs:
+`workbench/evidence/generated/hug-ga-d100-handoff-20261108/plan.json`.
+
+### GA population parade capture — 2026-11-08
+
+Independent GA now records every tenth evaluated generation as a caption-free
+1920x1080 MP4, 25 fps under current physics dt. A whole-population camera renders
+all lanes (default128) using actual visual environment offsets. Recording hooks
+physics ticks during evaluation; it does not rerun winners or alter fitness.
+The scoped scene factory preserves pinned hug_c physics source and only supplies
+visualization/camera options. Eight focused host tests passed, including cadence,
+all-grid framing and recorder cleanup. Pinned Genesis API was inspected remotely;
+actual GPU video rendering/search was not launched and remains unverified.
+Prepared source-matching plan: `workbench/evidence/generated/hug-ga-d100-parade-20261108`.
+Canonical development-container gates remain unrun (no generated wrapper).
+
+### First independent GA launched on GPU2 — 2026-11-08 19:39 KST
+
+- User authorized GA execution and discussion after completion. Scope is the
+  first100mm C-hug anchor `c-train-000-d100`, starting at the real Home,128 distinct
+  candidate paths in one actual physics batch, six knots, at most100 generations
+  (12,800 candidates). Stop after the first successful generation. BC/PPO do not
+  start automatically. Existing task/reward source remains frozen at b58659c11.
+- Actual128-lane GPU physics and raw MP4 smoke passed. The first visual layout
+  left too much unused frame, so presentation now uses1.8m drawing spacing and
+  eight world-Y slots, with exact frustum fitting for a landscape16x8 view. This
+  changes no lane physics poses. Final launch preview was visually inspected.
+  The launch has an exact GA source ZIP and file SHA inventory. Focused host
+  tests remain8 passed; no new host dependencies or canonical wrapper gates.
+- GA source SHA `74487b99882e36721ad244d4ca2e6565906abcec8730ec345d78013f34a1c528`.
+  Root: `workbench/evidence/generated/hug-ga-d100-20261108T103534Z`.
+  PID/PGID/SID2472536 started at10:39:40UTC (19:39:40KST), PPID1, using GPU2 UUID
+  `GPU-a40782b2-881c-e285-2a8e-66cae9162a01`. Confirmed in actual nvidia-smi
+  compute-process list and process environment. GPU0/1 jobs were not touched.
+- First generation completed in34.65s after14.21s initialization. No successes:
+  111 forbidden-contact/limit cases,11 wrong-face cases and6 safe no-grasp cases.
+  Second generation was active. Single-generation extrapolation is about58min
+  for100 generations before unknown parade overhead; not a measured final ETA.
+- Every tenth evaluation records a caption-free parade MP4. Progress now writes
+  generation/elapsed time, rejection counts and a recent-generation ETA; until
+  the first parade its rendering overhead is uncertain. Detached completion
+  records distinguish success-found, budget-exhausted and exceptions.
+  Audit: `workbench/evidence/curated/planning/hug_ga_gpu2_launch_20261108.json`.
+  Pointer: `workbench/evidence/generated/hug-ga-active.json`.
+
+### Independent GA found its first successful candidate — 2026-11-08 19:48 KST
+
+The GPU2 run ended normally with `success-found` at generation14, after1,792
+candidate evaluations and520.50s including initialization. Zero-based candidate124
+in `search/generation-0013` passed the existing task criterion at19.8s: grasp,
+lift and hold fractions1; fault=false; wrong-face-any=false. This is a batched
+search success, **not yet an independently replay-verified demonstration**.
+No BC/PPO or follow-on search was launched. Generation10 parade MP4 plus the
+successful generation's genomes, commands, rollouts and reports were copied
+locally with SHA verification. Pointer `hug-ga-active.json` now reports finished.
+Audit: `workbench/evidence/curated/planning/hug_ga_first_result_20261108.json`.
+The earlier approximately one-hour estimate was a maximum-budget extrapolation;
+early success stopped the actual run after about8min40s.
+
+### Candidate124 single-scene video — 2026-11-08 20:23 KST
+
+At the user's request, `analysis.record_ga_candidate` replayed exactly the198
+saved actions of generation14 candidate124 in a separate one-lane GPU2 scene.
+The raw arm-side video was downloaded, SHA-verified and visually inspected.
+Single replay accepted=true: grasp confirmed, hold5.08s, minimum bottom clearance
+48.93mm, max gripper-relative slip8.08mm, contact coverage1, fault=false and no
+wrong-face exposure anywhere in the episode. The cylinder is visibly tilted;
+this records existing criterion success, not an upright-object requirement.
+One replay does not satisfy the three-repeat demonstration gate or establish
+robustness. No further GA, BC or PPO ran. Frozen GA/task source digests preserved.
+Video: `hug-ga-d100-20261108T103534Z/candidate-124-video-20261108T112228Z/candidate.mp4`.
+Audit: `workbench/evidence/curated/planning/hug_ga_candidate124_video_20261108.json`.
+
+### GA and RL now require the full90-degree raised pose — 2026-11-08
+
+- User requested final90-degree lift in both GA and RL. Confirmed canonical
+  convention in legacy Wrap lift config: wrap at roll-90°, lift back to roll0°.
+  New defaults require actual measured roll0° ±5° for the entire five-second
+  loaded hold, alongside clearance>=20mm, no floor contact, C posture, contact
+  coverage and retention. Roll leaving tolerance resets the window. Home/motion
+  actions remain free; no timeline or fixed intermediate deployment was added.
+- Shared HoldTracker enforces the final pose; RewardLedger caps lift progress by
+  min(clearance progress, roll progress), and gates hold/success/time exemption
+  on raised roll. Existing reward coefficients are unchanged. GA uses these same
+  progress/success metrics, reports roll error/posture status and seeds solver
+  grasp then raised roll0 knots without forcing mutation to keep that schedule.
+- Current experiment schema5, policy schema4, control mode
+  `policy-four-dof-home-lift90-v4`, reward-v5. Old partial-lift experiments,
+  policies and context-mismatched demonstrations are rejected for new runs.
+  Original candidate124/video/results and exact40-file prior task source ZIP
+  remain preserved locally and remotely. No old success record was relabeled.
+- Focused host tests:91 passed,7 Torch skips. Added regressions for original
+  winner's -55° roll rejection, both tolerance boundaries, timer reset/restart,
+  height independence, full-reward/time exemption rejection at partial roll,
+  GA seed construction and legacy artifact rejection. Actual pinned server CPU
+  NumPy/Torch tests agree: old roll has0 hold ticks and no hold/success credit;
+  roll0 reaches500 hold ticks and succeeds. This is numeric software evidence,
+  not a new physical success or robustness validation.
+- Source change and fresh inputs were applied to the server after confirming no
+  Hug processes were active and matching original source hashes. Fresh prepared
+  experiment/GA plan live under `workbench/evidence/generated/hug-ga-lift90-20261108`.
+  Task SHA `5e62f15239711d6e883bc2d6cd449fe8c535a47d2952490ce22a4006cd889684`.
+  No GA search, BC or PPO started. Canonical development-container gates remain
+  unrun because there is no usable generated wrapper; no host deps installed.
+  Audit: `workbench/evidence/curated/planning/hug_lift90_condition_20261108.json`.
+
+### Full90-degree lift GA started — 2026-11-08 20:39 KST
+
+User explicitly requested another GA run after the final-roll condition change.
+Root `workbench/evidence/generated/hug-ga-lift90-20261108`, PID/PGID/SID2475925,
+started11:39:19UTC. Confirmed PPID1, running state, actual GPU2 compute assignment
+and CUDA UUID `GPU-a40782b2-881c-e285-2a8e-66cae9162a01`. Scope remains firstD100
+anchor,128 simultaneous candidates, six knots,100-generation maximum and raw
+parade videos every10 generations. Success-found stops search; BC/PPO do not
+start. Criterion is loaded clearance plus roll0±5° for five seconds. Source
+snapshots and hashes are preserved in the run root; other GPU jobs untouched.
+At initial verification, generation0 evaluation was active without exceptions.
+GA SHA `35f3065776fe006c7710cf3a6f09fa3878a1932f3fcde0ca1210e2120ec5d4ab`;
+task SHA `5e62f15239711d6e883bc2d6cd449fe8c535a47d2952490ce22a4006cd889684`.
+Audit: `workbench/evidence/curated/planning/hug_ga_lift90_launch_20261108.json`.
+
+### Full90-degree GA found a successful candidate — 2026-11-08 21:31 KST
+
+The second GA ended normally with success-found at generation84, after10,752
+candidate evaluations and3,131.39s (52min11s) including initialization/video.
+Zero-based candidate22 in `search/generation-0083` passed the full lift90 criterion
+at18.5s: grasp/lift/hold fractions1, posture complete, final roll error.0659569rad
+(3.78deg), fault=false, wrong-face-any=false. This is one batched search success;
+independent single-scene replay and three-repeat demonstration verification have
+not run. No BC/PPO followed. The winner's genomes/commands/rollouts/reports and
+80th-generation parade were retrieved with matching SHA; eight parades10..80
+exist on the server. Pointer `hug-ga-active.json` now records finished.
+Audit: `workbench/evidence/curated/planning/hug_ga_lift90_result_20261108.json`.
+
+### Lift90 candidate22 recorded alone — 2026-11-08 22:06 KST
+
+User requested the winning candidate video. The existing single-candidate helper
+replayed exactly185 saved actions in a separate GPU2 scene and recorded raw RGB.
+Single replay accepted=true: full lift posture with roll error3.78deg, continuous
+hold5.04s, minimum floor clearance474.88mm, hand-relative slip8.41mm, contact
+coverage1, no fault and no wrong-face exposure. Video was downloaded, SHA-verified
+and visually inspected: the arm encloses and rotates the cylinder into the
+raised position. This is one nominal replay, not three-repeat approval or
+robustness testing. No GA/BC/PPO started. Artifacts are under
+`hug-ga-lift90-20261108/candidate-22-video-20261108T130513Z/`.
+Audit: `workbench/evidence/curated/planning/hug_ga_lift90_candidate22_video_20261108.json`.
+
+### GA-only 50mm horizontal object-motion constraint started — 2026-11-08 22:39 KST
+
+- User selected a strict50mm test to investigate whether large object dragging
+  is necessary. Added optional `prepare --max-object-xy-mm` in plan schema2.
+  The only new selection condition is initial-relative world-XY centre excursion:
+  >50mm at any10ms physics tick disqualifies permanently, even if the object
+  returns. Height, object orientation and accumulated travel are excluded.
+  Tracking freezes after lane termination; evaluation stops that lane at the
+  next macro boundary. Reports record peak distance and first violating tick.
+- GA success/fitness cannot rescue a violating candidate. Constraint metadata
+  persists into rollouts, independent demonstration replay and BC provenance;
+  BC refuses mixed constraints. Single-candidate video honours source constraints
+  and permits a stricter counterfactual bound. PPO reward/settings were not changed.
+  Same Home, D100 first anchor, seed42, six knots,128 candidates,100 generations,
+  20s episode, full90-degree lift and5s hold; parades remain every10 generations.
+-26 focused host tests passed. Actual pinned server NumPy/Torch checks confirm
+  permanent transient rejection and vertical-motion exclusion. Prior successful
+  candidate22 replayed with50mm cap is rejected at tick1061 (10.61s); next macro
+  boundary peak58.30mm. The truncation reward is not a complete-episode PPO score.
+  Counterfactual video/report were downloaded and SHA-verified.
+- New root `workbench/evidence/generated/hug-ga-xy50-20261108T133605Z`.
+  Main PID/PGID/SID2484281 began13:39:12UTC (22:39KST), PPID1, verified on GPU2
+  UUID `GPU-a40782b2-881c-e285-2a8e-66cae9162a01`. At first check2 generations /
+  256 candidates had completed; no admissible candidate yet (second generation:
+  104 motion-limit,24 forbidden-contact/limit). Search continues; this is not an
+  impossibility result. No automatic BC/PPO or reward changes. Other jobs untouched.
+- Task code SHA stays5e62f15239711d6e883bc2d6cd449fe8c535a47d2952490ce22a4006cd889684;
+  GA SHA a4eba37d43088d528ed2cddf98563d5922c9069e36455945fdcc05eababedf0d.
+  Old GA sources archived before server update; exact new launch source saved.
+  Audit: `workbench/evidence/curated/planning/hug_ga_xy50_launch_20261108.json`.
+  Canonical dev-wrapper gates remain unrun (no usable generated wrapper); no host
+  scientific dependencies installed. GPU startup evidence covers the new monitor.
+
+### 50mm-constrained GA exhausted its budget — 2026-11-08 23:40 KST
+
+The50mm experiment completed100 generations /12,800 candidate evaluations in
+3,649.25s (60min49s), ending normally with budget-exhausted, returncode1 and0
+successful candidates. Best admissible lineage appeared at generation94,
+candidate31, carried into final generation candidate0: confirmed grasp, peak
+object XY displacement47.894mm, lift progress.415068, final roll error.955501rad
+(54.75deg), no qualified hold, no fault/wrong-face/movement violation. This is a
+bounded search failure for one seed, not proof that50mm makes the task physically
+impossible. All ten parades10..100 exist. Best lineage data and final parade were
+copied locally with matching SHA. No BC/PPO or follow-up search launched.
+Audit: `workbench/evidence/curated/planning/hug_ga_xy50_result_20261108.json`.
+Pointer `hug-ga-active.json` now records finished.
+
+### 50mm GA generation-progress audit — 2026-11-09
+
+Read all100 generation reports (12,800 evaluations) at the user's request to
+assess whether more generations were likely to help. First admissible grasp /
+loaded-lift progress at generation24 (.223322), then .245251 at34, .377313 at52,
+and .415039 at77. The generation94 record is .415068: only .000028789 additional
+progress and final-roll error54.76246→54.74620deg (0.01626deg improvement).
+Every admissible candidate's qualified hold progress remained0 through100.
+Thus the last23 generations were effectively a plateau in task-level progress;
+the trace provides weak support for a small unchanged-budget extension. This
+is a single-seed diagnosis, not proof no later breakthrough can occur. No new
+search, physics rollout or training launched. Raw history and progress audit
+saved under the50mm run root; compact evidence:
+`workbench/evidence/curated/planning/hug_ga_xy50_progress_20261109.json`.
+
+### GA 50mm cutoff now exempts airborne motion — 2026-11-09
+
+At the user's request, changed code only; no new GA/search, physics replay, BC
+or PPO started. New `hug-ga-object-motion-v2` contracts check initial-relative
+XY displacement at every physics tick only while grounded. Airborne means no
+loaded floor contact and positive oriented-cylinder bottom clearance; the final
+raised roll is not required for exemption. Landing reactivates the same initial
+reference. A prior grounded violation remains permanent after lift or return.
+Reports/rollouts distinguish overall peak XY displacement from its grounded
+peak. Independent demonstration verification and single-candidate recording use
+the same tracker. Historical v1 constraints retain whole-episode semantics,
+including on stricter numeric replay overrides; old results are not relabeled.
+PPO rewards, the shared lift90 task, full-lift/hold requirements and other fitness
+rules are unchanged. Fresh source-pinned plans are required for a future run.
+
+Focused host tests:31 passed, including airborne exemption, landing, permanent
+ground violation, independent peak tracking, conflicting floor/clearance evidence
+and legacy scope. Server CPU NumPy/Torch checks also passed, including the actual
+physics-tick monitor callback chain and restoration on normal/exception exit;
+Genesis was not imported and no physical rollout ran. Updated six scoped server
+files after checking all46 prior launch source hashes and no active Hug process;
+pre-edit sources were archived in the completed run root. The40 shared task files
+remain identical. GA SHA
+`ddcdecee025e3ff4e23cc074c80e9b7db6256a10b4c22b7ea4bba2ec8e2258d0`;
+task SHA stays `5e62f15239711d6e883bc2d6cd449fe8c535a47d2952490ce22a4006cd889684`.
+Canonical container gates remain unrun because no usable generated development
+wrapper is available; no host dependencies installed. No fresh plan or active
+run pointer was created. Audit:
+`workbench/evidence/curated/planning/hug_ga_ground_only_20261109.json`.
+
+### Ground-only50mm GA started on GPU2 — 2026-11-09 00:37 KST
+
+User authorized execution after the airborne-exemption code report. Prepared a
+fresh plan under `workbench/evidence/generated/hug-ga-ground50-20261108T153727Z`
+from the same validated lift90 experiment, with v2 ground-contact-only50mm
+constraint, D100 first C anchor, Home start,128 distinct simultaneous candidates,
+six knots, seed42 and100-generation maximum. Full roll0±5deg loaded5s hold remains
+required. Raw whole-population parades are recorded every10 generations.
+
+PID/PGID/SID2490977 began15:37:27UTC, is detached with PPID1 and was confirmed
+running on actual GPU2 UUID `GPU-a40782b2-881c-e285-2a8e-66cae9162a01` (1074MiB).
+At15:38:21UTC,2 generations /256 evaluations had completed and generation3 was
+active. No admissible success yet; these initial grounded evaluations match the
+old seed's early behavior. Both source digests match the preceding code-change
+audit. Exact46-file launch-source ZIP, hash inventory, plan and startup evidence
+were copied locally. The previous whole-episode50mm run remains intact. Other
+GPU jobs were inspected only. No BC/PPO follows automatically.
+
+Luna monitoring was delegated per the user's standing request: read-only
+progress/error/completion checks and collection of already-recorded artifacts,
+without replay, job control or source changes. Active pointer:
+`workbench/evidence/generated/hug-ga-active.json`. Launch audit:
+`workbench/evidence/curated/planning/hug_ga_ground50_launch_20261109.json`.
+
+### Ground-only50mm GA exhausted100 generations — 2026-11-09 01:40 KST
+
+The run completed100 generations /12,800 evaluations in3,764.61s (62min45s),
+ending normally with budget-exhausted, returncode1 and no successful candidate.
+The GA process has exited. Best admissible lineage first appeared at generation94
+candidate31 and survives as final candidate0: grasp1, lift progress.4915168,
+qualified hold0, final lift-roll error.842443rad, no fault/wrong-face/motion
+violation. Overall XY displacement86.145mm versus grounded peak45.569mm confirms
+the airborne exemption admits this candidate. The previous whole-episode-cut
+best was.415068; this is improved progress, not a completed lift or feasibility
+proof. Progress was already.491363 by generation83, with only.000154 further
+improvement through the budget limit. Across the search845 admissible candidate
+evaluations had overall displacement>50mm while the grounded peak stayed<=50mm;
+these counts include lineage repeats, not distinct behaviors.
+
+All ten parades10..100 exist remotely. Luna copied terminal status/completion,
+final report/genomes/rollouts and the final existing parade locally under
+`hug-ga-ground50-20261108T153727Z/remote-terminal/`, with SHA checks. The active
+pointer is finished. No independent replay, further GA, BC or PPO followed.
+Other GPU jobs and the prior experiment remain untouched. Result audit:
+`workbench/evidence/curated/planning/hug_ga_ground50_result_20261109.json`.
+
+
+### XYD 입력 기반 역GA 프레임워크 (2026-11-09)
+
+- `workbench/research/experiments/hug_reverse_ga` 추가. Mapper 함수의 정확한 XY
+  역변환으로 C형 파지 q3/q4를 구하고, 그 자세에서 실제 Home까지 중간 자세와
+  시간을 진화시킨다. 삼각형 파일이나 기존 점군은 필요 없다. 기존 mapper의
+  정적 충돌/준비 동작 CAD 필터는 유지하며, 그 범위 밖을 탐색했다고 주장하지 않는다.
+- 128개체·100세대 기본값, 매 physics tick 실격 판정, Home 연속1초 확인,
+  성공/미완주/실격 순서의 선택, 10세대마다 무자막 영상, 성공 후 독립 준비/재생3회.
+  초기 솔버 파지가 불성립하면 `initial_grasp_invalid`로 탐색 전에 종료한다.
+- 로봇 전체 관절 q/qd와 물체 pose/velocity 및 접촉을 NPZ에 저장한다. 프로세스 내
+  완전 상태 복원을 비교 검증하며, 이후 curriculum은 초기 준비+역경로 prefix 재생으로
+  물체 상태까지 복원해야 한다. PPO 연결/검증된 reset pool은 별도 후속 작업이다.
+- Host 규칙/모의 admission·restore·실패 재검증 테스트 **23 passed**. 실제 mapper
+  `(x,y,D)=(-113.312708,177.585814,100)mm` 준비 실행이
+  `q3=-89.5°, q4=-162.5°, mu_min≈0.17658`을 재현했다.
+- 사용자 요청에 따라 **GPU 실행/원격 배포는 하지 않았다**. Host에는 Torch/Genesis가
+  없고 사용 가능한 generated dev wrapper도 없어 canonical gates와 실제 물리 admission,
+  Genesis snapshot restore, 영상 및 GPU 탐색은 검증하지 않았다. 성공 파지나 경로를
+  얻었다는 증거가 아니다. [실행 안내](../workbench/research/experiments/hug_reverse_ga/README.md).
+
+
+### 역GA GPU2 실행 (2026-11-09)
+
+- 사용자가 실행을 승인하여 `hug-reverse-ga-d100-20261109T050108Z`를 GPU2
+  UUID `GPU-a40782b2-881c-e285-2a8e-66cae9162a01`, PID2527763으로
+  분리 실행했다. 100mm 기존 XY, 128개체·최대100세대, 10세대마다 무자막 영상.
+- 초기 파지 **128/128 통과**, 마지막 유효 접촉49ticks, 최대 XY drift1.565mm.
+  완전 물리 상태 복원 검사와 첫2세대 실행을 통과했다. 확인 당시 성공0, clean0;
+  정답 경로/독립 재생 성공을 얻은 상태는 아니다. Luna가 읽기 전용으로 경비한다.
+- 첫 시도는 admission 후 reset에서 Torch inference tensor의 in-place 변경 오류로
+  종료됐다. 역GA tick의 `inference_mode`를 `no_grad`로 수정했다. 기존 조건·물리
+  파라미터는 유지하고 새 디렉터리로 재시작했다. Host **23 passed, 1 skipped**
+  (Torch 없음); 서버 실제 Torch CPU 회귀 검사 통과. 서버 pytest는 없어 설치하지 않았다.
+- 프로세스의 parent1 및 정확한 GPU UUID를 확인했고 기존 다른 GPU 작업은 유지했다.
+  초기 영상, 소스 ZIP/해시, 원격 시작과 진도 증거를 보존했다. BC/PPO는 실행하지 않았다.
+  [실행 기록](../workbench/evidence/curated/planning/hug_reverse_ga_gpu2_launch_20261109.json).
+
+
+### 역GA 첫 역경로 검증 완료 (2026-11-09)
+
+- 위 GPU2 실행은 **3세대,170.24s** 후 `reverse_path_verified`로 종료했다.
+  세번째 세대 candidate83의 솔버 파지→Home 경로는 **5.89s**이며 마지막
+  연속1s Home 정지 검증을 포함한다. 물체 최대 XY 이동39.188mm, 기울기1.611deg.
+- 별도 초기 준비 후 독립 재생3회 모두 각128/128 성공. 명목 조건에서 반복 확인한
+  결과이며 랜덤 물성/초기 상태 강건성 검사는 아니다. 첫 성공 시 종료하는 계획에 따라
+  100세대까지 돌지 않았다. 10세대 사열 영상 대신 초기 영상과 검증 영상3개가 남았다.
+- 완료 후 PID2527763 및 GPU2 compute 점유가 사라진 것을 확인했다. 다른 GPU 작업은
+  유지했다. Luna 경비도 완료 조건으로 종료했다. 역경로 NPZ는 서버에 보존되며 보고서와
+  대표 검증 영상을 로컬에 수집했다. 정방향 끌어안기/리프트 및 PPO reset pool 검증은
+  아직 수행하지 않았다. [결과](../workbench/evidence/curated/planning/hug_reverse_ga_result_20261109.json).
+
+
+### 역GA→PPO 역커리큘럼 코드 연결 (2026-11-09)
+
+- `workbench/research/experiments/hug_reverse_rl`에 `prepare/check/train/evaluate`
+  명령을 구현했다. 검증된 역GA 결과의 완전 물리 상태를 prefix replay로 재구성하여
+  snapshot bank를 만든다. 관절/물체의 속도를 보존하고, 부분 reset이 다른 lane을
+  변경하지 않는지 확인한다. 각 에피소드 보상 잠재값은 복원된 실측 q로 초기화한다.
+- 파지 상태에서 기존90도 리프트·5초 유지의 전체 성공을 먼저 학습하고, clean
+  frontier 성공률로 Home 쪽 reset 범위를 넓힌다. 기본70% 진출/20% 후퇴,512회
+  frontier 에피소드,80 control-step cooldown, 과거 구간20% 유지. 마지막에는 원래
+  물체 배치의 Home reset50%를 섞는다. 과거 epoch/easy 구간 성공 및 한 번이라도
+  ZED-side 접촉한 에피소드는 frontier 진출 근거로 사용하지 않는다.
+- 기본512 병렬의 일반 PPO이며 역GA 명령을 정책 action으로 강제하지 않는다.
+  기존 q3/q4 힌트·상벌점·자유4축 제어는 유지한다. 체크포인트마다 커리큘럼
+  frontier/window/cooldown/RNG를 hash로 짝지어 저장·복구한다. actor NPZ 및 원래
+  Home에서의 명시적 평가/영상 명령을 추가했다. 과거 C-hug/GA 소스는 수정하지 않았다.
+- Host **48 passed,6 skipped**(Torch/tensordict 없음). 서버 CPU Torch 검사5개
+  통과: 실측 reset·물체 속도, 종료 전 성공 집계, 과거 잘못된 접촉, 실제 모델 생성,
+  실제 체크포인트 저장·재개. optimizer update는0회다. 실제 GA 입력의 portable
+  계획 생성/로컬 재로딩을 확인했다.
+- GPU2의 **2환경·21시작점**에서 prefix replay/full-state restore/1tick 접촉검사/
+  nominal Home/부분 reset 검사를 통과했다. CPU replay는 quaternion 차이
+  0.00030468>0.0001로 거부됐으며 기준은 완화하지 않았다. 원본과 같은 GPU
+  환경에서 통과했다.512환경 bank 및 학습은 실행하지 않았으며, train 때 요청한
+  병렬 수로 bank를 다시 구축·검증한다.
+- **PPO 학습은 시작하지 않았다.** 최종 nominal Home 파지·리프트 성공은 여전히
+  학습/평가 대상이다. generated dev wrapper와 host 과학 스택 부재로 canonical
+  gates는 미실행. [실행 안내](../workbench/research/experiments/hug_reverse_rl/README.md),
+  [검증 기록](../workbench/evidence/curated/planning/hug_reverse_ppo_codecheck_20261109.json).
+
+
+### Go2 leg PD snapshot reset correction (2026-11-09)
+
+PPO PID2532049 was stopped at user request. Genesis snapshot reset clears control
+modes; reverse GA had restored only arm control, and the first PPO adapter
+intentionally copied that faulty condition for path bins. This is corrected by
+`restore_leg_hold`: reissue the configured standing position target after every
+reverse GA and PPO snapshot restore, including selected environment IDs. No
+joint teleport or velocity zeroing is added. Old path/plan hashes now mismatch
+and require fresh reverse GA verification. Tests cover full/subset PD commands.
+Live corrected replay and training have not been launched; existing logs and
+checkpoints remain preserved.
+
+
+### 다리 PD 복구 후 역GA 재실행·영상 완료 (2026-11-09)
+
+- 사용자의 서버 재실행/직접 감독 지시로 GPU2에서
+  `hug-reverse-ga-legpd-20261109T074421Z`를 실행했다. 같은100mm 좌표,
+  128개체·최대100세대. parent가 직접 상태와 결과를 확인했으며 경비 위임은 없었다.
+- **3세대·239.66s**에 `reverse_path_verified`. 성공 후보3개 중 winner83의
+  명목 경로5.89s(마지막1s Home 확인 포함), 물체 최대XY36.804mm/기울기3.167deg.
+  새 초기 준비 후 독립 재생3회 모두128/128 성공.
+- 조기 성공해도 최종 탐색128개체 사열을 별도로 녹화하도록 추가했다.
+  사열1920×1080·20s, winner 단독960×720·5.92s를 수집·화면 확인했다.
+  winner 단독 재생도 성공했고, 다리 최대속도0.001327deg/s, 최대 목표각 오차
+  0.3102deg로 자세 유지가 확인됐다. 다리 위치/속도를 강제로 덮어쓰지 않는다.
+- 초기 자동 SSH 승인 검사1회가 시간 초과됐고 허용된 재시도로 복구했다.
+  서버 계산은 그동안 독립적으로 정상 완료했다. 최종 GPU2 compute 작업 없음.
+  PPO는 재시작하지 않았다. 이전 다리 제어 오류 조건의 경로·계획을 재사용하지
+  않으며 다음 PPO는 이 새 역GA로 계획/bank를 다시 만들어야 한다.
+- Host focused24 passed,1 skipped(Torch 없음), 실제 GPU 역GA·독립 재생·영상
+  검증 완료. [실행/영상 증거](../workbench/evidence/curated/planning/hug_reverse_ga_legpd_result_20261109.json).
+
+
+### 수정된 역GA 기반 PPO 재시작 (2026-11-09)
+
+- 사용자의 학습 시작 지시로 GPU2에서
+  `hug-reverse-ppo-legpd-20261109T144613Z`를 PID2554799로 분리 실행했다.
+  기존100mm C형 좌표,512환경·2000업데이트의 일반 PPO다. 다리 PD를 복구한
+  최신 역GA로 새 계획을 생성했으며 이전 오류 조건의 체크포인트는 재개하지 않았다.
+- 512환경에서21개 시작점의 prefix replay/full-state restore/접촉 probe와
+  original Home/부분 reset 검증을 통과했다. 실제 PPO 업데이트 진행을 확인했다.
+  파지 근처에서 전체 리프트·5초 유지를 먼저 배우고 성공률로 Home까지 확장한다.
+  q3/q4 힌트와 기존 reward-v5, 자유4축 제어를 유지한다.
+- 별도 report-only 도구로 체크포인트를 검증·NPZ export하여 frontier와 원래
+  Home 영상을 찍는다. 모델0의 실제 영상2개 생성으로 GPU 경로를 확인했다.
+  이는 초기 모델 시연이며 학습 성공 증거가 아니다. 서버의 detached watcher
+  PID2555447이100/500/1000/1500/final 영상 및 최종 original-Home 평가3회를
+  수행한다. Luna는 읽기 전용 경비만 담당한다. Newton-Gym/다른 GPU 작업은 유지했다.
+- Host PPO focused25 passed,5 skipped(Torch/tensordict 없음), 소스 hash 일치,
+  실제512환경 상태 검증과 학습·초기 영상 검사를 완료했다. Canonical dev/release
+  gates는 generated dev wrapper 부재로 미실행. 학습 완료 및 Home 성공은
+  아직 미확인이며 [실행 기록](../workbench/evidence/curated/planning/hug_reverse_ppo_legpd_launch_20261109.json)을 따른다.
+
+
+### 역커리큘럼 PPO 최종 결과: Home 연결 실패 (2026-11-10)
+
+- 위 leg-PD 복구 실행은512환경·2000업데이트를 완료했다. 준비/검증 포함
+  elapsed8943.305s(약2시간29분), 명목 학습 스텝16,384,000개. 오류 중단이
+  아니라 학습 예산 완료이며 목표 성공을 뜻하지 않는다.
+- 최대 frontier index16, 최종15(전체 index0~20). 대략300회 이후15~16
+  경계에서 진출·후퇴를 반복했고 원래 Home reset 활성 단계에는 도달하지 못했다.
+  모델500/1000/1500/final의 단일 frontier 시연은 모두 성공했지만 Home은 실패했다.
+- 최종 모델의 frontier index15 시연은9.72s 영상으로 감싸기·리프트·5초 유지를
+  통과했다. 원래 물체 배치의 Home 평가3회는 **0/3**, 모두 physical fault로
+  종료했고 wrong-face 접촉은0회였다. 최종 original-Home 성공 목표는 미달성이다.
+  동일 명목 조건의 결정적 재생3회이며 랜덤 강건성 평가로 해석하지 않는다.
+- 보고 영상·NPZ 정책·최종 checkpoint/커리큘럼·평가 JSON을 로컬로 수집했고
+  최종 영상의 대표 프레임도 확인했다. 자동 영상 명령5개는 모두0으로 종료,
+  최종 평가 명령은 실패 결과를 나타내는1로 종료했다. 학습/watcher는 종료됐고
+  GPU2 compute 작업 없음. 다른 GPU 작업은 유지했다. Luna 경비도 완료했다.
+- reference index15는 물체 중심이 초기보다35.87mm 높고 vz+0.354m/s,
+  index16은 floor contact 상태라는 차이를 확인했다. 병목 원인 후보이며 아직
+  인과 검증은 없다. 동일 설정의 학습 연장보다 경계 커리큘럼 진단을 권한다.
+  [최종 기록](../workbench/evidence/curated/planning/hug_reverse_ppo_legpd_result_20261110.json).
+
+
+### 역커리큘럼 경계 진단·새 Home 연결 경로 검증 (2026-11-10)
+
+- 사용자의 경계 시험 지시에 따라 GPU2에서 기존 정책을 고정한712개 에피소드를
+  평가했다. 학습 업데이트0회이며 기존 PPO/task source hash는 그대로다.
+  `probe_reverse_boundary`와 `probe_reverse_bridge`는 보고용 research 도구다.
+- 500/1000회 정책은 reverse tick376까지 성공하고377부터 실패했다. 최종
+  정책은375까지 성공,376부터 실패했다. 10ms 샘플링으로도 날카로운 성공 경계가
+  확인됐다. 잡음 크기만 조절해377/400의 실패가 해결되지는 않았다.
+- reverse 경로상 시작점9개에서는 짧은 명령 연결 후 기존 정책에 인계하면
+  두 정책 모두 전체 과제를 성공했다. 원래 물체 배치의 Home에서는 같은 인계
+  자세 도달은 안전했지만 이후 정책이 실패했다. GA Home의 물체 위치가 원래와
+  약33mm 달라서 팔 자세만 같다고 같은 시작 상태로 볼 수 없었다.
+- 원래 Home/물체 배치에서 인계 자세의 linear/roll35개 조합을 탐색해 각 정책
+  14개 성공 후보를 찾았다. 선택한 명령은 linear−100mm,roll+0.1rad,
+  q3 total−81.4583deg/q4 total+105.6442deg. 기존 action rate로1.1s 접근 후
+  최종 PPO에 인계하면 총10.6s에 기존 감싸기/90도 리프트/5초 유지 과제를
+  완료했다. 이력/에피소드 시계를 인계 시 초기화한 별도 재생3회도 모두 성공했다.
+- 이력 초기화 전후 관절 q/qd와 물체 pose/vel6종 비교 오차는 모두0이다.
+  준비 구간의 물체 최대XY이동4.46e−9m, fault/wrong-face0. 111개 전체 물리
+  상태 프레임을 새 reset reference 후보로 보존했다. 새 인계점의 고정 정책
+  잡음 평가: noise scale0은32/32,0.25는32/32,1은31/32 성공.
+- 준비동작을 포함한 시연 성공이며 **Home부터 PPO만으로 학습된 정책은 아직
+  아니다**. 다음 수정안은 검증된 forward Home→handoff prefix를 새 reset bank로
+  재생하고, 기존 PPO를 명시적으로 warm-start하여 겹치는 출발 구간을 Home 쪽으로
+  확장하는 것이다. 실제로 그 접근을 학습하는지는 짧은 pilot으로 확인해야 한다.
+- 모든 GPU2 시험은 종료됐고 다른 GPU 작업은 유지했다. 원시 결과/영상/소스
+  기록을 수집하고 화면을 확인했다. Host focused29 passed,5 skipped(Torch/
+  tensordict 없음); GPU 물리 재생 검증 완료. generated dev wrapper 부재로
+  canonical dev/release gates는 미실행. RL 핵심 코드는 아직 수정하지 않았다.
+  [검증·수정안 문서](hug-reverse-ppo-boundary-study.md),
+  [수치 기록](../workbench/evidence/curated/planning/hug_reverse_boundary_study_20261110.json).
+
+
+### Home 접근 PPO·리프트 떨림 감점 코드와 검사 완료 (2026-11-10)
+
+- 사용자의 두 수정 지시에 따라 외부 실험 `hug_home_rl`을 추가했다. 검증된
+  nominal Home→handoff forward prefix를 재생해 전체 물리 상태 bank를 만들고,
+  인계점→Home 순서의 겹치는 출발 구간을 확장한다. 기존 actor/critic/관측 정규화는
+  엄격히 이어받고 최적화·커리큘럼은 새로 시작한다. 기존 frozen C-hug/역GA/
+  역PPO 소스 hash와 payload API는 변경하지 않았다. q3/q4 힌트·자유4축·기존
+  감싸기/90도 리프트/5초 유지 목표를 유지한다. 학습 에피소드에는 스크립트 접근이 없다.
+- 리프트·유지의 거친 명령 변화에는 실제 적용된 증분의 변화량을 축별로 정규화해
+  감점을 준다. 작은 보정 deadband, 처음 활성화 step 면제, 에피소드 최대1점
+  예산을 적용한다. 물리 tick에서 확인된 파지/5mm 부상으로 활성화되고, 접촉이나
+  roll 조건을 잠깐 벗어나도 종료까지 latch된다. 리프트 이전에는 적용하지 않는다.
+- Host focused59 passed,9 skipped(Torch/tensordict 없음). 서버 실제 CPU Torch/
+  RSL 검사4개 통과: NumPy 비용 일치·부분 reset·성공 집계·safe weights-only
+  warm-start와 새 최적화 상태/paired resume. 현재 구현 source hash는
+  `c7b12823ec137f40688ab52c4b5b7dc7cc62cfdca6fab4ba04df4dfa9228d8cf`.
+- GPU2에서2/512환경·23개 시작점의 prefix 재생/상태·속도 복원/접촉 및 부분
+  reset 후 미선택 lane의 다음 물리 tick 보존까지 통과했다. 초기 actor의 새 인계점
+  재생3/3 성공, smooth 감점은 매회0.734705/1점, 총 return44.2412였다. 초기
+  Home 재생은 예상대로 실패하고 smooth 감점0점으로 리프트 전 비적용을 확인했다.
+- 실제16환경 PPO1회 업데이트와 새 체크포인트에서 재개1회까지 검사했고,
+  커리큘럼 step16→32 재개 및 초기 actor/정규화 비교 오차0.0을 확인했다.
+  체크포인트→실행 가능한 NPZ export와 팔 쪽 영상 재생도 통과했다.
+- 검사용 PPO 업데이트는 총2회이며 **장시간 학습은 시작하지 않았다**. Home
+  접근 학습 성공이나 떨림 감소 성과는 아직 검증 대상이다. 모든 GPU2 검사 작업은
+  종료했고 다른 GPU 작업은 보존했다. 새 실험을 바로 실행할 계획/가중치는
+  `workbench/evidence/generated/hug-home-rl-codecheck-20261110/revision-2/plan`에
+  있으며 로컬/서버 `hug-home-rl-ready.json`이 준비 상태를 기록한다.
+- generated dev wrapper 부재로 canonical dev/release gates는 미실행이다.
+  [실행 안내](../workbench/research/experiments/hug_home_rl/README.md),
+  [검사 기록](../workbench/evidence/curated/planning/hug_home_ppo_two_changes_codecheck_20261110.json).
+
+
+### 임의 직경의 세 앵커 GA→RL→보간 전 과정 계획 (2026-11-10)
+
+- 사용자 요청으로 기존 triangle/collection/study, 역GA, Home-prefix PPO와 보간
+  코드를 조사하고 전 과정 구현 계획을 작성했다. 이번 단계는 계획만 수행했으며
+  새로운 학습이나 GPU 작업을 시작하지 않았다.
+- 핵심 누락은 선정한 q/root를 보존하는 GA 입력, 기존 PPO를 전제로 하지 않는
+  정방향 reference 검증·보정, Wrap 끝점에서의 cold-start lift→Home 커리큘럼,
+  새 정책에서 명령 경로를 수집·재생·phase 정렬하는 보간 연결부다. shared/case
+  context를 분리해 다른 세 앵커의 hash를 억지로 같게 만들지 않는다.
+- 계획은 새 repository-only coordinator에서 실패·예산·재개·캐시·GPU·영상까지
+  연결하고, 빈 디렉터리에서 새 D로 전체 과정을 확인하는 것을 완료 조건으로 둔다.
+  V1 보간은 기존 의도대로 q3/q4 가중치로 네 축 명령 경로를 섞는 것이며, 신경망
+  가중치 보간이나 새 닫힌루프 정책 생성으로 부르지 않는다.
+  [상세 계획](hug-ga-rl-pipeline-plan.md).
+
+## Hug workflow retirement — 2026-11-10
+
+Archived exact pre-edit bytes of 85 legacy Hug source/runbook files in local-only
+`workbench/archive/retired-hug-pipelines-20261110.zip`; all member hashes verified
+and recorded in the tracked archive inventory. Removed five obsolete standalone
+files (old reverse-PPO watcher/recorder, forward-GA candidate recorder, one-off
+Pilot diagnostic launcher, old GPU2 study preset). Marked five legacy workflow
+runbooks historical and added `workbench/research/experiments/HUG_WORKFLOWS.md`.
+Current entrypoints are reverse GA and Home PPO. Old Python implementations remain
+where imports, regression tests or recursive provenance digests require them;
+this is not a completed shared-library extraction. Raw evidence and regression
+assertions were preserved. No server changes or training runs.
+
+Verification: host tests for Home PPO, reverse GA, reverse PPO and bridge probes:
+83 passed, 1 skipped. Initial collection without the Sim package path failed;
+rerun with repository Sim/protocol PYTHONPATH passed. `git diff --check` passed.
+Canonical development-container and GPU gates were not run: no usable generated
+development wrapper is configured here; this source/document retirement does not
+establish new physics or learning results. Archive ZIPs are ignored and must be
+copied separately if historical uncommitted sources need off-machine backup.
+
+## Solver / reverse-GA / Home-PPO pipeline implementation — 2026-11-10
+
+User authorized implementation and GPU2 validation. Added repository-only
+`workbench/research/experiments/hug_pipeline` with plan/run/resume/status/resolve,
+immutable mapper inputs, exact solver-root anchor preservation, sequential worker
+processes, output-hash checks and paired training resume. References require
+policy-free physical forward validation/repair and three replays; cold PPO uses
+actual forward state snapshots and learns every action after reset, including
+Home-to-preparation. Policy, original command replay, retimed anchor and held-out
+interpolation have separate success gates. No release/runtime interfaces changed.
+
+Initial CPU regression: 102 passed, 1 skipped. Initial GPU2 v2 study exposed that
+old short static screening admits vertices without sustained two-segment grasp;
+those anchors were rejected by reverse admission (not treated as successful).
+The owned coordinator was interrupted and screening was strengthened in the new
+pipeline to require the same one-second settling/final 0.2-second proper Wrap
+admission before triangle selection. Old code/source-pinned experiments remain
+unchanged. New v3 study uses D100, 3-degree diagnostic sampling, 128 GA candidates,
+20 search generations, 512 PPO environments, and stops after reset-bank checks.
+This is a bounded engineering validation, not a published interpolation study.
+Live outcome will be appended below. No successful new Home policy is claimed.
+
+Pipeline follow-up: 152 host regression tests passed, 1 skipped; a separate
+Torch-only test is skipped on host. Server scientific Python passed the real
+cold-start optimizer/export/resume test (one initial and one resumed PPO update
+on a fake CPU VecEnv, explicitly not physics evidence). The v3 physical study
+screened 70 geometric samples down to 9 sustained-admission cases; its first
+anchor reverse GA succeeded in generation 3 and all three release replays.
+Forward replay reached the goal q but did not sustain both contacts. The owned
+v3 run was interrupted for an explicit lexicographic forward-selection correction:
+sub-tolerance q noise no longer outranks contact progress and object position.
+The v4 study reuses that exact verified reverse evidence without rewriting it,
+rechecks the physical catalog and performs new policy-free forward repair.
+At generation 5 it achieved both contacts for 0.09 s with final XY displacement
+about 1.287 mm, below the required 0.3 s continuous Wrap acceptance. This remains
+an in-progress physical test, not a successful Home policy or full pipeline proof.
+
+
+## Research publication and Git cleanup — 2026-11-10
+
+Prepared the maintained Hug solver/GA/Home-PPO pipeline, mapper tools, source
+packages, regression assertions and compact curated evidence for version control.
+The current portable mapper template now includes the CAD/preparation filters
+and total-angle q view used by the standalone page; triangle overlay sources and
+the idempotent builder are versioned. Generated DATA remains an external input.
+Raw NPZ/checkpoints/videos/logs and retired ZIPs stay directory-ignored; added
+`workbench/evidence/local/` for uncurated local notes and copies. No source or
+regression dependency folder is ignored merely because its CLI was superseded.
+
+Focused host Hug/mapper regression: 425 passed, 28 skipped, 10 subtests passed.
+The four HTTP tests initially could not bind a loopback socket in the sandbox;
+they passed when rerun with that permission. Broad unrelated research collection
+was unavailable with the limited host Pilot/Torch environment. Required/extended
+canonical, ROS and isolated-release gates were not run: the generated development
+attachment is unavailable and the host is not the scientific/ROS environment.
+No dependencies were installed. The mapper-specific follow-up passed 12 tests.
+
+The checkout's pipeline source hash still matches the running GPU2 v5 study:
+`72ce95230abc9c0107368fbd2c41ec26ab19f579639001eb2f9cc7a672ffa512`.
+First-anchor reverse and policy-free forward references passed three replays;
+512-environment/32-bin restores passed. Interim updates1000 and1500 each passed
+one unguided original-Home evaluation; final three-replay certification, the
+other two anchors and interpolation remain pending. Intermediate clearance may
+precede the delayed grasp-confirmation event in recorded traces; phase ordering
+is an explicit remaining alignment acceptance issue. Any normalization must
+produce separately replay-validated artifacts, preserving original provenance.
+The running training source has not been edited for this Git cleanup.
+
+Unrelated Connections/WSLg UI/setup implementation and matching test edits remain
+in the working tree and are excluded from this research commit.

@@ -1,0 +1,96 @@
+{
+  "schema": "hug-reverse-ga-result",
+  "schema_version": 1,
+  "launch": {
+    "name": "hug-reverse-ga-d100-20261109T050108Z",
+    "remote_root": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ga-d100-20261109T050108Z",
+    "ga_pid": 2527763,
+    "process_group": 2527763,
+    "command": [
+      "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+      "-u",
+      "-m",
+      "workbench.research.experiments.hug_reverse_ga.experiment",
+      "run",
+      "--plan",
+      "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ga-d100-20261109T050108Z",
+      "--backend",
+      "gpu"
+    ],
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "started_utc": "2026-11-09T05:01:35.493933+00:00",
+    "population": 128,
+    "target_generations": 100,
+    "parade_every": 10,
+    "input_xyD_mm": [
+      -113.3127080913172,
+      177.58581371059853,
+      100.0
+    ],
+    "goal_q_deg": [
+      -89.49999999999997,
+      -162.4999999922562
+    ],
+    "source_sha256": "7b75326db0eb5b40c3feec94b8f66a53bd23ce406569b01118e5d9d5fa61f1c0",
+    "direction": "grasp-to-home",
+    "automatic_ppo": false,
+    "local_root": "/home/user/ws/elesim/workbench/evidence/generated/hug-reverse-ga-d100-20261109T050108Z"
+  },
+  "completion": {
+    "status": "reverse_path_verified",
+    "generations_evaluated": 3,
+    "replays": [
+      true,
+      true,
+      true
+    ],
+    "elapsed_s": 170.2405079305172,
+    "automatic_ppo_launch": false
+  },
+  "best": {
+    "candidate": 83,
+    "success": true,
+    "rejected": false,
+    "first_violation_tick": -1,
+    "reasons": [],
+    "last_valid_error": 0.04758143356188218,
+    "valid_ticks": 589,
+    "duration_s": 5.89,
+    "home_window_s": 1.0,
+    "home_error": 0.04758143356188218,
+    "path_length": 3.932600803061942,
+    "peak_xy_m": 0.03918792219200201,
+    "peak_tilt_rad": 0.028116779664481856,
+    "object_contact_force_n": 0.0
+  },
+  "peak_xy_mm": 39.18792219200201,
+  "peak_tilt_deg": 1.6109728082740693,
+  "independent_replays": [
+    {
+      "replay": 1,
+      "successes": 128,
+      "population": 128
+    },
+    {
+      "replay": 2,
+      "successes": 128,
+      "population": 128
+    },
+    {
+      "replay": 3,
+      "successes": 128,
+      "population": 128
+    }
+  ],
+  "process_verification": {
+    "checked_utc": "2026-11-09T05:14:12.217775+00:00",
+    "alive": false,
+    "compute": "GPU-bfaeeedd-48aa-e675-4daa-17955c1769db, 2036331, 352 MiB\n"
+  },
+  "video": {
+    "path": "workbench/evidence/generated/hug-reverse-ga-d100-20261109T050108Z/run/verification-1/replay.mp4",
+    "sha256": "5faaf506af240b1106f11f03600ce0c1ec6b57800dca8d792a391163817b5cc6"
+  },
+  "validation_scope": "Nominal solver-grasp to Home release; no forward grasp/lift or validated PPO reset pool",
+  "note": "Three fresh nominal preparations; deterministic repeated lanes are not randomized robustness tests"
+}

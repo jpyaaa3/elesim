@@ -12,6 +12,7 @@ from workbench.research.experiments.hug_c.triangle import RasterArea,select,weig
 from workbench.research.experiments.hug_c.metrics import (
     cylinder_clearance, HoldTracker, local_link_index, position_offsets_mm)
 from workbench.research.experiments.hug_c.interpolate import interpolate
+from workbench.tests.research.experiments.hug_c_fixtures import preparation_contract,with_preparation
 
 
 def pilot(tmp_path):
@@ -20,8 +21,9 @@ def pilot(tmp_path):
                 diameter_mm=150,feature='side',root=-1) for i,q in enumerate(vertices)]
     cases.append(dict(cases[0],case_id='v',split='validation',q_deg=[-14,-106],xy_mm=[-110,310]))
     cases.append(dict(cases[0],case_id='t',split='test',q_deg=[-16,-108],xy_mm=[-115,315]))
-    data=dict(schema='elesim-c-hug-pilot',schema_version=1,source=dict(kind='mapper-function',point_data_used=False),
-              selection={'mu_max':.4},cases=cases,triangle={'branch':'test-chart','anchor_ids':['a0','a1','a2']})
+    for c in cases:c.update(preparation_passed=True,preparation_margin_mm=10.)
+    data=dict(schema='elesim-c-hug-pilot',schema_version=1,source=dict(kind='mapper-function',point_data_used=False,preparation=preparation_contract()),
+              selection={'mu_max':.4,'preparation_envelope_required':True},cases=cases,triangle={'branch':'test-chart','anchor_ids':['a0','a1','a2']})
     p=tmp_path/'pilot.json';p.write_text(json.dumps(data));return p
 
 
@@ -67,7 +69,7 @@ def test_cylinder_bottom_and_five_second_hold_require_actual_lifting():
     clear=cylinder_clearance(np.array([[0,0,.55],[0,0,.55]]),q,.075,1.1)
     np.testing.assert_allclose(clear,[0,.475],atol=1e-8)
     s=cfg.DEFAULTS;h=HoldTracker(4,s)
-    actual=np.tile([-.05,-.7,-.2,-.4],(4,1))  # final linear and roll are free, not fixed 0.
+    actual=np.tile([-.05,0.,-.2,-.4],(4,1))  # Linear remains free; final lift roll is zero.
     actual[3,3]=.2
     clearance=np.array([.03,0.,.03,.03]);floor=np.array([False,True,False,False]);fault=np.array([False,False,True,False])
     touch=np.ones((4,2));relative=np.zeros((4,3))
@@ -125,7 +127,7 @@ def test_q_interpolation_blends_all_four_free_commands(tmp_path):
     expected=sum(w*a.sample(result.times/14*a.times[-1]) for w,a in zip([.5,.2,.3],anchors))
     np.testing.assert_allclose(result.commands,expected)
     assert result.commands[-1,0]!=0  # No forced final deployment.
-    assert result.commands[-1,1]!=0  # No forced final lift-roll target.
+    assert result.commands[-1,1]!=0  # Final pose may lie anywhere inside the lift tolerance.
     assert not result.diagnostics['physics_validated']
     target['q_deg']=[-100,-100]
     with pytest.raises(ValueError,match='extrapolation'):interpolate(anchors,target)
@@ -145,7 +147,7 @@ function collisionGeometry(){return [];}
 function selfCollision(){return false;}
 function objectCollision(){return false;}
 function muLimit(){}'''
-    path=tmp_path/'mapper.html';path.write_text(html)
+    path=tmp_path/'mapper.html';path.write_text(with_preparation(html))
     result=prepare(path,step=10,validation=3,test=4)
     assert not result['source']['point_data_used']
     assert len(result['cases'])==10
@@ -182,7 +184,7 @@ def test_invalid_contract_is_rejected(tmp_path,change):
 def test_numpy_policy_uses_new_observation_contract(tmp_path):
     from workbench.research.experiments.hug_c.policy import NumpyPolicy
     n=len(cfg.OBSERVATIONS);p=tmp_path/'policy.npz'
-    arrays=dict(schema=np.asarray('elesim-c-hug-policy'),schema_version=np.asarray(2),action_names=np.asarray(cfg.ACTIONS),
+    arrays=dict(schema=np.asarray('elesim-c-hug-policy'),schema_version=np.asarray(cfg.POLICY_VERSION),action_names=np.asarray(cfg.ACTIONS),
                 observation_names=np.asarray(cfg.OBSERVATIONS),metadata_json=np.asarray('{}'),
                 norm_mean=np.zeros(n,np.float32),norm_std=np.ones(n,np.float32),norm_eps=np.asarray(1e-8),
                 n_layers=np.asarray(1),w0=np.ones((4,n),np.float32),b0=np.zeros(4,np.float32))
@@ -208,7 +210,8 @@ def test_offline_cli_creates_only_q_interpolation_candidates(tmp_path):
 
 
 @pytest.mark.parametrize('passes',[True,False])
-def test_study_trains_only_three_anchors_and_stops_on_failure(tmp_path,passes):
+@pytest.mark.parametrize('selected',[None,'a1'])
+def test_study_trains_only_three_anchors_and_stops_on_failure(tmp_path,passes,selected):
     from types import SimpleNamespace
     from workbench.research.experiments.hug_c.study import Study
     calls=[]
@@ -224,15 +227,18 @@ def test_study_trains_only_three_anchors_and_stops_on_failure(tmp_path,passes):
                 (directory/'verified.npz').write_bytes(b'unit-test copy fixture')
                 (directory/'policy.npz').write_bytes(b'unit-test policy copy fixture')
             return dict(success=passes,directory=str(directory))
-    args=SimpleNamespace(output=tmp_path/'study',pilot=pilot(tmp_path),settings=None,num_envs=256,iterations=2000,report_every=500)
+    args=SimpleNamespace(output=tmp_path/'study',pilot=pilot(tmp_path),settings=None,num_envs=256,iterations=2000,report_every=500,case=selected)
     study=StubStudy(args);result=study.run()
     trains=[a for stage,a in calls if stage=='anchor-train']
     if passes:
-        assert result==0 and len(trains)==3
-        assert {a[a.index('--case')+1] for a in trains}=={'a0','a1','a2'}
+        assert result==0 and len(trains)==(1 if selected else 3)
+        assert {a[a.index('--case')+1] for a in trains}==({selected} if selected else {'a0','a1','a2'})
+        if selected:
+            assert study.status['phase']=='finished-anchor-pilot'
+            assert not any(stage=='interpolate-validation' for stage,_ in calls)
     else:
         assert result==1 and len(trains)==4
-        assert all(a[a.index('--case')+1]=='a0' for a in trains)
+        assert all(a[a.index('--case')+1]==(selected or 'a0') for a in trains)
         assert not any(stage=='interpolate-validation' for stage,_ in calls)
 
 
@@ -243,6 +249,75 @@ def test_training_requires_real_matching_preflight_before_gpu_import(tmp_path):
     with pytest.raises(ValueError,match='preflight'):
         main(['train','--experiment',str(path),'--preflight',str(report),'--all','--runs',str(tmp_path/'runs')])
     assert not (tmp_path/'runs').exists()
+
+
+def test_static_only_successful_preflight_cannot_start_new_training(tmp_path):
+    from workbench.research.experiments.hug_c.experiment import main
+    exp=cfg.configure(pilot(tmp_path));path=tmp_path/'experiment.json';cfg.write_json(path,exp)
+    report=tmp_path/'preflight.json'
+    data=dict(ready=True,physics_tested=True,simulation_context=exp['simulation_context'],
+              case_ids=['a0','a1','a2'])
+    for fields in ({},{'preparation_tested':True,'preparation_ready':True}):
+        report.write_text(json.dumps(dict(data,**fields)))
+        with pytest.raises(ValueError,match='preflight'):
+            main(['train','--experiment',str(path),'--preflight',str(report),'--all','--runs',str(tmp_path/'runs')])
+    assert not (tmp_path/'runs').exists()
+
+
+def test_preparation_keeps_transient_contacts_and_faults():
+    from workbench.research.experiments.hug_c.preparation import PreparationTracker,commands
+    contract=preparation_contract();trajectory=commands(cfg.DEFAULTS,contract)
+    np.testing.assert_array_equal(trajectory[0],contract['home_command'])
+    np.testing.assert_array_equal(trajectory[-1],contract['extend_command'])
+    from workbench.research.experiments.hug_c.control import action_rates
+    assert np.all(abs(np.diff(trajectory,axis=0))<=action_rates(cfg.DEFAULTS)/cfg.DEFAULTS['action_ticks']+1e-10)
+    for contact,fault in [(True,False),(False,True),(False,False)]:
+        tracker=PreparationTracker([0,0,.55])
+        tracker.update(.5,[0,0,.55],contact,fault)
+        tracker.update(2.,[0,0,.55],False,False)
+        assert tracker.report(True)['passed']==(not contact and not fault)
+        if contact:assert tracker.report(True)['first_contact_s']==.5
+    tracker.update(3.,[.002,0,.55],False,False)
+    assert not tracker.report(True)['passed']
+
+
+def test_prepare_rejects_legacy_mapper_and_mismatched_envelope(tmp_path):
+    from workbench.research.experiments.hug_c.source import validate_preparation
+    legacy=tmp_path/'legacy.html'
+    legacy.write_text('const rot=()=>{};\nlet current=[];\nconst CONTACT_OVERLAP_TOL_MM=1;\nfunction muLimit(){}')
+    with pytest.raises(ValueError,match='preparation envelope'):prepare(legacy)
+    data=preparation_contract();data['model_sha256']='wrong model'
+    with pytest.raises(ValueError,match='preparation envelope'):validate_preparation(data)
+    path=pilot(tmp_path);data=json.loads(path.read_text());data['source'].pop('preparation');path.write_text(json.dumps(data))
+    with pytest.raises(ValueError,match='preparation envelope'):cfg.configure(path)
+
+
+def test_triangle_never_uses_a_blocked_preparation_candidate():
+    rows=[dict(q_deg=q,mu_min=.2,preparation_passed=True,preparation_margin_mm=2.)
+          for q in [[-10,-10],[-20,-10],[-10,-20],[-20,-20]]]
+    rows[0]['preparation_passed']=False
+    with pytest.raises(ValueError,match='preparation envelope'):select(rows,1)
+    rows[0]['preparation_passed']=True;rows[0]['preparation_margin_mm']=float('nan')
+    with pytest.raises(ValueError,match='preparation envelope'):select(rows,1)
+
+
+def test_excluded_preparation_region_never_leaks_into_splits(tmp_path):
+    # The legacy object-collision function deliberately misses this exclusion.
+    # Preparation must be applied independently to every exact function query.
+    html='''const DATA=(()=>{throw Error("must not read DATA")})();
+const rot=()=>{};
+function model(q3,q4){return {candidates:q3>=-25&&q4>=-25?[{x:q3,y:200-q4,mu:.2,kind:'side',branch:-1}]:[]};}
+let current=[];
+const CONTACT_OVERLAP_TOL_MM=1;
+function collisionGeometry(){return [];}
+function selfCollision(){return false;}
+function objectCollision(){return false;}
+function muLimit(){}'''
+    path=tmp_path/'mapper.html';path.write_text(with_preparation(html,blocked='c.x>-10'))
+    result=prepare(path,step=10,validation=10,test=10)
+    assert result['selection']['feasible_samples']==6
+    assert result['selection']['coverage_denominator']=='preparation-clear raster cells'
+    assert all(c['xy_mm'][0]<=-10 and c['preparation_passed'] and c['preparation_margin_mm']>0 for c in result['cases'])
 
 
 def test_interpolation_requires_three_original_replays(tmp_path):
@@ -257,7 +332,7 @@ def test_interpolation_requires_three_original_replays(tmp_path):
 def fake_trace(c,ctx,duration=12.):
     # Synthetic replay flags exercise interpolation/routing, not physics success.
     s=ctx['settings'];t=np.arange(round(duration/s['dt'])+1)*s['dt']
-    start=np.array(c['start_command']);end=np.array([-.04,-.5,*c['goal_command'][2:]])
+    start=np.array(c['start_command']);end=np.array([-.04,s['lift_roll_tolerance_rad']/2,*c['goal_command'][2:]])
     alpha=np.clip(t/(duration-5),0,1)
     commands=start+(end-start)*alpha[:,None]
     metadata=dict(c,simulation_context=ctx,duration_s=duration,control_mode=cfg.CONTROL_MODE)
@@ -288,7 +363,7 @@ def test_function_goal_remains_a_hint_without_a_command_schedule(tmp_path):
 
 def test_hold_contact_coverage_and_floor_contact_are_independent_gates():
     h=HoldTracker(3,cfg.DEFAULTS)
-    q=np.tile([-.04,-.6,-.2,-.4],(3,1));clear=np.full(3,.03)
+    q=np.tile([-.04,0.,-.2,-.4],(3,1));clear=np.full(3,.03)
     floor=np.array([False,False,True]);fault=np.zeros(3,bool);relative=np.zeros((3,3))
     for i in range(500):
         touch=np.array([[i<400,i<400],[i<399,i<399],[True,True]])
@@ -300,6 +375,8 @@ def test_old_scripted_schema_and_context_action_changes_are_rejected(tmp_path):
     exp=cfg.configure(pilot(tmp_path));p=tmp_path/'experiment.json'
     exp['schema_version']=1;p.write_text(json.dumps(exp))
     with pytest.raises(ValueError,match='fresh four-DoF'):cfg.load_experiment(p)
-    exp['schema_version']=2;exp['simulation_context']['action_names']=['q3','q4']
+    exp['schema_version']=2;p.write_text(json.dumps(exp))
+    with pytest.raises(ValueError,match='fresh four-DoF'):cfg.load_experiment(p)
+    exp['schema_version']=cfg.EXPERIMENT_VERSION;exp['simulation_context']['action_names']=['q3','q4']
     p.write_text(json.dumps(exp))
     with pytest.raises(ValueError,match='changed'):cfg.load_experiment(p)

@@ -28,3 +28,5 @@ height/mount 보정 실험을 로컬 ZIP으로 보관한다. 현재 쓰는 도�
 역할별 source와 archive member, SHA256은 같은 `index.json`에 기록했다.
 Start/cancel·coverage·mock scene/motion authority·파일 선택 회귀는 현재 UI
 suite로 이관했다. 이 ZIP은 현재 runtime이나 테스트가 읽지 않는다.
+
+`retired-hug-pipelines-20261110.zip` preserves the exact pre-cleanup Hug workflow sources and instructions. Five obsolete standalone files were removed; shared code and all regression assertions remain. See `../research/experiments/HUG_WORKFLOWS.md` for the dependency boundary. ZIP is local-only and is not pushed by Git.

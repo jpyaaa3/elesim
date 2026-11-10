@@ -1,0 +1,790 @@
+{
+  "schema": "hug-reverse-boundary-study",
+  "version": 1,
+  "recorded_utc": "2026-11-10T01:09:37.673493+00:00",
+  "task": "single nominal D100 case",
+  "original_ppo_source_sha256": "f6ede8b98d05ee15ef7947646003ee3e7cb12ffc18f9caab90478de0792290e2",
+  "training_updates": 0,
+  "policy_episodes": 712,
+  "deterministic_boundary": {
+    "model_500": {
+      "success_ticks": [
+        0,
+        350,
+        375,
+        376
+      ],
+      "failed_ticks": [
+        377,
+        378,
+        379,
+        380,
+        381,
+        382,
+        383,
+        384,
+        385,
+        386,
+        387,
+        388,
+        389,
+        390,
+        391,
+        392,
+        393,
+        394,
+        395,
+        396,
+        397,
+        398,
+        399,
+        400,
+        425,
+        450,
+        475,
+        490,
+        null
+      ],
+      "tested": 33
+    },
+    "model_1000": {
+      "success_ticks": [
+        0,
+        350,
+        375,
+        376
+      ],
+      "failed_ticks": [
+        377,
+        378,
+        379,
+        380,
+        381,
+        382,
+        383,
+        384,
+        385,
+        386,
+        387,
+        388,
+        389,
+        390,
+        391,
+        392,
+        393,
+        394,
+        395,
+        396,
+        397,
+        398,
+        399,
+        400,
+        425,
+        450,
+        475,
+        490,
+        null
+      ],
+      "tested": 33
+    },
+    "model_final": {
+      "success_ticks": [
+        0,
+        350,
+        375
+      ],
+      "failed_ticks": [
+        376,
+        377,
+        378,
+        379,
+        380,
+        381,
+        382,
+        383,
+        384,
+        385,
+        386,
+        387,
+        388,
+        389,
+        390,
+        391,
+        392,
+        393,
+        394,
+        395,
+        396,
+        397,
+        398,
+        399,
+        400,
+        425,
+        450,
+        475,
+        490,
+        null
+      ],
+      "tested": 33
+    }
+  },
+  "old_boundary_noise": [
+    {
+      "tick": 375,
+      "scale": 0,
+      "n": 32,
+      "successes": 32
+    },
+    {
+      "tick": 375,
+      "scale": 0.25,
+      "n": 32,
+      "successes": 32
+    },
+    {
+      "tick": 375,
+      "scale": 1,
+      "n": 32,
+      "successes": 32
+    },
+    {
+      "tick": 376,
+      "scale": 0,
+      "n": 32,
+      "successes": 0
+    },
+    {
+      "tick": 376,
+      "scale": 0.25,
+      "n": 32,
+      "successes": 3
+    },
+    {
+      "tick": 376,
+      "scale": 1,
+      "n": 32,
+      "successes": 10
+    },
+    {
+      "tick": 377,
+      "scale": 0,
+      "n": 32,
+      "successes": 0
+    },
+    {
+      "tick": 377,
+      "scale": 0.25,
+      "n": 32,
+      "successes": 0
+    },
+    {
+      "tick": 377,
+      "scale": 1,
+      "n": 32,
+      "successes": 0
+    },
+    {
+      "tick": 400,
+      "scale": 0,
+      "n": 32,
+      "successes": 0
+    },
+    {
+      "tick": 400,
+      "scale": 0.25,
+      "n": 32,
+      "successes": 0
+    },
+    {
+      "tick": 400,
+      "scale": 1,
+      "n": 32,
+      "successes": 0
+    }
+  ],
+  "bridges": {
+    "model_500": {
+      "baseline": {
+        "successes": 1,
+        "tested": 10,
+        "nominal_home": {
+          "start_tick": -1,
+          "method": "baseline",
+          "success": false,
+          "fault": true,
+          "wrong_face": false,
+          "steps": 30,
+          "handoff": {
+            "step": 0,
+            "actual": [
+              -0.11999999731779099,
+              0.0,
+              -0.593411922454834,
+              0.593411922454834
+            ],
+            "object_pos": [
+              0.3760858178138733,
+              0.11331270635128021,
+              0.550000011920929
+            ],
+            "object_vel": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      "direct": {
+        "successes": 9,
+        "tested": 10,
+        "nominal_home": {
+          "start_tick": -1,
+          "method": "direct",
+          "success": false,
+          "fault": true,
+          "wrong_face": false,
+          "steps": 47,
+          "handoff": {
+            "step": 11,
+            "actual": [
+              -0.11998102813959122,
+              8.279187022708356e-05,
+              -0.29820042848587036,
+              0.37053489685058594
+            ],
+            "object_pos": [
+              0.3760858178138733,
+              0.11331270635128021,
+              0.5499998331069946
+            ],
+            "object_vel": [
+              2.9225166731094987e-09,
+              2.1096618896265795e-10,
+              8.211231943278108e-06
+            ]
+          }
+        }
+      },
+      "backtrack": {
+        "successes": 9,
+        "tested": 10,
+        "nominal_home": {
+          "start_tick": -1,
+          "method": "backtrack",
+          "success": false,
+          "fault": true,
+          "wrong_face": false,
+          "steps": 50,
+          "handoff": {
+            "step": 15,
+            "actual": [
+              -0.1200040727853775,
+              7.573368202429265e-05,
+              -0.31114596128463745,
+              0.3978254199028015
+            ],
+            "object_pos": [
+              0.3760858178138733,
+              0.11331270635128021,
+              0.5499998331069946
+            ],
+            "object_vel": [
+              2.924813724547448e-09,
+              1.5410170361995768e-10,
+              8.211231943278108e-06
+            ]
+          }
+        }
+      }
+    },
+    "model_final": {
+      "baseline": {
+        "successes": 0,
+        "tested": 10,
+        "nominal_home": {
+          "start_tick": -1,
+          "method": "baseline",
+          "success": false,
+          "fault": true,
+          "wrong_face": false,
+          "steps": 39,
+          "handoff": {
+            "step": 0,
+            "actual": [
+              -0.11999999731779099,
+              0.0,
+              -0.593411922454834,
+              0.593411922454834
+            ],
+            "object_pos": [
+              0.3760858178138733,
+              0.11331270635128021,
+              0.550000011920929
+            ],
+            "object_vel": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        }
+      },
+      "direct": {
+        "successes": 9,
+        "tested": 10,
+        "nominal_home": {
+          "start_tick": -1,
+          "method": "direct",
+          "success": false,
+          "fault": false,
+          "wrong_face": false,
+          "steps": 200,
+          "handoff": {
+            "step": 11,
+            "actual": [
+              -0.11998102813959122,
+              8.279187022708356e-05,
+              -0.29820042848587036,
+              0.37053489685058594
+            ],
+            "object_pos": [
+              0.3760858178138733,
+              0.11331270635128021,
+              0.5499998331069946
+            ],
+            "object_vel": [
+              2.9225166731094987e-09,
+              2.1096618896265795e-10,
+              8.211231943278108e-06
+            ]
+          }
+        }
+      },
+      "backtrack": {
+        "successes": 9,
+        "tested": 10,
+        "nominal_home": {
+          "start_tick": -1,
+          "method": "backtrack",
+          "success": false,
+          "fault": false,
+          "wrong_face": false,
+          "steps": 200,
+          "handoff": {
+            "step": 15,
+            "actual": [
+              -0.1200040727853775,
+              7.573368202429265e-05,
+              -0.31114596128463745,
+              0.3978254199028015
+            ],
+            "object_pos": [
+              0.3760858178138733,
+              0.11331270635128021,
+              0.5499998331069946
+            ],
+            "object_vel": [
+              2.924813724547448e-09,
+              1.5410170361995768e-10,
+              8.211231943278108e-06
+            ]
+          }
+        }
+      }
+    }
+  },
+  "handoff_grid": {
+    "model_500": {
+      "successes": 14,
+      "tested": 35,
+      "successful_offsets": [
+        [
+          -0.03,
+          0.2
+        ],
+        [
+          -0.02,
+          0.2
+        ],
+        [
+          -0.01,
+          0.2
+        ],
+        [
+          0.0,
+          0.1
+        ],
+        [
+          0.0,
+          0.2
+        ],
+        [
+          0.01,
+          0.0
+        ],
+        [
+          0.01,
+          0.1
+        ],
+        [
+          0.01,
+          0.2
+        ],
+        [
+          0.02,
+          0.0
+        ],
+        [
+          0.02,
+          0.1
+        ],
+        [
+          0.02,
+          0.2
+        ],
+        [
+          0.03,
+          0.0
+        ],
+        [
+          0.03,
+          0.1
+        ],
+        [
+          0.03,
+          0.2
+        ]
+      ]
+    },
+    "model_final": {
+      "successes": 14,
+      "tested": 35,
+      "successful_offsets": [
+        [
+          -0.03,
+          0.2
+        ],
+        [
+          -0.02,
+          0.2
+        ],
+        [
+          -0.01,
+          0.2
+        ],
+        [
+          0.0,
+          0.1
+        ],
+        [
+          0.0,
+          0.2
+        ],
+        [
+          0.01,
+          0.0
+        ],
+        [
+          0.01,
+          0.1
+        ],
+        [
+          0.01,
+          0.2
+        ],
+        [
+          0.02,
+          0.0
+        ],
+        [
+          0.02,
+          0.1
+        ],
+        [
+          0.02,
+          0.2
+        ],
+        [
+          0.03,
+          0.0
+        ],
+        [
+          0.03,
+          0.1
+        ],
+        [
+          0.03,
+          0.2
+        ]
+      ]
+    }
+  },
+  "nominal_home_verification": {
+    "status": "verified",
+    "results": [
+      {
+        "repetition": 1,
+        "returncode": 0,
+        "result": {
+          "policy_sha256": "58e9ab0f40579e0adb005da161594377e761e0b4c2147fa48a6b22a611eb7fc4",
+          "results": [
+            {
+              "start_tick": -1,
+              "method": "direct",
+              "target_linear_offset_m": 0.02,
+              "target_roll_offset_rad": 0.1,
+              "success": true,
+              "fault": false,
+              "wrong_face": false,
+              "steps": 106,
+              "handoff": {
+                "step": 11,
+                "actual": [
+                  -0.10025081038475037,
+                  0.10031367093324661,
+                  -0.29820844531059265,
+                  0.3705310523509979
+                ],
+                "object_pos": [
+                  0.3760858178138733,
+                  0.11331270635128021,
+                  0.5499998331069946
+                ],
+                "object_vel": [
+                  2.9225166731094987e-09,
+                  2.1096618896265795e-10,
+                  8.211231943278108e-06
+                ]
+              }
+            }
+          ],
+          "fresh_handoff": true,
+          "physical_preservation_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        }
+      },
+      {
+        "repetition": 2,
+        "returncode": 0,
+        "result": {
+          "policy_sha256": "58e9ab0f40579e0adb005da161594377e761e0b4c2147fa48a6b22a611eb7fc4",
+          "results": [
+            {
+              "start_tick": -1,
+              "method": "direct",
+              "target_linear_offset_m": 0.02,
+              "target_roll_offset_rad": 0.1,
+              "success": true,
+              "fault": false,
+              "wrong_face": false,
+              "steps": 106,
+              "handoff": {
+                "step": 11,
+                "actual": [
+                  -0.10025081038475037,
+                  0.10031367093324661,
+                  -0.29820844531059265,
+                  0.3705310523509979
+                ],
+                "object_pos": [
+                  0.3760858178138733,
+                  0.11331270635128021,
+                  0.5499998331069946
+                ],
+                "object_vel": [
+                  2.9225166731094987e-09,
+                  2.1096618896265795e-10,
+                  8.211231943278108e-06
+                ]
+              }
+            }
+          ],
+          "fresh_handoff": true,
+          "physical_preservation_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        }
+      },
+      {
+        "repetition": 3,
+        "returncode": 0,
+        "result": {
+          "policy_sha256": "58e9ab0f40579e0adb005da161594377e761e0b4c2147fa48a6b22a611eb7fc4",
+          "results": [
+            {
+              "start_tick": -1,
+              "method": "direct",
+              "target_linear_offset_m": 0.02,
+              "target_roll_offset_rad": 0.1,
+              "success": true,
+              "fault": false,
+              "wrong_face": false,
+              "steps": 106,
+              "handoff": {
+                "step": 11,
+                "actual": [
+                  -0.10025081038475037,
+                  0.10031367093324661,
+                  -0.29820844531059265,
+                  0.3705310523509979
+                ],
+                "object_pos": [
+                  0.3760858178138733,
+                  0.11331270635128021,
+                  0.5499998331069946
+                ],
+                "object_vel": [
+                  2.9225166731094987e-09,
+                  2.1096618896265795e-10,
+                  8.211231943278108e-06
+                ]
+              }
+            }
+          ],
+          "fresh_handoff": true,
+          "physical_preservation_errors": {
+            "joint_q": 0.0,
+            "joint_qd": 0.0,
+            "object_pos": 0.0,
+            "object_quat": 0.0,
+            "object_vel": 0.0,
+            "object_ang": 0.0
+          }
+        }
+      }
+    ],
+    "training_updates": 0
+  },
+  "nominal_handoff_noise": [
+    {
+      "scale": 0,
+      "n": 32,
+      "successes": 32,
+      "faults": 0
+    },
+    {
+      "scale": 0.25,
+      "n": 32,
+      "successes": 32,
+      "faults": 0
+    },
+    {
+      "scale": 1,
+      "n": 32,
+      "successes": 31,
+      "faults": 1
+    }
+  ],
+  "forward_prefix": {
+    "samples": 111,
+    "duration_s": 1.1,
+    "maximum_xy_drift_m": 4.456971185975771e-09,
+    "fault_ever": false,
+    "wrong_ever": false,
+    "command_per_node": [
+      -0.10000000149011612,
+      0.10000000149011612,
+      -0.28434306383132935,
+      0.36876800656318665
+    ],
+    "public_command": {
+      "linear_m": -0.10000000149011612,
+      "roll_rad": 0.10000000149011612,
+      "q3_total_rad": -1.421715259552002,
+      "q4_total_rad": 1.8438400030136108
+    },
+    "fields": [
+      "actual",
+      "actual_vel",
+      "joint_q",
+      "joint_qd",
+      "object_pos",
+      "object_quat",
+      "object_vel",
+      "object_ang",
+      "touch",
+      "floor",
+      "fault",
+      "wrong",
+      "contact_force",
+      "contact_penetration",
+      "command",
+      "time_s",
+      "metadata_json"
+    ]
+  },
+  "physical_preservation_errors": {
+    "joint_q": 0.0,
+    "joint_qd": 0.0,
+    "object_pos": 0.0,
+    "object_quat": 0.0,
+    "object_vel": 0.0,
+    "object_ang": 0.0
+  },
+  "gpu2_compute_active": false,
+  "learned_unassisted_home_policy": false,
+  "recommendation": "Warm-start the existing PPO and rebuild reset curriculum from the verified nominal-Home-to-handoff forward prefix, sampling overlapping state intervals back to Home.",
+  "limitations": [
+    "Guidance-assisted success is not a learned Home policy",
+    "Fixed nominal geometry and physics; no randomized robustness result",
+    "Frozen-policy noise trials use one seed",
+    "New RL reset contract and training changes are proposals, not implemented"
+  ],
+  "inputs_sha256": {
+    "workbench/evidence/generated/hug-reverse-boundary-20261110/model_500.json": "7032e66a0b2ba18d3b3b3e816aca47525cce5fd6babc475405b898de72b517a5",
+    "workbench/evidence/generated/hug-reverse-boundary-20261110/model_1000.json": "32259f9a45be860748310617197088297af13a2a858974ae26e240161030eacf",
+    "workbench/evidence/generated/hug-reverse-boundary-20261110/protocol.json": "eb3408749f13113ee3bb732d1da0f881f2c7b125766e1df51605466a0ee5b13b",
+    "workbench/evidence/generated/hug-reverse-boundary-20261110/model_final.json": "d5cf79e78161f9326e1161b3adb91745a48dd79697603843d740e3cd94950aba",
+    "workbench/evidence/generated/hug-reverse-boundary-20261110/completion.json": "8598aba88adc04f7572b248b2b0a62826876219a3b7ed320746591439221f231",
+    "workbench/evidence/generated/hug-reverse-boundary-20261110/reset-bank/validation.json": "fd463a5815c2f6e0bac5abe33413d344316d8dc7f576a2a555eae874bfd891e9",
+    "workbench/evidence/generated/hug-reverse-boundary-20261110/reset-bank/admission/report.json": "fe5f8a7253efe64fd0239cc6aa8f7b319108831aaa17391442cca61e5bc51b83",
+    "workbench/evidence/generated/hug-reverse-boundary-noise-20261110/exploration.json": "b03eadfe1ff66cc3a416dcf18bb4b4f97777e291eecdc3eb2b35836157dbc49e",
+    "workbench/evidence/generated/hug-reverse-boundary-noise-20261110/protocol.json": "9b6f238ebb43856a5ab2451e830cf5caf0f146f9015c7c6afc4a67fd563909d3",
+    "workbench/evidence/generated/hug-reverse-boundary-noise-20261110/model_final.json": "f8711d01c3366e6246358eafc024ab30e83691a0dc90f84d7c1a54f3c3fe04c9",
+    "workbench/evidence/generated/hug-reverse-boundary-noise-20261110/completion.json": "ce7028e214dd90b3c67f756059ee02739e1bc67a38ab926c968e121a9d1f332a",
+    "workbench/evidence/generated/hug-reverse-boundary-noise-20261110/reset-bank/validation.json": "d7652f6894a7de6fc491e72a33f1a33f8e3ac8b15a7dae2a356f85ddd16db23b",
+    "workbench/evidence/generated/hug-reverse-boundary-noise-20261110/reset-bank/admission/report.json": "d72ae459e46afec1502b1ef17c041451d5efe4308b395285619e321dcb7402cc",
+    "workbench/evidence/generated/hug-reverse-bridge-20261110/model_500.json": "1d52ded76346b9a3d2c751bcfc266d7ad83da700e2827d276c16d633ecae1d37",
+    "workbench/evidence/generated/hug-reverse-bridge-20261110/protocol.json": "b5f2ccdef956f0044d08b31da5056df1a9f461664e05bca7d34b9f9315dad822",
+    "workbench/evidence/generated/hug-reverse-bridge-20261110/model_final.json": "6cdc064401d9d8e3342a4220b896c743ef3d523a51037a82a333312f3fb1e357",
+    "workbench/evidence/generated/hug-reverse-bridge-20261110/completion.json": "2a5a1fad6a45475f61baf6e78b162ed590533f75066cf7b7c609367459e07639",
+    "workbench/evidence/generated/hug-reverse-bridge-20261110/reset-bank/validation.json": "9085d9bae54b05d466955f44196ee0d3957196aedb72d6de6ad7ab684d0352de",
+    "workbench/evidence/generated/hug-reverse-bridge-20261110/reset-bank/admission/report.json": "94119c246544aaf38017e10d684249f080cbc5b41360cc8c277410bf10488100",
+    "workbench/evidence/generated/hug-reverse-bridge-offsets-20261110/model_500.json": "86f7d1299a216b38a0b81f9b39e6f21517aa421ebb39b6b4164880cbf0ccdef5",
+    "workbench/evidence/generated/hug-reverse-bridge-offsets-20261110/protocol.json": "f9aa9a06b2fd2ac78130331137ac3fbaffaabdca49e2f807327522e05c160497",
+    "workbench/evidence/generated/hug-reverse-bridge-offsets-20261110/model_final.json": "2b7d391bafa711a9e583443a6c9c85d14de416f1d78beb7a6820215df028d95c",
+    "workbench/evidence/generated/hug-reverse-bridge-offsets-20261110/completion.json": "f1ea8d31584dd2d6c1c641647ffaf363075f9f1c1a7363c412d99a776e46f95d",
+    "workbench/evidence/generated/hug-reverse-bridge-offsets-20261110/reset-bank/validation.json": "e42a2baed437d637239c1e3691c95b038f20cf9cbf7a4e6650765d80b884983d",
+    "workbench/evidence/generated/hug-reverse-bridge-offsets-20261110/reset-bank/admission/report.json": "9580f500bd32185a34349cfde2149b8a6106829e3f7870809dffb8905f52def5",
+    "workbench/evidence/generated/hug-reverse-home-bridge-verified-20261110/completion.json": "f1536d9be256d80ae25bf258cc45aa9f6e904f23a857881534f694bba7765631",
+    "workbench/evidence/generated/hug-reverse-home-bridge-verified-20261110/replay-2/protocol.json": "370715c3ce4091eb05328e80b106a6a039e6264532783240b8cdbad1403b42f2",
+    "workbench/evidence/generated/hug-reverse-home-bridge-verified-20261110/replay-2/model_final.json": "cf8d7529deaf3c3f4f49d387994fd32a9a811653df7bcd5d7bf768b254a1f5eb",
+    "workbench/evidence/generated/hug-reverse-home-bridge-verified-20261110/replay-2/reset-bank/validation.json": "ecd91d95bdd802769df6a3473057d772476f5432529d84d99d0fafcf48d99b5e",
+    "workbench/evidence/generated/hug-reverse-home-bridge-verified-20261110/replay-1/protocol.json": "370715c3ce4091eb05328e80b106a6a039e6264532783240b8cdbad1403b42f2",
+    "workbench/evidence/generated/hug-reverse-home-bridge-verified-20261110/replay-1/model_final.json": "cf8d7529deaf3c3f4f49d387994fd32a9a811653df7bcd5d7bf768b254a1f5eb",
+    "workbench/evidence/generated/hug-reverse-home-bridge-verified-20261110/replay-1/reset-bank/validation.json": "ecd91d95bdd802769df6a3473057d772476f5432529d84d99d0fafcf48d99b5e",
+    "workbench/evidence/generated/hug-reverse-home-bridge-verified-20261110/replay-3/protocol.json": "370715c3ce4091eb05328e80b106a6a039e6264532783240b8cdbad1403b42f2",
+    "workbench/evidence/generated/hug-reverse-home-bridge-verified-20261110/replay-3/model_final.json": "cf8d7529deaf3c3f4f49d387994fd32a9a811653df7bcd5d7bf768b254a1f5eb",
+    "workbench/evidence/generated/hug-reverse-home-bridge-verified-20261110/replay-3/reset-bank/validation.json": "ecd91d95bdd802769df6a3473057d772476f5432529d84d99d0fafcf48d99b5e",
+    "workbench/evidence/generated/hug-reverse-home-bridge-noise-20261110/protocol.json": "92a799dffe7b5c05d0c9a5feae482205c8e36736bc1a9a355d72df8ddb32a32e",
+    "workbench/evidence/generated/hug-reverse-home-bridge-noise-20261110/model_final.json": "242086bfc164ab6c7ab838f565a1179adea1e4e2459c62bdaf12c2deb8bfe046",
+    "workbench/evidence/generated/hug-reverse-home-bridge-noise-20261110/model_final-exploration.json": "b03eadfe1ff66cc3a416dcf18bb4b4f97777e291eecdc3eb2b35836157dbc49e",
+    "workbench/evidence/generated/hug-reverse-home-bridge-noise-20261110/completion.json": "8b68e0ca2deac4bc0410fd1ca2992f7e1f3254a58da42e204fe3446c316bbefd",
+    "workbench/evidence/generated/hug-reverse-home-bridge-noise-20261110/reset-bank/validation.json": "33eba628be5b596e1bf3a321d1fdc6c698255a938bb4f3b64e0850d061b8d82d",
+    "workbench/evidence/generated/hug-reverse-home-bridge-noise-20261110/reset-bank/admission/report.json": "6afcda011d66e1c1fd413612a18e98340517c0de35707fae7f81bb0b776ebcc0",
+    "workbench/evidence/generated/hug-reverse-home-bridge-verified-20261110/replay-1/model_final-prefix.npz": "d519c21aef7ce251af4e11a9e0769a65441dce6a92f1f51fdffb48b0a7d97146",
+    "workbench/evidence/generated/hug-reverse-home-bridge-verified-20261110/replay-1/model_final.mp4": "f71e5347e4cd405a195c755155a0329957cb07de892ef4ae284f1f269c35941f"
+  }
+}

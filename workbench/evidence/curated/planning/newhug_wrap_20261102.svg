@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="810" viewBox="0 0 1200 810">
+<rect width="100%" height="100%" fill="#111827"/>
+<style>text{font-family:DejaVu Sans,sans-serif;fill:#e5e7eb;font-size:16px} .small{font-size:13px;fill:#b9c4d5}</style>
+<text x="24" y="32" font-size="23">100 mm Wrap task / fixed base, rail only / planar endpoint geometry</text>
+<text x="25" y="65">Default geometry: roll +90 deg</text>
+<circle cx="201.07050820230475" cy="216.04208712734456" r="44.432760071439304" fill="#fbbf2444" stroke="#fbbf24" stroke-width="2"/>
+<polygon points="284.16,592.23 399.68,592.23 399.68,385.17 284.16,385.17" fill="#526077" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="380.58,372.42 343.26,360.29 305.93,372.42 305.93,385.17 380.58,385.17" fill="#a78bfa" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="323.90,320.29 300.30,342.94 310.86,364.74 343.26,360.29 366.85,337.64 356.29,315.84" fill="#60a5fa" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="289.05,292.73 277.68,323.40 296.68,338.42 323.90,320.29 335.26,289.63 316.27,274.61" fill="#60a5fa" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="245.67,283.11 248.80,315.66 272.44,320.91 289.05,292.73 285.92,260.18 262.27,254.93" fill="#60a5fa" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="202.43,293.34 219.43,321.28 243.00,315.70 245.67,283.11 228.67,255.17 205.10,260.75" fill="#60a5fa" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="167.97,321.40 195.45,339.14 214.23,323.84 202.43,293.34 174.96,275.60 156.17,290.90" fill="#60a5fa" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="123.61,323.84 135.41,354.34 159.59,353.01 167.97,321.40 156.17,290.90 131.99,292.23" fill="#c084fc" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="86.28,299.74 77.90,331.35 98.25,344.49 123.61,323.84 131.99,292.23 111.64,279.09" fill="#c084fc" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="70.25,258.30 44.89,278.94 53.63,301.53 86.28,299.74 111.64,279.09 102.90,256.50" fill="#c084fc" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="81.63,215.35 48.98,217.15 42.77,240.56 70.25,258.30 102.90,256.50 109.11,233.09" fill="#c084fc" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="135.73,211.42 96.45,163.18 69.83,184.85 81.63,215.35 109.11,233.09" fill="#c084fc" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="169.27,127.34 127.92,161.00 125.21,168.94 127.20,174.20 142.91,193.49 147.65,196.50 155.97,195.46 197.32,161.80" fill="#fb7185" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="169.27,127.34 127.92,161.00 125.21,168.94 127.20,174.20 142.91,193.49 147.65,196.50 155.97,195.46 197.32,161.80" fill="#fb7185" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="159.10,192.96 125.15,151.27 102.07,170.07 136.01,211.76" fill="#a27044" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="97.44,139.01 88.68,146.14 88.64,146.18 88.61,146.23 88.59,146.29 88.59,146.35 88.59,146.41 88.61,146.47 88.65,146.52 103.25,164.45 103.29,164.49 103.34,164.52 103.40,164.54 103.46,164.55 103.52,164.54 103.57,164.52 103.62,164.49 112.38,157.36 122.13,145.07 111.47,131.97" fill="#2dd4bf" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polyline points="343.26,360.29 323.90,320.29 289.05,292.73 245.67,283.11 202.43,293.34 167.97,321.40 123.61,323.84 86.28,299.74 70.25,258.30 81.63,215.35 116.09,187.30" fill="none" stroke="#ffffff88" stroke-width="1.5"/>
+<circle cx="211.3075161831446" cy="259.2794995749727" r="4.5" fill="#fef08a" stroke="#111827"/>
+<circle cx="173.0175917105053" cy="181.58480859478752" r="4.5" fill="#fef08a" stroke="#111827"/>
+<text class="small" x="25" y="652">node theta1/theta2 = +25.83 / -36.00 deg</text>
+<text class="small" x="25" y="671">linear = -137.32 mm; base yaw = 0 deg</text>
+<text class="small" x="25" y="690">camera gap = 69.23 mm</text>
+<text class="small" x="25" y="709">coupled curl = 2.75 / 61.00 deg</text>
+<text class="small" x="25" y="728">mu infimum = 0.2293; +2deg = 0.2664</text>
+<text class="small" x="25" y="747">node3 + gripper_claw_left</text>
+<text class="small" x="25" y="766">VALID static endpoint</text>
+<text x="625" y="65">Reflected geometry: roll -90 deg</text>
+<circle cx="801.0705082023047" cy="216.04208712734456" r="44.432760071439304" fill="#fbbf2444" stroke="#fbbf24" stroke-width="2"/>
+<polygon points="884.16,537.41 999.68,537.41 999.68,330.35 884.16,330.35" fill="#526077" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="905.93,330.35 980.58,330.35 980.58,317.59 943.26,305.47 905.93,317.59" fill="#a78bfa" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="933.61,262.09 905.44,278.71 910.70,302.35 943.26,305.47 971.42,288.85 966.17,265.21" fill="#60a5fa" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="914.79,221.84 890.90,244.17 901.16,266.11 933.61,262.09 957.51,239.76 947.25,217.82" fill="#60a5fa" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="887.68,186.64 869.20,213.62 883.98,232.81 914.79,221.84 933.27,194.86 918.49,175.67" fill="#60a5fa" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="853.58,158.16 841.40,188.51 859.99,204.03 887.68,186.64 899.86,156.29 881.27,140.76" fill="#60a5fa" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="814.11,137.75 808.80,170.02 830.32,181.14 853.58,158.16 858.89,125.89 837.37,114.76" fill="#60a5fa" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="769.89,142.06 782.96,172.03 807.07,169.69 814.11,137.75 801.04,107.77 776.93,110.12" fill="#c084fc" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="735.09,169.69 762.35,187.76 781.32,172.70 769.89,142.06 742.63,123.99 723.66,139.05" fill="#c084fc" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="720.89,211.80 753.60,212.16 761.34,189.21 735.09,169.69 702.39,169.33 694.65,192.28" fill="#c084fc" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="731.84,254.86 759.49,237.40 753.53,213.93 720.89,211.80 693.24,229.25 699.21,252.73" fill="#c084fc" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="743.27,307.88 785.57,262.26 760.40,238.92 731.84,254.86 718.10,284.54" fill="#c084fc" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="843.84,315.74 804.74,279.49 796.51,277.91 791.58,280.61 774.66,298.86 772.34,303.98 774.53,312.07 813.63,348.32" fill="#fb7185" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="843.84,315.74 804.74,279.49 796.51,277.91 791.58,280.61 774.66,298.86 772.34,303.98 774.53,312.07 813.63,348.32" fill="#fb7185" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="785.87,261.94 749.32,301.36 771.15,321.60 807.70,282.18" fill="#a27044" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polygon points="756.25,339.98 767.73,327.60 758.79,314.71 750.51,307.03 750.46,306.99 750.41,306.97 750.35,306.96 750.29,306.96 750.23,306.98 750.18,307.00 750.13,307.04 734.41,324.00 734.37,324.05 734.35,324.10 734.34,324.16 734.34,324.22 734.36,324.28 734.38,324.33 734.42,324.38 742.71,332.06" fill="#2dd4bf" fill-opacity=".88" stroke="#111827" stroke-width="1.2"/>
+<polyline points="943.26,305.47 933.61,262.09 914.79,221.84 887.68,186.64 853.58,158.16 814.11,137.75 769.89,142.06 735.09,169.69 720.89,211.80 731.84,254.86 764.42,285.07" fill="none" stroke="#ffffff88" stroke-width="1.5"/>
+<circle cx="821.4757913011317" cy="176.57191371471782" r="4.5" fill="#fef08a" stroke="#111827"/>
+<circle cx="770.8594109556149" cy="248.62367350242945" r="4.5" fill="#fef08a" stroke="#111827"/>
+<text class="small" x="625" y="652">node theta1/theta2 = -12.53 / -32.90 deg</text>
+<text class="small" x="625" y="671">linear = -75.63 mm; base yaw = 0 deg</text>
+<text class="small" x="625" y="690">camera gap = 67.12 mm</text>
+<text class="small" x="625" y="709">coupled curl = 51.70 / 61.00 deg</text>
+<text class="small" x="625" y="728">mu infimum = 0.1361; +2deg = 0.1718</text>
+<text class="small" x="625" y="747">node4 + node9</text>
+<text class="small" x="625" y="766">VALID static endpoint</text>
+<text class="small" x="24" y="781">Blue: proximal / Purple: distal / Brown: base / Red: claws / Teal: protected ZED Mini. Yellow dots: contacts.</text>
+<text class="small" x="24" y="800">Roll -90 reflection is in the experiment runner only. This is not a fresh RL rollout or an approach/lift test.</text>
+</svg>

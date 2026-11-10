@@ -1,12 +1,17 @@
+> **Historical experiment instructions.** Superseded by the reverse-GA / Home-PPO plan in [hug-ga-rl-pipeline-plan.md](hug-ga-rl-pipeline-plan.md). Do not launch these old workflows for new training.
+
 # 두 band의 경로 학습과 보간 실험 실행법
 
 현재 Home 출발·C형·들어올리기·q3/q4 보간 실험은
 [`hug_c` 실행 문서](../workbench/research/experiments/hug_c/README.md)를 따른다.
-새 계약은 512병렬에서 linear·roll·q3·q4를 정책이 처음부터 조절하며, 고정 전개/
-들어올리기 시간표 없이 실제 들어올린 뒤 5초 연속 유지를 요구한다. 함수의 목표
-q는 관측/보상 힌트로 유지한다. 100/125/150/175/200 mm는 직경별 독립 3점 학습과
+현재 lift90 계약은 512병렬에서 linear·roll·q3·q4를 정책이 처음부터 조절하며, 고정 전개/
+들어올리기 시간표 없이 실제 들어올리고, roll −90°의 감싸기 자세에서
+roll 0°±5°까지 돌려 올린 최종 자세로 5초 연속 유지를 요구한다. 함수의 목표
+q3/q4만 관측과 q 힌트에 사용하며, roll 완료 조건은 실제 들기·유지 보상의 자격 조건으로 적용한다. 시간 비용,
+제드 면 접촉 벌점/양의 보상 차단, 일회 파지 및 최고기록 기반 들어올림/유지
+점수와 terminal 정산을 사용한다. 100/125/150/175/200 mm는 직경별 독립 3점 학습과
 검증으로 수집하며, `collection`이 입력 생성과 `(x,y,D)`별 NPZ 선택을 담당한다.
-현재는 코드·입력 준비 단계이며 수정된 방식의 RL은 별도 시작 지시를 기다린다.
+이전 v2 run은 첫 100 mm 기준점 2,000회 실패로 종료했다. v3 학습은 아직 시작하지 않았다.
 아래는 이전 고정-roll 두-band 실험의 재현 절차다. 그 실제 실행 결과는
 [`status.md`](status.md)의 2026-11-06 보고에 기록돼 있다.
 

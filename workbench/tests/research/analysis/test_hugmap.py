@@ -34,8 +34,8 @@ class HugmapTests(unittest.TestCase):
         self.assertEqual(set(h.grid_points(h.Config())),expected)
         self.assertEqual(h.grid_size(h.Config()),516)
         meta=h.map_metadata(h.Config(),1)
-        self.assertEqual(meta['symmetry']['computed_roll_deg'],90)
-        self.assertEqual(meta['symmetry']['reflected_roll_deg'],-90)
+        self.assertEqual(meta['symmetry']['computed_roll_deg'],[-90,90])
+        self.assertEqual(meta['operating_policy']['logical_seg2'],'negative')
         self.assertEqual(meta['constraints']['interest_region'],'left_forward_quadrant')
 
     def test_coordinates_are_object_relative_to_fixed_body(self):
@@ -57,10 +57,10 @@ class HugmapTests(unittest.TestCase):
             center=self.center+[offset,0]
             result=h.solve_placement(center,.5)
             self.assertEqual(result['status'],'found')
-            self.assertEqual(result['attempts'],64)
+            self.assertGreater(result['attempts'],0)
             best=result['best']
             self.assertLess(best['mu_min'],.5)
-            checked=h.inspect_pose(np.radians([best['seg1_deg'],best['seg2_deg']]),center,.5)
+            checked=h.inspect_pose(np.radians([best['seg1_deg'],best['seg2_deg']]),center*[best['roll_deg']/90,1],.5)
             self.assertIsNotNone(checked)
 
     def test_batched_geometry_and_analytic_jacobian(self):
@@ -81,14 +81,13 @@ class HugmapTests(unittest.TestCase):
                        h.batched_contacts(q-delta,parts,center)[0])/2e-6
             np.testing.assert_allclose(jacobian[:,:,axis],numerical,atol=1e-7)
 
-    def test_candidate_limit_and_cancel(self):
-        with patch.object(h,'MAX_CANDIDATES',1):
-            result=h.solve_placement(self.center,.5)
-        self.assertEqual(result['attempts'],h.MAX_ATTEMPTS)
-        self.assertEqual(result['termination'],'candidate_limit')
+    def test_finite_catalog_and_cancel(self):
+        result=h.solve_placement(self.center,.5)
+        self.assertGreater(result['attempts'],0)
+        self.assertEqual(result['termination'],'catalog_complete')
+        self.assertEqual(set(result['roll_status']),{'-90','90'})
         stop=threading.Event();stop.set()
-        with self.assertRaises(h.Cancelled):
-            h.solve_placement(self.center,.5,stop)
+        with self.assertRaises(h.Cancelled):h.solve_placement(self.center,.5,stop)
 
     def test_invalid_settings(self):
         for config in (h.Config(dx_mm=0),h.Config(mu_allow=float('nan')),
@@ -144,6 +143,43 @@ class HugmapTests(unittest.TestCase):
             self.assertFalse(Path(str(output)+'.partial').exists())
 
 
+class RollPolicyTests(unittest.TestCase):
+    def test_both_rolls_are_retained_and_contacts_use_fixed_frame(self):
+        center=h.local_center(-110,340);result=h.solve_placement(center,.5,radius=.05)
+        self.assertEqual({s['roll_deg'] for s in result['roll_solutions']},{-90,90})
+        self.assertEqual(result['best'],min(result['roll_solutions'],key=lambda s:s['mu_min']))
+        for sol in result['roll_solutions']:
+            self.assertLess(sol['seg2_deg'],0)
+            np.testing.assert_allclose(np.linalg.norm(np.asarray(sol['contacts_node0_m'])-center,axis=1),.05,atol=1e-7)
+            self.assertIsNotNone(h.inspect_pose(np.radians([sol['seg1_deg'],sol['seg2_deg']]),center*[sol['roll_deg']/90,1],.5,.05))
+
+    def test_c_and_s_choose_the_opposite_roll_without_positive_seg2(self):
+        for x,y,kind in [(-115,220,'C'),(-70,315,'S')]:
+            result=h.solve_placement(h.local_center(x,y),.5,radius=.075)
+            sol=next(s for s in result['roll_solutions'] if s['roll_deg']==-90)
+            self.assertLess(sol['seg2_deg'],0)
+            self.assertEqual('C' if sol['seg1_deg']*sol['seg2_deg']>0 else 'S',kind)
+
+    def test_current_schema_rejects_corrupted_alternate_roll(self):
+        center=h.local_center(-110,340);row=h.solve_placement(center,.5,radius=.05)
+        row.update(row.pop('best'));row.update(x_mm=-110,y_mm=340,theta_deg=0)
+        doc=dict(metadata=h.map_metadata(h.Config(10,10),1),results=[row],summary={})
+        h.SavedMapData(doc)
+        row['roll_solutions'][1]['seg2_deg']=20
+        with self.assertRaises(ValueError):h.SavedMapData(doc)
+
+    def test_standalone_matches_research_policy(self):
+        from workbench.research.analysis.hugmap_band_functions import evaluate
+        for p in [(-110,340,100),(-70,315,150),(-115,220,150)]:
+            expected=evaluate(*p)
+            actual=h.solve_placement(h.local_center(*p[:2]),.5,radius=p[2]/2000)
+            for index,roll in enumerate((-90,90)):
+                ref=expected['bands'][index]
+                got=next((r for r in actual['roll_solutions'] if r['roll_deg']==roll),None)
+                if ref is None or ref['score']<=0:self.assertIsNone(got)
+                else:self.assertAlmostEqual(got['mu_min'],ref['mu_required'],places=8)
+
+
 class SavedMapValidationTests(unittest.TestCase):
     def document(self):
         return dict(metadata=dict(schema='hugmap',schema_version=1,
@@ -159,7 +195,7 @@ class SavedMapValidationTests(unittest.TestCase):
         self.assertEqual(h.SavedMapData(doc).count,0)
 
     def test_invalid_documents(self):
-        for field,value in [('schema_version',2),('schema','newhug')]:
+        for field,value in [('schema_version',99),('schema','newhug')]:
             doc=self.document();doc['metadata'][field]=value
             with self.assertRaises(ValueError):h.SavedMapData(doc)
         for key,value in [('mu_min',float('nan')),('mu_min',-.1),('seg1_deg',None),
@@ -241,7 +277,7 @@ class DiameterTableTests(unittest.TestCase):
             result=h.solve_batch([((-100,340,0),[(-100,340,0)])],.5,radius)[0][1]
             self.assertEqual(result['status'],'found')
             q=np.radians([result['seg1_deg'],result['seg2_deg']])
-            self.assertIsNotNone(h.inspect_pose(q,center,.5,radius))
+            self.assertIsNotNone(h.inspect_pose(q,center*[result['roll_deg']/90,1],.5,radius))
             solutions.append(result)
         self.assertNotAlmostEqual(solutions[0]['seg1_deg'],solutions[1]['seg1_deg'],places=2)
         self.assertEqual(h.RADIUS,old_radius)
@@ -254,6 +290,17 @@ class DiameterTableTests(unittest.TestCase):
             with self.assertRaises(ValueError):h.run_table(h.Config(),path,workers=1,resume=True)
             self.assertEqual(path.read_bytes(),original)
             with self.assertRaises(FileExistsError):h.run_table(h.Config(),path,workers=1)
+
+    def test_legacy_solver_revision_cannot_resume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'old.json'
+            h.run_table(h.Config(1000,1000),path,100,100,5,workers=1)
+            doc=json.loads(path.read_text());doc['metadata']['schema_version']=2
+            doc['metadata']['solver_revision']='batch-gn-neighbor-v2'
+            path.write_text(json.dumps(doc));original=path.read_bytes()
+            with self.assertRaisesRegex(ValueError,'different solver revision'):
+                h.run_table(h.Config(),path,workers=1,resume=True)
+            self.assertEqual(path.read_bytes(),original)
 
     def test_table_lock_and_atomic_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -285,7 +332,7 @@ class DiameterTableTests(unittest.TestCase):
                 self.assertEqual(sorted(x['results'],key=key),sorted(y['results'],key=key))
             # Resuming one partially saved batch must retain warm-start behavior.
             incomplete=json.loads(reference.read_text())
-            incomplete['maps'][0]['results']=[r for r in incomplete['maps'][0]['results'] if not (r['x_mm']==250 and r['y_mm']==250)]
+            incomplete['maps'][0]['results']=[r for r in incomplete['maps'][0]['results'] if not (r['x_mm']==-250 and r['y_mm']==250)]
             incomplete['maps'][0]['status']='cancelled'
             path.write_text(json.dumps(incomplete))
             h.run_table(cfg,path,workers=2,resume=True)

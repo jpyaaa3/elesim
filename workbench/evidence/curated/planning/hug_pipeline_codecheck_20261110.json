@@ -1,0 +1,79 @@
+{
+  "schema": "hug-pipeline-code-and-physics-check",
+  "version": 1,
+  "date": "2026-11-10",
+  "source_sha256": "72ce95230abc9c0107368fbd2c41ec26ab19f579639001eb2f9cc7a672ffa512",
+  "study": "hug-pipeline-gpu2-20261110-v5",
+  "diameter_mm": 100,
+  "solver_candidates": 70,
+  "physical_admission_candidates": 9,
+  "reverse": {
+    "generations": 3,
+    "replays": [
+      true,
+      true,
+      true
+    ]
+  },
+  "forward": {
+    "generations": 6,
+    "replays": [
+      true,
+      true,
+      true
+    ],
+    "duration_s": 6.9,
+    "policy_used": false
+  },
+  "reset_bank": {
+    "num_envs": 512,
+    "bins": 32,
+    "physical_reset_pool_validated": true,
+    "subset_restore_checked": true,
+    "untouched_lane_forward_tick_checked": true
+  },
+  "host_verification": {
+    "passed": 425,
+    "skipped": 28,
+    "subtests_passed": 10,
+    "http_tests": "4 passed with elevated loopback permission after sandbox socket restriction"
+  },
+  "server_cpu": {
+    "real_ppo_cold_start_and_resume": true,
+    "repeated_evaluation_resets": true,
+    "tests_passed": 2,
+    "physics": false
+  },
+  "interim_policy": {
+    "update1000_home_demo": true,
+    "update1500_home_demo": true,
+    "final_three_replays_pending": true
+  },
+  "all_three_anchors_trained": false,
+  "interpolation_validated": false,
+  "limits": [
+    "Canonical dev/ROS/release gates not run; missing generated development attachment/scientific stack",
+    "Raw checkpoints, policy/trajectory NPZ and videos remain in ignored generated folders",
+    "HTTP suite initially blocked by sandbox loopback; broad unrelated research collection needs Pilot/Torch",
+    "Intermediate lift clearance can precede the grasp-confirmation event; strict phase-order acceptance still needs full-study verification and replay-validated alignment artifacts"
+  ],
+  "mapper": {
+    "current_rl_vertices": [
+      [
+        -91.5,
+        -157.5
+      ],
+      [
+        -64.5,
+        -166.5
+      ],
+      [
+        -10.5,
+        -169.5
+      ]
+    ],
+    "geometry_unchanged": true,
+    "standalone_ui_tests": 8,
+    "portable_template": true
+  }
+}

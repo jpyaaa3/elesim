@@ -1,0 +1,220 @@
+{
+  "schema": "elesim-c-hug-reward-v3-validation",
+  "schema_version": 1,
+  "updated_utc": "2026-11-06T13:27:19.474336+00:00",
+  "control_mode": "policy-four-dof-home-lift-v3",
+  "settings": {
+    "dt": 0.01,
+    "solver_substeps": 4,
+    "max_collision_pairs": 256,
+    "max_contacts": 512,
+    "action_ticks": 10,
+    "episode_steps": 200,
+    "hold_duration_s": 5.0,
+    "action_delta_linear_m": 0.005,
+    "action_delta_roll_rad": 0.1,
+    "action_delta_bend_total_rad": 0.15,
+    "friction": 0.5,
+    "floor_friction": 0.01,
+    "mass_kg": 0.3,
+    "height_m": 1.1,
+    "spawn_height_m": 0.32,
+    "lift_clearance_m": 0.02,
+    "hold_slip_m": 0.01,
+    "hold_contact_fraction": 0.8,
+    "max_penetration_m": 0.005,
+    "max_joint_spread_rad": 0.05,
+    "kp": 200.0,
+    "kv": 20.0,
+    "torque_limit": 100.0,
+    "linear_min_m": -0.17333333333333334,
+    "linear_max_m": 0.0,
+    "roll_min_rad": -1.5707963267948966,
+    "roll_max_rad": 1.5707963267948966,
+    "bend_per_node_rad": 0.6283185307179586,
+    "seed": 42,
+    "reward_gamma": 0.995,
+    "reward_q_hint": 1.0,
+    "reward_grasp": 3.0,
+    "reward_lift": 5.0,
+    "reward_hold": 10.0,
+    "reward_success": 30.0,
+    "penalty_wrong_face_per_s": 1.0,
+    "penalty_drop": 3.0,
+    "penalty_fault": 30.0,
+    "penalty_timeout": 5.0,
+    "penalty_action": 0.001,
+    "penalty_time_per_s": 0.1,
+    "grasp_confirm_s": 0.2,
+    "face_margin_m": 0.001,
+    "face_normal_tolerance": 0.15,
+    "face_force_min_n": 0.01
+  },
+  "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+  "code_sha256": "480a9b2a37dc4ec1525ab1ccda1427260754ef6baebb6395aebbfb36dbfd2652",
+  "observation_names": [
+    "linear_m",
+    "roll_rad",
+    "q3_total_rad",
+    "q4_total_rad",
+    "command_linear_m",
+    "command_roll_rad",
+    "command_q3_total_rad",
+    "command_q4_total_rad",
+    "goal_q3_total_rad",
+    "goal_q4_total_rad",
+    "object_gripper_dx_m",
+    "object_gripper_dy_m",
+    "object_gripper_dz_m",
+    "object_vx_m_s",
+    "object_vy_m_s",
+    "object_vz_m_s",
+    "diameter_m",
+    "grasp_seen",
+    "hold_fraction",
+    "episode_fraction"
+  ],
+  "action_names": [
+    "linear",
+    "roll",
+    "q3_total",
+    "q4_total"
+  ],
+  "host_tests": {
+    "passed": 81,
+    "skipped": 1,
+    "skip_reason": "Torch export test unavailable on host"
+  },
+  "torch_cpu_gpu_parity": {
+    "passed": true,
+    "batch": 6,
+    "steps": 200,
+    "hold_ticks": 500,
+    "contact_parser": true
+  },
+  "contact_normal_physics": {
+    "passed": true,
+    "convention": "Genesis 1.4.5 B-to-A",
+    "parallel_environments": 2
+  },
+  "first_diameter_physics": {
+    "diameter_mm": 100,
+    "anchors": 3,
+    "ready": true,
+    "physics_tested": true,
+    "reward_step_tested": true,
+    "runner_constructed": true
+  },
+  "scenario_scores": [
+    {
+      "scenario": "idle",
+      "total": -7.476428508758545,
+      "discounted_total": -3.3489058256166855,
+      "synthetic": true
+    },
+    {
+      "scenario": "empty_q_target",
+      "total": -8.143304824829102,
+      "discounted_total": -3.3834021175906,
+      "synthetic": true
+    },
+    {
+      "scenario": "wrong_face_push",
+      "total": -13.909904479980469,
+      "discounted_total": -8.082655239479994,
+      "synthetic": true
+    },
+    {
+      "scenario": "proper_grasp_only",
+      "total": -5.143304824829102,
+      "discounted_total": -1.0484644463846753,
+      "synthetic": true
+    },
+    {
+      "scenario": "lift_then_drop",
+      "total": 0.8566950559616089,
+      "discounted_total": 3.4684223421133487,
+      "synthetic": true
+    },
+    {
+      "scenario": "repeat_lift_drop",
+      "total": -8.143304824829102,
+      "discounted_total": -1.0266970865337175,
+      "synthetic": true
+    },
+    {
+      "scenario": "success",
+      "total": 46.206695556640625,
+      "discounted_total": 28.850994456943738,
+      "synthetic": true
+    },
+    {
+      "scenario": "slow_success",
+      "total": 45.75893020629883,
+      "discounted_total": 23.202602049090665,
+      "synthetic": true
+    },
+    {
+      "scenario": "body_collision",
+      "total": -30.496349334716797,
+      "discounted_total": -27.588598068366714,
+      "synthetic": true
+    }
+  ],
+  "failed_path_physics": [
+    {
+      "checkpoint": "updates-00500",
+      "success": false,
+      "reward_total": -10.272775650024414,
+      "components": {
+        "q_hint": -0.6286909580230713,
+        "grasp": 0.0,
+        "lift": 0.0,
+        "hold": 0.0,
+        "success": 0.0,
+        "wrong_face": -2.589998245239258,
+        "drop": 0.0,
+        "fault": 0.0,
+        "timeout": -5.0,
+        "action": -0.054088935256004333,
+        "time": -1.9999984502792358
+      },
+      "wrong_face_ticks": 259,
+      "source_sha256": "ce6053f32319f1b04a88b9130db8acfdc7928b0b43a87a11586b0f1bf732e61d"
+    },
+    {
+      "checkpoint": "updates-02000",
+      "success": false,
+      "reward_total": -8.368590354919434,
+      "components": {
+        "q_hint": -1.0815343856811523,
+        "grasp": 0.0,
+        "lift": 0.0,
+        "hold": 0.0,
+        "success": 0.0,
+        "wrong_face": -0.2200000137090683,
+        "drop": 0.0,
+        "fault": 0.0,
+        "timeout": -5.0,
+        "action": -0.06705733388662338,
+        "time": -1.9999984502792358
+      },
+      "wrong_face_ticks": 22,
+      "source_sha256": "2df84db39dd7a53e5aaaee1e667060598cb961c9afd8f4ead7b6a1048c7502a5"
+    }
+  ],
+  "training_started": false,
+  "learning_success_tested": false,
+  "server_source_synced": true,
+  "unrelated_jobs_modified": false,
+  "canonical_gates_run": false,
+  "canonical_gate_reason": "Generated development attachment is not ready; server has the existing pinned CUDA environment, host lacks Torch/Genesis. No dependencies installed.",
+  "evidence_root": "workbench/evidence/generated/c-hug-reward-v3",
+  "raw_evidence_sha256": {
+    "reward-audit.json": "dc4630922478b91cd90bdf790126409bd28a16feed12c8f04135a201fdfb7c0f",
+    "physics/physics-check.json": "9bd0934db0ef55211e2616ffd537623035fdb10b984a2da9904948ba2a878490",
+    "physics/failed-path-physical-audit.json": "413f9a29c1f8f4c72b573a017dcb0b89cb1957e912184de42a5bb7fa43ebb573",
+    "torch-parity.log": "d9a3382a2819fee5f2b852df2227d7d5913bbd9d5b9f4a856df3d3c1ad5d13fa",
+    "contact-convention.log": "97315c8d2b3b28ef7b7f38270ec552612dc320be8d38c92b1aca4590a5545e79"
+  }
+}

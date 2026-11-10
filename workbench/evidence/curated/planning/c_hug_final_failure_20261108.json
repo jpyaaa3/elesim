@@ -1,0 +1,82 @@
+{
+  "schema": "elesim-c-hug-final-failure-audit",
+  "schema_version": 1,
+  "raw_audit": "workbench/evidence/generated/c-hug-concurrent-20261107T1025Z/final-contact-audit-20261108T050307Z",
+  "optimizer_used": false,
+  "task_modified": false,
+  "case_id": "c-train-000-d100",
+  "code_sha256": "b58659c11ba05c42c3d00ad0fe9f6e59fc82188762a11c84244b3bbc36a0d66b",
+  "observations": {
+    "first_loaded_contact_s": 0.55,
+    "contact_seconds": {
+      "proximal_proper_ticks": 0.0,
+      "distal_proper_ticks": 0.09,
+      "both_proper_ticks": 0.0,
+      "gripper_only_loaded_ticks": 0.06,
+      "any_loaded_contact_ticks": 0.09,
+      "wrong_face_ticks": 0.0
+    },
+    "loaded_link_contact_seconds": {
+      "gripper_base": 0.03,
+      "node9": 0.02,
+      "node8": 0.01,
+      "gripper_claw_right": 0.01,
+      "gripper_claw_left": 0.03
+    },
+    "first_c_posture_s": 4.7,
+    "object_drift_at_first_c_mm": 337.1901994408417,
+    "final_object_drift_mm": 359.0230425718635,
+    "idle_discounted_return": -5.970305828120223,
+    "champion_discounted_return": -6.800647191323251,
+    "idle_q_shaping_discounted": -0.32803990572315017,
+    "champion_q_shaping_discounted": -0.32804022266649696,
+    "final_grasp_confirmed": false,
+    "highest_lift_fraction": 0.0,
+    "highest_hold_fraction": 0.0,
+    "variation_attempts": 11,
+    "accepted_variations": 10,
+    "modes": {
+      "exploration": 4,
+      "weights": 4,
+      "rewind": 3
+    },
+    "weight_mutation_max_action_changes": [
+      0.01175607368350029,
+      0.01633065938949585,
+      0.01463676430284977,
+      0.013177081942558289
+    ],
+    "candidate_milestone_max": {
+      "success": 0.0,
+      "grasp": 0.0,
+      "lift": 0.0,
+      "hold": 0.0
+    },
+    "archive_milestone_max": {
+      "success": 0.0,
+      "grasp": 0.0,
+      "lift": 0.0,
+      "hold": 0.0
+    }
+  },
+  "code_facts": {
+    "selection_order": [
+      "success",
+      "hold",
+      "lift",
+      "grasp",
+      "contact",
+      "approach",
+      "efficiency",
+      "safe"
+    ],
+    "contact_is_any_history": true,
+    "approach_is_closest_history": true,
+    "q_target_tracks_object_motion": false,
+    "q_hint_is_potential_difference": true,
+    "grasp_requires_proximal_and_distal_c_for_s": 0.2,
+    "preflight_validates_lift": false
+  },
+  "interpretation": "Early distal contact moves the object before C closure. PPO receives no grasp/lift milestone in this replay, while outer selection preserves transient contact and closest approach. The saved champion is worse than idle under the discounted task return.",
+  "limitations": "One deterministic replay per policy; does not measure every stochastic training rollout, prove global infeasibility, or establish causal proportions without ablation."
+}

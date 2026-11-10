@@ -31,6 +31,7 @@ def runner(env, directory):
     cfg.update(num_steps_per_env=16, save_interval=100, experiment_name='c-hug-home-lift',
                logger='tensorboard', empirical_normalization=False,
                seed=env.experiment['settings']['seed'])
+    cfg['algorithm']=dict(cfg['algorithm'],gamma=env.experiment['settings']['reward_gamma'])
     return make_runner(env, cfg, directory)
 
 
@@ -54,9 +55,15 @@ def train(args):
     exp = load_experiment(args.experiment)
     preflight=json.loads(args.preflight.read_text())
     if (preflight.get('ready') is not True or preflight.get('physics_tested') is not True
+        or preflight.get('preparation_tested') is not True
+        or preflight.get('preparation_ready') is not True
         or preflight.get('simulation_context')!=exp['simulation_context']
-        or set(preflight.get('case_ids',[]))!={c['case_id'] for c in exp['cases'] if c['split']=='train'}):
+        or set(preflight.get('case_ids',[]))!={c['case_id'] for c in exp['cases'] if c['split']=='train'}
+        or {r.get('case_id') for r in preflight.get('samples',[])}!={c['case_id'] for c in exp['cases'] if c['split']=='train'}
+        or any(r.get('preparation',{}).get('passed') is not True for r in preflight.get('samples',[]))):
         raise ValueError('A matching successful three-anchor physics preflight is required before training')
+    if args.all and args.population_from:
+        raise ValueError('Population transfer requires exactly one --case')
     if args.all:
         if args.case:
             raise ValueError('--all and --case are mutually exclusive')
@@ -66,7 +73,10 @@ def train(args):
             command = [sys.executable, '-m', __package__+'.experiment', 'train',
                        '--experiment', str(args.experiment), '--case', case['case_id'],
                        '--runs', str(args.runs), '--num-envs', str(args.num_envs),
-                       '--iterations', str(args.iterations), '--backend', args.backend,'--preflight',str(args.preflight)]
+                       '--iterations', str(args.iterations), '--backend', args.backend,'--preflight',str(args.preflight),
+                       '--strategy', args.strategy, '--population-size', str(args.population_size),
+                       '--generation-updates', str(args.generation_updates),
+                       '--stagnation-generations', str(args.stagnation_generations)]
             if args.resume:
                 command.append('--resume')
             subprocess.run(command, check=True)
@@ -78,6 +88,11 @@ def train(args):
         raise ValueError('Validation/test cases cannot enter training')
     if args.num_envs < 1 or args.iterations < 1:
         raise ValueError('num-envs and iterations must be positive')
+    if args.strategy == 'single' and args.population_from:
+        raise ValueError('Population transfer requires --strategy population')
+    if args.strategy == 'population':
+        from .population import run as run_population
+        return run_population(args, exp, case)
     run = args.runs/case['case_id']
     record = dict(experiment=exp, case_id=case['case_id'], num_envs=args.num_envs)
     resume = None
@@ -288,12 +303,14 @@ def check(args):
         write_json(args.output, report)
         print(json.dumps(report, indent=2)); return 2
     if args.physics:
+        from .preparation import check as check_preparation
         samples=[];env=None
         for case in (c for c in exp['cases'] if c['split']=='train'):
             if env is None:env=create_env(exp,case,args.output.parent,args)
             env.set_case(case);env.reset();env.verify_fk()
             for _ in range(10):env.tick(env.start.expand(1,4))
             home=env.measure();env.reset()
+            preparation=check_preparation(env);env.reset()
             # Direct goal placement separates nominal feasibility from approach learning.
             env.mapper.waypoint[:]=env.goal
             targets=env.mapper.joint_targets()
@@ -301,14 +318,25 @@ def check(args):
             env.scene.robot.control_dofs_position(targets,dofs_idx_local=env.dofs)
             for _ in range(10):env.tick(env.goal.expand(1,4))
             goal=env.measure()
-            samples.append(dict(case_id=case['case_id'],q_deg=case['q_deg'],home=home,goal=goal))
+            samples.append(dict(case_id=case['case_id'],q_deg=case['q_deg'],home=home,goal=goal,preparation=preparation))
         env.reset();probe=runner(env,None)
         with torch.inference_mode():actions=probe.get_inference_policy(device=env.device)(env.get_observations())
         if actions.shape!=(1,4) or not torch.isfinite(actions).all():raise RuntimeError('Invalid PPO/environment interface')
+        start=env.mapper.waypoint.clone()
+        obs,reward,done,extras=env.step(torch.zeros((1,4),device=env.device))
+        if not torch.allclose(start,env.mapper.waypoint,atol=1e-7):raise RuntimeError('Zero action changed the Home command')
+        if (not torch.isfinite(reward).all() or 'reward/q_hint' not in extras['log']
+            or obs['policy'].shape[-1]!=len(env.experiment['simulation_context']['observation_names'])):
+            raise RuntimeError('Invalid reward/observation interface')
         report.update(physics_tested=True,samples=samples,runner_constructed=True,
+                      preparation_tested=True,preparation_ready=all(r['preparation']['passed'] for r in samples),
+                      reward_step_tested=True,reward_step=env.measure(),
                       approach_and_lift_validated=False,
-                      excluded_q_recommendation=[r['q_deg'] for r in samples if r['home']['fault'] or r['goal']['fault']])
-        report['ready']=all(not r['home']['fault'] and not r['goal']['fault'] for r in samples)
+                      excluded_q_recommendation=[r['q_deg'] for r in samples if any(
+                          r[phase]['fault'] or r[phase]['wrong_face_contact_any'] for phase in ('home','goal')) or not r['preparation']['passed']])
+        report['ready']=all(not r[phase]['fault'] and not r[phase]['wrong_face_contact_any']
+                            for r in samples for phase in ('home','goal'))
+        report['ready']&=report['preparation_ready']
     else:
         report['ready'] = None
     if args.output:
@@ -334,8 +362,15 @@ def main(argv=None):
         elif name == 'train':
             c.add_argument('--case'); c.add_argument('--all', action='store_true')
             c.add_argument('--preflight',type=Path,required=True)
-            c.add_argument('--runs', type=Path, required=True); c.add_argument('--num-envs', type=int, default=DEFAULT_NUM_ENVS)
+            c.add_argument('--runs', type=Path, required=True)
+            c.add_argument('--num-envs',type=int,default=DEFAULT_NUM_ENVS,
+                           help='Total simultaneously simulated robots, split between population policies')
             c.add_argument('--iterations', type=int, default=2000); c.add_argument('--resume', action='store_true')
+            c.add_argument('--strategy', choices=('population', 'single'), default='population')
+            c.add_argument('--population-size', type=int, default=4)
+            c.add_argument('--population-from',type=Path,help='Explicit compatible-task transfer from a completed sequential population')
+            c.add_argument('--generation-updates', type=int, default=100)
+            c.add_argument('--stagnation-generations', type=int, default=3)
         elif name in ('export', 'collect'):
             if name == 'collect':
                 c.add_argument('--policy', type=Path)

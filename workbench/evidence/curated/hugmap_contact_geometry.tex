@@ -1,0 +1,121 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,booktabs}
+\usepackage[margin=24mm]{geometry}
+\title{Hugmap: contact geometry instead of a fitted silhouette}
+\author{}\date{4 November 2026}
+\begin{document}\maketitle
+\noindent This note derives exact contact constructions for the polygonal arm used by Hugmap. It is not yet an explicit inverse map $(x,y,D)\mapsto(q_1,q_2)$. No fitted coefficients are used. All lengths below use one consistent unit; angles are in radians.
+
+\section{A short equation shared by both bands}
+Let $A,B$ be two distinct contact points on a circle, $d=\|B-A\|$, $D$ its diameter, $M=(A+B)/2$, and $J$ a $90^\circ$ planar rotation. The only possible centers are
+\[
+\boxed{C_\pm=M\pm\frac{\sqrt{D^2-d^2}}{2}\frac{J(B-A)}{d}.}
+\]
+Real centers require $d\leq D$. With inward radial normals, the infimum friction coefficient for the two-contact planar force-closure test is
+\[
+\boxed{\mu_{\rm crit}=\frac{\sqrt{D^2-d^2}}{d}.}
+\]
+Thus, for available friction $\bar\mu>0$ and the strict cutoff used by the solver,
+\[
+\boxed{d\leq D<d\sqrt{1+\bar\mu^2}.}
+\]
+Equivalently, the center must lie on the perpendicular bisector with
+\[
+\|C-M\|<\frac{\bar\mu d}{2}.
+\]
+For $\bar\mu=0.5$, this gives $d\leq D<1.118034d$, or $d>0.894427D$.
+These are contact/friction conditions, not collision or motion guarantees.
+
+\section{Exact arm positions without an iterative sum}
+Let $\ell=50$ mm, $a=q_1/5$, $b=q_2/5$, and
+\[
+S_m(u)=\ell\frac{\sin(mu/2)}{\sin(u/2)}
+\begin{pmatrix}-\sin((m+1)u/2)\\\cos((m+1)u/2)\end{pmatrix}.
+\]
+Use $S_0=0$ and the continuous limit $S_m(0)=(0,m\ell)^\mathsf T$.
+The node hinges are
+\[
+H_j=\begin{cases}S_j(a),&0\leq j\leq5,\\
+S_5(a)+R(q_1)S_{j-5}(b),&5<j\leq10.
+\end{cases}
+\]
+For node $i\in\{0,\ldots,9\}$, its orientation is
+\[
+\alpha_i=\begin{cases}(i+1)a,&i<5,\\q_1+(i-4)b,&i\geq5.\end{cases}
+\]
+A local profile point $p$ transforms to $H_i+R(\alpha_i)p$.
+Gripper points transform to $H_{10}+R(q_1+q_2)p$.
+To convert a node0-local center $C$ in millimetres to JSON coordinates, use
+\[
+(x,y)^\mathsf T=C-B,\qquad B=(0,-144.5)^\mathsf T\ {\rm mm}.
+\]
+The reader mirrors the displayed horizontal coordinate, $X=-x$.
+
+\section{Band 1: an early node against the gripper corner}
+The recorded band uses positive $q_2$. Of its 817 entries, all contact the left gripper claw; 811 contact a claw vertex. The arm contacts are on nodes 0--2.
+
+For the dominant side--corner cases, let $V$ be gripper vertex 0 transformed by the preceding equations. Let $A$ be an endpoint of the node side, $t$ its unit tangent and $n$ its outward normal. Put $r=D/2$ and $W=V-A-rn$. Then
+\[
+\boxed{C_\pm=A+rn+
+\left[t^\mathsf TW\pm\sqrt{r^2-(n^\mathsf TW)^2}\right]t.}
+\]
+The root must be real. Its tangential coefficient must fall inside the finite side, and the chosen vertex must be the nearest point on its polygon. When the node contact reaches a corner, the vertex--vertex formula in Section 1 replaces this branch. These are adjacent geometric cases, not unrelated fitted functions.
+
+\section{Band 2: a later node against the gripper side}
+The recorded band uses negative $q_2$. Its most common feature pair (2,345 of 8,163 entries) is node3 edge4 against left-claw edge6. Let their outward normals be $n_a,n_b$, and let $A,B$ be points on these lines. For nonparallel normals,
+\[
+N=\begin{pmatrix}n_a^\mathsf T\\n_b^\mathsf T\end{pmatrix},
+\qquad
+\boxed{C(q_1,q_2,D)=N^{-1}
+\left[\begin{pmatrix}n_a^\mathsf TA\\n_b^\mathsf TB\end{pmatrix}
++\frac D2\begin{pmatrix}1\\1\end{pmatrix}\right].}
+\]
+Consequently, for a fixed arm pose and fixed features,
+\[
+\boxed{C(q_1,q_2,D)=C_0(q_1,q_2)+D\,C_1(q_1,q_2).}
+\]
+This is exactly affine in diameter within that contact branch. It does not imply that the selected minimum-friction posture is affine in diameter.
+
+For this specific pair, both local outward normals point along $+x$, so their relative angle is
+\[
+\delta=(q_1+q_2)-\frac45q_1=q_2+\frac15q_1.
+\]
+For distinct valid contacts, the friction equation simplifies to
+\[
+\boxed{\mu_{\rm crit}=\left|\cot\frac{q_2+q_1/5}{2}\right|.}
+\]
+With the principal normal-separation angle $\beta\in(0,\pi]$, $\bar\mu=0.5$ requires
+\[
+\beta>2\arctan 2\simeq126.869898^\circ.
+\]
+Both contact projections must lie inside their finite edges. Since each projection is affine in $D$ for fixed $q$, the edge-length tests give interval constraints on $D$. Parallel offset lines need separate handling: they have either no intersection or a continuum, not a unique center.
+
+The remaining band-2 cases include vertex--side, vertex--vertex, and node4--node9 contacts. The same three intersection constructions apply. The dominant side--side equation must not be presented as the complete band.
+
+\section{What can cut or split a branch?}
+\begin{enumerate}
+\item A circle--line or circle--circle intersection ceases to be real.
+\item A contact projection leaves a finite edge; a corner branch may or may not continue it.
+\item The friction inequality fails.
+\item Joint limits, another arm part, a protected body, or self-collision invalidates the pose.
+\end{enumerate}
+These explain how a geometric branch can terminate. They do not yet establish which cause accounts for each gap in the recorded table. A missing solver result is not proof of infeasibility.
+
+\section{Numerical checks against gaga.json}
+\begin{itemize}
+\item Using the stored angles and identified contact features, 8,979 of 8,980 entries admit a real exact-contact center in these constructions. This is a reconstruction check, not independent inverse prediction.
+\item For each band, 95\% of reconstructable entries have center error below $10^{-6}$ mm. Maximum errors are 0.0831 mm (band 1) and 0.2109 mm (band 2). Near tangency amplifies the solver's finite contact tolerance; one saved entry has no real exact intersection at its stored angles.
+\item For the 2,345 dominant band-2 side--side entries, the 95th-percentile friction discrepancy is $1.18\times10^{-9}$; maximum discrepancy is $1.07\times10^{-4}$.
+\item Independently enumerating arm angles at $2^\circ$ spacing at $D=150$ mm, using only three selected feature pairs, produces 196 valid candidate records: 85 in band 1 and 111 in band 2. Every reported candidate passes the existing full collision and friction validator. No inverse solver is called. These are nonuniform positions, not a completed XY grid or a runtime benchmark against the grid solver.
+\end{itemize}
+
+\section{Current conclusion}
+A useful representation is a union of explicitly constructed contact patches,
+\[
+\Omega_k(D)=\bigcup_{\gamma\in\Gamma_k}
+\{C_\gamma(q,D)-B:\ q\in[-\pi,\pi]^2,\,
+\operatorname{sign}(q_2)=(-1)^{k+1},\ \text{all feature and physical tests pass}\}.
+\]
+The observed feature sets $\Gamma_k$ are not a proof that no other branches exist.
+This representation explains the geometry and permits forward generation without Jacobians. Eliminating $q_1,q_2$, selecting a pose for a requested $(x,y,D)$, and globally optimizing friction remain unresolved. The result should not be confused with a finished closed-form inverse controller.
+\end{document}

@@ -1,0 +1,44 @@
+{
+  "version": "0.6.0",
+  "source_sha256": "5360449c9c7453e9ecf7850d29ce84a8da77a2a6c50fb5682fb917ebeee9a6cd",
+  "cutoff_rule": "mu_min <= mu_critical < operating_mu",
+  "angular_error_budget_removed": true,
+  "tests": {
+    "cutoff": 13,
+    "needle_map": 33,
+    "protected_body": 17,
+    "http_and_js": 4,
+    "wrap_comparison": 7,
+    "standalone": 37
+  },
+  "cases": [
+    {
+      "diameter_mm": 100,
+      "iterations": 256,
+      "arm_candidates": 4,
+      "recorded_needles": 1,
+      "gathered_segments": 1,
+      "friction_cutoff_rejections": 252,
+      "required_mu_range": [
+        0.21255656167002243,
+        0.21255656167002243
+      ],
+      "raw_json_path": "workbench/evidence/generated/newhug-friction-cutoff-20261103-100.json",
+      "raw_sha256": "0e6fce37140db5b4e623e7ff7cdd2ca6715881a623f087a2f5b3845c11f7d036"
+    },
+    {
+      "diameter_mm": 160,
+      "iterations": 256,
+      "arm_candidates": 5,
+      "recorded_needles": 4,
+      "gathered_segments": 4,
+      "friction_cutoff_rejections": 251,
+      "required_mu_range": [
+        0.41442956007033266,
+        0.4513413252501228
+      ],
+      "raw_json_path": "workbench/evidence/generated/newhug-friction-cutoff-20261103-160.json",
+      "raw_sha256": "8a3e115c5380f8d64d7f3fd4b14d8cac6de307c16cb18e7ccf8bbd6536cb8e97"
+    }
+  ]
+}

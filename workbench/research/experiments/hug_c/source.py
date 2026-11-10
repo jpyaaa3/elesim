@@ -4,9 +4,27 @@ import json
 from pathlib import Path
 import subprocess
 import math
+import re
 
 
-def read_kernel(path):
+def validate_preparation(contract):
+    """A preparation envelope must describe this model and the real presets."""
+    from .configure import asset_digest, load_mechanism
+    mechanism=load_mechanism()
+    if (not isinstance(contract,dict)
+        or contract.get('schema')!='elesim-mapper-preparation-envelope'
+        or contract.get('schema_version')!=1
+        or contract.get('model_sha256')!=asset_digest()
+        or contract.get('home_command')!=list(mechanism.presets['home'])
+        or contract.get('extend_command')!=list(mechanism.presets['extend_arm'])
+        or not isinstance(contract.get('clearance_mm'),(int,float))
+        or not math.isfinite(contract['clearance_mm']) or contract['clearance_mm']<1
+        or not isinstance(contract.get('sampling_padding_mm'),(int,float))
+        or not math.isfinite(contract['sampling_padding_mm']) or contract['sampling_padding_mm']<=0):
+        raise ValueError('Require a matching Home→Extend Arm preparation envelope; rebuild mapper and reselect the triangle')
+
+
+def read_kernel(path, *, require_preparation=False):
     html = Path(path).read_text()
     try:
         model = html[html.index('const rot='):html.index('let current=')]
@@ -16,10 +34,19 @@ def read_kernel(path):
     kernel = model + collision
     if 'const DATA=' in kernel or 'DATA.rows' in kernel:
         raise ValueError('Embedded point data must not enter function sampling')
-    return kernel, dict(kind='mapper-function', path=str(Path(path).resolve()),
+    provenance=dict(kind='mapper-function', path=str(Path(path).resolve()),
                        html_sha256=hashlib.sha256(html.encode()).hexdigest(),
                        kernel_sha256=hashlib.sha256(kernel.encode()).hexdigest(),
                        point_data_used=False, collision_tolerance_mm=1.)
+    match=re.search(r'^const PREPARATION_COLLISION=(.*);$',collision,re.M)
+    if match:
+        data=json.loads(match.group(1))
+        provenance['preparation']={k:v for k,v in data.items() if k!='parts'}
+    if require_preparation:
+        validate_preparation(provenance.get('preparation'))
+        if 'function preparationReport(' not in kernel or 'function preparationCollision(' not in kernel:
+            raise ValueError('Missing mapper preparation collision functions')
+    return kernel,provenance
 
 
 def evaluate(kernel, diameter, q_points=None, *, step=1., mu_max=.4):
@@ -34,7 +61,10 @@ function evaluate(q3,q4){
   if(!Number.isFinite(c.mu)||c.mu>INPUT.mu||c.x>0||c.y<0||Math.hypot(c.x,c.y)>500)continue;
   if(!polys){polys=collisionGeometry(q3,q4);bad=selfCollision(polys);}
   if(bad||objectCollision(polys,c,D,roll))continue;
-  if(!best||c.mu<best.mu_min)best={q_deg:[q3,q4],xy_mm:[c.x,c.y],mu_min:c.mu,feature:c.kind,root:c.branch};
+  const prep=typeof preparationReport==='function'?preparationReport(c,D):null;
+  if(prep&&prep.blocked)continue;
+  if(!best||c.mu<best.mu_min){best={q_deg:[q3,q4],xy_mm:[c.x,c.y],mu_min:c.mu,feature:c.kind,root:c.branch};
+   if(prep)Object.assign(best,{preparation_passed:true,preparation_gap_mm:prep.minimum_gap_mm,preparation_margin_mm:prep.minimum_gap_mm-prep.required_clearance_mm});}
  }
  return best;
 }
@@ -77,7 +107,9 @@ for(const seed of INPUT.seeds){
  const polys=collisionGeometry(hit.q3,hit.q4);
  if(selfCollision(polys)||objectCollision(polys,c,D,roll))continue;
  if(out.some(r=>Math.hypot(r.q_deg[0]-hit.q3,r.q_deg[1]-hit.q4)<1e-7))continue;
- out.push({q_deg:[hit.q3,hit.q4],xy_mm:[c.x,c.y],mu_min:c.mu,feature:c.kind,root:c.branch});
+ const prep=typeof preparationReport==='function'?preparationReport(c,D):null;if(prep&&prep.blocked)continue;
+ const row={q_deg:[hit.q3,hit.q4],xy_mm:[c.x,c.y],mu_min:c.mu,feature:c.kind,root:c.branch};
+ if(prep)Object.assign(row,{preparation_passed:true,preparation_gap_mm:prep.minimum_gap_mm,preparation_margin_mm:prep.minimum_gap_mm-prep.required_clearance_mm});out.push(row);
 }
 console.log(JSON.stringify(out));
 '''

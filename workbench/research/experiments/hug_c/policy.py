@@ -3,13 +3,13 @@ import json
 from pathlib import Path
 import numpy as np
 
-from .configure import OBSERVATIONS, ACTIONS
+from .configure import OBSERVATIONS, ACTIONS, POLICY_VERSION
 
 
 class NumpyPolicy:
     def __init__(self, path):
         with np.load(path, allow_pickle=False) as data:
-            if str(data['schema'].item()) != 'elesim-c-hug-policy' or int(data['schema_version'].item()) != 2:
+            if str(data['schema'].item()) != 'elesim-c-hug-policy' or int(data['schema_version'].item()) != POLICY_VERSION:
                 raise ValueError('Not an exported Hug policy')
             if tuple(data['observation_names'].tolist()) != OBSERVATIONS:
                 raise ValueError('Observation convention differs')
@@ -68,7 +68,7 @@ def export_policy(policy, path, metadata):
             or any(isinstance(m, torch.nn.ELU) and m.alpha != 1 for m in leaves)):
         raise ValueError('Unsupported activation ordering/alpha')
     norm = jit.obs_normalizer
-    arrays = dict(schema=np.asarray('elesim-c-hug-policy'), schema_version=np.asarray(2),
+    arrays = dict(schema=np.asarray('elesim-c-hug-policy'), schema_version=np.asarray(POLICY_VERSION),
                   observation_names=np.asarray(OBSERVATIONS), action_names=np.asarray(ACTIONS), metadata_json=np.asarray(json.dumps(metadata, allow_nan=False)),
                   norm_mean=norm._mean.detach().cpu().numpy().reshape(-1),
                   norm_std=norm._std.detach().cpu().numpy().reshape(-1),

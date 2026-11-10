@@ -1,0 +1,114 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,booktabs}
+\usepackage[margin=24mm]{geometry}
+\title{Hugmap inverse geometry as two sequential polynomial equations}
+\author{}\date{4 November 2026}
+\begin{document}\maketitle
+\noindent The preceding contact construction mapped angles to object positions. This note goes in the inverse direction: object position and diameter are inputs; joint angles are outputs. It uses numerical roots of finite-degree polynomials, not an elementary closed-form expression in radicals. It does not yet provide a single explicit boundary equation for each whole band.
+
+\section{Why the inverse separates}
+All 8,980 recorded successes in the analyzed table have one contact on nodes 0--4 (segment 1), and the other on segment 2 or the gripper. A segment-1 contact depends on $q_1$ but not $q_2$. For each specified pair of contact features, the equations therefore have triangular form:
+\[
+\boxed{\begin{aligned}
+F_i(q_1;x,y,D)&=0,\\
+G_j(q_2;q_1,x,y,D)&=0.
+\end{aligned}}
+\]
+Find candidate $q_1$ values first. For each one, find candidate $q_2$ values. Filter finite-feature membership, joint limits, collisions, and friction. No initial joint-angle guess is needed.
+
+\section{An explicit representative pair for band 2}
+Use millimetres and radians. Set
+\[
+r=D/2,\quad \ell=50,\quad h=35,\quad g=35.46,
+\quad a=q_1/5,\quad b=q_2/5.
+\]
+The circle center relative to node0 is
+\[
+c=(x,y-144.5)^\mathsf T.
+\]
+For the node3 right side, the first contact equation is
+\[
+\boxed{c_x\cos(4a)+c_y\sin(4a)
+-\ell\bigl(\sin a+\sin2a+\sin3a\bigr)=h+r.}
+\]
+Define the five-link displacement
+\[
+S_5(a)=\ell\frac{\sin(5a/2)}{\sin(a/2)}
+\begin{pmatrix}-\sin3a\\\cos3a\end{pmatrix},
+\quad S_5(0)=(0,5\ell)^\mathsf T,
+\]
+and express the target relative to the second segment:
+\[
+c'=R(-q_1)\bigl(c-S_5(a)\bigr).
+\]
+For the gripper right side (left-claw edge6), the second equation is
+\[
+\boxed{c'_x\cos(5b)+c'_y\sin(5b)
+-\ell\bigl(\sin b+\sin2b+\sin3b+\sin4b\bigr)=g+r.}
+\]
+The first equation contains only $a$; the second contains only $b$ after $a$ is fixed. Finite edges, rather than infinite supporting lines, must be checked afterwards. This particular pair also obeys
+\[
+\mu_{\rm crit}=\left|\cot\frac{q_2+q_1/5}{2}\right|.
+\]
+This representative pair is only one part of band 2.
+
+\section{Representative band-1 equations}
+For the left side of node $i\in\{0,1,2\}$,
+\[
+\boxed{c_x\cos((i+1)a)+c_y\sin((i+1)a)
+-\ell\sum_{k=1}^{i}\sin(ka)=-(h+r).}
+\]
+The dominant gripper contact is vertex $p_g=(-14.54,89)^\mathsf T$ in its local frame. Its contact equation is
+\[
+\boxed{\left\|c'-S_5(b)-R(5b)p_g\right\|^2=r^2.}
+\]
+When the first contact is a node corner, replace its supporting-line equation by the corresponding point--circle equation. The triangular dependency remains unchanged.
+
+\section{Reduction to low-degree polynomials}
+Set
+\[
+u=\tan(a/2)=\tan(q_1/10),\qquad
+v=\tan(b/2)=\tan(q_2/10).
+\]
+Since
+\[
+e^{ia}=\frac{1+iu}{1-iu},\qquad
+e^{ib}=\frac{1+iv}{1-iv},
+\]
+a trigonometric polynomial of highest harmonic $m$ becomes a real polynomial of degree at most $2m$ after multiplication by $(1+u^2)^m$ or $(1+v^2)^m$. These denominators are positive on the real axis.
+
+For a segment-1 node $i$, the highest harmonic is at most $i+1\leq5$. For segment 2 and gripper contact equations it is at most 5. Vertex squared distances do not double this bound: squared rotation norms are constant, and cross terms between link rotations involve their angle differences. Consequently,
+\[
+\boxed{P_i(u;x,y,D)=0,\quad \deg P_i\leq10,}
+\]
+\[
+\boxed{Q_j(v;u,x,y,D)=0,\quad \deg Q_j\leq10.}
+\]
+The node3 side example has degree at most 8 for the first polynomial; its gripper-side equation has degree at most 10. The node1/node2 side examples have first degrees at most 4/6.
+
+Only real roots satisfying
+\[
+|u|,|v|\leq\tan(\pi/10)
+\]
+are within the total group-angle limits. Recover angles by
+\[
+q_1=10\arctan u,\qquad q_2=10\arctan v.
+\]
+A nondegenerate fixed-feature pair has at most 100 candidate root combinations before filtering. Identically zero equations describe continuous families and require separate handling. Repeated roots and nearly degenerate coefficients also require numerical care; the implementation is not a certified root-isolation method.
+
+\section{Implementation and evidence}
+The current prototype constructs coefficients from the known finite Fourier basis of the arm geometry. Its $2m+1$ coefficient-extraction evaluations are an exact finite-basis identity in exact arithmetic, not a fit to recorded positions. NumPy computes the polynomial roots numerically.
+
+\begin{itemize}
+\item A feature-stratified reconstruction sample recovered valid solutions for all 268 tested positions. Features were identified from the saved result, but saved angles were not passed to the inverse.
+\item A separate test used a catalog of 28 observed feature pairs extracted only from diameters $100,110,\ldots,200$ mm.
+\item At held-out diameters $105,115,\ldots,195$ mm, the catalog solver recovered all 60 sampled successful positions, including a solution in the original band. Neither the saved angles nor the target position's contact pair was supplied.
+\item Among 60 sampled remaining holes with successful opposite cardinal neighbors, it found and fully validated solutions at 25 positions.
+\item The latter 120 cases took approximately 2.52 seconds after coefficient caching on the current host. This is a small targeted experiment, not a whole-table speed or completeness claim.
+\end{itemize}
+
+\section{Limits of the result}
+The 28-feature catalog is empirical and may omit valid unobserved contact modes. Numerical roots do not constitute certified completeness. Exact-contact equations may disagree with the original solver's 0.05 mm contact tolerance near degeneracy. Collision and friction validation remain necessary. A failed catalog search therefore does not prove physical impossibility. The production Hugmap solver has not been changed by this experiment.
+
+\noindent\textbf{Conclusion:} the observed two-band inverse can be attacked as a finite collection of two sequential polynomial-root problems, rather than as an unrestricted two-angle optimization. This is an algebraic inverse construction, not yet a universal elementary closed-form solution or a single explicit band-boundary function in $(x,y,D)$.
+\end{document}

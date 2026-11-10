@@ -1,0 +1,103 @@
+{
+  "schema": "elesim-hug-report-camera-review",
+  "schema_version": 1,
+  "view": {
+    "name": "arm-side-oblique-v1",
+    "pos": [
+      0.85,
+      -1.15,
+      1.6
+    ],
+    "lookat": [
+      0.35,
+      0.05,
+      0.4
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "same_policy_comparison": {
+    "times_equal": true,
+    "commands_equal": true,
+    "maximum_command_difference": 0.0,
+    "metadata_equal": true,
+    "collection_equal": true
+  },
+  "artifacts": {
+    "policy.mp4": {
+      "sha256": "dd8768f17ed303071e03447ede67181d05b37f28e68224dd3ca8654d65d7ec52",
+      "bytes": 293487
+    },
+    "trajectory.npz": {
+      "sha256": "441622189aed6c73a1e9dd7e7f8ac5d334c45d5c976b89d97388eb78a6728e2d",
+      "bytes": 24476
+    },
+    "report.json": {
+      "sha256": "3304fdbe00b6e5374a5c8ca30de61c4e4fd7ed5910e0c7e8666dac96cfa6fa3b",
+      "bytes": 2434
+    }
+  },
+  "video": "workbench/evidence/generated/c-hug-concurrent-20261107T1025Z/server-reports/camera-review-00500/policy.mp4",
+  "host_tests_passed": 8,
+  "launch": {
+    "schema": "elesim-hug-report-camera-change",
+    "old_watch_pid": 2395904,
+    "watch_pid": 2401099,
+    "train_pid": 2395787,
+    "utc": "2026-11-07T10:58:20.957156+00:00",
+    "report_camera": "arm-side-oblique-v1",
+    "source_sha256": {
+      "workbench/research/analysis/record_hug_video.py": "f911282ffd4f68a349530ddc303f1db21972c066771bd36dcaf39107812ec6bc",
+      "workbench/research/analysis/watch_hug_population.py": "976b7f8af3621041c500567bf0211131e5153ac407830aa0d77b22a0d64b738b"
+    },
+    "command": [
+      "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+      "-u",
+      "-m",
+      "workbench.research.analysis.watch_hug_population",
+      "--root",
+      "/home/hckang/elesim/workbench/evidence/generated/c-hug-concurrent-20261107T1025Z",
+      "--case",
+      "c-train-000-d100",
+      "--milestones",
+      "500",
+      "1000",
+      "1500",
+      "2000",
+      "--poll-seconds",
+      "60",
+      "--max-hours",
+      "11.528996120833334"
+    ],
+    "remaining_watch_hours": 11.528996120833334,
+    "training_restarted": false,
+    "reward_changed": false
+  },
+  "verification": {
+    "utc": "2026-11-07T10:59:02.107981+00:00",
+    "frozen_task_digest": "b58659c11ba05c42c3d00ad0fe9f6e59fc82188762a11c84244b3bbc36a0d66b",
+    "task_digest_preserved": true,
+    "processes": {
+      "training": {
+        "pid": 2395787,
+        "parent_pid": 1,
+        "command": "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python -u -m workbench.research.experiments.hug_c.experiment train --experiment /home/hckang/elesim/workbench/evidence/generated/c-hug-concurrent-20261107T1025Z/experiment.json --preflight /home/hckang/elesim/workbench/evidence/generated/c-hug-concurrent-20261107T1025Z/preflight.json --case c-train-000-d100 --runs /home/hckang/elesim/workbench/evidence/generated/c-hug-concurrent-20261107T1025Z/runs --num-envs 512 --population-size 4 --iterations 1600 --generation-updates 100 --stagnation-generations 3 --population-from /home/hckang/elesim/workbench/evidence/generated/c-hug-evolution-v4-20261107T0840Z/runs/c-train-000-d100 "
+      },
+      "watcher": {
+        "pid": 2401099,
+        "parent_pid": 1,
+        "command": "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python -u -m workbench.research.analysis.watch_hug_population --root /home/hckang/elesim/workbench/evidence/generated/c-hug-concurrent-20261107T1025Z --case c-train-000-d100 --milestones 500 1000 1500 2000 --poll-seconds 60 --max-hours 11.528996120833334 "
+      },
+      "newton": {
+        "pid": 2292112,
+        "parent_pid": 2292028,
+        "command": "/home/oem/ksr/Newton-Gym-garment-test/.venv/bin/python3 -u -m newton_gym.app.train --task aiworker_garment_packaging_v0_teacher --num-envs 256 --max-iterations 10000 --no-viewer "
+      }
+    },
+    "completed_updates": 700,
+    "generation_updates_done": 0
+  }
+}

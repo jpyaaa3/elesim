@@ -1,0 +1,330 @@
+{
+  "schema": "hug-reverse-ppo-result-evidence",
+  "version": 1,
+  "recorded_utc": "2026-11-10T00:19:18.728716+00:00",
+  "run": "/home/user/ws/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z",
+  "remote_run": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z",
+  "completion": {
+    "status": "training_budget_finished",
+    "curriculum": {
+      "stages": 21,
+      "options": {
+        "advance_at": 0.7,
+        "retreat_at": 0.2,
+        "window": 512,
+        "cooldown_steps": 80,
+        "retention_fraction": 0.2,
+        "nominal_fraction": 0.5,
+        "seed": 42
+      },
+      "frontier": 15,
+      "epoch": 123,
+      "steps": 32000,
+      "last_move": 31921,
+      "outcomes": [
+        false,
+        false,
+        false
+      ],
+      "nominal_outcomes": [],
+      "nominal_ready": false,
+      "rng": {
+        "bit_generator": "PCG64",
+        "state": {
+          "state": 29725630154584696557433173312370235780,
+          "inc": 332724090758049132448979897138935081983
+        },
+        "has_uint32": 0,
+        "uinteger": 2844976520
+      }
+    },
+    "nominal_home_policy_verified": false,
+    "elapsed_s": 8943.305043116212
+  },
+  "evaluation": {
+    "start": "nominal-home",
+    "results": [
+      {
+        "repetition": 1,
+        "start": "nominal-home",
+        "bin": 0,
+        "successes": 0,
+        "total": 1,
+        "wrong_face_episodes": 0,
+        "fault_episodes": 1
+      },
+      {
+        "repetition": 2,
+        "start": "nominal-home",
+        "bin": 0,
+        "successes": 0,
+        "total": 1,
+        "wrong_face_episodes": 0,
+        "fault_episodes": 1
+      },
+      {
+        "repetition": 3,
+        "start": "nominal-home",
+        "bin": 0,
+        "successes": 0,
+        "total": 1,
+        "wrong_face_episodes": 0,
+        "fault_episodes": 1
+      }
+    ],
+    "accepted": false,
+    "nominal_home": true
+  },
+  "checkpoint_demonstrations": {
+    "model_100": {
+      "checkpoint": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z/training/model_100.pt",
+      "checkpoint_sha256": "9ed8c19e15fdf5d553a29c4e94982b1648c44c1942f09ebb62431910d09b78c0",
+      "frontier": 3,
+      "frontier_reverse_time_s": 0.75,
+      "results": [
+        {
+          "start": "frontier",
+          "bin": 3,
+          "success": true,
+          "wrong_face": false,
+          "fault": false,
+          "control_steps": 100
+        },
+        {
+          "start": "nominal-home",
+          "bin": -1,
+          "success": false,
+          "wrong_face": false,
+          "fault": true,
+          "control_steps": 10
+        }
+      ],
+      "training_updates": 0,
+      "note": "Single deterministic checkpoint demonstrations, not a success-rate evaluation."
+    },
+    "model_500": {
+      "checkpoint": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z/training/model_500.pt",
+      "checkpoint_sha256": "b6966a5487efbebee793c8b15807cc10c0398e6084c979c2e401b3cbeb50327f",
+      "frontier": 15,
+      "frontier_reverse_time_s": 3.75,
+      "results": [
+        {
+          "start": "frontier",
+          "bin": 15,
+          "success": true,
+          "wrong_face": false,
+          "fault": false,
+          "control_steps": 104
+        },
+        {
+          "start": "nominal-home",
+          "bin": -1,
+          "success": false,
+          "wrong_face": false,
+          "fault": true,
+          "control_steps": 30
+        }
+      ],
+      "training_updates": 0,
+      "note": "Single deterministic checkpoint demonstrations, not a success-rate evaluation."
+    },
+    "model_1000": {
+      "checkpoint": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z/training/model_1000.pt",
+      "checkpoint_sha256": "f3ca6785974745891292c6bc4d0b24c55acbb327b7d08b0aed531d070890c214",
+      "frontier": 15,
+      "frontier_reverse_time_s": 3.75,
+      "results": [
+        {
+          "start": "frontier",
+          "bin": 15,
+          "success": true,
+          "wrong_face": false,
+          "fault": false,
+          "control_steps": 99
+        },
+        {
+          "start": "nominal-home",
+          "bin": -1,
+          "success": false,
+          "wrong_face": false,
+          "fault": true,
+          "control_steps": 42
+        }
+      ],
+      "training_updates": 0,
+      "note": "Single deterministic checkpoint demonstrations, not a success-rate evaluation."
+    },
+    "model_1500": {
+      "checkpoint": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z/training/model_1500.pt",
+      "checkpoint_sha256": "c043de66b55246b235119927c9c9919a0edae306efc1cb520f67871b0542b1b8",
+      "frontier": 15,
+      "frontier_reverse_time_s": 3.75,
+      "results": [
+        {
+          "start": "frontier",
+          "bin": 15,
+          "success": true,
+          "wrong_face": false,
+          "fault": false,
+          "control_steps": 98
+        },
+        {
+          "start": "nominal-home",
+          "bin": -1,
+          "success": false,
+          "wrong_face": false,
+          "fault": true,
+          "control_steps": 33
+        }
+      ],
+      "training_updates": 0,
+      "note": "Single deterministic checkpoint demonstrations, not a success-rate evaluation."
+    },
+    "model_final": {
+      "checkpoint": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z/training/model_final.pt",
+      "checkpoint_sha256": "69135776875fc56d3e20784ca45fb9e2f8ff209c6525749443808cb57690f9b4",
+      "frontier": 15,
+      "frontier_reverse_time_s": 3.75,
+      "results": [
+        {
+          "start": "frontier",
+          "bin": 15,
+          "success": true,
+          "wrong_face": false,
+          "fault": false,
+          "control_steps": 97
+        },
+        {
+          "start": "nominal-home",
+          "bin": -1,
+          "success": false,
+          "wrong_face": false,
+          "fault": true,
+          "control_steps": 39
+        }
+      ],
+      "training_updates": 0,
+      "note": "Single deterministic checkpoint demonstrations, not a success-rate evaluation."
+    }
+  },
+  "active": {
+    "name": "hug-reverse-ppo-legpd-20261109T144613Z",
+    "pid": 2554799,
+    "root": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z",
+    "plan": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z/plan",
+    "command": [
+      "/home/hckang/elesim/.venv/hug-rl-20261106/bin/python",
+      "-u",
+      "-m",
+      "workbench.research.experiments.hug_reverse_rl.experiment",
+      "train",
+      "--plan",
+      "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z/plan",
+      "--output",
+      "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ppo-legpd-20261109T144613Z/training",
+      "--num-envs",
+      "512",
+      "--iterations",
+      "2000"
+    ],
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "num_envs": 512,
+    "iterations": 2000,
+    "started_utc": "2026-11-09T14:46:14.089758+00:00",
+    "status": "training_finished_home_failed",
+    "sources": {
+      "ppo_source": "f6ede8b98d05ee15ef7947646003ee3e7cb12ffc18f9caab90478de0792290e2",
+      "ga_source": "097fb8fd3ae8bf18097dbdff97349f71cc377d803762c0033f8efaf8f29c7946",
+      "model": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb"
+    },
+    "reverse_run": "/home/hckang/elesim/workbench/evidence/generated/hug-reverse-ga-legpd-20261109T074421Z",
+    "case": {
+      "q_deg": [
+        -89.49999999999997,
+        -162.4999999922562
+      ],
+      "xy_mm": [
+        -113.31270805725585,
+        177.58581368395997
+      ],
+      "mu_min": 0.17657992405352427,
+      "feature": "side",
+      "root": 1,
+      "preparation_passed": true,
+      "preparation_gap_mm": 19.312708057255847,
+      "preparation_margin_mm": 18.2700323546493,
+      "case_id": "reverse-xyD",
+      "split": "train",
+      "diameter_mm": 100.0,
+      "band": 1,
+      "roll_deg": -90,
+      "start_command": [
+        0.0,
+        -1.5707963267948966,
+        -0.3124139361069849,
+        -0.5672320068711261
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        -0.3124139361069849,
+        -0.5672320068711261
+      ],
+      "home_command": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "object_xyz_m": [
+        0.37608581371059857,
+        0.1133127080913172,
+        0.55
+      ]
+    },
+    "reset_bins": 21,
+    "curriculum": {
+      "advance_at": 0.7,
+      "retreat_at": 0.2,
+      "window": 512,
+      "cooldown_steps": 80,
+      "retention_fraction": 0.2,
+      "nominal_fraction": 0.5,
+      "seed": 42
+    },
+    "leg_controller": "standing PD after every snapshot restore",
+    "old_checkpoint_resumed": false,
+    "watcher_pid": 2555447,
+    "video_checkpoints": [
+      100,
+      500,
+      1000,
+      1500,
+      "final"
+    ],
+    "final_evaluation": "original Home, original object placement, 3 replays",
+    "elapsed_s": 8943.305043116212,
+    "final_frontier": 15,
+    "max_frontier": 16.0,
+    "home_successes": 0,
+    "home_total": 3,
+    "gpu2_compute_active": false,
+    "updated_utc": "2026-11-10T00:18:11.589433+00:00"
+  },
+  "artifacts_sha256": {
+    "training/policy.npz": "09690415f2b9159f3553091a318ca241a1c0eda7207b63fb2f3cd5b391513400",
+    "training/model_final.pt": "69135776875fc56d3e20784ca45fb9e2f8ff209c6525749443808cb57690f9b4",
+    "training/model_final.pt.curriculum.json": "faa191ca199ec6a4a521d7f06ea45aa3f1a86c8235029c1a9b9768e44a7957be",
+    "reports/model_final/frontier.mp4": "0b39e10ccf5296ea1c670fb9c57455169ed786b6a0cdbb77be1b833e8f010130",
+    "reports/model_final/nominal-home.mp4": "b1021076d248c0d03806cd3370152020eaef97bf64e984944c41937c718492ec",
+    "evaluation-final/evaluation.json": "bba0879700d75030c6333c27eff61e950bf977f0b8b56055eb595c058f7724e0"
+  },
+  "gpu2_compute_active": false,
+  "visual_review": [
+    "final frontier contact sheet: wraps and lifts cylinder, maintains horizontal hold",
+    "final nominal Home contact sheet: early motion knocks cylinder over"
+  ],
+  "conclusion": "Partial-state wrap/lift/hold learned; Home-to-grasp connection failed. More identical training is not supported by progress evidence.",
+  "causality_limit": "Airborne bin15 versus grounded bin16 is an observed reset-state difference, not a proven cause of the plateau.",
+  "evaluation_scope": "Three deterministic nominal-Home replays; no randomized robustness claim."
+}

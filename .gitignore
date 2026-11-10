@@ -72,3 +72,7 @@ deploy/
 /workbench/archive/*
 !/workbench/archive/README.md
 !/workbench/archive/index.json
+
+# Uncurated machine-local research notes and copied artifacts.
+# Keep runnable source in research/ and reviewed summaries in evidence/curated/.
+/workbench/evidence/local/
