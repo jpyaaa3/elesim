@@ -7158,3 +7158,29 @@ The running training source has not been edited for this Git cleanup.
 
 Unrelated Connections/WSLg UI/setup implementation and matching test edits remain
 in the working tree and are excluded from this research commit.
+
+
+### 2026-11-12 — Three reverse paths verified under 200/220/600; D100 curriculum queued
+
+The repeated D100 reverse-GA run used the same three exact mapper roots, seed42,
+128 lanes and up to100 generations. With motor-command travel limits200/220/600,
+anchors1/2/3 passed at generations18/24/61. All three independent nominal release
+replays and all single-robot winner recordings passed for every anchor. Winner
+linear/roll/bend-sum travel was187.50/180/591.64,180/180/594.39 and180/180/541.28
+motor degrees. These results establish grasp-to-Home release paths, not forward
+grasp/lift or interpolation success. Eighteen local MP4s passed ffprobe.
+[Reverse-GA execution evidence](../workbench/evidence/curated/planning/hug_reverse_ga_200_220_600_20261112.json).
+
+All three artifacts passed source/model/Home/root and portable reverse-curriculum
+input validation without changing original evidence. A fresh
+`hug-pipeline-d100-ga20261112` study pins those three anchors,512 environments and
+2000 PPO updates per anchor, then30 validation/100 test interpolation samples plus
+valid probes, with no additional held-out RL or anchor reselection. Source/model
+pins and nominal-Home/forward-reference/reset-bank gates remain enforced.
+
+At the recorded snapshot, catalog screening and first reverse reuse had passed;
+the first forward reference remained at one proper contact despite matching q.
+Its repair was running and PPO had not started. A detached supervisor waits for
+all three forward/reset checks before learning; Luna monitors stages and videos.
+No Home-to-Wrap policy, lift, aligned replay or interpolation success is claimed.
+[Launch snapshot](../workbench/evidence/curated/planning/hug_d100_curriculum_launch_20261112.json).

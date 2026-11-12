@@ -1,0 +1,202 @@
+{
+  "schema": "elesim-d100-curriculum-launch-evidence",
+  "version": 1,
+  "recorded_at_utc": "2026-11-12T08:19:16.403540+00:00",
+  "study_root": "workbench/evidence/generated/hug-pipeline-d100-ga20261112",
+  "source_commit": "9cf367c",
+  "pipeline_source_sha256": "9faa9734b09e92813c7025fcee77ed400dc34096b07c157ece6523f5a776fc9a",
+  "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+  "diameter_mm": 100,
+  "budgets": {
+    "population": 128,
+    "generations": 100,
+    "repair_generations": 100,
+    "num_envs": 512,
+    "iterations": 2000,
+    "max_reselections": 1
+  },
+  "validation": 30,
+  "test": 100,
+  "motion_budget": {
+    "basis": "sum(abs(delta motor-position command)); no net subtraction",
+    "groups": [
+      "linear",
+      "roll",
+      "seg1_plus_seg2"
+    ],
+    "limits_motor_deg": [
+      200.0,
+      220.0,
+      600.0
+    ],
+    "initial_roll_one_direction_motor_deg": 180.0,
+    "sim_to_motor_abs_scale": [
+      1500.0,
+      114.59155902616465,
+      286.4788975654116,
+      286.4788975654116
+    ]
+  },
+  "snapshot_status": "running",
+  "current_stage": "c-0eb2a987a2aa202bbd65/forward",
+  "anchors": [
+    {
+      "case_id": "c-0eb2a987a2aa202bbd65",
+      "q_deg": [
+        -91.5,
+        -157.5
+      ],
+      "xy_mm": [
+        -97.81093980306434,
+        159.93343672457203
+      ],
+      "mu_min": 0.30419889511408393,
+      "feature": "side",
+      "root": 1
+    },
+    {
+      "case_id": "c-38c46eda13c96c8e5134",
+      "q_deg": [
+        -64.5,
+        -166.5
+      ],
+      "xy_mm": [
+        -126.47896612967975,
+        217.34274205800017
+      ],
+      "mu_min": 0.04411928659156723,
+      "feature": "side",
+      "root": 1
+    },
+    {
+      "case_id": "c-d21a7e45a0721a29777f",
+      "q_deg": [
+        -10.5,
+        -169.5
+      ],
+      "xy_mm": [
+        -100.06183079523038,
+        315.2096922748759
+      ],
+      "mu_min": 0.07696006580029721,
+      "feature": "side",
+      "root": -1
+    }
+  ],
+  "stage_statuses": [
+    {
+      "key": "catalog-screen",
+      "status": "complete",
+      "result": {
+        "accepted": true,
+        "criterion": "Home checked and sustained Wrap admission screened"
+      }
+    },
+    {
+      "key": "c-0eb2a987a2aa202bbd65/reverse",
+      "status": "complete",
+      "result": {
+        "accepted": true,
+        "status": "reverse_path_verified",
+        "replays": [
+          true,
+          true,
+          true
+        ],
+        "reused_from": "/home/hckang/elesim/workbench/evidence/generated/ga-completion-20261112/case_01/plan",
+        "old_provenance_rewritten": false,
+        "new_case_forward_validation_required": true
+      }
+    },
+    {
+      "key": "c-0eb2a987a2aa202bbd65/forward",
+      "status": "running",
+      "result": null
+    }
+  ],
+  "contract": {
+    "diameter_mm": 100,
+    "train_case_ids": [
+      "c-0eb2a987a2aa202bbd65",
+      "c-38c46eda13c96c8e5134",
+      "c-d21a7e45a0721a29777f"
+    ],
+    "max_trained_anchors": 3,
+    "reselect_anchors": false,
+    "num_envs_per_policy": 512,
+    "ppo_updates_per_policy": 2000,
+    "validation_samples": 30,
+    "test_samples": 100,
+    "additional_heldout_training": false,
+    "interpolation_space": "q3/q4 total bend angles",
+    "interpolated_values": "phase-aligned linear/roll/q3/q4 timed commands",
+    "success": "nominal Home policy; measured lift with roll 0 +/- 5 degrees; 5 seconds loaded retention; 3 independent successes; command replay and alignment gates",
+    "scripted_episode_actions": false
+  },
+  "reverse_inputs_all_three_portable_validation_passed": true,
+  "ppo_started": false,
+  "home_policy_verified": false,
+  "lift_verified": false,
+  "interpolation_verified": false,
+  "watcher_model": "gpt-6-luna",
+  "latest_preflight_progress": {
+    "generation": 19,
+    "best": {
+      "success": false,
+      "rejected": false,
+      "end_tick": 0,
+      "pose_error": 0.0358734057599906,
+      "wrap_ticks": 0,
+      "best_wrap_ticks": 0,
+      "best_wrap_tick": 0,
+      "near_goal_contacts": 1.0,
+      "final_xy_m": 0.019390596336885356,
+      "peak_xy_m": 0.022397154570981313,
+      "motion_motor_deg": [
+        187.49999999999986,
+        179.99999999999966,
+        264.1383256223889,
+        327.50000000000244
+      ],
+      "motion_group_motor_deg": [
+        187.49999999999986,
+        179.99999999999966,
+        591.6383256223913
+      ],
+      "motion_budget": {
+        "basis": "sum(abs(delta motor-position command)); no net subtraction",
+        "groups": [
+          "linear",
+          "roll",
+          "seg1_plus_seg2"
+        ],
+        "limits_motor_deg": [
+          200.0,
+          220.0,
+          600.0
+        ],
+        "initial_roll_one_direction_motor_deg": 180.0,
+        "sim_to_motor_abs_scale": [
+          1500.0,
+          114.59155902616465,
+          286.4788975654116,
+          286.4788975654116
+        ]
+      },
+      "violation_mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "reasons": []
+    },
+    "successful": 0
+  }
+}

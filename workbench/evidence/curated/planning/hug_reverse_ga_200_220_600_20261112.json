@@ -1,0 +1,285 @@
+{
+  "schema": "elesim-reverse-ga-execution-evidence",
+  "version": 1,
+  "recorded_at_utc": "2026-11-12T08:19:09.551377+00:00",
+  "source_commit": "9cf367c",
+  "source_sha256": "f772220ad6d973a76afe972ff6d512b00c4bc34167181f3d83d21166208badba",
+  "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+  "run_root": "workbench/evidence/generated/ga-completion-20261112",
+  "diameter_mm": 100,
+  "limits_motor_deg": [
+    200,
+    220,
+    600
+  ],
+  "initial_roll_direction_lock_motor_deg": 180,
+  "population": 128,
+  "max_generations": 100,
+  "seed": 42,
+  "cases": [
+    {
+      "index": 1,
+      "completion": {
+        "status": "reverse_path_verified",
+        "generations_evaluated": 18,
+        "replays": [
+          true,
+          true,
+          true
+        ],
+        "elapsed_s": 845.1528722103685,
+        "automatic_ppo_launch": false
+      },
+      "winner_candidate": 50,
+      "winner_generation": 18,
+      "winner_result": {
+        "candidate": 0,
+        "success": true,
+        "rejected": false,
+        "completed": true,
+        "hard_stopped": false,
+        "evaluation_policy": "reverse-completion-before-budget-ranking-v2",
+        "evaluation_status": "success",
+        "first_violation_tick": -1,
+        "reasons": [],
+        "first_hard_violation_tick": -1,
+        "last_safe_error": 0.04758143356188218,
+        "last_valid_error": 0.04758143356188218,
+        "valid_ticks": 518,
+        "duration_s": 5.18,
+        "home_window_s": 1.0,
+        "motion_motor_deg": [
+          187.49999999999986,
+          179.99999999999972,
+          264.13832562238895,
+          327.50000000000244
+        ],
+        "motion_group_motor_deg": [
+          187.49999999999986,
+          179.99999999999972,
+          591.6383256223914
+        ],
+        "motion_budget": {
+          "basis": "sum(abs(delta motor-position command)); no net subtraction",
+          "groups": [
+            "linear",
+            "roll",
+            "seg1_plus_seg2"
+          ],
+          "limits_motor_deg": [
+            200.0,
+            220.0,
+            600.0
+          ],
+          "initial_roll_one_direction_motor_deg": 180.0,
+          "sim_to_motor_abs_scale": [
+            1500.0,
+            114.59155902616465,
+            286.4788975654116,
+            286.4788975654116
+          ]
+        },
+        "motion_excess_motor_deg": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "motion_excess_ratio": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "motion_excess_max_ratio": 0.0,
+        "motion_excess_sum_ratio": 0.0,
+        "home_error": 0.04758143356188218,
+        "path_length": 2.8645936395493474,
+        "peak_xy_m": 0.029027648006952473,
+        "peak_tilt_rad": 1.2487670961347025e-06,
+        "object_contact_force_n": 0.0
+      },
+      "leg_hold": {
+        "max_target_error_rad": 0.0054141380824148655,
+        "max_speed_rad_s": 2.3171516659203917e-05
+      },
+      "video_sha256": "3f9aa1428c491d56fea171a2fdcda78e35b53c0c4bb139bf5e6f49e6f8710ba4"
+    },
+    {
+      "index": 2,
+      "completion": {
+        "status": "reverse_path_verified",
+        "generations_evaluated": 24,
+        "replays": [
+          true,
+          true,
+          true
+        ],
+        "elapsed_s": 1254.764353162609,
+        "automatic_ppo_launch": false
+      },
+      "winner_candidate": 64,
+      "winner_generation": 24,
+      "winner_result": {
+        "candidate": 0,
+        "success": true,
+        "rejected": false,
+        "completed": true,
+        "hard_stopped": false,
+        "evaluation_policy": "reverse-completion-before-budget-ranking-v2",
+        "evaluation_status": "success",
+        "first_violation_tick": -1,
+        "reasons": [],
+        "first_hard_violation_tick": -1,
+        "last_safe_error": 0.04758143356188218,
+        "last_valid_error": 0.04758143356188218,
+        "valid_ticks": 528,
+        "duration_s": 5.28,
+        "home_window_s": 1.0,
+        "motion_motor_deg": [
+          179.99999999999986,
+          179.99999999999972,
+          257.89186251918073,
+          336.50000000000256
+        ],
+        "motion_group_motor_deg": [
+          179.99999999999986,
+          179.99999999999972,
+          594.3918625191833
+        ],
+        "motion_budget": {
+          "basis": "sum(abs(delta motor-position command)); no net subtraction",
+          "groups": [
+            "linear",
+            "roll",
+            "seg1_plus_seg2"
+          ],
+          "limits_motor_deg": [
+            200.0,
+            220.0,
+            600.0
+          ],
+          "initial_roll_one_direction_motor_deg": 180.0,
+          "sim_to_motor_abs_scale": [
+            1500.0,
+            114.59155902616465,
+            286.4788975654116,
+            286.4788975654116
+          ]
+        },
+        "motion_excess_motor_deg": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "motion_excess_ratio": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "motion_excess_max_ratio": 0.0,
+        "motion_excess_sum_ratio": 0.0,
+        "home_error": 0.04758143356188218,
+        "path_length": 2.8433961993053907,
+        "peak_xy_m": 0.0006564552213393195,
+        "peak_tilt_rad": 6.143906154658886e-08,
+        "object_contact_force_n": 0.0
+      },
+      "leg_hold": {
+        "max_target_error_rad": 0.0054141380824148655,
+        "max_speed_rad_s": 2.317045618838165e-05
+      },
+      "video_sha256": "378d74f865c5de1adabce7394681efda39f927c26dcea8e1ac8f04937eb13275"
+    },
+    {
+      "index": 3,
+      "completion": {
+        "status": "reverse_path_verified",
+        "generations_evaluated": 61,
+        "replays": [
+          true,
+          true,
+          true
+        ],
+        "elapsed_s": 2666.802136996761,
+        "automatic_ppo_launch": false
+      },
+      "winner_candidate": 124,
+      "winner_generation": 61,
+      "winner_result": {
+        "candidate": 0,
+        "success": true,
+        "rejected": false,
+        "completed": true,
+        "hard_stopped": false,
+        "evaluation_policy": "reverse-completion-before-budget-ranking-v2",
+        "evaluation_status": "success",
+        "first_violation_tick": -1,
+        "reasons": [],
+        "first_hard_violation_tick": -1,
+        "last_safe_error": 0.04758143356188218,
+        "last_valid_error": 0.04758143356188218,
+        "valid_ticks": 531,
+        "duration_s": 5.3100000000000005,
+        "home_window_s": 1.0,
+        "motion_motor_deg": [
+          179.99999999999986,
+          179.99999999999972,
+          201.78342521893813,
+          339.5000000000026
+        ],
+        "motion_group_motor_deg": [
+          179.99999999999986,
+          179.99999999999972,
+          541.2834252189407
+        ],
+        "motion_budget": {
+          "basis": "sum(abs(delta motor-position command)); no net subtraction",
+          "groups": [
+            "linear",
+            "roll",
+            "seg1_plus_seg2"
+          ],
+          "limits_motor_deg": [
+            200.0,
+            220.0,
+            600.0
+          ],
+          "initial_roll_one_direction_motor_deg": 180.0,
+          "sim_to_motor_abs_scale": [
+            1500.0,
+            114.59155902616465,
+            286.4788975654116,
+            286.4788975654116
+          ]
+        },
+        "motion_excess_motor_deg": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "motion_excess_ratio": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "motion_excess_max_ratio": 0.0,
+        "motion_excess_sum_ratio": 0.0,
+        "home_error": 0.04758143356188218,
+        "path_length": 2.695872762360288,
+        "peak_xy_m": 0.03328293869238612,
+        "peak_tilt_rad": 0.0001833933627209647,
+        "object_contact_force_n": 0.0
+      },
+      "leg_hold": {
+        "max_target_error_rad": 0.0054141380824148655,
+        "max_speed_rad_s": 2.3169857740867883e-05
+      },
+      "video_sha256": "4841709ec20c77bcd1b017f861d12418e63c172f6a9b10d1065bea531882689a"
+    }
+  ],
+  "all_three_reverse_paths_verified": true,
+  "forward_grasp_or_lift_verified": false,
+  "ppo_started": false,
+  "local_video_directory": "../ga_test2_1111/ga_completion_20261112",
+  "video_count": 18,
+  "all_local_videos_ffprobe_validated": true
+}
