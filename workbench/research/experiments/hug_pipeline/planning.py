@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import shutil
 from .contracts import save,sha,digest,shared,make_case,files_hashes
+from workbench.research.experiments.hug_reverse_ga.motion_budget import contract
 
 
 def prepare(args):
@@ -27,7 +28,7 @@ def prepare(args):
     for i,file in enumerate(args.forward_seed):
         target=args.output/f'forward-seed-{i:03d}.npz';shutil.copyfile(file,target)
         seed_files.append(dict(file=target.name,sha256=sha(target)))
-    plan=dict(schema='hug-pipeline',version=1,source_sha256=digest(),shared_context=shared(settings),
+    plan=dict(schema='hug-pipeline',version=1,motion_budget=contract(),source_sha256=digest(),shared_context=shared(settings),
         settings=settings,home=home,diameter_mm=args.diameter,mu_max=args.mu_max,step_deg=args.step,
         seed=args.seed,mapper_sha256=sha(args.output/'mapper.html'),
         budgets={k:getattr(args,k) for k in ('population','generations','repair_generations','num_envs','iterations','max_reselections')},
@@ -54,7 +55,7 @@ def reverse_plan(plan,case,output,mapper):
     if check is None or any(check[k]!=case[k] for k in ('q_deg','xy_mm','feature','root','mu_min')):
         raise ValueError('Selected geometric root changed')
     grasp=dict(case,start_command=case['goal_command'])
-    result=dict(schema='hug-reverse-ga-plan',version=1,source=source,
+    result=dict(schema='hug-reverse-ga-plan',version=1,motion_budget=contract(),source=source,
         simulation_context=dict(plan['shared_context'],code_sha256=reverse_digest(),direction='grasp-to-home'),
         settings=plan['settings'],cases=[grasp],solutions=[check],selection='exact pipeline anchor; no XY re-solve',
         input_xyD_mm=[*case['xy_mm'],case['diameter_mm']],home=plan['home'],

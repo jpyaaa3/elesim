@@ -35,12 +35,20 @@ def decode(genomes, start, home, lower, upper, rates, steps):
 
 
 def quality(r):
-    if r['rejected']:
-        return (0, -r['last_valid_error'], r['valid_ticks'])
-    if r['success']:
-        return (2, -r['duration_s'], -r['path_length'], -r['peak_xy_m'], -r['peak_tilt_rad'])
+    """Completion drives selection even when travel disqualifies a parent.
+
+    Among budget-only completions, minimize worst relative excess, then total
+    relative excess. These are ranking terms, not additional acceptance limits.
+    """
+    over=(-r['motion_excess_max_ratio'],-r['motion_excess_sum_ratio'])
+    if r['hard_stopped']:
+        return (0, -r['last_safe_error'], *over, r['duration_s'])
+    if r['success'] and not r['rejected']:
+        return (3, -r['duration_s'], -r['path_length'], -r['peak_xy_m'], -r['peak_tilt_rad'])
+    if r['completed']:
+        return (2, *over, -r['duration_s'], -r['path_length'], -r['peak_xy_m'])
     return (1, r['home_window_s']>0, r['home_window_s'], -r['home_error'],
-            -r['object_contact_force_n'], -r['path_length'], -r['peak_xy_m'])
+            *over, -r['object_contact_force_n'], -r['path_length'], -r['peak_xy_m'])
 
 
 def breed(population, reports, rng):

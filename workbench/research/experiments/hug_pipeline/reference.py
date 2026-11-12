@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 from contextlib import nullcontext
 import numpy as np
+from workbench.research.experiments.hug_reverse_ga.motion_budget import increment,grouped,contract,require_feasible
 from .contracts import save,sha,canonical
 
 
@@ -29,11 +30,11 @@ def seeds(proposed,count,knots,lo,hi,rng):
 
 def rollout(env,paths,*,record_states=False):
     from workbench.research.experiments.hug_reverse_ga.physics import sample,tick,arrays
-    from workbench.research.experiments.hug_reverse_ga.criteria import violations,admission_good,error
+    from workbench.research.experiments.hug_reverse_ga.criteria import violations,admission_good,error,REASONS
     env.reset();lo,hi,rate=arrays(env);n=env.num_envs
     bad=np.zeros(n,bool);success=np.zeros(n,bool);window=np.zeros(n,int);end=np.zeros(n,int)
     best_window=np.zeros(n,int);best_tick=np.zeros(n,int);best_contacts=np.zeros(n);final_xy=np.zeros(n)
-    distance=np.zeros(n);peak=np.zeros(n);reasons=np.zeros((n,6),bool)
+    distance=np.zeros(n);peak=np.zeros(n);reasons=np.zeros((n,len(REASONS)),bool);travel=np.zeros((n,4))
     previous=paths[:,0];frames=[sample(env)] if record_states else []
     commands=[previous.copy()] if record_states else []
     for t in range(1,paths.shape[1]):
@@ -47,7 +48,8 @@ def rollout(env,paths,*,record_states=False):
             s=dict(actual=array(env.actual()),object_pos=array(obj.get_pos()),object_quat=array(obj.get_quat()),
                 object_vel=array(obj.get_vel()),object_ang=array(obj.get_ang()),touch=array(env.last_touch),
                 floor=array(env.last_floor),fault=array(env.fault),wrong=array(env.last_wrong_face))
-        mask,xy,_=violations(s,cmd,previous,lo,hi,rate,env.case['object_xyz_m'])
+        travel+=np.where(active[:,None],increment(cmd,previous),0)
+        mask,xy,_=violations(s,cmd,previous,lo,hi,rate,env.case['object_xyz_m'],travel)
         reasons|=mask&active[:,None];bad|=mask.any(-1)&active
         good=admission_good(s,np.asarray(env.case['goal_command']))&~bad
         window=np.where(good,window+1,0);new=(window>=round(.3/env.s['dt']))&active
@@ -65,7 +67,8 @@ def rollout(env,paths,*,record_states=False):
     reports=[dict(success=bool(success[i]),rejected=bool(bad[i]),end_tick=int(end[i]),
         pose_error=float(distance[i]),wrap_ticks=int(window[i]),best_wrap_ticks=int(best_window[i]),best_wrap_tick=int(best_tick[i]),
         near_goal_contacts=float(best_contacts[i]),final_xy_m=float(final_xy[i]),peak_xy_m=float(peak[i]),
-        violation_mask=reasons[i].tolist()) for i in range(n)]
+        motion_motor_deg=travel[i].tolist(),motion_group_motor_deg=grouped(travel[i]).tolist(),motion_budget=contract(),
+        violation_mask=reasons[i].tolist(),reasons=[r for r,b in zip(REASONS,reasons[i]) if b]) for i in range(n)]
     return reports,frames,commands
 
 
@@ -90,6 +93,7 @@ def slew_proposal(proposed,home,goal,rate,steps):
 
 
 def search(plan,case,reverse,output,study_root=None):
+    require_feasible(plan["home"],case["goal_command"])
     from workbench.research.experiments.hug_ga.parade import create_env,record
     from workbench.research.experiments.hug_reverse_ga.physics import arrays
     from workbench.research.experiments.hug_reverse_ga.search import decode
@@ -170,7 +174,10 @@ def validate(path,plan):
         or not np.allclose(path['object_quat'][0],[1,0,0,0],atol=1e-6)
         or any(np.max(abs(path[k][0]))>1e-6 for k in ('joint_qd','actual_vel','object_vel','object_ang'))):raise ValueError('Nominal fresh reset required')
     cmd=path['command'];lo,hi=command_bounds(s)
-    bad,_,_=violations(path,cmd,np.vstack((cmd[0],cmd[:-1])),lo,hi,action_rates(s)/s['action_ticks'],case['object_xyz_m'])
+    previous=np.vstack((cmd[0],cmd[:-1]))
+    travel=np.cumsum(increment(cmd,previous),axis=0)
+    bad,_,_=violations(path,cmd,previous,lo,hi,action_rates(s)/s['action_ticks'],case['object_xyz_m'],travel)
+    if bad[:,-3:].any():raise ValueError('Forward reference exceeds GA motion budget')
     if bad.any():raise ValueError('Unsafe forward reference')
     good=admission_good(path,np.asarray(case['goal_command']));hold=round(.3/s['dt'])
     if n<hold or not good[-hold:].all():raise ValueError('Stable selected Wrap endpoint required')

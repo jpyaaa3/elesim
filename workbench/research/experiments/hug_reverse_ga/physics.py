@@ -1,7 +1,8 @@
 """Physics adapter. Forward PPO rewards and forward termination are not used."""
 import numpy as np
-from .criteria import admission_good,violations,error,Tracker,REASONS
+from .criteria import admission_good,violations,error,Tracker,REASONS,EVALUATION_POLICY
 from .prepare import save
+from .motion_budget import exceeded
 
 
 def sample(env):
@@ -110,11 +111,15 @@ def evaluate(env,paths,directory,reset_state,baseline=None):
         s=tick(env,command)
         s['violation_mask']=violations(s,command,previous,lower,upper,rate,env.case['object_xyz_m'])[0]
         valid=tracker.update(s,command,previous,home,lower,upper,rate,env.case['object_xyz_m'])
+        s['violation_mask'][:,-4]=tracker.reasons[:,-4]
+        s['violation_mask'][:,-3:]=exceeded(tracker.travel)
         frames.append(s);commands.append(command.copy());active.append(valid);previous=command.copy()
         if not tracker.active.any():break
     reports=tracker.reports();save(directory/'report.json',dict(candidates=reports))
     archive(directory/'states.npz',frames,commands,active,dict(dt=env.s['dt'],case=env.case,
         simulation_context=env.experiment['simulation_context'],direction='grasp-to-home',
         reset_method='full Genesis snapshot during search; independently admitted prefix replay for curriculum',
-        note='States after lane termination are invalid; success is not a forward or lift certificate'))
+        evaluation_policy=EVALUATION_POLICY,
+        note='Active includes budget-disqualified lanes until Home completion, hard stop or timeout. '
+             'States after lane termination are invalid; only success is eligible for verified export.'))
     return reports

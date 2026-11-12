@@ -5,6 +5,8 @@ import math
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import numpy as np
+from .motion_budget import contract
+from .criteria import EVALUATION_POLICY
 
 
 def digest():
@@ -52,7 +54,7 @@ def prepare(args):
         direction='grasp-to-home',criterion='docs/hug-reverse-ga-criteria.md',
         command_convention='linear m, roll rad, bends per-node rad; public q3/q4 = 5*bend',
         frame='mapper mm: x=-world Y, y=world X; housing centre')
-    plan=dict(schema='hug-reverse-ga-plan',version=1,source=source,simulation_context=context,
+    plan=dict(schema='hug-reverse-ga-plan',version=1,motion_budget=contract(),evaluation_policy=EVALUATION_POLICY,source=source,simulation_context=context,
         settings=settings,cases=[case],solutions=solutions,selection='minimum mu_min among exact inverse solutions',
         input_xyD_mm=[args.x,args.y,args.diameter],home=home,population=args.population,knots=args.knots,
         generations=args.generations,seed=args.seed,parade_every=10,source_sha256=digest(),

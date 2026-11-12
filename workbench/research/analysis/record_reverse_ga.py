@@ -8,13 +8,16 @@ import numpy as np
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--source',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--allow-unverified',action='store_true',
+                   help='Also record a candidate that succeeded in search but failed independent verification')
     args=p.parse_args()
     from workbench.research.experiments.hug_reverse_ga.prepare import digest,save
     from workbench.research.experiments.hug_reverse_ga.physics import admit,evaluate,sample
     from workbench.research.experiments.hug_c.environment import HugEnv
     from workbench.research.experiments.hug_interpolation.video import record_video
     plan=json.loads((args.source/'plan.json').read_text());curr=json.loads((args.source/'run/curriculum.json').read_text())
-    if plan['source_sha256']!=digest() or curr['status']!='reverse_path_verified':raise ValueError('Unverified or changed source')
+    allowed=('reverse_path_verified','verification_failed') if args.allow_unverified else ('reverse_path_verified',)
+    if plan['source_sha256']!=digest() or curr['status'] not in allowed:raise ValueError('Unverified or changed source')
     winner=curr['candidate'];gen=curr['generation']
     with np.load(args.source/f'run/generation-{gen:04d}/candidates.npz',allow_pickle=False) as d:commands=d['commands'][winner:winner+1].copy()
     args.output.mkdir(parents=True,exist_ok=False)
@@ -31,7 +34,8 @@ def main():
         leg_qd=states['joint_qd'][:,0][:,legs]
         leg_report=dict(max_target_error_rad=float(np.max(abs(leg_q-target))),
                         max_speed_rad_s=float(np.max(abs(leg_qd)))) if legs else {}
-    save(args.output/'video-report.json',dict(source=str(args.source),candidate=winner,generation=gen+1,result=reports[0],leg_hold=leg_report,training=False))
+    save(args.output/'video-report.json',dict(source=str(args.source),candidate=winner,generation=gen+1,
+        verification_status=curr['status'],verification_replays=curr['replays'],result=reports[0],leg_hold=leg_report,training=False))
     print(json.dumps(reports[0]))
     return 0 if reports[0]['success'] else 1
 

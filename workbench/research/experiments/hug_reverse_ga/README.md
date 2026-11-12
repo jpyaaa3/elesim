@@ -56,10 +56,13 @@ be overwritten/resumed. Physical admission or runtime errors stop this attempt.
 3. Evolve6 intermediate knots plus searchable timings; fixed grasp start and Home
    endpoint. Each lane has20s including an event-triggered1s Home verification.
    Commands are rate-limited every10ms. There is no fixed last-third hold.
-4. Select success before clean incomplete before rejected. Successful paths rank
-   by completion time, commanded path length and object disturbance. Incomplete
-   paths rank by current Home verification, then measured terminal Home error.
-   Rejected paths can breed only behind clean paths; they never become successes.
+4. Select success, then Home completion over budget, then incomplete paths, then
+   immediate-stop failures. Crossing a travel cap disqualifies a candidate but
+   evaluation continues to Home plus1s rest, the20s timeout, or a hard stop.
+   Over-budget completions rank by smallest worst relative group excess, then
+   total relative excess. Incomplete paths rank by current Home verification and
+   terminal Home error, then budget excess. Budget-disqualified paths can breed
+   but cannot trigger success verification or enter a PPO reset pool.
 5. Check faults, ZED-side contact, whole-episode50mm XY excursion and10° tilt on
    every physics tick. Grasp loss/opening/sign changes are legal. Home requires
    measured pose/rest, no robot contact, and a stable floor-supported cylinder.
@@ -76,7 +79,7 @@ Forward `hug_ga` and PPO rewards/termination are unchanged and unused for select
   source/model hashes, physics, Home and search budget.
 - `run/admission/`: contact/tracking/drift report and tick states; initial video.
 - `run/generation-NNNN/`: genomes, commands, selection reports and `states.npz`.
-- Every tenth generation: caption-free128-lane `parade.mp4`.
+- First and every tenth generation: caption-free128-lane `parade.mp4`.
 - `run/progress.json`, `completion.json`: atomic status and final outcome.
 - `run/verification-N/`: independent admissions/replays and videos.
 - `run/curriculum.json`: successful lane and path reference, replay result;
@@ -90,6 +93,16 @@ includes the terminating tick; subsequent lane samples must be ignored. Mask
 columns are listed in `provenance.json`. Snapshot restores are process-local;
 portable curriculum resets must replay the admitted reverse prefix and validate
 its state. Do not restore only q, negate velocities, or rebase object placement.
+
+`active` includes budget-disqualified candidates that are still being evaluated;
+it does not certify eligibility. Reports distinguish `completed`, `success`,
+`rejected` and `hard_stopped`, and save total travel, per-group excess degrees and
+relative excess. `first_violation_tick` remains the first violation even if more
+violations occur later. `last_valid_error` is the historical pre-violation error;
+selection uses terminal `home_error`, or `last_safe_error` for immediate stops.
+Progress includes completion and over-budget completion counts. The policy tag
+is `reverse-completion-before-budget-ranking-v2`; fresh source-pinned plans are
+required, since previous truncated reports cannot establish full-path travel.
 
 PPO curriculum integration remains a separate task. Near-grasp RL must first
 learn grasp-and-lift, then expand resets toward Home. Final validation includes
@@ -113,3 +126,10 @@ snapshot reset. An early successful search now also records
 `python3 -m workbench.research.analysis.record_reverse_ga --source RUN --output NEW_DIR`
 records the verified winner alone and reports measured leg speed/target error.
 [Corrected run evidence](../../../evidence/curated/planning/hug_reverse_ga_legpd_result_20261109.json).
+
+Initial roll direction lock: the first nonzero roll command chooses either sign.
+Until 180 motor-position degrees have been accumulated in that direction, a
+reversal permanently rejects the candidate (initial_roll_reversal). Pauses are
+allowed. The lock releases once per trajectory; the total roll budget remains
+220 motor-position degrees. 180 motor degrees correspond to 90 physical degrees
+with the current mapping.

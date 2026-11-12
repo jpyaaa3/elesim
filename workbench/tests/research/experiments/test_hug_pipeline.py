@@ -263,3 +263,14 @@ def test_seed_commands_are_rate_limited_from_true_home():
     assert np.array_equal(path[0],home)
     assert np.all(abs(np.diff(path,axis=0))<=rate+1e-12)
     assert np.allclose(path[-1],goal)
+
+
+def test_forward_reference_rejects_cumulative_roll_detour():
+    p,path=fixture()
+    # Within angle bounds and per-tick slew, same endpoints, excessive round trip.
+    path['command'][:401,1]=np.linspace(0,.3,401)
+    path['command'][401:801,1]=np.linspace(.3,-.8,400)
+    path['command'][801:1201,1]=np.linspace(-.8,-.5,400)
+    path['command'][1201:1501,1]=np.linspace(-.5,-np.pi/2,300)
+    with pytest.raises(ValueError,match='motion budget'):
+        reference.validate(path,p)

@@ -45,12 +45,14 @@ Do not count it as128 failed trajectories or silently modify the target q.
 Any preload/pose correction needs its own explicit recorded preparation rule.
 An exactly tangent geometric solution may have no loaded contact in simulation.
 
-## Hard rejection, every physics tick
+## Immediate-stop failures, every physics tick
 
 Keep dt=0.01s, four solver substeps, and control interval0.1s initially.
 Check at every physics tick, not only waypoint/control endpoints. Record the
-first violating tick, all simultaneous reasons and peak values. Rejection is
+first violating tick, all encountered reasons and peak values. Rejection is
 permanent even if the candidate later recovers. Freeze scoring after termination.
+Travel-budget excess is a separate disqualification: continue evaluating it as
+described below, including all later motion and physical failures.
 
 | Condition | Reverse-GA rule | Provenance |
 |---|---|---|
@@ -85,7 +87,9 @@ loss-of-grasp, the old drop flag, nor failure to lift is a reverse-GA rejection.
 
 Episode budget:20s including verification; initialization settling is separate.
 Require **all** the following continuously for1s, starting whenever they become
-true. Any interruption resets this timer. Success ends the lane immediately.
+true. Any interruption resets this timer. Task completion ends the lane immediately.
+An over-budget lane may complete these physical conditions, but remains disqualified
+and cannot be a success. Otherwise evaluate until the20s timeout or a hard stop.
 
 - Measured linear within2mm of Home, roll within2deg, total q3 and q4 each
   within3deg; existing node-spread/bound checks also pass.
@@ -97,7 +101,8 @@ true. Any interruption resets this timer. Success ends the lane immediately.
   linear speed<=10mm/s and angular speed<=5deg/s. This catches an arm that leaves
   a moving or falling cylinder behind. Finite observation time is not a proof of
   indefinite stability.
-- No earlier hard rejection anywhere in the episode.
+- No earlier immediate-stop failure anywhere in the episode. Success additionally
+  requires that none of the cumulative travel limits was exceeded.
 
 No dedicated approach/opening/rolling timestamps are imposed. Remove the old
 `steps*2/3` waypoint schedule and fixed final-third dwell. All intermediate knot
@@ -107,8 +112,10 @@ not a successful curriculum artifact and not a hard physical violation.
 
 ## Selection without another weighted reward sum
 
-Use separate ordered classes: verified reverse success > clean incomplete path
-> rejected path. Every successful path outranks every failure regardless of time.
+Use separate ordered classes: search success > over-budget Home completion
+> incomplete path without a hard stop > immediate-stop failure.
+Every successful path outranks every failure regardless of time. A search success
+still requires the independent replays below before it becomes verified evidence.
 PPO rewards and forward grasp/lift/hold progress are not selection terms here.
 
 For measured Home error, define
@@ -123,16 +130,26 @@ For successful candidates, minimize lexicographically:
    `sum_ticks sum_j abs(delta_command_j)/(upper_j-lower_j)`;
 3. peak object XY excursion, then peak tilt.
 
-For clean incomplete candidates, first prefer a nonzero **current** Home
+For over-budget completions, compute each group's excess as
+`e_g = max(travel_g - limit_g, 0) / limit_g` (zero within arithmetic tolerance).
+Minimize `max(e_g)`, then `sum(e_g)`, then completion time and path length.
+These are selection tie-breaks, not new acceptance limits or a weighted reward.
+For example, a completed 560-degree bend path outranks a completed 650-degree
+bend path when both other groups fit. Both outrank an unfinished path; neither
+can be exported as a successful curriculum path.
+
+For incomplete candidates, including those over budget, first prefer a nonzero **current** Home
 verification window and maximize its current duration; otherwise minimize
-terminal E. Tie-break by terminal object-contact force, then normalized path
+terminal E. Tie-break by worst and total relative budget excess, terminal object-contact force, then normalized path
 length, then peak object excursion. Do not use historical nearest-Home or a
 historical verification maximum: a path that approaches Home and leaves again
 must not keep that credit. Report E even when a verification window is nonzero.
 
-Rejected paths can fill otherwise-empty breeding slots only after all clean
-candidates. Order them by smallest Home E at their last valid tick, then longer
-valid prefix. This is an exploration tie-break; no rejected path is exportable.
+Immediate-stop failures rank last. Order them by Home E at their last physically
+valid tick (which may follow budget disqualification), then budget excess and
+evaluated duration. Budget-only disqualification does not freeze the pose error,
+Home verification timer or travel counter. All disqualified paths remain
+ineligible for successful export, even when used as parents.
 If a lane fails at its first tick, use the admitted initial-state E. A global
 physics error invalidates the generation instead of awarding a candidate rank.
 
@@ -193,3 +210,34 @@ Source references: `hug_ga/search.py`, `hug_ga/constraints.py`,
 `hug_c/configure.py`, `hug_c/environment.py`, `hug_c/contacts.py` under
 `workbench/research/experiments/`. Physical constants are inherited;20s/1s,
 50mm/10deg, endpoint tolerances and rest thresholds above define this v1 proposal.
+
+## Motor command travel limits — 2026-11-11
+
+Reverse GA and pipeline forward-repair GA permanently disqualify a candidate
+when cumulative absolute motor-position command travel exceeds any of:
+linear **200 deg**, roll **220 deg**, or seg1 + seg2 **600 deg**.
+Equality passes (1e-6 deg arithmetic tolerance). There is no overall-sum cap,
+net-displacement subtraction, or added PPO reward/termination condition.
+Physical command increments are converted through the canonical mapping scales:
+1500 deg/m linear, 2 motor deg per physical roll degree, and 5 motor deg per
+node-bend degree. Hardware sign flips do not change absolute travel.
+Counters start at the first GA path command and exclude initial admission.
+Reverse GA continues accumulating after budget excess until physical Home
+completion, timeout or an immediate-stop failure. Forward-repair GA retains its
+existing early-stop behavior. Reverse reports keep the first violation tick,
+all encountered violation reasons, full evaluated travel and normalized excess;
+budget-only completion cannot trigger independent-success verification.
+Reports include four-axis and three-group totals and explicit rejection reasons.
+Both reverse curriculum ingestion and forward reference validation recompute
+these limits. Minimum endpoint travel is checked before creating a GPU scene.
+New plans pin the budget description and changed source hashes; old evidence is
+not rewritten or automatically certified under the new limits.
+The earlier 300/200/500 experiment remains historical evidence and was not
+re-evaluated under the revised limits.
+
+For reverse GA, the first nonzero roll command selects a direction. Before
+180 motor-position degrees have accumulated in that direction, any reversal
+permanently rejects the candidate as `initial_roll_reversal`; pauses are allowed.
+After reaching 180 degrees the direction lock releases for the rest of that
+trajectory. This is 90 physical roll degrees under the current mapping. The
+220-degree cumulative roll cap still applies.

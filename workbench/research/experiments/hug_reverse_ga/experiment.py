@@ -7,6 +7,7 @@ import time
 import numpy as np
 from .prepare import prepare,save,digest
 from .search import seed_population,decode,breed,quality
+from .criteria import EVALUATION_POLICY
 
 
 def run(args):
@@ -30,6 +31,8 @@ def run(args):
 
 
 def search(plan,output,backend):
+    from .motion_budget import require_feasible
+    require_feasible(plan["cases"][0]["goal_command"],plan["home"])
     from workbench.research.experiments.hug_ga.parade import create_env,record,due
     from .physics import admit,evaluate,arrays,sample
     from .criteria import REASONS
@@ -47,16 +50,20 @@ def search(plan,output,backend):
         folder=output/f'generation-{generation:04d}';folder.mkdir()
         paths=decode(population,start,home,lower,upper,rate,steps)
         np.savez_compressed(folder/'candidates.npz',genomes=population,commands=paths)
-        with record(env,folder/'parade.mp4') if due(generation+1,plan['parade_every']) else nullcontext():
+        record_generation=(generation==0 or due(generation+1,plan['parade_every']))
+        with record(env,folder/'parade.mp4') if record_generation else nullcontext():
             reports=evaluate(env,paths,folder,state,baseline)
         best=max(range(n),key=lambda i:quality(reports[i]))
         progress=dict(generation=generation+1,generations=plan['generations'],best=reports[best],
             successes=sum(r['success'] for r in reports),clean=sum(not r['rejected'] for r in reports),
+            completed=sum(r['completed'] for r in reports),
+            completed_over_budget=sum(r['completed'] and r['rejected'] for r in reports),
+            hard_stopped=sum(r['hard_stopped'] for r in reports),evaluation_policy=EVALUATION_POLICY,
             direction='grasp-to-home')
         save(output/'progress.json',progress);print(json.dumps(progress),flush=True)
         if reports[best]['success']:
             # A short successful search must still have a full-population parade.
-            if not due(generation+1,plan['parade_every']):
+            if not record_generation:
                 parade_folder=output/'final-population';parade_folder.mkdir()
                 with record(env,parade_folder/'parade.mp4'):
                     evaluate(env,paths,parade_folder,state,baseline)

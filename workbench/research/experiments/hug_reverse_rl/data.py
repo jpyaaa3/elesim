@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import numpy as np
 from workbench.research.experiments.hug_reverse_ga.prepare import save
+from workbench.research.experiments.hug_reverse_ga.motion_budget import increment
+from workbench.research.experiments.hug_reverse_ga.criteria import REASONS
 
 FIELDS=('actual','actual_vel','joint_q','joint_qd','object_pos','object_quat','object_vel',
         'object_ang','touch','floor','fault','wrong','contact_force','contact_penetration','violation_mask','command','time_s')
@@ -38,14 +40,16 @@ def validate_path(path,plan):
     for k,v in path.items():
         if len(v)!=length or not np.isfinite(v).all():raise ValueError('Invalid path array: '+k)
     shapes={'actual':(length,4),'actual_vel':(length,4),'object_pos':(length,3),'object_quat':(length,4),
-            'object_vel':(length,3),'object_ang':(length,3),'touch':(length,2),'command':(length,4),'violation_mask':(length,6)}
+            'object_vel':(length,3),'object_ang':(length,3),'touch':(length,2),'command':(length,4),'violation_mask':(length,len(REASONS))}
     for k in ('floor','fault','wrong','contact_force','contact_penetration'):shapes[k]=(length,)
     for k,shape in shapes.items():
         if path[k].shape!=shape:raise ValueError('Wrong shape: '+k)
     if path['joint_q'].ndim!=2 or path['joint_q'].shape!=path['joint_qd'].shape or path['joint_q'].shape[1]<12:
         raise ValueError('Require full individual joint q/qd')
     case=plan['cases'][0];lo,hi=command_bounds(plan['settings']);rate=action_rates(plan['settings'])/plan['settings']['action_ticks']
-    cmd=path['command'];mask,_,_=violations(path,cmd,np.vstack((cmd[0],cmd[:-1])),lo,hi,rate,case['object_xyz_m'])
+    cmd=path['command'];previous=np.vstack((cmd[0],cmd[:-1]))
+    travel=np.cumsum(increment(cmd,previous),axis=0)
+    mask,_,_=violations(path,cmd,previous,lo,hi,rate,case['object_xyz_m'],travel)
     if mask.any() or path['violation_mask'].any():raise ValueError('Rejected samples cannot enter a reset pool')
     if not np.allclose(cmd[0],case['goal_command'],atol=1e-7):raise ValueError('Path does not start at solver grasp')
     if not admission_good({k:v[:1] for k,v in path.items()},np.asarray(case['goal_command']))[0]:

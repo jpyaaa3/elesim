@@ -112,15 +112,87 @@ def test_search_fixed_endpoints_slew_and_searchable_duration():
 
 def test_selection_success_over_clean_over_rejected():
     t=Tracker(1,[9.],.01);r=t.reports()[0]
-    success=dict(r,success=True,duration_s=20.,home_error=1.)
+    success=dict(r,success=True,completed=True,duration_s=20.,home_error=1.)
     clean=dict(r,home_error=0.)
-    rejected=dict(r,rejected=True,last_valid_error=0.)
+    rejected=dict(r,rejected=True,hard_stopped=True,last_safe_error=0.)
     assert quality(success)>quality(clean)>quality(rejected)
     assert quality(dict(clean,home_window_s=.5))>quality(clean)
     p=np.random.default_rng(0).random((8,4,5))
     reports=[rejected]*7+[success]
     children=breed(p,reports,np.random.default_rng(4))
     assert np.array_equal(children[0],p[7]) and children.shape==p.shape
+
+
+def test_over_budget_completions_rank_by_full_excess_and_can_be_parents():
+    r=Tracker(1,[9.],.01).reports()[0]
+    success=dict(r,success=True,completed=True)
+    a=dict(r,rejected=True,completed=True,motion_excess_max_ratio=10/550,
+           motion_excess_sum_ratio=10/550,home_window_s=1.,home_error=0.)
+    b=dict(a,motion_excess_max_ratio=100/550,motion_excess_sum_ratio=100/550)
+    unfinished=dict(r,home_error=2.)
+    crashed=dict(r,rejected=True,hard_stopped=True,last_safe_error=0.)
+    assert quality(success)>quality(a)>quality(b)>quality(unfinished)>quality(crashed)
+    assert quality(dict(a,hard_stopped=True))<quality(unfinished)
+    population=np.random.default_rng(0).random((8,4,5))
+    children=breed(population,[crashed]*5+[unfinished,b,a],np.random.default_rng(4))
+    np.testing.assert_array_equal(children[0],population[7])
+
+
+def test_timeout_uses_terminal_error_instead_of_pre_budget_error():
+    r=Tracker(1,[9.],.01).reports()[0]
+    early_close=dict(r,rejected=True,last_valid_error=.01,home_error=8.)
+    ending_close=dict(r,rejected=True,last_valid_error=20.,home_error=2.)
+    assert quality(ending_close)>quality(early_close)
+
+
+def test_budget_ranking_compares_relative_excess_in_each_group():
+    r=Tracker(1,[9.],.01).reports()[0]
+    base=dict(r,rejected=True,completed=True)
+    # 10% in one group is preferred to 11%, regardless of group units.
+    assert quality(dict(base,motion_excess_max_ratio=.1,motion_excess_sum_ratio=.1))>quality(
+        dict(base,motion_excess_max_ratio=.11,motion_excess_sum_ratio=.11))
+    # When the worst group ties, additional excess in other groups matters.
+    assert quality(dict(base,motion_excess_max_ratio=.1,motion_excess_sum_ratio=.1))>quality(
+        dict(base,motion_excess_max_ratio=.1,motion_excess_sum_ratio=.2))
+
+
+@pytest.mark.parametrize('fatal',[None,'fault','tilt'])
+def test_evaluate_continues_budget_failure_to_home_but_stops_physical_fault(tmp_path,monkeypatch,fatal):
+    from types import SimpleNamespace
+    from workbench.research.experiments.hug_reverse_ga import physics
+    from workbench.research.experiments.hug_reverse_ga.motion_budget import SCALE
+    zero=np.zeros(4);large=zero.copy();small=zero.copy()
+    large[2]=325/SCALE[2];small[2]=30/SCALE[2]
+    # Cross the budget at 650, then move another 60 before finishing Home hold.
+    commands=np.array([zero,large,zero,small,zero]+[zero]*9)[None,:,:]
+    env=SimpleNamespace(num_envs=1,s={'dt':.1},case={'home_command':zero.tolist(),'object_xyz_m':ORIGIN.tolist()},
+        experiment={'simulation_context':{}},reset=lambda:None,
+        scene=SimpleNamespace(go2_leg_dofs=[],scene=SimpleNamespace(reset=lambda state:None)),
+        mapper=SimpleNamespace(waypoint=np.zeros((1,4))),start=zero)
+    monkeypatch.setattr(physics,'sample',lambda e:sample(zero))
+    monkeypatch.setattr(physics,'arrays',lambda e:(np.full(4,-10.),np.full(4,10.),np.full(4,2.)))
+    ticks=[]
+    def tick(e,c):
+        ticks.append(c.copy());state=sample(c[0])
+        if len(ticks)==4:
+            if fatal=='fault':state['fault'][0]=True
+            if fatal=='tilt':state['object_quat'][0]=[np.cos(np.deg2rad(6)),np.sin(np.deg2rad(6)),0,0]
+        return state
+    monkeypatch.setattr(physics,'tick',tick)
+    r=physics.evaluate(env,commands,tmp_path,object())[0]
+    assert r['rejected'] and not r['success']
+    assert r['first_violation_tick']==2
+    assert r['motion_group_motor_deg'][2]==pytest.approx(710)
+    assert r['motion_excess_motor_deg']==pytest.approx([0,0,110])
+    assert r['motion_excess_max_ratio']==pytest.approx(110/600)
+    assert r['hard_stopped']==bool(fatal) and r['completed']==(not fatal)
+    assert len(ticks)==(4 if fatal else 13)
+    assert r['evaluation_status']==('hard_stop' if fatal else 'completed_over_budget')
+    if not fatal:assert r['home_window_s']==pytest.approx(1.)
+    with np.load(tmp_path/'states.npz') as data:
+        assert len(data['time_s'])==len(ticks)+1
+        assert data['violation_mask'][2:,0,-1].all()
+        assert data['active'][:,0].all()
 
 
 @pytest.mark.parametrize('drift,expected',[(.05,False),(.050001,True)])
@@ -205,8 +277,10 @@ def test_orchestration_admission_and_replay_fail_closed(tmp_path,monkeypatch,adm
     plan=dict(cases=[case],population=2,home=HOME.tolist(),knots=1,seed=42,generations=1,parade_every=10)
     result=experiment.search(plan,tmp_path,'cpu')
     assert result['status']==expected
-    assert len(calls)==(5 if admitted else 0)
-    if admitted:assert tmp_path/'final-population/parade.mp4' in recorded
+    assert len(calls)==(4 if admitted else 0)
+    if admitted:
+        assert tmp_path/'generation-0000/parade.mp4' in recorded
+        assert tmp_path/'final-population/parade.mp4' not in recorded
     if admitted:
         import json
         data=json.loads((tmp_path/'curriculum.json').read_text())

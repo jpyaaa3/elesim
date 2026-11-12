@@ -9,6 +9,7 @@ from workbench.research.experiments.hug_reverse_rl.data import require_verified,
 from workbench.research.experiments.hug_reverse_rl.bank import compare
 from workbench.research.experiments.hug_reverse_rl.experiment import bind_checkpoint,resume
 from workbench.research.experiments.hug_c.configure import DEFAULTS as SETTINGS,load_mechanism
+from workbench.research.experiments.hug_reverse_ga.criteria import REASONS
 
 
 def path_fixture():
@@ -18,7 +19,7 @@ def path_fixture():
         object_pos=np.tile([.376,.113,.55],(n,1)),object_quat=np.tile([1.,0,0,0],(n,1)),
         object_vel=np.zeros((n,3)),object_ang=np.zeros((n,3)),touch=np.zeros((n,2)),floor=np.ones(n,bool),
         fault=np.zeros(n,bool),wrong=np.zeros(n,bool),contact_force=np.zeros(n),contact_penetration=np.zeros(n),
-        violation_mask=np.zeros((n,6),bool),command=command,time_s=np.arange(n)*.01)
+        violation_mask=np.zeros((n,len(REASONS)),bool),command=command,time_s=np.arange(n)*.01)
     path['touch'][0]=1
     plan=dict(settings=dict(SETTINGS),cases=[dict(goal_command=goal.tolist(),home_command=home.tolist(),object_xyz_m=[.376,.113,.55])],home=home.tolist())
     return path,plan
@@ -43,6 +44,13 @@ def test_only_verified_reverse_paths_enter_prepare(change):
 
 def test_valid_path_and_exclude_redundant_home_dwell():
     path,plan=path_fixture();assert validate_path(path,plan)==501
+
+
+def test_over_budget_completion_cannot_become_curriculum():
+    completion,curr,report,replays=verified()
+    report.update(completed=True,success=False,rejected=True,reasons=['bend_travel'],
+                  evaluation_status='completed_over_budget')
+    with pytest.raises(ValueError):require_verified(completion,curr,report,replays)
 
 
 @pytest.mark.parametrize('change',['fault','wrong','xy','tilt','nan','slew','command','missing_joint','no_contact','not_home','moving_object','clock'])
