@@ -106,17 +106,16 @@ class Coordinator:
                 try:
                     reverse=self.stage(key+'/reverse','reverse',case=case)
                     if stop_after=='reverse':return
-                    reference=self.stage(key+'/forward','forward',case=case,reverse=str(reverse))
-                    if stop_after=='forward':return
                 except StageFailed as exc:
                     # Only exhausted geometry/reference searches justify selecting
                     # another anchor. Infrastructure errors remain resumable.
-                    if exc.result.get('status') in ('initial_grasp_invalid','budget_exhausted','verification_failed','forward_reference_failed','forward_verification_failed'):
+                    if exc.result.get('status') in ('initial_grasp_invalid','budget_exhausted','verification_failed'):
                         self.state['excluded'].append(case['q_deg']);self.write();retry=True;break
                     raise
-                ppo=self.stage(key+'/ppo-plan','ppo-plan',case=case,reference=str(reference))
+                ppo=self.stage(key+'/ppo-plan','ppo-plan',case=case,reverse=str(reverse))
                 self.stage(key+'/check','check',case=case,plan=str(ppo))
                 if stop_after=='check':return
+                if stop_after=='teachers':continue
                 trained=self.stage(key+'/train','train',case=case,plan=str(ppo))
                 if stop_after=='train':return
                 policy=self.stage(key+'/policy','policy',case=case,policy=str(trained/'training/policy.npz'))
@@ -124,6 +123,7 @@ class Coordinator:
                 ready.append(dict(case=case,policy=str(trained/'training/policy.npz'),trajectory=str(original/'rollout-1.npz')))
                 if stop_after=='policy':return
             if retry:continue
+            if stop_after=='teachers':return
             self.interpolate(ready,cases[3:]);return
         self.state['status']='selection_budget_exhausted';self.write()
         raise RuntimeError('Anchor selection budget exhausted; not an impossibility proof')

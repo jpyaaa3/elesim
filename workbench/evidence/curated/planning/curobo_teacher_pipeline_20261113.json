@@ -1,0 +1,213 @@
+{
+  "schema": "elesim-curobo-teacher-pipeline-evidence",
+  "version": 1,
+  "recorded_at_utc": "2026-11-13T02:39:43.568898+00:00",
+  "study_root": "/home/hckang/elesim/workbench/evidence/generated/hug-pipeline-curobo-auto-20261113",
+  "source_snapshot": "/home/hckang/elesim/.research/curobo-teacher-20261113",
+  "source_sha256": "cfd948235c53bbd2b7cbef5a70f3c8ec731b6d5e34da98059f40e093bb0e7a85",
+  "local_source_matches_tested_snapshot": true,
+  "plan_sha256": "d8a15c82cff5368756cd7a502f7d6ad938bb97ad66dad9c1fe7ff5e35d6d7f39",
+  "manifest_sha256": "2014cffdea569cbec7d69036a81e1a40db94970d0871bb457dc86c07deda1932",
+  "selection_sha256": "9cfbb9a6d3088f300fc5d667fe70499965067d64e3a68cc884930091a1dc860f",
+  "model_sha256": "f17ffa8c5e4ba1b358a9962b7b6f7cdb6dc883ffb06b9c0568ff0ab3dec199bb",
+  "reverse_configuration": {
+    "mode": "auto",
+    "model": "/home/hckang/elesim/workbench/evidence/generated/curobo-v2-morphit-camera-2048-20261112",
+    "python": "/home/hckang/elesim/.venv/reverse-curobo-v2-20261112/bin/python",
+    "model_metadata_sha256": "d7e94d42147fd318a4b3c5867166c0352a1bc329cd625de35cabe3bd3be53743",
+    "source_sha256": {
+      "v2.py": "5f1c026de984927a34865fed9eb3c53c9a5e7c33403bf57f6649bd579c0795cd",
+      "v2_worker.py": "4aa967b1a8305a06f38aff68538deb095fff58765f4b1dce2fb38ef64dfdaf0e",
+      "v2_geometry.py": "b264c55653b4d359225670448a769df69cffa8d4541fcb282e7be17f49eab301",
+      "v2_model.py": "bb89ea6ae40389005b269cbd34cf8d980194959dbc93605b54284e608e770612",
+      "native_failure.py": "e0cc768b523485016b92774de1effe3842715441ea42ef3cc812c4b3a7c88d86",
+      "teacher.py": "c3c353acde0a409a7b3b8d432f9dd766722d3cef33d41b8d7d9865df80ad9c0f"
+    },
+    "native_profile": "task",
+    "attempts": 2,
+    "timeout_s": 300
+  },
+  "gpu_uuids": [
+    "GPU-a40782b2-881c-e285-2a8e-66cae9162a01"
+  ],
+  "state": "diagnostic_stop",
+  "stopped_after": "teachers",
+  "cases": [
+    {
+      "case": "case_01",
+      "case_id": "c-0eb2a987a2aa202bbd65",
+      "q_deg": [
+        -91.5,
+        -157.5
+      ],
+      "xy_mm": [
+        -97.81093980306434,
+        159.93343672457203
+      ],
+      "root": 1,
+      "producer": "ga",
+      "reverse_wall_s": 140.57832956314087,
+      "reverse_attempts": [
+        {
+          "producer": "curobo-v2",
+          "native_profile": "task",
+          "elapsed_s": 135.9283293709159,
+          "status": "budget_exhausted",
+          "returncode": 1
+        },
+        {
+          "producer": "ga",
+          "elapsed_s": 4.297246515750885,
+          "status": "reverse_path_verified",
+          "reused_from": "/home/hckang/elesim/workbench/evidence/generated/ga-completion-20261112/case_01/plan",
+          "search_executed": false
+        }
+      ],
+      "ppo_input_s": 2.490360736846924,
+      "reset_bank_check_s": 28.486742734909058,
+      "reset_bank": {
+        "physical_reset_pool_validated": true,
+        "num_envs": 2,
+        "bins": 32,
+        "nominal_home_checked": true,
+        "subset_restore_checked": true,
+        "reference_path_sha256": "c1624be8eb003769729a487c552d80efbd58c049ba2b0c95b1b570b3e6888f76"
+      },
+      "maximum_replay_errors": {
+        "joint_q": 0.0,
+        "joint_qd": 0.0,
+        "object_pos": 0.0,
+        "object_quat": 0.0,
+        "object_vel": 0.0,
+        "object_ang": 0.0
+      },
+      "stage_outputs": {
+        "reverse": "/home/hckang/elesim/workbench/evidence/generated/hug-pipeline-curobo-auto-20261113/stages/c-0eb2a987a2aa202bbd65/reverse/attempt-001",
+        "check": "/home/hckang/elesim/workbench/evidence/generated/hug-pipeline-curobo-auto-20261113/stages/c-0eb2a987a2aa202bbd65/check/attempt-001"
+      }
+    },
+    {
+      "case": "case_02",
+      "case_id": "c-38c46eda13c96c8e5134",
+      "q_deg": [
+        -64.5,
+        -166.5
+      ],
+      "xy_mm": [
+        -126.47896612967975,
+        217.34274205800017
+      ],
+      "root": 1,
+      "producer": "curobo-v2",
+      "reverse_wall_s": 196.4374749660492,
+      "reverse_attempts": [
+        {
+          "producer": "curobo-v2",
+          "native_profile": "task",
+          "elapsed_s": 195.98535517882556,
+          "status": "reverse_path_verified",
+          "returncode": 0
+        }
+      ],
+      "ppo_input_s": 0.31804966926574707,
+      "reset_bank_check_s": 32.92907691001892,
+      "reset_bank": {
+        "physical_reset_pool_validated": true,
+        "num_envs": 2,
+        "bins": 32,
+        "nominal_home_checked": true,
+        "subset_restore_checked": true,
+        "reference_path_sha256": "ac2e60886a590d84e6194358681c075d294f4d2621b994aeefb6050a66556d65"
+      },
+      "maximum_replay_errors": {
+        "joint_q": 0.0,
+        "joint_qd": 0.0,
+        "object_pos": 0.0,
+        "object_quat": 0.0,
+        "object_vel": 0.0,
+        "object_ang": 0.0
+      },
+      "stage_outputs": {
+        "reverse": "/home/hckang/elesim/workbench/evidence/generated/hug-pipeline-curobo-auto-20261113/stages/c-38c46eda13c96c8e5134/reverse/attempt-001",
+        "check": "/home/hckang/elesim/workbench/evidence/generated/hug-pipeline-curobo-auto-20261113/stages/c-38c46eda13c96c8e5134/check/attempt-001"
+      }
+    },
+    {
+      "case": "case_03",
+      "case_id": "c-d21a7e45a0721a29777f",
+      "q_deg": [
+        -10.5,
+        -169.5
+      ],
+      "xy_mm": [
+        -100.06183079523038,
+        315.2096922748759
+      ],
+      "root": -1,
+      "producer": "ga",
+      "reverse_wall_s": 137.43448686599731,
+      "reverse_attempts": [
+        {
+          "producer": "curobo-v2",
+          "native_profile": "task",
+          "elapsed_s": 120.93125706538558,
+          "status": "budget_exhausted",
+          "returncode": 1
+        },
+        {
+          "producer": "ga",
+          "elapsed_s": 16.145155038684607,
+          "status": "reverse_path_verified",
+          "reused_from": "/home/hckang/elesim/workbench/evidence/generated/ga-completion-20261112/case_03/plan",
+          "search_executed": false
+        }
+      ],
+      "ppo_input_s": 5.936986684799194,
+      "reset_bank_check_s": 28.471513509750366,
+      "reset_bank": {
+        "physical_reset_pool_validated": true,
+        "num_envs": 2,
+        "bins": 32,
+        "nominal_home_checked": true,
+        "subset_restore_checked": true,
+        "reference_path_sha256": "7f2531c599bb42f5c29d933b9c0c49377d63caa29566899ffe10fe100aa45967"
+      },
+      "maximum_replay_errors": {
+        "joint_q": 0.0,
+        "joint_qd": 0.0,
+        "object_pos": 0.0,
+        "object_quat": 0.0,
+        "object_vel": 0.0,
+        "object_ang": 0.0
+      },
+      "stage_outputs": {
+        "reverse": "/home/hckang/elesim/workbench/evidence/generated/hug-pipeline-curobo-auto-20261113/stages/c-d21a7e45a0721a29777f/reverse/attempt-001",
+        "check": "/home/hckang/elesim/workbench/evidence/generated/hug-pipeline-curobo-auto-20261113/stages/c-d21a7e45a0721a29777f/check/attempt-001"
+      }
+    }
+  ],
+  "producer_counts": {
+    "ga": 2,
+    "curobo-v2": 1
+  },
+  "all_three_reset_banks_verified": true,
+  "training_updates": 0,
+  "ppo_success_claimed": false,
+  "publication_ready": false,
+  "elapsed_s_rounded": 620,
+  "stage_wall_s_sum": 613.4260947704315,
+  "timing_scope": "Coordinator first-stage start through diagnostic stop; fresh cuRobo and physical checks, explicitly reused GA evidence; excludes fresh GA search, fitting and PPO training",
+  "successful_task_speedup_claimed": false,
+  "gpu_exclusivity_verified": false,
+  "focused_checks": {
+    "host_passed": 57,
+    "server_passed": 67,
+    "canonical_gates_run": false,
+    "reason": "Research adapter scope; no usable generated development attachment in this workspace"
+  },
+  "caveats": [
+    "Only case_02 used a freshly successful native cuRobo path; cases 01 and 03 used explicit verified GA inputs.",
+    "Each reset-bank check used two physical lanes and 32 reverse bins; production PPO batch size was not tested.",
+    "This evidence establishes teacher ingestion and physical reset reconstruction, not learned Home/lift/hold or interpolation success."
+  ]
+}

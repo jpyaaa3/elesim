@@ -15,21 +15,11 @@ def run(job):
         return dict(accepted=True,criterion='Home checked and sustained Wrap admission screened')
     case=job['case'];out.mkdir(parents=True,exist_ok=False)
     if kind=='reverse':
-        from .planning import reverse_plan
-        from workbench.research.experiments.hug_reverse_ga.experiment import search
-        from .reuse import reuse_reverse
-        reused=reuse_reverse(study,case,out)
-        if reused is not None:return reused
-        plan_dir=out/'plan';p=reverse_plan(study,case,plan_dir,root/'mapper.html');run_dir=plan_dir/'run';run_dir.mkdir()
-        result=search(p,run_dir,study['backend']);save(run_dir/'completion.json',result)
-        return dict(result,accepted=result['status']=='reverse_path_verified')
-    if kind=='forward':
-        from .reference import search
-        result=search(study,case,Path(job['reverse'])/'plan',out,study_root=root)
-        return dict(result,accepted=result['status']=='forward_reference_verified')
+        from .reverse import run as reverse
+        return reverse(study,case,out,root)
     if kind=='ppo-plan':
         from .learning import prepare
-        prepare(study,case,Path(job['reference']),out/'plan')
+        prepare(study,case,Path(job['reverse'])/'plan',out/'plan')
         return dict(accepted=True,initial_policy_required=False)
     if kind=='check':
         from .learning import load,create_env

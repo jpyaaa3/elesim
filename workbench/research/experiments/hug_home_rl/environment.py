@@ -12,11 +12,13 @@ from .smoothness import Smoothness
 
 
 class HomeEnv(CurriculumEnv):
+    reset_bank_class = HomeResetBank
+    core_env_class = HugEnv
     def __init__(self,plan,path,directory,*,num_envs=512,backend='gpu',video=False):
         self.plan=plan;self.auto_reset=True;self.mode='curriculum';self.fixed_bin=0
         case=deepcopy(plan['case']);case['start_command']=plan['home']
         experiment=dict(settings=plan['settings'],simulation_context=plan['simulation_context'],cases=[case])
-        self.core=HugEnv(experiment,case,Path(directory)/'assets',n_envs=num_envs,
+        self.core=self.core_env_class(experiment,case,Path(directory)/'assets',n_envs=num_envs,
                          backend=backend,auto_reset=False,video=video)
         self.schedule=WindowCurriculum(len(plan['pool_ticks']),plan['curriculum'])
         self.bins=np.zeros(num_envs,int);self.epochs=np.zeros(num_envs,int)
@@ -24,7 +26,7 @@ class HomeEnv(CurriculumEnv):
         self.lift_seen=torch.zeros_like(self.episode_wrong)
         self.smooth=Smoothness(num_envs,action_rates(self.s),self.s['dt']*self.s['action_ticks'],
                                plan['smoothness'],torch,self.device)
-        self.bank=HomeResetBank(self.core,plan,path,Path(directory)/'reset-bank')
+        self.bank=self.reset_bank_class(self.core,plan,path,Path(directory)/'reset-bank')
         self.core.tick_monitor=self._monitor;self.reset()
         if video:self.scene.cameras['report'].set_pose(pos=(.85,-1.,1.25),lookat=(.35,.05,.55),up=(0.,0.,1.))
 

@@ -12,12 +12,18 @@ class PipelineLearning(unittest.TestCase):
     def test_cold_optimizer_export_and_resume_without_initial_policy(self):
         from workbench.tests.research.experiments.test_hug_home_rl_torch import HomeTests
         from workbench.research.experiments.hug_pipeline import learning
-        from workbench.research.experiments.hug_c.policy import NumpyPolicy
+        from workbench.research.experiments.hug_pipeline.policy import NumpyPolicy
         context={'contract':'test-only'}
         plan=dict(source_sha256='test-source',reference_path_sha256='test-reference',initial_checkpoint_sha256=None,
             curriculum={'seed':42},shared_context=context,case={'case_id':'fake'})
         def factory(*args,**kwargs):
             env=HomeTests().fake_env();env.reset()
+            import torch
+            original=env.core.get_observations
+            def observations():
+                obs=original();obs['policy']=torch.cat((obs['policy'],torch.ones((4,1))),dim=1)
+                return obs
+            env.core.get_observations=observations
             env.metadata=lambda:dict(simulation_context=context,forward_reference_sha256='test-reference')
             return env
         with TemporaryDirectory() as directory,patch.object(learning,'load',return_value=(plan,{})),patch.object(learning,'create_env',side_effect=factory):
@@ -54,12 +60,13 @@ class PipelineLearning(unittest.TestCase):
             def reset(self):
                 self.last_touch.zero_()
                 return {'policy':torch.zeros((1,20))},{}
+            def linear_report(self):return dict(budget_exceeded=False,at_target=True)
             def object_clearance(self):return torch.ones(1)*.03
             def step(self,action):
                 self.last_touch=torch.ones((1,2));self.tick_monitor(self)
                 return {'policy':torch.zeros((1,20))},torch.ones(1),torch.ones(1,dtype=torch.bool),{}
         study=dict(shared_context=shared,settings=dict(DEFAULTS),home=[0.,0.,0.,0.],backend='cpu')
-        with TemporaryDirectory() as directory,patch('workbench.research.experiments.hug_c.environment.HugEnv',Env),patch('workbench.research.experiments.hug_c.policy.NumpyPolicy',Policy),patch('workbench.research.experiments.hug_reverse_ga.physics.sample',return_value={'actual':np.zeros((1,4))}):
+        with TemporaryDirectory() as directory,patch('workbench.research.experiments.hug_pipeline.task.LinearHugEnv',Env),patch('workbench.research.experiments.hug_pipeline.policy.NumpyPolicy',Policy),patch('workbench.research.experiments.hug_reverse_ga.physics.sample',return_value={'actual':np.zeros((1,4))}):
             result=evaluation.evaluate(study,case,Path(directory),policy_path=Path(directory)/'mock',repetitions=3,video=False)
             self.assertTrue(result['accepted']);self.assertEqual(len(result['results']),3)
 

@@ -13,13 +13,15 @@ def check_commands(commands,study):
     if not np.allclose(c[0],study['home'],atol=1e-7):raise ValueError('Trajectory must start at Home')
     if np.any(c<lo-1e-7) or np.any(c>hi+1e-7) or np.any(abs(np.diff(c,axis=0))>action_rates(s)/s['action_ticks']+1e-6):raise ValueError('Command limits/slew exceeded')
     if (len(c)-1)>s['episode_steps']*s['action_ticks']:raise ValueError('Episode length exceeded')
+    from .linear import check_trajectory
+    check_trajectory(c)
     return c
 
 
 def evaluate(study,case,output,*,policy_path=None,commands=None,repetitions=3,video=True):
     import torch
-    from workbench.research.experiments.hug_c.environment import HugEnv
-    from workbench.research.experiments.hug_c.policy import NumpyPolicy
+    from .task import LinearHugEnv
+    from .policy import NumpyPolicy
     from workbench.research.experiments.hug_interpolation.video import record_video
     from workbench.research.experiments.hug_reverse_ga.physics import sample
     if (policy_path is None)==(commands is None):raise ValueError('Choose policy or command replay')
@@ -29,7 +31,7 @@ def evaluate(study,case,output,*,policy_path=None,commands=None,repetitions=3,vi
         policy=NumpyPolicy(policy_path)
         if policy.metadata.get('simulation_context')!=ctx:raise ValueError('Policy case/shared context mismatch')
     exp=dict(settings=study['settings'],simulation_context=ctx,cases=[case])
-    env=HugEnv(exp,case,output/'assets',n_envs=1,backend=study['backend'],auto_reset=False,video=video)
+    env=LinearHugEnv(exp,case,output/'assets',n_envs=1,backend=study['backend'],auto_reset=False,video=video)
     if video:env.scene.cameras['report'].set_pose(pos=(.85,-1.,1.25),lookat=(.35,.05,.55),up=(0.,0.,1.))
     summaries=[]
     for rep in range(repetitions):
@@ -60,7 +62,8 @@ def evaluate(study,case,output,*,policy_path=None,commands=None,repetitions=3,vi
             grasps=np.flatnonzero(f[:,0]);lifts=np.flatnonzero(f[:,1])
             if len(grasps) and len(lifts):events=[0,int(grasps[0]),int(lifts[0]),max(hold,int(lifts[0])),success]
         summary=dict(accepted=passed,fault=fault,wrong_face=wrong,ticks=len(trace)-1,events=events,
-            case_id=case['case_id'],policy_execution=policy_path is not None,scripted_prefix=False)
+            case_id=case['case_id'],policy_execution=policy_path is not None,scripted_prefix=False,
+            linear=env.linear_report())
         summaries.append(summary)
         state={k:np.asarray([s[k][0] for s in frames]) for k in frames[0]}
         np.savez_compressed(output/f'rollout-{rep+1}.npz',commands=np.asarray(trace),**state,

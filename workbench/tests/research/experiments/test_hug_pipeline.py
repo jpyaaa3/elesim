@@ -42,18 +42,28 @@ def test_forward_rejects_invalid_reset_or_physics(damage):
     with pytest.raises((ValueError,RuntimeError)):reference.validate(path,p)
 
 
-def test_cold_plan_has_no_checkpoint_or_policy_prerequisite(tmp_path):
-    p,path=fixture();study=dict(settings=p['settings'],home=p['home'],shared_context=contracts.shared(p['settings']),seed=42)
-    ref=tmp_path/'ref';ref.mkdir()
-    for i in range(1,4):np.savez_compressed(ref/f'reference-{i}.npz',**path)
-    contracts.save(ref/'completion.json',dict(status='forward_reference_verified',replays=[True]*3,
-        policy_used=False,selected_case_sha256=contracts.canonical(p['case'])))
-    out=tmp_path/'plan';prepared=learning.prepare(study,p['case'],ref,out)
+def test_cold_plan_has_no_forward_or_policy_prerequisite(tmp_path,monkeypatch):
+    from workbench.tests.research.experiments.test_hug_reverse_rl import path_fixture
+    from workbench.research.experiments.hug_reverse_rl import data
+    from workbench.research.experiments.hug_home_rl.schedule import DEFAULTS as SCHEDULE
+    path,ga=path_fixture();case=dict(ga['cases'][0],case_id='test')
+    ga['cases']=[dict(case,start_command=case['goal_command'])]
+    study=dict(settings=ga['settings'],home=ga['home'],shared_context=contracts.shared(ga['settings']),seed=42)
+    def verified_input(source,output,**kwargs):
+        assert source==tmp_path/'reverse'
+        output.mkdir();np.savez_compressed(output/'reference-path.npz',**path)
+        return dict(reverse_plan=ga,case=ga['cases'][0],settings=ga['settings'],home=ga['home'],
+            reference_path_sha256=contracts.sha(output/'reference-path.npz'),state_tolerances={})
+    monkeypatch.setattr(data,'prepare',verified_input)
+    out=tmp_path/'plan';prepared=learning.prepare(study,case,tmp_path/'reverse',out)
     loaded,_=learning.load(out)
     assert prepared==loaded and loaded['initial_checkpoint_sha256'] is None
-    assert len(loaded['pool_ticks'])<=32 and loaded['pool_ticks'][-1]==0
-    assert loaded['pool_ticks'][0]==1600
-    assert not (out/'initial-model.pt').exists()
+    assert len(loaded['pool_ticks'])<=32 and loaded['pool_ticks'][0]==0
+    assert loaded['pool_ticks'][-1]==501
+    assert loaded['curriculum']['overlap_bins']==SCHEDULE['overlap_bins']
+    assert loaded['scripted_episode_actions'] is False
+    loaded['pool_ticks'].reverse();contracts.save(out/'plan.json',loaded)
+    with pytest.raises(ValueError,match='ordering'):learning.load(out)
 
 
 def test_exact_anchor_plan_does_not_reinvert_xy(tmp_path,monkeypatch):
@@ -74,7 +84,7 @@ def test_exact_anchor_plan_does_not_reinvert_xy(tmp_path,monkeypatch):
 def test_alignment_stretches_each_phase_and_barycentric_vertex_is_exact():
     p,_=fixture();home=np.asarray(p['home']);paths=[]
     for lengths in ([20,30,40,500],[25,20,50,500],[15,35,30,500]):
-        events=np.r_[0,np.cumsum(lengths)];c=np.tile(home,(events[-1]+1,1));c[:,0]+=np.linspace(0,.02,len(c))
+        events=np.r_[0,np.cumsum(lengths)];c=np.tile(home,(events[-1]+1,1));c[:,0]=np.linspace(home[0],0,len(c))
         paths.append(dict(commands=c,events=events))
     aligned,events=evaluation.align(paths,p)
     assert np.array_equal(np.diff(events),[25,35,50,500])
@@ -210,7 +220,7 @@ def test_full_stage_graph_publishes_only_after_home_and_interpolation_gates(tmp_
             (out/'training').mkdir();(out/'training/policy.npz').write_bytes(b'not a physics policy; mock orchestration')
         if kind=='policy' and not policy_passes:raise coordinator.StageFailed(key,{'accepted':False})
         if kind in ('policy','replay'):
-            commands=np.tile(p['home'],(601,1));commands[:,0]+=np.linspace(0,.02,601)
+            commands=np.tile(p['home'],(601,1));commands[:,0]=np.linspace(p['home'][0],0,601)
             np.savez_compressed(out/'rollout-1.npz',commands=commands,events=[0,25,50,100,600])
         return out
     c.stage=stage
@@ -218,7 +228,8 @@ def test_full_stage_graph_publishes_only_after_home_and_interpolation_gates(tmp_
         c.run();assert c.state['status']=='published'
         publication=json.loads((tmp_path/'publication.json').read_text())
         assert publication['ready'] and len(publication['anchors'])==3
-        assert visited.count('reverse')==visited.count('forward')==visited.count('train')==3
+        assert visited.count('reverse')==visited.count('train')==3
+        assert 'forward' not in visited
         assert visited.count('policy')==visited.count('replay')==visited.count('aligned')==3
         assert visited[-1]=='interpolation'
     else:
@@ -274,3 +285,48 @@ def test_forward_reference_rejects_cumulative_roll_detour():
     path['command'][1201:1501,1]=np.linspace(-.5,-np.pi/2,300)
     with pytest.raises(ValueError,match='motion budget'):
         reference.validate(path,p)
+
+
+def test_ppo_worker_consumes_reverse_plan_without_forward_stage(tmp_path,monkeypatch):
+    from workbench.research.experiments.hug_pipeline import worker
+    study={'settings':{}};case={'case_id':'anchor'};calls=[]
+    monkeypatch.setattr(worker,'load_study',lambda root:study)
+    monkeypatch.setattr(learning,'prepare',lambda *args:calls.append(args))
+    out=tmp_path/'output';reverse=tmp_path/'reverse'
+    result=worker.run(dict(root=str(tmp_path),kind='ppo-plan',case=case,
+                           output=str(out),reverse=str(reverse)))
+    assert result['accepted'] and calls==[(study,case,reverse/'plan',out/'plan')]
+
+
+def test_reverse_environment_retains_ppo_actions_and_uses_reverse_bank():
+    # Source inspection also runs on the lightweight host without Torch/Genesis.
+    import ast
+    source=Path(learning.__file__).with_name('environment.py').read_text()
+    tree=ast.parse(source);cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='ReverseHomeEnv')
+    assert cls.bases[0].id=='HomeEnv'
+    assert not any(isinstance(n,ast.FunctionDef) and n.name in ('step','reset') for n in cls.body)
+    assignments={n.targets[0].id:n.value.id for n in cls.body if isinstance(n,ast.Assign)}
+    assert assignments['reset_bank_class']=='LinearResetBank'
+    assert assignments['core_env_class']=='LinearHugEnv'
+
+
+def test_fixed_selection_preserves_original_anchors_and_requires_home(tmp_path,monkeypatch):
+    from workbench.research.experiments.hug_pipeline import planning,reuse
+    from workbench.research.experiments.hug_c import source
+    home=list(load_mechanism().presets['home'])
+    qs=[[-90.,-160.],[-60.,-160.],[-60.,-130.],[-70.,-150.],[-75.,-155.]]
+    rows=[dict(q_deg=q,xy_mm=[-100.,180.],feature='side',root=1,mu_min=.2) for q in qs]
+    cases=[contracts.make_case(dict(r,split='train' if i<3 else 'validation' if i==3 else 'test'),100,home) for i,r in enumerate(rows)]
+    selection=dict(pilot={'original':True},cases=cases);contracts.save(tmp_path/'fixed-selection.json',selection)
+    contracts.save(tmp_path/'plan.json',{})
+    study=dict(fixed_selection_sha256=contracts.sha(tmp_path/'fixed-selection.json'),validation=1,test=1,
+               diameter_mm=100,mu_max=.4,home=home,reverse_inputs=[dict(directory=str(tmp_path))])
+    screen=tmp_path/'screen.json'
+    contracts.save(screen,dict(results=[dict(q_deg=q,home_passed=True,wrap_admitted=False) for q in qs[:3]]))
+    monkeypatch.setattr(source,'read_kernel',lambda *a,**k:('kernel',{}))
+    monkeypatch.setattr(source,'evaluate',lambda *a,**k:rows)
+    monkeypatch.setattr(reuse,'compatible',lambda *a:True)
+    assert planning.fixed_selection(tmp_path,study,[],screen)==(selection['pilot'],cases)
+    with pytest.raises(ValueError,match='no automatic reselection'):planning.fixed_selection(tmp_path,study,[qs[0]],screen)
+    contracts.save(screen,dict(results=[]))
+    with pytest.raises(ValueError,match='Home screen failed'):planning.fixed_selection(tmp_path,study,[],screen)

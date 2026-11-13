@@ -15,7 +15,7 @@ def compatible(study,case,old):
 
 
 def reuse_reverse(study,case,output):
-    from workbench.research.experiments.hug_reverse_rl.data import prepare
+    from .reverse import prepare_reference as prepare
     for item in study.get('reverse_inputs',[]):
         origin=Path(item['directory']);verify_files(origin,item['artifacts'])
         old=json.loads((origin/'plan.json').read_text())
@@ -26,5 +26,5 @@ def reuse_reverse(study,case,output):
         shutil.copytree(origin,output/'plan')
         return dict(accepted=True,status='reverse_path_verified',replays=[True]*3,
             reused_from=str(origin),old_provenance_rewritten=False,
-            new_case_forward_validation_required=True)
+            new_case_reset_validation_required=True)
     return None

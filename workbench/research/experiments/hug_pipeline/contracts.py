@@ -19,14 +19,19 @@ def digest():
     h=hashlib.sha256(base().encode())
     for p in sorted(Path(__file__).parent.glob('*.py')):
         h.update(p.name.encode());h.update(p.read_bytes())
+    teacher=Path(__file__).parent.parent/'hug_reverse_curobo/teacher.py'
+    h.update(b'curobo-teacher-v1');h.update(teacher.read_bytes())
     return h.hexdigest()
 
 
 def shared(settings):
     from workbench.research.experiments.hug_c.configure import asset_digest,VERSIONS
+    from .linear import contract
+    from .policy import OBSERVATIONS
     return dict(model_sha256=asset_digest(),code_sha256=digest(),versions=VERSIONS,settings=settings,
-        control_mode='pipeline-free-four-dof-v1',reset_contract='forward-full-state-v1',
-        reward_contract='bounded-milestones-lift90-v5+bounded-command-variation-v1',
+        control_mode='pipeline-linear-budget-four-dof-v2',reset_contract='reverse-full-state-home-debited-v3',
+        reward_contract='bounded-milestones-lift90-v5+bounded-command-variation-v1+linear200-end0-v1',
+        linear_motion_contract=contract(),observation_names=list(OBSERVATIONS),
         command_convention='linear m, roll rad, bends per-node rad; public q3/q4 = 5*bend')
 
 

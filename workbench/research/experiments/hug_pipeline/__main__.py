@@ -38,13 +38,20 @@ def resolve(root,xy,output):
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='command',required=True)
     q=sub.add_parser('plan');q.add_argument('--mapper',type=Path,required=True);q.add_argument('--output',type=Path,required=True)
-    q.add_argument('--forward-seed',type=Path,action='append',default=[],help='Optional command NPZ proposal, always revalidated in physics');q.add_argument('--reuse-reverse',type=Path,action='append',default=[],help='Explicit verified reverse-plan directory; exact physical case match required');q.add_argument('--diameter',type=float,required=True);q.add_argument('--mu-max',type=float,default=.4);q.add_argument('--step',type=float,default=1.)
-    for name,default in (('seed',42),('population',128),('generations',100),('repair-generations',100),('num-envs',512),('iterations',2000),('max-reselections',5),('validation',30),('test',100)):
+    q.add_argument('--reuse-selection',type=Path,help='Pin previous selection.json; revalidate geometry and Home, then reverse reset admission');q.add_argument('--reuse-reverse',type=Path,action='append',default=[],help='Explicit verified reverse-plan directory; exact physical case match required');q.add_argument('--diameter',type=float,required=True);q.add_argument('--mu-max',type=float,default=.4);q.add_argument('--step',type=float,default=1.)
+    for name,default in (('seed',42),('population',128),('generations',100),('num-envs',512),('iterations',2000),('max-reselections',5),('validation',30),('test',100)):
         q.add_argument('--'+name,type=int,default=default)
     q.add_argument('--backend',choices=('gpu','cpu'),default='gpu')
+    q.add_argument('--reverse-planner',choices=('ga','curobo','auto'),default='ga',
+                   help='auto tries bounded native cuRobo, then GA on search/physical failure')
+    q.add_argument('--curobo-model',type=Path)
+    q.add_argument('--curobo-python',type=Path)
+    q.add_argument('--curobo-profile',choices=('task','task-contact','task-contact-roll'),default='task')
+    q.add_argument('--curobo-attempts',type=int,default=4)
+    q.add_argument('--curobo-timeout',type=int,default=600,help='Whole cuRobo attempt wall-clock budget in seconds')
     for name in ('run','resume','status','resolve'):
         q=sub.add_parser(name);q.add_argument('root',type=Path)
-        if name in ('run','resume'):q.add_argument('--stop-after',choices=('screen','reverse','forward','check','train','policy'))
+        if name in ('run','resume'):q.add_argument('--stop-after',choices=('screen','reverse','check','teachers','train','policy'))
         if name=='resolve':q.add_argument('--x',type=float,required=True);q.add_argument('--y',type=float,required=True);q.add_argument('--output',type=Path,required=True)
     a=p.parse_args(argv)
     if a.command=='plan':
