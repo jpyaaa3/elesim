@@ -258,13 +258,14 @@ Pilot 실행 인자 `--scan-models /path/to/scan.yaml`로 선택한다. 이 YAML
 FloorTilt와 실제 AdaPoinTrCompletion을 선택한다. 비교 기준선은
 `--scan-models .../scan.example.yaml`로 선택한다.
 
-통합 설정은 다음 외부 asset을 Pilot에 read-only로 제공해야 한다. 자동 다운로드나
-checkpoint 자동 교체는 없다. 모델 source는 고정 PoinTr revision
+일반 설치와 릴리스 업데이트는 다음 고정 외부 asset을 다운로드·체크섬 검증하여
+Pilot의 읽기 전용 data/models/adapointr에 공급한다. 체크포인트 자동 교체는 없다.
+캐시는 ELESIM_COMPLETION_ASSET_CACHE 또는 XDG_CACHE_HOME/elesim/model-assets를 사용한다. 모델 source는 고정 PoinTr revision
 `4603257ed3db9e7dad349b712e1b2fe0da207015`의 archive다.
 
-- `/opt/elesim/models/adapointr/pointr-source.tar.gz`: SHA-256
+- `/opt/elesim/data/models/adapointr/pointr-source.tar.gz`: SHA-256
   `ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e`
-- `/opt/elesim/models/adapointr/ap_ps55.pth`: SHA-256
+- `/opt/elesim/data/models/adapointr/ap_ps55.pth`: SHA-256
   `66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7`
 - Projected55 model config는 `config/reconstruction/adapointr.projected55.yaml`에
   포함한다. AP-PS55는 기존 실험에 사용한 제3자 inference 재배포본이며 원저자의

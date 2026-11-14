@@ -36,13 +36,13 @@ models:
       timeout_s: 120.0
     assets:
       source:
-        path: /opt/elesim/models/adapointr/pointr-source.tar.gz
+        path: ../../data/models/adapointr/pointr-source.tar.gz
         sha256: ab52d68e84bf79e7d7969a826c93672c2ff4d997b714a571b722bcd5f4be668e
       config:
         path: reconstruction/adapointr.projected55.yaml
         sha256: cdd8616e9abe77013234879f1c15b8aed0764274be274dec3937ebd65479a707
       weights:
-        path: /opt/elesim/models/adapointr/ap_ps55.pth
+        path: ../../data/models/adapointr/ap_ps55.pth
         sha256: 66e22112aa43e74cd0716012201ea40bda0492e8163897e6e45102e86cb781b7
   mesher:
     factory: elesim_pilot.reconstruction.meshing:PoissonSurface

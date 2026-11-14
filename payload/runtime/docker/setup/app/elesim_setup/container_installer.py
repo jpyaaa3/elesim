@@ -1174,6 +1174,8 @@ class ContainerInstaller:
         if role in {"pilot", "sim"}:
             _copy_tree(root / "payload/data/calibration", data_root / "calibration")
         if role == "pilot":
+            from .completion_assets import supply
+            supply(data_root / "models/adapointr")
             _copy_tree(root / "payload/data/models/arm", data_root / "models/arm")
             _copy_tree(root / "payload/data/models/planning", data_root / "models/planning")
             _copy_tree(

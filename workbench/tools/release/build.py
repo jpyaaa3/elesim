@@ -110,6 +110,8 @@ def copy_role_data(role: str, release: Path) -> None:
     if role in {"pilot", "sim"}:
         copy_tree(ROOT / "payload/data/calibration", release / "data/calibration")
     if role == "pilot":
+        from payload.runtime.docker.setup.app.elesim_setup.completion_assets import supply
+        supply(release / "data/models/adapointr")
         copy_tree(ROOT / "payload/data/models/arm", release / "data/models/arm")
         copy_tree(ROOT / "payload/data/models/planning", release / "data/models/planning")
         copy_tree(

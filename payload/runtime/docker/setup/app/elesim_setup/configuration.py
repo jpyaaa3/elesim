@@ -118,6 +118,8 @@ def bind_installed_data_paths(
             for spec in pipeline["models"].values():
                 for model in (spec if isinstance(spec, list) else [spec]):
                     for asset in model.get("assets", {}).values():
+                        if str(asset["path"]) in {"/opt/elesim/models/adapointr/pointr-source.tar.gz", "/opt/elesim/models/adapointr/ap_ps55.pth"}:
+                            asset["path"] = str(runtime_data_root / "models/adapointr" / Path(asset["path"]).name)
                         if str(asset["path"]).startswith("../../data/"):
                             asset["path"] = str(runtime_data_root / asset["path"][11:])
             _write_yaml(reconstruction, pipeline)

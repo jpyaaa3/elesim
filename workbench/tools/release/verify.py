@@ -476,6 +476,12 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
         _require_path(release / "config/runtime.yaml")
     if role == "pilot":
         _require_path(release / "data/models/arm/default.json")
+        from payload.runtime.docker.setup.app.elesim_setup.completion_assets import ASSETS, digest
+        for name, (_, expected) in ASSETS.items():
+            asset = release / "data/models/adapointr" / name
+            _require_path(asset)
+            if digest(asset) != expected:
+                raise ValueError(f"Completion asset checksum mismatch: {name}")
         _require_path(release / "config/reconstruction.example.yaml")
         _require_path(release / "config/scan.example.yaml")
         _require_path(release / "config/scan.integrated.yaml")
