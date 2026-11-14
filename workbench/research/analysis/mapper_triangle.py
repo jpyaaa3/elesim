@@ -30,11 +30,20 @@ def study_result(root):
 def build(source,output,study=None):
     from workbench.research.experiments.hug_c.source import read_kernel
     source=Path(source);text=source.read_text();kernel,_=read_kernel(source,require_preparation=True)
+    # A presentation-only refresh must preserve the embedded study, including
+    # its recorded physical screen, even when its evidence directory moved.
+    previous=None
+    config_start=text.find('const config=',text.find('<script id="hugTriangleSource"'))
+    if study is None and config_start>=0:
+        embedded,_=json.JSONDecoder().raw_decode(text[config_start+len('const config='):])
+        if embedded.get('study'):
+            if embedded['kernel']!=kernel:raise ValueError('Embedded study and mapper geometry differ')
+            previous=embedded['study']
     text=re.sub(re.escape(BEGIN)+r'.*?'+re.escape(END)+r'\n?','',text,flags=re.S).rstrip()+'\n'
     support=Path(__file__).resolve().parents[1]/'support'
     selector=(support/'hugmap_triangle.js').read_text();ui=(support/'hugmap_triangle_ui.js').read_text()
-    selected=study_result(study) if study else None
-    if selected and selected['kernel_sha256']!=hashlib.sha256(kernel.encode()).hexdigest():raise ValueError('Study and mapper geometry differ')
+    selected=study_result(study) if study else previous
+    if selected and selected.get('kernel_sha256',hashlib.sha256(kernel.encode()).hexdigest())!=hashlib.sha256(kernel.encode()).hexdigest():raise ValueError('Study and mapper geometry differ')
     config=dict(kernel=kernel,study=selected)
     data=json.dumps(config,separators=(',',':'),ensure_ascii=True).replace('</','<\\/')
     script=ui.replace('__TRIANGLE_CONFIG__',data)
@@ -44,8 +53,14 @@ def build(source,output,study=None):
 <label><input id="triangleShow" type="checkbox" checked>Show triangle</label>
 <pre id="triangleStatus" style="white-space:pre-wrap">Select a C triangle to maximize covered q3–q4 solution area. Tie-breaks: preparation clearance, worst μ, triangle conditioning.</pre>
 </div>'''
-    # Keep the original geometry script byte-for-byte: existing generated pages
-    # and scientific kernel extraction continue to use the same first script.
+    # Give every speed preset more work per frame, with a bounded <50 ms slice
+    # so construction still yields to Stop and other controls. Geometry, scan
+    # resolution and collision checks are unchanged.
+    text,count=re.subn(r"\(\{60000:\d+,270000:\d+,1000000:\d+\}\[\$\('speed'\)\.value\]\|\|\d+\)",
+        "({60000:12,270000:24,1000000:48}[$('speed').value]||24)",text,count=1)
+    if count!=1:raise ValueError('Unsupported mapper construction scheduling')
+    # Scientific kernel extraction continues to use the same first script;
+    # only its presentation scheduling is regenerated above.
     marker='<canvas id="plot"'
     if marker not in text:raise ValueError('Unsupported mapper canvas')
     text=text.replace(marker,BEGIN+controls+END+'\n'+marker,1)

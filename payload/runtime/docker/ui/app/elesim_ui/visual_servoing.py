@@ -42,6 +42,8 @@ class ServoingController:
         self.strategy = 0
         self.notice = self.error = ''
         self.solution = {}
+        self.hug_plan = {}
+        self._hug_context = None
         self._solution_context = ()
         self._pending = None
         self._serial = 0
@@ -202,6 +204,13 @@ class ServoingController:
             return ''
         if action == 'wrap':
             return ''
+        if action in ('plan_reconstructed_hug', 'execute_reconstructed_hug'):
+            if v.role != 'sim' or not v.reconstructed:
+                return 'Complete a reconstruction on the selected Sim first.'
+            if action == 'execute_reconstructed_hug' and (
+                    not self.hug_plan.get('plan_id') or self._hug_context != self._scan_key()):
+                return 'Prepare a fresh reconstructed hug first.'
+            return ''
         return 'Unknown Visual Servoing action.'
 
     def refresh(self, *, now=None):
@@ -261,6 +270,10 @@ class ServoingController:
             return
         self.error = ''
         self.notice = 'Request accepted; follow live status for completion.'
+        if pending['action'] == 'plan_reconstructed_hug':
+            self.hug_plan = dict(value) if isinstance(value, dict) else {}
+            self._hug_context = pending['scan_key']
+            self.notice = 'Interpolated path ready. Execute separately from Home; grasp success is unverified.'
         if pending['action'] == 'compute_hug':
             self.solution = dict(value) if isinstance(value, dict) else {}
             self._solution_context = pending['context']
@@ -281,7 +294,7 @@ class ServoingController:
         self._serial += 1
         token = self._serial
         geometry = action in ('compute_hug', 'execute_hug')
-        scope = 'all' if geometry else 'motion' if action in ('scan','cancel_scan','wrap') else 'scene'
+        scope = 'all' if geometry or action in ('plan_reconstructed_hug','execute_reconstructed_hug') else 'motion' if action in ('scan','cancel_scan','wrap') else 'scene'
         self._pending = dict(action=action,token=token,geometry=geometry,
             scope=scope,context=self._context(geometry=geometry,scope=scope),
             deadline=time.monotonic()+10.,scan_key=self._scan_key(),
@@ -289,7 +302,12 @@ class ServoingController:
         callbacks = dict(on_result=lambda value: self._callback(token,value),
                          on_error=lambda error: self._callback(token,error,error=True))
         try:
-            if action in ('scan', 'cancel_scan'):
+            if action in ('plan_reconstructed_hug', 'execute_reconstructed_hug'):
+                method = 'plan_reconstructed_hug' if action == 'plan_reconstructed_hug' else 'execute_arm_trajectory'
+                args = (self.target_id.strip(),) if action == 'plan_reconstructed_hug' else (self.hug_plan['plan_id'],)
+                self.service.reconstructed_hug_async(method,*args,**callbacks)
+                if action == 'execute_reconstructed_hug':self.hug_plan = {}
+            elif action in ('scan', 'cancel_scan'):
                 name, args = ('start_object_scan', (self.target_id.strip(),self.max_views)) if action == 'scan' else ('cancel_object_scan', ())
                 self.service.object_scan_async(name,*args,**callbacks)
                 self.step = 1

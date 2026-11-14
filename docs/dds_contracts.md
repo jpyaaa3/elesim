@@ -435,3 +435,13 @@ Sim interpolates visual samples in wall time, caps playback at 120 seconds,
 and draws translucent URDF debug meshes. These meshes are excluded from hand-eye
 RGB-D and have no physics or collision entity. Older Sims reject the unknown
 command; all participating software must be updated together.
+
+Reconstructed C-hug is an additive protocol-v6 operator extension:
+`plan_reconstructed_hug(target_id='target')` fits a Pilot-local completed scene,
+resolves the bundled experimental D100 model and returns a bounded plan ID, fit,
+solver XY/q3/q4 and three interpolation weights. It sends no motion. Existing
+`execute_arm_trajectory(plan_id)` and `cancel_arm_trajectory()` retain the measured
+executor and target boot/lease fences. Only the Sim that produced the reconstruction
+is accepted; scene epoch/revision and stationary base are pinned. No mesh/model
+paths are accepted from UI. Older Pilots reject the unknown operation. Wire and
+operator-view schema versions remain unchanged; no new authority is granted.

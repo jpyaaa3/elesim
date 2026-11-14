@@ -55,7 +55,9 @@ class PipelineLearning(unittest.TestCase):
                 self.device='cpu';self.num_envs=1;self.max_episode_length=1
                 self.last_touch=torch.zeros((1,2));self.fault=torch.zeros(1,dtype=torch.bool)
                 self.last_wrong_face=torch.zeros_like(self.fault);self.last_floor=torch.zeros_like(self.fault)
-                self.grasp_tick=torch.zeros(1,dtype=torch.long);self.hold=SimpleNamespace(count=torch.ones(1,dtype=torch.long))
+                self.grasp_tick=torch.zeros(1,dtype=torch.long);self.hold=SimpleNamespace(
+                    count=torch.ones(1,dtype=torch.long),fraction=lambda:torch.ones(1),
+                    maximum_slip=torch.zeros(1))
                 self.success=torch.ones(1,dtype=torch.bool);self.mapper=SimpleNamespace(waypoint=torch.zeros((1,4)))
             def reset(self):
                 self.last_touch.zero_()

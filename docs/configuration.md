@@ -248,7 +248,14 @@ viewer:
 - `cpu`: GPU request를 만들지 않고 Sim Genesis backend/encoder를 CPU로 한다.
 
 Pilot·Sim·UI policy는 독립적이다. UI의 `cpu`는 software GL, `inherit`와
-`specific`은 NVIDIA GL이며 Connections의 UI GPU 선택으로 instance에 저장한다.
+`specific`은 GPU GL이며 Connections의 UI GPU 선택으로 instance에 저장한다.
+일반 Linux는 NVIDIA GLX를 사용한다. WSLg는 `/dev/dxg`, read-only `/usr/lib/wsl`과
+Mesa D3D12를 사용하고 GPU inventory의 index/UUID를 adapter 이름으로 연결한다.
+`ELESIM_UI_GRAPHICS_BACKEND=wslg`일 때 사전검사는 D3D12 renderer와 선택한
+`MESA_D3D12_DEFAULT_ADAPTER_NAME`의 일치를 요구하며 llvmpipe 등 CPU 렌더러를 거부한다.
+Free는 inventory의 첫 adapter를 사용한다. 같은 이름의 GPU를 Mesa가 구분할 수 없는
+specific 선택은 등록 단계에서 거부한다. Tools에는 외부 host의 WSLg 여부와 GPU 목록만
+전달하며, 그래픽 장치나 라이브러리를 노출하지 않는다.
 UI는 host UID/GID로 실행하고 X11 ACL과 hidden GL context/renderer를 시작 전에
 확인한다. NVIDIA 선택 시 다른 GL vendor로 조용히 대체하지 않는다. Viewer는 기본 headless이며 `--view`와 검증된
 X11 display/user가 있어야 한다. 원격 SSH username과 X11 session owner가 다르면

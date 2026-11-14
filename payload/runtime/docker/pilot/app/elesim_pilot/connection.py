@@ -259,7 +259,7 @@ class PilotConnection:
             raise RuntimeError("trajectory control target is no longer selectable")
         if self.motion_route() != route or not all(route):
             raise RuntimeError("trajectory route fence changed")
-        if source not in {"curobo", "object_scan"}:
+        if source not in {"curobo", "object_scan", "reconstructed_hug"}:
             raise ValueError("invalid trajectory source")
         self._active_endpoint.send("motion_command", target_id=route[0], lease_id=route[2],
                                    payload={"command": "target", "source": source, "q": q})
@@ -525,7 +525,9 @@ class PilotConnection:
                     self._imu_reader_received_at = time.monotonic()
                     q = payload.get("q")
                     stamp = payload.get("measurement_monotonic_s")
-                    valid = (payload.get("q_source") == "measured" and
+                    role = next((d.get('role') for d in self.endpoints if d.get('endpoint_id') == message.source_id), None)
+                    valid = ((payload.get("q_source") == "measured" or
+                              (role == 'sim' and payload.get('q_source') == 'simulated')) and
                              isinstance(q, (list, tuple)) and len(q) == 4 and
                              all(isinstance(v, (int, float)) and math.isfinite(v) for v in q) and
                              isinstance(stamp, (int, float)) and math.isfinite(stamp))

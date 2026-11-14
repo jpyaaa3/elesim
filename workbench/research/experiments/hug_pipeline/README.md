@@ -130,6 +130,21 @@ Host focused checks passed 57 tests and server checks passed 67. See the
 
 ## Restart and evidence
 
+Phase alignment version 2 treats grasp confirmation and first clearance as
+overlapping milestones. Its boundaries are start, the first of those milestones,
+both milestones achieved, final continuous hold onset, and end. Grasp confirmation
+can follow clearance because it includes contact dwell. Coincident milestones are
+allowed; a zero-duration source phase is held constant if another anchor needs
+time for that phase. Every phase is stretched, never compressed. Original rollout
+events remain unchanged; `alignment/alignment.json` records the raw events,
+canonical source boundaries and common boundaries. Replayed aligned anchors and
+the held-out interpolation evaluations must still pass the physical gates.
+
+This changes the source digest. Existing study evidence must remain immutable;
+an old study must not have its source pin rewritten merely to resume alignment.
+The completed policies remain available, but reusing an old study with changed
+postprocessing requires an explicitly provenance-bound continuation.
+
 `manifest.json` records stage inputs, output hashes, elapsed times, PID and GPU.
 Each attempt runs in a fresh subprocess and directory. Completed matching stages
 are reused only after verifying their artifacts. Interrupted learning resumes
@@ -223,3 +238,11 @@ case against the mapper, requires safe Home screening and matching reverse
 sources, and disables automatic replacement of a failed anchor. The fresh
 per-case reverse reset bank still requires admitted contact and full-state
 replay checks; a coarse batched goal screen does not replace that validation.
+
+Command replay uses the same episode time budget as PPO (currently 20 seconds).
+When a stored path ends earlier, evaluation holds its final command until success,
+a safety failure, or that budget expires. It does not stretch the approach or
+relax the continuous five-second hold criterion. Evaluation reports the source
+trajectory length, episode limit, final hold count, contact fraction and hold
+slip separately. Old path-length-limited results must be retained as historical
+evidence and rechecked separately; they are not equivalent to this criterion.

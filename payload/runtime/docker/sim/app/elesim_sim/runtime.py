@@ -1808,7 +1808,10 @@ class SimScene(_SimSceneKinematicsMixin):
         euler_deg: tuple[float, float, float],
     ) -> None:
         for name, entity in self.mock_object_entities.items():
-            entity.set_pos(position if name == asset_id else (0.0, 0.0, -100.0))
+            parked = (100.0, 100.0, .55) if name == 'cylinder_100mm' else (0.0, 0.0, -100.0)
+            entity.set_pos(position if name == asset_id else parked)
+            if name == 'cylinder_100mm':
+                entity.zero_all_dofs_velocity()
             if name == asset_id:
                 quat = Rot.from_euler("xyz", euler_deg, degrees=True).as_quat()
                 entity.set_quat(np.array([quat[3], quat[0], quat[1], quat[2]], dtype=float))
@@ -1819,8 +1822,10 @@ class SimScene(_SimSceneKinematicsMixin):
         }
 
     def hide_mock_objects(self) -> None:
-        for entity in self.mock_object_entities.values():
-            entity.set_pos((0.0, 0.0, -100.0))
+        for name, entity in self.mock_object_entities.items():
+            entity.set_pos((100.0, 100.0, .55) if name == 'cylinder_100mm' else (0.0, 0.0, -100.0))
+            if name == 'cylinder_100mm':
+                entity.zero_all_dofs_velocity()
         self._render_mock_snapshot = {}
 
     def apply_spawn_arm_pose(
@@ -3230,13 +3235,15 @@ class RuntimePrep:
         for filename in a.mock_object_catalog.assets():
             artifact = a.mock_object_catalog.load(filename)
             path = a.mock_object_catalog.root / filename
+            physical_cylinder = artifact.asset_id == 'cylinder_100mm'
             morph = gs.morphs.Mesh(
                 file=str(path),
-                pos=(0.0, 0.0, -100.0),
-                fixed=True,
-                collision=False,
+                pos=(100.0, 100.0, .55) if physical_cylinder else (0.0, 0.0, -100.0),
+                fixed=not physical_cylinder,
+                collision=physical_cylinder,
             )
-            a.sim_scene.mock_object_entities[artifact.asset_id] = a.sim_scene.scene.add_entity(morph)
+            options = dict(material=gs.materials.Rigid(rho=.3/(np.pi*.05**2*1.1), friction=.01)) if physical_cylinder else {}
+            a.sim_scene.mock_object_entities[artifact.asset_id] = a.sim_scene.scene.add_entity(morph, **options)
 
         if a.cfg.scene_manifest:
             from elesim_sim.simulation.scene_artifact import add_scene_artifact, verify_scene_revision

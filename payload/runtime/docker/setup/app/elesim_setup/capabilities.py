@@ -287,6 +287,40 @@ def _read_text(path: Path) -> str:
         return ""
 
 
+def detect_install_wslg(
+    *, root: Path = Path("/"), environ: Mapping[str, str] | None = None,
+) -> bool:
+    """Read display host facts without probing Docker or requiring a GPU."""
+
+    environment = os.environ if environ is None else environ
+    wsl = bool(environment.get("WSL_DISTRO_NAME", "").strip()) or "microsoft" in (
+        _read_text(root / "proc/sys/kernel/osrelease").lower()
+    )
+    detected = wsl and (
+        (root / "mnt/wslg").is_dir()
+        or bool(environment.get("WSL_INTEROP", "").strip())
+        and bool(environment.get("WAYLAND_DISPLAY", "").strip())
+    )
+    return _environment_flag(environment, "ELESIM_HOST_WSLG", detected)
+
+
+def detect_install_gpu_devices(
+    *, root: Path = Path("/"), environ: Mapping[str, str] | None = None,
+    command_output: CommandOutput | None = None,
+) -> tuple[GpuDevice, ...]:
+    """Use outer-host inventory in tools containers, otherwise probe the host."""
+
+    environment = os.environ if environ is None else environ
+    if "ELESIM_HOST_GPU_LIST" in environment:
+        return _parse_gpu_devices(environment["ELESIM_HOST_GPU_LIST"])
+    output = _run_output if command_output is None else command_output
+    devices = _parse_gpu_devices(_optional_output(output, ("nvidia-smi", "-L")))
+    wsl_probe = root / "usr/lib/wsl/lib/nvidia-smi"
+    if not devices and wsl_probe.is_file():
+        devices = _parse_gpu_devices(_optional_output(output, (str(wsl_probe), "-L")))
+    return devices
+
+
 def _run_output(command: tuple[str, ...]) -> str:
     completed = subprocess.run(
         command,
@@ -320,4 +354,6 @@ __all__ = [
     "HostCapabilities",
     "detect_host_capabilities",
     "detect_install_host_capabilities",
+    "detect_install_wslg",
+    "detect_install_gpu_devices",
 ]

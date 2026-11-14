@@ -1,0 +1,165 @@
+{
+  "trajectory_sha256": "b043cc5694f798fa4960eb88476ec8466600251ecf823ecdc202377fab0f6f1b",
+  "linear_position": {
+    "allowed_upper_mm": 0.0,
+    "observed_maximum_mm": 3.006787970662117,
+    "sample": 225,
+    "native_time_s": 2.2451770026236773,
+    "video_time_s": 5.580152671755725,
+    "samples_above_upper_plus_1um": 59
+  },
+  "linear_motor_travel": {
+    "allowed_deg": 200.0,
+    "observed_deg": 212.44469351495354
+  },
+  "raw_finite_difference_peak_linear_speed": {
+    "observed_mm_per_s": 144.3746463871712,
+    "task_command_limit_mm_per_s": 50.0,
+    "native_urdf_limit_mm_per_s": 200.0
+  },
+  "native_duration_s": 3.9215758312493563,
+  "video_movement_duration_s": 8.0,
+  "physical_replay": false,
+  "note": "Position and total travel violations persist under uniform slowdown. The video fixes the object and directly poses joints.",
+  "schema": "curobo-v2-rejected-video-violations",
+  "version": 1,
+  "recorded_date": "2026-11-12",
+  "geometric_collision": {
+    "method": "CPU analytic signed distance to exact finite cylinder at measured pose; exported interior spheres, no collision cost-to-depth conversion",
+    "trajectory_sha256": "b043cc5694f798fa4960eb88476ec8466600251ecf823ecdc202377fab0f6f1b",
+    "links": [
+      {
+        "link": "node3",
+        "penetration_mm": 2.7487400381440152,
+        "sample": 63,
+        "sphere": 90,
+        "native_time_s": 0.6286495607346296,
+        "video_time_s": 2.282442748091603
+      },
+      {
+        "link": "node2",
+        "penetration_mm": 2.126495877787245,
+        "sample": 67,
+        "sphere": 32,
+        "native_time_s": 0.6685638185590506,
+        "video_time_s": 2.3638676844783717
+      },
+      {
+        "link": "housing",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "wedge",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "node0",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "node1",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "node4",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "node5",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "node6",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "node7",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "node8",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "node9",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "gripper_base",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "gripper_claw_left",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "gripper_claw_right",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      },
+      {
+        "link": "camera",
+        "penetration_mm": 0.0,
+        "sample": 0,
+        "sphere": 0,
+        "native_time_s": 0.0,
+        "video_time_s": 1.0
+      }
+    ],
+    "floor_sphere_penetration_mm": 0.0,
+    "physical_replay": false
+  },
+  "collision_interpretation": "Positive sphere-cylinder overlap is rejected by free-space cuRobo. This alone does not prove the original contact-permitting Genesis task fails; no physical replay was performed.",
+  "native_combined_failure_interpretation": "The individual internal timeopt/dynamics failure term has not been isolated. Independent checks prove position and total travel task violations in this exact candidate."
+}

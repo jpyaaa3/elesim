@@ -1,0 +1,88 @@
+{
+  "date": "2026-11-10",
+  "target": "/home/user/ws/hugmap/mapper.html",
+  "before_sha256": "472b67726e5d5edd9f31015811ae47a1202b085eab61553a37c6ef913ea15185",
+  "after_sha256": "6e6c522374eca99747bd09f9ebab4d826f61747776b4d43af614a86f6cab93ff",
+  "kernel_sha256": "e6712cd27802e75e76c5d850548136ab3ee581d3cd61f985ba3f3c58b80fbcd9",
+  "kernel_preserved": true,
+  "embedded_study_preserved": true,
+  "source_sha256": {
+    "workbench/research/analysis/mapper_triangle.py": "f91acf23f33d1acaeb9c4f741afb54c7e3b2024dca104d40c1f2db7fd3da2740",
+    "workbench/research/support/hugmap_triangle.js": "ca3b90d13cbdf26de2be4389bafd0d443020e72c8aaaba8c172e25c081619f44",
+    "workbench/research/support/hugmap_triangle_ui.js": "6083c579a8fc842201db670412078baabf48e93d5afa1bbc56381c47ac113051"
+  },
+  "construction": {
+    "old_work_slice_ms": [
+      4,
+      9,
+      14
+    ],
+    "work_slice_ms": [
+      12,
+      24,
+      48
+    ],
+    "default": "Fast",
+    "scan_step_deg": 0.1,
+    "stop_event_test": "passed"
+  },
+  "xy_projection": {
+    "maximum_q_step_deg": 0.5,
+    "current_study_mapped_triangles": 38201,
+    "current_study_boundary_segments": 873,
+    "current_study_evaluations": 39595,
+    "node_elapsed_ms": 3994.080062,
+    "timing_scope": "one host run; not a before/after browser performance benchmark",
+    "separate_contact_features_and_roots": true,
+    "corners_and_centres_checked": true
+  },
+  "branch_audit": {
+    "anchor_feature_root": [
+      [
+        "side",
+        1
+      ],
+      [
+        "side",
+        1
+      ],
+      [
+        "side",
+        -1
+      ]
+    ],
+    "q_deg": [
+      -64.5,
+      -166.5
+    ],
+    "valid_side_contacts": [
+      {
+        "root": 1,
+        "xy_mm": [
+          -126.47896612967975,
+          217.34274205800017
+        ],
+        "mu": 0.04411928659156723
+      },
+      {
+        "root": -1,
+        "xy_mm": [
+          -145.11378259753246,
+          232.43291889518667
+        ],
+        "mu": 0.044119286591568496
+      }
+    ],
+    "note": "The current q triangle mixes contact roots. A connected q triangle need not map to one connected XY region. The sampled display does not certify continuous feasibility or physical admission."
+  },
+  "verification": {
+    "host_regressions_passed": 25,
+    "browser": "actual Microsoft Edge headless; q/XY switch and Blob worker completed",
+    "screenshots": [
+      "workbench/evidence/generated/mapper-ui-20261110/q-view.png",
+      "workbench/evidence/generated/mapper-ui-20261110/xy-view.png"
+    ],
+    "canonical_gates": "not run; validation used the host test environment and Windows headless browser",
+    "physics_or_motion_started": false
+  }
+}

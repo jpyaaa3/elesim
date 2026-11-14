@@ -3,9 +3,47 @@ from __future__ import annotations
 from pathlib import Path
 
 from elesim_setup.capabilities import (
+    detect_install_gpu_devices,
+    detect_install_wslg,
     detect_host_capabilities,
     detect_install_host_capabilities,
 )
+
+
+def test_wslg_display_detection_uses_outer_facts_or_kernel(tmp_path):
+    kernel = tmp_path / "proc/sys/kernel/osrelease"
+    kernel.parent.mkdir(parents=True)
+    kernel.write_text("6.6.87.2-microsoft-standard-WSL2\n")
+    (tmp_path / "mnt/wslg").mkdir(parents=True)
+    assert detect_install_wslg(root=tmp_path, environ={}) is True
+    assert detect_install_wslg(root=tmp_path, environ={"ELESIM_HOST_WSLG": "0"}) is False
+    assert detect_install_wslg(root=tmp_path / "container", environ={"ELESIM_HOST_WSLG": "1"}) is True
+
+
+def test_graphics_gpu_inventory_uses_outer_facts_without_docker_or_gpu_probe(tmp_path):
+    def unexpected(command):
+        raise AssertionError(f"unexpected probe: {command}")
+    devices = detect_install_gpu_devices(root=tmp_path, command_output=unexpected, environ={
+        "ELESIM_HOST_GPU_LIST": "GPU 2: NVIDIA RTX A6000 (UUID: GPU-compute)\n",
+    })
+    assert devices[0].index == "2"
+    assert devices[0].name == "NVIDIA RTX A6000"
+    assert devices[0].uuid == "GPU-compute"
+    assert detect_install_gpu_devices(root=tmp_path, command_output=unexpected,
+        environ={"ELESIM_HOST_GPU_LIST": ""}) == ()
+
+
+def test_graphics_gpu_inventory_falls_back_to_wsl_probe_without_docker(tmp_path):
+    probe = tmp_path / "usr/lib/wsl/lib/nvidia-smi"
+    probe.parent.mkdir(parents=True)
+    probe.touch()
+    calls = []
+    def output(command):
+        calls.append(command)
+        return "" if command[0] == "nvidia-smi" else "GPU 0: NVIDIA RTX 3050 (UUID: GPU-display)\n"
+    devices = detect_install_gpu_devices(root=tmp_path, command_output=output, environ={})
+    assert devices[0].uuid == "GPU-display"
+    assert calls == [("nvidia-smi", "-L"), (str(probe), "-L")]
 
 
 def test_jetson_is_detected_from_l4t_release(tmp_path: Path) -> None:

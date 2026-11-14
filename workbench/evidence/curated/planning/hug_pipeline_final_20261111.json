@@ -1,0 +1,302 @@
+{
+  "schema": "hug-pipeline-final-result",
+  "version": 1,
+  "reported_date": "2026-11-11",
+  "study": "hug-pipeline-gpu2-20261110-v5",
+  "diameter_mm": 100,
+  "source_sha256": "72ce95230abc9c0107368fbd2c41ec26ab19f579639001eb2f9cc7a672ffa512",
+  "status": "failed",
+  "failed_stage": "c-d21a7e45a0721a29777f/policy",
+  "cases": [
+    {
+      "case_id": "c-0eb2a987a2aa202bbd65",
+      "training_elapsed_s": 9480.4370405823,
+      "updates": 2000,
+      "final_frontier": 31,
+      "nominal_ready": true,
+      "policy_successes": 3,
+      "policy_repetitions": 3,
+      "final_policy_results": [
+        {
+          "accepted": true,
+          "fault": false,
+          "wrong_face": false,
+          "ticks": 970,
+          "events": [
+            0,
+            413,
+            400,
+            470,
+            970
+          ],
+          "case_id": "c-0eb2a987a2aa202bbd65",
+          "policy_execution": true,
+          "scripted_prefix": false
+        },
+        {
+          "accepted": true,
+          "fault": false,
+          "wrong_face": false,
+          "ticks": 970,
+          "events": [
+            0,
+            413,
+            400,
+            470,
+            970
+          ],
+          "case_id": "c-0eb2a987a2aa202bbd65",
+          "policy_execution": true,
+          "scripted_prefix": false
+        },
+        {
+          "accepted": true,
+          "fault": false,
+          "wrong_face": false,
+          "ticks": 970,
+          "events": [
+            0,
+            413,
+            400,
+            470,
+            970
+          ],
+          "case_id": "c-0eb2a987a2aa202bbd65",
+          "policy_execution": true,
+          "scripted_prefix": false
+        }
+      ],
+      "command_replay": {
+        "accepted": true,
+        "repetitions": 3,
+        "results": [
+          {
+            "accepted": true,
+            "fault": false,
+            "wrong_face": false,
+            "ticks": 970,
+            "events": [
+              0,
+              413,
+              400,
+              470,
+              970
+            ],
+            "case_id": "c-0eb2a987a2aa202bbd65",
+            "policy_execution": false,
+            "scripted_prefix": false
+          },
+          {
+            "accepted": true,
+            "fault": false,
+            "wrong_face": false,
+            "ticks": 970,
+            "events": [
+              0,
+              413,
+              400,
+              470,
+              970
+            ],
+            "case_id": "c-0eb2a987a2aa202bbd65",
+            "policy_execution": false,
+            "scripted_prefix": false
+          },
+          {
+            "accepted": true,
+            "fault": false,
+            "wrong_face": false,
+            "ticks": 970,
+            "events": [
+              0,
+              413,
+              400,
+              470,
+              970
+            ],
+            "case_id": "c-0eb2a987a2aa202bbd65",
+            "policy_execution": false,
+            "scripted_prefix": false
+          }
+        ],
+        "case_sha256": "43eebdbff7b03c982888a86de6b1f69a982f462afef79ed231a87b46684e9b42",
+        "nominal_home": true
+      },
+      "policy_npz": "workbench/evidence/generated/hug-pipeline-gpu2-20261110-v5/stages/c-0eb2a987a2aa202bbd65/train/attempt-001/training/policy.npz",
+      "policy_sha256": "c69493a55f30b6d62b72708016272052aff3a3b67234f5762e3bc73ad56605db"
+    },
+    {
+      "case_id": "c-38c46eda13c96c8e5134",
+      "training_elapsed_s": 9346.087681170553,
+      "updates": 2000,
+      "final_frontier": 24,
+      "nominal_ready": false,
+      "policy_successes": 3,
+      "policy_repetitions": 3,
+      "final_policy_results": [
+        {
+          "accepted": true,
+          "fault": false,
+          "wrong_face": false,
+          "ticks": 1010,
+          "events": [
+            0,
+            419,
+            410,
+            503,
+            1010
+          ],
+          "case_id": "c-38c46eda13c96c8e5134",
+          "policy_execution": true,
+          "scripted_prefix": false
+        },
+        {
+          "accepted": true,
+          "fault": false,
+          "wrong_face": false,
+          "ticks": 1010,
+          "events": [
+            0,
+            419,
+            410,
+            503,
+            1010
+          ],
+          "case_id": "c-38c46eda13c96c8e5134",
+          "policy_execution": true,
+          "scripted_prefix": false
+        },
+        {
+          "accepted": true,
+          "fault": false,
+          "wrong_face": false,
+          "ticks": 1010,
+          "events": [
+            0,
+            419,
+            410,
+            503,
+            1010
+          ],
+          "case_id": "c-38c46eda13c96c8e5134",
+          "policy_execution": true,
+          "scripted_prefix": false
+        }
+      ],
+      "command_replay": {
+        "accepted": true,
+        "repetitions": 3,
+        "results": [
+          {
+            "accepted": true,
+            "fault": false,
+            "wrong_face": false,
+            "ticks": 1010,
+            "events": [
+              0,
+              419,
+              410,
+              503,
+              1010
+            ],
+            "case_id": "c-38c46eda13c96c8e5134",
+            "policy_execution": false,
+            "scripted_prefix": false
+          },
+          {
+            "accepted": true,
+            "fault": false,
+            "wrong_face": false,
+            "ticks": 1010,
+            "events": [
+              0,
+              419,
+              410,
+              503,
+              1010
+            ],
+            "case_id": "c-38c46eda13c96c8e5134",
+            "policy_execution": false,
+            "scripted_prefix": false
+          },
+          {
+            "accepted": true,
+            "fault": false,
+            "wrong_face": false,
+            "ticks": 1010,
+            "events": [
+              0,
+              419,
+              410,
+              503,
+              1010
+            ],
+            "case_id": "c-38c46eda13c96c8e5134",
+            "policy_execution": false,
+            "scripted_prefix": false
+          }
+        ],
+        "case_sha256": "6d8ac6f9fa2765a8649b2864edf10034436655be7ff205d30ab63946eb673745",
+        "nominal_home": true
+      },
+      "policy_npz": "workbench/evidence/generated/hug-pipeline-gpu2-20261110-v5/stages/c-38c46eda13c96c8e5134/train/attempt-001/training/policy.npz",
+      "policy_sha256": "825bb3e087c0f174bd159c9c7b32034f3f6a119681f15f7739c73fe012015e7f"
+    },
+    {
+      "case_id": "c-d21a7e45a0721a29777f",
+      "training_elapsed_s": 9399.202356420457,
+      "updates": 2000,
+      "final_frontier": 16,
+      "nominal_ready": false,
+      "policy_successes": 0,
+      "policy_repetitions": 3,
+      "final_policy_results": [
+        {
+          "accepted": false,
+          "fault": true,
+          "wrong_face": false,
+          "ticks": 1270,
+          "events": null,
+          "case_id": "c-d21a7e45a0721a29777f",
+          "policy_execution": true,
+          "scripted_prefix": false
+        },
+        {
+          "accepted": false,
+          "fault": true,
+          "wrong_face": false,
+          "ticks": 1270,
+          "events": null,
+          "case_id": "c-d21a7e45a0721a29777f",
+          "policy_execution": true,
+          "scripted_prefix": false
+        },
+        {
+          "accepted": false,
+          "fault": true,
+          "wrong_face": false,
+          "ticks": 1270,
+          "events": null,
+          "case_id": "c-d21a7e45a0721a29777f",
+          "policy_execution": true,
+          "scripted_prefix": false
+        }
+      ],
+      "command_replay": null,
+      "policy_npz": "workbench/evidence/generated/hug-pipeline-gpu2-20261110-v5/stages/c-d21a7e45a0721a29777f/train/attempt-001/training/policy.npz",
+      "policy_sha256": "fdebab0e30521a953997483fff941c6b4509c40ada41a1d6f89459cd586e89f4"
+    }
+  ],
+  "home_policy_cases_passed": 2,
+  "home_policy_cases_total": 3,
+  "interpolation_executed": false,
+  "publication_ready": false,
+  "run_processes_finished": true,
+  "failure_interpretation": "Third Home transfer failed; reset-bank/reference validation passed. GA reference detours are observed but not proven causal.",
+  "artifacts_include": [
+    "three executable policy NPZs including the failed third actor",
+    "final nominal-Home evaluations",
+    "successful command-replay evidence for first two",
+    "third final failure video"
+  ]
+}

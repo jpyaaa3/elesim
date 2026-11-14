@@ -18,7 +18,7 @@ from typing import Callable, Mapping, Sequence
 
 import yaml
 
-from .capabilities import detect_jetson_l4t
+from .capabilities import detect_install_gpu_devices, detect_install_wslg, detect_jetson_l4t
 from .configuration import (
     bind_installed_data_paths,
     copy_app_config_tree,
@@ -1535,11 +1535,7 @@ class ContainerInstaller:
                 self._apply_compute(service, compute=selected)
                 service["environment"]["LIBGL_ALWAYS_SOFTWARE"] = "1" if selected.gpu_mode == "cpu" else "0"
                 if selected.gpu_mode != "cpu":
-                    service["environment"].update({
-                        "NVIDIA_DRIVER_CAPABILITIES": "graphics,display,utility",
-                        "__GLX_VENDOR_LIBRARY_NAME": "nvidia",
-                        "__NV_PRIME_RENDER_OFFLOAD": "1",
-                    })
+                    self._apply_ui_gpu_graphics(service, selected)
         if role in {"pilot", "sim"}:
             self._apply_compute(service, compute=compute)
             if role == "sim" and "NVIDIA_DRIVER_CAPABILITIES" in service["environment"]:
@@ -1565,6 +1561,48 @@ class ContainerInstaller:
             # historical label set.
             labels["com.docker.compose.project"] = self._compose_project
         return labels
+
+    @staticmethod
+    def _apply_ui_gpu_graphics(service: dict[str, object], compute: ComputeSettings) -> None:
+        environment = service["environment"]
+        assert isinstance(environment, dict)
+        environment["NVIDIA_DRIVER_CAPABILITIES"] = "graphics,display,utility"
+        if not detect_install_wslg():
+            environment.update({
+                "__GLX_VENDOR_LIBRARY_NAME": "nvidia",
+                "__NV_PRIME_RENDER_OFFLOAD": "1",
+            })
+            return
+
+        # WSLg OpenGL uses Mesa's D3D12 driver, including on NVIDIA hardware.
+        # A CUDA reservation alone does not expose the WSL graphics device or
+        # libraries. Mesa selects by adapter name, not CUDA index/UUID.
+        devices = detect_install_gpu_devices()
+        if compute.gpu_mode == "specific":
+            selected = [gpu for gpu in devices if compute.gpu_device in (gpu.index, gpu.uuid)]
+            if len(selected) != 1:
+                raise ValueError("WSLg UI GPU selection is missing from the host GPU inventory")
+            adapter = selected[0].name.strip()
+            if sum(adapter.casefold() in gpu.name.casefold() for gpu in devices) != 1:
+                raise ValueError(
+                    "WSLg cannot distinguish the selected GPU by adapter name; "
+                    "choose Free or disable UI GPU acceleration"
+                )
+        else:
+            if not devices:
+                raise ValueError("WSLg UI GPU acceleration requires a host GPU inventory")
+            adapter = devices[0].name.strip()
+        if not adapter:
+            raise ValueError("WSLg UI GPU adapter name is empty")
+        environment.update({
+            "ELESIM_UI_GRAPHICS_BACKEND": "wslg",
+            "__GLX_VENDOR_LIBRARY_NAME": "mesa",
+            "GALLIUM_DRIVER": "d3d12",
+            "MESA_D3D12_DEFAULT_ADAPTER_NAME": adapter,
+            "LD_LIBRARY_PATH": "/usr/lib/wsl/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64",
+        })
+        service.setdefault("devices", []).append("/dev/dxg:/dev/dxg")
+        service["volumes"].append("/usr/lib/wsl:/usr/lib/wsl:ro")
 
     @staticmethod
     def _apply_x11_display(
@@ -1791,6 +1829,15 @@ class ContainerInstaller:
         # this service.  The tools image runs as the numeric host UID and
         # deliberately has no host passwd database to resolve it.
         environment["ELESIM_HOST_USER"] = _resolve_viewer_user()
+        if detect_install_wslg():
+            # Scoped registration renders Compose inside the tools image,
+            # which has no /dev/dxg or GPU access of its own. Carry only the
+            # outer host facts needed for its UI graphics configuration.
+            environment["ELESIM_HOST_WSLG"] = "1"
+            environment["ELESIM_HOST_GPU_LIST"] = "\n".join(
+                f"GPU {gpu.index}: {gpu.name} (UUID: {gpu.uuid})"
+                for gpu in detect_install_gpu_devices()
+            )
         l4t = detect_jetson_l4t()
         if l4t is not None:
             # Instance registration runs inside this tools service. Preserve

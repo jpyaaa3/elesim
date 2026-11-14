@@ -531,7 +531,7 @@ existing actor/renderer; evaluation includes Home with the original object pose.
 
 ### Mapper C triangle overlay
 
-`ws/hugmap/mapper.html` can embed the current study's exact A/B/C anchors and a
+`ws/hugmap/mapper.html` can embed the current study's exact three anchors and a
 standalone worker for function-domain triangle selection. `Current RL anchors`
 restores the physical-admission-screened study triangle; `Select C triangle`
 samples the chosen diameter, mu cutoff and total-angle resolution through the
@@ -541,9 +541,15 @@ Browser random starts use a portable JS stream; the small-catalog exhaustive
 method and imported actual RL vertices match Python exactly. General seeded
 searches share the objective/search procedure without a bitwise RNG promise.
 
-The q plot shows the interpolation triangle. XY dashed edges only join its three
-anchors; nonlinear q-to-XY mapping does not turn them into XY interpolation
-boundaries. Click an anchor to inspect its total q3/q4 angles. Parameter changes
+The q plot shows the interpolation triangle without vertex letter labels. The XY
+view maps a barycentric mesh of that same q triangle through the actual contact
+model at no more than 0.5° spacing. Corners and centres must pass the same friction,
+CAD and preparation filters; contact features/roots are kept separate, and missing
+cells are not joined. It fills the mapped mesh and draws its boundary instead of
+connecting three XY anchors with chords. This is a sampled visual projection,
+not a continuous feasibility or physical-admission certificate for the interior.
+Projection runs in a separate worker and is cached with the active selection.
+Click an anchor to inspect its total q3/q4 angles. Parameter changes
 invalidate the displayed selection and cancel stale worker replies. Construction
 remains responsive during selection. The page stays one standalone HTML file.
 
@@ -555,6 +561,10 @@ python3 -m workbench.research.analysis.mapper_triangle /path/to/mapper.html \
   --study workbench/evidence/generated/STUDY --output /path/to/updated-mapper.html
 ```
 
-The builder checks the study/kernel match, recomputes the exact Python triangle,
-keeps the original geometry script unchanged, and is idempotent. Browser-only
+With `--study`, the builder checks the study/kernel match and recomputes the exact
+Python triangle. Without it, a presentation refresh preserves an already embedded
+study, its vertices and physical-screen results. Geometry and collision kernels
+remain unchanged. Construct band uses 12/24/48 ms work slices for Slow/Normal/Fast,
+with Fast selected by default; scan resolution remains 0.1° and every slice yields
+to the Stop/control events. The builder is idempotent. Browser-only
 candidates have no Genesis admission test; the UI labels that distinction.

@@ -45,18 +45,65 @@ const HugTriangle = (() => {
     const anchors=best.map(i=>rows[i]),v=anchors.map(r=>r.q_deg),area=Math.abs(cross(sub(v[1],v[0]),sub(v[2],v[0])))/2;
     return {anchors,rows,selection:{method:rows.length<=24?'exhaustive-raster':'seeded-boundary-vertex-exchange',covered_area_deg2:value[0],solution_area_deg2:rows.length*step*step,coverage:value[0]/(rows.length*step*step),triangle_area_deg2:area,vertices_total_deg:v,resolution_total_deg:step,continuous_global_optimum_proven:false}};
   }
-  function scan(kernel,D,step,mu){
-    if(!(D>0&&Number.isFinite(D)&&Number.isFinite(mu)&&mu>=0&&step>=.5&&step<=10&&Math.abs(180/step-Math.round(180/step))<1e-9))throw Error('Invalid diameter, mu or grid step');
+  function evaluator(kernel){
     const evaluator=new Function(kernel+`;return function(q3,q4,D,mu){
-      const m=model(q3,q4,D,-90);let polys=null,bad=false,best=null;
+      if(!(q3<0&&q4<0&&q3>=-180&&q4>=-180))return [];
+      const m=model(q3,q4,D,-90),rows=[];let polys=null,bad=false;
       for(const c of m.candidates){if(!Number.isFinite(c.mu)||c.mu>mu||c.x>0||c.y<0||Math.hypot(c.x,c.y)>500)continue;
         if(!polys){polys=collisionGeometry(q3,q4);bad=selfCollision(polys);}if(bad||objectCollision(polys,c,D,-90))continue;
         const prep=preparationReport(c,D);if(prep.blocked)continue;
-        if(!best||c.mu<best.mu_min)best={q_deg:[q3,q4],xy_mm:[c.x,c.y],mu_min:c.mu,feature:c.kind,root:c.branch,preparation_passed:true,preparation_margin_mm:prep.minimum_gap_mm-prep.required_clearance_mm};
-      }return best;
+        rows.push({q_deg:[q3,q4],xy_mm:[c.x,c.y],mu_min:c.mu,feature:c.kind,root:c.branch,preparation_passed:true,preparation_margin_mm:prep.minimum_gap_mm-prep.required_clearance_mm});
+      }return rows;
     };`)();
-    const rows=[];for(let i=0;i<Math.round(180/step);i++)for(let j=0;j<Math.round(180/step);j++){const r=evaluator(-180+(i+.5)*step,-180+(j+.5)*step,D,mu);if(r)rows.push(r);}return rows;
+    return evaluator;
   }
-  return {raster,select,scan};
+  function scan(kernel,D,step,mu){
+    if(!(D>0&&Number.isFinite(D)&&Number.isFinite(mu)&&mu>=0&&step>=.5&&step<=10&&Math.abs(180/step-Math.round(180/step))<1e-9))throw Error('Invalid diameter, mu or grid step');
+    const evaluate=evaluator(kernel),rows=[];
+    for(let i=0;i<Math.round(180/step);i++)for(let j=0;j<Math.round(180/step);j++){
+      let best=null;for(const r of evaluate(-180+(i+.5)*step,-180+(j+.5)*step,D,mu))if(!best||r.mu_min<best.mu_min)best=r;
+      if(best)rows.push(best);
+    }return rows;
+  }
+  function projectTriangle(vertices,evaluate,step=.5){
+    if(vertices.length!==3||vertices.some(q=>q.length!==2||q.some(v=>!Number.isFinite(v)))||!(step>=.5&&step<=10))throw Error('Invalid projection triangle or step');
+    if(Math.abs(cross(sub(vertices[1],vertices[0]),sub(vertices[2],vertices[0])))<1e-10)throw Error('Degenerate projection triangle');
+    const span=Math.max(...vertices.flatMap((q,i)=>sub(q,vertices[(i+1)%3]).map(Math.abs)));
+    const divisions=Math.max(1,Math.ceil(span/step)),grid=[],triangles=[],edges=new Map();let samples=0,id=0;
+    const branches=q=>{samples++;return new Map(evaluate(q).filter(r=>r.xy_mm.every(Number.isFinite)).map(r=>[`${r.feature}:${r.root}`,r.xy_mm]));};
+    for(let i=0;i<=divisions;i++){
+      const row=[];for(let j=0;j<=divisions-i;j++){
+        const q=vertices[0].map((v,k)=>v+(vertices[1][k]-v)*i/divisions+(vertices[2][k]-v)*j/divisions);
+        row.push({id:id++,q,branches:branches(q)});
+      }grid.push(row);
+    }
+    function face(nodes){
+      const shared=[...nodes[0].branches.keys()].filter(key=>nodes.every(n=>n.branches.has(key)));
+      if(!shared.length)return;
+      // Do not bridge missing solutions or switch contact roots. The centre
+      // also has to pass the same model/CAD/preparation/mu tests as the corners.
+      const centre=branches([0,1].map(k=>nodes.reduce((s,n)=>s+n.q[k],0)/3));
+      for(const key of shared){
+        if(!centre.has(key))continue;
+        const p=nodes.map(n=>n.branches.get(key));triangles.push(...p.flat());
+        for(let i=0;i<3;i++){
+          const a=nodes[i].id,b=nodes[(i+1)%3].id,edgeKey=`${key}|${Math.min(a,b)}:${Math.max(a,b)}`;
+          const edge=edges.get(edgeKey);if(edge)edge.count++;else edges.set(edgeKey,{count:1,xy:[...p[i],...p[(i+1)%3]]});
+        }
+      }
+    }
+    for(let i=0;i<divisions;i++)for(let j=0;j<divisions-i;j++){
+      face([grid[i][j],grid[i+1][j],grid[i][j+1]]);
+      if(i+j<divisions-1)face([grid[i+1][j],grid[i+1][j+1],grid[i][j+1]]);
+    }
+    return {triangles_mm:new Float64Array(triangles),boundary_mm:new Float64Array([...edges.values()].filter(e=>e.count===1).flatMap(e=>e.xy)),
+      samples,divisions,step_deg:span/divisions,valid_triangles:triangles.length/6};
+  }
+  function project(kernel,D,mu,anchors){
+    if(!(D>0&&Number.isFinite(D)&&Number.isFinite(mu)&&mu>=0))throw Error('Invalid diameter or mu');
+    const evaluate=evaluator(kernel);
+    return projectTriangle(anchors.map(r=>r.q_deg),q=>evaluate(q[0],q[1],D,mu));
+  }
+  return {raster,select,scan,project,projectTriangle};
 })();
 if(typeof module!=='undefined')module.exports=HugTriangle;

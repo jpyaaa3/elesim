@@ -69,6 +69,10 @@ Setup 갱신 후에도 등록된 instance의 immutable image pin은 유지한다
 graphics 점검은 해당 이미지가 지원하는 경우 실행한다. 구버전 UI 이미지에 점검
 기능이 없으면 미지원 로그를 남기고 기존 기동을 유지하며, 점검 기능이 있는
 이미지의 graphics 오류는 기동을 차단한다. 실제 GPU/display 수용시험은 별도다.
+WSLg의 GPU UI에는 등록 시 `/dev/dxg`·WSL 라이브러리와 Mesa D3D12 설정을 생성한다.
+일반 Linux의 NVIDIA GLX 설정을 그대로 적용하면 llvmpipe로 떨어져 기동 전 검사에서
+거부될 수 있다. 설정 생성 tools는 bootstrap/설치가 넘긴 외부 host의 WSLg·GPU 정보를
+사용하며 자신에게 GPU 접근 권한을 요구하지 않는다.
 
 ## 2. General Compose
 

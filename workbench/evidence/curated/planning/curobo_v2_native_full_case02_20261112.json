@@ -1,0 +1,70 @@
+{
+  "source": "workbench/evidence/generated/reverse-curobo-v2-task-native-float-20261112/case_02/candidate-0001/commands.npz",
+  "result": {
+    "candidate": 0,
+    "success": true,
+    "rejected": false,
+    "completed": true,
+    "hard_stopped": false,
+    "evaluation_policy": "reverse-completion-before-budget-ranking-v2",
+    "evaluation_status": "success",
+    "first_violation_tick": -1,
+    "reasons": [],
+    "first_hard_violation_tick": -1,
+    "last_safe_error": 0.04757574173757384,
+    "last_valid_error": 0.04757574173757384,
+    "valid_ticks": 771,
+    "duration_s": 7.71,
+    "home_window_s": 1.0,
+    "motion_motor_deg": [
+      180.0000000000001,
+      180.0,
+      197.63363731379238,
+      336.5001000175537
+    ],
+    "motion_group_motor_deg": [
+      180.0000000000001,
+      180.0,
+      534.1337373313461
+    ],
+    "motion_budget": {
+      "basis": "sum(abs(delta motor-position command)); no net subtraction",
+      "groups": [
+        "linear",
+        "roll",
+        "seg1_plus_seg2"
+      ],
+      "limits_motor_deg": [
+        200.0,
+        220.0,
+        600.0
+      ],
+      "initial_roll_one_direction_motor_deg": 180.0,
+      "sim_to_motor_abs_scale": [
+        1500.0,
+        114.59155902616465,
+        286.4788975654116,
+        286.4788975654116
+      ]
+    },
+    "motion_excess_motor_deg": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "motion_excess_ratio": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "motion_excess_max_ratio": 0.0,
+    "motion_excess_sum_ratio": 0.0,
+    "home_error": 0.04757574173757384,
+    "path_length": 2.6760125182280965,
+    "peak_xy_m": 0.0006588051067660453,
+    "peak_tilt_rad": 2.3473794073913717e-05,
+    "object_contact_force_n": 0.0
+  },
+  "training": false,
+  "note": "Fresh replay passed the original physical criteria; independent verification is in the source run."
+}

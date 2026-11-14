@@ -82,6 +82,44 @@ class _ControlFacade:
     def cancel_object_scan(self):
         return self._object_scan.cancel()
 
+    def plan_reconstructed_hug(self, target_id='target'):
+        from elesim_pilot.reconstruction.hug import HugModel, extract_target
+        from elesim_pilot.robot.arm.iklib.kinematics import _forward_link_tf
+        import numpy as np
+        scan, executor = self._object_scan, self._arm_trajectory
+        if scan is None or executor is None:
+            raise RuntimeError('Reconstruction / trajectory service unavailable')
+        status = scan.status()
+        if status.get('phase') != 'completed' or not status.get('scene_manifest'):
+            raise RuntimeError('Complete reconstruction first')
+        route = scan.route()
+        if (status.get('sim_id'), status.get('sim_boot_id')) != route[:2]:
+            raise RuntimeError('Reconstruction belongs to another Sim boot')
+        _, base, sim = scan._checked_feedback()
+        from elesim_pilot.arm_trajectory import require_stable_arm_base
+        require_stable_arm_base(scan._base, base)
+        if sim.epoch != scan._epoch:
+            raise RuntimeError('Scene changed since reconstruction; scan again')
+        fit = extract_target(status['scene_manifest'], target_id, status['scene_revision'])
+        model = HugModel(self._hug_model_root)
+        model.validate_robot(executor.model_dir/'arm.urdf')
+        host = executor._feedback()
+        context = executor._context(host)
+        origin, rotation = _forward_link_tf(context, [0., 0., 0., 0.])['node0']
+        local = np.asarray(rotation).T @ (np.asarray(fit['center_world_m'])-origin)
+        if not np.allclose(rotation[:,2], [0.,0.,1.], atol=.01):
+            raise RuntimeError('Hug requires a level arm base')
+        commands, report = model.resolve([-local[1]*1000., local[0]*1000.+144.5])
+        key = (status['job_id'], status['scene_revision'], route, sim.epoch)
+        def unchanged():
+            current = scan.status()
+            live = scan.simulation_status()
+            if (live is None or live.paused or current.get('phase') != 'completed'
+                    or (current.get('job_id'), current.get('scene_revision'), scan.route(), live.epoch) != key):
+                raise RuntimeError('Reconstruction / Sim context changed; prepare again')
+        prepared = executor.prepare_hug_trajectory(commands, model.meta['dt_s'], fit['center_world_m'], unchanged)
+        return dict(plan_id=prepared['plan_id'], fit=fit, **report)
+
     @property
     def arm_trajectory(self):
         return {} if self._arm_trajectory is None else self._arm_trajectory.status()
@@ -356,6 +394,7 @@ def _run() -> None:
                      else default_scene_output_root()),
         other_busy=lambda: trajectory.active or mock_hug.running)
     facade._object_scan = object_scan
+    facade._hug_model_root = trajectory.model_dir.parents[2] / 'policies/hug-d100'
 
     def _telemetry(payload, **source):
         runtime.service.accept_floor_telemetry(payload, **source)

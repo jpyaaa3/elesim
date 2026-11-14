@@ -213,6 +213,44 @@ class ArmTrajectory:
         self._wait_started_at = None
         self._settle_stable_samples = 0
         self._tracking = None
+        self._plan_validator = None
+        self._plan_kind = 'curobo'
+
+    def prepare_hug_trajectory(self, positions, dt, target, validator):
+        """Admit a reconstructed-target path to the existing measured executor."""
+        if self.active or self._busy() or (self._worker and self._worker.is_alive()):
+            raise RuntimeError('Stop other workflows before preparing hug')
+        descriptor = next(d for d in self.connection.endpoints if d.get('endpoint_id') == self.connection.active_target)
+        if descriptor.get('role') != 'sim':
+            raise RuntimeError('Reconstructed hug is simulation-only')
+        self._plan_kind = 'reconstructed-hug'
+        route = self.route()
+        host = self._feedback()
+        positions = np.asarray(positions, float)
+        mapping = self.connection.mapping
+        bounds = np.array([linear_effective_q_bounds(mapping),
+            [mapping.roll_q_min_rad, mapping.roll_q_max_rad],
+            [mapping.seg1_q_min_rad, mapping.seg1_q_max_rad],
+            [mapping.seg2_q_min_rad, mapping.seg2_q_max_rad]])
+        if (positions.shape != (2001, 4) or dt != .01 or not np.isfinite(positions).all()
+                or np.any(positions < bounds[:, 0]-1e-8) or np.any(positions > bounds[:, 1]+1e-8)):
+            raise ValueError('Hug path does not match configured limits / 20-second contract')
+        if np.any(np.abs(q_values(host.q)-positions[0]) > [.001, .015, .015, .015]):
+            raise RuntimeError('Return to Home before preparing the hug; no scripted connector is added')
+        validator()
+        self._route, self._digest_at_plan = route, self._digest()
+        self._base = base_world_transform_from_context(self._context(host))
+        self._target, self._start = list(target), q_values(host.q).copy()
+        self.state.set_target(*map(float, target))
+        self._plan = positions.copy(), dt
+        self._plan_validator, self._plan_kind = validator, 'reconstructed-hug'
+        self._phase, self._plan_id = 'ready', uuid.uuid4().hex
+        self._stage = 'Reconstructed hug ready; grasp outcome unverified'
+        self._prepared_at = self.clock()
+        self._planned_xyz = list(target)
+        self._current_xyz = None
+        self._reason = ''
+        return self.status()
 
     def _progress(self, stage, generation):
         with self._lock:
@@ -272,7 +310,7 @@ class ArmTrajectory:
                     planned_xyz=getattr(self, "_planned_xyz", None),
                     current_xyz=self._current_xyz,
                     goal_q=None if plan is None else plan[0][-1].tolist(),
-                    world="unconfigured" if self.world_path is None else (
+                    world="Reconstructed C-hug; sampled simulation evidence only; no live grasp verification" if self._plan_kind == 'reconstructed-hug' else "unconfigured" if self.world_path is None else (
                         "20 mm target + self collision; no other world obstacles"
                         if getattr(self, "_empty_world", False)
                         else "static file + 20 mm target; no live Genesis sync"))
@@ -293,7 +331,8 @@ class ArmTrajectory:
         if not c.active_target:
             raise RuntimeError("Robot is not connected. Start Robot and select its endpoint.")
         d = next((v for v in c.endpoints if v.get("endpoint_id") == c.active_target), {})
-        if d.get("role") != "robot" or not d.get("instance_id") or not c.lease_id:
+        expected_role = 'sim' if self._plan_kind == 'reconstructed-hug' else 'robot'
+        if d.get("role") != expected_role or not d.get("instance_id") or not c.lease_id:
             raise RuntimeError("trajectory requires an exact live Robot boot and motion lease")
         return c.active_target, d["instance_id"], c.lease_id
 
@@ -311,7 +350,9 @@ class ArmTrajectory:
         if s.safety_fault or not s.reply_ok:
             raise RuntimeError(s.safety_fault or s.reply_reason or "Robot rejected a command")
         raw = self.connection.trajectory_telemetry
-        if raw.get("imu_model") != {"id": "identity", "version": 1}:
+        if self._plan_kind == 'reconstructed-hug' and raw.get('q_source') != 'simulated':
+            raise RuntimeError('Hug requires simulated joint feedback')
+        if self._plan_kind != 'reconstructed-hug' and raw.get("imu_model") != {"id": "identity", "version": 1}:
             raise RuntimeError("trajectory requires Robot identity/v1 correction model")
         if raw.get("hardware_read_failures", 0) or raw.get("read_error"):
             raise RuntimeError("Robot hardware read failure")
@@ -376,6 +417,7 @@ class ArmTrajectory:
     def _plan_arm_to_target(self):
         if self.active or (self._worker is not None and self._worker.is_alive()) or self._busy():
             raise RuntimeError("another arm workflow is active or still stopping")
+        self._plan_validator, self._plan_kind = None, 'curobo'
         host = self._feedback()
         route, digest = self.route(), self._digest()
         context = self._context(host)
@@ -616,6 +658,8 @@ class ArmTrajectory:
         if self._phase != "ready" or not plan_id or plan_id != self._plan_id:
             raise RuntimeError("no matching unconsumed prepared trajectory")
         host = self._feedback(torque=True)
+        if self._plan_validator is not None:
+            self._plan_validator()
         if (self.route() != self._route or self._digest() != self._digest_at_plan
                 or self.clock()-self._prepared_at > 120 or self._busy()):
             raise RuntimeError("plan expired, route/model/world changed or arm workflow busy; replan")
@@ -716,6 +760,8 @@ class ArmTrajectory:
             if self.route() != self._route:
                 raise RuntimeError("target boot/lease changed")
             host = self._feedback(torque=True)
+            if self._plan_validator is not None:
+                self._plan_validator()
             require_stable_arm_base(
                 self._base, base_world_transform_from_context(self._context(host)))
             measured = q_values(host.q)
@@ -797,7 +843,10 @@ class ArmTrajectory:
                     self._index += 1
                     if self._index == len(positions):
                         self._phase, self._settling_at = "settling", now
-            self.connection.send_trajectory_q(q.tolist(), self._route)
+            if self._plan_kind == 'reconstructed-hug':
+                self.connection.send_trajectory_q(q.tolist(), self._route, source='reconstructed_hug')
+            else:
+                self.connection.send_trajectory_q(q.tolist(), self._route)
             self._last = q.copy()
             self.state.set_q(*map(float, q))
             self._next_at += dt

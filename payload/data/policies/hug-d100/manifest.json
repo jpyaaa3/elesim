@@ -1,0 +1,178 @@
+{
+  "schema": "elesim-hug-interpolation",
+  "version": 1,
+  "scope": "sim-experimental",
+  "diameter_mm": 100.0,
+  "height_m": 1.1,
+  "mu_max": 0.4,
+  "dt_s": 0.01,
+  "episode_s": 20.0,
+  "home": [
+    -0.12,
+    0.0,
+    -0.593411945678072,
+    0.593411945678072
+  ],
+  "anchors": [
+    {
+      "q_deg": [
+        -91.5,
+        -157.5
+      ],
+      "xy_mm": [
+        -97.81093980306434,
+        159.93343672457203
+      ],
+      "mu_min": 0.30419889511408393,
+      "feature": "side",
+      "root": 1,
+      "preparation_passed": true,
+      "preparation_gap_mm": 3.8109398030643433,
+      "preparation_margin_mm": 2.7682641004577953,
+      "case_id": "c-0eb2a987a2aa202bbd65",
+      "split": "train",
+      "diameter_mm": 100.0,
+      "branch": "c-function",
+      "band": 1,
+      "roll_deg": -90,
+      "start_command": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "home_command": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        -0.3193952531149623,
+        -0.5497787143782138
+      ],
+      "object_xyz_m": [
+        0.35843343672457206,
+        0.09781093980306434,
+        0.55
+      ]
+    },
+    {
+      "q_deg": [
+        -64.5,
+        -166.5
+      ],
+      "xy_mm": [
+        -126.47896612967975,
+        217.34274205800017
+      ],
+      "mu_min": 0.04411928659156723,
+      "feature": "side",
+      "root": 1,
+      "preparation_passed": true,
+      "preparation_gap_mm": 32.47896612967975,
+      "preparation_margin_mm": 31.4362904270732,
+      "case_id": "c-38c46eda13c96c8e5134",
+      "split": "train",
+      "diameter_mm": 100.0,
+      "branch": "c-function",
+      "band": 1,
+      "roll_deg": -90,
+      "start_command": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "home_command": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        -0.22514747350726852,
+        -0.5811946409141117
+      ],
+      "object_xyz_m": [
+        0.4158427420580002,
+        0.12647896612967974,
+        0.55
+      ]
+    },
+    {
+      "q_deg": [
+        -10.5,
+        -169.5
+      ],
+      "xy_mm": [
+        -100.06183079523038,
+        315.2096922748759
+      ],
+      "mu_min": 0.07696006580029721,
+      "feature": "side",
+      "root": -1,
+      "preparation_passed": true,
+      "preparation_gap_mm": 6.061830795230378,
+      "preparation_margin_mm": 5.01915509262383,
+      "case_id": "c-d21a7e45a0721a29777f",
+      "split": "train",
+      "diameter_mm": 100.0,
+      "branch": "c-function",
+      "band": 1,
+      "roll_deg": -90,
+      "start_command": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "home_command": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "goal_command": [
+        0.0,
+        -1.5707963267948966,
+        -0.03665191429188092,
+        -0.5916666164260777
+      ],
+      "object_xyz_m": [
+        0.513709692274876,
+        0.10006183079523037,
+        0.55
+      ]
+    }
+  ],
+  "source_study": "hug-linear200-interpolation-v2-20261114",
+  "command_convention": "linear_m,roll_rad,bend1_per_node_rad,bend2_per_node_rad",
+  "files": {
+    "anchors.npz": "2ba4e0b050b8cdcaa59a726e69bbb2cc56c7065662442378f6aedcbd6b4ae591",
+    "kernel.js": "e6712cd27802e75e76c5d850548136ab3ee581d3cd61f985ba3f3c58b80fbcd9"
+  },
+  "lower": [
+    -0.17333333333333334,
+    -1.5707963267948966,
+    -0.6283185307179586,
+    -0.6283185307179586
+  ],
+  "upper": [
+    0.0,
+    1.5707963267948966,
+    0.6283185307179586,
+    0.6283185307179586
+  ],
+  "max_step": [
+    0.0005,
+    0.01,
+    0.003,
+    0.003
+  ],
+  "planning_urdf_sha256": "9aa6aef5046ff720109226a41759197b59db0d5fc2e6cc5aff9e8db3448d8299"
+}

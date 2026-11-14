@@ -1,0 +1,81 @@
+{
+  "source": "/home/hckang/elesim/workbench/evidence/generated/hug-pipeline-curobo-auto-20261113/stages/c-0eb2a987a2aa202bbd65/reverse/attempt-001/plan/fallback-ga",
+  "candidate": 50,
+  "generation": 18,
+  "verification_status": "reverse_path_verified",
+  "verification_replays": [
+    true,
+    true,
+    true
+  ],
+  "result": {
+    "candidate": 0,
+    "success": true,
+    "rejected": false,
+    "completed": true,
+    "hard_stopped": false,
+    "evaluation_policy": "reverse-completion-before-budget-ranking-v2",
+    "evaluation_status": "success",
+    "first_violation_tick": -1,
+    "reasons": [],
+    "first_hard_violation_tick": -1,
+    "last_safe_error": 0.04758143356188218,
+    "last_valid_error": 0.04758143356188218,
+    "valid_ticks": 518,
+    "duration_s": 5.18,
+    "home_window_s": 1.0,
+    "motion_motor_deg": [
+      187.49999999999986,
+      179.99999999999972,
+      264.13832562238895,
+      327.50000000000244
+    ],
+    "motion_group_motor_deg": [
+      187.49999999999986,
+      179.99999999999972,
+      591.6383256223914
+    ],
+    "motion_budget": {
+      "basis": "sum(abs(delta motor-position command)); no net subtraction",
+      "groups": [
+        "linear",
+        "roll",
+        "seg1_plus_seg2"
+      ],
+      "limits_motor_deg": [
+        200.0,
+        220.0,
+        600.0
+      ],
+      "initial_roll_one_direction_motor_deg": 180.0,
+      "sim_to_motor_abs_scale": [
+        1500.0,
+        114.59155902616465,
+        286.4788975654116,
+        286.4788975654116
+      ]
+    },
+    "motion_excess_motor_deg": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "motion_excess_ratio": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "motion_excess_max_ratio": 0.0,
+    "motion_excess_sum_ratio": 0.0,
+    "home_error": 0.04758143356188218,
+    "path_length": 2.8645936395493474,
+    "peak_xy_m": 0.029027648006952473,
+    "peak_tilt_rad": 1.2487670961347025e-06,
+    "object_contact_force_n": 0.0
+  },
+  "leg_hold": {
+    "max_target_error_rad": 0.0054141380824148655,
+    "max_speed_rad_s": 2.3171516659203917e-05
+  },
+  "training": false
+}

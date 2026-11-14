@@ -1,0 +1,761 @@
+{
+  "schema": "hug-curobo-v2-comparison",
+  "version": 1,
+  "model": {
+    "root": "workbench/evidence/generated/curobo-v2-morphit-camera-2048-20261112",
+    "curobo_version": "0.9.0",
+    "curobo_commit": "42498cf4e7d0d6fbd4ef9fbcec1243c00c888a83",
+    "spheres": 2046,
+    "fitting_elapsed_s": 69.8345807865262,
+    "excluded_collision_links": [
+      "plate"
+    ],
+    "added_task_collision_links": [
+      "camera"
+    ],
+    "sampling": "surface-inset only, volume samples suppressed",
+    "containment_certified": false,
+    "metadata_sha256": "d7e94d42147fd318a4b3c5867166c0352a1bc329cd625de35cabe3bd3be53743",
+    "links": {
+      "housing": {
+        "spheres": 261,
+        "min_radius_mm": 2.0801820792257786,
+        "max_radius_mm": 37.27204352617264,
+        "surface_gap_p95_mm": 7.136750500649214,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "wedge": {
+        "spheres": 88,
+        "min_radius_mm": 2.5403746403753757,
+        "max_radius_mm": 13.627933338284492,
+        "surface_gap_p95_mm": 2.6966251898556948,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node0": {
+        "spheres": 133,
+        "min_radius_mm": 2.585838083177805,
+        "max_radius_mm": 18.595172092318535,
+        "surface_gap_p95_mm": 2.0418823696672916,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node1": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node2": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node3": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node4": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node5": {
+        "spheres": 133,
+        "min_radius_mm": 2.585838083177805,
+        "max_radius_mm": 18.595172092318535,
+        "surface_gap_p95_mm": 2.0418823696672916,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node6": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node7": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node8": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node9": {
+        "spheres": 139,
+        "min_radius_mm": 2.4015442468225956,
+        "max_radius_mm": 22.34468050301075,
+        "surface_gap_p95_mm": 2.115459879860282,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "gripper_base": {
+        "spheres": 123,
+        "min_radius_mm": 1.9439334282651544,
+        "max_radius_mm": 2.656658412888646,
+        "surface_gap_p95_mm": 3.6698817275464535,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "gripper_claw_left": {
+        "spheres": 87,
+        "min_radius_mm": 0.9506227797828615,
+        "max_radius_mm": 6.459362804889679,
+        "surface_gap_p95_mm": 2.4246342945843935,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "gripper_claw_right": {
+        "spheres": 87,
+        "min_radius_mm": 0.8417795179411769,
+        "max_radius_mm": 6.085674278438091,
+        "surface_gap_p95_mm": 2.365873893722892,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "camera": {
+        "spheres": 71,
+        "min_radius_mm": 1.552341622300446,
+        "max_radius_mm": 9.652080945670605,
+        "surface_gap_p95_mm": 3.4902135375887156,
+        "sampled_protrusion_fraction": 0.0
+      }
+    }
+  },
+  "gpu_exclusivity_verified": false,
+  "successful_task_speedup_claimed": false,
+  "observed_gpu_sharing": "No concurrent GPU2 compute process was observed at launch or sampled polls of this full trial; GPU0 PID2036331 was preserved. Continuous GPU exclusivity was not instrumented.",
+  "ga": {
+    "root": "workbench/evidence/generated/ga-completion-20261112",
+    "cases": [
+      {
+        "index": 1,
+        "status": "finished",
+        "elapsed_s": 850.1173577308655
+      },
+      {
+        "index": 2,
+        "status": "finished",
+        "elapsed_s": 1260.1889564990997
+      },
+      {
+        "index": 3,
+        "status": "finished",
+        "elapsed_s": 2670.4461131095886
+      }
+    ],
+    "case_wall_s_sum": 4780.752427339554
+  },
+  "runs": [
+    {
+      "root": "workbench/evidence/generated/reverse-curobo-v2-final-20261112",
+      "cases": [
+        {
+          "case": "case_01",
+          "status": "reverse_path_verified",
+          "elapsed_s": 206.25968551263213,
+          "process_wall_s": 210.4352353606373,
+          "planner_process_s": 77.57845562137663,
+          "planner_setup_s": 32.4333034735173,
+          "planner_initialization_s": 38.627147375606,
+          "planning_call_s": [
+            0.016059000976383686,
+            0.014747893437743187,
+            0.01478990726172924,
+            0.014553726650774479
+          ],
+          "graph_success_calls": 4,
+          "endpoints": {
+            "start": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": true,
+          "authored_waypoints": null,
+          "planner_validation": [
+            null,
+            null,
+            null,
+            null
+          ],
+          "physics_candidates": 1,
+          "physical_home_completions": 1,
+          "physical_successes": 1,
+          "rejection_reason_counts": {},
+          "winner": "candidate-0000-lane-1",
+          "winner_metrics": {
+            "duration_s": 7.58,
+            "motion_group_motor_deg": [
+              179.99999999999784,
+              179.9999999999994,
+              589.0000000000001
+            ],
+            "peak_xy_m": 0.008887302762918138,
+            "peak_tilt_rad": 5.68125057197978e-05,
+            "home_error": 0.04758143356188218
+          },
+          "fresh_replays": [
+            true,
+            true,
+            true
+          ],
+          "error": null,
+          "completion_sha256": "9c1f0e04b81a136199b676fa44cf2b8e0118dc0c2b7f2dc1119c7fee044f5f37"
+        },
+        {
+          "case": "case_02",
+          "status": "reverse_path_verified",
+          "elapsed_s": 208.18252642452717,
+          "process_wall_s": 212.38336682505906,
+          "planner_process_s": 81.89753416739404,
+          "planner_setup_s": 32.758203176781535,
+          "planner_initialization_s": 37.50806928798556,
+          "planning_call_s": [
+            0.21792547404766083,
+            0.012907787226140499,
+            0.012908903881907463,
+            0.013345186598598957
+          ],
+          "graph_success_calls": 4,
+          "endpoints": {
+            "start": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": true,
+          "authored_waypoints": null,
+          "planner_validation": [
+            null,
+            null,
+            null,
+            null
+          ],
+          "physics_candidates": 1,
+          "physical_home_completions": 1,
+          "physical_successes": 1,
+          "rejection_reason_counts": {},
+          "winner": "candidate-0000-lane-1",
+          "winner_metrics": {
+            "duration_s": 7.68,
+            "motion_group_motor_deg": [
+              179.99999999999784,
+              179.99999999999946,
+              570.9999999999999
+            ],
+            "peak_xy_m": 0.0006580296129756757,
+            "peak_tilt_rad": 6.143906154658886e-08,
+            "home_error": 0.04758143356188218
+          },
+          "fresh_replays": [
+            true,
+            true,
+            true
+          ],
+          "error": null,
+          "completion_sha256": "dcc6e3ae6e593d2419f10b39662e61046036376944ac98b362fa92eb266204aa"
+        },
+        {
+          "case": "case_03",
+          "status": "reverse_path_verified",
+          "elapsed_s": 194.0576323196292,
+          "process_wall_s": 198.26081670541316,
+          "planner_process_s": 82.2019182657823,
+          "planner_setup_s": 31.98183684889227,
+          "planner_initialization_s": 37.126276046037674,
+          "planning_call_s": [
+            0.21320949215441942,
+            0.012684694491326809,
+            0.013640588149428368,
+            0.013345912098884583
+          ],
+          "graph_success_calls": 4,
+          "endpoints": {
+            "start": {
+              "valid": false,
+              "scene_max": 4.319334402680397e-05,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": true,
+          "authored_waypoints": null,
+          "planner_validation": [
+            null,
+            null,
+            null,
+            null
+          ],
+          "physics_candidates": 1,
+          "physical_home_completions": 1,
+          "physical_successes": 1,
+          "rejection_reason_counts": {},
+          "winner": "candidate-0000-lane-1",
+          "winner_metrics": {
+            "duration_s": 7.72,
+            "motion_group_motor_deg": [
+              179.9999999999978,
+              179.9999999999994,
+              519.9999999999998
+            ],
+            "peak_xy_m": 0.007197990086522839,
+            "peak_tilt_rad": 0.0002746261515244642,
+            "home_error": 0.04758143356188218
+          },
+          "fresh_replays": [
+            true,
+            true,
+            true
+          ],
+          "error": null,
+          "completion_sha256": "199a856ecf43971dc43e3749fab4a4866fb93b36be0355d8ecf7440e836efd45"
+        }
+      ],
+      "model": "/home/hckang/elesim/workbench/evidence/generated/curobo-v2-morphit-camera-2048-20261112",
+      "model_metadata_sha256": "d7e94d42147fd318a4b3c5867166c0352a1bc329cd625de35cabe3bd3be53743",
+      "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+      "planner_mode": "rrt",
+      "release_prefix": true,
+      "authored_waypoints_allowed": null,
+      "automatic_start_offset_allowed": null,
+      "source_sha256": {
+        "v2_worker.py": "fe23786bba35de77382825732eac63b6218a69ea02aa7737c471d79c37c19f70",
+        "v2_model.py": "bb89ea6ae40389005b269cbd34cf8d980194959dbc93605b54284e608e770612",
+        "v2_geometry.py": "c4438f3ca7edd7f48a20a468bd1c705dae2bdfa5942a204fc3ab10f25b598907",
+        "v2.py": "926c916b0928bfa3370abb6a91bf4e971b42d1857627a5dad4d5fe702390e585"
+      },
+      "case_source_consistent": true,
+      "batch_elapsed_s": 621.0975974984467,
+      "verified_cases": 3,
+      "complete": true
+    },
+    {
+      "root": "workbench/evidence/generated/reverse-curobo-v2-full-resumed-20261112",
+      "cases": [
+        {
+          "case": "case_01",
+          "status": "budget_exhausted",
+          "elapsed_s": 156.72422324120998,
+          "process_wall_s": 160.81163942534477,
+          "planner_process_s": 142.1236672922969,
+          "planner_setup_s": 33.0324750142172,
+          "planner_initialization_s": 88.6450594170019,
+          "planning_call_s": [
+            8.54019312094897,
+            1.7110075326636434,
+            1.5699637001380324,
+            1.6144794654101133
+          ],
+          "graph_success_calls": 0,
+          "endpoints": {
+            "start": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": false,
+          "authored_waypoints": false,
+          "planner_validation": [
+            {
+              "path_valid": [
+                [
+                  true
+                ]
+              ],
+              "collision_valid": [
+                [
+                  false
+                ]
+              ],
+              "limits_and_dynamics_valid": [
+                [
+                  false
+                ]
+              ]
+            },
+            {
+              "path_valid": [
+                [
+                  true
+                ]
+              ],
+              "collision_valid": [
+                [
+                  false
+                ]
+              ],
+              "limits_and_dynamics_valid": [
+                [
+                  false
+                ]
+              ]
+            },
+            {
+              "path_valid": [
+                [
+                  true
+                ]
+              ],
+              "collision_valid": [
+                [
+                  false
+                ]
+              ],
+              "limits_and_dynamics_valid": [
+                [
+                  false
+                ]
+              ]
+            },
+            {
+              "path_valid": [
+                [
+                  true
+                ]
+              ],
+              "collision_valid": [
+                [
+                  false
+                ]
+              ],
+              "limits_and_dynamics_valid": [
+                [
+                  false
+                ]
+              ]
+            }
+          ],
+          "physics_candidates": 0,
+          "physical_home_completions": 0,
+          "physical_successes": 0,
+          "rejection_reason_counts": {},
+          "winner": null,
+          "winner_metrics": null,
+          "fresh_replays": null,
+          "error": null,
+          "completion_sha256": "b1c3f91fedadba8b136f8d04a8a0907a17faa516633146af5f38c169ba8c2521"
+        },
+        {
+          "case": "case_02",
+          "status": "budget_exhausted",
+          "elapsed_s": 120.90044432505965,
+          "process_wall_s": 124.98449604026973,
+          "planner_process_s": 106.79413660708815,
+          "planner_setup_s": 31.49077309574932,
+          "planner_initialization_s": 62.604498490691185,
+          "planning_call_s": [
+            2.109803699888289,
+            1.4824129436165094,
+            1.5261292634531856,
+            1.5387160098180175
+          ],
+          "graph_success_calls": 4,
+          "endpoints": {
+            "start": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": false,
+          "authored_waypoints": false,
+          "planner_validation": [
+            {
+              "path_valid": [
+                [
+                  true
+                ]
+              ],
+              "collision_valid": [
+                [
+                  true
+                ]
+              ],
+              "limits_and_dynamics_valid": [
+                [
+                  false
+                ]
+              ]
+            },
+            {
+              "path_valid": [
+                [
+                  true
+                ]
+              ],
+              "collision_valid": [
+                [
+                  true
+                ]
+              ],
+              "limits_and_dynamics_valid": [
+                [
+                  false
+                ]
+              ]
+            },
+            {
+              "path_valid": [
+                [
+                  true
+                ]
+              ],
+              "collision_valid": [
+                [
+                  true
+                ]
+              ],
+              "limits_and_dynamics_valid": [
+                [
+                  false
+                ]
+              ]
+            },
+            {
+              "path_valid": [
+                [
+                  true
+                ]
+              ],
+              "collision_valid": [
+                [
+                  true
+                ]
+              ],
+              "limits_and_dynamics_valid": [
+                [
+                  false
+                ]
+              ]
+            }
+          ],
+          "physics_candidates": 0,
+          "physical_home_completions": 0,
+          "physical_successes": 0,
+          "rejection_reason_counts": {},
+          "winner": null,
+          "winner_metrics": null,
+          "fresh_replays": null,
+          "error": null,
+          "completion_sha256": "0fc7dab56e0a19c291ac08b431acd2a4fa6add9ced1cfb9f8d20ad2a9795898a"
+        },
+        {
+          "case": "case_03",
+          "status": "budget_exhausted",
+          "elapsed_s": 116.47603165730834,
+          "process_wall_s": 120.58126983139664,
+          "planner_process_s": 102.36177330929786,
+          "planner_setup_s": 31.23827020637691,
+          "planner_initialization_s": 62.0368834445253,
+          "planning_call_s": [
+            0.7396161602810025,
+            0.7215923760086298,
+            0.7270619561895728,
+            0.7412478309124708
+          ],
+          "graph_success_calls": 0,
+          "endpoints": {
+            "start": {
+              "valid": false,
+              "scene_max": 4.319334402680397e-05,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": false,
+          "authored_waypoints": false,
+          "planner_validation": [
+            {
+              "path_valid": [
+                [
+                  true
+                ]
+              ],
+              "collision_valid": [
+                [
+                  false
+                ]
+              ],
+              "limits_and_dynamics_valid": [
+                [
+                  false
+                ]
+              ]
+            },
+            {
+              "path_valid": [
+                [
+                  true
+                ]
+              ],
+              "collision_valid": [
+                [
+                  false
+                ]
+              ],
+              "limits_and_dynamics_valid": [
+                [
+                  false
+                ]
+              ]
+            },
+            {
+              "path_valid": [
+                [
+                  true
+                ]
+              ],
+              "collision_valid": [
+                [
+                  false
+                ]
+              ],
+              "limits_and_dynamics_valid": [
+                [
+                  false
+                ]
+              ]
+            },
+            {
+              "path_valid": [
+                [
+                  true
+                ]
+              ],
+              "collision_valid": [
+                [
+                  false
+                ]
+              ],
+              "limits_and_dynamics_valid": [
+                [
+                  false
+                ]
+              ]
+            }
+          ],
+          "physics_candidates": 0,
+          "physical_home_completions": 0,
+          "physical_successes": 0,
+          "rejection_reason_counts": {},
+          "winner": null,
+          "winner_metrics": null,
+          "fresh_replays": null,
+          "error": null,
+          "completion_sha256": "375d580730885b5da3aaa9cb2aa558e42ee8d58a44e8e42004f121d323e5f811"
+        }
+      ],
+      "model": "/home/hckang/elesim/workbench/evidence/generated/curobo-v2-morphit-camera-2048-20261112",
+      "model_metadata_sha256": "d7e94d42147fd318a4b3c5867166c0352a1bc329cd625de35cabe3bd3be53743",
+      "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+      "planner_mode": "full",
+      "release_prefix": false,
+      "authored_waypoints_allowed": false,
+      "automatic_start_offset_allowed": false,
+      "source_sha256": {
+        "v2_worker.py": "3a8a2108d4c4ca3d6042201b70aeb6b6e3c4d2ea6529d27393099b3d6e75a1e7",
+        "v2_model.py": "bb89ea6ae40389005b269cbd34cf8d980194959dbc93605b54284e608e770612",
+        "v2_geometry.py": "2bc89c19ee389ebef2f24c1804c5755d43c90b730f3f33e91aa48c638a797fe5",
+        "v2.py": "5b9988594d5cb464f7dce5be748837dd154010ef99b4698a44d25b50b4bb43f0"
+      },
+      "case_source_consistent": true,
+      "batch_elapsed_s": 406.3841667305678,
+      "verified_cases": 0,
+      "complete": true
+    }
+  ],
+  "extra_case_trials": [],
+  "measurement_notes": [
+    "GA wall times include its original postprocessing/video; V2 batch excludes video.",
+    "RRT mode uses eight parallel graph proposals. Full mode uses native cuRobo seed defaults. Both use one physical lane; GA used 128.",
+    "Initial setup, model fitting and per-call planning have separate timing scopes.",
+    "Compilation caches may be reused from earlier trials; no cold-start timing is claimed.",
+    "Failed runs do not establish a successful-task speedup.",
+    "GPU exclusivity was not monitored continuously; observed concurrent work is recorded separately.",
+    "Cylinder and floor are planned in V2; Go2 and the full contact task remain Genesis checks.",
+    "RRT polylines use task-rate timing without spline validation. Full mode requires native spline success, then uses only uniform slowdown.",
+    "Only three fresh successful admissions/replays establish reverse_path_verified."
+  ],
+  "recorded_date": "2026-11-12",
+  "server": "hckang@100.74.222.24",
+  "trial": "reverse-curobo-v2-full-resumed-20261112",
+  "requested_method": "Original grasp-to-Home endpoints handed directly to native cuRobo plan_cspace; PRM, B-spline TrajOpt and timing optimization enabled; no authored release or start offset",
+  "attempt_budget": {
+    "outer_calls_per_case": 4,
+    "internal_attempts_per_call": 4,
+    "planner_timeout_s_per_case": 900
+  },
+  "interpretation": {
+    "native_accepted_trajectories": 0,
+    "physical_evaluation_candidates": 0,
+    "physical_task_success_claimed": false,
+    "specific_limit_or_timeopt_failure_isolated": false,
+    "note": "limits_and_dynamics_valid includes time optimization, finite values, trajectory buffer capacity and joint/dynamic constraints; the failing subcomponent is not isolated.",
+    "case_03": "Exact admitted start failed independent scene check and was still passed unchanged to cuRobo; native logs reported start/end collision.",
+    "comparison": "The earlier 3/3 result used an authored release prefix. The native full mode produced 0/3 accepted trajectories in the recorded budget."
+  },
+  "validation": {
+    "focused_tests_passed": 18,
+    "test_environment": "/home/hckang/elesim/.venv/reverse-curobo-v2-20261112/bin/python",
+    "canonical_gates_run": false,
+    "canonical_gates_not_run": [
+      "required",
+      "extended",
+      "release-build",
+      "isolated-release-verify",
+      "real-RMW-topology"
+    ],
+    "reason": "No usable setup-generated development attachment is known for this checkout; focused research tests ran in the isolated V2 environment."
+  },
+  "artifacts": {
+    "full-comparison.json": {
+      "path": "workbench/evidence/generated/curobo-v2-review/full/full-comparison.json",
+      "sha256": "70a5a827702b773506414793a3751beb18ba4628b7e892974e6cf3f829b82dda"
+    },
+    "summary.json": {
+      "path": "workbench/evidence/generated/curobo-v2-review/full/summary.json",
+      "sha256": "c6c2803042ec9944b96d8c02b926741bb2c9d2e9a4f543a71f7025d79b9ccdce"
+    }
+  }
+}

@@ -379,3 +379,26 @@ def test_applied_badge_is_invalidated_by_manual_scene_or_sim_reset(ready):
     session.snapshot.status = SimulationStatusPayload(5,False,1.,False,0.)
     c.refresh()
     assert c.scene_outcome != 'applied' and not c.reason('apply')
+
+
+def test_reconstructed_hug_prepares_then_executes_once_without_coordinates(ready):
+    c, _, cache, _ = ready
+    cache.services['object_scan'].update(phase='completed',job_id='scan-a',scene_revision='rev-a')
+    assert c.perform('plan_reconstructed_hug')
+    assert names(cache)==['plan_reconstructed_hug']
+    assert cache.requests[-1][0][2:]==('target',)
+    complete(cache,value={'plan_id':'hug-a','weights':[.2,.3,.5]})
+    assert c.perform('execute_reconstructed_hug')
+    assert names(cache)[-1]=='execute_arm_trajectory'
+    assert cache.requests[-1][0][2:]==('hug-a',)
+    assert not c.hug_plan
+
+
+def test_new_reconstruction_invalidates_prepared_hug(ready):
+    c, _, cache, _ = ready
+    cache.services['object_scan'].update(phase='completed',job_id='scan-a',scene_revision='rev-a')
+    assert c.perform('plan_reconstructed_hug')
+    complete(cache,value={'plan_id':'hug-a'})
+    cache.services['object_scan']['scene_revision']='rev-b'
+    assert not c.perform('execute_reconstructed_hug')
+    assert names(cache)==['plan_reconstructed_hug']

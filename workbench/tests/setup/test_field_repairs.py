@@ -130,7 +130,8 @@ def test_space_check_fails_before_writing_destination(tmp_path, monkeypatch):
     assert not destination.exists()
 
 
-def test_ui_field_gpu_choice_migrates_and_explicit_instance_choice_wins(local_state):
+def test_ui_field_gpu_choice_migrates_and_explicit_instance_choice_wins(local_state, monkeypatch):
+    monkeypatch.setattr("elesim_setup.container_installer.detect_install_wslg", lambda: False)
     state = local_state(roles=("ui",), compute=ComputeSettings("cpu"))
     policy = state.prefix_path / "maintenance/ui-rendering.json"
     policy.parent.mkdir(parents=True)

@@ -23,6 +23,7 @@ SERVICE_CALLS = frozenset(
         "plan_arm_to_target", "execute_arm_trajectory", "cancel_arm_trajectory",
         "confirm_floor_calibration", "reset_floor_calibration", "export_floor_calibration",
         "start_object_scan", "cancel_object_scan",
+        "plan_reconstructed_hug",
     }
 )
 

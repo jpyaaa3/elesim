@@ -17,7 +17,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN set -eux; \
     packages="ca-certificates python3-colcon-common-extensions python3-pip python3-venv python-is-python3 ros-humble-rmw-cyclonedds-cpp ros-humble-rosidl-default-generators ros-humble-sros2"; \
     case "$ROLE" in \
-      pilot) packages="$packages libgl1 libglib2.0-0 libgomp1 curl xz-utils git build-essential python3-dev" ;; \
+      pilot) packages="$packages nodejs libgl1 libglib2.0-0 libgomp1 curl xz-utils git build-essential python3-dev" ;; \
       ui) packages="$packages libgl1 libgl1-mesa-dri libglx-mesa0 libglu1-mesa libglfw3 libx11-6 libxcursor1 libxi6 libxinerama1 libxrandr2 libxxf86vm1 libfontconfig1" ;; \
       sim) packages="$packages build-essential cmake curl git python3-dev swig python3-pip python-is-python3 libgl1 libegl1 libglx-mesa0 libosmesa6 libglfw3 libglib2.0-0 libx11-6 libxext6 libxrender1" ;; \
       *) echo "unsupported role: $ROLE" >&2; exit 2 ;; \

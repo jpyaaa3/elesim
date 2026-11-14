@@ -1,0 +1,890 @@
+{
+  "schema": "hug-curobo-v2-comparison",
+  "version": 1,
+  "model": {
+    "root": "workbench/evidence/generated/curobo-v2-morphit-camera-2048-20261112",
+    "curobo_version": "0.9.0",
+    "curobo_commit": "42498cf4e7d0d6fbd4ef9fbcec1243c00c888a83",
+    "spheres": 2046,
+    "fitting_elapsed_s": 69.8345807865262,
+    "excluded_collision_links": [
+      "plate"
+    ],
+    "added_task_collision_links": [
+      "camera"
+    ],
+    "sampling": "surface-inset only, volume samples suppressed",
+    "containment_certified": false,
+    "metadata_sha256": "d7e94d42147fd318a4b3c5867166c0352a1bc329cd625de35cabe3bd3be53743",
+    "links": {
+      "housing": {
+        "spheres": 261,
+        "min_radius_mm": 2.0801820792257786,
+        "max_radius_mm": 37.27204352617264,
+        "surface_gap_p95_mm": 7.136750500649214,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "wedge": {
+        "spheres": 88,
+        "min_radius_mm": 2.5403746403753757,
+        "max_radius_mm": 13.627933338284492,
+        "surface_gap_p95_mm": 2.6966251898556948,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node0": {
+        "spheres": 133,
+        "min_radius_mm": 2.585838083177805,
+        "max_radius_mm": 18.595172092318535,
+        "surface_gap_p95_mm": 2.0418823696672916,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node1": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node2": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node3": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node4": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node5": {
+        "spheres": 133,
+        "min_radius_mm": 2.585838083177805,
+        "max_radius_mm": 18.595172092318535,
+        "surface_gap_p95_mm": 2.0418823696672916,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node6": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node7": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node8": {
+        "spheres": 132,
+        "min_radius_mm": 1.9906261004507542,
+        "max_radius_mm": 19.818902015686035,
+        "surface_gap_p95_mm": 2.085327636450529,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "node9": {
+        "spheres": 139,
+        "min_radius_mm": 2.4015442468225956,
+        "max_radius_mm": 22.34468050301075,
+        "surface_gap_p95_mm": 2.115459879860282,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "gripper_base": {
+        "spheres": 123,
+        "min_radius_mm": 1.9439334282651544,
+        "max_radius_mm": 2.656658412888646,
+        "surface_gap_p95_mm": 3.6698817275464535,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "gripper_claw_left": {
+        "spheres": 87,
+        "min_radius_mm": 0.9506227797828615,
+        "max_radius_mm": 6.459362804889679,
+        "surface_gap_p95_mm": 2.4246342945843935,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "gripper_claw_right": {
+        "spheres": 87,
+        "min_radius_mm": 0.8417795179411769,
+        "max_radius_mm": 6.085674278438091,
+        "surface_gap_p95_mm": 2.365873893722892,
+        "sampled_protrusion_fraction": 0.0
+      },
+      "camera": {
+        "spheres": 71,
+        "min_radius_mm": 1.552341622300446,
+        "max_radius_mm": 9.652080945670605,
+        "surface_gap_p95_mm": 3.4902135375887156,
+        "sampled_protrusion_fraction": 0.0
+      }
+    }
+  },
+  "gpu_exclusivity_verified": false,
+  "successful_task_speedup_claimed": false,
+  "observed_gpu_sharing": "Observed PID 2763816 hug_pipeline.worker on GPU2 during this comparison; existing job preserved. Times are shared-GPU wall times.",
+  "ga": {
+    "root": "workbench/evidence/generated/ga-completion-20261112",
+    "cases": [
+      {
+        "index": 1,
+        "status": "finished",
+        "elapsed_s": 850.1173577308655
+      },
+      {
+        "index": 2,
+        "status": "finished",
+        "elapsed_s": 1260.1889564990997
+      },
+      {
+        "index": 3,
+        "status": "finished",
+        "elapsed_s": 2670.4461131095886
+      }
+    ],
+    "case_wall_s_sum": 4780.752427339554
+  },
+  "runs": [
+    {
+      "root": "workbench/evidence/generated/reverse-curobo-v2-rrt-20261112",
+      "cases": [
+        {
+          "case": "case_01",
+          "status": "physics_budget_exhausted",
+          "elapsed_s": 136.89829354640096,
+          "process_wall_s": 141.52056074608117,
+          "planner_process_s": 28.969997481442988,
+          "planner_setup_s": 8.49738588090986,
+          "planner_initialization_s": 12.261803101748228,
+          "planning_call_s": [
+            0.06146784592419863,
+            0.06246635690331459,
+            0.06136585399508476,
+            0.061904603615403175
+          ],
+          "graph_success_calls": 4,
+          "endpoints": {
+            "start": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": false,
+          "physics_candidates": 11,
+          "physical_home_completions": 5,
+          "physical_successes": 0,
+          "rejection_reason_counts": {
+            "physical_fault": 6,
+            "bend_travel": 5,
+            "roll_travel": 4,
+            "linear_travel": 2
+          },
+          "winner": null,
+          "winner_metrics": null,
+          "fresh_replays": null,
+          "error": null,
+          "completion_sha256": "287d1b3d0a629922dd9021cae3d81f4f284159b9e6912eef4a3ebca3766a494d"
+        },
+        {
+          "case": "case_02",
+          "status": "physics_budget_exhausted",
+          "elapsed_s": 395.4794322233647,
+          "process_wall_s": 399.7701999936253,
+          "planner_process_s": 28.95536571647972,
+          "planner_setup_s": 8.852867630310357,
+          "planner_initialization_s": 13.253124345093966,
+          "planning_call_s": [
+            0.055624437518417835,
+            0.05531422607600689,
+            0.053887736052274704,
+            0.05358114466071129
+          ],
+          "graph_success_calls": 4,
+          "endpoints": {
+            "start": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": false,
+          "physics_candidates": 32,
+          "physical_home_completions": 27,
+          "physical_successes": 0,
+          "rejection_reason_counts": {
+            "roll_travel": 24,
+            "bend_travel": 21,
+            "physical_fault": 4,
+            "linear_travel": 6,
+            "wrong_face": 1
+          },
+          "winner": null,
+          "winner_metrics": null,
+          "fresh_replays": null,
+          "error": null,
+          "completion_sha256": "6049b6a0ce906adaedf8cacbac219a617b9576759c474624b92bf7cf449c6473"
+        },
+        {
+          "case": "case_03",
+          "status": "reverse_path_verified",
+          "elapsed_s": 187.98512143082917,
+          "process_wall_s": 192.49078104738146,
+          "planner_process_s": 33.489504888653755,
+          "planner_setup_s": 8.698369280435145,
+          "planner_initialization_s": 12.90881131310016,
+          "planning_call_s": [
+            0.053993278183043,
+            0.054155330173671246,
+            0.05379582289606333,
+            0.05130905006080866
+          ],
+          "graph_success_calls": 4,
+          "endpoints": {
+            "start": {
+              "valid": false,
+              "scene_max": 5.748961120843887e-05,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": true,
+          "physics_candidates": 7,
+          "physical_home_completions": 6,
+          "physical_successes": 1,
+          "rejection_reason_counts": {
+            "linear_travel": 3,
+            "roll_travel": 4,
+            "bend_travel": 5
+          },
+          "winner": "candidate-0000-lane-6",
+          "winner_metrics": {
+            "duration_s": 6.0,
+            "motion_group_motor_deg": [
+              180.00000000000023,
+              219.50810974721782,
+              572.3221387236426
+            ],
+            "peak_xy_m": 0.005152491181456097,
+            "peak_tilt_rad": 0.0003325861555970057,
+            "home_error": 0.04757574173757384
+          },
+          "fresh_replays": [
+            true,
+            true,
+            true
+          ],
+          "error": null,
+          "completion_sha256": "195fefe34e65aeaf8fa96b43aca5c44c2189564457337b2d44f73f9986f40b99"
+        }
+      ],
+      "model": "/home/hckang/elesim/workbench/evidence/generated/curobo-v2-morphit-shell-20261112",
+      "model_metadata_sha256": "c551cc711ae91a4ea5347f962d95ce988a30af554489bf45a39d3e8b80aa9ad4",
+      "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+      "planner_mode": "rrt",
+      "release_prefix": false,
+      "source_sha256": {
+        "v2_worker.py": "12880f7681b704f64ec1153517ce395ed226747762e559faee7f91bb082e83bf",
+        "v2_model.py": "e33c4c84139c1cc57f73c14188e76c4e0e1fa1eb32deb1e48ed34cd9e07139b6",
+        "v2_geometry.py": "241121c05253abe7b4f916ce6d420ad1c365f43c61b4e00c4977dd7c74642ee4",
+        "v2.py": "8c18a5797c49962f1eb71821e16e28c9ffeea1ad279442dd16124c2e9426d5b2"
+      },
+      "case_source_consistent": true,
+      "batch_elapsed_s": 733.818375851959,
+      "verified_cases": 1,
+      "complete": true
+    },
+    {
+      "root": "workbench/evidence/generated/reverse-curobo-v2-bounded-20261112",
+      "cases": [
+        {
+          "case": "case_01",
+          "status": "budget_exhausted",
+          "elapsed_s": 110.42890366632491,
+          "process_wall_s": 114.91394640970975,
+          "planner_process_s": 93.8563777776435,
+          "planner_setup_s": 35.37073366716504,
+          "planner_initialization_s": 43.867509729228914,
+          "planning_call_s": [
+            2.0427291756495833,
+            2.080183287151158,
+            2.061182167381048,
+            2.0714752189815044
+          ],
+          "graph_success_calls": 0,
+          "endpoints": {
+            "start": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": false,
+          "physics_candidates": 0,
+          "physical_home_completions": 0,
+          "physical_successes": 0,
+          "rejection_reason_counts": {},
+          "winner": null,
+          "winner_metrics": null,
+          "fresh_replays": null,
+          "error": null,
+          "completion_sha256": "7eb26f112862d99f353c515a6a1c9b205db5432152c2678ae0b847ae7185aaec"
+        },
+        {
+          "case": "case_02",
+          "status": "reverse_path_verified",
+          "elapsed_s": 187.40319507941604,
+          "process_wall_s": 192.0290506966412,
+          "planner_process_s": 82.39536139089614,
+          "planner_setup_s": 34.15121288411319,
+          "planner_initialization_s": 39.036671947687864,
+          "planning_call_s": [
+            0.13676491659134626,
+            0.13779918383806944,
+            0.1362580470740795,
+            0.13664026092737913
+          ],
+          "graph_success_calls": 4,
+          "endpoints": {
+            "start": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": false,
+          "physics_candidates": 1,
+          "physical_home_completions": 1,
+          "physical_successes": 1,
+          "rejection_reason_counts": {},
+          "winner": "candidate-0000-lane-0",
+          "winner_metrics": {
+            "duration_s": 6.03,
+            "motion_group_motor_deg": [
+              180.00000000000026,
+              200.32242458558227,
+              568.5626715164449
+            ],
+            "peak_xy_m": 0.0006573477978656336,
+            "peak_tilt_rad": 6.143906154658886e-08,
+            "home_error": 0.04757574173757384
+          },
+          "fresh_replays": [
+            true,
+            true,
+            true
+          ],
+          "error": null,
+          "completion_sha256": "4fd6c32cb32c5478b946d31c118d805b0d232d192c305c1b89ab897bd9e06763"
+        },
+        {
+          "case": "case_03",
+          "status": "reverse_path_verified",
+          "elapsed_s": 261.94869596045464,
+          "process_wall_s": 266.18805180024356,
+          "planner_process_s": 84.51124147884548,
+          "planner_setup_s": 32.98544713202864,
+          "planner_initialization_s": 36.865990387275815,
+          "planning_call_s": [
+            0.10967160854488611,
+            0.1307044206187129,
+            0.13014798052608967,
+            0.1302172364667058
+          ],
+          "graph_success_calls": 4,
+          "endpoints": {
+            "start": {
+              "valid": false,
+              "scene_max": 4.319334402680397e-05,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": true,
+          "physics_candidates": 2,
+          "physical_home_completions": 1,
+          "physical_successes": 1,
+          "rejection_reason_counts": {},
+          "winner": "candidate-0001-lane-3",
+          "winner_metrics": {
+            "duration_s": 8.51,
+            "motion_group_motor_deg": [
+              199.72940934727393,
+              181.75000897138662,
+              568.2591684660661
+            ],
+            "peak_xy_m": 0.0008015852951136397,
+            "peak_tilt_rad": 0.00022337913752546712,
+            "home_error": 0.04758143356188218
+          },
+          "fresh_replays": [
+            true,
+            true,
+            true
+          ],
+          "error": null,
+          "completion_sha256": "4b1dadbf1ef120475358d493a9351febff44fae497f1f1056aaeef063393c7f2"
+        }
+      ],
+      "model": "/home/hckang/elesim/workbench/evidence/generated/curobo-v2-morphit-camera-2048-20261112",
+      "model_metadata_sha256": "d7e94d42147fd318a4b3c5867166c0352a1bc329cd625de35cabe3bd3be53743",
+      "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+      "planner_mode": "rrt",
+      "release_prefix": false,
+      "source_sha256": {
+        "v2_worker.py": "1851751c0ed13a336672c9ba227a9cc1489515929bdcef120fc8939fefaf5a3b",
+        "v2_model.py": "bb89ea6ae40389005b269cbd34cf8d980194959dbc93605b54284e608e770612",
+        "v2_geometry.py": "8cf031a723d7a782229b224962c1790b2378ebf8d1d278ae5d416ca90d87ae14",
+        "v2.py": "3130f75b5967fb5f0dc7e2f22f0192a903e94b48c4a7def4509d8dac604ec893"
+      },
+      "case_source_consistent": true,
+      "batch_elapsed_s": 573.1450997078791,
+      "verified_cases": 2,
+      "complete": true
+    },
+    {
+      "root": "workbench/evidence/generated/reverse-curobo-v2-final-20261112",
+      "cases": [
+        {
+          "case": "case_01",
+          "status": "reverse_path_verified",
+          "elapsed_s": 206.25968551263213,
+          "process_wall_s": 210.4352353606373,
+          "planner_process_s": 77.57845562137663,
+          "planner_setup_s": 32.4333034735173,
+          "planner_initialization_s": 38.627147375606,
+          "planning_call_s": [
+            0.016059000976383686,
+            0.014747893437743187,
+            0.01478990726172924,
+            0.014553726650774479
+          ],
+          "graph_success_calls": 4,
+          "endpoints": {
+            "start": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": true,
+          "physics_candidates": 1,
+          "physical_home_completions": 1,
+          "physical_successes": 1,
+          "rejection_reason_counts": {},
+          "winner": "candidate-0000-lane-1",
+          "winner_metrics": {
+            "duration_s": 7.58,
+            "motion_group_motor_deg": [
+              179.99999999999784,
+              179.9999999999994,
+              589.0000000000001
+            ],
+            "peak_xy_m": 0.008887302762918138,
+            "peak_tilt_rad": 5.68125057197978e-05,
+            "home_error": 0.04758143356188218
+          },
+          "fresh_replays": [
+            true,
+            true,
+            true
+          ],
+          "error": null,
+          "completion_sha256": "9c1f0e04b81a136199b676fa44cf2b8e0118dc0c2b7f2dc1119c7fee044f5f37"
+        },
+        {
+          "case": "case_02",
+          "status": "reverse_path_verified",
+          "elapsed_s": 208.18252642452717,
+          "process_wall_s": 212.38336682505906,
+          "planner_process_s": 81.89753416739404,
+          "planner_setup_s": 32.758203176781535,
+          "planner_initialization_s": 37.50806928798556,
+          "planning_call_s": [
+            0.21792547404766083,
+            0.012907787226140499,
+            0.012908903881907463,
+            0.013345186598598957
+          ],
+          "graph_success_calls": 4,
+          "endpoints": {
+            "start": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": true,
+          "physics_candidates": 1,
+          "physical_home_completions": 1,
+          "physical_successes": 1,
+          "rejection_reason_counts": {},
+          "winner": "candidate-0000-lane-1",
+          "winner_metrics": {
+            "duration_s": 7.68,
+            "motion_group_motor_deg": [
+              179.99999999999784,
+              179.99999999999946,
+              570.9999999999999
+            ],
+            "peak_xy_m": 0.0006580296129756757,
+            "peak_tilt_rad": 6.143906154658886e-08,
+            "home_error": 0.04758143356188218
+          },
+          "fresh_replays": [
+            true,
+            true,
+            true
+          ],
+          "error": null,
+          "completion_sha256": "dcc6e3ae6e593d2419f10b39662e61046036376944ac98b362fa92eb266204aa"
+        },
+        {
+          "case": "case_03",
+          "status": "reverse_path_verified",
+          "elapsed_s": 194.0576323196292,
+          "process_wall_s": 198.26081670541316,
+          "planner_process_s": 82.2019182657823,
+          "planner_setup_s": 31.98183684889227,
+          "planner_initialization_s": 37.126276046037674,
+          "planning_call_s": [
+            0.21320949215441942,
+            0.012684694491326809,
+            0.013640588149428368,
+            0.013345912098884583
+          ],
+          "graph_success_calls": 4,
+          "endpoints": {
+            "start": {
+              "valid": false,
+              "scene_max": 4.319334402680397e-05,
+              "self_max": 0.0
+            },
+            "home": {
+              "valid": true,
+              "scene_max": 0.0,
+              "self_max": 0.0
+            }
+          },
+          "start_offset_used": true,
+          "physics_candidates": 1,
+          "physical_home_completions": 1,
+          "physical_successes": 1,
+          "rejection_reason_counts": {},
+          "winner": "candidate-0000-lane-1",
+          "winner_metrics": {
+            "duration_s": 7.72,
+            "motion_group_motor_deg": [
+              179.9999999999978,
+              179.9999999999994,
+              519.9999999999998
+            ],
+            "peak_xy_m": 0.007197990086522839,
+            "peak_tilt_rad": 0.0002746261515244642,
+            "home_error": 0.04758143356188218
+          },
+          "fresh_replays": [
+            true,
+            true,
+            true
+          ],
+          "error": null,
+          "completion_sha256": "199a856ecf43971dc43e3749fab4a4866fb93b36be0355d8ecf7440e836efd45"
+        }
+      ],
+      "model": "/home/hckang/elesim/workbench/evidence/generated/curobo-v2-morphit-camera-2048-20261112",
+      "model_metadata_sha256": "d7e94d42147fd318a4b3c5867166c0352a1bc329cd625de35cabe3bd3be53743",
+      "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+      "planner_mode": "rrt",
+      "release_prefix": true,
+      "source_sha256": {
+        "v2_worker.py": "fe23786bba35de77382825732eac63b6218a69ea02aa7737c471d79c37c19f70",
+        "v2_model.py": "bb89ea6ae40389005b269cbd34cf8d980194959dbc93605b54284e608e770612",
+        "v2_geometry.py": "c4438f3ca7edd7f48a20a468bd1c705dae2bdfa5942a204fc3ab10f25b598907",
+        "v2.py": "926c916b0928bfa3370abb6a91bf4e971b42d1857627a5dad4d5fe702390e585"
+      },
+      "case_source_consistent": true,
+      "batch_elapsed_s": 621.0975974984467,
+      "verified_cases": 3,
+      "complete": true
+    }
+  ],
+  "extra_case_trials": [
+    {
+      "root": "workbench/evidence/generated/reverse-curobo-v2-weighted-20261112",
+      "release_prefix": false,
+      "planner_mode": "rrt",
+      "case": "case_01",
+      "status": "budget_exhausted",
+      "elapsed_s": 108.10519343521446,
+      "process_wall_s": null,
+      "planner_process_s": 91.67674424685538,
+      "planner_setup_s": 31.399241667240858,
+      "planner_initialization_s": 38.63248565327376,
+      "planning_call_s": [
+        1.9452928816899657,
+        1.9876805245876312,
+        1.8946534553542733,
+        1.9545767214149237,
+        1.9450608184561133,
+        1.9460598416626453,
+        1.9857484055683017,
+        1.893916742876172
+      ],
+      "graph_success_calls": 0,
+      "endpoints": {
+        "start": {
+          "valid": true,
+          "scene_max": 0.0,
+          "self_max": 0.0
+        },
+        "home": {
+          "valid": true,
+          "scene_max": 0.0,
+          "self_max": 0.0
+        }
+      },
+      "start_offset_used": false,
+      "physics_candidates": 0,
+      "physical_home_completions": 0,
+      "physical_successes": 0,
+      "rejection_reason_counts": {},
+      "winner": null,
+      "winner_metrics": null,
+      "fresh_replays": null,
+      "error": null,
+      "completion_sha256": "862d45bbeaa4aa264a03355484cd42e5bf2fa39eb7c271f061c295d681acd017"
+    },
+    {
+      "root": "workbench/evidence/generated/reverse-curobo-v2-release-20261112",
+      "release_prefix": true,
+      "planner_mode": "rrt",
+      "case": "case_01",
+      "status": "budget_exhausted",
+      "elapsed_s": 114.02841851487756,
+      "process_wall_s": null,
+      "planner_process_s": 97.54884169064462,
+      "planner_setup_s": 33.49191025272012,
+      "planner_initialization_s": 39.848864341154695,
+      "planning_call_s": [
+        1.9524437095969915,
+        1.988190533593297,
+        1.9265116350725293,
+        1.9592914851382375,
+        1.9472400704398751,
+        1.9545467998832464,
+        1.9871086161583662,
+        1.9246279578655958
+      ],
+      "graph_success_calls": 0,
+      "endpoints": {
+        "start": {
+          "valid": true,
+          "scene_max": 0.0,
+          "self_max": 0.0
+        },
+        "home": {
+          "valid": true,
+          "scene_max": 0.0,
+          "self_max": 0.0
+        }
+      },
+      "start_offset_used": true,
+      "physics_candidates": 0,
+      "physical_home_completions": 0,
+      "physical_successes": 0,
+      "rejection_reason_counts": {},
+      "winner": null,
+      "winner_metrics": null,
+      "fresh_replays": null,
+      "error": null,
+      "completion_sha256": "a98c64f2012d3e2523ef8f9bf97dc9e35c7620a785a7949170d0ffa4f9f90db2"
+    },
+    {
+      "root": "workbench/evidence/generated/reverse-curobo-v2-open-release-20261112",
+      "release_prefix": true,
+      "planner_mode": "rrt",
+      "case": "case_01",
+      "status": "reverse_path_verified",
+      "elapsed_s": 254.16339311003685,
+      "process_wall_s": null,
+      "planner_process_s": 126.09949543140829,
+      "planner_setup_s": 52.195780297741294,
+      "planner_initialization_s": 59.275387946516275,
+      "planning_call_s": [
+        0.014946358278393745,
+        0.015554488636553288,
+        0.014220853336155415,
+        0.015152146108448505
+      ],
+      "graph_success_calls": 4,
+      "endpoints": {
+        "start": {
+          "valid": true,
+          "scene_max": 0.0,
+          "self_max": 0.0
+        },
+        "home": {
+          "valid": true,
+          "scene_max": 0.0,
+          "self_max": 0.0
+        }
+      },
+      "start_offset_used": true,
+      "physics_candidates": 1,
+      "physical_home_completions": 1,
+      "physical_successes": 1,
+      "rejection_reason_counts": {},
+      "winner": "candidate-0000-lane-1",
+      "winner_metrics": {
+        "duration_s": 7.58,
+        "motion_group_motor_deg": [
+          179.99999999999784,
+          179.9999999999994,
+          589.0000000000001
+        ],
+        "peak_xy_m": 0.008887302762918138,
+        "peak_tilt_rad": 5.68125057197978e-05,
+        "home_error": 0.04758143356188218
+      },
+      "fresh_replays": [
+        true,
+        true,
+        true
+      ],
+      "error": null,
+      "completion_sha256": "c05eac6bad3949268ddd6b3c8b4529203413202e628860639fba42c195d0b30b"
+    }
+  ],
+  "measurement_notes": [
+    "GA wall times include its original postprocessing/video; V2 batch excludes video.",
+    "V2 uses eight parallel RRT proposals and one physical lane; GA used 128 physical lanes.",
+    "Initial setup, model fitting and per-call planning have separate timing scopes.",
+    "The final batch reused compilation caches from earlier trials; no cold-start timing is claimed.",
+    "Failed runs do not establish a successful-task speedup.",
+    "GPU exclusivity was not monitored continuously; observed concurrent work is recorded separately.",
+    "Cylinder and floor are planned in V2; Go2 and the full contact task remain Genesis checks.",
+    "RRT polylines use task-rate timing; V2 spline dynamics validation is not claimed.",
+    "Only three fresh successful admissions/replays establish reverse_path_verified."
+  ],
+  "recorded_date": "2026-11-12",
+  "server": "hckang@100.74.222.24",
+  "method": "Executed opening/retraction/roll prefix with original Genesis contact checks, followed by V2 RRT planning; original full-path criteria unchanged",
+  "validation": {
+    "focused_research_tests": {
+      "passed": 16,
+      "environment": "/home/hckang/elesim/.venv/reverse-curobo-v2-20261112/bin/python",
+      "test_source_sha256": {
+        "workbench/tests/research/experiments/test_hug_curobo_v2.py": "10ffe75ec009e743cca5210802b49afa831cb60d72a764046ae6667c70e18e0b",
+        "workbench/tests/research/experiments/test_hug_curobo_v2_meshes.py": "a59356751d4990283e994f6b7d3592add3a8ff5e8ff64a18f93ebfcb9abb5732"
+      }
+    },
+    "independent_cpu_triangle_audit": {
+      "passed": true,
+      "sphere_count": 2046,
+      "outside_centers": 0,
+      "radius_excess_over_1um": 0,
+      "minimum_inward_margin_mm": 0.009931356646120538,
+      "containment_certified": false,
+      "artifact_sha256": "3a9d2860d53cc1c81cf8e3e9439746e99e63b4d47f314b4f1a17502417557bec"
+    },
+    "reference_collision_diagnostic": {
+      "reference_sha256": "005458fd3c0f937a43f637252e8231550362990a1e243b1352a655abda04e442",
+      "per_obstacle": {
+        "cylinder": {
+          "collision_samples": 164,
+          "time_range_s": [
+            0.01,
+            1.6400000000000001
+          ]
+        },
+        "floor": {
+          "collision_samples": 0,
+          "time_range_s": null
+        }
+      },
+      "role": "Independent validation only; no reference commands enter the proposal generator"
+    },
+    "additional_video_replay_passed": true,
+    "canonical_gates": {
+      "run": false,
+      "reason": "No usable setup-generated dev attachment is known for this checkout; research checks were run in the isolated V2 environment.",
+      "not_run": [
+        "required",
+        "extended",
+        "release-build",
+        "isolated-release-verify",
+        "real-RMW-topology"
+      ]
+    }
+  },
+  "artifacts": {
+    "model_figure": {
+      "path": "workbench/evidence/curated/planning/curobo_v2_morphit_20261112.png",
+      "sha256": "51c833decb9cd06ab840b8c72b11092120482d37434b920482c432ff71343f64"
+    },
+    "successful_replay_video": {
+      "path": "workbench/evidence/generated/curobo-v2-review/case-01-verified.mp4",
+      "sha256": "8a519a5997b4b917cdd5eed8fdb718e8fe7965ffe7a116269df4bf3817227c4d",
+      "source": "workbench/evidence/generated/reverse-curobo-v2-open-release-20261112/case_01/candidate-0000-lane-1/commands.npz"
+    },
+    "source_readme": "workbench/research/experiments/hug_reverse_curobo/README.md"
+  },
+  "scope": {
+    "reverse_reference_paths_verified": 3,
+    "automatic_ppo_launch": false,
+    "forward_success": false,
+    "lift_success": false,
+    "reset_pool_validated": false,
+    "runtime_deployment_migrated": false
+  }
+}

@@ -337,7 +337,7 @@ Tailscale admin record, 외부 keystore/TURN credential은 EleSim이 생성했�
 | `specific` | `device_ids` 한 개 reservation | 한 index/UUID만 노출하며 container 안에서 host index를 다시 적용하지 않음 |
 | `cpu` | GPU reservation 없음 | Sim Genesis backend와 encoder를 CPU로 고정 |
 
-Pilot·Sim·UI는 독립적으로 policy를 가질 수 있다. UI는 software GL 또는 NVIDIA GL을 선택하며 실제 renderer를 시작 전 확인한다. GUI에서 GPU가 고정되었거나
+Pilot·Sim·UI는 독립적으로 policy를 가질 수 있다. UI는 software GL 또는 GPU GL을 선택하며 실제 renderer를 시작 전 확인한다. WSLg의 GPU GL은 Mesa D3D12이고 일반 Linux는 NVIDIA GLX다. GUI에서 GPU가 고정되었거나
 CPU-only로 감지된 role은 상속 checkbox를 미리 선택/해제한 상태로 보여주며
 사용자가 설치 뒤 임의로 바꾸지 못한다. `specific`은 UUID/index를 예약할
 뿐이며, `CUDA_VISIBLE_DEVICES`만 바꿔서 container runtime이 차단한 장치를
@@ -350,6 +350,13 @@ CPU-only로 감지된 role은 상속 checkbox를 미리 선택/해제한 상태�
 `inherit`는 host 환경의 값에 의존하므로, 서로 다른 host에서 숫자가 같다고
 같은 물리 GPU라는 뜻은 아니다. `elesim-instance <system> status`의 device request와 container
 내 `torch.cuda.device_count()`를 함께 본다.
+
+Connections의 주기적 상태 조회 중에는 이미 검증한 같은 topology의 시작 가능 상태와
+GPU 선택을 유지한다. 조회 대기만으로 시작 버튼과 GPU 옵션을 잠그지 않으며, 실제
+접속/정책 확인 실패·설정 변경·작업 전환에서는 다시 잠근다. 최초 검증 전에는 시작할
+수 없다. GPU 목록이 같으면 선택 항목을 재생성하지 않아 열린 선택창도 유지한다.
+시작 작업이 실패해 종료되면 선택값을 복원하되 다시 편집할 수 있어 GPU/Viewer를
+수정하고 재시도할 수 있다. 실행 중·취소 진행 중·성공한 시작 작업의 선택은 잠근다.
 
 ## 6. Display와 Sim Viewer
 

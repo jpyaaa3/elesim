@@ -198,6 +198,8 @@ class MockObjectState:
     ) -> dict[str, Any]:
         if self._artifact is None:
             raise MockObjectStateError("cannot execute without an active mock object")
+        if self._artifact.asset_id == 'cylinder_100mm':
+            raise MockObjectStateError('Physical cylinder cannot use logical attachment; use reconstructed hug')
         expected_revision = self._revision_value(revision)
         expected_sha = self._sha256(sha256)
         target = self._finite_vector(final_q, 4, name="final_q")

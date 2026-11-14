@@ -152,8 +152,34 @@ def test_reference_does_not_accept_partial_joint_or_contact_states():
 
 
 def test_alignment_rejects_event_order_incompatible_with_interpolation():
-    p,path=fixture();bad=dict(commands=path['command'],events=np.array([0,100,90,500,1600]))
+    p,path=fixture();bad=dict(commands=path['command'],events=np.array([0,100,90,80,1600]))
     with pytest.raises(ValueError,match='ordering'):evaluation.align([bad]*3,p)
+
+
+def test_alignment_accepts_delayed_grasp_confirmation_without_mutating_events():
+    p,path=fixture()
+    raw=np.array([0,416,407,492,1600])
+    paths=[dict(commands=path['command'],events=raw.copy()) for _ in range(3)]
+    aligned,events=evaluation.align(paths,p)
+    assert events==[0,407,416,492,1600]
+    for original,result in zip(paths,aligned):
+        assert np.array_equal(original['events'],raw)
+        assert np.allclose(result,path['command'])
+
+
+def test_alignment_handles_coincident_milestones_and_mixed_orders():
+    p,path=fixture()
+    paths=[dict(commands=path['command'],events=e) for e in
+           ([0,100,100,500,1600],[0,110,100,500,1600],[0,100,110,500,1600])]
+    aligned,events=evaluation.align(paths,p)
+    assert events==[0,100,110,510,1610]
+    assert np.allclose(aligned[0][100:111],path['command'][100])
+    assert all(np.allclose(c[-1],path['command'][-1]) for c in aligned)
+
+
+@pytest.mark.parametrize('events',[[0,1.5,2,3,10],[0,float('nan'),2,3,10]])
+def test_alignment_rejects_noninteger_or_nonfinite_event_ticks(events):
+    with pytest.raises(ValueError):evaluation.alignment_events(events,11)
 
 
 def test_reselection_keeps_unchanged_anchor_case_not_triangle_weights():
@@ -330,3 +356,15 @@ def test_fixed_selection_preserves_original_anchors_and_requires_home(tmp_path,m
     with pytest.raises(ValueError,match='no automatic reselection'):planning.fixed_selection(tmp_path,study,[qs[0]],screen)
     contracts.save(screen,dict(results=[]))
     with pytest.raises(ValueError,match='Home screen failed'):planning.fixed_selection(tmp_path,study,[],screen)
+
+
+def test_replay_retains_original_path_and_holds_until_full_episode_budget():
+    plan,path=fixture()
+    commands=path['command']
+    replay=np.asarray(list(evaluation.replay_commands(commands,plan)))
+    limit=plan['settings']['episode_steps']*plan['settings']['action_ticks']
+    assert len(replay)==limit
+    assert np.array_equal(replay[:len(commands)-1],commands[1:])
+    assert np.all(replay[len(commands)-1:]==commands[-1])
+    assert np.allclose(np.abs(np.diff(np.vstack((commands[0],replay)),axis=0)).sum(0),
+                       np.abs(np.diff(commands,axis=0)).sum(0))

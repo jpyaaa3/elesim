@@ -1147,13 +1147,20 @@ function updateGpuDeviceOptions(role) {
       values.push({value: selected, label: selected, title: selected});
     }
   }
-  device.replaceChildren(...values.map((entry) => {
-    const option = document.createElement("option");
-    option.value = entry.value;
-    option.textContent = entry.label;
-    if (entry.title) option.title = entry.title;
-    return option;
-  }));
+  const options = Array.from(device.options);
+  if (options.length !== values.length || values.some((entry, index) =>
+    options[index]?.value !== entry.value || options[index]?.textContent !== entry.label
+      || options[index]?.title !== (entry.title || ""))) {
+    // Keep an open selector intact when a background refresh returns the
+    // same inventory. Replacing its options can interrupt the operator.
+    device.replaceChildren(...values.map((entry) => {
+      const option = document.createElement("option");
+      option.value = entry.value;
+      option.textContent = entry.label;
+      if (entry.title) option.title = entry.title;
+      return option;
+    }));
+  }
   const wanted = policy?.mode === "specific"
     ? String(policy.device || "")
     : (values.some((entry) => entry.value === current) ? current : "");
@@ -1233,7 +1240,7 @@ function applyRuntimeGpuPolicies(hosts) {
       if (!(host?.roles || []).includes(role)) return;
       if (host.state === "checking") {
         // Pending probes are not an authoritative policy change. Keep the
-        // operator's draft while runtimeReady disables launch and editing.
+        // operator's draft and the last verified policy during refresh.
         next[role] = gpuPolicies[role] || next[role];
         nextDevices[role] = gpuDevices[role] || [];
         return;
@@ -1305,7 +1312,9 @@ function restoreRuntimeOptions(job) {
     }
   });
   if (viewer) viewer.checked = Boolean(options.viewer);
-  setRuntimeOptionsLocked(true);
+  // A failed start has completed rollback. Preserve its selections while
+  // allowing the operator to correct a rejected GPU/Viewer option and retry.
+  setRuntimeOptionsLocked(!["failed", "cancelled"].includes(job.status));
 }
 
 async function saveTopology({quiet = false, invalidate = true} = {}) {
@@ -1462,18 +1471,23 @@ function markWorkflowDirty() {
 }
 
 function renderRuntimeStatus(result) {
-  runtimeReady = false;
   if (!result?.available) {
+    runtimeReady = false;
     updateWorkflow();
     byId("runtime-status").textContent = result?.reason || t("runtime.unavailable");
     return;
   }
   const hosts = Array.isArray(result.hosts) ? result.hosts : [];
-  applyRuntimeGpuPolicies(hosts);
+  const previouslyReady = runtimeReady;
+  // A periodic probe's placeholder is not a failed check. Retain readiness
+  // during refresh only when this topology was already verified; topology
+  // edits and job transitions clear runtimeReady before polling again.
   runtimeReady = workflowApplied && hosts.length > 0 && hosts.every((host) =>
-    host.reachable && (host.inventory_ready ?? host.reachable) && (host.roles || []).every((role) =>
-      !["pilot", "sim", "ui"].includes(role)
-      || ["inherit", "specific", "cpu"].includes(host.gpu_policy?.[role]?.mode)));
+    host.state === "checking" ? previouslyReady
+      : host.reachable && (host.inventory_ready ?? host.reachable) && (host.roles || []).every((role) =>
+        !["pilot", "sim", "ui"].includes(role)
+        || ["inherit", "specific", "cpu"].includes(host.gpu_policy?.[role]?.mode)));
+  applyRuntimeGpuPolicies(hosts);
   const rows = hosts.map((host) => {
     const roles = (host.roles || []).join(", ");
     const state = host.state === "checking" ? t("runtime.updating") : !host.reachable

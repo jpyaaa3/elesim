@@ -1,0 +1,85 @@
+{
+  "status": "diagnostic_only",
+  "original_case": "workbench/evidence/generated/reverse-curobo-v2-full-resumed-20261112/case_02",
+  "planner_rerun": "workbench/evidence/generated/reverse-curobo-v2-full-video-20261112/planner",
+  "trajectory": "workbench/evidence/generated/reverse-curobo-v2-full-video-20261112/planner/candidate-0000/rejected-interpolated.npz",
+  "trajectory_sha256": "b043cc5694f798fa4960eb88476ec8466600251ecf823ecdc202377fab0f6f1b",
+  "native_success": false,
+  "native_validation": {
+    "path_valid": [
+      [
+        true
+      ]
+    ],
+    "collision_valid": [
+      [
+        false
+      ]
+    ],
+    "limits_and_dynamics_valid": [
+      [
+        false
+      ]
+    ]
+  },
+  "native_dt_s": 0.009978564456105232,
+  "original_samples": 394,
+  "original_start": [
+    0.0,
+    -1.5707963267948966,
+    -0.22514747350726852,
+    -0.5811946409141117
+  ],
+  "home": [
+    -0.12,
+    0.0,
+    -0.593411945678072,
+    0.593411945678072
+  ],
+  "first_pose": [
+    0.0,
+    -1.5707964897155762,
+    -0.22514748573303223,
+    -0.5811946392059326
+  ],
+  "last_pose": [
+    -0.12000000476837158,
+    0.0,
+    -0.593411922454834,
+    0.593411922454834
+  ],
+  "display": {
+    "fps": 24,
+    "duration_s": 10.0,
+    "moving_duration_s": 8.0,
+    "native_timing_preserved": false
+  },
+  "physics_evaluated": false,
+  "successful_demonstration": false,
+  "training": false,
+  "source_note": "New diagnostic rerun; rejected output was not retained by the original full trial",
+  "video": "workbench/evidence/generated/reverse-curobo-v2-full-video-20261112/video/full-rejected-kinematic.mp4",
+  "video_sha256": "805ccd82dea7eac81761b7011302f23bf1b8231d4d0661ab9bb8c262cb4058f4",
+  "recorded_date": "2026-11-12",
+  "server": "hckang@100.74.222.24",
+  "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+  "local_video": "workbench/evidence/generated/curobo-v2-review/full-video/full-rejected-kinematic.mp4",
+  "media_check": {
+    "video": {
+      "codec_name": "h264",
+      "width": 960,
+      "height": 720,
+      "duration": "10.000000",
+      "nb_frames": "240"
+    },
+    "mean_body_pixel_change": 4.306168981481481
+  },
+  "logging_only_change": "--capture-rejected preserves rejected outputs separately and does not create commands or change planner acceptance",
+  "original_full_trial_comparison": "workbench/evidence/curated/planning/curobo_v2_full_20261112.json",
+  "diagnostic_rerun_note": "The original case 02 had collision_valid=true; this separate rerun returned collision_valid=false. It does not replace or revise the original 0/3 study.",
+  "focused_tests_passed": 18,
+  "source_sha256": {
+    "workbench/research/experiments/hug_reverse_curobo/v2_worker.py": "5b8d4457cc4783b4fac9d14722807984c5e019d18b24a4786a708c13c5c1d007",
+    "workbench/research/experiments/hug_reverse_curobo/preview_rejected.py": "5ab274b17023cfc99d0ef560018ab4dbdf6c916495b085d437c2631a9dd5dd6b"
+  }
+}

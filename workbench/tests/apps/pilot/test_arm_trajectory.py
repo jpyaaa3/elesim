@@ -595,3 +595,27 @@ def test_tracking_failure_names_axis_and_values_without_relaxing_limit(rig):
     assert 'Linear' in rig.r._reason
     assert 'measured=' in rig.r._reason and 'commanded=' in rig.r._reason
     assert rig.r._phase=='failed' and not rig.sent
+
+
+def test_reconstructed_hug_is_sim_only_and_requires_measured_home(rig):
+    from elesim_protocol import SimMappingConfig
+    r=rig.r
+    path=np.tile([-.12,0.,-.59,.59],(2001,1))
+    with pytest.raises(RuntimeError,match='simulation-only'):
+        r.prepare_hug_trajectory(path,.01,[.4,.1,.55],lambda:None)
+    rig.c.endpoints[0]['role']='sim'
+    rig.c.trajectory_telemetry['q_source']='simulated'
+    rig.c.mapping=SimMappingConfig()
+    with pytest.raises(RuntimeError,match='Home'):
+        r.prepare_hug_trajectory(path,.01,[.4,.1,.55],lambda:None)
+    rig.h.q=SimQ(*path[0]);rig.s.set_target=lambda *xyz:None
+    rig.s.target_x,rig.s.target_y,rig.s.target_z=.4,.1,.55
+    valid=[True]
+    def validate():
+        if not valid[0]:raise RuntimeError('scene changed')
+    result=r.prepare_hug_trajectory(path,.01,[.4,.1,.55],validate)
+    assert result['phase']=='ready' and not rig.sent
+    valid[0]=False
+    with pytest.raises(RuntimeError,match='scene changed'):
+        r.execute_arm_trajectory(result['plan_id'])
+    assert not rig.sent

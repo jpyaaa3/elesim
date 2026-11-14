@@ -1,10 +1,58 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-11-10. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-11-13. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### cuRobo 우선·GA 보충 교보재 연결 (2026-11-13)
+
+- 새 study의 `--reverse-planner auto`는 고정된 solver 파지에서 전 구간 native
+  cuRobo를 먼저 시도하고, 검색/물리 평가 실패·시간 초과 시 GA로 보충한다.
+  명시한 기존 GA 자료가 있으면 원본 검증 후 사용하며, 없으면 기존 GA 검색을
+  실행한다. 실행 오류나 손상된 증거는 보충으로 숨기지 않는다. 현재 기본값은
+  `ga`이며 기존 study의 provenance를 수정해 실행 모드를 바꾸지 않는다.
+- cuRobo 원본 후보·출처를 보존하는 교보재 어댑터와 schema-v1
+  `hug-reverse-teacher` manifest를 추가했다. 원본 역경로와 독립 재생 3회의
+  상태를 같은 물리 기준으로 검사하고, GA generation으로 바꿔 표시하지 않는다.
+- GPU2의 독립 연구 소스 사본에서 동일한 `task` profile, 2 proposals, 300 s
+  상한으로 기존 D100 세 anchor를 고정해 실제 파이프라인을 실행했다.
+  **2번은 새 cuRobo 결과**, **1·3번은 명시한 기존 GA 자료**를 사용했다.
+  세 케이스 모두 PPO 입력과 물리 reset bank 재구성을 통과했다. 각 검사는
+  2 environments, 32 reverse bins, nominal Home, 부분 복원과 위치/속도 보존을
+  검사했으며 저장 경로 대비 재생 오차는 모든 항목에서 0이었다.
+- `--stop-after teachers`는 세 anchor의 위 검사까지 실행하고 학습 전에 멈춘다.
+  이번 실행은 총 **620 s (10분 20초)**였고, 2번 역경로 생성·재검증은 196.4 s,
+  해당 reset bank 검사는 32.9 s였다. 전체 시간에 새 GA 검색·모델 fitting·PPO
+  학습은 포함되지 않는다. 신선한 GA 검색 대비 속도 향상으로 해석하지 않는다.
+- focused host **57 passed**, server **67 passed**. Canonical required/extended/
+  release/DDS gates는 usable generated dev attachment가 없어 실행하지 않았다.
+  512-lane 학습·Home/lift/hold 학습 성공·보간 publication은 이번 증거에 포함되지
+  않는다. [조건·소스 SHA·선택된 생성기·물리 검사](../workbench/evidence/curated/planning/curobo_teacher_pipeline_20261113.json),
+  [실행 방법](../workbench/research/experiments/hug_pipeline/README.md#use-curobo-before-ga).
+
+### Mapper 생성 속도·q 삼각형의 XY 투영 표시 (2026-11-10)
+
+- 실제 `/home/user/ws/hugmap/mapper.html`에 반영했다. Construct band의 Slow/Normal/
+  Fast 작업 구간을 4/9/14 ms에서 **12/24/48 ms**로 늘렸다. 기본 Fast와 0.1° 탐색
+  간격은 유지하며 Stop 이벤트에 제어를 돌려준다. 화면과 상태 설명에서 A/B/C 꼭짓점
+  라벨을 제거했다.
+- XY는 기준점 세 개를 잇지 않고, q3-q4 삼각형 내부를 최대 0.5° 격자로 나눠 실제
+  작도 함수에 넣은 영역을 채우고 경계를 그린다. 면의 꼭짓점과 중심이 μ/CAD/전개
+  검사를 통과해야 하며 접촉 feature/root가 다른 면은 잇지 않는다. 별도 worker와
+  선택별 표시 cache를 사용한다. 재생성 도구도 기존 embedded study를 보존한다.
+- 현재 D100 RL 삼각형은 anchor root가 **+1,+1,−1**이다. 동일 q3/q4
+  `(-64.5,−166.5)°`에서도 중심 `(-126.48,217.34)`와 `(-145.11,232.43)` mm가
+  모두 유효하다(μ≈0.04412). 두 XY 영역은 이렇게 여러 접촉 분기가 섞인 결과다.
+  q 삼각형이 하나라고 XY가 한 연속 영역이라는 뜻은 아니다. 연속 단일 영역을
+  요구하려면 같은 접촉 분기·연속성 조건으로 삼각형을 선정하는 추가 작업이 필요하며,
+  이번 표시 수정은 선정 알고리즘이나 학습 입력을 변경하지 않았다.
+- 작도/충돌 kernel과 기존 study·기준점은 보존했다. 관련 host 회귀 **25 passed**,
+  실제 headless Edge에서 q/XY 전환·worker 완료·그림과 라벨을 확인했다. 표시는 표본
+  mesh이며 연속 도달/물리 성공 증명이 아니다. Canonical gates·학습/실기기 동작은
+  이번 작업에서 실행하지 않았다.
+  [소스 SHA·조건·분기 대조](../workbench/evidence/curated/planning/mapper_ui_20261110.json).
 
 ### Connections 버튼 갱신과 WSLg UI GPU 시작 수정 (2026-11-06)
 
@@ -7160,6 +7208,99 @@ Unrelated Connections/WSLg UI/setup implementation and matching test edits remai
 in the working tree and are excluded from this research commit.
 
 
+### Third-anchor GA reference audit — 2026-11-10
+
+At user request, recorded caption-free single-robot reverse-GA and forward-GA
+reference videos under GPU2 v5 third-anchor `reference-audit-20261110/`.
+The independent forward replay matched the stored full joint/object positions
+and velocities with maximum error zero for every checked field and passed the
+original forward validator. This establishes faithful replay, not path quality.
+The 17.81-second path has about 262.24 degrees of cumulative roll travel for a
+90.03-degree net change; roll reaches +29.50 degrees and q3 reaches +51.30 degrees
+before ending at the selected negative-bend grasp. At the stalled 8.04-second
+reset: linear -94.50 mm, roll +6.63 degrees, q3 -59.18 degrees, q4 +4.85 degrees,
+no proper segment contact and negligible object displacement. Two-segment
+contacts first appear around 16.31 seconds. The forward search stops at its first
+successful generation and does not optimize a successful reference for simplicity.
+PPO consumes these as reset states, not action-imitation labels. A causal claim
+that GA detours explain the curriculum stall requires further controlled tests.
+No reward, reference or running PPO source was changed during the audit.
+
+
+### First complete three-anchor attempt: two policies pass, third Home transfer fails — 2026-11-11 report
+
+The GPU2 v5 D100 study has finished and stopped at the third policy gate. First
+and second anchors each passed three unguided nominal-Home policy evaluations
+and three independent command replays, with full lift and five-second retention.
+Third anchor completed 2000 PPO updates in about 9400 seconds but failed all three
+nominal-Home evaluations at 12.70 seconds with physical fault; these final runs
+reported no camera-side contact. Its curriculum remained around reset bins16/17
+(8.62/8.04 seconds along the verified forward reference), ending at bin16 with
+nominal_ready=false. This is a failed Home-transfer result, not a reset validation
+failure or proof of infeasibility. GA detours were observed in the separate audit;
+their causal contribution remains untested. No command replay of the failed third
+policy, phase alignment or interpolation validation was launched. No publication
+was produced. All coordinator/training workers for this study have exited.
+
+Collected all three actor NPZs, final evaluation/rollout evidence, successful
+command-replay results for the first two and the third final failure video under
+the original local generated study root. Failed actors remain labeled failed.
+The compact final inventory is
+`workbench/evidence/curated/planning/hug_pipeline_final_20261111.json`.
+No further training or reward/reference changes were started for this report.
+
+### 2026-11-11 — GA cumulative motor-command travel gates
+
+- Added hard, per-candidate travel caps: linear 300 motor deg, roll 200 motor
+  deg, seg1+seg2 500 motor deg. No overall sum cap, no net-motion subtraction,
+  and no PPO reward or post-lift termination change.
+- Reverse search, forward repair, fresh verification and reference ingestion
+  enforce the same limits. Reports expose per-axis/group totals and rejection
+  reasons; physically impossible endpoint budgets fail before scene creation.
+- Source hashes change; prior plans/evidence are preserved, not silently migrated.
+- Host focused motion/reverse-GA/reverse-curriculum/pipeline tests: 83 passed,
+  1 skipped. `git diff --check` passed. GPU training/replay and canonical dev
+  gates were not run for this change (no usable generated dev attachment).
+  No remote update, push, or new training launched.
+
+### 2026-11-11 — Revised GA motor-command travel limits
+
+- Revised the three hard GA limits to linear 200, roll 200 and seg1+seg2 550
+  motor degrees. The counter and both reverse and forward validation retain the
+  existing semantics; there is no combined-total limit or PPO reward change.
+- New boundary tests cover all three groups, the previous closest candidate at
+  its former rejection tick and minimum endpoint travel for the three anchors.
+  Focused host suite: 87 passed, 1 skipped; `git diff --check` passed.
+- This local change invalidates old source-pinned plans; previous run evidence
+  remains unchanged. No remote update, new GA, PPO or canonical dev gates were
+  run for this revision; the generated development attachment is unavailable.
+
+### 2026-11-11 — Reverse GA evaluates budget-disqualified paths to completion
+
+- Travel excess at 200/200/550 motor degrees now permanently disqualifies a
+  reverse-GA candidate without terminating evaluation. Continue to physical Home
+  plus one continuous second of rest, the 20-second timeout, or an immediate-stop
+  violation. Collisions, tilt/XY limits, wrong-face contact, command bounds/slew
+  and the initial roll-direction rule remain immediate stops.
+- Selection orders accepted success, budget-disqualified Home completion,
+  unfinished paths without hard stops, then hard-stop failures. Among over-budget
+  completions, minimize worst relative group excess and then total relative
+  excess. No reward weights or new acceptance cap were introduced.
+- Reports distinguish completion, eligibility and hard stops, preserve the first
+  violation, accumulate later reasons and record full evaluated travel/excess.
+  Progress and plans identify `reverse-completion-before-budget-ranking-v2`.
+  Verified export still requires success without any rejection and three replays.
+- Focused host reverse-GA/motion-budget/curriculum suite: 71 passed, 1 skipped
+  (Torch-dependent check unavailable). Coverage includes continued motion after
+  budget excess, final 660-degree travel instead of the initial 600-degree
+  crossing, over-budget Home completion and breeding, later collision/tilt stops,
+  and rejection of those completed failures at the curriculum boundary. Updated
+  the curriculum fixture's stale violation-column count for the roll rule.
+- Source pins require fresh plans. No GPU replay, new GA/PPO run or canonical
+  development-container gate was executed for this revision; no usable generated
+  development attachment is available in this checkout.
+
+
 ### 2026-11-12 — Three reverse paths verified under 200/220/600; D100 curriculum queued
 
 The repeated D100 reverse-GA run used the same three exact mapper roots, seed42,
@@ -7184,3 +7325,68 @@ Its repair was running and PPO had not started. A detached supervisor waits for
 all three forward/reset checks before learning; Luna monitors stages and videos.
 No Home-to-Wrap policy, lift, aligned replay or interpolation success is claimed.
 [Launch snapshot](../workbench/evidence/curated/planning/hug_d100_curriculum_launch_20261112.json).
+
+### 2026-11-12 direct reverse-GA → PPO launch
+
+The pipeline now consumes verified reverse full-state snapshots directly, with
+no forward-GA prerequisite. Overlapping reset windows, nominal Home/original
+object resets, free PPO actions and post-lift smoothing remain. Host regression:
+88 passed, 2 skipped (Torch-dependent); canonical dev gates were not run because
+no generated development attachment is available.
+
+GPU2 study `workbench/evidence/generated/hug-direct-reverse-d100-fixed-v2-20261112`
+pins the original three D100 anchors and 30/100 held-out cases using
+`--reuse-selection`, with the three `ga-completion-20261112` releases reused.
+Case 1 passed fresh 512-environment / 32-bin physical reset validation, nominal
+Home and subset restoration checks; PPO reached update 4/2000 at handoff to
+Luna. Updates are not a successful lift or interpolation certificate. Videos
+are scheduled every 500 updates. Other GPU jobs were left running.
+Two earlier launch attempts are preserved as interrupted: one reselected
+anchors; the next invoked base Conda by resolving the venv Python symlink.
+The v2 launch preserves the venv path and passed the exact package-version
+check before starting; it does not reuse those attempts' physics checks.
+
+### 2026-11-13 PPO linear budget and endpoint contract
+
+The pipeline PPO/evaluation task now caps cumulative applied linear command
+travel at 200 motor degrees, with Home at 180 degrees and final hold at 0±3
+motor degrees. The complete five-second loaded hold requires both actual and
+commanded linear position within tolerance. Budget breach latches the existing
+terminal fault (-30) and blocks positive rewards. Other reward coefficients and
+q3/q4 hints are retained. Curriculum starts debit `abs(u_reset - 180)` and expose
+remaining budget as the 21st actor observation. Reset snapshots retain velocities;
+reverse-teacher physics replay is not charged as a learned episode. New plan and
+policy contracts reject legacy 20-input PPO checkpoints.
+
+Host focused regression: 99 passed, 7 skipped for unavailable scientific packages.
+Remote CPU verification loaded the edited repository sources in memory without
+modifying the server checkout: 27 unittest checks passed, including Torch budget
+tracking, subset restoration, 21-input actor construction, fake-environment
+optimizer/export/resume and NumPy policy equivalence. This did not start Genesis
+physics or a robot RL run. The three previous successful trajectories are all
+rejected by the new travel cap. Reverse-GA digest remains
+`f772220ad6d973a76afe972ff6d512b00c4bc34167181f3d83d21166208badba`.
+Canonical dev gates were not run (no generated development attachment); new GPU
+reset-bank acceptance and constrained learning remain to be run. Source changes
+are local only; no server deployment or training restart was performed.
+
+### 2026-11-14 reconstructed D100 hug adapter (local, uncommitted)
+
+Added a 100 mm × 1.1 m cylinder OBJ and UI preset, a dynamic Sim cylinder without
+logical attachment, Pilot-local cylinder fitting / exact mapper inversion / three
+trajectory interpolation, and explicit prepare/execute intents. Existing executor
+retains Home/telemetry/route/base guards; reconstructed plans additionally pin the
+scan revision and Sim epoch. Runtime package includes anchors and checksummed
+mapper kernel; Pilot Docker recipes include Node.js. Scope remains Sim-only.
+
+Host fallback focused Pilot/UI/Sim-catalog/protocol checks: 232 passed, 1 skipped.
+These are partial software evidence. Generated development attachment and pinned
+Docker daemon are unavailable here; canonical required/extended, isolated release,
+DDS multi-process and integrated Genesis camera/contact execution were not run.
+No server deployment or physical movement was performed for this integration.
+
+Push verification, 2026-11-14: combined host fallback setup/graphics/UI/Pilot/
+interpolation/mapper checks: 210 passed; 3 ACL cases failed during fixture
+`os.setxattr(system.posix_acl_access)` with EINVAL, before the code under test.
+Connection runtime-status JavaScript regression command passed. Canonical Docker
+and live deployment gates remain unrun; this push does not activate installations.

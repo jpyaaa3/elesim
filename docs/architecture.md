@@ -1010,3 +1010,20 @@ with an immutable study contract, per-case identity and shared physics identity.
 Model changes invalidate plans; failed learning/physical gates cannot publish
 policies as ready. Timed interpolation artifacts are explicitly distinct from
 closed-loop policy NPZ exports.
+
+### Reconstructed-cylinder hug integration
+
+The experimental D100 C-hug adapter is Pilot-owned (`reconstruction/hug.py`).
+UI selects an existing reconstructed target ID; Pilot fits its world-frame mesh,
+transforms it through the current zero-linear/zero-roll `node0` frame, solves the
+packaged analytic mapper and blends three aligned command trajectories. Pilot
+requires the measured Home start and stages the result in its existing leased,
+feedback-monitored trajectory executor. The package is Sim-only; a trajectory
+completion is not a grasp-success observation. No runtime imports workbench.
+
+Sim's `cylinder_100mm.obj` catalog entry is dynamic/collidable (nominal 0.3 kg),
+while older reference mock objects retain their visual-only behavior. The physical
+cylinder cannot use logical mock attachment. A reconstructed mesh must not be
+applied as a fixed duplicate of the original cylinder for this experiment.
+Live integrated physics/controller parity and RGB-D fitting remain acceptance
+checks separate from the offline interpolation study.

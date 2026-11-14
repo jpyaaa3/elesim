@@ -129,13 +129,19 @@ class Coordinator:
         raise RuntimeError('Anchor selection budget exhausted; not an impossibility proof')
 
     def interpolate(self,anchors,held):
-        from .evaluation import align,blend
+        from .evaluation import align,blend,alignment_events
         from workbench.research.experiments.hug_c.source import read_kernel,evaluate
         from .contracts import make_case
         paths=[]
         for a in anchors:
             with np.load(a['trajectory'],allow_pickle=False) as raw:paths.append({k:raw[k].copy() for k in ('commands','events')})
         aligned,events=align(paths,self.plan);folder=self.root/'alignment';folder.mkdir(exist_ok=True)
+        save(folder/'alignment.json',dict(schema='hug-phase-alignment',version=2,
+            boundaries=['start','first_grasp_or_clearance','both_grasp_and_clearance','final_hold','end'],
+            common_events=events,physical_replay_required=True,
+            anchors=[dict(case_id=a['case']['case_id'],raw_events=p['events'].tolist(),
+                source_boundaries=alignment_events(p['events'],len(p['commands'])).tolist())
+                for a,p in zip(anchors,paths)]))
         for a,commands in zip(anchors,aligned):
             file=folder/(a['case']['case_id']+'.npz')
             if not file.exists():np.savez_compressed(file,commands=commands,events=events)

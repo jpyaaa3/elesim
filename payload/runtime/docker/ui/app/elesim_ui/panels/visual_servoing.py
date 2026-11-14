@@ -61,6 +61,9 @@ def _scene(c, v):
         index = available.index(c.asset_id) if c.asset_id in available else 0
         _, index = imgui.combo('Object##vs-asset',index,list(available))
         c.asset_id = available[index]
+        if 'cylinder_100mm.obj' in available and imgui.button('100 mm cylinder preset##vs-cylinder'):
+            c.asset_id = 'cylinder_100mm.obj'
+            c.position, c.euler_deg = [.42, .11, .55], [0., 0., 0.]
         imgui.text_wrapped('Object: '+(obj.asset_id or 'empty')+' / '+obj.state)
         if obj.attached:
             imgui.text_colored('Sim attachment active; physical hold is unverified.', *_AMBER)
@@ -150,6 +153,8 @@ def _scan(c, v):
 
 def _reconstruction(c, v):
     _title('Review the reconstruction', 'Measured geometry and model completion remain separate. Review the result before using it.')
+    if getattr(v.mock_object, 'asset_id', '') == 'cylinder_100mm':
+        imgui.text_wrapped('For reconstructed hug, keep the original physical cylinder. Continue to Action without applying a duplicate fixed scene mesh. Return the arm to Home before preparing the path.')
     if not v.reconstructed:
         imgui.text_wrapped('No completed reconstruction is available from Pilot.')
         _progress(c,v)
@@ -193,6 +198,18 @@ def _reconstruction(c, v):
 
 def _actions(c, v):
     _title('Approach, grasp & verify', 'Choose the motion strategy after reconstructing the target.')
+    imgui.text('Reconstructed cylinder / interpolated C-hug')
+    imgui.text_wrapped('100 mm upright cylinder, Sim only. Fit the reconstructed mesh, solve q3/q4 and blend three learned paths. Start at Home.')
+    _action(c, 'Prepare reconstructed hug', 'plan_reconstructed_hug', primary=True, explain=True)
+    if c.hug_plan:
+        fit = c.hug_plan.get('fit', {})
+        imgui.text(f"Fitted diameter: {fit.get('diameter_mm', 0):.2f} mm")
+        imgui.text('Solver XY (mm): '+str(c.hug_plan.get('xy_mm', [])))
+        imgui.text('q3/q4 total bend (deg): '+str(c.hug_plan.get('q_deg', [])))
+        imgui.text('Blend weights: '+str(c.hug_plan.get('weights', [])))
+        imgui.text_wrapped('20 s command path including final hold. Execution completion does not certify grasp success.')
+    _action(c, 'Execute reconstructed hug', 'execute_reconstructed_hug', explain=True)
+    imgui.separator()
     _, c.strategy = imgui.combo('Strategy##vs-strategy',c.strategy,['Gripper + visual alignment','Arm embrace'])
     action = 'gripper' if c.strategy == 0 else 'embrace'
     imgui.text_wrapped('Input: reconstructed target mesh + measured robot state.')

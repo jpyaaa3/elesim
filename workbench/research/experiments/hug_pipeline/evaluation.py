@@ -51,9 +51,9 @@ def evaluate(study,case,output,*,policy_path=None,commands=None,repetitions=3,vi
                     if bool(done[0]):break
             else:
                 from workbench.research.experiments.hug_reverse_ga.physics import tick
-                for cmd in commands[1:]:
+                for cmd in replay_commands(commands,study):
                     tick(env,np.asarray(cmd)[None])
-                    if fault or wrong:break
+                    if fault or wrong or bool(env.success[0]):break
         passed=bool(env.success[0]) and not wrong and not fault
         f=np.asarray(flags);events=None
         if passed:
@@ -64,6 +64,10 @@ def evaluate(study,case,output,*,policy_path=None,commands=None,repetitions=3,vi
         summary=dict(accepted=passed,fault=fault,wrong_face=wrong,ticks=len(trace)-1,events=events,
             case_id=case['case_id'],policy_execution=policy_path is not None,scripted_prefix=False,
             linear=env.linear_report())
+        summary.update(episode_limit_ticks=study['settings']['episode_steps']*study['settings']['action_ticks'],
+            source_trajectory_ticks=None if commands is None else len(commands)-1,
+            final_hold_ticks=int(env.hold.count[0]),hold_contact_fraction=float(env.hold.fraction()[0]),
+            maximum_hold_slip_m=float(env.hold.maximum_slip[0]))
         summaries.append(summary)
         state={k:np.asarray([s[k][0] for s in frames]) for k in frames[0]}
         np.savez_compressed(output/f'rollout-{rep+1}.npz',commands=np.asarray(trace),**state,
@@ -73,19 +77,45 @@ def evaluate(study,case,output,*,policy_path=None,commands=None,repetitions=3,vi
     save(output/'evaluation.json',result);return result
 
 
+def replay_commands(commands,study):
+    """Preserve the path, then hold its final command until the PPO time limit."""
+    limit=study['settings']['episode_steps']*study['settings']['action_ticks']
+    for tick_index in range(1,limit+1):
+        yield commands[min(tick_index,len(commands)-1)]
+
+
+def alignment_events(events, length):
+    """Canonical phases: start, first milestone, both milestones, hold, end.
+
+    Grasp confirmation includes a dwell, so first clearance can precede it.
+    Raw event labels remain untouched; these boundaries describe their union.
+    Coincident milestones are valid zero-duration phases.
+    """
+    raw=np.asarray(events)
+    if (raw.shape!=(5,) or not np.issubdtype(raw.dtype,np.number)
+        or not np.isfinite(raw).all() or not np.equal(raw,np.floor(raw)).all()):
+        raise ValueError('Invalid alignment events')
+    e=raw.astype(np.int64)
+    start,grasp,lift,hold,end=e
+    if (start!=0 or end!=length-1 or min(grasp,lift)<=0
+        or max(grasp,lift)>hold or hold>=end):
+        raise ValueError('Incompatible event ordering')
+    return np.array([start,min(grasp,lift),max(grasp,lift),hold,end])
+
+
 def align(paths,study):
-    """Stretch each physical phase only. Preserve final hold; replays still needed."""
+    """Stretch milestone phases only; physical replay must validate every result."""
     if len(paths)!=3:raise ValueError('Need three verified anchor paths')
-    durations=[]
+    durations=[];boundaries=[]
     for p in paths:
-        c=check_commands(p['commands'],study);e=np.asarray(p['events'],int)
-        if e.shape!=(5,) or e[0]!=0 or e[-1]!=len(c)-1 or np.any(np.diff(e)<=0):raise ValueError('Incompatible event ordering')
+        c=check_commands(p['commands'],study);e=alignment_events(p['events'],len(c))
+        boundaries.append(e)
         durations.append(np.diff(e))
     common=np.max(durations,axis=0);result=[]
-    for p in paths:
+    for p,e in zip(paths,boundaries):
         chunks=[]
         for i,length in enumerate(common):
-            segment=p['commands'][p['events'][i]:p['events'][i+1]+1]
+            segment=p['commands'][e[i]:e[i+1]+1]
             t=np.linspace(0,len(segment)-1,int(length)+1)
             chunk=np.column_stack([np.interp(t,np.arange(len(segment)),segment[:,j]) for j in range(4)])
             chunks.append(chunk if i==0 else chunk[1:])
