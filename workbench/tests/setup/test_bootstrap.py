@@ -333,6 +333,16 @@ def test_bootstrap_manifest_covers_actual_shipped_role_configs() -> None:
     assert actual == bootstrap_module._BOOTSTRAP_ROLE_CONFIG_FILES
 
 
+def test_bootstrap_manifest_covers_actual_protocol_python_modules() -> None:
+    """New wire helpers must be owned before an update can load the snapshot."""
+    root = Path(__file__).resolve().parents[3]
+    actual = {
+        PurePosixPath(p.relative_to(root).as_posix())
+        for p in (root / 'payload/runtime/common/protocol/elesim_protocol').rglob('*.py')
+    }
+    assert actual == bootstrap_module._BOOTSTRAP_PROTOCOL_PYTHON_FILES
+
+
 def test_bootstrap_manifest_covers_cli_and_instance_runtime_imports() -> None:
     """Every relative setup import must survive the curl source filter."""
     repository_root = Path(__file__).resolve().parents[3]

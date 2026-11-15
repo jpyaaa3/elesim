@@ -147,6 +147,7 @@ _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
         "image_cleanup",
         "capabilities",
         "cli",
+        "completion_assets",
         "configuration",
         "container_installer",
         "credentials",
@@ -203,6 +204,7 @@ _BOOTSTRAP_PROTOCOL_PYTHON_FILES = frozenset(
         "scene_artifact",
         "serde",
         "tracing",
+        "timed_arm",
         "transport",
     )
 )
@@ -234,6 +236,7 @@ _BOOTSTRAP_ROLE_CONFIG_FILES = frozenset(
     for role, relatives in {
         "pilot": (
             "config.yaml",
+            "mobile_manipulation.yaml",
             "reconstruction.example.yaml",
             "reconstruction/LICENSE.PoinTr",
             "reconstruction/adapointr.projected55.yaml",
