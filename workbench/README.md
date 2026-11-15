@@ -89,6 +89,7 @@ python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/serv
 | `analysis.rebuild_mapper_collision` | 실제 URDF와 Home/Extend Arm 프리셋으로 standalone mapper의 전개 충돌 envelope 재생성; [기준·명령](../docs/research.md#mapper의-homeextend-arm-충돌-기준) |
 | `debug.profile_fixed_foot` | 몸통 고정 상태에서 발 추종 원인 분리, 접촉 회귀용 trace 획득 |
 | `debug.sim_camera_preview` | 실제 DDS RGB-D 수신·깊이 미리보기 |
+| `debug.mobile_collision_trace` | 기존 Pilot 정지 후 진단용 실행에서 복귀 실패의 누적 점군·관절 상태 저장; 설치본 acceptance 아님 |
 | `debug.probe_scene_rebuild` | 실행 중 OBJ 교체·controller/state 보존·카메라 복구·rollback 실측 |
 | `analysis.render_scan_cycle_demo` | 실제 UI WebRTC 녹화와 측정된 단계 기록으로 1배속 MP4 구성 |
 | `support.ui_window_run` | 격리 scan-cycle의 실제 production UI 창과 OS 입력을 1080p X11 영상으로 기록 |

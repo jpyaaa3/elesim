@@ -410,11 +410,20 @@ class SimPorts:
         return points
     def _return_prepare(self,goal):
         history=list(reversed(self.history))
-        for count in range(len(history)+1):
-            if count:time.sleep(.001)
-            try:points=self._arm_prepare(history[:count]+[goal])
+        current=self.feedback.snapshot(self.route()[:2])['joint']['q'].copy()
+        candidates=[('direct',[goal])]
+        # A straight joint-space return can swing the gripper toward a nearby
+        # object even when both endpoints are clear. Retract only as far as
+        # the requested goal before folding, and certify both complete edges.
+        if goal[0]<current[0]-1e-9:
+            retracted=current.copy();retracted[0]=goal[0]
+            candidates.append(('retract_first',[retracted,goal]))
+        candidates.extend(('history_prefix',history[:count]+[goal]) for count in range(1,len(history)+1))
+        for index,(strategy,waypoints) in enumerate(candidates):
+            if index:time.sleep(.001)
+            try:points=self._arm_prepare(waypoints)
             except ArmPathBlocked:continue
-            self._summary['arm_return']=dict(strategy='direct' if count==0 else 'history_prefix',
+            self._summary['arm_return']=dict(strategy=strategy,
                 segments=len(points)-1,goal_q=np.asarray(goal).tolist())
             return points
         raise ArmPathBlocked('arm transport/search path blocked')

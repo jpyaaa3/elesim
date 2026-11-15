@@ -23,6 +23,9 @@ boot and motion lease may execute. No Robot motion is admitted.
    is not assumed free; bounded downward looks can acquire floor coverage.
 3. Return through checked arm segments to Home; follow an observed-free base
    path, including rotation sweeps and the transport-arm projection.
+   If a direct arm return is blocked, try retracting the linear axis to the
+   requested goal before folding; both segments need the same continuous
+   collision certificates. Checked history prefixes remain the fallback.
 4. Aim and run the existing multi-view scan with the body stationary. A partial
    vertical ROI is allowed. Separate measured and completion points remain saved.
    If a small standing shift reaches the original 2 mm / 0.25-degree capture

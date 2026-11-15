@@ -675,10 +675,10 @@
     "cause_confirmed": false
   },
   "current_live_blocker": {
-    "type": "mobile_observed_route_clearance",
-    "reason": "run-26 rejects nominal path after small measured startup translation and yaw",
+    "type": "mobile_arm_return_path",
+    "reason": "run-27 rejects continuous path toward actual cylinder; endpoints clear",
     "ssh_access": "restored; host network settings not changed",
-    "current_evidence": "mobile_tracking_clearance_20261116.json",
+    "current_evidence": "mobile_arm_return_20261116.json",
     "overall_acceptance": false
   }
 }

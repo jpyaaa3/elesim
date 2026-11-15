@@ -144,5 +144,29 @@
       0.26715385913848877
     ],
     "interpretation": "Large startup slide reduced, but a small measured translation/yaw change still invalidated nominal observed-free path. No hold or gait stability acceptance."
+  },
+  "additional_diagnostic": {
+    "backend": "acados",
+    "same_arm_home_and_command": true,
+    "production_backend_changed": false,
+    "completed": true,
+    "maximum_abs_roll_pitch_rad": [
+      0.08347394609018208,
+      0.088415227630946
+    ],
+    "displacement_during_command_m": [
+      0.15717320935800672,
+      -0.0222470825574419,
+      0.009218603372573853
+    ],
+    "solve_ms_p50_p95": [
+      14.537893235683441,
+      19.852607324719425
+    ],
+    "interpretation": "CPU solver alone did not satisfy the existing .07 rad mobile tilt limit. No backend/default/safety-limit change was made.",
+    "evidence": {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/ready-stance-acados.jsonl",
+      "sha256": "3c93f31d27d2d0235c6b7fa79c6a9deca99632c94ce5d943c2247c1cccf36181"
+    }
   }
 }

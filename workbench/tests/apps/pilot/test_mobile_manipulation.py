@@ -631,6 +631,34 @@ def test_return_uses_shortcut_only_when_its_whole_segment_is_certified(blocked):
     assert checked
 
 
+@pytest.mark.parametrize('blocked',['none','retract','fold'])
+def test_return_can_retract_before_folding_but_certifies_both_segments(blocked):
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts,ArmPathBlocked
+    ports=SimPorts.__new__(SimPorts)
+    start=np.array([-.074,-.067,-.117,.603]);goal=np.array([-.12,0.,-.593,.593])
+    ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=start.copy())))
+    ports.route=lambda:('sim','boot','lease');ports._summary={};ports.history=[]
+    ports.connection=NS(state_sink=NS(get_state=lambda:None))
+    ports.service=NS(_ik_context_for_host=lambda h:dict(base_world_T=np.eye(4)))
+    checked=[]
+    def certify(a,b):
+        checked.append((a.copy(),b.copy()))
+        retract=(np.allclose(a[1:],b[1:]) and b[0]==goal[0])
+        fold=(a[0]==goal[0] and np.array_equal(b,goal))
+        accepted=(retract and blocked!='retract') or (fold and blocked!='fold')
+        return dict(accepted=accepted,reason='observed_surface_collision_on_path')
+    ports.collision=NS(base=None,certify_segment=certify)
+    if blocked=='none':
+        path=ports._return_prepare(goal)
+        np.testing.assert_array_equal(path[0],start)
+        np.testing.assert_array_equal(path[1],np.r_[goal[0],start[1:]])
+        np.testing.assert_array_equal(path[2],goal)
+        assert ports.summary()['arm_return']['strategy']=='retract_first'
+    else:
+        with pytest.raises(ArmPathBlocked):ports._return_prepare(goal)
+    assert checked
+
+
 def test_actual_body_tilt_changes_final_solver_coordinates():
     from elesim_pilot.mobile_manipulation.base_planner import BasePlanner,body_frame
     model=NS(meta={'home':[0,0,0,0]},solve_many=lambda points:[dict(feature='side',root=1,xy_mm=p) for p in points])

@@ -22,7 +22,7 @@
     "canonical_gates_run": false,
     "canonical_reason": "No usable prepared development attachment. No host scientific/ROS dependency installation."
   },
-  "deployed": false,
+  "deployed": true,
   "installed_follow_up_accepted": false,
   "evidence": [
     {
@@ -80,5 +80,20 @@
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/local_map.py": "85141d182e60bfd8affbb6e5f72cfeabf67d8c1b3b59f6e8cb801d5af8a5e085",
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/base_planner.py": "43a91f10abdc66f1515434b2a5272747b6ed49f6ff6ceb3b74e4022da6bf0229",
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "b22ad93f9c08d4aaa1334104faa89b80570baf37862532a28c60853d61c1a696"
+  },
+  "installed_follow_up": {
+    "revision": "52599e4c",
+    "run": "run-27",
+    "elapsed_s": 92.06401899600132,
+    "reason": "arm transport/search path blocked",
+    "accepted": false,
+    "mapping_attempts": 2,
+    "requested_unknown_counts": [
+      37,
+      17
+    ],
+    "starting_clearance_goal_selection_passed": true,
+    "scan_walk_hug_hold_reached": false,
+    "stale_summary_note": "map_goal reflects the last mapping request; final acceptance of observation goal proves the required starting/path clearance checks passed"
   }
 }

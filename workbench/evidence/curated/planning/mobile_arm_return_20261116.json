@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "Same D100 case; certified arm return after observing starting floor clearance",
+  "installed_baseline": {
+    "revision": "52599e4c",
+    "run": "run-27",
+    "accepted": false,
+    "elapsed_s": 92.06401899600132,
+    "reason": "arm transport/search path blocked"
+  },
+  "diagnosis": {
+    "run": "run-28",
+    "evaluation_mode": "development",
+    "elapsed_s": 88.62099635300183,
+    "observer_only_wrapper": true,
+    "camera_truth_used_for_captured_cloud_analysis": false,
+    "cloud_points": 10323,
+    "current_min_gap_m": 0.012672522807259043,
+    "home_min_gap_m": 0.23002365504772954,
+    "straight_return": {
+      "accepted": false,
+      "reason": "observed_surface_collision_on_path"
+    },
+    "worst_sampled_witness": {
+      "q": [
+        -0.08626308495998383,
+        -0.049276233315467835,
+        -0.24119225500831204,
+        0.6007487419427354
+      ],
+      "minimum_gap_m": -0.011161472571049422,
+      "link": "gripper_base",
+      "sphere": [
+        0.5977932590466264,
+        0.05053446474694844,
+        0.5951255084283311
+      ],
+      "radius_m": 0.025981762113533157,
+      "tracking_margin_m": 0.06252924791401712,
+      "observed_point": [
+        0.665252826444344,
+        0.11357585315396534,
+        0.5969767735790007
+      ],
+      "gap_at_historical_poses_m": [
+        0.3402118034007084,
+        0.12089400073241012,
+        0.06499372785315416
+      ]
+    },
+    "self_surface_contamination_not_supported": true,
+    "physical_contact_not_claimed": true
+  },
+  "fix": "Try a fully certified linear retraction to the goal linear position before folding, after the direct return fails and before history prefixes. No limits, filtering, margins or certificate bypass.",
+  "replay": {
+    "replay_only": true,
+    "camera_truth_used": false,
+    "accepted": true,
+    "elapsed_s": 1.150334408506751,
+    "cloud_points": 10323,
+    "strategy": {
+      "strategy": "retract_first",
+      "segments": 2,
+      "goal_q": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ]
+    },
+    "path": [
+      [
+        -0.07440957427024841,
+        -0.06658950448036194,
+        -0.11743939071893691,
+        0.6033265352249145
+      ],
+      [
+        -0.12,
+        -0.06658950448036194,
+        -0.11743939071893691,
+        0.6033265352249145
+      ],
+      [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ]
+    ],
+    "certificates": [
+      {
+        "accepted": true,
+        "reason": "continuous_sphere_separation",
+        "checked_configurations": 4,
+        "minimum_margin_m": 0.0019142437588467731,
+        "environment_scope": "observed_surfaces_only",
+        "environment_checks": 3
+      },
+      {
+        "accepted": true,
+        "reason": "continuous_sphere_separation",
+        "checked_configurations": 24,
+        "minimum_margin_m": 0.00011199061412007008,
+        "environment_scope": "observed_surfaces_only",
+        "environment_checks": 30
+      }
+    ]
+  },
+  "tests": {
+    "red": "1 failed, 2 passed",
+    "focused_host": "99 passed",
+    "canonical_gates_run": false
+  },
+  "deployed": false,
+  "installed_follow_up_accepted": false,
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-27/report.json",
+      "bytes": 12003,
+      "sha256": "412743933f36b25afd51e4f3ee7695779680bf86f313695be1f152e2844b9a82"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-27/telemetry.jsonl",
+      "bytes": 693085,
+      "sha256": "126d2fdad5eed246662ab7944a76950b6f226540f609b5a567d22cc029019e3b"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-27/observer.mp4",
+      "bytes": 1359175,
+      "sha256": "c6e8b60540f9538d6a475afd89eb58f7222fb6cc716662ad635817b11fd4ec60"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-27/hand_eye_preview.mp4",
+      "bytes": 3128045,
+      "sha256": "700fe4516e19b480aea2d6b4a7547d17235c45216731d7c2bce091798e731ee9"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-28/report.json",
+      "bytes": 11967,
+      "sha256": "342cfc97ab5d9f93d7e126125b37999b186592eed603bcdb6a36ce7fc3b0ac6c"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-28/telemetry.jsonl",
+      "bytes": 652791,
+      "sha256": "02e1e933253e84fdd1d69ea544cd5b294e262733d288af9325c35d12558c7e2a"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/mobile-return-run28.npz",
+      "bytes": 232007,
+      "sha256": "0eaf762517f75fd21ae52f61f513238a624244bb518d5c0f1fe857dd8143a280"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/mobile-return-run28-analysis.json",
+      "bytes": 6538,
+      "sha256": "bd27250deb7bcef7db8c6e5ead2f26d1caff4cabaf6687e03139dc2236ae5c3a"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/retract-return-replay28.json",
+      "bytes": 1167,
+      "sha256": "4a61f3a0d50fdfd092d49811ff692fd98f2cc7ebc4a4410baccb67d9cf47d54e"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/retract-return-red.log",
+      "bytes": 927,
+      "sha256": "c2edbcaf36d27fc8a02ec9257bd491598c52d4c8de9c1de79688e75dd30befeb"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/retract-return-tests.log",
+      "bytes": 179,
+      "sha256": "d300b940e7f0914826f8a4958b9b1702466271d0a2807eb47991ab7fefe52b27"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run28-diagnostic-isolation.json",
+      "bytes": 407,
+      "sha256": "6fab1acebe19bc5695e539deceaf52d4cb385d1d12ff7a18fc5cc43f80c036b2"
+    }
+  ],
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "e1cfeeea32224ad7d83d10287d297fa252deee78e73c25cd54f12d1e2dd43787",
+    "workbench/research/debug/mobile_collision_trace.py": "2b4478d0e2d437c1efe051d3bcc33cfca75a3dd7f8c38f78f5e8455519ac42d1"
+  }
+}
