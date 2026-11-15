@@ -599,7 +599,8 @@ def test_payload_com_height_keeps_body_height_error_when_arm_raises_com() -> Non
 
 
 @pytest.mark.parametrize("moving", [False, True])
-def test_idle_clears_previous_gait_force_and_rearms_torque_mode(moving) -> None:
+def test_idle_clears_previous_gait_force_and_rearms_torque_mode(moving,monkeypatch) -> None:
+    monkeypatch.setattr(PyMpcGenesisController,'_in_place_pose',lambda self,nominal:nominal.copy())
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
     _init_contact_state(controller)
     controller._solver = SimpleNamespace(backend='jax_mppi')
@@ -800,7 +801,67 @@ def test_new_pose_transition_can_interrupt_from_current_joint_pose() -> None:
     assert np.max(np.abs(restarted - current)) < 0.02
 
 
-def test_idle_to_motion_interpolates_stand_pose_before_ready_hold() -> None:
+@pytest.mark.parametrize('bad_limits',[False,True])
+def test_ready_transition_preserves_the_planted_foot_horizontal_positions(bad_limits):
+    from unittest.mock import Mock
+    from elesim_sim.robot.go2.foot_workspace import foot_position_body
+    from elesim_sim.robot.go2.locomotion.kinematics import GO2_STAND_Q,GO2_READY_Q,GO2_LEG_JOINTS
+    current=np.array([GO2_STAND_Q[n] for n in GO2_LEG_JOINTS])
+    nominal=np.array([GO2_READY_Q[n] for n in GO2_LEG_JOINTS])
+    c=PyMpcGenesisController.__new__(PyMpcGenesisController)
+    c._kin=SimpleNamespace(ready_q=nominal)
+    c._current_leg_pose=lambda:current.copy()
+    c._entity=SimpleNamespace(get_quat=lambda:np.array([1.,0.,0.,0.]))
+    c._foot_lower=np.full((4,3),-np.pi);c._foot_upper=np.full((4,3),np.pi)
+    if bad_limits:c._foot_lower.fill(-.01);c._foot_upper.fill(.01)
+    c._bridge=SimpleNamespace(reset=Mock());c._solver=SimpleNamespace(reset=Mock())
+    c._payload=None;c._was_searching=np.zeros(4,dtype=bool)
+    c._pose_transition=JointPoseTransition(.35);c._set_ready_actuation=Mock();c._set_stand_actuation=Mock()
+    c._begin_ready_pose();target,_=c._pose_transition.update(.35)
+    if bad_limits:
+        assert c._faulted and c._pose_stage=='fault'
+        np.testing.assert_array_equal(target,current)
+        return
+    before=np.array([foot_position_body(i,q) for i,q in enumerate(current.reshape(4,3))])
+    after=np.array([foot_position_body(i,q) for i,q in enumerate(target.reshape(4,3))])
+    np.testing.assert_allclose(after[:,:2],before[:,:2],atol=1e-8)
+    assert np.all(after[:,2]>before[:,2])
+    np.testing.assert_allclose(np.ptp(after[:,2]-before[:,2]),0.,atol=1e-8)
+
+
+@pytest.mark.parametrize('raising',[False,True])
+@pytest.mark.parametrize('tilt',[(0.,0.,0.),(.03,-.05,.2)])
+def test_pose_handover_preserves_world_foot_xy_in_both_height_directions(raising,tilt):
+    from scipy.spatial.transform import Rotation
+    from elesim_sim.robot.go2.foot_workspace import foot_position_body,stance_preserving_pose
+    from elesim_sim.robot.go2.locomotion.kinematics import GO2_STAND_Q,GO2_READY_Q,GO2_LEG_JOINTS
+    stand=np.array([GO2_STAND_Q[n] for n in GO2_LEG_JOINTS])
+    ready=np.array([GO2_READY_Q[n] for n in GO2_LEG_JOINTS])
+    current,nominal=(ready,stand) if raising else (stand,ready)
+    rotation=Rotation.from_euler('xyz',tilt).as_matrix()
+    target=stance_preserving_pose(current,nominal,rotation,
+        np.full((4,3),-np.pi),np.full((4,3),np.pi))
+    before=np.array([foot_position_body(i,q) for i,q in enumerate(current.reshape(4,3))])@rotation.T
+    level=Rotation.from_euler('z',tilt[2]).as_matrix()
+    after=np.array([foot_position_body(i,q) for i,q in enumerate(target.reshape(4,3))])@level.T
+    np.testing.assert_allclose(before[:,:2],after[:,:2],atol=1e-8)
+    delta=after[:,2]-before[:,2]
+    assert np.all(delta<0) if raising else np.all(delta>0)
+    np.testing.assert_allclose(np.ptp(delta),0.,atol=1e-8)
+
+
+def test_startup_assist_tracks_the_prepared_pose_instead_of_shifting_feet_back():
+    c=PyMpcGenesisController.__new__(PyMpcGenesisController)
+    c._config=SimpleNamespace(torque_warmup_s=0.,torque_ramp_s=1.,aux_kp=2.,aux_kv=0.)
+    c._walk_elapsed=lambda:.5;c._leg_dof_idxs=list(range(12))
+    c._kin=SimpleNamespace(ready_q=np.ones(12));c._prepared_q=np.full(12,.5)
+    c._entity=SimpleNamespace(get_dofs_position=lambda **kw:np.full(12,.25))
+    np.testing.assert_allclose(c._aux_pd_torque(np.zeros(12)),.25)
+
+
+def test_idle_to_motion_interpolates_stand_pose_before_ready_hold(monkeypatch) -> None:
+    # This test owns stage timing; the real planted-foot geometry is checked above.
+    monkeypatch.setattr(PyMpcGenesisController,'_in_place_pose',lambda self,nominal:nominal.copy())
     controller = PyMpcGenesisController.__new__(PyMpcGenesisController)
     _init_contact_state(controller)
     controller._metrics = None
@@ -834,6 +895,8 @@ def test_idle_to_motion_interpolates_stand_pose_before_ready_hold() -> None:
     controller._pose_transition.reset(controller._kin.stand_q)
     controller._pose_stage = "stand"
     controller._leg_dof_idxs = list(range(12))
+    controller._foot_lower=np.full((4,3),-np.pi)
+    controller._foot_upper=np.full((4,3),np.pi)
     entity_state = {"q": np.zeros(12)}
     commanded_poses = []
 
@@ -842,6 +905,7 @@ def test_idle_to_motion_interpolates_stand_pose_before_ready_hold() -> None:
         commanded_poses.append(entity_state["q"])
 
     controller._entity = SimpleNamespace(
+        get_quat=lambda:np.array([1.,0.,0.,0.]),
         get_dofs_position=lambda **_kwargs: entity_state["q"],
         control_dofs_position=control_position,
     )

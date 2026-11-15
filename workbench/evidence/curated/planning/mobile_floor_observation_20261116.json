@@ -131,7 +131,7 @@
     "canonical_gates_run": false,
     "canonical_limitation": "No usable prepared generated development environment; host scientific/ROS dependencies were not installed."
   },
-  "deployed": false,
+  "deployed": true,
   "installed_follow_up_accepted": false,
   "fixed_acceptance_source_sha256": {
     "payload/runtime/docker/sim/app/elesim_sim/simulation/hold_evaluation.py": "2de56685132821ed9799c22c3e76374afe90bb2dcfeacd0bd6d655c62a64e072",
@@ -225,6 +225,93 @@
       "path": "workbench/evidence/generated/mobile-installed-20261115/floor-view-regression.log",
       "bytes": 179,
       "sha256": "30f234896a64b6605d9738499bf75aee60845995f7fd64fef9fd6d84a70e2224"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-25/report.json",
+      "bytes": 28172,
+      "sha256": "bf8651eb928065e2d51f62db9893a7c90b205f1ccb193fda0a7498d0b72d11d9"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-25/telemetry.jsonl",
+      "bytes": 3767999,
+      "sha256": "ef795203be563872f782fc8952c291edb0bfbf3f618234bd0ffc9402372fc100"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-25/observer.mp4",
+      "bytes": 4489224,
+      "sha256": "2db1a6acc465c7f1a249a68a2ece22afc1803184feb9d9571aa55aa2e68cfa8c"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-25/hand_eye_preview.mp4",
+      "bytes": 13542371,
+      "sha256": "708a3e5da93813899d2150c6d257ed3d86a34af13d19d90ad91c464f0bd489cf"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/scan-25.tar.gz",
+      "bytes": 3965400,
+      "sha256": "f490c20521100c93e72ed0b36228e32525e8c9b55362bd88f3afc9175f343423"
     }
-  ]
+  ],
+  "deployed_source_revision": "74a54356",
+  "installed_follow_up_status": "failed_at_first_real_base_motion",
+  "installed_follow_up_run": "run-25",
+  "publication": {
+    "operator_release": "f62dd983bea4adbb79d63ff0ddd2d89b64d26b305e2aa47f9cde217094f705ba",
+    "compute_release": "2a620c567c0baabe3b5a861f1bfccc542e929696631b8b43bc1412e47cd37cd7",
+    "security_generation": "g-20261115t181728261798z-8d88c914e17f",
+    "role_images": {
+      "pilot": "sha256:191f12b5d89266dc5a530c37c55e7bade72c418aa62fe98c2fbd6713b9747098",
+      "sim": "sha256:f06e6b72bbd65dca29a44395eb54828f4b18f27d734141c073e15ca09c94ba62"
+    },
+    "gpu": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01, NVIDIA RTX A6000",
+    "source_and_sibling_isolation_verified": true
+  },
+  "installed_follow_up": {
+    "run": "run-25",
+    "revision": "74a54356",
+    "accepted": false,
+    "elapsed_s": 270.36817616300004,
+    "reason": "base path no longer observed free",
+    "floor_search": {
+      "blocked_paths": 0,
+      "cached": true,
+      "candidates": 920,
+      "goal_footprint_focus": true,
+      "sampled": 12000,
+      "unknown_probes": 90
+    },
+    "floor_cells_in_capture": 2402,
+    "arm_return": {
+      "goal_q": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "segments": 1,
+      "strategy": "direct"
+    },
+    "base_goal": {
+      "kind": "grasp",
+      "path": [
+        [
+          -0.005843545310199261,
+          0.0009361458360217512,
+          0.0003022273925186896
+        ],
+        [
+          0.22229679849164607,
+          0.01027700280738933,
+          0.00030222740272556337
+        ]
+      ],
+      "pose": [
+        0.22229679849164607,
+        0.01027700280738933,
+        0.00030222740272556337
+      ]
+    },
+    "wrap_lift_hold_reached": false,
+    "interpretation": "Floor observation and observed-free C-band path planning passed. Stand-to-ready transition moved the base backward outside the observed route before approach could complete."
+  }
 }

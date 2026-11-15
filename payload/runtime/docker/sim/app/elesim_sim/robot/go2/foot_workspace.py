@@ -35,6 +35,37 @@ def foot_angles_body(leg, position):
     return np.array([hip, thigh, calf])
 
 
+def stance_preserving_pose(current,nominal,base_rotation,lower,upper):
+    """Reach nominal height and level attitude with planted feet unchanged in XY.
+
+    Only joint references change. No root pose, contact, gains or limits are
+    edited. The existing bent-knee IK branch must satisfy the supplied limits.
+    """
+    current=np.asarray(current,float);nominal=np.asarray(nominal,float)
+    rotation=np.asarray(base_rotation,float);lower=np.asarray(lower,float);upper=np.asarray(upper,float)
+    if (current.shape!=(12,) or nominal.shape!=(12,) or rotation.shape!=(3,3)
+            or lower.shape!=(4,3) or upper.shape!=(4,3)
+            or not all(np.isfinite(a).all() for a in (current,nominal,rotation,lower,upper))
+            or np.any(lower>=upper) or not np.allclose(rotation.T@rotation,np.eye(3),atol=1e-7)):
+        raise ValueError('ready pose needs finite leg poses, rotation and joint bounds')
+    feet=np.array([foot_position_body(i,q) for i,q in enumerate(current.reshape(4,3))])
+    reference=np.array([foot_position_body(i,q) for i,q in enumerate(nominal.reshape(4,3))])
+    yaw=np.arctan2(rotation[1,0],rotation[0,0])
+    cosine,sine=np.cos(yaw),np.sin(yaw)
+    level=np.array([[cosine,-sine,0.],[sine,cosine,0.],[0.,0.,1.]])
+    world_feet=feet@rotation.T
+    reference_world=reference@level.T
+    drop=float(np.median(reference_world[:,2]-world_feet[:,2]))
+    targets=(world_feet+np.array([0.,0.,drop]))@level
+    result=[]
+    for i,point in enumerate(targets):
+        q=foot_angles_body(i,point)
+        if q is None or np.any(q<lower[i]) or np.any(q>upper[i]):
+            raise ValueError('stance-preserving ready pose exceeds leg workspace')
+        result.extend(q)
+    return np.array(result)
+
+
 def reachable(leg, target_world, base_position, base_rotation, lower, upper):
     q = foot_angles_body(leg, np.asarray(base_rotation).T @ (target_world-base_position))
     return q is not None and bool(np.all(q >= lower) and np.all(q <= upper))

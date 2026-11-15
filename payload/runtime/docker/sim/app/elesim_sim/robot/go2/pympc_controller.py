@@ -30,7 +30,7 @@ from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
 from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge, synchronize_model_inertias
 from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
 from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput, project_support_motor_limits
-from elesim_sim.robot.go2.foot_workspace import project_ground_target, reachable
+from elesim_sim.robot.go2.foot_workspace import project_ground_target, reachable, stance_preserving_pose
 from elesim_sim.simulation.genesis.utils import to_numpy_1d
 from elesim_sim.simulation.genesis.control_state import EntityControlStateReader
 
@@ -615,6 +615,7 @@ class PyMpcGenesisController:
         self._config = config
         self._pose_transition = JointPoseTransition(float(config.pose_transition_s))
         self._pose_transition.reset(self._kin.stand_q)
+        self._standing_q=self._kin.stand_q.copy()
         self._pose_stage = "stand"
         self._metrics = metrics
         self._contact_diagnostics = (
@@ -785,6 +786,18 @@ class PyMpcGenesisController:
             return current
         return np.asarray(self._kin.stand_q, dtype=float).copy()
 
+    def _in_place_pose(self,nominal):
+        quat=to_numpy_1d(self._entity.get_quat())
+        rotation=Rotation.from_quat(quat[[1,2,3,0]]).as_matrix()
+        return stance_preserving_pose(self._current_leg_pose(),nominal,
+            rotation,self._foot_lower,self._foot_upper)
+
+    def _pose_fault(self,current,exc):
+        self._faulted=True;self._fault_reason=str(exc)
+        self._pose_transition.begin(current,current);self._pose_stage='fault'
+        self._active=False;self._torque_mode_active=False;self._walk_started_s=None
+        self._set_stand_actuation()
+
     def _begin_ready_pose(self) -> None:
         # No samples are taken during position control. Do not differentiate
         # across that gap or reuse the previous walking horizon.
@@ -794,7 +807,13 @@ class PyMpcGenesisController:
         self._solver.reset()
         self._contact_gait = ContactGatedGait()
         self._was_searching.fill(False)
-        self._pose_transition.begin(self._current_leg_pose(), self._kin.ready_q)
+        current=self._current_leg_pose()
+        try:
+            self._prepared_q=self._in_place_pose(self._kin.ready_q)
+        except ValueError as exc:
+            self._pose_fault(current,exc)
+            return
+        self._pose_transition.begin(current, self._prepared_q)
         self._pose_stage = "to_ready"
         self._active = True
         self._walk_started_s = None
@@ -804,7 +823,12 @@ class PyMpcGenesisController:
         self._set_ready_actuation()
 
     def _begin_stand_pose(self) -> None:
-        self._pose_transition.begin(self._current_leg_pose(), self._kin.stand_q)
+        current=self._current_leg_pose()
+        try:self._standing_q=self._in_place_pose(self._kin.stand_q)
+        except ValueError as exc:
+            self._pose_fault(current,exc)
+            return
+        self._pose_transition.begin(current, self._standing_q)
         self._pose_stage = "to_stand"
         self._active = False
         self._walk_started_s = None
@@ -901,6 +925,8 @@ class PyMpcGenesisController:
         self._torque_mode_active = False
         self._pose_stage = "stand"
         self._pose_transition.reset(self._kin.stand_q)
+        self._standing_q=self._kin.stand_q.copy()
+        if hasattr(self,'_prepared_q'):del self._prepared_q
         self._faulted = False
         self._fault_reason = ''
         self._step_i = 0
@@ -1466,7 +1492,7 @@ class PyMpcGenesisController:
             tau += (
                 float(self._config.aux_kp)
                 * kp_scale
-                * (np.asarray(self._kin.ready_q, dtype=float) - q_leg)
+                * (np.asarray(getattr(self,'_prepared_q',self._kin.ready_q), dtype=float) - q_leg)
             )
         return tau
 
@@ -1557,9 +1583,14 @@ class PyMpcGenesisController:
         elif self._pose_stage == "stand" and not target_idle:
             self._begin_ready_pose()
 
+        if self._faulted:
+            self._entity.control_dofs_position(
+                self._pose_transition.current,dofs_idx_local=self._leg_control_dofs)
+            return
+
         if self._pose_stage == "stand":
             self._entity.control_dofs_position(
-                self._kin.stand_q, dofs_idx_local=self._leg_control_dofs
+                getattr(self,'_standing_q',self._kin.stand_q), dofs_idx_local=self._leg_control_dofs
             )
             return
 
@@ -1575,7 +1606,7 @@ class PyMpcGenesisController:
 
         if self._pose_stage == "ready_hold":
             self._entity.control_dofs_position(
-                self._kin.ready_q, dofs_idx_local=self._leg_control_dofs
+                getattr(self,'_prepared_q',self._kin.ready_q), dofs_idx_local=self._leg_control_dofs
             )
             self._contact_gait.prime(self._normal_contact_forces(), dt=self._dt)
             if self._sim_time >= self._ready_until and not target_idle:

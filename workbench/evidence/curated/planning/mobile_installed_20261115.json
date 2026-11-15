@@ -667,11 +667,18 @@
     "additional_scenarios_required": false,
     "wall_clock_deadline_superseded": true
   },
-  "current_live_blocker": {
+  "previous_live_blocker": {
     "type": "remote_ssh_unavailable",
     "evidence": "network-20261116.json",
     "tailscale_online_flag_does_not_prove_ssh_recovered": true,
     "remote_service_stop_confirmed": false,
     "cause_confirmed": false
+  },
+  "current_live_blocker": {
+    "type": "mobile_base_startup",
+    "reason": "run-25 leaves observed route during stand-to-ready transition",
+    "ssh_access": "restored; host network settings not changed",
+    "current_evidence": "mobile_floor_observation_20261116.json",
+    "overall_acceptance": false
   }
 }

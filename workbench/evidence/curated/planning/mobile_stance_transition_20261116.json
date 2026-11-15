@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "Same installed D100 locomotion diagnosis; isolated production scene with Home arm pose, no DDS or Robot commands",
+  "installed_failure": "run-25: base path no longer observed free",
+  "diagnostic_command_mps": [
+    0.08,
+    0,
+    0
+  ],
+  "diagnostic_duration_s": {
+    "settle": 2,
+    "motion": 4,
+    "stop": 3
+  },
+  "source_isolated_not_deployed": true,
+  "acceptance_unchanged": true,
+  "variants": {
+    "baseline": {
+      "diagnostic_completed": true,
+      "startup_min_dx_m": -0.05352149996906519,
+      "maximum_abs_roll_pitch_rad": [
+        0.04823677189877314,
+        0.16078267055972328
+      ],
+      "final_rpy_rad": [
+        0.0007641013666367102,
+        -0.0020528439212623706,
+        0.04603992207091545
+      ],
+      "final_displacement_m": [
+        0.30346404295414686,
+        0.008363456884126208,
+        5.8710575103759766e-05
+      ],
+      "evidence": {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/ready-stance-baseline.jsonl",
+        "bytes": 1844686,
+        "sha256": "2ecf41abe3fce898a71331d19b85e8e0aa5d74a80293811de460cf0340ecd5bc"
+      }
+    },
+    "anchored": {
+      "diagnostic_completed": true,
+      "startup_min_dx_m": -0.007875721901655197,
+      "maximum_abs_roll_pitch_rad": [
+        0.06149185137860469,
+        0.13495622722965273
+      ],
+      "final_rpy_rad": [
+        0.03498565871711276,
+        0.13495622722965273,
+        -0.020599510086483808
+      ],
+      "final_displacement_m": [
+        0.18359858077019453,
+        -0.036518086260457494,
+        -0.009245425462722778
+      ],
+      "evidence": {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/ready-stance-anchored.jsonl",
+        "bytes": 1830958,
+        "sha256": "83634ae9de72d297adf8f9630ae6503249c01fe7880b9314d957a5772bab6908"
+      }
+    },
+    "leveled": {
+      "diagnostic_completed": true,
+      "startup_min_dx_m": -0.004888278432190418,
+      "maximum_abs_roll_pitch_rad": [
+        0.10192581314490065,
+        0.11827598305211717
+      ],
+      "final_rpy_rad": [
+        -7.778240718033652e-05,
+        -0.022695056000199942,
+        0.03531410796618776
+      ],
+      "final_displacement_m": [
+        0.17895251791924238,
+        0.05757151492844059,
+        -0.005288034677505493
+      ],
+      "evidence": {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/ready-stance-leveled.jsonl",
+        "bytes": 1832695,
+        "sha256": "8a1a9ff3a5a411e300c1414b9940acb4e05de663a0182a8b7e51c3c577fa65f3"
+      }
+    },
+    "height-aligned": {
+      "diagnostic_completed": true,
+      "startup_min_dx_m": -0.0031007518991827965,
+      "maximum_abs_roll_pitch_rad": [
+        0.0654756478004739,
+        0.11608476876364171
+      ],
+      "final_rpy_rad": [
+        0.0021833956426393283,
+        0.030872893773430388,
+        0.08085691992822275
+      ],
+      "final_displacement_m": [
+        0.16008328180760145,
+        0.057617820286850474,
+        -0.0018644928932189941
+      ],
+      "evidence": {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/ready-stance-height-aligned.jsonl",
+        "bytes": 1830796,
+        "sha256": "99fffb2019d4b7cc2898befd90861a6ae7eb4792f5ec35c7874ad9ef29cbfab0"
+      }
+    }
+  },
+  "selection": "leveled stance preserves horizontal support and restores level stand; height-aligned diagnostic did not resolve gait excursions and is not in runtime code",
+  "tests": {
+    "installed_sim_adapter": "111 passed",
+    "host_focused": "7 passed, 104 deselected",
+    "canonical_gates": "Not run: no usable prepared development attachment. No host scientific or ROS dependencies installed.",
+    "installed_sim_focused": "144 passed (adapter, shipped-model FK/IK, startup and braking)",
+    "host_partial": "19 passed, 1 skipped (Pinocchio), 13 unavailable (Torch not installed); real-dependency rerun above passed",
+    "installed_test_log": {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/ready-stance-final-tests.log",
+      "sha256": "c409d6823f325fd693130e33fca8478762d9ea3cb8a5d4cbb944e3ce21e34646"
+    }
+  },
+  "remaining_gate": "Official release and same full mobile case. Diagnostic roll/pitch exceeds existing .07 rad mobile guard; no physical acceptance or full locomotion stability claimed.",
+  "source_sha256": {
+    "payload/runtime/docker/sim/app/elesim_sim/robot/go2/foot_workspace.py": "82f5f2d6e88480ed0d06197f7f7afbc3412c694bb2faf50167a642defbf84771",
+    "payload/runtime/docker/sim/app/elesim_sim/robot/go2/pympc_controller.py": "06a4ac74630f47ca6837f1c23dbf831c8d4f9d631bd2c1f6f9196a5db5e4c0fa"
+  }
+}
