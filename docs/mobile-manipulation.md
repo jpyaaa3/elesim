@@ -61,6 +61,11 @@ or hardware foot placement. A footprint contains the Go2 body/leg envelope and
 filled arm-sphere projections, preserving gaps rather than using one enclosing
 rectangle. Supported tracking uncertainty is 1 mm linear / 0.015 rad per rotary
 channel; both certificates and live tracking checks use that same bound.
+Selected floor and scan viewpoints reserve one additional tracking displacement
+at their endpoints. This leaves room for the realized arrival to pass the next
+ordinary collision certificate. The extra reserve uses the existing sphere
+motion bounds for self and observed-surface separation; it changes viewpoint
+admission, not path-certificate limits or the fixed Home target.
 Base route planning additionally checks measured floor around every sampled
 footprint, including the starting stance. The padding is the existing base
 position tolerance plus `2 R sin(yaw_tolerance / 2)`, where R is the transport

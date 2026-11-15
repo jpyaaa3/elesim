@@ -168,5 +168,26 @@
       "path": "workbench/evidence/generated/mobile-installed-20261115/ready-stance-acados.jsonl",
       "sha256": "3c93f31d27d2d0235c6b7fa79c6a9deca99632c94ce5d943c2247c1cccf36181"
     }
+  },
+  "quiet_liftoff_diagnostic": {
+    "production_changed": false,
+    "lift_gate_rad": 0.02,
+    "lift_gate_rate_radps": 0.1,
+    "max_abs_roll_pitch_rad": [
+      0.03885870584580272,
+      0.05690093599269663
+    ],
+    "command_duration_s": 4,
+    "command_displacement_m": [
+      0.027049819473177195,
+      -0.022305360998871038,
+      0.010190635919570923
+    ],
+    "diagnostic_completed": false,
+    "reason": "Did not pass maintained commanded-progress gate; this prototype is not a locomotion fix or acceptance success.",
+    "evidence": {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/ready-stance-quiet-liftoff.jsonl",
+      "sha256": "c96b6b1fe57b77e4245f49c7952876eac244caba4fc51b7af03febb4aa1693fc"
+    }
   }
 }

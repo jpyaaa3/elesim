@@ -114,7 +114,7 @@ class SimPorts:
         host=self.connection.state_sink.get_state();context=self.service._ik_context_for_host(host)
         self.base=base_world_transform_from_context(context)
         self.arm=ArmSelfCollision(self.scan.model_dir,joint_uncertainty=[.001,.015,.015,.015])
-        self.collision=ScanCollision(self.arm,self.base)
+        self.collision=ScanCollision(self.arm,self.base,reserve_tracking=True)
         self.camera_model=ArmCameraModel(self.scan.model_dir.parents[1]/'arm/default.json',self.scan.hand_eye,
             base_world_transform=self.base)
         snap=self.feedback.snapshot(self.route()[:2]);b=snap['base'];body=self._measured_body(snap)
@@ -306,12 +306,16 @@ class SimPorts:
             accepted=[];directions=[]
             tested=dict(pose=pose.tolist(),in_view=len(ids),accepted=0,rejections={})
             diagnostics['evaluated'].append(tested)
-            collision=ScanCollision(self.arm,base);collision.cloud=self.collision.cloud;collision.tree=self.collision.tree
+            collision=ScanCollision(self.arm,base,reserve_tracking=True);collision.cloud=self.collision.cloud;collision.tree=self.collision.tree
             for i in ids[np.argsort(np.linalg.norm(uv[ids],axis=1))]:
                 cooperate()
                 direction=v[i]/np.linalg.norm(v[i])
                 if directions and max(float(direction@d) for d in directions)>np.cos(np.deg2rad(10)):continue
                 q=self.camera_q[i]
+                if not collision.configuration_free(q):
+                    reason='arrival_tracking_margin'
+                    tested['rejections'][reason]=tested['rejections'].get(reason,0)+1
+                    continue
                 certificate=collision.certify_segment(np.array(self.model.meta['home']),q)
                 if not certificate['accepted']:
                     reason=certificate.get('reason','collision')
@@ -337,6 +341,7 @@ class SimPorts:
         from scipy.stats import qmc
         host=self.connection.state_sink.get_state()
         base=base_world_transform_from_context(self.service._ik_context_for_host(host))
+        self.collision.base=base.copy()
         model=ArmCameraModel(self.scan.model_dir.parents[1]/'arm/default.json',self.scan.hand_eye,base_world_transform=base)
         cached=hasattr(self,'camera_cache')
         if cached:
@@ -387,10 +392,14 @@ class SimPorts:
             candidates.append((score,q,t))
         candidates.sort(key=lambda row:-row[0])
         self._summary['floor_search']=dict(cached=cached,sampled=len(qs),
-            goal_footprint_focus=focus,unknown_probes=len(probes),candidates=len(candidates),blocked_paths=0)
+            goal_footprint_focus=focus,unknown_probes=len(probes),candidates=len(candidates),blocked_paths=0,
+            arrival_rejections=0)
         if not candidates:raise RuntimeError('no downward camera pose for local floor mapping')
         for _,q,t in candidates:
             time.sleep(.001)
+            if not self.collision.configuration_free(q):
+                self._summary['floor_search']['arrival_rejections']+=1
+                continue
             try:result=self._arm_prepare([q])
             except ArmPathBlocked as exc:
                 self._summary['floor_search']['blocked_paths']+=1

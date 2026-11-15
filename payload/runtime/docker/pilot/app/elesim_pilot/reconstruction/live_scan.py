@@ -198,7 +198,7 @@ class LiveScan:
                     model = ArmCameraModel(self.model_dir.parents[1]/'arm/default.json', self.hand_eye,
                         base_world_transform=base)
                     arm = ArmSelfCollision(self.model_dir, joint_uncertainty=self._tracking_uncertainty)
-                    collision = ScanCollision(arm, base)
+                    collision = ScanCollision(arm, base, reserve_tracking=True)
                     planner = ViewPlanner(model, collision_checker=collision, cancelled=cancelled,
                         operating_bounds=bounds, roi_height_m=roi_height_m)
                     engine = ActiveScan(pipeline, model, planner, max_views=max_views)

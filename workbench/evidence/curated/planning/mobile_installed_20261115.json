@@ -675,10 +675,9 @@
     "cause_confirmed": false
   },
   "current_live_blocker": {
-    "type": "mobile_arm_return_path",
-    "reason": "run-27 rejects continuous path toward actual cylinder; endpoints clear",
-    "ssh_access": "restored; host network settings not changed",
-    "current_evidence": "mobile_arm_return_20261116.json",
+    "type": "observation_arrival_replanning_margin",
+    "reason": "run-29 viewpoint arrival within tracking bound lost next self-collision certificate",
+    "current_evidence": "mobile_arrival_reserve_20261116.json",
     "overall_acceptance": false
   }
 }

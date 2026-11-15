@@ -113,7 +113,7 @@
     "focused_host": "99 passed",
     "canonical_gates_run": false
   },
-  "deployed": false,
+  "deployed": true,
   "installed_follow_up_accepted": false,
   "evidence": [
     {
@@ -180,5 +180,13 @@
   "source_sha256": {
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "e1cfeeea32224ad7d83d10287d297fa252deee78e73c25cd54f12d1e2dd43787",
     "workbench/research/debug/mobile_collision_trace.py": "2b4478d0e2d437c1efe051d3bcc33cfca75a3dd7f8c38f78f5e8455519ac42d1"
+  },
+  "installed_follow_up": {
+    "run": "run-29",
+    "revision": "3a4d7b5c",
+    "actual_retract_first_return_passed": true,
+    "overall_accepted": false,
+    "reason": "arm transport/search path blocked",
+    "next_evidence": "mobile_arrival_reserve_20261116.json"
   }
 }

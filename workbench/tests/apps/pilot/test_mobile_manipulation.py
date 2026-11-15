@@ -191,7 +191,8 @@ def test_floor_request_targets_missing_tracking_room_without_creating_free_cells
     assert ports.grid.free==before
 
 
-def test_floor_looks_choose_a_new_camera_view_after_an_unproductive_capture(monkeypatch,tmp_path):
+@pytest.mark.parametrize('invalid_first',[False,True])
+def test_floor_looks_choose_a_new_camera_view_after_an_unproductive_capture(monkeypatch,tmp_path,invalid_first):
     from scipy.stats import qmc
     from elesim_pilot.mobile_manipulation import runtime
     monkeypatch.setattr(qmc,'Halton',lambda *a,**k:NS(random=lambda n:np.array([[x,0,0,0] for x in [0,.05,.1]])))
@@ -205,7 +206,10 @@ def test_floor_looks_choose_a_new_camera_view_after_an_unproductive_capture(monk
     ports.connection=NS(state_sink=NS(get_state=lambda:None));ports.route=lambda:('sim','boot','lease')
     ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=np.zeros(4)),pose=np.zeros(3)))
     ports.grid=LocalMap(.1);ports.mapping_views=[];ports._summary={};ports._arm_prepare=lambda qs:[np.zeros(4),*qs]
+    ports.collision=NS(base=None,configuration_free=lambda q:not invalid_first or q[0]>0)
     first=ports._map_search_prepare(1)[-1]
+    if invalid_first:
+        assert first[0]>0 and ports._summary['floor_search']['arrival_rejections']>0
     second=ports._map_search_prepare(2)[-1]
     assert len(ports.mapping_views)==2 and abs(first[0]-second[0])>=.03
     assert not ports.grid.free and not ports.grid.blocked
@@ -228,6 +232,7 @@ def test_floor_search_reuses_cached_views_and_aims_at_missing_goal_cells(monkeyp
     ports.camera_cache=np.array([model.camera_pose(q) for q in ports.camera_q])
     ports.mapping_goal_pose=np.zeros(3);ports.footprint=np.array([[.65,.15]])
     ports.mapping_intrinsics=NS(fx=500.,fy=500.,cx=50.,cy=50.,width=100,height=100)
+    ports.collision=NS(base=None,configuration_free=lambda q:True)
     ports.grid=LocalMap(.1);ports.mapping_views=[];ports._summary={}
     ports._arm_prepare=lambda qs:[np.zeros(4),*qs]
     result=ports._map_search_prepare(1)

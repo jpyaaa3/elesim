@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "Same installed D100 case; keep future replanning clearance at chosen observation endpoints",
+  "baseline": {
+    "revision": "3a4d7b5c",
+    "run": "run-29",
+    "accepted": false,
+    "elapsed_s": 367.97364334300073,
+    "reason": "arm transport/search path blocked",
+    "actual_retract_first_return_and_scan_completion_passed": true,
+    "walk_hug_hold_reached": false
+  },
+  "diagnosis": {
+    "source": "same shipped Halton cache: 12000, seed41, actual bounds",
+    "candidate_index": 1570,
+    "target_q": [
+      -0.15923274993748118,
+      0.21265288828715612,
+      -0.13868058463209948,
+      0.581926593530298
+    ],
+    "measured_q": [
+      -0.1591443568468094,
+      0.21238024532794952,
+      -0.13543402254581452,
+      0.5818884134292602
+    ],
+    "max_error_fraction": 0.21643747241899733,
+    "target_normal": {
+      "accepted": true,
+      "reason": "continuous_sphere_separation",
+      "checked_configurations": 1,
+      "minimum_margin_m": 0.0008626541384091913
+    },
+    "measured_normal": {
+      "accepted": false,
+      "reason": "self_collision_or_margin",
+      "checked_configurations": 1,
+      "minimum_margin_m": -0.0018575323003428984
+    },
+    "target_with_extra_reserve_min_m": -0.06866798398344637
+  },
+  "fix": [
+    "Selected floor/observation/scan endpoints reserve one additional existing tracking displacement using the same Lipschitz bounds.",
+    "Existing continuous path certificates, tracking allowances, fixed Home and all frozen acceptance limits remain unchanged.",
+    "Map diagnostics separately count arrival-margin rejections."
+  ],
+  "tests": {
+    "red": "2 failed, 1 passed (missing endpoint-reserve option)",
+    "focused_host": "118 passed",
+    "canonical_gates_run": false,
+    "canonical_reason": "No usable prepared generated development environment; host scientific/ROS dependencies not installed."
+  },
+  "deployed": false,
+  "installed_follow_up_accepted": false,
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-29/report.json",
+      "bytes": 28311,
+      "sha256": "a6f5f50c570d0261a4b788156487ebf6bceceaecb3de41cde99332e6e6f691c0"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-29/telemetry.jsonl",
+      "bytes": 5557069,
+      "sha256": "ddf0eff573977de24af8ba57c7434005733b5ddc5913889e96b60e87643dfcc3"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-29/observer.mp4",
+      "bytes": 6607680,
+      "sha256": "6ae4fb45be7cb36f3baa8376e3a8fee07d9ce1f4df7ef86e94d92c4f709f0486"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-29/hand_eye_preview.mp4",
+      "bytes": 16616533,
+      "sha256": "98bf1172e9ce46e367d6a2f8b1d63bca8e5cf13e6a1471984c3feecc9f5eacb6"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/scan-29.tar.gz",
+      "bytes": 3441755,
+      "sha256": "6a362f7083699058429c92868d04fad66b28582624f31ce3e3d3b95a0b9fa786"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/arrival-tracking-run29-diagnosis.json",
+      "bytes": 793,
+      "sha256": "a6e8ac908cebf7d04e1347e970a5eaea0c229803808132911a661589c16e3c56"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/arrival-reserve-red.log",
+      "bytes": 1278,
+      "sha256": "25b574f528310746a663429d325a54c78a8693c0f9435712024da1ef99149426"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/arrival-reserve-tests.log",
+      "bytes": 180,
+      "sha256": "018fda85d1a5972c2f2cf057b00c0091aa9b1053a55feaad4bf3685d1ee93bc8"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v13-remote.json",
+      "bytes": 2327,
+      "sha256": "57ccf9dad8d1edd0eb9f87c081cea555667342c8dce04f2b4ad499666761ff2a"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v13-operator.json",
+      "bytes": 377,
+      "sha256": "8b80cc023c6835d8c36866e72aa8b92f8e5efb01b31718f2210ec9ae5599a944"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/registration-v13.json",
+      "bytes": 3746,
+      "sha256": "69293b157e8d4a13fae66d16686a8d1b075c6a686ada16bdc5341ba15659e998"
+    }
+  ],
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "41cc796b7487a2b58f7e596ea337f9454c610f4b47527b31782e4264f62ed6eb",
+    "payload/runtime/docker/pilot/app/elesim_pilot/reconstruction/scan_collision.py": "499d57baf210847679b7f10dfb8b0d973d0da4de4502f65b6a8a069245cc5c4a",
+    "payload/runtime/docker/pilot/app/elesim_pilot/reconstruction/live_scan.py": "2e798a00b70157749534e3b0fb4fa51485d96cf5ede1d560b7d6656f6188ba0d"
+  }
+}

@@ -12,10 +12,11 @@ from elesim_pilot.vision.partial_cloud import VoxelCloud, reconstruct_view
 
 
 class ScanCollision:
-    def __init__(self, arm, base_world_transform, *, margin_m=.015):
+    def __init__(self, arm, base_world_transform, *, margin_m=.015, reserve_tracking=False):
         self.arm = arm
         self.base = np.array(base_world_transform, dtype=float, copy=True)
         self.margin_m = margin_m
+        self.reserve_tracking = bool(reserve_tracking)
         self.cloud = VoxelCloud(voxel_m=.01, max_voxels=50_000)
         self.tree = None
         self._radii = np.concatenate([arm.radii[name] for name in arm.names])
@@ -68,7 +69,17 @@ class ScanCollision:
         return self.tree.query(self._centers(q))[0]-self._radii-self.margin_m-self._tracking_margin
 
     def configuration_free(self, q):
-        return self.arm.configuration_free(q) and bool(np.all(self._gaps(q) > 0))
+        if not self.arm.configuration_free(q):
+            return False
+        if self.reserve_tracking:
+            # A realized endpoint may differ from its command by uncertainty.
+            # Reserve that displacement so its *next* ordinary certificate
+            # still has the existing tracking bound. Path limits stay intact.
+            extra=self.arm.pair_lipschitz@self.arm.uncertainty
+            if np.any(self.arm.pair_clearances(q)<=self.arm.required_gap+extra):
+                return False
+        extra=self._tracking_margin if self.reserve_tracking else 0.
+        return bool(np.all(self._gaps(q)>extra))
 
     def certify_segment(self, start, goal, *, max_checks=512):
         own = self.arm.certify_segment(start, goal)
