@@ -150,7 +150,9 @@ def encode_image_payload(
             raise ValueError("PNG RGB-D depth input must be uint16; use zlib for float depth")
         if getattr(array, "dtype", None) is None or str(array.dtype) != "uint16":
             raise ValueError("PNG RGB-D depth input must be uint16")
-        ok, encoded = cv2.imencode(".png", array)
+        # Explicit compression enables PNG's row filters. OpenCV's default
+        # RLE strategy is much larger on smooth uint16 depth / sloped floors.
+        ok, encoded = cv2.imencode(".png", array, [cv2.IMWRITE_PNG_COMPRESSION, 3])
     else:  # pragma: no cover - guarded by SUPPORTED_CODECS
         raise ValueError(f"unsupported RGB-D codec: {selected!r}")
     if not ok:

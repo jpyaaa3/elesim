@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from elesim_protocol import DdsRuntimeSettings
 
 from elesim_pilot.vision.perception.depth_pose import CameraIntrinsics
 from elesim_pilot.vision.perception.realsense_camera import RealSenseFrame
 from elesim_pilot.vision.sim_camera.subscriber import SimCameraSubscriber
+
+
+class SimCameraTimeout(RuntimeError):
+    """No sample arrived; transport and decoding errors use their own types."""
 
 
 class SimRenderedCamera:
@@ -58,7 +60,6 @@ class SimRenderedCamera:
     def capture(self, *, retries: int = 40, retry_sleep_s: float = 0.05) -> RealSenseFrame:
         if self._sub is None:
             raise RuntimeError("SimRenderedCamera not started")
-        last_exc: Optional[Exception] = None
         for _ in range(max(1, int(retries))):
             frame = self._sub.recv_latest(timeout_ms=self._timeout_ms)
             if frame is not None:
@@ -85,13 +86,10 @@ class SimRenderedCamera:
                     calibration_id=str(frame.calibration_id),
                     arm_q=frame.arm_q,
                 )
-            last_exc = RuntimeError(
-                f"no DDS RGB-D sample received from {self._topic}"
-            )
             if retry_sleep_s > 0:
                 import time
 
                 time.sleep(float(retry_sleep_s))
-        raise last_exc or RuntimeError(
+        raise SimCameraTimeout(
             f"no DDS RGB-D sample received from {self._topic}"
         )

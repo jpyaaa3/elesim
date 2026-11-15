@@ -34,6 +34,33 @@ def test_operator_calibrated_home_is_admitted_without_redefining_the_policy_star
     np.testing.assert_array_equal(ports.model.meta['home'],home)
 
 
+@pytest.mark.parametrize('cause', ['empty', 'invalid_sample', 'not_started'])
+def test_mobile_capture_retries_only_a_missing_sample(cause):
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    from elesim_pilot.vision.perception.sim_rendered_camera import SimCameraTimeout
+    from elesim_protocol import DdsTransportError
+    failures = dict(empty=SimCameraTimeout('no DDS RGB-D sample received'),
+        invalid_sample=DdsTransportError('invalid encoded RGB-D sample: damaged metadata'),
+        not_started=RuntimeError('SimRenderedCamera not started'))
+    ports=SimPorts.__new__(SimPorts);ports._initialize=lambda:None
+    now=[0.];attempts=[]
+    def capture(**kwargs):
+        attempts.append(1);now[0]+=.1
+        raise failures[cause]
+    ports.camera=NS(capture=capture);ports.clock=lambda:now[0]
+    ports.stopped=False;ports._summary={}
+    if cause=='empty':
+        with pytest.raises(RuntimeError,match='no fresh stationary RGB-D capture'):
+            ports._capture()
+        assert len(attempts)>=49
+        assert ports.summary()['capture_rejections']==dict(no_frame=len(attempts))
+    else:
+        with pytest.raises(type(failures[cause])) as caught:
+            ports._capture()
+        assert caught.value is failures[cause]
+        assert len(attempts)==1 and 'capture_rejections' not in ports.summary()
+
+
 def test_partial_observation_retains_axis_without_claiming_full_height():
     t=TargetTrack();e=t.update(cylinder(),stamp=1.,source=('sim','boot','calib'))
     assert np.allclose(e.at_height(.55),[.4,.1,.55],atol=1e-6)

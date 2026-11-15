@@ -37,6 +37,15 @@ def test_actual_poisson_diagnostics_are_accepted():
     assert check_poisson_surface(status(diagnostics)) == diagnostics
 
 
+def test_budgeted_regularization_is_accepted_only_with_declared_limits_and_attempts():
+    diagnostics=dict(surface_method='screened_poisson',remesh_resolution_m=.005,
+        remesh_requested_resolution_m=.004,remesh_max_resolution_m=.008,remesh_attempts_m=[.004,.005])
+    assert check_poisson_surface(status(diagnostics))==diagnostics
+    for invalid in ({'remesh_max_resolution_m':.004},{'remesh_attempts_m':[]},
+                    {'remesh_resolution_m':.01,'remesh_attempts_m':[.004,.01]}):
+        with pytest.raises(AssertionError):check_poisson_surface(status({**diagnostics,**invalid}))
+
+
 @pytest.mark.parametrize('mesher', [{}, {'voxel_m':.02},
     dict(surface_method='screened_poisson',remesh_resolution_m=0.)])
 def test_completed_scan_with_stale_or_unregularized_mesh_cannot_pass_poisson_cycle(mesher):

@@ -1,0 +1,258 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-15",
+  "scope": "published installed UI backends; actual cross-host DDS/WebRTC and production Pilot/Sim; no native GUI input",
+  "source_revision": "1138c68db057d8b67d1fab4cd150a589cdd2c288",
+  "installations": {
+    "operator": "/home/user/ws/newsim",
+    "compute": "/home/hckang/ws/newsim"
+  },
+  "image_ids": {
+    "ui": "sha256:6790e8d2d2cf8c7143e130a9f53b624d224fe07b33e3102a0535b5179938c31b",
+    "pilot": "sha256:412ca2af587924ce9d85291f5acdce0ae5c443c24ec2eb8144c1fb2fcebf30aa",
+    "sim": "sha256:1f30cce917e39a5f282785c05a47b902af9d31cf35d9fa4cc8bab51b299cec02"
+  },
+  "source_hashes": {
+    "pilot": {
+      "files": {
+        "mobile_manipulation/runtime.py": "856e5b1adb0021af9f1fc91e38621a22278171adf54266c68958c00b70f6d8c5",
+        "mobile_manipulation/feedback.py": "4e2aec06c8aaef056907240c5db760c49fcccfebd96e93dc332d76d691e20ae8",
+        "mobile_manipulation/coordinator.py": "0227bf74adc33e6ced4cf8a5552efa04369f08ac95e96b719d8c7d35799aaab2",
+        "mobile_manipulation/base_planner.py": "925829bb50b003b01643d3607280610100425756142289df1a707d557dae761e",
+        "mobile_manipulation/base_executor.py": "edb17556bdf84d2bb09e14eb31f29974fba2b01c4f90c32f0b4eeb77baff426d",
+        "robot/arm/approach.py": "39da97743c3bcb219a7b3912d02c75cce94db6f04afc02e3c11a61436e5b62b7",
+        "reconstruction/live_scan.py": "d37ec74e80aae0760a90e458d429292e475c8008bd97f5f2f4f030e26995f001",
+        "reconstruction/scan.py": "78ff7bee6513aec76292556694604078726204b6edabad76fc43a668fd3ff729",
+        "reconstruction/meshing.py": "547052d9c9f4728f3806f36c7f92cc04894316c5ea523bd52b6a7f075b5f5246",
+        "reconstruction/isosurface.py": "52357d2fe9e59e8d0f50eb2de080011ba68133e76e969c16f39dcaeb54e9284e"
+      },
+      "sibling_absent": true
+    },
+    "sim": {
+      "files": {
+        "runtime.py": "880852c132b50fe85f05c7af3ab47afd50e260bf3c96e835be9cdc7b1af529d9",
+        "vision/sim_camera/async_worker.py": "cdd846711077abe9c4499e03b77370466b3eb319d221c6c825278a8939afafb4"
+      },
+      "sibling_absent": true
+    }
+  },
+  "runtime": {
+    "system_id": "test",
+    "security_profile": "sros2",
+    "enforce": true,
+    "domain_id": 42,
+    "compute_gpu": 2
+  },
+  "episode": {
+    "run": "run-17",
+    "evaluation_mode": "installed",
+    "accepted": false,
+    "elapsed_s": 278.4162609119667,
+    "terminal_phase": "failed",
+    "reason": "no fresh stationary RGB-D capture",
+    "capture_rejections": {
+      "no_frame": 50
+    },
+    "phase_events": [
+      {
+        "phase": "acquire",
+        "time_s": 8.030794560909271e-06
+      },
+      {
+        "phase": "plan_observation",
+        "time_s": 2.372055838815868
+      },
+      {
+        "phase": "transport",
+        "time_s": 22.94343958981335
+      },
+      {
+        "phase": "move_observation",
+        "time_s": 26.461185861378908
+      },
+      {
+        "phase": "aim_observation",
+        "time_s": 26.978241291828454
+      },
+      {
+        "phase": "scan",
+        "time_s": 80.05655868444592
+      },
+      {
+        "phase": "post_scan_acquire",
+        "time_s": 223.90306321438402
+      }
+    ],
+    "fixture_position_sim_only": [
+      0.7,
+      0.15,
+      0.55
+    ],
+    "decoded_streams": [
+      "observer",
+      "hand_eye_preview"
+    ],
+    "video_frames": {
+      "observer": 2287,
+      "hand_eye_preview": 2287
+    },
+    "scan": {
+      "job_id": "c6794579fbc7440ba2194436dfd1d559",
+      "accepted_views": 2,
+      "observed_points": 6900,
+      "predicted_points": 8192,
+      "stop_reason": "base_pose_budget_reached",
+      "geometry_complete_claimed": false,
+      "scene_revision": "60e32855af2bb18b5e42a55a40da134b6fc40a12a5e0b11e66a274654a720406",
+      "mesher": {
+        "remesh_requested_resolution_m": 0.004,
+        "remesh_resolution_m": 0.00625,
+        "remesh_max_resolution_m": 0.008,
+        "remesh_attempts_m": [
+          0.004,
+          0.005,
+          0.00625
+        ],
+        "triangles": 64372,
+        "vertices": 32190,
+        "vertex_manifold": true,
+        "self_intersections": false
+      }
+    }
+  },
+  "local_follow_up": {
+    "deployed": false,
+    "change": "Propagate decoder/transport failures; encode native uint16 Sim depth using existing lossless PNG codec and filtered compression level 3. No pixel, resolution, timestamp, source identity or DDS QoS change.",
+    "regression_reproduced": true,
+    "tests": {
+      "passed": 254,
+      "skipped": 10,
+      "skip_reasons": [
+        "DDS ROS runtime unavailable in host tests",
+        "Open3D unavailable in host tests"
+      ],
+      "canonical_gates_run": false,
+      "canonical_gate_reason": "Known optional development attachment has no usable configured image."
+    },
+    "live_root_cause_confirmed": false,
+    "committed_with_this_report": true
+  },
+  "live_blocker": {
+    "resolved": true,
+    "previous_reason": "Automatic approval review could not complete because of the workspace owner spend cap.",
+    "resumed_date": "2026-11-15"
+  },
+  "resume": [
+    "Fresh source-fenced subscriber received frame 177228; repeated receivers sometimes failed entirely. Diagnose measured UDP receive-buffer drops before changing subscriber lifetime.",
+    "Repair a demonstrated cause without weakening source, boot, calibration, freshness or measured motion guards.",
+    "Run owning regressions, commit/push directly in the configured repository, then use both official updaters.",
+    "Activate the resulting role-scoped SROS2 release transaction and repeat the full installed UI-to-Pilot-to-Sim cycle.",
+    "Require actual observed-free C-band motion, wrap/lift and independent continuous five-second loaded hold before accepting."
+  ],
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-17/report.json",
+      "bytes": 25877,
+      "sha256": "fc428707157152c97684c1b7628a3f03d281302117bbfd49d8b5c06663c7b556"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-17/telemetry.jsonl",
+      "bytes": 3322852,
+      "sha256": "9f77583e8e472df35a98255e5147bc26e7f4781889d4fd7ae30fa3687aedc274"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-17/observer.mp4",
+      "bytes": 5426659,
+      "sha256": "8e84bf9ad4be254b4b87828a7f18b427940c6c93c6787bacbc1be9478bfa0f18"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-17/hand_eye_preview.mp4",
+      "bytes": 12249724,
+      "sha256": "8120de0e2090ca52566cb497fef6c32f24fc5c9c13ee0ee5f271ee57b104edbb"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/operator-17.log",
+      "bytes": 41481,
+      "sha256": "959e5198134cc6af8eb15e7a7d46eaf7bf5ef8a3d06d7d99ca4600da14a67352"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/operator-source-17.json",
+      "bytes": 257,
+      "sha256": "1406c305843b1ccb0abe5f7147370db2e9473b5731f3d893947e3f24375b15df"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v5-remote.json",
+      "bytes": 5984,
+      "sha256": "a107f1e3a8c9473ab52c09b890515adf810c485cde0b1dca9a0895d8de381517"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v5-local.json",
+      "bytes": 1168,
+      "sha256": "d1a1b0b23fcb8e64d00b2ec0d89d37b544306c8ee557d6b8ef6764e2ef52de60"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/security-rotation-v5.json",
+      "bytes": 606,
+      "sha256": "3d1d335ab04d70c1ca8a2e172225c31a8c446288ce43cc1fafb98873e6a4a006"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/host-regression-v6.log",
+      "bytes": 353,
+      "sha256": "89d04d6f5c782e82eb2e1c6e0142c59c5c610b4fcaf2ca90334958c6605f1319"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/rgbd-fresh-probe.log",
+      "bytes": 346,
+      "sha256": "8b22003952050726a4be9c1de6bc11655119cdc2c534ca29a213c0948c29c5ae"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/rgbd-idle-two-readers.log",
+      "bytes": 11699,
+      "sha256": "205acad48bb3a26bb05b2d79b45032ea3102650db6b9bfd708356af1b72d45aa"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/rgbd-udp-loss.log",
+      "bytes": 2148,
+      "sha256": "81de7097a56b84698c3095eaf29f7423270a315506e54b4b22f3bfb450c5cdb1"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/rgbd-png-filter-comparison.log",
+      "bytes": 729,
+      "sha256": "34eb3b43435e6b2f0413805eed399551f5f35e87005b0ac1659f2202a2d63f13"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/rgbd-current-png-comparison.log",
+      "bytes": 388,
+      "sha256": "0b5ce29962f295beafe2b92c92583eed994f9c7a28b8a484ff23aa1cedaf0ba2"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/development-v6-deploy.json",
+      "bytes": 914,
+      "sha256": "5d8f3f84209df5cc98f787d399d75356b6f4dd3a20c5f78e9febb7f35e3bc32c"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/pilot-duplicate-process.log",
+      "bytes": 599,
+      "sha256": "9261973dee4035a3e369ee6aa2d4b4dfdabd4728bbdaef781163ef7ed1d15597"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/orphan-pilot-cleanup.log",
+      "bytes": 47,
+      "sha256": "441bc1f0cc2304f6a96971255c2dfa18751b98f051d34d4c90cd1f1bb1348f8a"
+    }
+  ],
+  "live_follow_up": {
+    "evaluation_mode": "development",
+    "run": "run-20",
+    "accepted": null,
+    "udp_receive_buffer_limit_bytes": 212992,
+    "udp_rcvbuf_errors_delta_12s": 2453,
+    "depth_zlib1_bytes": 560522,
+    "depth_png3_bytes": 256818,
+    "color_bytes": 36664,
+    "depth_pixels_equal": true,
+    "png_encode_ms": 37.76274062693119,
+    "host_kernel_settings_changed": false,
+    "orphan_cleanup": "Only deleted test Pilot container cgroup 438d83b1... and PID 3327369 were identity-checked and signalled; current official Pilot retained, diagnostic Sim PNG patch retained."
+  }
+}

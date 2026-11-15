@@ -77,6 +77,18 @@ def test_image_codecs_round_trip_without_a_second_publisher_decode() -> None:
     )
 
 
+def test_png_depth_gradient_fits_a_small_receive_buffer_without_changing_pixels() -> None:
+    pytest.importorskip('cv2')
+    # A sloped floor is common after a scan. OpenCV's default PNG strategy
+    # inflates this smooth 16-bit depth into a large UDP burst.
+    depth=(500+np.arange(1280,dtype=np.uint16)+3*np.arange(720,dtype=np.uint16)[:,None])
+    depth[0,:2]=(0,65535)
+    encoded=encode_image_payload(depth,'png',encoding='16uc1')
+    assert len(encoded)<208*1024
+    decoded=decode_image_payload(encoded,'png',width=1280,height=720,encoding='16uc1')
+    np.testing.assert_array_equal(decoded,depth)
+
+
 def test_encoded_frame_validates_depth_presence_and_metadata() -> None:
     frame = _frame()
 

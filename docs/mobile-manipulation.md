@@ -103,6 +103,12 @@ silently becomes a new transport posture. Contact evaluation must reach the
 final executed physics tick before a successful task can be reported. Stale
 success at an earlier tick cannot authorize early completion.
 
+RGB-D acquisition retries only `SimCameraTimeout` (no sample within the receive
+window). Transport, decoder and camera lifecycle errors retain their original
+reason and fail the workflow. An empty receive window does not establish that
+the publisher stopped; compare a fresh source-fenced subscriber with the
+workflow's waiting subscriber before changing their lifetime or freshness rules.
+
 The isolated physics probe is maintained in:
 
 ```

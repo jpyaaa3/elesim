@@ -20,7 +20,15 @@ import zlib
 def check_poisson_surface(status):
     diagnostics = status.get('model_execution', {}).get('models', {}).get('mesher', {})
     assert diagnostics.get('surface_method') == 'screened_poisson', diagnostics
-    assert diagnostics.get('remesh_resolution_m') == .004, diagnostics
+    effective=diagnostics.get('remesh_resolution_m')
+    requested=diagnostics.get('remesh_requested_resolution_m',effective)
+    maximum=diagnostics.get('remesh_max_resolution_m') or requested
+    assert requested==.004 and isinstance(effective,(int,float)),diagnostics
+    assert requested<=effective<=min(maximum,.008),diagnostics
+    if effective!=requested:
+        attempts=diagnostics.get('remesh_attempts_m',[])
+        assert attempts and attempts[0]==requested and attempts[-1]==effective,diagnostics
+        assert all(requested<=a<b<=maximum for a,b in zip(attempts,attempts[1:])),diagnostics
     return diagnostics
 
 

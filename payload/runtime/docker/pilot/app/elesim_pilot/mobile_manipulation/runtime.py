@@ -17,7 +17,7 @@ from elesim_pilot.robot.arm.approach import JointApproach
 from elesim_pilot.robot.arm.iklib.kinematics import _forward_link_tf,base_world_transform_from_context
 from elesim_pilot.vision.partial_cloud import ArmCameraModel,SensorObservation,reconstruct_view
 from elesim_pilot.vision.multiview import ViewPlanner
-from elesim_pilot.vision.perception.sim_rendered_camera import SimRenderedCamera
+from elesim_pilot.vision.perception.sim_rendered_camera import SimCameraTimeout,SimRenderedCamera
 from .contracts import Settings,TargetEstimate,planar,angle
 from .feedback import Feedback
 from .target_track import TargetTrack
@@ -159,7 +159,7 @@ class SimPorts:
             self._summary['capture_rejections']=dict(rejections)
         while self.clock()<deadline and not self.stopped:
             try:frame=self.camera.capture(retries=1,retry_sleep_s=0.)
-            except RuntimeError:
+            except SimCameraTimeout:
                 rejected('no_frame');continue
             if frame.arm_q is None or frame.seq<=self.last_frame_seq:
                 rejected('missing_encoder_or_replayed_frame');continue

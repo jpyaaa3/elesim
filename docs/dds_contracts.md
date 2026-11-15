@@ -354,6 +354,12 @@ identity와 payload bound는 frame metadata에 있다. 새 descriptor field나
 protocol major bump는 이 migration에 필요하지 않다. `stream.rgbd.broker.v1`
 capability가 없는 peer에 encoded를 raw로 오인시켜 보내지 않는다.
 
+Sim's native millimetre `uint16` depth uses the already supported lossless PNG
+codec with row filtering/compression level 3. The decoded pixels, `16uc1`
+encoding, depth scale, resolution and source/capture metadata are unchanged.
+This encoder choice uses existing protocol-v6 codec metadata; it introduces no
+new field or codec, and subscribers still accept existing zlib/raw depth.
+
 source 단계의 기존 `RgbdFrame`은 timestamp, frame identity, dimensions,
 intrinsics와 RGB/depth payload를 함께 갖는 coherent sample이다. 모든 publisher와
 subscriber는 latest-only depth-1 semantics를 사용하며 오래된 sample을 backlog로

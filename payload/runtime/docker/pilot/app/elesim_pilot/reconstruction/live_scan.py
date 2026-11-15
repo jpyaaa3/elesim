@@ -15,7 +15,7 @@ from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
 from elesim_pilot.robot.arm.approach import JointApproach
 from elesim_pilot.vision.multiview import ViewPlanner
 from elesim_pilot.vision.partial_cloud import ArmCameraModel, SensorObservation
-from elesim_pilot.vision.perception.sim_rendered_camera import SimRenderedCamera
+from elesim_pilot.vision.perception.sim_rendered_camera import SimCameraTimeout, SimRenderedCamera
 from .contracts import Measurement, Task
 from .pipeline import Pipeline, PipelineCancelled
 from .scan import ActiveScan,AcquisitionLimit
@@ -229,7 +229,7 @@ class LiveScan:
                     while not cancelled() and self.clock() < deadline:
                         try:
                             frame = camera.capture(retries=1, retry_sleep_s=0.)
-                        except RuntimeError:
+                        except SimCameraTimeout:
                             continue
                         if (frame.source_id, frame.source_boot_id) != route[:2]:
                             raise ValueError('scan RGB-D source boot changed')

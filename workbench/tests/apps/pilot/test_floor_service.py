@@ -124,6 +124,22 @@ def test_capture_adapter_preserves_source_time_identity_and_calibration():
     assert actual.arm_q == source.arm_q
 
 
+def test_capture_timeout_is_distinct_from_a_broken_rgbd_subscriber():
+    from elesim_pilot.vision.perception.sim_rendered_camera import SimCameraTimeout, SimRenderedCamera
+    from elesim_protocol import DdsTransportError
+    adapter = SimRenderedCamera()
+    adapter._sub = SimpleNamespace(recv_latest=lambda **_: None)
+    with pytest.raises(SimCameraTimeout, match="no DDS RGB-D sample"):
+        adapter.capture(retries=2, retry_sleep_s=0.)
+    failure = DdsTransportError("invalid encoded RGB-D sample: damaged metadata")
+    def broken(**kwargs):
+        raise failure
+    adapter._sub = SimpleNamespace(recv_latest=broken)
+    with pytest.raises(DdsTransportError) as caught:
+        adapter.capture(retries=2, retry_sleep_s=0.)
+    assert caught.value is failure
+
+
 def test_decoding_encoded_depth_preserves_metric_data_and_provenance():
     from elesim_protocol.encoded_rgbd import encoded_frame_from_rgbd, rgbd_from_encoded_frame
     f = frame()

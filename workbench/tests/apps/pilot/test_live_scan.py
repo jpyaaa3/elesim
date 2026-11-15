@@ -233,6 +233,29 @@ def test_camera_calibration_change_fails_the_session(rig):
     assert 'calibration changed' in rig.scan.status()['reason']
 
 
+@pytest.mark.parametrize('cause',['empty','invalid_sample'])
+def test_scan_retries_missing_frames_and_preserves_a_decoder_failure(rig,cause):
+    from elesim_pilot.vision.perception.sim_rendered_camera import SimCameraTimeout
+    from elesim_protocol import DdsTransportError
+    original=rig.camera.capture;attempts=[]
+    def capture(camera,**kwargs):
+        attempts.append(1)
+        if cause=='invalid_sample':
+            raise DdsTransportError('invalid encoded RGB-D sample: damaged metadata')
+        if len(attempts)==1:
+            raise SimCameraTimeout('no DDS RGB-D sample received')
+        return original(camera,**kwargs)
+    rig.camera.capture=capture
+    rig.scan.start(max_views=2);rig.pump()
+    status=rig.scan.status()
+    if cause=='empty':
+        assert status['phase']=='completed' and status['accepted_views']==2
+        assert len(attempts)==3
+    else:
+        assert status['phase']=='failed' and 'damaged metadata' in status['reason']
+        assert len(attempts)==1 and not rig.frames
+
+
 def test_stale_camera_frame_is_skipped_until_post_settle_capture(rig):
     original = rig.camera.capture
     def stale(camera, **kw):

@@ -3446,7 +3446,7 @@ class RuntimePrep:
                 settings=a.dds_settings,
                 wire_format=a.rgbd_wire_format,
                 color_codec="jpeg" if bool(a.cfg.sim_camera_jpeg) else "raw",
-                depth_codec="zlib",
+                depth_codec="png",
                 jpeg_quality=int(a.cfg.sim_camera_jpeg_quality),
                 calibration_id=hashlib.sha256(Path(a.cfg.hand_eye_config).read_bytes()).hexdigest(),
             )

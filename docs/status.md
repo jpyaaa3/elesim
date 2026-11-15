@@ -23,8 +23,8 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   driver **57 passed**, 설치된 Sim 이미지의 실제 Genesis 라이브러리로 소스 회귀
   **32 passed, 2 skipped**, GPU2의 실제 두 render-worker 통합 검사 **1 passed**다.
   Source regression은 서비스의 새 공식 릴리스 활성화 증거와 구분한다.
-- 현재 전체 동작은 초기 RGB-D 검출과 바닥 관측 자세까지 확인했으며 **전 과정
-  성공은 아직 미확인**이다. 개발용 Pilot 진단을 최종 설치본 통과로 계산하지 않는다.
+- 초기 평가는 RGB-D 검출과 바닥 관측 자세까지 진행했으며 **전 과정 성공은
+  아직 미확인**이다. 개발용 Pilot 진단을 최종 설치본 통과로 계산하지 않는다.
   수정 릴리스를 양측에 다시 반영한 뒤 이동·scan/completion·C-band 진입·loaded hold를
   검증해야 한다. Canonical required/extended/release 전체 gate는 실행하지 않았다.
 - 후속 개발 평가에서는 실제 2시점 관측·AdaPoinTr 추론까지 진행했다. 기존
@@ -37,6 +37,30 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   AdaPoinTr 8,192 predicted points와 **5 mm / 98,540 triangles**의 검증된 메시를
   발행했다. 관측점·예측점은 분리됐다. 이 재생은 실시간 전체 성공 증거가 아니다.
   관련 host 회귀는 **114 passed, 5 skipped(Open3D 부재)**다.
+- 공식 `1138c68d`를 양측 updater와 승인된 SROS2 회전으로 활성화한 `run-17`은
+  실제 2시점 촬영, **6,900 observed / 8,192 predicted points**, AdaPoinTr,
+  **6.25 mm / 64,372 triangles**의 메시 발행까지 완료했다. Vertex manifold와
+  self-intersection 검사를 통과했지만 전체 형상 완성을 주장하지 않는다.
+  이후 `post_scan_acquire`가 5초 동안 RGB-D를 받지 못해 종료했다. 전체 실행은
+  **278.4초**, 결과는 **accepted=false**다. C-band 이동·감싸기·loaded hold는
+  이 설치본 실행에서 검증되지 않았다.
+- 후속 로컬 진단은 모바일/scan이 모든 `RuntimeError`를 무프레임으로 숨기던
+  문제를 재현했다. `SimCameraTimeout`만 재시도하고 decode/transport/lifecycle
+  오류는 원인 그대로 실패시키도록 고쳤다. 관련 host **66 + 28 = 94 passed**다.
+  해당 오류 구분을 실제 무수신 원인으로 확정하지 않는다. 후속 공식 활성화는
+  개발 평가와 구분한다.
+  한도 때문에 중단됐던 원격 명령은 재개됐다. 새 구독자도 간헐적으로
+  무수신이었고, 12초 중 호스트 UDP RcvbufErrors가 **2,453** 증가했다.
+  기본 수신 버퍼 상한은 212,992 bytes, 현재 자세의 depth/color payload는
+  약 560/37 kB였다. 버퍼 상향은 sudo 인증이 없어 실행되지 않았으며,
+  원래 16-bit 깊이를 그대로 복원하는 기존 PNG codec의 압축 설정을 비교했다.
+  Level 3은 실제 현재 depth를 약 **257 kB**로 줄였고 모든 픽셀이 일치했다.
+  이 선택과 오류 진단을 개발 평가 중이며 공식 재발행·전 과정 통과는 남아 있다.
+  통합 host 회귀는 **254 passed, 10 skipped**(DDS runtime/Open3D 부재)다.
+  재시작 중 제거된 테스트 Pilot의 고아 프로세스가 중복 endpoint를 광고한 문제도
+  확인했다. 삭제된 container cgroup과 executable을 대조한 뒤 해당 PID에만
+  SIGTERM을 보냈고, 현재 공식 Pilot과 개발 Sim만 정상 실행 중이다.
+  [이미지·소스·원본 증거 해시와 재개 지점](../workbench/evidence/curated/planning/mobile_installed_20261115.json).
 
 ### cuRobo 우선·GA 보충 교보재 연결 (2026-11-13)
 

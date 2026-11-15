@@ -52,6 +52,7 @@ def main():
     sim=UiSimSession(ui_id=cfg.endpoint_id,sim_id=cfg.sim_id,peer=hub.channel('sim'))
     controller=ServoingController(SimpleNamespace(service=service,state=service.state,
         _sim_view=SimpleNamespace(session=sim)))
+    started_monotonic=time.monotonic()
     report=dict(accepted=False,complete=False,started=time.time(),stage='discovery',events=[],
         scope='published installed UI backends; actual cross-host DDS/WebRTC and production Pilot/Sim; no native GUI input',
         fixture_sim_placement_only=list(a.position),sibling_imports_absent=True,
@@ -100,7 +101,7 @@ def main():
         while time.monotonic()<deadline:
             tick()
             if condition():
-                report['events'].append(dict(event=label,wall=time.time()));save();return
+                report['events'].append(dict(event=label,wall=time.time(),elapsed_s=time.monotonic()-started_monotonic));save();return
             time.sleep(.02)
         raise TimeoutError(label)
     def call(name,*args,**kwargs):
@@ -111,6 +112,9 @@ def main():
         if not reply['ok']:raise RuntimeError(name+': '+str(reply['error']))
         return reply.get('value')
     def perform(name):
+        # Match the real button's availability instead of clicking while a
+        # fresh snapshot / scene ACK is still in flight during startup.
+        wait(name+' available',lambda:not controller.reason(name),30.)
         if not controller.perform(name):raise RuntimeError(name+': '+controller.error)
         wait(name+' ACK',lambda:not controller.pending,65.)
         if controller.error:raise RuntimeError(name+': '+controller.error)
@@ -199,7 +203,7 @@ def main():
                 for packet in stream.encode():container.mux(packet)
                 container.close()
             except Exception as exc:report['video_error']=repr(exc)
-        report.update(finished=time.time(),video_frames=video_frames)
+        report.update(finished=time.time(),elapsed_s=time.monotonic()-started_monotonic,video_frames=video_frames)
         save();trace.close();sim.close();operator.close();hub.close()
     return 0 if report['accepted'] else 1
 
