@@ -299,6 +299,41 @@
       "path": "workbench/evidence/generated/mobile-installed-20261115/official-v7-ui.log",
       "bytes": 17068,
       "sha256": "884641b2f464fe108e00197c4dbb07361a58e2f1c3a4e32d0a5e1b972fe7275c"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-22/report.json",
+      "bytes": 27811,
+      "sha256": "66dacaafd605cf2909c5ef36968634be8ad98bf59614163726c6aa9198a80463"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-22/observer.mp4",
+      "bytes": 11057549,
+      "sha256": "6b8ac9157e0a7907079b38511be0e1790e59515e735c9b45a211feab807633b8"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-22/hand_eye_preview.mp4",
+      "bytes": 26104683,
+      "sha256": "8e5671f97afcf861798879a5fa21c89bd74db3d49ba48c4fe87a8a99c7cb30bc"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/scan-22.tar.gz",
+      "bytes": 4013394,
+      "sha256": "6fac864ccab54820d744aa4902b7ba22fb73a95777a972ac10bf7277dd3b2758"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v8-remote.json",
+      "bytes": 5686,
+      "sha256": "ce48eba9bc88a0c723ebdae7613432cbe765735a0b252ecbb7e14d448b54d1c1"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v8-ui.log",
+      "bytes": 27057,
+      "sha256": "f08c32e81645022fe5fcea09c43fe246e546a19ad7483e66b00a0a7c99535696"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/connections-start-v8-result.json",
+      "bytes": 1792,
+      "sha256": "44efa63832f0e7e5ab0eefa62faa130ec4ad77fd813fb3f10e15889f6e571897"
     }
   ],
   "live_follow_up": {
@@ -351,8 +386,36 @@
     "runtime_patched": false
   },
   "follow_up_arm_return": {
-    "deployed": false,
+    "deployed": true,
     "tests_passed": 73,
-    "change": "Certify a direct arm return first. Use the checked historical route only when collision certification blocks the direct route. Keep timing and tracking limits unchanged."
+    "change": "Certify a direct arm return first. Use the checked historical route only when collision certification blocks the direct route. Keep timing and tracking limits unchanged.",
+    "further_change": "Try the shortest collision-certified prefix of reverse history, rather than visiting the entire history and Home before the actual return target.",
+    "further_change_deployed": false
+  },
+  "official_second_follow_up": {
+    "source_revision": "5eaa033f",
+    "run": "run-22",
+    "evaluation_mode": "installed",
+    "accepted": false,
+    "error": "mobile phase timeout",
+    "elapsed_s": 530.2454945000354,
+    "source_hashes_checked_before_run": true,
+    "unknown_cells_after_floor_view": 18,
+    "decoded_streams": [
+      "observer",
+      "hand_eye_preview"
+    ]
+  },
+  "connections_start": {
+    "completed": true,
+    "source_revision": "5eaa033f",
+    "roles": [
+      "ui",
+      "pilot",
+      "sim"
+    ],
+    "DDS_descriptor_and_heartbeat_gate_passed": true,
+    "media_both_decoded": true,
+    "full_grasp_hold_claimed": false
   }
 }

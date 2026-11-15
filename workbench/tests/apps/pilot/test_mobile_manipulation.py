@@ -465,7 +465,7 @@ def test_target_search_rechecks_return_to_last_visible_pose_after_a_floor_look()
     from concurrent.futures import Future
     from elesim_pilot.mobile_manipulation.runtime import SimPorts
     ports=SimPorts.__new__(SimPorts);home=np.array([-.12,0.,-.59,.59]);floor=home+[.04,-.7,.3,-.1]
-    ports.clock=lambda:0.;ports.generation=0;ports._initialize=lambda:None
+    ports.clock=lambda:0.;ports.generation=0;ports._initialize=lambda:None;ports._summary={}
     ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=floor.copy())))
     ports.route=lambda:('sim','boot','lease');ports.history=[home.copy(),floor.copy()]
     ports.last_target_q=home.copy();checked=[]
@@ -485,7 +485,8 @@ def test_return_uses_shortcut_only_when_its_whole_segment_is_certified(blocked):
     ports=SimPorts.__new__(SimPorts)
     start=np.array([0.,1.,0.,0.]);via=np.array([0.,1.,1.,0.]);goal=np.zeros(4)
     ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=start.copy())))
-    ports.route=lambda:('sim','boot','lease');ports._summary={};ports.history=[goal.copy(),via.copy(),start.copy()]
+    unused_home=np.array([0.,0.,2.,0.])
+    ports.route=lambda:('sim','boot','lease');ports._summary={};ports.history=[goal.copy(),unused_home,via.copy(),start.copy()]
     ports.connection=NS(state_sink=NS(get_state=lambda:None))
     ports.service=NS(_ik_context_for_host=lambda h:dict(base_world_T=np.eye(4)))
     checked=[]
@@ -499,7 +500,9 @@ def test_return_uses_shortcut_only_when_its_whole_segment_is_certified(blocked):
     else:
         points=ports._return_prepare(goal)
         if blocked=='none':np.testing.assert_array_equal(points,[start,goal])
-        else:assert any(np.array_equal(point,via) for point in points)
+        else:
+            assert any(np.array_equal(point,via) for point in points)
+            assert not any(np.array_equal(point,unused_home) for point in points)
         np.testing.assert_array_equal(points[-1],goal)
     assert checked
 

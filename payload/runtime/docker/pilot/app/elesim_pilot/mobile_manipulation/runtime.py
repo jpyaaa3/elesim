@@ -370,9 +370,15 @@ class SimPorts:
             if not self.collision.certify_segment(a,b)['accepted']:raise ArmPathBlocked('arm transport/search path blocked')
         return points
     def _return_prepare(self,goal):
-        try:return self._arm_prepare([goal])
-        except ArmPathBlocked:
-            return self._arm_prepare(list(reversed(self.history))+[goal])
+        history=list(reversed(self.history))
+        for count in range(len(history)+1):
+            if count:time.sleep(.001)
+            try:points=self._arm_prepare(history[:count]+[goal])
+            except ArmPathBlocked:continue
+            self._summary['arm_return']=dict(strategy='direct' if count==0 else 'history_prefix',
+                segments=len(points)-1,goal_q=np.asarray(goal).tolist())
+            return points
+        raise ArmPathBlocked('arm transport/search path blocked')
     def begin(self,phase,grant,ownership,**args):
         self.generation+=1;self.stopped=False
         op=dict(phase=phase,grant=grant,ownership=ownership,args=args,started=self.clock())

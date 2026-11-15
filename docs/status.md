@@ -81,6 +81,13 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   history를 재검사하도록 수정했다. 직접/우회/양쪽 차단 회귀를 포함해 host
   **73 passed**다. 공식 반영과 다음 전 과정 시험은 진행 중이다. 실제 RGB-D,
   silhouette, scene과 두 영상은 `mobile-installed-20261115` 증거 폴더에 보존했다.
+- 공식 `5eaa033f`의 `run-22`에서는 직접 복귀가 차단되어 history 우회를 썼다.
+  이력이 필요한 복귀 지점을 지나 Home까지 모두 되돌리는 문제로 다시 phase
+  timeout이 발생했다. History prefix를 짧은 것부터 전 구간 인증해, 안전하게
+  목표에 닿는 구간까지만 선택하도록 수정했다. 선택한 strategy/segment 수/goal도
+  상태에 남긴다. 직접·짧은 우회·전부 차단 검증은 **73 passed**다.
+  두 공식 설치본의 `connections` 전체 시작은 양측 등록·기동과 세 endpoint
+  descriptor/heartbeat 확인까지 통과했다. 이것은 wrap/lift 성공과 구분한다.
   [이미지·소스·원본 증거 해시와 재개 지점](../workbench/evidence/curated/planning/mobile_installed_20261115.json).
 
 ### cuRobo 우선·GA 보충 교보재 연결 (2026-11-13)
