@@ -109,6 +109,12 @@ reason and fail the workflow. An empty receive window does not establish that
 the publisher stopped; compare a fresh source-fenced subscriber with the
 workflow's waiting subscriber before changing their lifetime or freshness rules.
 
+Floor observation and lost-target recovery each have a bounded attempt counter
+under the existing total deadline. Looking down must not spend the opportunity
+to recover the target afterward. Floor planning skips already attempted camera
+views and reports missing/blocked footprint cells; predicted visibility never
+marks those cells free. Only an actual accepted RGB-D observation updates them.
+
 The isolated physics probe is maintained in:
 
 ```

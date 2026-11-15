@@ -60,6 +60,13 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   재시작 중 제거된 테스트 Pilot의 고아 프로세스가 중복 endpoint를 광고한 문제도
   확인했다. 삭제된 container cgroup과 executable을 대조한 뒤 해당 PID에만
   SIGTERM을 보냈고, 현재 공식 Pilot과 개발 Sim만 정상 실행 중이다.
+- PNG 개발 `run-20`은 스캔 후 fresh RGB-D 재취득과 C-band 위치 계산을 통과했다.
+  다음 이동에 필요한 바닥을 관측하다 `target_not_found`로 종료했다. 바닥 관측과
+  물체 재탐색이 하나의 8회 예산을 소비하고 같은 예측 시야의 자세를 반복하는
+  문제를 재현했다. 각각의 bounded 예산을 분리하고, 촬영한 바닥 시야를 다시
+  고르지 않도록 했다. 시작/목표 footprint의 unknown·blocked 개수와 제한된 좌표도
+  보고한다. Unknown을 free로 바꾸거나 충돌·freshness 한도를 완화하지 않는다.
+  이 변경의 host 검증과 후속 공식 설치본 재시험을 진행 중이다.
   [이미지·소스·원본 증거 해시와 재개 지점](../workbench/evidence/curated/planning/mobile_installed_20261115.json).
 
 ### cuRobo 우선·GA 보충 교보재 연결 (2026-11-13)

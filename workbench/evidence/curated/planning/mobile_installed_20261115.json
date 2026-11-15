@@ -239,12 +239,37 @@
       "path": "workbench/evidence/generated/mobile-installed-20261115/orphan-pilot-cleanup.log",
       "bytes": 47,
       "sha256": "441bc1f0cc2304f6a96971255c2dfa18751b98f051d34d4c90cd1f1bb1348f8a"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-20/report.json",
+      "bytes": 27457,
+      "sha256": "1fe0223def5d55eae5bd7028124834e21e4e287d44640a1aa26a33dfa0af4420"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-20/telemetry.jsonl",
+      "bytes": 4957819,
+      "sha256": "bf1385b39a4f9ca66675272f58729cbab48bf4a375af04884a8988ed5adee64e"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-20/observer.mp4",
+      "bytes": 6638870,
+      "sha256": "c9be96825c4c4b4258d3b450c8abde60dc095c49d30570ec04242ab9f3c5c622"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-20/hand_eye_preview.mp4",
+      "bytes": 15141943,
+      "sha256": "2bc868097d30ad1fd3b88592f2064f655996b9918b654e76c5f27c665e0db945"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/rgbd-png-live-receive.log",
+      "bytes": 484,
+      "sha256": "57906b2362f6485a6b0fb299ab01f91c660bc7874649c209b41c15b3fea96872"
     }
   ],
   "live_follow_up": {
     "evaluation_mode": "development",
     "run": "run-20",
-    "accepted": null,
+    "accepted": false,
     "udp_receive_buffer_limit_bytes": 212992,
     "udp_rcvbuf_errors_delta_12s": 2453,
     "depth_zlib1_bytes": 560522,
@@ -253,6 +278,24 @@
     "depth_pixels_equal": true,
     "png_encode_ms": 37.76274062693119,
     "host_kernel_settings_changed": false,
-    "orphan_cleanup": "Only deleted test Pilot container cgroup 438d83b1... and PID 3327369 were identity-checked and signalled; current official Pilot retained, diagnostic Sim PNG patch retained."
+    "orphan_cleanup": "Only deleted test Pilot container cgroup 438d83b1... and PID 3327369 were identity-checked and signalled; current official Pilot retained, diagnostic Sim PNG patch retained.",
+    "terminal_reason": "target_not_found",
+    "elapsed_s": 351.8358431130182,
+    "post_scan_acquire_passed": true,
+    "C_band_goal_planning_reached": true,
+    "searches": 8,
+    "mapping_goal_xy_m": [
+      0.22230348866477606,
+      0.010417318159399308
+    ]
+  },
+  "follow_up_floor_mapping": {
+    "deployed": false,
+    "changes": [
+      "Separate floor observation and target recovery bounded counters.",
+      "Skip a previously attempted floor camera view.",
+      "Report unknown/blocked footprint counts and at most 16 representative cell centres."
+    ],
+    "unknown_space_policy_unchanged": true
   }
 }

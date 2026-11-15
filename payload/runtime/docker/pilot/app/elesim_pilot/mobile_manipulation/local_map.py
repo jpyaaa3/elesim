@@ -20,11 +20,21 @@ class LocalMap:
         if len(self.free|self.blocked)>self.max_cells:raise RuntimeError('local map budget exceeded')
         self.revision+=1
     def footprint_free(self,pose,footprint):
+        cells=self._footprint_cells(pose,footprint)
+        return all(c in self.free and c not in self.blocked for c in cells)
+    def _footprint_cells(self,pose,footprint):
         t=planar(pose);local=np.asarray(footprint,float)
         points=local@t[:2,:2].T+t[:2,3]
         # Footprint is an interior-filled sampling, not just its boundary.
         cells=np.unique(np.floor(points/self.resolution).astype(int),axis=0)
-        return all((int(x),int(y)) in self.free and (int(x),int(y)) not in self.blocked for x,y in cells)
+        return [(int(x),int(y)) for x,y in cells]
+    def footprint_status(self,pose,footprint):
+        cells=self._footprint_cells(pose,footprint)
+        blocked=[c for c in cells if c in self.blocked]
+        unknown=[c for c in cells if c not in self.free and c not in self.blocked]
+        return dict(total_cells=len(cells),unknown_cells=len(unknown),blocked_cells=len(blocked),
+            unknown_xy_m=((np.array(unknown[:16]).reshape(-1,2)+.5)*self.resolution).tolist(),
+            blocked_xy_m=((np.array(blocked[:16]).reshape(-1,2)+.5)*self.resolution).tolist())
     def segment_free(self,a,b,footprint):
         a,b=np.asarray(a,float),np.asarray(b,float);d=b-a;d[2]=angle(d[2])
         n=max(1,int(np.ceil(max(np.linalg.norm(d[:2])/(self.resolution/2),abs(d[2])/.05))))

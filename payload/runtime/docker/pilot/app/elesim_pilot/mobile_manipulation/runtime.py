@@ -35,7 +35,7 @@ class SimPorts:
         self.camera=None;self.model=None;self.grid=None;self.track=None;self.last_send=0.;self.operation=None
         self.generation=0;self.history=[];self.last_observation_base=None;self.scan_source=None
         self.last_command=None;self.stopped=False;self._summary={};self._latest={}
-        self.last_target_q=None
+        self.last_target_q=None;self.mapping_views=[]
     def route(self):return self.scan.route()
     def context(self):
         s=self.simulation_status()
@@ -66,7 +66,7 @@ class SimPorts:
         self.target_id=target_id;self.stopped=False
         self.grid=None;self.track=None;self.history=[];self.last_observation_base=None
         self.scan_source=None;self._summary={};self.operation=None;self.last_frame_seq=-1
-        self.last_target_q=None
+        self.last_target_q=None;self.mapping_views=[]
         if hasattr(self,'mapping_goal_xy'):del self.mapping_goal_xy
         if hasattr(self,'camera_cache'):del self.camera_cache
         if self.camera is not None:self.camera.stop();self.camera=None
@@ -137,11 +137,13 @@ class SimPorts:
         snapshot=self.feedback.snapshot(self.route()[:2])
         self.planner.body_z=snapshot['base']['pos'][2]
         self.planner.roll_pitch=snapshot['base']['rpy'][:2].copy()
+        self._summary['map_current']=self.grid.footprint_status(snapshot['pose'],self.footprint)
         try:return dict(goal=self.planner.grasp(self.track.estimate,snapshot['pose']))
         except FloorObservationRequired as exc:
             self.mapping_goal_xy=exc.pose[:2].copy()
             self._summary['planning_reason']=str(exc)
             self._summary['mapping_goal_xy']=self.mapping_goal_xy.tolist()
+            self._summary['map_goal']=self.grid.footprint_status(exc.pose,self.footprint)
             return dict(needs_mapping=True)
     def _capture(self):
         self._initialize()
@@ -332,6 +334,11 @@ class SimPorts:
             if i%16==0:time.sleep(.001)
             t=model.camera_pose(q);direction=t[:3,2]
             if direction[2]>=-.2:continue
+            # A floor look that did not reveal the needed cells must not win
+            # repeatedly on its predicted field of view alone.
+            if any(np.linalg.norm(t[:3,3]-p[:3,3])<.03
+                   and direction@p[:3,2]>np.cos(np.deg2rad(10))
+                   for p in self.mapping_views):continue
             floor=t[:3,3]-direction*(t[2,3]/direction[2])
             distance=np.linalg.norm(floor[:2]-base[:2,3])
             if not .25<distance<1.2:continue
@@ -345,8 +352,9 @@ class SimPorts:
         if not candidates:raise RuntimeError('no downward camera pose for local floor mapping')
         for row in candidates:
             time.sleep(.001)
-            try:return self._arm_prepare([row[3]])
+            try:result=self._arm_prepare([row[3]])
             except RuntimeError:continue
+            self.mapping_views.append(model.camera_pose(row[3]));return result
         raise RuntimeError('floor observation arm paths are blocked')
     def _arm_prepare(self,waypoints):
         # Recheck each segment at the current base and observed scene.

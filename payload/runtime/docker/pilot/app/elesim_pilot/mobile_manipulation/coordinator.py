@@ -11,13 +11,14 @@ class Coordinator:
         self.ports=ports;self.s=settings or Settings();self.clock=clock
         self.ownership=Ownership();self.phase='idle';self.reason='';self.plan_id=''
         self.current=None;self.grant=None;self.generation=0;self.events=[]
-        self.reobservations=0;self.corrections=0;self.searches=0
+        self.reobservations=0;self.corrections=0;self.searches=0;self.mapping_attempts=0
         self.cancel_reason=None
     @property
     def active(self):return self.phase not in self.TERMINAL
     def status(self):
         return dict(phase=self.phase,active=self.active,reason=self.reason,plan_id=self.plan_id,
             reobservations=self.reobservations,corrections=self.corrections,searches=self.searches,
+            mapping_attempts=self.mapping_attempts,
             events=self.events[-24:],**self.ports.summary())
     def plan(self,target_id='target',task_profile='cylinder-d100'):
         if self.active:raise RuntimeError('mobile task is active')
@@ -33,7 +34,7 @@ class Coordinator:
         self.ports.preflight(self.target_id)
         self.cancel_reason=None
         self.ownership.acquire(self.route);self.generation+=1;self.started=self.clock()
-        self.reobservations=self.corrections=self.searches=0;self.events=[]
+        self.reobservations=self.corrections=self.searches=self.mapping_attempts=0;self.events=[]
         try:self._begin('acquire',{'arm'})
         except Exception as exc:
             self._end('failed',str(exc));raise
@@ -60,9 +61,9 @@ class Coordinator:
         elif phase=='search':self._begin(self._search_return,{'arm'})
         elif phase=='plan_observation':
             if result.get('needs_mapping'):
-                self.searches+=1
-                if self.searches>self.s.search_limit:raise RuntimeError('no_observed_free_base_path')
-                self._map_return='acquire';self._begin('map_search',{'arm'},index=self.searches)
+                self.mapping_attempts+=1
+                if self.mapping_attempts>self.s.search_limit:raise RuntimeError('no_observed_free_base_path')
+                self._map_return='acquire';self._begin('map_search',{'arm'},index=self.mapping_attempts)
             else:
                 self.observation=result['goal'];self._begin('transport',{'arm'},purpose='observation')
         elif phase=='map_search':self._begin(self._map_return,{'arm'})
@@ -80,10 +81,10 @@ class Coordinator:
             else:self._begin('post_scan_acquire',{'arm'})
         elif phase=='plan_grasp':
             if result.get('needs_mapping'):
-                self.searches+=1
-                if self.searches>self.s.search_limit:raise RuntimeError('no_observed_free_grasp_path')
+                self.mapping_attempts+=1
+                if self.mapping_attempts>self.s.search_limit:raise RuntimeError('no_observed_free_grasp_path')
                 self._map_return='post_scan_acquire'
-                self._begin('map_search',{'arm'},index=self.searches)
+                self._begin('map_search',{'arm'},index=self.mapping_attempts)
             else:
                 self.grasp=result['goal'];self._begin('transport',{'arm'},purpose='grasp')
         elif phase=='move_grasp':self._begin('reacquire',{'arm'})

@@ -130,6 +130,36 @@ def test_unknown_space_and_swept_body_cannot_be_walked_through():
     with pytest.raises(ValueError):m.path([0,0,0],[1,0,0],foot)
 
 
+def test_footprint_diagnostics_distinguish_unknown_floor_from_obstacles():
+    grid=LocalMap(.1);grid.free.add((0,0));grid.blocked.add((2,0))
+    footprint=np.array([[.01,0],[.11,0],[.21,0]])
+    status=grid.footprint_status([0,0,0],footprint)
+    assert status['total_cells']==3 and status['unknown_cells']==status['blocked_cells']==1
+    np.testing.assert_allclose(status['unknown_xy_m'],[[.15,.05]])
+    np.testing.assert_allclose(status['blocked_xy_m'],[[.25,.05]])
+    assert grid.free=={(0,0)} and not grid.footprint_free([0,0,0],footprint)
+
+
+def test_floor_looks_choose_a_new_camera_view_after_an_unproductive_capture(monkeypatch,tmp_path):
+    from scipy.stats import qmc
+    from elesim_pilot.mobile_manipulation import runtime
+    monkeypatch.setattr(qmc,'Halton',lambda *a,**k:NS(random=lambda n:np.array([[x,0,0,0] for x in [0,.05,.1]])))
+    class CameraModel:
+        def camera_pose(self,q):
+            pose=np.diag([1.,-1.,-1.,1.]);pose[:3,3]=[.45+q[0],0,.5];return pose
+    monkeypatch.setattr(runtime,'ArmCameraModel',lambda *a,**k:CameraModel())
+    ports=runtime.SimPorts.__new__(runtime.SimPorts)
+    ports.arm=NS(bounds=np.array([[0.,1.]]*4));ports.scan=NS(model_dir=tmp_path/'assembly',hand_eye=tmp_path/'eye.json')
+    ports.service=NS(_ik_context_for_host=lambda h:dict(base_world_T=np.eye(4)))
+    ports.connection=NS(state_sink=NS(get_state=lambda:None));ports.route=lambda:('sim','boot','lease')
+    ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=np.zeros(4)),pose=np.zeros(3)))
+    ports.grid=LocalMap(.1);ports.mapping_views=[];ports._arm_prepare=lambda qs:[np.zeros(4),*qs]
+    first=ports._map_search_prepare(1)[-1]
+    second=ports._map_search_prepare(2)[-1]
+    assert len(ports.mapping_views)==2 and abs(first[0]-second[0])>=.03
+    assert not ports.grid.free and not ports.grid.blocked
+
+
 def test_base_executor_requires_measured_settle_and_stops_on_blockage():
     now=[0.];s=Settings();e=BaseExecutor(s,lambda:now[0])
     goal=BaseGoal(np.array([.1,0,0]),np.array([[0,0,0],[.1,0,0]]),np.zeros(4),{})
@@ -213,6 +243,34 @@ def test_unobserved_grasp_path_collects_floor_and_resumes_without_repeating_scan
     assert ports.calls[index+1]=='post_scan_acquire'
     assert ports.calls.count('scan')==1 and ports.calls.count('plan_grasp')==2
     assert coordinator.phase=='unverified'
+
+
+def test_floor_observation_budget_does_not_consume_target_recovery_budget():
+    ports=Ports();poll=ports.poll;maps=[0];hidden=[False]
+    def acquire(op):
+        phase,_=op
+        if phase=='plan_grasp' and maps[0]<2:
+            maps[0]+=1;return dict(needs_mapping=True)
+        if phase=='post_scan_acquire' and maps[0]==2 and not hidden[0]:
+            hidden[0]=True;return dict(visible=False)
+        return poll(op)
+    ports.poll=acquire
+    coordinator=Coordinator(ports,settings=Settings(search_limit=2),clock=lambda:0.)
+    coordinator.start(coordinator.plan()['plan_id'])
+    for _ in range(35):coordinator.tick()
+    assert coordinator.phase=='unverified'
+    assert ports.calls.count('map_search')==2 and ports.calls.count('search')==1
+    assert coordinator.status()['mapping_attempts']==2 and coordinator.searches==1
+
+
+def test_missing_floor_keeps_its_own_bounded_failure():
+    ports=Ports();poll=ports.poll
+    ports.poll=lambda op:dict(needs_mapping=True) if op[0]=='plan_grasp' else poll(op)
+    coordinator=Coordinator(ports,settings=Settings(search_limit=2),clock=lambda:0.)
+    coordinator.start(coordinator.plan()['plan_id'])
+    for _ in range(30):coordinator.tick()
+    assert coordinator.phase=='failed' and coordinator.reason=='no_observed_free_grasp_path'
+    assert ports.calls.count('map_search')==2 and coordinator.searches==0
 
 
 def test_grasp_geometry_can_request_floor_observation_without_marking_unknown_cells_free():
