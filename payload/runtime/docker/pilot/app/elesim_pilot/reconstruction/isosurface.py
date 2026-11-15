@@ -4,6 +4,10 @@ from __future__ import annotations
 import numpy as np
 
 
+class SurfaceBudgetExceeded(ValueError):
+    """A mesh/grid bound was reached; geometry failures are a different error."""
+
+
 def marching_tetrahedra(field, origin, resolution, *, max_triangles=100_000):
     """Use a face-compatible six-tetrahedron subdivision and shared edge IDs.
 
@@ -48,7 +52,7 @@ def marching_tetrahedra(field, origin, resolution, *, max_triangles=100_000):
                 faces = [[(a,c), (a,d), (b,d)], [(a,c), (b,d), (b,c)]]
             total += len(selected)*len(faces)
             if total > max_triangles:
-                raise ValueError('isosurface triangle budget exceeded; increase remesh_resolution_m')
+                raise SurfaceBudgetExceeded('isosurface triangle budget exceeded; increase remesh_resolution_m')
             coordinates = np.stack(np.unravel_index(selected, field.shape), axis=-1)
             direction = coordinates[:,positive].mean(axis=1)-coordinates[:,negative].mean(axis=1)
             for face in faces:
@@ -57,7 +61,7 @@ def marching_tetrahedra(field, origin, resolution, *, max_triangles=100_000):
     endpoints, inverse = np.unique(np.sort(np.concatenate(edge_faces), axis=2).reshape(-1,2),
                                     axis=0, return_inverse=True)
     if len(endpoints) > 100_000:
-        raise ValueError('isosurface vertex budget exceeded; increase remesh_resolution_m')
+        raise SurfaceBudgetExceeded('isosurface vertex budget exceeded; increase remesh_resolution_m')
     a,b = endpoints.T
     start = np.column_stack(np.unravel_index(a, field.shape))
     end = np.column_stack(np.unravel_index(b, field.shape))

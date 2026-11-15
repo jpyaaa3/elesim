@@ -46,6 +46,9 @@ def test_generated_support_does_not_drop_observations_or_mutate_original_complet
     {'generated_neighbor_radius_m': 0.}, {'unknown': 1},
     {'remesh_resolution_m': .0001}, {'max_grid_points': 4_000_001},
     {'density_trim_quantile': .01}, {'linear_fit': 1},
+    {'remesh_max_resolution_m':.003}, {'remesh_max_resolution_m':.021},
+    {'remesh_max_resolution_m':float('nan')},
+    {'remesh_resolution_m':0.,'remesh_max_resolution_m':.008},
 ])
 def test_invalid_surface_parameters_fail_before_native_import(options):
     with pytest.raises(ValueError):
@@ -154,6 +157,43 @@ def test_zero_surface_interpolates_a_plane_and_shares_edges_across_cells():
     assert metrics['nonmanifold_edges'] == metrics['inconsistent_winding_edges'] == 0
     with pytest.raises(ValueError, match='triangle budget'):
         marching_tetrahedra(grid[:,:,:,2]-.0041, origin, .005, max_triangles=1)
+
+
+def test_budget_retry_stays_inside_declared_resolution_and_records_the_effective_step(monkeypatch):
+    from elesim_pilot.reconstruction.isosurface import SurfaceBudgetExceeded
+    steps=[]
+    def fit(surface,options):
+        steps.append(options['remesh_resolution_m'])
+        if steps[-1]<.006:raise SurfaceBudgetExceeded('triangle budget')
+        return surface,dict(grid_bound_unchanged=True)
+    monkeypatch.setattr(meshing,'_regularize_at_resolution',fit)
+    result,diagnostics=meshing._regularize_surface('surface',dict(remesh_resolution_m=.004,remesh_max_resolution_m=.006))
+    assert steps==[.004,.005,.006] and result=='surface'
+    assert diagnostics['remesh_resolution_m']==.006
+    assert diagnostics['remesh_requested_resolution_m']==.004
+    assert diagnostics['remesh_attempts_m']==steps
+
+
+def test_geometry_errors_are_never_hidden_by_budget_coarsening(monkeypatch):
+    steps=[]
+    def failed(surface,options):
+        steps.append(options['remesh_resolution_m']);raise ValueError('invalid surface')
+    monkeypatch.setattr(meshing,'_regularize_at_resolution',failed)
+    with pytest.raises(ValueError,match='invalid surface'):
+        meshing._regularize_surface(None,dict(remesh_resolution_m=.004,remesh_max_resolution_m=.008))
+    assert steps==[.004]
+
+
+@pytest.mark.parametrize('maximum,expected',[(None,[.004]),(.005,[.004,.005])])
+def test_budget_retry_stops_at_the_limit_and_requires_an_explicit_opt_in(monkeypatch,maximum,expected):
+    from elesim_pilot.reconstruction.isosurface import SurfaceBudgetExceeded
+    steps=[]
+    def failed(surface,options):
+        steps.append(options['remesh_resolution_m']);raise SurfaceBudgetExceeded('triangle budget')
+    monkeypatch.setattr(meshing,'_regularize_at_resolution',failed)
+    with pytest.raises(SurfaceBudgetExceeded):
+        meshing._regularize_surface(None,dict(remesh_resolution_m=.004,remesh_max_resolution_m=maximum))
+    assert steps==expected
 
 
 @pytest.mark.parametrize('scale,offset', [(.001,0.), (1.,0.), (1000.,0.), (.001,100.)])

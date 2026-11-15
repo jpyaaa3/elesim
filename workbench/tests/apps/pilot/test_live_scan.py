@@ -92,6 +92,25 @@ def test_worker_acquires_after_settling_and_only_tick_sends_motion(rig):
     assert not status['geometry_complete_claimed']
 
 
+def test_capture_drift_budget_stops_motion_without_admitting_a_new_view(rig):
+    from elesim_pilot.reconstruction.scan import AcquisitionLimit
+    rig.scan.start(max_views=2,finish_drift_bounds=(.003,np.deg2rad(.5)))
+    changed=np.eye(4);changed[0,3]=.0021
+    rig.scan._check_capture_base(changed)
+    assert rig.scan._capture_finish_reason=='base_pose_budget_reached'
+    with pytest.raises(AcquisitionLimit,match='base_pose_budget'):
+        rig.scan._move_and_wait(np.zeros(4),{'accepted':True},rig.scan._generation,lambda:False)
+    assert not rig.frames and not rig.sent
+
+
+def test_large_base_jump_is_still_a_failure_in_partial_finalization_mode(rig):
+    rig.scan.start(max_views=2,finish_drift_bounds=(.003,np.deg2rad(.5)))
+    changed=np.eye(4);changed[0,3]=.004
+    with pytest.raises(RuntimeError,match='base moved'):
+        rig.scan._check_capture_base(changed)
+    assert rig.scan._capture_finish_reason==''
+
+
 def test_robot_target_never_starts_or_sends_scan_motion(rig):
     rig.c.endpoints[0]['role'] = 'robot'
     with pytest.raises(RuntimeError, match='Robot is unsupported'):

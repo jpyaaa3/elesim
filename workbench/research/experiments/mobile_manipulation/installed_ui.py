@@ -32,6 +32,7 @@ def main():
     p.add_argument('--home-timeout',type=float,default=120.)
     p.add_argument('--preflight-only',action='store_true')
     p.add_argument('--evaluation-mode',choices=('installed','development'),default='installed')
+    p.add_argument('--reset-sim',action='store_true')
     p.add_argument('--video',action='store_true')
     a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
     for sibling in ('elesim_pilot','elesim_sim'):
@@ -55,7 +56,8 @@ def main():
         scope='published installed UI backends; actual cross-host DDS/WebRTC and production Pilot/Sim; no native GUI input',
         fixture_sim_placement_only=list(a.position),sibling_imports_absent=True,
         endpoint=cfg.endpoint_id,system_id=cfg.dds.system_id,security_profile=cfg.dds.security_profile,
-        evaluation_mode=a.evaluation_mode,check_kind='home_preflight' if a.preflight_only else 'full_mobile')
+        evaluation_mode=a.evaluation_mode,check_kind='home_preflight' if a.preflight_only else 'full_mobile',
+        reset_sim=a.reset_sim)
     if a.evaluation_mode=='development':
         report['scope']='development diagnosis with patched runtime; not installed-release acceptance'
     trace=(a.output/'telemetry.jsonl').open('w');last_log=last_save=0.;last_phase='';encoders={};video_frames={}
@@ -121,6 +123,14 @@ def main():
         descriptor=next((d for d in service.available_endpoints if d.get('endpoint_id')==cfg.sim_id),{})
         if descriptor.get('role')!='sim' or sim.active_sim_id!=cfg.sim_id:
             raise RuntimeError('installed evaluation refuses non-Sim motion targets')
+        if a.reset_sim:
+            previous_epoch=sim.status.epoch;reset_id=sim.send_command('reset')
+            def reset_done():
+                result=sim.snapshot.last_result
+                if result is None or result.request_id!=reset_id:return False
+                if not result.ok:raise RuntimeError('Sim reset: '+result.reason)
+                return sim.status.epoch>previous_epoch
+            wait('independent Sim episode reset',reset_done,30.)
         if sim.status.paused:
             sim.send_command('resume');wait('Sim resumed',lambda:not sim.status.paused,15.)
         # Operator ACK means Pilot accepted the intent. Best-effort motion must
@@ -175,6 +185,8 @@ def main():
         report.update(complete=True,accepted=mobile.get('phase')=='completed',mobile=mobile,
             scan=service.object_scan,stage='completed' if mobile.get('phase')=='completed' else 'failed')
         if not report['accepted']:report['error']=mobile.get('reason','task did not verify the loaded hold')
+    except KeyboardInterrupt:
+        report.update(error='evaluation interrupted',stage='interrupted')
     except Exception as exc:
         report.update(error=repr(exc),stage='failed')
         print('MOBILE_INSTALLED_ERROR',repr(exc),flush=True)

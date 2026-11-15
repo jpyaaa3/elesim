@@ -16,12 +16,13 @@ from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
 from elesim_pilot.robot.arm.approach import JointApproach
 from elesim_pilot.robot.arm.iklib.kinematics import _forward_link_tf,base_world_transform_from_context
 from elesim_pilot.vision.partial_cloud import ArmCameraModel,SensorObservation,reconstruct_view
+from elesim_pilot.vision.multiview import ViewPlanner
 from elesim_pilot.vision.perception.sim_rendered_camera import SimRenderedCamera
 from .contracts import Settings,TargetEstimate,planar,angle
 from .feedback import Feedback
 from .target_track import TargetTrack
 from .local_map import LocalMap,transport_footprint
-from .base_planner import BasePlanner,body_frame,solver_xy
+from .base_planner import BasePlanner,FloorObservationRequired,body_frame,solver_xy
 from .base_executor import BaseExecutor
 
 
@@ -66,6 +67,7 @@ class SimPorts:
         self.grid=None;self.track=None;self.history=[];self.last_observation_base=None
         self.scan_source=None;self._summary={};self.operation=None;self.last_frame_seq=-1
         self.last_target_q=None
+        if hasattr(self,'mapping_goal_xy'):del self.mapping_goal_xy
         if hasattr(self,'camera_cache'):del self.camera_cache
         if self.camera is not None:self.camera.stop();self.camera=None
     def _require_home_start(self,q):
@@ -135,7 +137,12 @@ class SimPorts:
         snapshot=self.feedback.snapshot(self.route()[:2])
         self.planner.body_z=snapshot['base']['pos'][2]
         self.planner.roll_pitch=snapshot['base']['rpy'][:2].copy()
-        return dict(goal=self.planner.grasp(self.track.estimate,snapshot['pose']))
+        try:return dict(goal=self.planner.grasp(self.track.estimate,snapshot['pose']))
+        except FloorObservationRequired as exc:
+            self.mapping_goal_xy=exc.pose[:2].copy()
+            self._summary['planning_reason']=str(exc)
+            self._summary['mapping_goal_xy']=self.mapping_goal_xy.tolist()
+            return dict(needs_mapping=True)
     def _capture(self):
         self._initialize()
         if self.camera is None:
@@ -258,21 +265,17 @@ class SimPorts:
             if self.stopped or generation!=self.generation:raise RuntimeError('observation planning cancelled')
         # FK cache in arm-base coordinates; transformed per candidate body pose.
         if not hasattr(self,'camera_cache'):
-            from scipy.stats import qmc
-            raw=qmc.Halton(4,scramble=True,seed=41).random(1536)
-            self.camera_q=raw*(self.arm.bounds[:,1]-self.arm.bounds[:,0])+self.arm.bounds[:,0]
             local_model=ArmCameraModel(self.scan.model_dir.parents[1]/'arm/default.json',self.scan.hand_eye,
                 base_world_transform=np.eye(4))
-            poses=[]
-            for i,q in enumerate(self.camera_q):
-                if i%16==0:cooperate()
-                poses.append(local_model.camera_pose(q))
-            cooperate();self.camera_cache=np.array(poses)
+            views=ViewPlanner(local_model,collision_checker=self.collision,candidates=12000,
+                operating_bounds=self.arm.bounds,cancelled=lambda:self.stopped or generation!=self.generation)
+            self.camera_q,self.camera_cache=views.q,views.poses
         snapshot=self.feedback.snapshot(self.route()[:2]);current=snapshot['pose']
         self.planner.body_z=snapshot['base']['pos'][2]
         self.planner.roll_pitch=snapshot['base']['rpy'][:2].copy()
         diagnostics=dict(current_footprint_free=self.grid.footprint_free(current,self.footprint),
-            free_cells=len(self.grid.free),blocked_cells=len(self.grid.blocked),evaluated=[])
+            free_cells=len(self.grid.free),blocked_cells=len(self.grid.blocked),
+            sampled_camera_poses=len(self.camera_q),evaluated=[])
         def evaluate(pose,target):
             cooperate()
             body=body_frame(pose,self.planner.body_z,self.planner.roll_pitch);base=body@self.arm_in_body
@@ -317,17 +320,32 @@ class SimPorts:
         host=self.connection.state_sink.get_state()
         base=base_world_transform_from_context(self.service._ik_context_for_host(host))
         model=ArmCameraModel(self.scan.model_dir.parents[1]/'arm/default.json',self.scan.hand_eye,base_world_transform=base)
+        snapshot=self.feedback.snapshot(self.route()[:2]);current=snapshot['joint']['q']
+        start=snapshot['pose'][:2];goal=getattr(self,'mapping_goal_xy',start)
+        lo=np.minimum(start,goal)-.45;hi=np.maximum(start,goal)+.45
+        xy=np.array(np.meshgrid(*[np.arange(a,b,self.grid.resolution) for a,b in zip(lo,hi)])).reshape(2,-1).T
+        unknown=np.array([p for p in xy if self.grid.cell(p) not in self.grid.free
+            and self.grid.cell(p) not in self.grid.blocked]).reshape(-1,2)
+        probes=np.column_stack([unknown,np.zeros(len(unknown))])
         candidates=[]
-        for q in qs:
+        for i,q in enumerate(qs):
+            if i%16==0:time.sleep(.001)
             t=model.camera_pose(q);direction=t[:3,2]
             if direction[2]>=-.2:continue
             floor=t[:3,3]-direction*(t[2,3]/direction[2])
             distance=np.linalg.norm(floor[:2]-base[:2,3])
-            if .25<distance<1.2:candidates.append((floor[0],floor[1],q))
-        candidates.sort(key=lambda row:np.arctan2(row[1]-base[1,3],row[0]-base[0,3]))
+            if not .25<distance<1.2:continue
+            local=(probes-t[:3,3])@t[:3,:3]
+            visible=(local[:,2]>.1)&(local[:,2]<2.)&np.all(
+                abs(local[:,:2])/np.maximum(local[:,2:3],1e-9)<[.65,.45],axis=1)
+            duration=np.max(abs(q-current)/[.005,.04,.04,.04])
+            score=float(visible.sum())/(1.+duration*.03)
+            candidates.append((score,floor[0],floor[1],q))
+        candidates.sort(key=lambda row:-row[0])
         if not candidates:raise RuntimeError('no downward camera pose for local floor mapping')
-        for row in candidates[index%len(candidates):]+candidates[:index%len(candidates)]:
-            try:return self._arm_prepare([row[2]])
+        for row in candidates:
+            time.sleep(.001)
+            try:return self._arm_prepare([row[3]])
             except RuntimeError:continue
         raise RuntimeError('floor observation arm paths are blocked')
     def _arm_prepare(self,waypoints):
@@ -375,7 +393,9 @@ class SimPorts:
             op['executor']=BaseExecutor(self.s,self.clock)
             snap=self.feedback.snapshot(self.route()[:2]);op['executor'].start(args['goal'],snap['pose'],self.grid.revision)
         elif phase=='scan':
-            self.scan.start(self.target_id,self.s.max_views,roi_height_m=self.s.scan_roi_height_m,retain_lease=True,tracking_uncertainty=[.001,.015,.015,.015])
+            self.scan.start(self.target_id,self.s.max_views,roi_height_m=self.s.scan_roi_height_m,
+                retain_lease=True,tracking_uncertainty=[.001,.015,.015,.015],
+                finish_drift_bounds=(self.s.hug_body_position_tolerance_m,self.s.hug_body_rotation_tolerance_rad))
         elif phase=='check_grasp':op['future']=self.pool.submit(self._check_grasp)
         elif phase=='hug':
             self.model.validate_robot(self.scan.model_dir/'arm.urdf')

@@ -21,6 +21,10 @@ from .contracts import Measurement, ObjectCloud
 from .pipeline import ObservationPending, PipelineCancelled
 
 
+class AcquisitionLimit(RuntimeError):
+    """Stop acquiring; only already accepted, coherent views may be finished."""
+
+
 def save_observation(sensor, path):
     np.savez_compressed(path, schema_version=1, color_bgr=sensor.color_bgr,
         depth_raw=sensor.depth_raw, depth_scale=sensor.depth_scale,
@@ -76,10 +80,15 @@ class ActiveScan:
             if not certificate['accepted']:
                 raise ValueError('unsafe scan segment: '+certificate['reason'])
             progress({'stage': 'moving', 'view': index, 'views': self.max_views})
+            measurement=None
             for calibration_attempt in range(8):
                 if cancelled():
                     raise PipelineCancelled('scan cancelled during calibration')
-                measurement = acquire(current.copy(), certificate)
+                try:
+                    measurement = acquire(current.copy(), certificate)
+                except AcquisitionLimit as exc:
+                    if len(accepted_poses)<2:raise
+                    measurement=None;stop=str(exc);break
                 if not isinstance(measurement, Measurement):
                     raise TypeError('scan acquisition must return Measurement')
                 measurement = measurement.validated()
@@ -109,6 +118,7 @@ class ActiveScan:
                     progress({'stage': 'calibrating', 'view': index, 'reason': str(error)})
                     if calibration_attempt == 7:
                         raise RuntimeError('scan calibration unavailable after 8 coherent captures: '+str(error)) from error
+            if measurement is None:break
             observe_scene = getattr(self.planner.collision_checker, 'observe', None)
             if observe_scene is not None:
                 observe_scene(measurement, pose.world_from_camera)

@@ -146,6 +146,22 @@ def _clean_surface(surface, tolerance, minimum_area=0., sliver_tolerance=0.):
 
 
 def _regularize_surface(surface, options):
+    from .isosurface import SurfaceBudgetExceeded
+    requested=options['remesh_resolution_m']
+    maximum=options.get('remesh_max_resolution_m') or requested
+    step=requested;attempts=[]
+    while True:
+        attempts.append(step)
+        try:
+            result,diagnostics=_regularize_at_resolution(surface,{**options,'remesh_resolution_m':step})
+            return result,dict(diagnostics,remesh_resolution_m=step,
+                remesh_requested_resolution_m=requested,remesh_attempts_m=attempts)
+        except SurfaceBudgetExceeded:
+            if step>=maximum:raise
+            step=min(maximum,step*1.25)
+
+
+def _regularize_at_resolution(surface, options):
     """Extract the zero level of a sampled Poisson-mesh signed distance field.
 
     Parity voting is an inferred solid-proxy assumption, not camera free-space
@@ -153,7 +169,7 @@ def _regularize_surface(surface, options):
     The resulting proxy must pass all the usual geometry checks before export.
     """
     import open3d as o3d
-    from .isosurface import marching_tetrahedra
+    from .isosurface import marching_tetrahedra,SurfaceBudgetExceeded
     step = options['remesh_resolution_m']
     points = np.asarray(surface.vertices)
     origin = (np.floor(points.min(axis=0)/step)-2)*step
@@ -161,7 +177,7 @@ def _regularize_surface(surface, options):
     dimensions = np.rint((upper-origin)/step).astype(np.int64)+1
     nodes = math.prod(map(int, dimensions))
     if nodes > options['max_grid_points']:
-        raise ValueError('Poisson regularization grid budget exceeded; increase remesh_resolution_m')
+        raise SurfaceBudgetExceeded('Poisson regularization grid budget exceeded; increase remesh_resolution_m')
     scene = o3d.t.geometry.RaycastingScene(nthreads=options['threads'])
     scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(surface))
     field = np.empty(nodes, dtype=float)
@@ -266,6 +282,7 @@ class PoissonSurface:
                         linear_fit=False, weld_tolerance_m=0., sliver_tolerance_m=.000001,
                         min_component_area_m2=.000025,
                         remesh_resolution_m=.004, max_grid_points=2_000_000,
+                        remesh_max_resolution_m=None,
                         density_trim_quantile=0., threads=1, timeout_s=60.,
                         min_generated_neighbors=0, generated_neighbor_radius_m=.01)
         if assets or set(options)-set(defaults):
@@ -292,6 +309,10 @@ class PoissonSurface:
                 raise ValueError(f'{name} must be finite and in {lower}..{upper}')
         if 0 < self.options['remesh_resolution_m'] < .001:
             raise ValueError('remesh_resolution_m must be zero or at least .001 metres')
+        maximum=self.options['remesh_max_resolution_m']
+        if maximum is not None and (isinstance(maximum,bool) or not isinstance(maximum,(int,float))
+                or not self.options['remesh_resolution_m'] or not self.options['remesh_resolution_m']<=maximum<=.02):
+            raise ValueError('remesh_max_resolution_m must bound the requested positive resolution within .02 metres')
         if self.options['remesh_resolution_m'] and self.options['density_trim_quantile']:
             raise ValueError('density trimming must be disabled for signed-distance regularization')
         self._diagnostics = {}

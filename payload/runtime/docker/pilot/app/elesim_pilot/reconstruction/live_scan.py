@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from elesim_protocol import linear_effective_q_bounds
 
-from elesim_pilot.arm_trajectory import require_stable_arm_base
+from elesim_pilot.arm_trajectory import require_stable_arm_base,arm_base_pose_delta
 from elesim_pilot.robot.arm.iklib.kinematics import base_world_transform_from_context
 from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
 from elesim_pilot.robot.arm.approach import JointApproach
@@ -18,7 +18,7 @@ from elesim_pilot.vision.partial_cloud import ArmCameraModel, SensorObservation
 from elesim_pilot.vision.perception.sim_rendered_camera import SimRenderedCamera
 from .contracts import Measurement, Task
 from .pipeline import Pipeline, PipelineCancelled
-from .scan import ActiveScan
+from .scan import ActiveScan,AcquisitionLimit
 from .scan_collision import ScanCollision
 from .artifacts import scene_publication
 
@@ -131,7 +131,8 @@ class LiveScan:
                 reason=self._reason, blocked_reason=blocked, can_start=not self.active and not blocked,
                 geometry_complete_claimed=False, **{**self._progress, **self._result})
 
-    def start(self, target_id='target', max_views=12, *, roi_height_m=None, retain_lease=False, tracking_uncertainty=None):
+    def start(self, target_id='target', max_views=12, *, roi_height_m=None, retain_lease=False,
+              tracking_uncertainty=None,finish_drift_bounds=None):
         if self.active or (self._worker is not None and self._worker.is_alive()) or self._release_pending:
             raise RuntimeError('scan session already active or stopping')
         if self._busy():
@@ -149,6 +150,11 @@ class LiveScan:
         uncertainty = np.asarray(tracking_uncertainty if tracking_uncertainty is not None else [.003,.04,.04,.04],float)
         if uncertainty.shape != (4,) or not np.isfinite(uncertainty).all() or np.any(uncertainty<=0):
             raise ValueError('invalid scan tracking uncertainty')
+        if finish_drift_bounds is not None:
+            finish_drift_bounds=np.asarray(finish_drift_bounds,float)
+            if (finish_drift_bounds.shape!=(2,) or not np.isfinite(finish_drift_bounds).all()
+                    or np.any(finish_drift_bounds<=0) or np.any(finish_drift_bounds>[.005,.02])):
+                raise ValueError('invalid scan finalization drift bounds')
         job_id = uuid.uuid4().hex
         task = Task('scan-'+job_id, target_id)
         route = self.route()
@@ -167,6 +173,8 @@ class LiveScan:
         self._motion = None
         self._bounds = bounds
         self._tracking_uncertainty = uncertainty.copy()
+        self._finish_drift_bounds=finish_drift_bounds
+        self._capture_finish_reason='';self._finish_hold_set=False
         self.connection.clear_pending_motion()
 
         def cancelled():
@@ -209,7 +217,9 @@ class LiveScan:
                     nonlocal last_seq, calibration, settled_goal, settled_wall
                     if not certificate.get('accepted'):
                         raise ValueError('uncertified scan motion')
-                    feedback, _, _ = self._checked_feedback()
+                    feedback, current_base, _ = self._checked_feedback()
+                    self._check_capture_base(current_base)
+                    if self._capture_finish_reason:raise AcquisitionLimit(self._capture_finish_reason)
                     if (settled_goal is None or not np.array_equal(goal, settled_goal)
                             or not np.allclose(feedback['q'], goal, rtol=0., atol=[.001, .015, .015, .015])):
                         settled_wall = self._move_and_wait(goal, certificate, generation, cancelled)
@@ -225,7 +235,9 @@ class LiveScan:
                             raise ValueError('scan RGB-D source boot changed')
                         if calibration is not None and frame.calibration_id != calibration:
                             raise ValueError('camera calibration changed during scan')
-                        current_feedback, _, _ = self._checked_feedback()
+                        current_feedback, current_base, _ = self._checked_feedback()
+                        self._check_capture_base(current_base)
+                        if self._capture_finish_reason:raise AcquisitionLimit(self._capture_finish_reason)
                         if (frame.seq <= last_seq or frame.ts < settled_wall
                                 or not -.2 <= current_feedback['wall']-frame.ts <= .5 or frame.arm_q is None
                                 or not np.allclose(frame.arm_q, goal, rtol=0., atol=[.001, .015, .015, .015])):
@@ -290,13 +302,28 @@ class LiveScan:
                 stable=0, last_sample=None, settled_wall=None,last_sim_time=self._feedback['sim_time'],
                 approach=JointApproach(self._last_q,goal,tolerance=self._tracking_uncertainty))
             self._motion = motion
-            while motion['settled_wall'] is None and not cancelled():
+            while motion['settled_wall'] is None and not cancelled() and not self._capture_finish_reason:
                 if self.clock() > motion['deadline']:
                     raise TimeoutError('scan motion/settling deadline exceeded')
                 self._condition.wait(.1)
             if cancelled() or generation != self._generation:
                 raise PipelineCancelled('scan cancelled')
+            if self._capture_finish_reason:raise AcquisitionLimit(self._capture_finish_reason)
             return motion['settled_wall']
+
+    def _check_capture_base(self,base):
+        if self._capture_finish_reason:return
+        try:require_stable_arm_base(self._base,base)
+        except RuntimeError:
+            if (self._finish_drift_bounds is None
+                    or np.any(np.array(arm_base_pose_delta(self._base,base))>self._finish_drift_bounds)):
+                raise
+            # Stop the acquisition motion at the original 2 mm / .25 degree
+            # limit. This does not admit a frame beyond that limit. The worker
+            # may reconstruct only its earlier accepted measurements.
+            with self._condition:
+                self._capture_finish_reason='base_pose_budget_reached'
+                self._condition.notify_all()
 
     def request_cancel(self, reason='operator cancelled'):
         with self._condition:
@@ -328,7 +355,10 @@ class LiveScan:
                 feedback, base, status = self._checked_feedback()
                 if self.route() != self._route or status.epoch != self._epoch:
                     raise RuntimeError('scan target boot/lease or simulation epoch changed')
-                require_stable_arm_base(self._base, base)
+                self._check_capture_base(base)
+                if self._capture_finish_reason and not self._finish_hold_set:
+                    with self._condition:
+                        self._last_q=feedback['q'].copy();self._motion=None;self._finish_hold_set=True
                 if now-self._started > 600.:
                     raise TimeoutError('scan session exceeded 600 seconds')
                 if now-self._last_send > .5:

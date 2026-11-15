@@ -5,6 +5,12 @@ from scipy.spatial.transform import Rotation
 from .contracts import BaseGoal,planar,angle
 
 
+class FloorObservationRequired(ValueError):
+    def __init__(self,pose):
+        super().__init__('no observed-free local path to a supported C-band goal')
+        self.pose=np.array(pose,float,copy=True)
+
+
 def body_frame(base_pose,body_z,roll_pitch=(0.,0.)):
     t=planar(base_pose);t[2,3]=body_z
     t[:3,:3]=Rotation.from_euler('xyz',[*roll_pitch,base_pose[2]]).as_matrix()
@@ -61,7 +67,8 @@ class BasePlanner:
             neighbourhood=solutions[i*len(probes):(i+1)*len(probes)]
             if all(r is not None for r in neighbourhood) and len({(r['feature'],r['root']) for r in neighbourhood})==1:
                 interior.append(row)
-        possible=[]
+        if not interior:raise ValueError('no supported C-band interior at measured-error allowance')
+        possible=[];unobserved=[]
         for index,row in enumerate(interior):
             if index%8==0:time.sleep(.001)
             xy=np.asarray(row['xy_mm']);local=np.array([(xy[1]-self.offset)/1000,-xy[0]/1000,0.])
@@ -71,8 +78,9 @@ class BasePlanner:
                 relative=nf[:3,:3]@local+nf[:3,3]
                 point=target.at_height(relative[2])
                 pose=np.array([*(point-relative)[:2],yaw])
-                if not self.grid.footprint_free(pose,self.footprint):continue
                 distance=np.linalg.norm(pose[:2]-current_pose[:2]);turn=abs(angle(yaw-current_pose[2]))
+                if not self.grid.footprint_free(pose,self.footprint):
+                    unobserved.append((distance+.2*turn,pose));continue
                 # Geometric neighbourhood must have room in XY, not just q.
                 possible.append((distance+.2*turn,pose,row,distance,turn))
         for _,pose,row,distance,turn in sorted(possible,key=lambda x:x[0])[:48]:
@@ -88,6 +96,9 @@ class BasePlanner:
                 hug_drift_error_m=self.s.hug_drift_error_m,
                 target_reach_m=float(np.linalg.norm(target.origin[:2]-pose[:2])),
                 robustness='16 boundary probes plus centre; not a continuous certificate'))
+        if possible or unobserved:
+            closest=min([(cost,pose) for cost,pose,*_ in possible]+unobserved,key=lambda row:row[0])[1]
+            raise FloorObservationRequired(closest)
         raise ValueError('no reachable C-band goal with measured-error allowance')
     def observation(self,target,current_pose,camera_evaluator):
         candidates=[np.asarray(current_pose,float)]

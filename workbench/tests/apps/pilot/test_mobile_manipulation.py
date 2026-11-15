@@ -115,6 +115,18 @@ def test_base_executor_requires_measured_settle_and_stops_on_blockage():
     with pytest.raises(RuntimeError):e.step([0,0,0],0,0,lambda *a:False)
 
 
+def test_reached_observation_goal_holds_without_demanding_a_corrective_grid_sweep():
+    now=[0.];executor=BaseExecutor(Settings(),lambda:now[0])
+    goal=BaseGoal(np.zeros(3),np.array([[0.,0.,0.]]),np.zeros(4),dict(kind='observation'))
+    executor.start(goal,[.0003,0,0],1)
+    def blocked(*args):raise AssertionError('no movement requested')
+    velocity,done=executor.step([.0003,0,0],0,0,blocked)
+    assert not velocity.any() and not done
+    now[0]=.6
+    velocity,done=executor.step([.0003,0,0],0,0,blocked)
+    assert not velocity.any() and done
+
+
 class Ports:
     def __init__(self):self.calls=[];self.identity=('sim','boot','lease');self.scene=1;self.stops=[]
     def route(self):return self.identity
@@ -144,6 +156,49 @@ def test_parent_cycle_uses_observation_and_grasp_base_goals_and_is_truthful():
     assert p.calls==['acquire','plan_observation','transport','move_observation','aim_observation','scan','post_scan_acquire',
         'plan_grasp','transport','move_grasp','reacquire','check_grasp','hug','verify']
     assert c.ownership.session is None
+
+
+def test_search_after_reconstruction_resumes_post_scan_acquisition_instead_of_restarting_scan():
+    ports=Ports();poll=ports.poll;missed=[False]
+    def miss_once(op):
+        if op[0]=='post_scan_acquire' and not missed[0]:
+            missed[0]=True;return dict(visible=False)
+        return poll(op)
+    ports.poll=miss_once;coordinator=Coordinator(ports,clock=lambda:0.)
+    coordinator.start(coordinator.plan()['plan_id'])
+    for _ in range(24):coordinator.tick()
+    assert ports.calls.count('scan')==1
+    index=ports.calls.index('search')
+    assert ports.calls[index+1]=='post_scan_acquire'
+    assert 'plan_grasp' in ports.calls and coordinator.phase=='unverified'
+
+
+def test_unobserved_grasp_path_collects_floor_and_resumes_without_repeating_scan():
+    ports=Ports();poll=ports.poll;missing=[True]
+    def ask_for_floor(op):
+        if op[0]=='plan_grasp' and missing[0]:
+            missing[0]=False;return dict(needs_mapping=True)
+        return poll(op)
+    ports.poll=ask_for_floor;coordinator=Coordinator(ports,clock=lambda:0.)
+    coordinator.start(coordinator.plan()['plan_id'])
+    for _ in range(24):coordinator.tick()
+    index=ports.calls.index('map_search')
+    assert ports.calls[index+1]=='post_scan_acquire'
+    assert ports.calls.count('scan')==1 and ports.calls.count('plan_grasp')==2
+    assert coordinator.phase=='unverified'
+
+
+def test_grasp_geometry_can_request_floor_observation_without_marking_unknown_cells_free():
+    from elesim_pilot.mobile_manipulation.base_planner import BasePlanner,FloorObservationRequired
+    rows=[dict(feature='side',root=1,xy_mm=[-100,300],q_deg=[-50,-150])]
+    model=NS(meta={'home':[0,0,0,0]},sample_triangle=lambda n:rows,
+        solve_many=lambda points:[dict(feature='side',root=1,xy_mm=p) for p in points])
+    grid=LocalMap();footprint=np.array([[0.,0.]])
+    planner=BasePlanner(model,grid,footprint,np.eye(4),.3,Settings())
+    target=TargetTrack().update(cylinder((.7,.15)),stamp=1.,source=('sim','boot','calib'))
+    with pytest.raises(FloorObservationRequired) as caught:planner.grasp(target,np.zeros(3))
+    assert np.isfinite(caught.value.pose).all()
+    assert not grid.free and not grid.blocked
 
 
 def test_parent_route_change_and_cancel_cannot_continue_into_hug():

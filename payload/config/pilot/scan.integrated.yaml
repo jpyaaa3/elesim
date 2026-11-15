@@ -51,6 +51,7 @@ models:
       normal_neighbors: 30
       normal_radius_m: 0.012
       remesh_resolution_m: 0.004
+      remesh_max_resolution_m: 0.008
       min_component_area_m2: 0.000025
       threads: 1
       timeout_s: 60.0

@@ -15,7 +15,6 @@ class BaseExecutor:
         now=self.clock();pose=np.asarray(pose,float)
         if now-self.started>self.s.base_timeout_s:raise RuntimeError('base approach timeout')
         next_pose=self.goal.path[self.index]
-        if not segment_free(pose,next_pose):raise RuntimeError('base path no longer observed free')
         delta=next_pose-pose;delta[2]=angle(delta[2])
         close=np.linalg.norm(delta[:2])<self.s.base_position_tolerance_m and abs(delta[2])<self.s.base_yaw_tolerance_rad
         if self.goal.report.get('kind')=='grasp' and self.index==len(self.goal.path)-1:
@@ -29,6 +28,10 @@ class BaseExecutor:
                 if now-self.settled>=self.s.settle_s:self.active=False;return np.zeros(3),True
             else:self.settled=None
             return np.zeros(3),False
+        # A goal already reached needs zero velocity and measured settling,
+        # not a submillimetre corrective move into a different grid cell.
+        # Every nonzero command still requires a checked swept footprint.
+        if not segment_free(pose,next_pose):raise RuntimeError('base path no longer observed free')
         self.settled=None
         distance=np.linalg.norm(delta[:2])+.2*abs(delta[2])
         if distance<self.best-.0002:self.best=distance;self.last_progress=now

@@ -27,6 +27,16 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   성공은 아직 미확인**이다. 개발용 Pilot 진단을 최종 설치본 통과로 계산하지 않는다.
   수정 릴리스를 양측에 다시 반영한 뒤 이동·scan/completion·C-band 진입·loaded hold를
   검증해야 한다. Canonical required/extended/release 전체 gate는 실행하지 않았다.
+- 후속 개발 평가에서는 실제 2시점 관측·AdaPoinTr 추론까지 진행했다. 기존
+  2 mm/0.25° 촬영 기준에 도달하면 더 촬영하지 않고, 이미 수용한 관측이 2개
+  이상일 때만 그 자료의 재구성을 마무리한다. 큰 몸통 이동·추종·telemetry 오류는
+  그대로 실패다. Floor look 뒤에는 원래 취득 단계로 돌아가며, C-band까지의
+  바닥이 미관측이면 관측을 추가하도록 연결했다. 미지 바닥은 free로 채우지 않는다.
+- Poisson의 100,000개 triangle 한도를 유지하고, 통합 설정에서만 4–8 mm의
+  명시적 grid 간격 재시도를 허용했다. 저장한 실제 RGB-D의 독립 CLI 재생에서
+  AdaPoinTr 8,192 predicted points와 **5 mm / 98,540 triangles**의 검증된 메시를
+  발행했다. 관측점·예측점은 분리됐다. 이 재생은 실시간 전체 성공 증거가 아니다.
+  관련 host 회귀는 **114 passed, 5 skipped(Open3D 부재)**다.
 
 ### cuRobo 우선·GA 보충 교보재 연결 (2026-11-13)
 

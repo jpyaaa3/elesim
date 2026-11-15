@@ -25,11 +25,21 @@ boot and motion lease may execute. No Robot motion is admitted.
    path, including rotation sweeps and the transport-arm projection.
 4. Aim and run the existing multi-view scan with the body stationary. A partial
    vertical ROI is allowed. Separate measured and completion points remain saved.
+   If a small standing shift reaches the original 2 mm / 0.25-degree capture
+   limit, acquisition stops. With at least two already accepted views, the
+   mobile task may finish reconstruction from those earlier frames, explicitly
+   reporting `base_pose_budget_reached`. No frame beyond the capture limit is
+   admitted and larger body jumps remain failures. All final fit, arrival,
+   model, tracking and physical-hold checks still apply after reacquisition.
 5. Fit the axis/diameter from **observed** points. Completion never certifies
    object diameter or position error. Capture provenance survives model latency.
 6. Sample the analytic q triangle, forward-project to XY and reject sampled
    neighbourhoods that leave its supported branch. For each surviving relative
    placement, derive body yaw/position candidates and check local paths.
+   An unobserved approach requests bounded floor looks and then reacquires the
+   target; it never marks that approach free or repeats a completed scan merely
+   because a floor look hid the object. Observation preparation reuses the
+   scan's 12,000-pose candidate set, including its cooperative scheduling.
 7. Transport Home, move, and reacquire. If the final pose hides the cylinder,
    allow a handoff only when the last observation's age plus motion-drift
    allowance fits the sampled solver neighbourhood. Otherwise observe again.
@@ -61,6 +71,12 @@ in the collision map even inside the broad robot-body removal box.
 error allowances. All input q values are canonical linear metres, roll radians
 and per-node bends; displayed q3/q4 are total segment bends. Solver offset and
 node count are recorded in the model manifest.
+
+The integrated Poisson mesher requests a 4 mm grid and explicitly allows up to
+8 mm when the existing grid/triangle budget is reached. Only budget exceptions
+trigger a retry. The published diagnostics retain requested/effective spacing
+and all attempts; geometry quality failures are still failures. This inferred
+surface is separate from the observed points used for cylinder localization.
 
 ## Verification
 

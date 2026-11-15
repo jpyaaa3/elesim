@@ -85,6 +85,27 @@ def test_active_acquisition_records_silhouettes_and_exports_separate_scene_objec
     assert result.objects[0].shape.predicted.shape == (1, 3)
 
 
+@pytest.mark.parametrize('limit',[0,1,2])
+def test_acquisition_budget_finishes_only_two_or_more_already_accepted_views(tmp_path,limit):
+    from elesim_pilot.reconstruction.scan import AcquisitionLimit
+    count=[0]
+    def acquire(q,certificate):
+        if count[0]==limit:raise AcquisitionLimit('base_pose_budget_reached')
+        count[0]+=1
+        return Measurement(sensor(q,count[0]))
+    engine=ActiveScan(pipeline(tmp_path),CameraModel(),Planner(),max_views=3)
+    if limit<2:
+        with pytest.raises(AcquisitionLimit):
+            engine.run(acquire,np.zeros(4),Task('orchard','apple-1'),tmp_path/'scan')
+        assert not (tmp_path/'scan/scene/scene.json').exists()
+    else:
+        _,report=engine.run(acquire,np.zeros(4),Task('orchard','apple-1'),tmp_path/'scan')
+        assert report['accepted_views']==2 and len(report['views'])==2
+        assert report['stop_reason']=='base_pose_budget_reached'
+        assert report['geometry_complete_claimed'] is False
+        assert len(list((tmp_path/'scan/frames').glob('*.npz')))==2
+
+
 def test_pending_calibration_collects_new_frames_before_accepting_a_view(tmp_path):
     from elesim_pilot.reconstruction.models import Model
     from elesim_pilot.reconstruction.pipeline import ObservationPending

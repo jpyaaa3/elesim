@@ -54,17 +54,18 @@ class Coordinator:
                 if self.reobservations>self.s.max_reobservations:raise RuntimeError('final_target_reacquisition_failed')
                 self._begin('plan_observation',set())
             elif self.searches<self.s.search_limit:
-                self.searches+=1;self._begin('search',{'arm'},index=self.searches)
+                self.searches+=1;self._search_return=phase
+                self._begin('search',{'arm'},index=self.searches)
             else:raise RuntimeError('target_not_found')
-        elif phase=='search':self._begin('acquire',{'arm'})
+        elif phase=='search':self._begin(self._search_return,{'arm'})
         elif phase=='plan_observation':
             if result.get('needs_mapping'):
                 self.searches+=1
                 if self.searches>self.s.search_limit:raise RuntimeError('no_observed_free_base_path')
-                self._begin('map_search',{'arm'},index=self.searches)
+                self._map_return='acquire';self._begin('map_search',{'arm'},index=self.searches)
             else:
                 self.observation=result['goal'];self._begin('transport',{'arm'},purpose='observation')
-        elif phase=='map_search':self._begin('acquire',{'arm'})
+        elif phase=='map_search':self._begin(self._map_return,{'arm'})
         elif phase=='transport':
             purpose=result['purpose']
             if purpose=='observation':self._begin('move_observation',{'arm','base'},goal=self.observation)
@@ -78,7 +79,13 @@ class Coordinator:
                 self._begin('plan_observation',set())
             else:self._begin('post_scan_acquire',{'arm'})
         elif phase=='plan_grasp':
-            self.grasp=result['goal'];self._begin('transport',{'arm'},purpose='grasp')
+            if result.get('needs_mapping'):
+                self.searches+=1
+                if self.searches>self.s.search_limit:raise RuntimeError('no_observed_free_grasp_path')
+                self._map_return='post_scan_acquire'
+                self._begin('map_search',{'arm'},index=self.searches)
+            else:
+                self.grasp=result['goal'];self._begin('transport',{'arm'},purpose='grasp')
         elif phase=='move_grasp':self._begin('reacquire',{'arm'})
         elif phase=='check_grasp':
             if result['accepted']:self._begin('hug',{'arm'})
