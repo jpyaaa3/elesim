@@ -1,12 +1,41 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-11-15. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-11-16. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
-### 설치본 모바일 관측·끌어안기 평가 진행 중 (2026-11-15)
+### 설치본 모바일 관측·끌어안기 평가 미통과 (2026-11-16)
+
+- 최신 공식 소스는 `7164e865`이며 `/home/user/ws/newsim`의 UI와
+  `/home/hckang/ws/newsim`의 Pilot/Sim에 updater 발행·등록·활성화를 완료했다.
+  이미지 안의 소스 SHA, SROS2 Enforce와 GPU2를 대조했다. 아래의 `run-17`부터
+  `run-22`까지는 수정 경위를 남긴 과거 실행이며, 현재 결과는 `run-23`이다.
+- `run-23`은 **463.15초 후 accepted=false**로 끝났다. 실제 2시점 촬영,
+  AdaPoinTr와 메시 발행, 스캔 후 RGB-D 재취득은 통과했다. 물체를 다시 찾는
+  복귀도 **history prefix 3구간 / 48.52초**로 통과해 이전 복귀 timeout을 해결했다.
+  추가 바닥 관측으로 목표 footprint의 unknown cell은 **90 → 17 → 10**으로
+  줄었으나 새 관측 자세의 경로를 찾지 못해 `floor observation arm paths are
+  blocked`로 종료했다. 현재 footprint는 315칸 모두 관측됐고 blocked는 0이다.
+  목표 footprint는 315칸 중 unknown 10, blocked 0이다. **C-band 이동·감싸기·
+  들어올리기·5초 유지에는 아직 도달하지 않았다.**
+- 합격 기준은 고정한다. 기존 D100 원기둥 한 케이스에서 설치본 모바일 작업이
+  `completed`에 도달하고, 같은 실행의 독립 물리 평가로 기존 5초 loaded hold를
+  확인해야 한다. Fixture 좌표는 Sim 배치에만 제공한다. 충돌·freshness·관측 예산·
+  시간 제한·물리 성공 한도를 완화하거나 별도 시험 대상을 추가하지 않는다.
+  사용자 정정에 따라 임의의 시각 마감은 사용하지 않는다.
+- 남은 10칸이 실제 가림 때문인지 RGB-D 표본 선택 때문인지는 아직 미확정이다.
+  다음 확인은 해당 실행의 원본 RGB-D와 칸별 깊이 대조다. 2026-11-16 재개 시
+  서버 SSH가 응답하지 않아 이 진단을 실행하지 못했다. 공인 주소와 VPN 주소의
+  SSH 접속은 Windows/WSL 모두 완료하지 못했다. 공인 주소의 비상용 2222는 TCP
+  연결 이후 SSH 배너 대기에서 멈췄다. 일반 ICMP는 계속 응답했고 Tailscale ping은
+  한 번 응답한 뒤 다시 timeout이었다. 서버 전원 꺼짐이나 MTU를 원인으로 확정하지
+  않는다. 서버 내부 sshd/접속 정책
+  확인과 원본 자료 수집이 먼저이며, 원격 역할이 정지됐다고 주장하지 않는다.
+- 원본 보고서·telemetry·두 영상은 로컬에 보존했다. `run-23`의 원격 원본 scan은
+  아직 복사하지 못했으므로 해당 Pilot 컨테이너 교체 전에 수집해야 한다.
+  [공식 이미지·소스·고정 조건·실행 결과와 증거 해시](../workbench/evidence/curated/planning/mobile_installed_20261115.json).
 
 - 사용자 요청으로 일시 중단한 뒤 재개했다. `441f7d47` 푸시와 양쪽 공식 updater 발행,
   정지 상태에서 SROS2 세대 `g-20261115t084557388563z-eefe6ad85d2e`의 원자적

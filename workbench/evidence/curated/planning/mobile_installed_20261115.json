@@ -143,11 +143,11 @@
     "resumed_date": "2026-11-15"
   },
   "resume": [
-    "Fresh source-fenced subscriber received frame 177228; repeated receivers sometimes failed entirely. Diagnose measured UDP receive-buffer drops before changing subscriber lifetime.",
-    "Repair a demonstrated cause without weakening source, boot, calibration, freshness or measured motion guards.",
-    "Run owning regressions, commit/push directly in the configured repository, then use both official updaters.",
-    "Activate the resulting role-scoped SROS2 release transaction and repeat the full installed UI-to-Pilot-to-Sim cycle.",
-    "Require actual observed-free C-band motion, wrap/lift and independent continuous five-second loaded hold before accepting."
+    "Restore authenticated server SSH access; do not change MTU, SSH/SROS2 policy or success thresholds as an experiment workaround.",
+    "Collect the run-23 raw scan bb3e46e762154c4a959be1c7e1441608 before replacing its Pilot container.",
+    "Compare the ten remaining goal cells against actual RGB-D depths and the retained point sample; distinguish occlusion from sampling loss before changing the implementation.",
+    "Verify only an evidence-supported repair, publish it through both official updaters, and repeat the same installed D100 case with the fixed acceptance conditions.",
+    "Accept only mobile completion and independent same-execution five-second loaded hold; additional scenarios are not required."
   ],
   "evidence": [
     {
@@ -334,6 +334,56 @@
       "path": "workbench/evidence/generated/mobile-installed-20261115/connections-start-v8-result.json",
       "bytes": 1792,
       "sha256": "44efa63832f0e7e5ab0eefa62faa130ec4ad77fd813fb3f10e15889f6e571897"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-23/report.json",
+      "bytes": 28306,
+      "sha256": "9293e18b28d7c1c9fd1a8abc71cb69930d61226484799695a1171061bced723c"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-23/telemetry.jsonl",
+      "bytes": 8892918,
+      "sha256": "29052c2a9fc1cd63077aeae745a07de961d2460bd7f6862e54c907c99c28e2f8"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-23/observer.mp4",
+      "bytes": 9451034,
+      "sha256": "fe911011d3a7df7295ddffef4ce67b725c6995f4a97b3ed7f006b90f65963af4"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-23/hand_eye_preview.mp4",
+      "bytes": 22675444,
+      "sha256": "6c11a4ff279b2a77e6d83fbc772927eef7bc6aa7d5f3a5b98c29dc7445c125ff"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/operator-23.log",
+      "bytes": 67827,
+      "sha256": "7f06daf4ce79ae11a8047d9f36014c901e4ea8b0356ae8b46639a005ba7cb365"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/operator-source-23.json",
+      "bytes": 257,
+      "sha256": "32d0e18a005961ed73955305dd66f72177c52c67f1cbf576ec3181d0e27952a5"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v9-remote.json",
+      "bytes": 6224,
+      "sha256": "181415d35e77e596b096193549b216dba974d45b1d0273fcd9767ebb21561bcc"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/security-rotation-v9-result.json",
+      "bytes": 606,
+      "sha256": "889ec22188a3b2f73873d3d523133ec777f59370571abc00e3b71ddf09ada8be"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/fixed-acceptance.json",
+      "bytes": 2170,
+      "sha256": "eece820da8e0c4420d02005d9cb168a332d915e4e9062c6049f17c45c59f8d01"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/network-20261116.json",
+      "bytes": 844,
+      "sha256": "1edb6e33802d3a5df0746356954faab51ecdfc155f23258d2b18b4a0f95d75a6"
     }
   ],
   "live_follow_up": {
@@ -390,7 +440,8 @@
     "tests_passed": 73,
     "change": "Certify a direct arm return first. Use the checked historical route only when collision certification blocks the direct route. Keep timing and tracking limits unchanged.",
     "further_change": "Try the shortest collision-certified prefix of reverse history, rather than visiting the entire history and Home before the actual return target.",
-    "further_change_deployed": false
+    "further_change_deployed": true,
+    "further_change_verified_run": "run-23"
   },
   "official_second_follow_up": {
     "source_revision": "5eaa033f",
@@ -417,5 +468,210 @@
     "DDS_descriptor_and_heartbeat_gate_passed": true,
     "media_both_decoded": true,
     "full_grasp_hold_claimed": false
+  },
+  "updated_date": "2026-11-16",
+  "latest_installed_evaluation": {
+    "source_revision": "7164e86562b498a2dae249cb78a4d9d94b09e114",
+    "run": "run-23",
+    "evaluation_mode": "installed",
+    "accepted": false,
+    "execution_finished": true,
+    "terminal_phase": "failed",
+    "error": "floor observation arm paths are blocked",
+    "elapsed_s": 463.1531363580143,
+    "images": {
+      "pilot": "sha256:b95c53a75d18e35a1be2fbfff324722a406c74c98d02bf729f9df6ecc5a339be",
+      "sim": "sha256:f06e6b72bbd65dca29a44395eb54828f4b18f27d734141c073e15ca09c94ba62"
+    },
+    "source_hashes": {
+      "pilot": {
+        "files": {
+          "mobile_manipulation/runtime.py": "eb3e9b21ef203e2acf0d1b745c008a1c912433e15347e5f0b6aa4391bd9f78c0",
+          "mobile_manipulation/coordinator.py": "84bfd8d0a781d8de06804a086364abf55a74f9ccda4af9f27920ae0bd6fd7052",
+          "mobile_manipulation/local_map.py": "93e10c34fa48d29f8ab49d642c213687e9224741969512ccac2ed47b88f0cf3d",
+          "vision/perception/sim_rendered_camera.py": "b65765bfa06ccbaa0f991e45b2269bcb8f9e2f4130729c5df476db869fd5558a",
+          "reconstruction/live_scan.py": "12fe065c1fbfbcdce9aca204edd3a4d3f9584d1d75c770ae10c16c7fc75fc507",
+          "mobile_manipulation/contracts.py": "d27dc237e3c70fa754ebbbb23e17efe146aeda899a4166bb3d133527724a64da",
+          "robot/arm/approach.py": "39da97743c3bcb219a7b3912d02c75cce94db6f04afc02e3c11a61436e5b62b7"
+        },
+        "encoded_rgbd": "b74653d3939fe11f76524f792979dc0ebbc5c53d4a2d512ebbfdb76091493e1e",
+        "sibling_absent": true
+      },
+      "sim": {
+        "files": {
+          "runtime.py": "082854ffa4e75e63b25e2968120d43e8141be9705a665fc3b7b17eb9e5e4354c",
+          "vision/sim_camera/async_worker.py": "cdd846711077abe9c4499e03b77370466b3eb319d221c6c825278a8939afafb4",
+          "simulation/hold_evaluation.py": "2de56685132821ed9799c22c3e76374afe90bb2dcfeacd0bd6d655c62a64e072",
+          "simulation/grasp_metrics.py": "5c3ee8a5d8e829db313d09d6c6ad37dbf1bf49714dbe00ce5686c2859feb1a9a",
+          "simulation/contact_metrics.py": "7bd91ac70d515635118c090442b03afaabc50088c17c47a7520638cb1c524459"
+        },
+        "encoded_rgbd": "b74653d3939fe11f76524f792979dc0ebbc5c53d4a2d512ebbfdb76091493e1e",
+        "sibling_absent": true
+      }
+    },
+    "compute_release_key": "bc41ede51b70b1ede782e2676ede768c2015eecb3d17ce3b02c9a49b979c35ec",
+    "security_profile": "sros2",
+    "security_generation": "g-20261115t101424065485z-256f859ef02b",
+    "role_compute": {
+      "pilot": {
+        "gpu_device": "2",
+        "gpu_mode": "specific"
+      },
+      "sim": {
+        "gpu_device": "2",
+        "gpu_mode": "specific"
+      }
+    },
+    "runtime_patched": false,
+    "arm_return": {
+      "goal_q": [
+        -0.15046820044517517,
+        -0.8126932978630066,
+        -0.5251819491386414,
+        0.6175249934196472
+      ],
+      "segments": 3,
+      "strategy": "history_prefix",
+      "elapsed_s": 48.523892026394606
+    },
+    "goal_unknown_progress": [
+      90,
+      17,
+      10
+    ],
+    "map_current": {
+      "blocked_cells": 0,
+      "blocked_xy_m": [],
+      "total_cells": 315,
+      "unknown_cells": 0,
+      "unknown_xy_m": []
+    },
+    "map_goal": {
+      "blocked_cells": 0,
+      "blocked_xy_m": [],
+      "total_cells": 315,
+      "unknown_cells": 10,
+      "unknown_xy_m": [
+        [
+          0.42,
+          0.26
+        ],
+        [
+          0.42,
+          0.3
+        ],
+        [
+          0.46,
+          -0.18
+        ],
+        [
+          0.46,
+          0.26
+        ],
+        [
+          0.46,
+          0.3
+        ],
+        [
+          0.5,
+          0.22
+        ],
+        [
+          0.5,
+          0.26
+        ],
+        [
+          0.5,
+          0.3
+        ],
+        [
+          0.54,
+          -0.22
+        ],
+        [
+          0.62,
+          -0.26
+        ]
+      ]
+    },
+    "mapping_attempts": 4,
+    "searches": 1,
+    "C_band_base_motion_reached": false,
+    "wrap_lift_hold_reached": false,
+    "scan": {
+      "job_id": "bb3e46e762154c4a959be1c7e1441608",
+      "accepted_views": 2,
+      "observed_points": 6874,
+      "predicted_points": 8192,
+      "scene_revision": "c6d299a427e64676e7a767466a495902de23b7544208ac0127b2db0dab1529e2",
+      "scene_reference": "bb3e46e762154c4a959be1c7e1441608/scene/scene.json",
+      "stop_reason": "base_pose_budget_reached"
+    },
+    "decoded_streams": [
+      "observer",
+      "hand_eye_preview"
+    ],
+    "video_frames": {
+      "observer": 3961,
+      "hand_eye_preview": 3961
+    },
+    "run23_raw_scan_copied": false
+  },
+  "fixed_acceptance": {
+    "scope": "One upright D100 cylinder, fixture x=.7,y=.15,z=.55 supplied to Sim only, current official installed UI/Pilot/Sim on GPU2.",
+    "pass_condition": "mobile.phase == completed with independent same-execution current-tick physical hold evidence",
+    "hold_settings": {
+      "dt": 0.01,
+      "hold_duration_s": 5.0,
+      "lift_clearance_m": 0.02,
+      "hold_slip_m": 0.01,
+      "hold_contact_fraction": 0.8,
+      "lift_roll_target_rad": 0.0,
+      "lift_roll_tolerance_rad": 0.08726646259971647,
+      "face_force_min_n": 0.01,
+      "face_margin_m": 0.001,
+      "face_normal_tolerance": 0.15
+    },
+    "mobile_settings": {
+      "max_reobservations": 3,
+      "max_corrections": 3,
+      "search_limit": 8,
+      "max_views": 12,
+      "total_timeout_s": 900.0,
+      "feedback_timeout_s": 0.5,
+      "base_speed_mps": 0.08,
+      "yaw_speed_radps": 0.15,
+      "base_position_tolerance_m": 0.01,
+      "base_yaw_tolerance_rad": 0.025,
+      "settle_s": 0.5,
+      "base_timeout_s": 90.0,
+      "target_age_s": 45.0,
+      "drift_per_m": 0.02,
+      "drift_per_rad": 0.005,
+      "arrival_error_m": 0.003,
+      "min_position_error_m": 0.003,
+      "scan_roi_height_m": 0.18,
+      "hug_drift_error_m": 0.004,
+      "hug_body_position_tolerance_m": 0.003,
+      "hug_body_rotation_tolerance_rad": 0.008726646259971648
+    },
+    "source_revision": "7164e865",
+    "acceptance_source_sha256": {
+      "payload/runtime/docker/sim/app/elesim_sim/simulation/hold_evaluation.py": "2de56685132821ed9799c22c3e76374afe90bb2dcfeacd0bd6d655c62a64e072",
+      "payload/runtime/docker/sim/app/elesim_sim/simulation/grasp_metrics.py": "5c3ee8a5d8e829db313d09d6c6ad37dbf1bf49714dbe00ce5686c2859feb1a9a",
+      "payload/runtime/docker/sim/app/elesim_sim/simulation/contact_metrics.py": "7bd91ac70d515635118c090442b03afaabc50088c17c47a7520638cb1c524459",
+      "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/contracts.py": "d27dc237e3c70fa754ebbbb23e17efe146aeda899a4166bb3d133527724a64da",
+      "payload/data/policies/hug-d100/manifest.json": "fad5a8ff70adc56ee22979fb44516794e5561cbd97643a6f2053d61652034942"
+    },
+    "unchanged_criteria": true,
+    "additional_scenarios_required": false,
+    "wall_clock_deadline_superseded": true
+  },
+  "current_live_blocker": {
+    "type": "remote_ssh_unavailable",
+    "evidence": "network-20261116.json",
+    "tailscale_online_flag_does_not_prove_ssh_recovered": true,
+    "remote_service_stop_confirmed": false,
+    "cause_confirmed": false
   }
 }
