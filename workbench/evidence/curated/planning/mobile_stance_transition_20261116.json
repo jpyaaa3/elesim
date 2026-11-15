@@ -13,7 +13,7 @@
     "motion": 4,
     "stop": 3
   },
-  "source_isolated_not_deployed": true,
+  "source_isolated_not_deployed": false,
   "acceptance_unchanged": true,
   "variants": {
     "baseline": {
@@ -121,9 +121,28 @@
       "sha256": "c409d6823f325fd693130e33fca8478762d9ea3cb8a5d4cbb944e3ce21e34646"
     }
   },
-  "remaining_gate": "Official release and same full mobile case. Diagnostic roll/pitch exceeds existing .07 rad mobile guard; no physical acceptance or full locomotion stability claimed.",
+  "remaining_gate": "Tracking-clearance mapping and same installed full mobile case; body tilt guard remains .07 rad.",
   "source_sha256": {
     "payload/runtime/docker/sim/app/elesim_sim/robot/go2/foot_workspace.py": "82f5f2d6e88480ed0d06197f7f7afbc3412c694bb2faf50167a642defbf84771",
     "payload/runtime/docker/sim/app/elesim_sim/robot/go2/pympc_controller.py": "06a4ac74630f47ca6837f1c23dbf831c8d4f9d631bd2c1f6f9196a5db5e4c0fa"
+  },
+  "installed_retest": {
+    "revision": "8d337f4b",
+    "run": "run-26",
+    "elapsed_s": 275.8491686919988,
+    "accepted": false,
+    "reason": "base path no longer observed free",
+    "wrap_lift_hold_reached": false,
+    "initial_base_pos_m": [
+      -0.006253791507333517,
+      0.0007075382163748145,
+      0.30252015590667725
+    ],
+    "last_moving_base_pos_m": [
+      -0.00820630881935358,
+      0.0008324429509229958,
+      0.26715385913848877
+    ],
+    "interpretation": "Large startup slide reduced, but a small measured translation/yaw change still invalidated nominal observed-free path. No hold or gait stability acceptance."
   }
 }

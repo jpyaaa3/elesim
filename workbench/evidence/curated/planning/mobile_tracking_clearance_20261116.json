@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "Same installed D100 case; conservative measured-floor clearance, no acceptance changes",
+  "baseline": {
+    "run": "run-26",
+    "revision": "8d337f4b",
+    "accepted": false,
+    "elapsed_s": 275.8491686919988,
+    "reason": "base path no longer observed free"
+  },
+  "clearance_rule": "existing base_position_tolerance_m + 2*max_footprint_radius_m*sin(existing base_yaw_tolerance_rad/2)",
+  "changes": [
+    "Require measured free cells around the nominal route, starting stance and destination.",
+    "Focus floor views at missing starting clearance before selecting a destination.",
+    "Keep starting free seed, actual-pose runtime checks, observation budgets and all physical limits unchanged.",
+    "Record bounded current/next footprint diagnostics when a live route check rejects motion."
+  ],
+  "tests": {
+    "red": "2 failed: no clearance API; destination selection attempted before mapping the starting clearance",
+    "focused_host": "96 passed",
+    "canonical_gates_run": false,
+    "canonical_reason": "No usable prepared development attachment. No host scientific/ROS dependency installation."
+  },
+  "deployed": false,
+  "installed_follow_up_accepted": false,
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-26/report.json",
+      "bytes": 28208,
+      "sha256": "cd25d1c683520a9f318801d79c046ae082043b7fb3d07b1ec7df3ee7c774439e"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-26/telemetry.jsonl",
+      "bytes": 3964667,
+      "sha256": "a8302affa7a35892c37aeb6a92ffcdb0d1247d881cf77d7fcbfae74ae392a338"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-26/observer.mp4",
+      "bytes": 5962716,
+      "sha256": "62db1298a61b2816151e37407113480d8615df768155ba333e606a5988d537f5"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-26/hand_eye_preview.mp4",
+      "bytes": 13734326,
+      "sha256": "05408afc0d05f4f07b0f892d74f4242f9cb3bfd8bcd84e34f695921ff3240047"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/scan-26.tar.gz",
+      "bytes": 3307063,
+      "sha256": "e2d0b3e311bc7e5f479bcb9721643ddbd7aff6d7c1bc4544b07f9e44d469e907"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/tracking-margin-red.log",
+      "bytes": 1583,
+      "sha256": "e688e8cb3fa1dc1d41564a887e90a691c2d092409cc06110ff290ebbd637d150"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/tracking-margin-tests.log",
+      "bytes": 179,
+      "sha256": "d8be5bd439ec187bbd77b778d8f796af2a5d0a2cb68643cc33c4fe49a7c87dba"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v11-operator.json",
+      "bytes": 464,
+      "sha256": "4c2b738e40d27686d3f0be43ee5f93487ab9708cd61620f54dafdd0e2bfe4c5a"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v11-remote.json",
+      "bytes": 3934,
+      "sha256": "a5873b3fe2823cc0d812a24f6ddd16f80a6d1da9c1126a2f8ce0eea84151ca05"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/registration-v11.json",
+      "bytes": 3746,
+      "sha256": "706b5ac95bc228f58ab5384a1437c3cce19fa8cf1f857f573bdee2c0905e750a"
+    }
+  ],
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/local_map.py": "85141d182e60bfd8affbb6e5f72cfeabf67d8c1b3b59f6e8cb801d5af8a5e085",
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/base_planner.py": "43a91f10abdc66f1515434b2a5272747b6ed49f6ff6ceb3b74e4022da6bf0229",
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "b22ad93f9c08d4aaa1334104faa89b80570baf37862532a28c60853d61c1a696"
+  }
+}

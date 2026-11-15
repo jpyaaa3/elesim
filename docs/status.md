@@ -8,6 +8,17 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### 설치본 모바일 관측·끌어안기 평가 미통과 (2026-11-16)
 
+- 공식 `8d337f4b`의 `run-26`은 **275.85초 후 같은 관측 경로 검사에서 실패**했다.
+  Scan/completion·바닥 관측·C-band 계획과 Home 복귀는 통과했지만 준비 자세의
+  약 2 mm 후퇴와 작은 yaw 변화 뒤 경로를 거부했다. `run-25`의 약 30 mm
+  후퇴는 줄었어도 파지에는 도달하지 않았다. 양쪽 공식 이미지의 소스 SHA·GPU2·
+  SROS2 Enforce를 대조했고, 원본 scan·telemetry·두 영상을 로컬로 수집했다.
+- 후속 수정은 명목 경로 주변의 실제 관측 여유를 먼저 요구한다. 기존 base
+  위치·yaw 허용값으로 계산한 여유를 모든 계획 footprint에 적용하고, 출발점의
+  여유가 미관측이면 목적지 선택 전에 그 위치를 관측한다. 초기 free seed는
+  넓히지 않으며 실제 이동 검사는 원래 footprint/실측 pose를 유지한다. 부족한
+  여유·장애물·작은 추종 오차의 회귀와 관련 host 묶음은 **96 passed**다.
+  새 공식 릴리스의 동일 케이스 재평가는 남아 있으며 전체 수용시험은 미통과다.
 - 공식 `74a54356`의 `run-25`는 **270.37초 후 첫 실제 보행에서 실패**했다.
   2시점 scan/completion, 추가 바닥 관측, 관측된 C-band 경로 계획과 Home 복귀는
   통과했다. Stand→ready 관절 목표가 지지발의 앞뒤 위치를 바꿔 몸체가 약 30 mm
@@ -34,10 +45,10 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   위 `run-25`에서 바닥 관측과 계획까지 통과했으며, 재생을 실제 파지 성공으로
   취급하지 않는다.
   [재현 자료·소스 SHA·검증 범위](../workbench/evidence/curated/planning/mobile_floor_observation_20261116.json).
-- 최신 활성 공식 소스는 `74a54356`이며 `/home/user/ws/newsim`의 UI와
+- 최신 활성 공식 소스는 `8d337f4b`이며 `/home/user/ws/newsim`의 UI와
   `/home/hckang/ws/newsim`의 Pilot/Sim에 updater 발행·등록·활성화를 완료했다.
   이미지 안의 소스 SHA, SROS2 Enforce와 GPU2를 대조했다. 아래의 `run-17`부터
-  `run-24`까지는 수정 경위를 남긴 과거 실행이며, 현재 결과는 위 `run-25`다.
+  `run-25`까지는 수정 경위를 남긴 과거 실행이며, 현재 결과는 위 `run-26`다.
 - `run-23`은 **463.15초 후 accepted=false**로 끝났다. 실제 2시점 촬영,
   AdaPoinTr와 메시 발행, 스캔 후 RGB-D 재취득은 통과했다. 물체를 다시 찾는
   복귀도 **history prefix 3구간 / 48.52초**로 통과해 이전 복귀 timeout을 해결했다.

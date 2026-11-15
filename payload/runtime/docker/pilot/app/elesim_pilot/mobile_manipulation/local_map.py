@@ -40,32 +40,41 @@ class LocalMap:
         self.free-=self.blocked
         if len(self.free|self.blocked)>self.max_cells:raise RuntimeError('local map budget exceeded')
         self.revision+=1
-    def footprint_free(self,pose,footprint):
-        cells=self._footprint_cells(pose,footprint)
+    def footprint_free(self,pose,footprint,*,margin_m=0.):
+        cells=self._footprint_cells(pose,footprint,margin_m=margin_m)
         return all(c in self.free and c not in self.blocked for c in cells)
-    def _footprint_cells(self,pose,footprint):
+    def _footprint_cells(self,pose,footprint,*,margin_m=0.):
         t=planar(pose);local=np.asarray(footprint,float)
         points=local@t[:2,:2].T+t[:2,3]
+        if not np.isfinite(margin_m) or margin_m<0:raise ValueError('invalid footprint margin')
         # Footprint is an interior-filled sampling, not just its boundary.
-        cells=np.unique(np.floor(points/self.resolution).astype(int),axis=0)
+        low=np.floor((points-margin_m)/self.resolution).astype(int)
+        high=np.floor((points+margin_m)/self.resolution).astype(int)
+        if margin_m:
+            span=np.max(high-low,axis=0);chunks=[]
+            for x in range(span[0]+1):
+                for y in range(span[1]+1):
+                    cells=low+[x,y];chunks.append(cells[np.all(cells<=high,axis=1)])
+            cells=np.unique(np.concatenate(chunks),axis=0)
+        else:cells=np.unique(low,axis=0)
         return [(int(x),int(y)) for x,y in cells]
-    def footprint_status(self,pose,footprint):
-        cells=self._footprint_cells(pose,footprint)
+    def footprint_status(self,pose,footprint,*,margin_m=0.):
+        cells=self._footprint_cells(pose,footprint,margin_m=margin_m)
         blocked=[c for c in cells if c in self.blocked]
         unknown=[c for c in cells if c not in self.free and c not in self.blocked]
         return dict(total_cells=len(cells),unknown_cells=len(unknown),blocked_cells=len(blocked),
             unknown_xy_m=((np.array(unknown[:16]).reshape(-1,2)+.5)*self.resolution).tolist(),
             blocked_xy_m=((np.array(blocked[:16]).reshape(-1,2)+.5)*self.resolution).tolist())
-    def segment_free(self,a,b,footprint):
+    def segment_free(self,a,b,footprint,*,margin_m=0.):
         a,b=np.asarray(a,float),np.asarray(b,float);d=b-a;d[2]=angle(d[2])
         n=max(1,int(np.ceil(max(np.linalg.norm(d[:2])/(self.resolution/2),abs(d[2])/.05))))
-        return all(self.footprint_free(a+d*t,footprint) for t in np.linspace(0,1,n+1))
-    def path(self,start,goal,footprint,*,max_expansions=6000):
+        return all(self.footprint_free(a+d*t,footprint,margin_m=margin_m) for t in np.linspace(0,1,n+1))
+    def path(self,start,goal,footprint,*,max_expansions=6000,margin_m=0.):
         start,goal=np.asarray(start,float),np.asarray(goal,float)
-        if self.segment_free(start,goal,footprint):return np.array([start,goal])
+        if self.segment_free(start,goal,footprint,margin_m=margin_m):return np.array([start,goal])
         # Translation at start yaw followed by an explicitly checked final turn.
         # Holonomic GO2 can translate sideways; each segment is still swept.
-        if not self.footprint_free(start,footprint):raise ValueError('current footprint not observed free')
+        if not self.footprint_free(start,footprint,margin_m=margin_m):raise ValueError('current footprint not observed free')
         first,last=self.cell(start),self.cell(goal)
         queue=[(0.,first)];cost={first:0.};parent={};expanded=0
         while queue and expanded<max_expansions:
@@ -75,7 +84,7 @@ class LocalMap:
                 nxt=(c[0]+dx,c[1]+dy)
                 p=np.r_[(np.array(nxt)+.5)*self.resolution,start[2]]
                 before=start if c==first else np.r_[(np.array(c)+.5)*self.resolution,start[2]]
-                if not self.segment_free(before,p,footprint):continue
+                if not self.segment_free(before,p,footprint,margin_m=margin_m):continue
                 new=cost[c]+1
                 if new>=cost.get(nxt,float('inf')):continue
                 cost[nxt]=new;parent[nxt]=c
@@ -84,7 +93,7 @@ class LocalMap:
         cells=[last]
         while cells[-1]!=first:cells.append(parent[cells[-1]])
         path=[start]+[np.r_[(np.array(c)+.5)*self.resolution,start[2]] for c in cells[::-1][1:]]+[goal]
-        if not all(self.segment_free(a,b,footprint) for a,b in zip(path,path[1:])):
+        if not all(self.segment_free(a,b,footprint,margin_m=margin_m) for a,b in zip(path,path[1:])):
             raise ValueError('final approach or turn blocked')
         return np.asarray(path)
 

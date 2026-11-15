@@ -58,6 +58,14 @@ or hardware foot placement. A footprint contains the Go2 body/leg envelope and
 filled arm-sphere projections, preserving gaps rather than using one enclosing
 rectangle. Supported tracking uncertainty is 1 mm linear / 0.015 rad per rotary
 channel; both certificates and live tracking checks use that same bound.
+Base route planning additionally checks measured floor around every sampled
+footprint, including the starting stance. The padding is the existing base
+position tolerance plus `2 R sin(yaw_tolerance / 2)`, where R is the transport
+footprint's maximum radius. Missing starting clearance requests a floor view
+there before selecting a destination. These extra cells require actual depth
+observations; the declared occupied starting stance is not enlarged. Live base
+checks still use the measured pose and original footprint. Arrival, freshness,
+collision and physical hold limits remain unchanged.
 Grasp placement separately reserves 4 mm for solver-XY drift during execution.
 The body must stay within 3 mm translation and 0.5 degree rotation, and its actual
 full-transform projection must remain inside that reserved 4 mm. These measured

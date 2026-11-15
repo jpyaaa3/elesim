@@ -42,6 +42,11 @@ class BasePlanner:
         self.offset=model.meta.get('solver_origin_offset_mm',144.5)
         self.rows=None
         self.roll_pitch=(0.,0.)
+        radius=0. if footprint is None else float(np.max(np.linalg.norm(footprint,axis=1)))
+        # An actual tracking error must fit measured floor around the route,
+        # including its starting stance. This never changes arrival criteria.
+        self.clearance_m=(settings.base_position_tolerance_m
+            +2*radius*np.sin(settings.base_yaw_tolerance_rad/2))
     def frame(self,pose):return node_frame(pose,self.node_in_body,self.body_z,self.roll_pitch)
     def robust_solution(self,target,pose,error_m,measured_body=None):
         frame=self.frame(pose) if measured_body is None else measured_body@self.node_in_body
@@ -54,6 +59,8 @@ class BasePlanner:
         return rows[0]
     def grasp(self,target,current_pose):
         if abs(target.diameter-.1)>.002:raise ValueError('diameter outside D100 profile')
+        if not self.grid.footprint_free(current_pose,self.footprint,margin_m=self.clearance_m):
+            raise FloorObservationRequired(current_pose)
         if self.rows is None:self.rows=self.model.sample_triangle(20)
         error=target.error_m+self.s.arrival_error_m+self.s.hug_drift_error_m
         # Reject narrow/boundary targets once in a single solver batch, before
@@ -79,7 +86,7 @@ class BasePlanner:
                 point=target.at_height(relative[2])
                 pose=np.array([*(point-relative)[:2],yaw])
                 distance=np.linalg.norm(pose[:2]-current_pose[:2]);turn=abs(angle(yaw-current_pose[2]))
-                if not self.grid.footprint_free(pose,self.footprint):
+                if not self.grid.footprint_free(pose,self.footprint,margin_m=self.clearance_m):
                     unobserved.append((distance+.2*turn,pose));continue
                 # Geometric neighbourhood must have room in XY, not just q.
                 possible.append((distance+.2*turn,pose,row,distance,turn))
@@ -89,18 +96,21 @@ class BasePlanner:
             error=target.error_m+self.s.arrival_error_m+self.s.hug_drift_error_m
             report=self.robust_solution(target,pose,error)
             if report is None:continue
-            try:path=self.grid.path(current_pose,pose,self.footprint)
+            try:path=self.grid.path(current_pose,pose,self.footprint,margin_m=self.clearance_m)
             except ValueError:continue
             return BaseGoal(pose,path,np.array(self.model.meta['home']),dict(
                 kind='grasp',**report,error_allowance_m=error,map_revision=self.grid.revision,
                 hug_drift_error_m=self.s.hug_drift_error_m,
                 target_reach_m=float(np.linalg.norm(target.origin[:2]-pose[:2])),
+                base_clearance_m=self.clearance_m,
                 robustness='16 boundary probes plus centre; not a continuous certificate'))
         if possible or unobserved:
             closest=min([(cost,pose) for cost,pose,*_ in possible]+unobserved,key=lambda row:row[0])[1]
             raise FloorObservationRequired(closest)
         raise ValueError('no reachable C-band goal with measured-error allowance')
     def observation(self,target,current_pose,camera_evaluator):
+        if not self.grid.footprint_free(current_pose,self.footprint,margin_m=self.clearance_m):
+            raise FloorObservationRequired(current_pose)
         candidates=[np.asarray(current_pose,float)]
         center=target.origin[:2]
         bearing=np.arctan2(current_pose[1]-center[1],current_pose[0]-center[0])
@@ -110,13 +120,13 @@ class BasePlanner:
                 candidates.append(np.r_[p,angle(a+np.pi)])
         ranked=[]
         for pose in candidates:
-            if not self.grid.footprint_free(pose,self.footprint):continue
+            if not self.grid.footprint_free(pose,self.footprint,margin_m=self.clearance_m):continue
             report=camera_evaluator(pose,target)
             if report is None or report['views']<3:continue
             cost=np.linalg.norm(pose[:2]-current_pose[:2])+.2*abs(angle(pose[2]-current_pose[2]))
             ranked.append((-report['views'],cost,pose,report))
         for _,_,pose,report in sorted(ranked,key=lambda x:x[:2]):
-            try:path=self.grid.path(current_pose,pose,self.footprint)
+            try:path=self.grid.path(current_pose,pose,self.footprint,margin_m=self.clearance_m)
             except ValueError:continue
             return BaseGoal(pose,path,np.array(self.model.meta['home']),dict(kind='observation',**report))
         raise ValueError('no observed-free base pose with three distinct camera views')

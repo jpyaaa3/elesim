@@ -675,10 +675,10 @@
     "cause_confirmed": false
   },
   "current_live_blocker": {
-    "type": "mobile_base_startup",
-    "reason": "run-25 leaves observed route during stand-to-ready transition",
+    "type": "mobile_observed_route_clearance",
+    "reason": "run-26 rejects nominal path after small measured startup translation and yaw",
     "ssh_access": "restored; host network settings not changed",
-    "current_evidence": "mobile_floor_observation_20261116.json",
+    "current_evidence": "mobile_tracking_clearance_20261116.json",
     "overall_acceptance": false
   }
 }

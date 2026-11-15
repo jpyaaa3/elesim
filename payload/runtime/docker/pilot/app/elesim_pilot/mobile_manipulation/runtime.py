@@ -40,6 +40,7 @@ class SimPorts:
         self.generation=0;self.history=[];self.last_observation_base=None;self.scan_source=None
         self.last_command=None;self.stopped=False;self._summary={};self._latest={}
         self.last_target_q=None;self.mapping_views=[];self.mapping_intrinsics=None
+        self.mapping_margin_m=0.
     def route(self):return self.scan.route()
     def context(self):
         s=self.simulation_status()
@@ -71,6 +72,7 @@ class SimPorts:
         self.grid=None;self.track=None;self.history=[];self.last_observation_base=None
         self.scan_source=None;self._summary={};self.operation=None;self.last_frame_seq=-1
         self.last_target_q=None;self.mapping_views=[];self.mapping_intrinsics=None
+        self.mapping_margin_m=0.
         if hasattr(self,'mapping_goal_xy'):del self.mapping_goal_xy
         if hasattr(self,'mapping_goal_pose'):del self.mapping_goal_pose
         if hasattr(self,'camera_cache'):del self.camera_cache
@@ -142,15 +144,18 @@ class SimPorts:
         snapshot=self.feedback.snapshot(self.route()[:2])
         self.planner.body_z=snapshot['base']['pos'][2]
         self.planner.roll_pitch=snapshot['base']['rpy'][:2].copy()
-        self._summary['map_current']=self.grid.footprint_status(snapshot['pose'],self.footprint)
+        self._summary['map_current']=self.grid.footprint_status(snapshot['pose'],self.footprint,
+            margin_m=self.planner.clearance_m)
         try:return dict(goal=self.planner.grasp(self.track.estimate,snapshot['pose']))
         except FloorObservationRequired as exc:
-            self.mapping_goal_xy=exc.pose[:2].copy()
-            self.mapping_goal_pose=exc.pose.copy()
-            self._summary['planning_reason']=str(exc)
-            self._summary['mapping_goal_xy']=self.mapping_goal_xy.tolist()
-            self._summary['map_goal']=self.grid.footprint_status(exc.pose,self.footprint)
-            return dict(needs_mapping=True)
+            return self._mapping_required(exc)
+    def _mapping_required(self,exc):
+        self.mapping_goal_xy=exc.pose[:2].copy();self.mapping_goal_pose=exc.pose.copy()
+        self.mapping_margin_m=self.planner.clearance_m
+        self._summary.update(planning_reason=str(exc),mapping_goal_xy=self.mapping_goal_xy.tolist(),
+            mapping_clearance_m=self.mapping_margin_m,
+            map_goal=self.grid.footprint_status(exc.pose,self.footprint,margin_m=self.mapping_margin_m))
+        return dict(needs_mapping=True)
     def _capture(self):
         self._initialize()
         if self.camera is None:
@@ -322,6 +327,7 @@ class SimPorts:
             if len(accepted)<3:return None
             return dict(views=len(accepted),camera_q=self.camera_q[accepted[0]].tolist())
         try:result=dict(goal=self.planner.observation(self.track.estimate,current,evaluate))
+        except FloorObservationRequired as exc:result=self._mapping_required(exc)
         except ValueError as exc:
             self._summary['planning_reason']=str(exc)
             result=dict(needs_mapping=True)
@@ -347,7 +353,8 @@ class SimPorts:
             and self.grid.cell(p) not in self.grid.blocked]).reshape(-1,2)
         focus=False
         if hasattr(self,'mapping_goal_pose'):
-            cells=self.grid._footprint_cells(self.mapping_goal_pose,self.footprint)
+            cells=self.grid._footprint_cells(self.mapping_goal_pose,self.footprint,
+                margin_m=getattr(self,'mapping_margin_m',0.))
             missing=[c for c in cells if c not in self.grid.free and c not in self.grid.blocked]
             if missing:
                 unknown=(np.asarray(missing)+.5)*self.grid.resolution;focus=True
@@ -520,8 +527,15 @@ class SimPorts:
                         return dict(purpose=op['args'].get('purpose',''))
             else:op['stable']=None
         elif phase.startswith('move_'):
+            def segment_free(a,b):
+                free=self.grid.segment_free(a,b,self.footprint)
+                if not free:
+                    self._summary['base_path_check']=dict(pose=np.asarray(a).tolist(),
+                        current=self.grid.footprint_status(a,self.footprint),
+                        next=self.grid.footprint_status(b,self.footprint))
+                return free
             b=snap['base'];velocity,done=op['executor'].step(snap['pose'],np.linalg.norm(b['velocity']),np.linalg.norm(b['angular']),
-                lambda a,b:self.grid.segment_free(a,b,self.footprint))
+                segment_free)
             self._send(grant,ownership,go2_vel=velocity.tolist())
             self._hold(op,np.array(self.model.meta['home']))
             if done:return dict()

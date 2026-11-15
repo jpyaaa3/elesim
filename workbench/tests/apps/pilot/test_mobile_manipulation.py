@@ -140,6 +140,57 @@ def test_footprint_diagnostics_distinguish_unknown_floor_from_obstacles():
     assert grid.free=={(0,0)} and not grid.footprint_free([0,0,0],footprint)
 
 
+def test_path_margin_requires_measured_room_for_small_tracking_errors():
+    grid=LocalMap(.04)
+    foot=rectangular_footprint([[-.38,.38],[-.25,.25]],padding=.02)
+    start=np.array([-.006,.001,.0003]);goal=start+np.array([.22,.01,0.])
+    delta=goal-start
+    for t in np.linspace(0,1,30):grid.free.update(grid._footprint_cells(start+t*delta,foot))
+    assert grid.segment_free(start,goal,foot)
+    before=grid.free.copy()
+    # Nominal samples must not authorize an unseen adjacent cell. Margin is
+    # required by planning, while measured-motion checks retain the true pose.
+    assert not grid.segment_free(start,goal,foot,margin_m=.025)
+    assert grid.free==before
+    with pytest.raises(ValueError):grid.path(start,goal,foot,margin_m=.025)
+    needed=set()
+    for t in np.linspace(0,1,30):needed.update(grid._footprint_cells(start+t*delta,foot,margin_m=.025))
+    grid.observe(np.array([[*(np.array(c)+.5)*grid.resolution,0.] for c in needed]))
+    assert grid.segment_free(start,goal,foot,margin_m=.025)
+    for dx,dy,yaw in ((-.003,0.,-.002),(.008,-.006,.02),(-.008,.006,-.02)):
+        assert grid.segment_free(start+[dx,dy,yaw],goal+[dx,dy,yaw],foot)
+    outside=next(iter(needed-before))
+    grid.observe(np.array([[*(np.array(outside)+.5)*grid.resolution,.2]]))
+    assert grid.segment_free(start,goal,foot)
+    assert not grid.segment_free(start,goal,foot,margin_m=.025)
+
+
+def test_grasp_maps_the_starting_clearance_before_selecting_a_destination():
+    from elesim_pilot.mobile_manipulation.base_planner import BasePlanner,FloorObservationRequired
+    grid=LocalMap();foot=rectangular_footprint([[-.38,.38],[-.25,.25]],padding=.02)
+    current=np.array([-.006,.001,.0003])
+    grid.free.update(grid._footprint_cells(current,foot))
+    class Model:
+        meta={'home':[0.,0.,0.,0.]}
+        def sample_triangle(self,n):raise AssertionError('map missing start clearance first')
+    planner=BasePlanner(Model(),grid,foot,np.eye(4),.3,Settings())
+    target=TargetTrack().update(cylinder((.7,.15)),stamp=1.,source=('sim','boot','calib'))
+    with pytest.raises(FloorObservationRequired) as caught:planner.grasp(target,current)
+    np.testing.assert_array_equal(caught.value.pose,current)
+
+
+def test_floor_request_targets_missing_tracking_room_without_creating_free_cells():
+    from elesim_pilot.mobile_manipulation.base_planner import FloorObservationRequired
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    ports=SimPorts.__new__(SimPorts);ports.grid=LocalMap();ports._summary={}
+    ports.footprint=np.array([[.1,.1]]);ports.planner=NS(clearance_m=.025)
+    ports.grid.free.add((2,2));before=ports.grid.free.copy()
+    assert ports._mapping_required(FloorObservationRequired([0.,0.,0.]))==dict(needs_mapping=True)
+    assert ports.mapping_margin_m==.025
+    assert ports.summary()['map_goal']['unknown_cells']>0
+    assert ports.grid.free==before
+
+
 def test_floor_looks_choose_a_new_camera_view_after_an_unproductive_capture(monkeypatch,tmp_path):
     from scipy.stats import qmc
     from elesim_pilot.mobile_manipulation import runtime
@@ -342,7 +393,9 @@ def test_real_model_selects_an_interior_goal_with_observed_free_floor():
     # Known target occupancy belongs to the local obstacle map.
     grid.observe(np.array([[.7+.05*np.cos(a),.15+.05*np.sin(a),.55] for a in np.linspace(0,2*np.pi,80)]))
     foot=rectangular_footprint([[-.1,.1],[-.08,.08]],padding=.01)
-    node=np.eye(4);node[2,3]=.55
+    # Mounted arm node is in front of the body, so the cylinder need not sit
+    # against the body's corner to land in the supported C-band triangle.
+    node=np.eye(4);node[:3,3]=[.2,0.,.55]
     p=BasePlanner(model,grid,foot,node,0.,Settings())
     e=TargetTrack().update(cylinder((.7,.15)),stamp=1.,source=('sim','boot','calib'))
     goal=p.grasp(e,np.array([0.,0.,0.]))
