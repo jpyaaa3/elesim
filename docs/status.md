@@ -8,6 +8,11 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### 설치본 모바일 관측·끌어안기 평가 진행 중 (2026-11-15)
 
+- 사용자 요청으로 일시 중단한 뒤 재개했다. `441f7d47` 푸시와 양쪽 공식 updater 발행,
+  정지 상태에서 SROS2 세대 `g-20261115t084557388563z-eefe6ad85d2e`의 원자적
+  등록을 완료했다. 작업용 manager는 정상 종료했다. 수정된 바닥 관측 로직의
+  공식 설치본 실행을 재개했다. 등록된 test 역할의 이미지/소스 SHA·GPU2를
+  대조했고, 정상 UI에서 두 WebRTC 영상을 수신했다. `run-21` 전체 평가를 진행한다.
 - `/home/user/ws/newsim`의 UI와 `/home/hckang/ws/newsim`의 Pilot/Sim을 공식
   updater로 발행했다. Bootstrap snapshot의 completion-assets/timed-arm 모듈
   누락을 고쳤고 해당 묶음은 host **116 passed**다. 기존 `test`의 SROS2 세대도
@@ -67,6 +72,15 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   고르지 않도록 했다. 시작/목표 footprint의 unknown·blocked 개수와 제한된 좌표도
   보고한다. Unknown을 free로 바꾸거나 충돌·freshness 한도를 완화하지 않는다.
   이 변경의 host 검증과 후속 공식 설치본 재시험을 진행 중이다.
+- 공식 `441f7d47`의 `run-21`은 source SHA·SROS2 Enforce·실제 GPU2와 정상 UI의
+  두 영상 수신을 확인한 뒤 수행했다. 바닥 추가 관측 한 번으로 목표 영역의
+  unknown cell이 **90 → 17**로 줄었고 현재 footprint는 unknown/blocked가 0이었다.
+  다음 바닥 시야에서 물체를 놓쳐 재탐색했고, 이전 scan 자세 전체를 되짚는
+  불필요한 복귀가 180초 phase deadline에 걸렸다. 전체 결과는 **accepted=false**다.
+  같은 전 구간 충돌 검사를 통과한 직접 복귀를 먼저 쓰고, 그 경로가 막힐 때만
+  history를 재검사하도록 수정했다. 직접/우회/양쪽 차단 회귀를 포함해 host
+  **73 passed**다. 공식 반영과 다음 전 과정 시험은 진행 중이다. 실제 RGB-D,
+  silhouette, scene과 두 영상은 `mobile-installed-20261115` 증거 폴더에 보존했다.
   [이미지·소스·원본 증거 해시와 재개 지점](../workbench/evidence/curated/planning/mobile_installed_20261115.json).
 
 ### cuRobo 우선·GA 보충 교보재 연결 (2026-11-13)

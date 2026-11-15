@@ -26,6 +26,10 @@ from .base_planner import BasePlanner,FloorObservationRequired,body_frame,solver
 from .base_executor import BaseExecutor
 
 
+class ArmPathBlocked(RuntimeError):
+    """The current collision model rejected a complete arm segment."""
+
+
 class SimPorts:
     def __init__(self,connection,service,state,scan,*,simulation_status,model_root,settings=None,clock=time.monotonic):
         self.connection,self.service,self.state,self.scan=connection,service,state,scan
@@ -353,7 +357,7 @@ class SimPorts:
         for row in candidates:
             time.sleep(.001)
             try:result=self._arm_prepare([row[3]])
-            except RuntimeError:continue
+            except ArmPathBlocked:continue
             self.mapping_views.append(model.camera_pose(row[3]));return result
         raise RuntimeError('floor observation arm paths are blocked')
     def _arm_prepare(self,waypoints):
@@ -363,8 +367,12 @@ class SimPorts:
         start=self.feedback.snapshot(self.route()[:2])['joint']['q']
         points=[start.copy()]+[np.asarray(q,float) for q in waypoints]
         for a,b in zip(points,points[1:]):
-            if not self.collision.certify_segment(a,b)['accepted']:raise RuntimeError('arm transport/search path blocked')
+            if not self.collision.certify_segment(a,b)['accepted']:raise ArmPathBlocked('arm transport/search path blocked')
         return points
+    def _return_prepare(self,goal):
+        try:return self._arm_prepare([goal])
+        except ArmPathBlocked:
+            return self._arm_prepare(list(reversed(self.history))+[goal])
     def begin(self,phase,grant,ownership,**args):
         self.generation+=1;self.stopped=False
         op=dict(phase=phase,grant=grant,ownership=ownership,args=args,started=self.clock())
@@ -380,7 +388,9 @@ class SimPorts:
             if phase=='map_search':
                 op['future']=self.pool.submit(self._map_search_prepare,args['index'])
                 return op
-            if phase=='transport':waypoints=list(reversed(self.history))+[np.array(self.model.meta['home'])]
+            if phase=='transport':
+                op['future']=self.pool.submit(self._return_prepare,np.array(self.model.meta['home']))
+                return op
             elif phase=='aim_observation':waypoints=[args['goal'].report['camera_q']]
             else:
                 q=self.feedback.snapshot(self.route()[:2])['joint']['q'].copy()
@@ -389,7 +399,8 @@ class SimPorts:
                     # A floor look can hide the target for longer than its
                     # prediction budget. Recheck the return route and look
                     # from the last successful view before blind perturbations.
-                    waypoints=list(reversed(self.history))+[last_seen.copy()]
+                    op['future']=self.pool.submit(self._return_prepare,last_seen.copy())
+                    return op
                 else:
                     q[1]=np.clip(q[1]+(.18 if args['index']%2 else -.36),self.arm.bounds[1,0],self.arm.bounds[1,1])
                     q[2]+=(-1 if args['index']%2 else 1)*.06

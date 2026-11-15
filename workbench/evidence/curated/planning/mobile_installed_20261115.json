@@ -264,6 +264,41 @@
       "path": "workbench/evidence/generated/mobile-installed-20261115/rgbd-png-live-receive.log",
       "bytes": 484,
       "sha256": "57906b2362f6485a6b0fb299ab01f91c660bc7874649c209b41c15b3fea96872"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-21/report.json",
+      "bytes": 27825,
+      "sha256": "417ed2e80180472dee9c9e33b1c2df8bf0a708dc4ccc8a5623df370e75419a49"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-21/observer.mp4",
+      "bytes": 10944419,
+      "sha256": "8da89729e10439a1de095c0cba38831359842d65cce9b7688f7d4b31bcf9a6d8"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-21/hand_eye_preview.mp4",
+      "bytes": 26238080,
+      "sha256": "69efca2fa42b7850bc1b7f77d25daf4119a79cb51f673b2a89065c614abe2b2f"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/scan-21.tar.gz",
+      "bytes": 4122718,
+      "sha256": "3f415c7929dbc59130725b8224472181f37ff079763ff8c5e27c31ac99f0ac8e"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v7-remote.json",
+      "bytes": 5686,
+      "sha256": "796282629252b2606632559068d59801ab17a37ac0e9d945d13ab01c78414044"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v7-local.json",
+      "bytes": 294,
+      "sha256": "b119d1174d86c1fa6fdb0d0dc40a6a318e88c7cf15168b387e72f53ff943c1c8"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v7-ui.log",
+      "bytes": 17068,
+      "sha256": "884641b2f464fe108e00197c4dbb07361a58e2f1c3a4e32d0a5e1b972fe7275c"
     }
   ],
   "live_follow_up": {
@@ -290,12 +325,34 @@
     ]
   },
   "follow_up_floor_mapping": {
-    "deployed": false,
+    "deployed": true,
     "changes": [
       "Separate floor observation and target recovery bounded counters.",
       "Skip a previously attempted floor camera view.",
       "Report unknown/blocked footprint counts and at most 16 representative cell centres."
     ],
-    "unknown_space_policy_unchanged": true
+    "unknown_space_policy_unchanged": true,
+    "official_execution_completed": true
+  },
+  "official_follow_up": {
+    "source_revision": "441f7d4784ab9558daf4d29a2baeefca36e8efb6",
+    "run": "run-21",
+    "evaluation_mode": "installed",
+    "accepted": false,
+    "error": "mobile phase timeout",
+    "elapsed_s": 529.4423652789555,
+    "target_unknown_cells_before": 90,
+    "target_unknown_cells_after_first_floor_view": 17,
+    "current_footprint_unknown_cells": 0,
+    "current_footprint_blocked_cells": 0,
+    "images_and_sources_verified": true,
+    "security_profile": "SROS2 Enforce",
+    "gpu_uuid": "GPU-a40782b2-881c-e285-2a8e-66cae9162a01",
+    "runtime_patched": false
+  },
+  "follow_up_arm_return": {
+    "deployed": false,
+    "tests_passed": 73,
+    "change": "Certify a direct arm return first. Use the checked historical route only when collision certification blocks the direct route. Keep timing and tracking limits unchanged."
   }
 }

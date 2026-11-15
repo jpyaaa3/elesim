@@ -476,8 +476,32 @@ def test_target_search_rechecks_return_to_last_visible_pose_after_a_floor_look()
     ports._arm_prepare=certify;ports.pool=NS(submit=submit)
     op=ports.begin('search',None,None,index=3)
     assert op['future'].done()
-    np.testing.assert_array_equal(checked[-1],home)
-    np.testing.assert_array_equal(checked[:-1],[floor,home])
+    np.testing.assert_array_equal(checked,[home])
+
+
+@pytest.mark.parametrize('blocked',['none','direct','all'])
+def test_return_uses_shortcut_only_when_its_whole_segment_is_certified(blocked):
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    ports=SimPorts.__new__(SimPorts)
+    start=np.array([0.,1.,0.,0.]);via=np.array([0.,1.,1.,0.]);goal=np.zeros(4)
+    ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=start.copy())))
+    ports.route=lambda:('sim','boot','lease');ports._summary={};ports.history=[goal.copy(),via.copy(),start.copy()]
+    ports.connection=NS(state_sink=NS(get_state=lambda:None))
+    ports.service=NS(_ik_context_for_host=lambda h:dict(base_world_T=np.eye(4)))
+    checked=[]
+    def certify(a,b):
+        checked.append((a.copy(),b.copy()))
+        direct=np.array_equal(a,start) and np.array_equal(b,goal)
+        return dict(accepted=blocked=='none' or (blocked=='direct' and not direct))
+    ports.collision=NS(base=None,certify_segment=certify)
+    if blocked=='all':
+        with pytest.raises(RuntimeError,match='path blocked'):ports._return_prepare(goal)
+    else:
+        points=ports._return_prepare(goal)
+        if blocked=='none':np.testing.assert_array_equal(points,[start,goal])
+        else:assert any(np.array_equal(point,via) for point in points)
+        np.testing.assert_array_equal(points[-1],goal)
+    assert checked
 
 
 def test_actual_body_tilt_changes_final_solver_coordinates():
