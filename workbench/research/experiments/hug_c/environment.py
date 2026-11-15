@@ -127,11 +127,10 @@ class HugEnv:
         self.workspace_exposure=torch.zeros(n_envs,device=self.device)
         self.workspace_peak=torch.zeros(n_envs,device=self.device)
         by_name={v:k for k,v in names.items()}
-        pairs=[(by_name[f'node{i}'],by_name[f'node{i+1}']) for i in range(9)]
-        pairs.append((by_name['wedge'],by_name['node0']))
-        rigid=[by_name[n] for n in ('node9','gripper_base','gripper_claw_left','gripper_claw_right','camera') if n in by_name]
-        pairs += [(a,b) for i,a in enumerate(rigid) for b in rigid[i+1:]]
-        self.assembly_pairs=pairs
+        from elesim_sim.simulation.contact_metrics import assembly_contact_pairs
+        self.assembly_pairs=assembly_contact_pairs(by_name)
+        self.fault_roles=self.contact_roles.clone()
+        self.fault_roles[self.protected]=3;self.fault_roles[self.camera]=4
         self.set_case(case);self.reset();self.verify_fk()
 
     def _indices(self, values):
@@ -215,16 +214,9 @@ class HugEnv:
         from .contacts import object_contact_faces
         touch,wrong=object_contact_faces(raw,self.scene.robot.get_links_pos(),self.scene.robot.get_links_quat(),
             self.contact_local,self.contact_axes,self.contact_roles,self.contact_objects,self.s,torch)
-        assembly=torch.zeros_like(valid)
-        for l,r in self.assembly_pairs:assembly|=((a==l)&(b==r))|((a==r)&(b==l))
-        forbidden=pair(self.moving,self.protected)|pair(self.moving,self.moving)|pair(self.obj,self.protected)
-        forbidden|=pair(self.moving,self.floor)|pair(self.camera,self.floor)|pair(self.camera,self.protected)
-        relevant=torch.isin(a,self.moving)|torch.isin(b,self.moving)|torch.isin(a,self.camera)|torch.isin(b,self.camera)|pair(self.obj,self.protected)
-        bad=(active&forbidden&~assembly).any(1)
-        bad|=(valid&relevant&~assembly&(raw['penetration'].to(self.device)>self.s['max_penetration_m'])).any(1)
-        bad|=(valid&~torch.isfinite(force)).any(1)
-        bad|=(active&pair(self.moving,self.obj)&(~torch.isfinite(raw['normal']).all(-1)
-              |~torch.isfinite(raw['position']).all(-1)|(raw['normal'].norm(dim=-1)<.5))).any(1)
+        from elesim_sim.simulation.contact_metrics import arm_contact_faults
+        bad=arm_contact_faults(raw,self.fault_roles,self.contact_objects,self.assembly_pairs,
+            max_penetration=self.s['max_penetration_m'],xp=torch)
         return touch.float(),bad,wrong
 
 

@@ -350,6 +350,8 @@ class RobotRuntime:
         self.last_seq = envelope.seq
         if "mock_hug" in payload:
             return False, "mock_hug_is_simulation_only"
+        if 'timed_arm' in payload:
+            return False, 'timed_arm_is_simulation_only'
         if self.safety_fault and command not in {
             "torque_off", "clear_fault", "reboot_faulted_motor",
         }:

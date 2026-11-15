@@ -167,6 +167,12 @@ class RemoteControlService:
         return self.session.submit('service_call', name, *args,
             on_result=on_result, on_error=on_error, request_timeout_s=10.)
 
+    def mobile_manipulation_async(self, name, *args, on_result, on_error):
+        if name not in {'plan_mobile_manipulation', 'start_mobile_manipulation', 'cancel_mobile_manipulation'}:
+            raise ValueError('unsupported mobile manipulation operation')
+        return self.session.submit('service_call', name, *args, on_result=on_result,
+            on_error=on_error, request_timeout_s=10.)
+
     def floor_calibration_async(self, name, *args, on_result, on_error):
         if name not in {"confirm_floor_calibration", "reset_floor_calibration", "export_floor_calibration"}:
             raise ValueError("unsupported floor calibration operation")

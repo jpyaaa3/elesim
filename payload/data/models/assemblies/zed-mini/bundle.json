@@ -4,7 +4,7 @@
     "source_assets_sha256": "30818600294427a1c151ba69df442d20213a8f22e8f5724574fc2381101d9ff8",
     "use_go2": true
   },
-  "bundle_id": "ced0e4d0e460551c8dee3ca1e578d6b5e11ad5ac958125f53917e94c82fac284",
+  "bundle_id": "42efd9eccc3b439e114a8058761b8836001f97c1dafd13906617a97b67b137b3",
   "bundle_type": "elesim.sim-model",
   "entrypoints": {
     "arm_urdf": "arm.urdf",
@@ -12,6 +12,14 @@
     "robot_urdf": "robot.urdf"
   },
   "files": {
+    "arm.physics-open.urdf": {
+      "sha256": "e17b05721c923fda821900e57fdc106f7e26c1eb85eee48a2700eaa433123c64",
+      "size": 15092
+    },
+    "arm.physics.urdf": {
+      "sha256": "ac1b7c9f6737e50840831640890783779886ebb29b5e7a4884165adcb45372cc",
+      "size": 15357
+    },
     "arm.urdf": {
       "sha256": "1cfdfdfe180170da6457253acf680b71e31ab3104cfc21a54c37e050adaf2005",
       "size": 14811
@@ -164,10 +172,41 @@
       "sha256": "0d661a7d14965b6c563001a0457b301640305a53a3a1a2915a4c772ca7a43773",
       "size": 14450
     },
+    "robot.physics-open.urdf": {
+      "sha256": "a461ca631a548966a5e170a4d9b911032464d66e9fddac8b4a591d678ab5cdf1",
+      "size": 35443
+    },
+    "robot.physics.urdf": {
+      "sha256": "7c0b445f13c45338a2037d0761eb49097d17dadace545159b601da7f86631c0b",
+      "size": 35708
+    },
     "robot.urdf": {
       "sha256": "8f56d5890c9da853728bfc239ac0be1ba822bad42aa23fc94b3e3448dfb02072",
       "size": 35178
     }
+  },
+  "physics": {
+    "camera_collision": true,
+    "command_convention": "linear m, roll rad, per-node bends rad",
+    "entrypoints": {
+      "arm": "arm.physics.urdf",
+      "arm_fixed_open": "arm.physics-open.urdf",
+      "robot": "robot.physics.urdf",
+      "robot_fixed_open": "robot.physics-open.urdf"
+    },
+    "lower": [
+      -0.17333333333333334,
+      -1.5707963267948966,
+      -0.6283185307179586,
+      -0.6283185307179586
+    ],
+    "schema_version": 1,
+    "upper": [
+      0.0,
+      1.5707963267948966,
+      0.6283185307179586,
+      0.6283185307179586
+    ]
   },
   "schema_version": 1
 }

@@ -45,13 +45,24 @@ profiles:
 simulation:
   physics:
     dt: 0.01
-    # Read contacts and control legs at 100 Hz; keep 5 ms physics integration.
-    substeps: 2
+    # Match the physical arm reference: 100 Hz commands, 2.5 ms integration.
+    substeps: 4
+    floor_friction: 0.01
     realtime: true
     realtime_factor: 1.0
     gravity: [0.0, 0.0, 0.0]
     roll_rate: .inf
-    bend_rate: .inf
+    # The validated timed-path contract uses 0.3 rad/s per node. A second,
+    # lower limiter would distort the learned multi-axis path.
+    bend_rate: 0.3
+  arm:
+    control_mode: position
+    kp: 200.0
+    kv: 20.0
+    linear_kp: 2000.0
+    linear_kv: 200.0
+    force_limit: 100.0
+    friction: 0.5
   runtime:
     # Dynamic arrays reuse compiled kernels across restarts. Static-array
     # throughput mode is opt-in because it increases scene build time.

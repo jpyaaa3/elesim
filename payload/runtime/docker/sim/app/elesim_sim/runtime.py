@@ -958,14 +958,15 @@ def _make_urdf_morph(
     fixed: bool,
     merge_fixed_links: bool = True,
 ):
+    from elesim_sim.simulation.physics_options import urdf_options
     common = dict(
         file=urdf_path,
         pos=pos,
         euler=euler,
         fixed=bool(fixed),
         prioritize_urdf_material=True,
-        default_armature=0.0,
         merge_fixed_links=bool(merge_fixed_links),
+        **urdf_options(),
     )
     return gs.morphs.URDF(**common)
 
@@ -1581,6 +1582,8 @@ class SimScene(_SimSceneKinematicsMixin):
 
     def _camera_visual_state(
         self,
+        *,
+        measured: bool = False,
     ) -> tuple[
         Optional[tuple[float, ...]],
         Optional[tuple[float, float, float]],
@@ -1589,7 +1592,7 @@ class SimScene(_SimSceneKinematicsMixin):
         Optional[tuple[float, float, float]],
         Optional[tuple[float, float, float, float]],
     ]:
-        """Return camera state using command/controller mirrors, not readbacks."""
+        """Collect render state; RGB-D deadlines require measured geometry."""
 
         entity = self.go2_entity if self.go2_entity is not None else getattr(self.mover, "entity", None)
         if entity is not None:
@@ -1624,6 +1627,22 @@ class SimScene(_SimSceneKinematicsMixin):
                 self._camera_root_quat_cache = root_quat
             except Exception as exc:
                 raise RuntimeError(f"camera GO2 state unavailable: {exc}") from exc
+
+        if measured:
+            if entity is None:
+                raise RuntimeError('measured camera state needs a robot entity')
+            names=tuple(dict.fromkeys(self.camera_joint_names+self.camera_hand_eye_joint_names))
+            if names:
+                indices=resolve_single_dof_indices(entity,names)
+                values=self._to_numpy_1d(entity.get_dofs_position(dofs_idx_local=list(indices)))
+                if values.size!=len(names) or not np.isfinite(values).all():
+                    raise RuntimeError('invalid measured camera joints')
+                self._camera_joint_position_cache.update(zip(names,map(float,values)))
+            position=self._to_numpy_1d(entity.get_pos())
+            quaternion=self._to_numpy_1d(entity.get_quat())
+            if position.size!=3 or quaternion.size!=4 or not np.isfinite(np.r_[position,quaternion]).all():
+                raise RuntimeError('invalid measured camera root')
+            root_pos=tuple(map(float,position));root_quat=tuple(map(float,quaternion))
 
         def values_for(names: tuple[str, ...]) -> Optional[tuple[float, ...]]:
             if not names:
@@ -1690,8 +1709,18 @@ class SimScene(_SimSceneKinematicsMixin):
             hand_eye_robot_joint_positions,
             hand_eye_root_pos,
             hand_eye_root_quat,
-        ) = self._camera_visual_state()
+        ) = self._camera_visual_state(measured=arm_q is not None)
         mock = dict(mock_snapshot or {})
+        if self.mover is not None and arm_q is not None:
+            q=self.mover.measured_4dof_q()
+            arm_q=(q.linear_m,q.roll_rad,q.theta1_rad,q.theta2_rad)
+        if mock.get('asset_id') == 'cylinder_100mm':
+            entity = self.mock_object_entities.get('cylinder_100mm')
+            if entity is not None:
+                position = _to_numpy_1d(entity.get_pos())[:3]
+                quat = _to_numpy_1d(entity.get_quat())[:4]
+                mock['position'] = position.tolist()
+                mock['euler_deg'] = Rot.from_quat([quat[1],quat[2],quat[3],quat[0]]).as_euler('xyz',degrees=True).tolist()
         observer = self.observer_view
         observer_pos = (
             tuple(float(value) for value in observer.pos)
@@ -2067,6 +2096,9 @@ class SimScene(_SimSceneKinematicsMixin):
                     )
             return bool(accepted)
         try:
+            if self.mover is not None and arm_q is not None:
+                q=self.mover.measured_4dof_q()
+                arm_q=(q.linear_m,q.roll_rad,q.theta1_rad,q.theta2_rad)
             frame = self.eye_camera.capture(
                 arm_q=arm_q,
                 ts=time.time(),
@@ -2412,8 +2444,14 @@ class SimMover:
         linear_joint_name: str = "j_plate_housing",
         roll_joint_name: str = "base_roll_x",
         bend_joint_names: Optional[List[str]] = None,
+        control_mode: str = 'kinematic',
+        position_gains=None,
     ):
         self.entity = entity
+        if control_mode not in {'kinematic','position'}:raise ValueError('unknown arm control mode')
+        self.control_mode=control_mode
+        self.position_gains=position_gains
+        self._actuator=None
         self.p = params
         self.limit = limit
         self.n_nodes = int(n_nodes)
@@ -2477,7 +2515,15 @@ class SimMover:
                 setattr(self, attr_name, _as_single_dof_index(getattr(j, "dofs_idx_local")))
             except Exception:
                 setattr(self, attr_name, None)
-        self._apply_claw_direct(self._claw_left_cmd, self._claw_right_cmd)
+        if control_mode=='position':self._configure_actuator()
+        else:self._apply_claw_direct(self._claw_left_cmd, self._claw_right_cmd)
+
+    def _configure_actuator(self):
+        from elesim_sim.robot.arm.actuation import PositionActuator,PositionGains
+        prismatic=[self.dofs_idx_local[self._linear_pos]]
+        prismatic += [i for i in (self._claw_left_idx,self._claw_right_idx) if i is not None]
+        self._actuator=PositionActuator(self.entity,list(self._direct_dof_indices),prismatic,
+            self.position_gains or PositionGains())
 
     def rebind_entity(self, entity) -> None:
         indices = [_as_single_dof_index(entity.get_joint(name).dofs_idx_local)
@@ -2485,6 +2531,7 @@ class SimMover:
         if indices != self.dofs_idx_local:
             raise ValueError("scene rebuild changed arm joint topology")
         self.entity = entity
+        if self.control_mode=='position':self._configure_actuator()
         self._q_cmd = self.get_dofs_position().copy()
         self._last_q_target = self._last_q_target_cmd = None
 
@@ -2532,7 +2579,14 @@ class SimMover:
         return result
 
     def current_4dof_q(self) -> proto.SimQ:
-        q = np.asarray(self._q_cmd, dtype=float).reshape(-1)
+        return self._four_dof_q(self._q_cmd)
+
+    def measured_4dof_q(self) -> proto.SimQ:
+        """Actual joint positions; command cache is not measurement feedback."""
+        return self._four_dof_q(self.get_dofs_position())
+
+    def _four_dof_q(self, values) -> proto.SimQ:
+        q = np.asarray(values, dtype=float).reshape(-1)
 
         def value_at(pos: Optional[int], default: float = 0.0) -> float:
             if pos is None or int(pos) < 0 or int(pos) >= q.size:
@@ -2555,6 +2609,7 @@ class SimMover:
         )
 
     def _apply_all_direct(self, q_target: np.ndarray) -> None:
+        if self._actuator is not None:self._actuator.disable()
         values = list(np.asarray(q_target, dtype=float).reshape(-1))
         for index, value in (
             (self._claw_left_idx, self._claw_left_cmd),
@@ -2632,7 +2687,12 @@ class SimMover:
         self._last_q_target_cmd = (float(linear_m), float(roll), float(theta1), float(theta2))
         self._q_cmd = self._rate.step(self._q_cmd, q_target, dt=float(self.p.dt))
         self._step_claws()
-        self._apply_all_direct(self._q_cmd)
+        if self._actuator is None:self._apply_all_direct(self._q_cmd)
+        else:
+            values=list(self._q_cmd)
+            values.extend(value for index,value in ((self._claw_left_idx,self._claw_left_cmd),
+                (self._claw_right_idx,self._claw_right_cmd)) if index is not None)
+            self._actuator.command(values)
 
     def set_4dof_instant(self, linear_m: float, roll: float, theta1: float, theta2: float) -> None:
         q_target = self.target_from_4dof(linear_m, roll, theta1, theta2)
@@ -2724,8 +2784,11 @@ class AssetProcessor:
         self.app._apply_ideal_rates_if_needed()
         use_go2 = bool(getattr(self.app.cfg, "use_go2", False))
         runtime_urdf = select_runtime_urdf(use_go2=use_go2, arm_urdf=arm_urdf, robot_urdf=robot_urdf)
+        if self.app.cfg.arm_control_mode=='position':
+            from elesim_sim.model_bundle import physical_model_path
+            runtime_urdf=str(physical_model_path(self.app.cfg.build_dir,use_go2=use_go2))
         if use_go2:
-            print(f"[runtime] using prebuilt GO2+arm URDF: {robot_urdf}")
+            print(f"[runtime] using prebuilt GO2+arm URDF: {runtime_urdf}")
         print(f"[runtime] use_hardware = {str(bool(self.app.cfg.use_hardware)).lower()}")
         print("[runtime] assets prepared in %.2fs" % (time.time() - t0))
         return runtime_urdf
@@ -2989,7 +3052,8 @@ class RuntimePrep:
         hand_eye_robot_euler = None
         hand_eye_joint_names: tuple[str, ...] = ()
         if use_go2:
-            candidate = Path(urdf_path).with_name(str(a.cfg.arm_urdf_name))
+            candidate = Path(urdf_path).with_name('arm.physics.urdf' if a.cfg.arm_control_mode=='position'
+                                                 else str(a.cfg.arm_urdf_name))
             if candidate.is_file():
                 hand_eye_urdf_path = str(candidate)
                 hand_eye_robot_pos = _world_offset(
@@ -3114,7 +3178,8 @@ class RuntimePrep:
         else:
             print("[Collision] NoClipPairs present, but runtime collision-pair API was not found.")
 
-    def init_genesis(self, urdf_path: str, *, attach_scene_cameras: bool = True) -> None:
+    def init_genesis(self, urdf_path: str, *, attach_scene_cameras: bool = True,
+                     diagnostic_base_fixed: bool = False, before_build=None) -> None:
         a = self.app
         t_init = time.perf_counter()
         use_go2 = bool(getattr(a.cfg, "use_go2", False))
@@ -3174,10 +3239,10 @@ class RuntimePrep:
         # Keep the physical Newton solve explicit. Genesis 1.2's no-slip pass
         # is an experimental postprocess and can hide controller/contact
         # mismatch instead of enforcing the MPC's Coulomb cone.
+        from elesim_sim.simulation.physics_options import rigid_options
         rigid_opts = gs.options.RigidOptions(
             constraint_solver=gs.constraint_solver.Newton,
-            iterations=50,
-            noslip_iterations=0,
+            **rigid_options(),
         )
         a.sim_scene.scene = gs.Scene(
             sim_options=sim_opts,
@@ -3203,7 +3268,7 @@ class RuntimePrep:
                     urdf_path,
                     go2_pos,
                     go2_euler,
-                    fixed=False,
+                    fixed=diagnostic_base_fixed,
                     # Preserve named links used by arm mounts, feedback and
                     # collision policy. Genesis 1.4.5's deprecated
                     # requires_jac_and_IK option has no effect.
@@ -3236,13 +3301,12 @@ class RuntimePrep:
             artifact = a.mock_object_catalog.load(filename)
             path = a.mock_object_catalog.root / filename
             physical_cylinder = artifact.asset_id == 'cylinder_100mm'
-            morph = gs.morphs.Mesh(
-                file=str(path),
-                pos=(100.0, 100.0, .55) if physical_cylinder else (0.0, 0.0, -100.0),
-                fixed=not physical_cylinder,
-                collision=physical_cylinder,
-            )
+            morph = (gs.morphs.Cylinder(radius=.05,height=1.1,pos=(100.,100.,.55),fixed=False)
+                if physical_cylinder else gs.morphs.Mesh(file=str(path),pos=(0.,0.,-100.),fixed=True,collision=False))
             options = dict(material=gs.materials.Rigid(rho=.3/(np.pi*.05**2*1.1), friction=.01)) if physical_cylinder else {}
+            if physical_cylinder:
+                # Match the installed single-target HSV scan profile.
+                options['surface'] = gs.surfaces.Default(color=(.85, .04, .04, 1.))
             a.sim_scene.mock_object_entities[artifact.asset_id] = a.sim_scene.scene.add_entity(morph, **options)
 
         if a.cfg.scene_manifest:
@@ -3287,6 +3351,7 @@ class RuntimePrep:
                 lookat=tuple(float(x) for x in a.cfg.sim_observer_camera_lookat),
             )
 
+        if before_build is not None:before_build(a.sim_scene.scene)
         t_build = time.perf_counter()
         print("[runtime] building scene: solver, collision filtering and kernel compilation", flush=True)
         a.sim_scene.scene.build()
@@ -3299,11 +3364,16 @@ class RuntimePrep:
             if renderer is not None:
                 check_camera_renderer(renderer, use_gpu=bool(a.cfg.use_gpu), label="sync_legacy")
         if floor_ent is not None:
-            floor_ent.set_friction(float(a.go2_locomotion_config.mpc_physical_friction))
+            floor_ent.set_friction(float(a.cfg.floor_friction))
+        from elesim_sim.robot.arm.actuation import PositionGains
+        from elesim_sim.simulation.materials import apply_link_friction
+        apply_link_friction(ent,arm=a.cfg.arm_friction,feet=a.go2_locomotion_config.mpc_physical_friction)
         print("[runtime] scene built in %.2fs" % (time.perf_counter() - t_build), flush=True)
 
         if use_go2 and go2_entity is not None:
             _set_go2_initial_leg_pose(go2_entity)
+            a.sim_scene.go2_entity = go2_entity
+        if use_go2 and go2_entity is not None and not diagnostic_base_fixed:
             go2_mirror = bool(a.go2_locomotion_config.mirror_from_host)
             from elesim_sim.observability.walking_metrics import WalkingMetricsLogger
 
@@ -3337,9 +3407,16 @@ class RuntimePrep:
             linear_joint_name=a.layout.linear_joint_name,
             roll_joint_name=a.layout.roll_joint_name,
             bend_joint_names=a.layout.bend_joint_names,
+            control_mode=a.cfg.arm_control_mode,
+            position_gains=PositionGains(a.cfg.arm_kp,a.cfg.arm_kv,a.cfg.arm_linear_kp,
+                a.cfg.arm_linear_kv,a.cfg.arm_force_limit),
         )
         a.sim_scene.n_nodes = n_nodes
         a.sim_scene.n_seg = n_seg
+        if a.state_source is not None:
+            from elesim_sim.simulation.physics_profile import make_profile
+            a.state_source.set_physics_profile(make_profile(a.cfg,a.params,a.go2_locomotion_config,
+                urdf_path,fixed_base=diagnostic_base_fixed or not use_go2))
         start_q = a.sim_scene.apply_spawn_arm_pose(a._proto_cfg)
         print(
             "[runtime] arm spawn pose | u=(%.1f, %.1f, %.1f, %.1f) q=(%.4f, %.4f, %.4f, %.4f)"
@@ -3572,6 +3649,11 @@ class SimRuntime:
                 arguments["asset_id"], arguments["position"], arguments["euler_deg"]
             )
             try:
+                if asset_id == 'cylinder_100mm':
+                    # The default red calibration target is a separate object.
+                    # Keep the single-instance scan profile unambiguous when
+                    # the operator explicitly chooses the cylinder task.
+                    a.sim_scene.set_sim_target_position(np.array([-8., -8., -8.]))
                 a.sim_scene.set_mock_object_pose(
                     str(snapshot["asset_id"]),
                     tuple(snapshot["position"]),
@@ -3922,6 +4004,9 @@ class SimRuntime:
                 self._maybe_log_mirror_status(time.time())
                 claw_closed = a.state_source.claw_closed() if a.state_source is not None else False
                 a.sim_scene.mover.set_claw_closed(claw_closed)
+                if a.state_source is not None and not self.operator.paused and a.state_source.timed_arm_active():
+                    a.state_source.advance_sim_time(a.sim_scene.sim_time_s(float(a.params.dt)),
+                        a.sim_scene.mover.measured_4dof_q(), float(a.params.dt))
                 q_errmodel = a._errmodel_q() if a._has_state_source() else None
                 perf.section("poll", t_sec)
                 t_sec = time.perf_counter()
@@ -4014,7 +4099,7 @@ class SimRuntime:
                     sim_realtime_factor = a.sim_scene.sim_realtime_factor(float(a.params.dt))
                     sim_step_count = int(a.sim_scene.sim_step_count)
                     arm_feedback_q = (
-                        a.sim_scene.mover.current_4dof_q()
+                        a.sim_scene.mover.measured_4dof_q()
                         if a.sim_scene.mover is not None
                         else None
                     )
@@ -4104,6 +4189,11 @@ class SimRuntime:
                 t_sec = time.perf_counter()
                 if did_step:
                     a.sim_scene.step()
+                    if a.state_source is not None and a.state_source.manipulation_evaluation_due():
+                        obj=a.sim_scene.mock_object_entities.get('cylinder_100mm')
+                        q=a.sim_scene.mover.measured_4dof_q()
+                        a.state_source.sample_manipulation_evaluation(a.sim_scene.mover.entity,obj,
+                            [q.linear_m,q.roll_rad,q.theta1_rad,q.theta2_rad],float(a.params.dt))
                 perf.section("physics", t_sec)
                 perf.mark_step(did_step, float(a.params.dt))
                 q_cam = q_errmodel

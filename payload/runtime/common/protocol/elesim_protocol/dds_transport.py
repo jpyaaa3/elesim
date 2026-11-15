@@ -1709,6 +1709,10 @@ class PeerClient:
         if self._motion_authority is None:
             raise AuthorityError("this peer does not accept motion commands")
         command = MotionCommandRequest.from_payload(request.payload or {}).command
+        if 'timed_arm' in (request.payload or {}):
+            from .timed_arm import CAPABILITY
+            if self.descriptor.role != 'sim' or CAPABILITY not in self.descriptor.capabilities:
+                raise AuthorityError('timed_arm requires a capable Sim motion target')
         if command == "estop":
             return (request,)
         fence = self._request_fence(request, source)

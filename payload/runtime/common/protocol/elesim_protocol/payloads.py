@@ -371,6 +371,14 @@ class MotionCommandRequest:
             )
             velocity = (values[0], values[1], values[2])
         mock_hug = None
+        if 'timed_arm' in raw:
+            if command != 'target' or any(k in raw for k in ('q', 'go2_vel', 'mock_hug')):
+                raise ProtocolError('timed_arm requires an exclusive target command')
+            from .timed_arm import validate
+            try:
+                validate(raw['timed_arm'])
+            except ValueError as exc:
+                raise ProtocolError(str(exc)) from exc
         if "mock_hug" in raw:
             if command != "target" or q is None:
                 raise ProtocolError("mock_hug requires a target motion command with q")

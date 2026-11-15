@@ -1027,3 +1027,43 @@ cylinder cannot use logical mock attachment. A reconstructed mesh must not be
 applied as a fixed duplicate of the original cylinder for this experiment.
 Live integrated physics/controller parity and RGB-D fitting remain acceptance
 checks separate from the offline interpolation study.
+
+### Mobile observation and D100 C-hug workflow
+
+`elesim_pilot.mobile_manipulation` owns the Sim-only parent state machine,
+source-fenced separate joint/base histories, observed-cylinder tracking, local
+flat-floor map, observation/grasp base placement and measured base execution.
+Object estimates remain in world coordinates; robot-relative solver coordinates
+are recomputed at the measured body pose. Target IDs are output identities in the
+single-instance detector profile, not arbitrary object-selection semantics.
+
+The parent grants one child arm/base control at a time. Pure planning/inference
+runs in one worker; DDS-thread ticks alone send motion. Existing LiveScan runs as
+a child with retained parent lease and a fixed base for that scan segment. Its
+checked joint return path is revalidated against the current map before Home
+transport. Observation poses may use a partial vertical ROI; generated completion
+points never enter measured target uncertainty or free-space mapping. A blind
+final handoff must pass declared motion-drift and sampled support-neighbourhood
+checks. These allowances are engineering bounds, not calibrated covariances.
+
+Sim consumes a generic bounded timed-arm extension on its physics thread, so a
+10 ms interpolation command sequence is not silently stretched by DDS reception.
+The D100 physical evaluator reports evidence separately. The parent cannot mark
+command completion as verified success. Existing Robot control is excluded from
+both the parent and timed-arm transport/runtime acceptance.
+
+Runtime arm actuation defaults to physical position targets. Direct pose writes
+are limited to initialization, reset and explicit mirroring; kinematic mode is
+incompatible with timed-arm replay. The model builder publishes physical URDF
+variants with actuator limits and camera collision, preserving planning URDFs.
+Runtime and research share position gains, contact-face/assembly classification
+and loaded-hold math through Sim-owned reusable modules; runtime never imports
+workbench. Foot-material updates do not overwrite arm friction. Physics-profile
+telemetry fences replay against model, integrator, material and actuator drift.
+This compatibility fence does not establish free-body transfer success.
+
+Pilot evaluates placements at the measured full body transform (including height,
+roll and pitch). Scan/search/transport arm interpolation consumes simulation-time
+feedback; wall time remains the cancellation/timeout clock. The research mobile
+probe constructs the normal runtime and may compare fixed/free body and active/
+fixed-open claws. Its fixture setup is not a perception acceptance test.

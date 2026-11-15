@@ -32,7 +32,7 @@ host에서 실행 가능한 검사만 부분 근거로 기록한다.
 | 분야 | 실행 recipe | 평가 범위 |
 | --- | --- | --- |
 | 보행/gaze | `walking-core`, `walking-gaze` | production controller의 이동/넘어짐/정지, 별도 DDS gaze trial |
-| Sim 성능 | `sim-step` | physics/MPPI/arm hold, 선택적 camera worker, 전체 trial 처리 시간 |
+| Sim 성능·동역학 | `sim-step`, `mobile-hug`, `mobile-hug-case` | 전체 loop 성능, 별도 고정/자유 몸체 팔 재생·접촉 유지 검사 |
 | 시각 보정 | `visual-tilt`, `visual-tilt-replay` | 임의 4DOF 오차와 기준면 방향 보정, FK 원점 보존 |
 | 다중 시점 | `multiview-scan`, `multiview-compare` | 연속 self-collision 검사, 관측 통합, 촬영 수와 형상 품질 |
 | 형상 완성 | `completion-adapointr`, `completion-replay` | 센서 기반 입력, checkpoint 검증, 형상/속도/원관측 보존 |
@@ -153,6 +153,22 @@ Probe가 명시적으로 바꾼 실제 설정은 별도의 `configuration` 레�
 `walking-gaze`는 여러 앱이 필요한 연구이므로 준비된 **현재 생성 dev attachment**
 안에서 실행한다. 설치된 단일 역할 image 안에 sibling 앱을 주입하지 않는다.
 새 loopback 전용 DDS system/endpoint/topic을 만들어 자체 Sim만 제어한다.
+
+`mobile-hug`는 실제 runtime scene에서 기존 세 앵커를 재생한다. `base`는
+`fixed`/`free`, `fixed_open_claws`는 teacher와 가동 그리퍼 비교용이고,
+`anchors=[0]`으로 대상을 좁힐 수 있다. `video=true`는 출력 subtree에 순수
+MP4를 저장한다. 정상 role 서비스는 시작하지 않는다. `sim_source`와
+`protocol_source`를 명시적으로 선언하면 그 역할 소스만 read-only 입력과
+PYTHONPATH에 추가하고 fingerprint를 기록한다. 이미지의 과학 의존성은 그대로
+사용한다. 이는 설치판의 새 release 활성화나 sibling 앱 주입 검사가 아니다.
+
+`mobile-hug-case`는 추가 `fixture` JSON을 받아 분석 배치기가 선정한 내부점을
+재생한다. fixture에는 policy manifest hash, solver XY, q 삼각형 weights가
+필요하다. `compare_claws=true`이면 같은 컨테이너에서 세 가동 그리퍼 앵커,
+fixed-open 앵커 0, 선정 내부점을 새 프로세스로 차례로 비교한다. JSON의 좌표는
+이 검사에서 명시한 fixture truth이고 Pilot 인지 입력이 아니다. DDS·실제 RGB-D
+스캔·자율 base 경로 검증을 주장하지 않는다. 자세한 명령과 경계는
+[`mobile-manipulation.md`](mobile-manipulation.md)를 따른다.
 Sim source RGBD와 Pilot broker topic은 서로 다르다. 카메라 작업은 다른 GPU가
 보이지 않는 dev/Compose GPU 설정을 요구한다. `use_hardware=true` 설정은
 계산 worker 진입 전에 거부한다.

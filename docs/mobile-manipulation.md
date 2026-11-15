@@ -1,0 +1,166 @@
+# Mobile observation and C-hug
+
+The experimental workflow targets one stationary upright 100 mm cylinder on a
+flat Sim floor. The operator starts at measured nominal Home with virtual torque
+ON and open claws. It has no whole-building search or general SLAM claim.
+
+In Visual Servoing, place `cylinder_100mm.obj`; its red physical representation
+matches the installed single-instance HSV profile. Selecting it hides the legacy
+red calibration sphere so the detector sees one task target. Open Action and use
+**Plan mobile task**, then **Start mobile task**. Planning performs preflight;
+start authorizes the automatic observation/placement/scan/hug sequence. Stop
+workflow cancels the parent and stops its base/arm child. Only a matching Sim
+boot and motion lease may execute. No Robot motion is admitted.
+
+## Execution
+
+1. Acquire stationary RGB-D; use a finite arm-search budget if absent. A known
+   D100 prior may localize a partial first view for observation planning only.
+2. Choose a base pose with at least three feasible camera views. Unknown terrain
+   is not assumed free; bounded downward looks can acquire floor coverage.
+3. Return through checked arm segments to Home; follow an observed-free base
+   path, including rotation sweeps and the transport-arm projection.
+4. Aim and run the existing multi-view scan with the body stationary. A partial
+   vertical ROI is allowed. Separate measured and completion points remain saved.
+5. Fit the axis/diameter from **observed** points. Completion never certifies
+   object diameter or position error. Capture provenance survives model latency.
+6. Sample the analytic q triangle, forward-project to XY and reject sampled
+   neighbourhoods that leave its supported branch. For each surviving relative
+   placement, derive body yaw/position candidates and check local paths.
+7. Transport Home, move, and reacquire. If the final pose hides the cylinder,
+   allow a handoff only when the last observation's age plus motion-drift
+   allowance fits the sampled solver neighbourhood. Otherwise observe again.
+8. Recheck measured Home and model hash, then let Sim replay the timed command
+   sequence in simulation time. Keepalive expiry, a route/scene change or
+   control failure stops execution. The parent requires independent contact
+   evaluation to label the task successful. The 20 s path length is a deadline:
+   a fresh five-second loaded-hold result ends the task early, with an explicit
+   cancellation of the remaining generic command samples.
+
+The uncertainty radius is a conservative engineering allowance. The 16 boundary
+probes plus centre are a sampled check, not proof of an entire continuous disk.
+The map uses observed floor cells, measured non-floor surfaces and a declared
+starting stance; it cannot certify hidden obstacles, cables, dynamic surroundings
+or hardware foot placement. A footprint contains the Go2 body/leg envelope and
+filled arm-sphere projections, preserving gaps rather than using one enclosing
+rectangle. Supported tracking uncertainty is 1 mm linear / 0.015 rad per rotary
+channel; both certificates and live tracking checks use that same bound.
+Grasp placement separately reserves 4 mm for solver-XY drift during execution.
+The body must stay within 3 mm translation and 0.5 degree rotation, and its actual
+full-transform projection must remain inside that reserved 4 mm. These measured
+engineering allowances are not statistical guarantees. A narrower supported
+region can therefore be rejected before any motion. Target-fit conditioning
+saturates at a half-circle of coverage; observing the far side cannot make an
+otherwise identical cylinder fit less certain. Identified target points remain
+in the collision map even inside the broad robot-body removal box.
+
+`payload/config/pilot/mobile_manipulation.yaml` controls budgets and conservative
+error allowances. All input q values are canonical linear metres, roll radians
+and per-node bends; displayed q3/q4 are total segment bends. Solver offset and
+node count are recorded in the model manifest.
+
+## Verification
+
+Host checks cover state transitions, unknown-space rejection, base settling,
+source/capture-time association, bounded correction loops, real analytic
+interior-goal selection, operator intents, Sim-time replay/heartbeat, Robot
+rejection and continuous loaded hold criteria. These are software evidence.
+Waiting for inference holds one checked joint setpoint; measured drift never
+silently becomes a new transport posture. Contact evaluation must reach the
+final executed physics tick before a successful task can be reported. Stale
+success at an earlier tick cannot authorize early completion.
+
+The isolated physics probe is maintained in:
+
+```
+python -m workbench.research.experiments.mobile_manipulation \
+  --output workbench/evidence/generated/mobile-physics-RUN
+```
+
+It constructs the actual runtime Genesis scene and checks Sim-time playback;
+it does not claim a full RGB-D/DDS/mobile acceptance test. `--locomotion raibert`
+is an explicit alternative-backend probe when the configured PyMPC environment
+is unavailable; its results must not be presented as PyMPC validation.
+
+Live acceptance still requires installed Pilot+Sim with ROS, model assets and the
+configured locomotion dependencies: acquire from varied initial placements,
+scan from a selected stance, walk into the C-band, then wrap/lift/hold using
+interpolated paths. The planner must not receive fixture object pose/mesh/diameter
+truth beyond the declared D100 task prior. Test target loss, invisible final
+handoff, delayed telemetry, cancellation, model/scene/lease replacement and
+unsupported terrain. Record partial outcomes rather than substituting fake
+telemetry or considering a completed command path a successful grasp.
+
+Measured runtime probes on 2026-11-15: native research Python cannot initialize
+the configured PyMPC backend because Pinocchio is absent. With explicit Raibert,
+a measured Home return followed by a 0.2 s replay passed. The encoder metadata,
+render-replica joint state and body root agreed in that physics snapshot. The
+ungrasped cylinder correctly failed the physical hold evaluation. Starting a
+hold at the unsettled ordinary spawn failed tracking; application spawn and
+nominal Home are different poses.
+
+The initial learned 20 s anchor path failed tracking at 5 s in the explicit
+Raibert probe. The repair replaces runtime pose writes with position actuators:
+arm KP/KV 200/20, linear KP/KV 2000/200, force limit 100. The old kinematic mode
+remains explicit and cannot run timed hugs. Prebuilt `*.physics.urdf` models
+open the actuator limits and include camera collision; `*.physics-open.urdf`
+also fix the claws open for a diagnostic comparison with the teacher. The
+original planning URDFs retain their original bytes. Both camera replicas and
+physics use measured joints. The default integration uses four substeps per
+10 ms tick. Arm, floor and feet friction are 0.5, 0.01 and 0.8 respectively;
+locomotion setup changes foot friction without overriding the arm material.
+
+Research and runtime share contact-face math, assembly-contact exclusions and
+loaded-hold math. Every node keeps its own local protected-face axis. Wrong-face
+contact interrupts the hold window; camera/body collision, excessive penetration
+or a joint-bound/spread failure remains an episode fault. Sim publishes a hashed
+physics profile; Pilot rejects missing/mismatched dynamics or Robot mirroring.
+This profile is a compatibility check, not proof of a successful grasp.
+It also fences the effective command slew. The Sim bend-rate default is
+0.3 rad/s per node, matching the validated paths. The old hardware-derived
+0.28777 rad/s fallback accumulated up to 14 degrees of segment-angle lag when
+silently applied after phase alignment; a lower-rate configuration now rejects
+an incompatible timed path. No rate limiter bypass is added.
+
+The installed normal Sim image provides Pinocchio and PyMPC even though the
+native research venv does not. The maintained benchmark can use that image with
+read-only source inputs, without starting normal services or building an image:
+
+```
+python -m workbench.tools.bench run mobile-hug \
+  --install /absolute/current/install --instance SYSTEM --gpu GPU-UUID \
+  --input config=/absolute/checkout/payload/config/sim/config.yaml \
+  --input data=/absolute/checkout/payload/data \
+  --input sim_source=/absolute/checkout/payload/runtime/docker/sim/app \
+  --input protocol_source=/absolute/checkout/payload/runtime/common/protocol \
+  --param 'base="free"' --param fixed_open_claws=false \
+  --output workbench/evidence/generated/mobile-free-RUN
+```
+
+Add `--param video=true` for a pure MP4 per anchor, or `--param 'anchors=[0]'`
+for one anchor. Genesis recording writes directly to that run's output at
+simulation-time cadence. A fixed-base/fixed-open test
+is diagnostic only. The first repaired fixed-base anchor passed a five-second
+hold. A subsequent free-body PyMPC batch replayed all three paths, but its final
+continuous hold windows were only 2.28, 0.73 and 2.88 s: all three failed
+acceptance. Those fixtures still used stale world XY after the body settled;
+the current probe places the cylinder at solver XY relative to the measured
+settled body. The final corrected five-case matrix passed: three active-claw
+anchors, fixed-open anchor 0 and the actual planner's selected interior point.
+All reached a full five-second hold at 10.11–10.18 simulation seconds. Recorded
+body histories satisfied the reserved drift bounds too. Videos are in
+`workbench/evidence/generated/mobile-repair-20261115/final-v8/work/probe/run`.
+Normal Sim/Pilot services remained stopped. Full-cycle success is not established.
+
+Generate an analytic interior fixture in the prepared developer environment with
+`python -m workbench.research.experiments.mobile_manipulation.planning --output FIXTURE.json`.
+Run `mobile-hug-case` with the same four source/data inputs as above plus
+`--input fixture=/absolute/FIXTURE.json`. `--param compare_claws=true` selects the
+five-case comparison. The planning probe's declared floor and target are fixture
+truth; its output must never replace measured RGB-D in the live workflow.
+
+The probe returns zero for a completed short replay; with `--anchor 0|1|2`, it
+also requires independent physical hold success. A JSON `replay_completed`
+value alone never establishes grasp success. Reports go to the explicitly
+selected generated-evidence directory. Do not send fixture coordinates back
+into Pilot planning.

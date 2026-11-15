@@ -70,6 +70,7 @@ python3 -m workbench.tools.ui_preview --output workbench/evidence/generated/serv
 | 모듈 | 유지 이유 |
 | --- | --- |
 | `experiments.hug_pipeline` | 솔버→역GA→정방향 검증→Home PPO→보간의 재개 가능한 통합 실행기. [실행 설명](research/experiments/hug_pipeline/README.md) |
+| `experiments.mobile_manipulation` | 실제 Sim 장면의 Home 복귀·물리시간 재생·측정 카메라 상태 검사. DDS/RGB-D 전체 수용검사와 구분하며 [범위·실행 방법](../docs/mobile-manipulation.md)을 따른다. |
 | `experiments.hug_c.prepare`, `.collection`, `.reward_audit` (shared geometry/diagnostics; old training retired) | mapper 전개 필터·후보 전체 물리 검사 후 C형 q3/q4 삼각형 선정; Home 네 축 자유 제어·들어올리기 5초 유지·경로 보간. `collection screen/check`는 학습 없이 검사. [실행 설명](research/experiments/hug_c/README.md) |
 | `experiments.hug_home_rl.experiment` | 검증된 Home→인계 경로로 출발 범위를 역확장하는 PPO, 리프트·유지 중 상한 있는 명령 변화 감점. [실행 설명](research/experiments/hug_home_rl/README.md) |
 | `analysis.export_home_checkpoint` | 새 Home-prefix 체크포인트를 업데이트 없이 정책 NPZ로 내보내어 중간 영상 평가에 사용 |

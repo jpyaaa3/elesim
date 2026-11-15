@@ -402,3 +402,13 @@ def test_new_reconstruction_invalidates_prepared_hug(ready):
     cache.services['object_scan']['scene_revision']='rev-b'
     assert not c.perform('execute_reconstructed_hug')
     assert names(cache)==['plan_reconstructed_hug']
+
+
+def test_mobile_task_start_is_explicit_and_plan_does_not_execute(ready):
+    c,_,cache,_=ready
+    assert c.perform('plan_mobile')
+    assert names(cache)==['plan_mobile_manipulation']
+    complete(cache,value={'plan_id':'mobile-a','phase':'ready'})
+    assert c.perform('start_mobile')
+    assert names(cache)==['plan_mobile_manipulation','start_mobile_manipulation']
+    assert not c.mobile_plan

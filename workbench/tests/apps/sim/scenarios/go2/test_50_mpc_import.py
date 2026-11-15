@@ -106,10 +106,14 @@ class Go2MpcImportTests(unittest.TestCase):
 
         class Entity:
             def __init__(self):
-                self.values = {}
+                self.values = {'arm_friction': .5}
+                self.links = [
+                    SimpleNamespace(name='FR_foot',set_friction=lambda value:self.values.update(friction=value)),
+                    SimpleNamespace(name='node0',set_friction=lambda value:self.values.update(arm_friction=value)),
+                ]
 
             def set_friction(self, value):
-                self.values["friction"] = value
+                raise AssertionError('locomotion must not overwrite whole-robot arm friction')
 
             def _set(self, name, value, *, dofs_idx_local):
                 self.assertEqual(dofs_idx_local, list(range(12)))
@@ -134,6 +138,7 @@ class Go2MpcImportTests(unittest.TestCase):
         )
         controller._apply_go2_physics_params()
         self.assertEqual(entity.values["friction"], 0.8)
+        self.assertEqual(entity.values['arm_friction'], .5)
         np.testing.assert_allclose(entity.values["armature"], 0.01)
 
     def test_physics_parameter_mismatch_fails_closed(self) -> None:
@@ -143,6 +148,7 @@ class Go2MpcImportTests(unittest.TestCase):
         )
 
         class Entity:
+            links = []
             set_friction = lambda *_args: None
             set_dofs_armature = lambda *_args, **_kwargs: None
             set_dofs_damping = lambda *_args, **_kwargs: None

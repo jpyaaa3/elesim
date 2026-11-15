@@ -85,6 +85,9 @@ def _register(
 
 
 _register("sim_param", "simulation.physics", _field_names(SimParam))
+_register('sim_config','simulation.arm',{'arm_control_mode','arm_kp','arm_kv',
+    'arm_linear_kp','arm_linear_kv','arm_force_limit','arm_friction'},strip_prefix='arm_')
+_register('sim_config','simulation.physics',{'floor_friction'})
 _register(
     "sim_config",
     "simulation.runtime",
@@ -312,6 +315,15 @@ def build_bundle_from_yaml(data: Mapping[str, Any], *, config_dir: str) -> AppCo
             )
 
     sim_config = components["sim_config"]
+    if sim_config.arm_control_mode not in {'position','kinematic'}:
+        raise ConfigValidationError('simulation.arm.control_mode must be position or kinematic')
+    from elesim_sim.robot.arm.actuation import PositionGains
+    try:
+        PositionGains(sim_config.arm_kp,sim_config.arm_kv,sim_config.arm_linear_kp,
+            sim_config.arm_linear_kv,sim_config.arm_force_limit)
+        if not all(.01<=x<=5 for x in (sim_config.arm_friction,sim_config.floor_friction)):
+            raise ValueError('friction must be in .01..5')
+    except ValueError as exc:raise ConfigValidationError(str(exc)) from exc
     execution = str(sim_config.camera_execution).strip().lower()
     if execution not in {"async_process", "sync_legacy"}:
         raise ConfigValidationError(

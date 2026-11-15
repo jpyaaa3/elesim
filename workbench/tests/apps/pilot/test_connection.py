@@ -597,3 +597,16 @@ def test_pilot_advertises_both_stereo_rgbd_broker_streams() -> None:
     assert streams["rgbd"].endpoint == "/elesim/pilot-a/rgbd/frame"
     assert streams["rgbd_right"].endpoint == "/elesim/pilot-a/rgbd/right"
     assert streams["rgbd_right"].format == "encoded-rgbd-v1"
+
+
+def test_base_only_samples_do_not_erase_joint_freshness(monkeypatch):
+    value,sink,endpoint=connection()
+    value.active_target='sim-a';value.endpoints=[dict(endpoint_id='sim-a',role='sim',instance_id='boot')]
+    monkeypatch.setattr('elesim_pilot.connection.time.monotonic',lambda:10.)
+    value.handle_envelope(endpoint,envelope('telemetry',dict(q=[0,0,0,0],q_source='simulated',
+        measurement_monotonic_s=5.,measurement_time_s=100.),source_id='sim-a'))
+    stamp=value.telemetry_received_at
+    value.handle_envelope(endpoint,envelope('telemetry',dict(go2_base_pos=[0,0,.32],
+        go2_base_rpy=[0,0,0],go2_base_timestamp_s=100.),source_id='sim-a'))
+    assert value.telemetry_received_at==stamp==10.
+    assert value.trajectory_telemetry['q_source']=='simulated'

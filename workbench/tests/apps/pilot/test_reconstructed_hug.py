@@ -52,3 +52,15 @@ def test_changed_model_is_rejected(tmp_path):
     shutil.copytree(MODEL,tmp_path/'m')
     with (tmp_path/'m/kernel.js').open('a') as f:f.write('// changed')
     with pytest.raises(ValueError,match='checksum'):HugModel(tmp_path/'m')
+
+
+def test_physics_contract_rejects_kinematic_or_mirroring_sim():
+    import copy
+    model=HugModel(MODEL)
+    profile=copy.deepcopy(model.meta['required_physics']);profile['mirroring']=False
+    model.validate_physics(profile)
+    for replacement in ({'arm_control_mode':'kinematic'},{'substeps':2},{'mirroring':True}):
+        with pytest.raises(ValueError):model.validate_physics(dict(profile,**replacement))
+    changed=copy.deepcopy(profile)
+    changed['urdf_options']['decompose_robot_error_threshold']=float('inf')
+    with pytest.raises(ValueError):model.validate_physics(changed)

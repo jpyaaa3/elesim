@@ -136,7 +136,13 @@ class ComposeExecutor(LocalExecutor):
                 raise ValueError(f"stage input not produced: {relative}")
             mounts.append({"type": "bind", "source": str(source), "target": f"/bench/run/{relative}",
                            "read_only": relative not in stage.writes})
-        pythonpath = ':'.join(filter(None, ('/bench/source', service.get('pythonpath', ''))))
+        for name in stage.runtime_sources:
+            if name not in stage.inputs:raise ValueError('runtime source must be a declared stage input')
+            package='elesim_protocol' if name=='protocol_source' else 'elesim_'+stage.role
+            if not (Path(plan.inputs[name])/package/'__init__.py').is_file():
+                raise ValueError('runtime source does not contain the selected role package')
+        pythonpath = ':'.join(filter(None, ('/bench/source',
+            *(plan.inputs[name] for name in stage.runtime_sources), service.get('pythonpath', ''))))
         env = {"HOME": "/tmp", "PYTHONUNBUFFERED": "1", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": pythonpath,
                "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "2", "EGL_DEVICE_ID": "0",
                "XDG_CACHE_HOME": "/tmp/bench-cache", "DISPLAY": "",

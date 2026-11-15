@@ -24,6 +24,7 @@ SERVICE_CALLS = frozenset(
         "confirm_floor_calibration", "reset_floor_calibration", "export_floor_calibration",
         "start_object_scan", "cancel_object_scan",
         "plan_reconstructed_hug",
+        'plan_mobile_manipulation', 'start_mobile_manipulation', 'cancel_mobile_manipulation',
     }
 )
 

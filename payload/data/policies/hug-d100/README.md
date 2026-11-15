@@ -17,12 +17,17 @@ trajectory cancellation. Preparing never moves the arm or silently connects a
 non-Home start. Changing the scene/base requires a fresh scan/plan.
 
 The cylinder OBJ is 100 mm diameter and 1.1 m tall. Its Sim instance is dynamic,
-with nominal density for 0.3 kg and friction 0.01. Other Sim/arm/floor/controller
-settings are not automatically changed to match training. Integrated DDS timing,
-contact behavior and physical success need live validation; completion of a
-command trajectory does not prove loaded grasp success. The executor may pause
-for feedback, so its wall-clock duration need not equal training simulation time.
+with nominal density for 0.3 kg and friction 0.01. The manifest's required physics
+profile must match Sim before execution. The direct reconstructed-hug adapter
+retains its feedback-paced trajectory executor. The mobile task instead uses
+Sim-time command replay and independent physical hold evaluation. Wall-clock
+duration can therefore differ from simulation time. Completion of a command
+trajectory alone never proves a loaded grasp.
 
-The command path holds its last value up to the 20-second nominal episode budget.
+The command path holds its last value up to the 20-second episode deadline.
+The mobile parent stops remaining samples when a fresh current-tick result
+verifies a complete five-second loaded hold. Actual free-body PyMPC fixture
+replays passed the three anchors and one selected interior placement on
+2026-11-15; full mobile RGB-D/DDS acceptance remains separate.
 This package remains explicitly `sim-experimental`: sampled study results are
 not a certificate for the entire triangle or for reconstructed-geometry errors.

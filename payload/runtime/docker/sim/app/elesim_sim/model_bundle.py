@@ -173,7 +173,24 @@ def validate_model_bundle(bundle_dir: str | os.PathLike[str]) -> dict[str, Any]:
     _validate_blueprint(bundle)
     _validate_urdf(bundle, ENTRYPOINTS["arm_urdf"])
     _validate_urdf(bundle, ENTRYPOINTS["robot_urdf"])
+    physics = metadata.get('physics')
+    if physics is not None:
+        expected = {'arm':'arm.physics.urdf','robot':'robot.physics.urdf',
+            'arm_fixed_open':'arm.physics-open.urdf','robot_fixed_open':'robot.physics-open.urdf'}
+        if (not isinstance(physics,dict) or physics.get('schema_version')!=1
+                or physics.get('entrypoints')!=expected or physics.get('camera_collision') is not True):
+            raise ModelBundleError('invalid physical model contract')
+        for name in expected.values():_validate_urdf(bundle,name)
     return metadata
+
+
+def physical_model_path(bundle_dir, *, use_go2=True, fixed_open=False):
+    bundle = Path(bundle_dir)
+    metadata = validate_model_bundle(bundle)
+    if 'physics' not in metadata:
+        raise ModelBundleError('prebuilt physical URDF missing; rebuild the model bundle')
+    key = ('robot' if use_go2 else 'arm') + ('_fixed_open' if fixed_open else '')
+    return bundle / metadata['physics']['entrypoints'][key]
 
 
 def _checked_bundle_path(raw_path: str | os.PathLike[str]) -> Path:

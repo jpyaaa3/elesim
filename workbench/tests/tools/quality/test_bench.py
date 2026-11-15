@@ -123,6 +123,17 @@ def test_five_family_catalog_rejects_unused_knobs_and_separates_truth_inputs():
             build("multiview-scan", {"data": "b"}, params)
 
 
+def test_mobile_hug_declares_its_runtime_sources_and_actual_entrypoint():
+    plan=build('mobile-hug',{k:'/inputs/'+k for k in ('config','data','sim_source','protocol_source')})
+    stage=plan.stages[0]
+    assert stage.runtime_sources==('protocol_source','sim_source')
+    closure=source_closure(stage.module)
+    assert any(p.as_posix().endswith('/mobile_manipulation/__main__.py') for p in closure)
+    assert plan.scope['hardware'] is False and plan.scope['dds'] is False
+    video=build('mobile-hug',plan.inputs,{'video':True})
+    assert '--video' in video.stages[0].args
+
+
 def test_legacy_index_does_not_claim_acceptance_or_remove_copied_source(tmp_path):
     for name in ("first", "second"):
         folder = tmp_path / name

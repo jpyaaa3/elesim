@@ -1,5 +1,4 @@
 """Offline, reproducible experiment configuration and task-local robot assets."""
-import copy
 import hashlib
 import json
 import math
@@ -75,8 +74,9 @@ def fk(root, link, positions=None):
 
 
 def asset_digest(bundle=BUNDLE):
-    root = ET.parse(bundle/'robot.urdf').getroot()
-    files = {bundle/'robot.urdf'}
+    physical=bundle/'robot.physics-open.urdf'
+    root = ET.parse(physical).getroot()
+    files = {bundle/'robot.urdf',physical}
     for mesh in root.iter('mesh'):
         files.add((bundle/mesh.get('filename')).resolve())
     digest = hashlib.sha256()
@@ -87,33 +87,10 @@ def asset_digest(bundle=BUNDLE):
 
 def materialize_robot(output, bundle=BUNDLE):
     """Copy only the URDF; mesh references become absolute, original is untouched."""
-    root = ET.parse(bundle/'robot.urdf').getroot()
-    bends = [j.get('name') for j in root.findall('joint') if j.get('type') == 'revolute' and
-             (j.get('name') == 'j_wedge_node0' or j.get('name', '').startswith('j_node'))]
-    if len(bends) != 9+1:
-        raise ValueError(f'Expected ten bending joints, found {bends}')
-    for joint in root.findall('joint'):
-        name = joint.get('name')
-        if name in ('j_gripper_base_claw_left', 'j_gripper_base_claw_right'):
-            joint.set('type', 'fixed')
-            for tag in ('axis', 'limit', 'dynamics'):
-                element = joint.find(tag)
-                if element is not None:
-                    joint.remove(element)
-        bound = math.pi/5 if name in bends else math.pi/2 if name == 'j_housing_wedge' else None
-        if bound is not None:
-            limit = joint.find('limit')
-            limit.set('lower', str(-bound)); limit.set('upper', str(bound))
-    camera = root.find("link[@name='camera']")
-    if camera is None:
-        raise ValueError('Missing protected camera link')
-    if camera.find('collision') is None:
-        for visual in camera.findall('visual'):
-            collision = ET.SubElement(camera, 'collision')
-            for tag in ('origin', 'geometry'):
-                element = visual.find(tag)
-                if element is not None:
-                    collision.append(copy.deepcopy(element))
+    physical=bundle/'robot.physics-open.urdf'
+    if not physical.is_file():
+        raise ValueError('Prebuilt physical model missing; rebuild the model bundle')
+    root=ET.parse(physical).getroot()
     for mesh in root.iter('mesh'):
         mesh.set('filename', str((bundle/mesh.get('filename')).resolve()))
     path = Path(output); path.parent.mkdir(parents=True, exist_ok=True)

@@ -79,6 +79,9 @@ def episode_duration(s):
 def digest_code():
     paths=list(Path(__file__).parent.glob('*.py'))
     paths+=list((ROOT/'payload/runtime/docker/sim/app/elesim_sim/rl').glob('*.py'))
+    sim=ROOT/'payload/runtime/docker/sim/app/elesim_sim'
+    paths += [sim/'robot/arm/actuation.py',sim/'simulation/contact_metrics.py',
+              sim/'simulation/grasp_metrics.py']
     paths += [ROOT/'workbench/research/experiments/hug_interpolation/environment.py',
               ROOT/'workbench/research/experiments/hug_interpolation/configure.py',
               ROOT/'workbench/research/experiments/hug_interpolation/video.py',

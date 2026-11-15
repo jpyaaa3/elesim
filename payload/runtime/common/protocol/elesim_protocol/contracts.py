@@ -97,6 +97,8 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
                "additive Sim-only start_object_scan/cancel_object_scan with optional object_scan status; "
                "plan_reconstructed_hug(target_id) prepares a Sim-only path from the completed local scan; "
                "execution uses execute_arm_trajectory(plan_id); no mesh bytes or model paths in the intent; "
+               "additive plan/start/cancel_mobile_manipulation orchestrates Sim-only observation and placement; "
+               "mobile_manipulation status distinguishes motion completion from verified hold; "
                "object_scan may include separate predicted_points and bounded model_execution diagnostics; "
                "completed scans may advertise a relative scene_reference, SHA-256 scene_revision and exact source sim_id/sim_boot_id; "
                "bundle bytes remain outside DDS and applying the result still requires a Sim-owned UI session"),
@@ -143,6 +145,8 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
         qos="best-effort-motion-depth-1", authority="target owner motion lease",
         notes=(
             "validated MotionCommandRequest; estop remains local-safe; "
+            "additive timed_arm on target commands is Sim-only behind simulation.timed_arm.v1; "
+            "<=2401 q4 samples, <=24s, start/keepalive/cancel fenced by id and existing lease; "
             "optional mock_hug final-target identity is stale-fenced by Sim; "
             "set_imu_model uses schema-v1 model descriptor and Robot telemetry confirmation; "
             "clear_fault is an explicit lease-bound request that verifies Robot torque-off, "
@@ -162,6 +166,8 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
             "bounded state map; fields are additive by design; Robot measured state "
             "may feed opt-in Sim presentation.robot-state.v1 without motion authority; "
             "Sim torque_enabled/claw_closed report its applied virtual actuator state; "
+            "optional Sim physics_profile describes hashed model/actuator/integration/material identity; "
+            "timed_arm execution and independent manipulation_evaluation never grant authority or expose object XYZ; "
             "imu_reader schema 1 carries two uncalibrated sensor diagnostics, not correction authority; "
             "optional Robot measurement_time_s is the arm sample time in the source wall clock "
             "for RGB-D pairing; measurement_monotonic_s retains its existing freshness meaning; "

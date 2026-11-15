@@ -63,7 +63,7 @@ def rig(tmp_path):
     def feedback(advance=True):
         now[0] += .05 if advance else 0.
         scan.accept_telemetry({'q_source': 'simulated', 'q': list(vars(host.q).values()),
-            'measurement_time_s': 1000.+now[0], 'measurement_monotonic_s': now[0]},
+            'measurement_time_s': 1000.+now[0], 'measurement_monotonic_s': now[0],'sim_time_s':now[0]},
             source_id='sim', source_boot_id='boot')
     def pump(predicate=lambda: not scan.active, timeout=4.):
         deadline = time.monotonic()+timeout
@@ -96,6 +96,14 @@ def test_robot_target_never_starts_or_sends_scan_motion(rig):
     rig.c.endpoints[0]['role'] = 'robot'
     with pytest.raises(RuntimeError, match='Robot is unsupported'):
         rig.scan.start()
+    assert not rig.sent
+
+
+def test_invalid_tracking_bound_does_not_leave_a_started_session(rig):
+    with pytest.raises(ValueError, match='tracking uncertainty'):
+        rig.scan.start(tracking_uncertainty=[.001, float('nan'), .015, .015])
+    assert not rig.scan.active
+    assert rig.scan._worker is None
     assert not rig.sent
 
 
@@ -150,7 +158,8 @@ def test_repeated_feedback_does_not_count_as_three_settled_samples(rig):
     for _ in range(5):
         rig.now[0] += .05
         rig.scan.tick()  # No new source-monotonic sample.
-    assert rig.scan._motion['stable'] == 1
+    # Wall time alone cannot finish a motion when the Sim clock is frozen.
+    assert rig.scan._motion['stable'] == 0
     assert not rig.frames
 
 

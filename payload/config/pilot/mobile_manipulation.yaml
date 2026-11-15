@@ -1,0 +1,24 @@
+# Sim-only D100, upright stationary object, observed flat terrain.
+# These are engineering error allowances; they are not calibrated covariances.
+max_reobservations: 3
+max_corrections: 3
+search_limit: 8
+max_views: 12
+total_timeout_s: 900.0
+feedback_timeout_s: 0.5
+base_speed_mps: 0.08
+yaw_speed_radps: 0.15
+base_position_tolerance_m: 0.01
+base_yaw_tolerance_rad: 0.025
+settle_s: 0.5
+base_timeout_s: 90.0
+target_age_s: 45.0
+drift_per_m: 0.02
+drift_per_rad: 0.005
+arrival_error_m: 0.003
+min_position_error_m: 0.003
+scan_roi_height_m: 0.18
+# Reserved in every grasp neighbourhood before choosing a base placement.
+hug_drift_error_m: 0.004
+hug_body_position_tolerance_m: 0.003
+hug_body_rotation_tolerance_rad: 0.008726646259971648

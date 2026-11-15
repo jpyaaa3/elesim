@@ -58,12 +58,12 @@ def test_remote_profile_disables_native_viewer_but_keeps_network_cameras() -> No
     assert bundle.sim_config.sim_observer_camera_max_hz == 30.0
 
 
-def test_default_go2_feedback_is_100hz_with_unchanged_5ms_physics_integration():
+def test_default_go2_feedback_is_100hz_with_reference_2_5ms_physics_integration():
     from elesim_sim.robot.go2.pympc_controller import solver_update_stride
     bundle = load_app_config(str(CONFIG_DIR / 'config.yaml'), mode='remote')
     assert bundle.sim_param.dt == .01
-    assert bundle.sim_param.substeps == 2
-    assert bundle.sim_param.dt / bundle.sim_param.substeps == .005
+    assert bundle.sim_param.substeps == 4
+    assert bundle.sim_param.dt / bundle.sim_param.substeps == .0025
     assert solver_update_stride(bundle.sim_param.dt, .02, backend='jax_mppi') == 2
 
 
@@ -79,7 +79,7 @@ def test_mppi_iteration_selection_keeps_100hz_feedback_and_4096_samples(tmp_path
     assert bundle.go2_locomotion_config.mpc_gpu_iterations == iterations
     assert bundle.go2_locomotion_config.mpc_gpu_samples == 4096
     assert bundle.sim_param.dt == .01
-    assert bundle.sim_param.substeps == 2
+    assert bundle.sim_param.substeps == 4
     assert solver_update_stride(bundle.sim_param.dt, .02, backend='jax_mppi') == 2
 
 

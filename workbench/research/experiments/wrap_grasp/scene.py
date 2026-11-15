@@ -463,23 +463,13 @@ class WrapGraspScene:
         assert self.arm_dofs is not None
         idxs = list(self.arm_dofs.all_indices)
         gains = self.cfg.arm.gains
-        n = len(idxs)
-        self.robot.set_dofs_kp(np.full(n, float(gains.kp)), dofs_idx_local=idxs)
-        self.robot.set_dofs_kv(np.full(n, float(gains.kv)), dofs_idx_local=idxs)
-        limit = float(gains.force_range)
-        self.robot.set_dofs_force_range(
-            np.full(n, -limit), np.full(n, limit), dofs_idx_local=idxs
-        )
+        from elesim_sim.robot.arm.actuation import PositionGains,configure_position_gains
+        configure_position_gains(self.robot,idxs,int(self.arm_dofs.linear),PositionGains(
+            kp=float(gains.kp),kv=float(gains.kv),linear_kp=float(gains.linear_kp),
+            linear_kv=float(gains.linear_kv),force_limit=float(gains.force_range)))
         # The linear stage is the one prismatic axis here, and a stiffness in
         # N/m is not the same quantity as one in N.m/rad -- sharing a number
         # between them left the stage unable to follow the macro step's ramp.
-        linear = int(self.arm_dofs.linear)
-        self.robot.set_dofs_kp(
-            np.full(1, float(gains.linear_kp)), dofs_idx_local=[linear]
-        )
-        self.robot.set_dofs_kv(
-            np.full(1, float(gains.linear_kv)), dofs_idx_local=[linear]
-        )
 
     def _configure_go2_legs(self) -> None:
         """Hold the quadruped legs at a fixed stance.

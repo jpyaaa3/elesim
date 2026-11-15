@@ -21,6 +21,18 @@ def anchors():
     return result
 
 
+def test_asset_identity_tracks_the_physical_model_actually_loaded(tmp_path):
+    from workbench.research.experiments.hug_interpolation.configure import asset_digest
+    planning='<robot name="planning"><link name="base"/></robot>'
+    physical='<robot name="physics"><joint name="bend"><limit lower="-1" upper="1"/></joint></robot>'
+    (tmp_path/'robot.urdf').write_text(planning)
+    (tmp_path/'robot.physics-open.urdf').write_text(physical)
+    before=asset_digest(tmp_path)
+    (tmp_path/'robot.physics-open.urdf').write_text(physical.replace('lower="-1"','lower="-.5"'))
+    assert asset_digest(tmp_path)!=before
+    assert (tmp_path/'robot.urdf').read_text()==planning
+
+
 def test_residual_preserves_target_endpoints_and_shape():
     target = case([2, 3]); target['goal_command'][2] = .2
     result = interpolate(anchors(), target, samples=3)

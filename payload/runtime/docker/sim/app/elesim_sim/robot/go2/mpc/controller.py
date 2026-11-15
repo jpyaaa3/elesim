@@ -321,7 +321,8 @@ class ConvexMpcGenesisController:
 
     def _apply_go2_physics_params(self) -> None:
         n = len(self._leg_dof_idxs)
-        self._entity.set_friction(float(self._config.physical_friction))
+        from elesim_sim.simulation.materials import apply_foot_friction
+        apply_foot_friction(self._entity,float(self._config.physical_friction))
         specs = (
             ("armature", self._entity.set_dofs_armature, self._entity.get_dofs_armature, self._config.joint_armature),
             ("damping", self._entity.set_dofs_damping, self._entity.get_dofs_damping, self._config.joint_damping),

@@ -69,6 +69,22 @@ class _ControlFacade:
         self._mock_hug: MockHugCoordinator | None = None
         self._arm_trajectory: ArmTrajectory | None = None
         self._object_scan: LiveScan | None = None
+        self._mobile = None
+
+    @property
+    def mobile_manipulation(self):
+        return {} if self._mobile is None else self._mobile.status()
+
+    def plan_mobile_manipulation(self, target_id='target', task_profile='cylinder-d100'):
+        if self._mobile is None or self._arm_trajectory.active:
+            raise RuntimeError('Mobile workflow unavailable or arm trajectory busy')
+        return self._mobile.plan(target_id, task_profile)
+
+    def start_mobile_manipulation(self, plan_id):
+        return self._mobile.start(plan_id)
+
+    def cancel_mobile_manipulation(self):
+        return self._mobile.cancel()
 
     @property
     def object_scan(self):
@@ -103,6 +119,7 @@ class _ControlFacade:
         fit = extract_target(status['scene_manifest'], target_id, status['scene_revision'])
         model = HugModel(self._hug_model_root)
         model.validate_robot(executor.model_dir/'arm.urdf')
+        model.validate_physics(self._connection.trajectory_telemetry.get('physics_profile'))
         host = executor._feedback()
         context = executor._context(host)
         origin, rotation = _forward_link_tf(context, [0., 0., 0., 0.])['node0']
@@ -112,6 +129,7 @@ class _ControlFacade:
         commands, report = model.resolve([-local[1]*1000., local[0]*1000.+144.5])
         key = (status['job_id'], status['scene_revision'], route, sim.epoch)
         def unchanged():
+            model.validate_physics(self._connection.trajectory_telemetry.get('physics_profile'))
             current = scan.status()
             live = scan.simulation_status()
             if (live is None or live.paused or current.get('phase') != 'completed'
@@ -125,6 +143,11 @@ class _ControlFacade:
         return {} if self._arm_trajectory is None else self._arm_trajectory.status()
 
     def guard_operator_intent(self, operation, name):
+        if self._mobile is not None:
+            owned = self._mobile.active
+            self._mobile.guard_operator(operation, name)
+            if owned:
+                return
         if self._object_scan is not None:
             self._object_scan.guard_operator(operation, name)
         if self._arm_trajectory is not None:
@@ -392,29 +415,46 @@ def _run() -> None:
         hand_eye=bundle.sim_config.hand_eye_config,
         output_root=(Path(args.scan_output_root).expanduser().absolute() if args.scan_output_root
                      else default_scene_output_root()),
-        other_busy=lambda: trajectory.active or mock_hug.running)
+        other_busy=lambda: trajectory.active or mock_hug.running or
+            (facade._mobile is not None and facade._mobile.active and facade._mobile.phase != 'scan'))
     facade._object_scan = object_scan
     facade._hug_model_root = trajectory.model_dir.parents[2] / 'policies/hug-d100'
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    from elesim_pilot.mobile_manipulation.coordinator import Coordinator
+    from elesim_pilot.mobile_manipulation.contracts import Settings
+    import yaml
+    mobile_config = directory/'mobile_manipulation.yaml'
+    mobile_settings = Settings(**(yaml.safe_load(mobile_config.read_text()) if mobile_config.is_file() else {}))
+    mobile_ports = SimPorts(connection, runtime.service, runtime.state, object_scan,
+        simulation_status=lambda: simulation_sync.latest, model_root=facade._hug_model_root,
+        settings=mobile_settings)
+    mobile = Coordinator(mobile_ports, settings=mobile_settings, clock=time.monotonic)
+    facade._mobile = mobile
 
     def _telemetry(payload, **source):
         runtime.service.accept_floor_telemetry(payload, **source)
         object_scan.accept_telemetry(payload, **source)
+        mobile_ports.accept_telemetry(payload, **source)
 
     def _control_tick():
         trajectory.tick()
         object_scan.tick()
+        mobile.tick()
 
     def _closing():
+        if mobile.active:
+            mobile.cancel('Pilot stopping')
         trajectory.cancel_arm_trajectory()
         object_scan.request_cancel('Pilot stopping')
         object_scan.tick()
 
     connection.telemetry_observer = _telemetry
     connection.control_tick = _control_tick
-    connection.motion_guard = lambda payload: trajectory.allow_motion(payload) and object_scan.allow_motion(payload)
+    connection.motion_guard = lambda payload: mobile.allow_motion(payload) and trajectory.allow_motion(payload) and object_scan.allow_motion(payload)
     connection.on_closing = _closing
     simulation_sync.add_cancel_callback(object_scan.request_cancel)
     simulation_sync.add_cancel_callback(mock_hug.cancel)
+    simulation_sync.add_cancel_callback(lambda reason: mobile.request_cancel(reason) if mobile.active else None)
     def _target_changed(target: str) -> None:
         simulation_sync.clear("simulation target changed")
         if not str(target).strip():
@@ -436,12 +476,14 @@ def _run() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        mobile.request_cancel('Pilot stopping')
         object_scan.close()
         trajectory.request_cancel()
         mock_hug.close()
         simulation_sync.close()
         runtime.service.close()
         connection.close()
+        mobile_ports.close()
         # Target callbacks also own these relays. Join their caller before
         # releasing media endpoints from the main thread.
         facade.close()

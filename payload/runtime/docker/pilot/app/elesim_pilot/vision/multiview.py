@@ -184,10 +184,13 @@ class ScanMap:
 class ViewPlanner:
     """Reachable FK view proposals from observations, without mesh/truth access."""
     def __init__(self, camera_model, *, collision_checker, candidates=12000, seed=41, policy='information', cancelled=lambda: False,
-                 operating_bounds=None):
+                 operating_bounds=None, roi_height_m=None):
         if not 100 <= candidates <= 30_000:
             raise ValueError('invalid view candidate budget')
         self.model = camera_model
+        if roi_height_m is not None and not .05 <= roi_height_m <= .5:
+            raise ValueError('invalid observation ROI height')
+        self.roi_height_m = roi_height_m
         if (collision_checker.source_hashes['arm_model.json'] != camera_model.model_digest
                 or not np.allclose(collision_checker.bounds,np.column_stack([camera_model.lower,camera_model.upper]))):
             raise ValueError('camera and collision model disagree')
@@ -222,6 +225,10 @@ class ViewPlanner:
         if len(points) < 3 or not accepted_poses:
             return None
         center = (np.percentile(points, 5, axis=0) + np.percentile(points, 95, axis=0))/2
+        if self.roi_height_m is not None:
+            roi = points[np.abs(points[:, 2]-center[2]) <= self.roi_height_m/2]
+            if len(roi) >= 3:
+                points = roi
         origin = self.poses[:, :3, 3]
         vector = center-origin
         camera = np.einsum('nji,nj->ni', self.poses[:, :3, :3], vector)

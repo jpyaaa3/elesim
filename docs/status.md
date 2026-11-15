@@ -7390,3 +7390,111 @@ interpolation/mapper checks: 210 passed; 3 ACL cases failed during fixture
 `os.setxattr(system.posix_acl_access)` with EINVAL, before the code under test.
 Connection runtime-status JavaScript regression command passed. Canonical Docker
 and live deployment gates remain unrun; this push does not activate installations.
+
+### 2026-11-15 mobile observation and C-hug implementation (uncommitted)
+
+Added a Pilot-owned bounded parent workflow: source-fenced acquisition, camera/
+base observation placement, stationary active scan, checked Home transport,
+observed-free C-band placement, reobservation, timed hug and independent physical
+hold verification. UI has explicit plan/start/stop actions. Robot is excluded.
+See [the runbook](mobile-manipulation.md) for scope, configuration and acceptance.
+
+The parent owns one arm/base child at a time, never treats unknown floor as free,
+and bounds target search/reobservation/correction. Inference holds one fixed
+checked posture rather than following sensor drift. Completion points never
+certify measured geometry or free space. Base arrival yaw consumes the same
+position-error allowance as translation. Final target handoff checks sampled
+solver support; it does not claim a continuous error-disk proof.
+
+The additive v6 Sim timed-arm capability advances commands in physics time, with
+bounded samples, mapped limits/slew/budget, measured Home/tracking, clock-jump,
+heartbeat, lease, torque and scene cancellation. Physical hold evidence is kept
+separate from replay completion, reset per execution and counted once per physics
+tick. A successful report must cover the final tick. Sim measurement/camera
+paths now read actual joints; RGB-D replica geometry and encoder metadata use
+the same measured state. Camera readbacks occur at capture deadlines; idle
+physics loops do not perform the new replay/evaluation readbacks.
+
+Host fallback combined protocol/Pilot/UI/Sim regressions passed 435 tests,
+6 skipped and 5 subtests, including the fixed-posture planning regression.
+Release-build tool tests: 17 passed.
+These are partial software evidence. Canonical required/extended, isolated-release,
+DDS multi-process and integrated RGB-D/mobile acceptance remain unrun: no generated
+development attachment or usable pinned Docker daemon is available locally.
+
+The isolated GPU2 native research venv cannot initialize configured PyMPC because
+Pinocchio is absent. An explicit alternative Raibert probe returned to measured
+Home and completed a 0.2 s physics-time replay. Its measured render snapshot,
+encoder values and body root agreed; the ungrasped cylinder correctly failed hold
+verification. The ordinary application spawn differs from nominal Home; a short
+hold at its unsettled spawn failed tracking. A learned 20 s anchor replay from
+measured Home cancelled at tick 500 for tracking error, with no verified hold.
+Those initial probes preceded the physical transfer repair below. They did not
+establish an end-to-end mobile hug.
+
+Remote source and unrelated jobs were preserved. Probes ran in a separate
+`.mobile-dev-20261115` source tree on GPU2; existing stopped Sim/Pilot containers
+were not restarted. No physical Robot motion or new training was performed.
+
+### 2026-11-15 mobile physical transfer repair (uncommitted)
+
+Runtime now uses scoped physical arm position actuators with the teacher's
+gains, prebuilt opened-limit/camera-collision URDFs, four integration substeps,
+explicit collision decomposition and separate arm/floor/foot materials. Planning
+URDF bytes remain unchanged. Research consumes the prebuilt physical model and
+shares contact classification, assembly exceptions, position gains and hold
+math with Sim. Research provenance now includes those shared implementations
+and the actual physical URDF, so changing them invalidates cached experiments.
+
+Two additional transfer errors were corrected. A per-node protected face cannot
+be inferred from node9's world axis when the arm bends. Also the runtime's
+hardware-derived 0.28777 rad/s limiter silently distorted 0.3 rad/s learned
+commands, accumulating up to 14 degrees of total segment-angle lag. The default
+bend slew now matches the validated path; physics-profile and timed receiver
+checks reject a lower actual cap instead of silently clipping it. Model,
+integrator, actuator, slew and materials are fenced before Pilot execution.
+
+Twenty seconds is a deadline. Independent current-tick evidence of a complete
+five-second loaded hold ends the parent early by cancelling remaining samples.
+The generic path remains honestly `cancelled`; parent success remains separate.
+This avoids reclassifying an already completed hold from unrelated late drift.
+Wrong-face contact interrupts the hold window; actual protected/self/world
+collision, penetration and joint-bound/spread faults remain permanent failures.
+
+Measured body height/roll/pitch enter solver coordinates. Placement reserves
+4 mm of solver-XY drift in addition to target and arrival error. Live execution
+enforces that projection plus 3 mm full-body translation and 0.5 degree attitude
+bounds. More than half-circle surface coverage no longer worsens cylinder-fit
+conditioning. Identified target points survive broad self-body filtering. Scan,
+search and transport interpolation consume simulation time.
+
+GPU2's installed normal Sim image supplied actual Pinocchio/PyMPC. Maintained
+`mobile-hug`/`mobile-hug-case` recipes used its pinned image and declared read-only
+Sim/protocol sources, with no image build, service restart or network. Final
+`mobile-pympc-diagnostic-v8-20261115` passed **5/5**: three active-claw anchors,
+fixed-open anchor 0, and an actual-planner-selected interior interpolation.
+Success occurred at 10.11–10.18 simulation seconds with a full five-second hold.
+The selected point used weights **0.15/0.35/0.50**, solver XY
+**(-139.316, 278.245) mm** and a sampled 10 mm neighbourhood. Recorded body
+histories also passed all reserved-drift checks: maximum solver drift
+**3.134 mm**, body translation **2.188 mm**, attitude **0.351 degrees**.
+Command-limiter error was below **5e-8 rad**. All five pure 960x720 H.264 videos
+were collected; representative wrap/lift/hold frames were visually inspected.
+
+Verified raw evidence and videos are under
+`workbench/evidence/generated/mobile-repair-20261115/final-v8`; a compact
+`transfer-summary.json` sits beside it. Collection SHA-256:
+`71aa8da38df6a28764858b459d56b4a666004c8f7ac2563c78a125f59336d315`.
+Earlier failures remain preserved rather than overwritten. The fixture position
+is test truth for Sim setup/evaluation only, never a Pilot perception input.
+
+Final combined host fallback: **493 passed, 6 skipped, 5 subtests passed**.
+Shared research regressions: **82 passed, 1 skipped**. Offline release-tool subset:
+16 passed; its portable Pilot-data case needs unavailable completion-asset download.
+Three selected convex-MPC checks cannot import host `convex_mpc`; no dependency
+was installed into host Python. The current remote dev wrapper exists but its
+configured dev image is absent. Canonical required/extended, isolated-release and
+full DDS/RGB-D observation→walking→scan→hug acceptance remain unrun. The 5/5 result
+is physical fixture transfer evidence, not completion of those operational gates.
+Normal containers were unchanged and stopped; all owned diagnostics ended. No
+new GA/PPO training, physical Robot motion or NewtonGym lifecycle action occurred.

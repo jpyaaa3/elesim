@@ -60,6 +60,14 @@ class SimConfig:
     floor: bool = True
     use_hardware: bool = False
     use_go2: bool = False
+    arm_control_mode: str = 'position'
+    arm_kp: float = 200.
+    arm_kv: float = 20.
+    arm_linear_kp: float = 2000.
+    arm_linear_kv: float = 200.
+    arm_force_limit: float = 100.
+    arm_friction: float = .5
+    floor_friction: float = .01
 
     build_dir: str = DEFAULT_BUILD_DIR
     assy_build_json: str = "blueprint.json"

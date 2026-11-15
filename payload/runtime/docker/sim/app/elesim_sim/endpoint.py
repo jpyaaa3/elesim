@@ -247,6 +247,9 @@ class SimEndpoint:
             pilot_id = self.pilot_id
             lease_id = self.active_lease
         payload.update(self.state.control_feedback())
+        payload['timed_arm'] = self.state.timed_arm_status()
+        payload['manipulation_evaluation'] = self.state.manipulation_evaluation_status()
+        payload['physics_profile'] = self.state.physics_profile_status()
         if not self._send_best_effort(
             client,
             "telemetry",
@@ -869,6 +872,7 @@ class SimEndpoint:
             CAPABILITY_MOTION_ARM,
             CAPABILITY_MOTION_GO2,
             CAPABILITY_SIM_MOCK_HUG,
+            'simulation.timed_arm.v1',
         ]
         capabilities.append(CAPABILITY_ROBOT_STATE_MIRROR)
         capabilities.append(CAPABILITY_PRESENTATION_TARGET)

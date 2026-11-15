@@ -42,6 +42,7 @@ class LiveScan:
         self._route = None
         self._release_pending = False
         self._cancel_reason = ''
+        self._retain_lease = False
 
     @property
     def active(self):
@@ -71,7 +72,7 @@ class LiveScan:
             if old is not None and old['identity'] == identity and mono <= old['mono']:
                 return
             self._feedback = dict(identity=identity, q=q.copy(), wall=float(wall), mono=float(mono),
-                                  received=self.clock())
+                                  received=self.clock(),sim_time=payload.get('sim_time_s'))
 
     def _checked_feedback(self):
         route = self.route()
@@ -80,6 +81,9 @@ class LiveScan:
         if (feedback is None or feedback['identity'] != route[:2]
                 or self.clock()-feedback['received'] > .5):
             raise RuntimeError('fresh Sim joint measurements with source timestamps required (<=500 ms)')
+        sim_time=feedback['sim_time']
+        if isinstance(sim_time,bool) or not isinstance(sim_time,(int,float)) or not np.isfinite(sim_time) or sim_time<0:
+            raise RuntimeError('fresh Sim-time feedback required for physical scan motion')
         host = self.connection.state_sink.get_state()
         if not host.connected or host.safety_fault or not host.reply_ok:
             raise RuntimeError(host.safety_fault or host.reply_reason or 'Sim disconnected/rejected command')
@@ -126,7 +130,7 @@ class LiveScan:
                 reason=self._reason, blocked_reason=blocked, can_start=not self.active and not blocked,
                 geometry_complete_claimed=False, **{**self._progress, **self._result})
 
-    def start(self, target_id='target', max_views=12):
+    def start(self, target_id='target', max_views=12, *, roi_height_m=None, retain_lease=False, tracking_uncertainty=None):
         if self.active or (self._worker is not None and self._worker.is_alive()) or self._release_pending:
             raise RuntimeError('scan session already active or stopping')
         if self._busy():
@@ -141,6 +145,9 @@ class LiveScan:
             raise ValueError('measured scan start is outside configured operating bounds')
         if type(max_views) is not int or not 2 <= max_views <= 24:
             raise ValueError('scan view budget must be 2..24')
+        uncertainty = np.asarray(tracking_uncertainty if tracking_uncertainty is not None else [.003,.04,.04,.04],float)
+        if uncertainty.shape != (4,) or not np.isfinite(uncertainty).all() or np.any(uncertainty<=0):
+            raise ValueError('invalid scan tracking uncertainty')
         job_id = uuid.uuid4().hex
         task = Task('scan-'+job_id, target_id)
         route = self.route()
@@ -149,6 +156,7 @@ class LiveScan:
         if stream.get('format') != 'encoded-rgbd-v1' or not stream.get('endpoint'):
             raise RuntimeError('scan requires encoded RGB-D with source identity, calibration and measured q')
         self._generation += 1
+        self._retain_lease = bool(retain_lease)
         generation = self._generation
         self._stop.clear()
         self._cancel_reason = ''
@@ -157,6 +165,7 @@ class LiveScan:
         self._last_q, self._last_send, self._started = feedback['q'].copy(), self.clock(), self.clock()
         self._motion = None
         self._bounds = bounds
+        self._tracking_uncertainty = uncertainty.copy()
         self.connection.clear_pending_motion()
 
         def cancelled():
@@ -179,10 +188,10 @@ class LiveScan:
                     pipeline.prepare(cancelled=cancelled, progress=progress)
                     model = ArmCameraModel(self.model_dir.parents[1]/'arm/default.json', self.hand_eye,
                         base_world_transform=base)
-                    arm = ArmSelfCollision(self.model_dir, joint_uncertainty=[.003, .04, .04, .04])
+                    arm = ArmSelfCollision(self.model_dir, joint_uncertainty=self._tracking_uncertainty)
                     collision = ScanCollision(arm, base)
                     planner = ViewPlanner(model, collision_checker=collision, cancelled=cancelled,
-                        operating_bounds=bounds)
+                        operating_bounds=bounds, roi_height_m=roi_height_m)
                     engine = ActiveScan(pipeline, model, planner, max_views=max_views)
                 else:
                     engine = self.engine_factory(max_views, cancelled)
@@ -242,6 +251,7 @@ class LiveScan:
                             'accepted_views', 'observed_points', 'predicted_points', 'model_execution',
                             'coverage', 'needs_more_observation') if key in report}
                         self._result.update(publication)
+                        self._result['return_q_path'] = [feedback['q'].tolist()] + [v['q'] for v in report.get('views', [])]
                         self._release_pending = True
             except Exception as exc:
                 with self._condition:
@@ -273,8 +283,8 @@ class LiveScan:
             if cancelled():
                 raise PipelineCancelled('scan cancelled')
             now = self.clock()
-            duration = float(np.max(np.abs(goal-self._last_q)/[.02, .15, .15, .15]))
-            motion = dict(start=self._last_q.copy(), goal=np.array(goal), started=now,
+            duration = float(np.max(np.abs(goal-self._last_q)/[.005, .04, .04, .04]))
+            motion = dict(start=self._last_q.copy(), goal=np.array(goal), started=self._feedback['sim_time'],
                 duration=max(.1, duration), deadline=now+max(12., duration*4.+5.),
                 stable=0, last_sample=None, settled_wall=None)
             self._motion = motion
@@ -321,7 +331,7 @@ class LiveScan:
                     raise TimeoutError('scan session exceeded 600 seconds')
                 if now-self._last_send > .5:
                     raise TimeoutError('scan control tick stalled; stopped without catching up')
-                if np.any(np.abs(feedback['q']-self._last_q) > [.003, .04, .04, .04]):
+                if np.any(np.abs(feedback['q']-self._last_q) > self._tracking_uncertainty):
                     raise RuntimeError('Sim did not track the scan command within modeled uncertainty')
                 if now-self._last_send >= .04:
                     with self._condition:
@@ -332,7 +342,8 @@ class LiveScan:
                         if motion is not None:
                             if now > motion['deadline']:
                                 raise TimeoutError('scan settling deadline exceeded')
-                            fraction = min(1., max(0., (now-motion['started'])/motion['duration']))
+                            if feedback['sim_time']<motion['started']:raise RuntimeError('scan Sim clock reset')
+                            fraction = min(1., max(0., (feedback['sim_time']-motion['started'])/motion['duration']))
                             q = motion['start']+(motion['goal']-motion['start'])*fraction
                             if fraction == 1. and motion['settled_wall'] is None:
                                 close = np.all(np.abs(feedback['q']-motion['goal']) <= [.001, .015, .015, .015])
@@ -353,7 +364,8 @@ class LiveScan:
             self._release_pending = False
             try:
                 self.connection.clear_pending_motion()
-                self.connection.release_trajectory_route(self._route)
+                if not self._retain_lease:
+                    self.connection.release_trajectory_route(self._route)
             except Exception as exc:
                 self._reason = (self._reason+'; lease release failed: '+str(exc))[:512]
             feedback = self._feedback

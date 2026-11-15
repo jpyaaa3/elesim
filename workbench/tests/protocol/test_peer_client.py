@@ -676,3 +676,17 @@ def test_second_pilot_cannot_take_busy_target() -> None:
     error = _messages(second)
     assert error[0].message_type == "error"
     assert "unavailable" in error[0].payload["reason"]
+
+
+@pytest.mark.parametrize('role,capable,accepted',[('robot',True,False),('sim',False,False),('sim',True,True)])
+def test_timed_arm_is_capability_gated_and_never_authorized_on_robot(role,capable,accepted):
+    bus=_Bus()
+    pilot=PeerClient(EndpointDescriptor('pilot-a','pilot'),node_factory=bus.factory)
+    caps=('motion.arm','simulation.timed_arm.v1') if capable else ('motion.arm',)
+    target=PeerClient(EndpointDescriptor('target-a',role,caps),node_factory=bus.factory)
+    pilot.send('select_target',payload={'target_id':'target-a'})
+    lease=_messages(target)[0].lease_id;_messages(pilot)
+    pilot.send('motion_command',target_id='target-a',lease_id=lease,payload=dict(command='target',
+        timed_arm=dict(id='path-a',operation='start',dt_s=.01,q=[[0.,0.,0.,0.]]*2)))
+    messages=_messages(target)
+    assert any(m.message_type=='motion_command' for m in messages)==accepted

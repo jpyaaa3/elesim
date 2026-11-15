@@ -43,6 +43,8 @@ class ServoingController:
         self.notice = self.error = ''
         self.solution = {}
         self.hug_plan = {}
+        self.mobile_plan = {}
+        self._mobile_context = None
         self._hug_context = None
         self._solution_context = ()
         self._pending = None
@@ -92,7 +94,7 @@ class ServoingController:
         status = getattr(getattr(self.session, 'snapshot', None), 'status', None)
         obj = getattr(status, 'mock_object', None)
         remote = self.service.session
-        busy = bool(scan.get('active') or remote.service_value('arm_trajectory', {}).get('active')
+        busy = bool(scan.get('active') or remote.service_value('mobile_manipulation', {}).get('active') or remote.service_value('arm_trajectory', {}).get('active')
                     or remote.service_value('wrap_grasp_running', False)
                     or remote.service_value('pick_e2e_running', False)
                     or any(getattr(self.panel.state, k, False) for k in
@@ -204,6 +206,11 @@ class ServoingController:
             return ''
         if action == 'wrap':
             return ''
+        if action in ('plan_mobile', 'start_mobile'):
+            if v.role != 'sim':return 'Mobile observation and hug currently require Sim.'
+            if action == 'start_mobile' and (not self.mobile_plan.get('plan_id') or self._mobile_context != self._context(geometry=True)):
+                return 'Prepare a fresh mobile task first.'
+            return ''
         if action in ('plan_reconstructed_hug', 'execute_reconstructed_hug'):
             if v.role != 'sim' or not v.reconstructed:
                 return 'Complete a reconstruction on the selected Sim first.'
@@ -270,6 +277,9 @@ class ServoingController:
             return
         self.error = ''
         self.notice = 'Request accepted; follow live status for completion.'
+        if pending['action'] == 'plan_mobile':
+            self.mobile_plan = dict(value) if isinstance(value, dict) else {}
+            self._mobile_context = pending['context']
         if pending['action'] == 'plan_reconstructed_hug':
             self.hug_plan = dict(value) if isinstance(value, dict) else {}
             self._hug_context = pending['scan_key']
@@ -293,7 +303,7 @@ class ServoingController:
             self.solution = {}
         self._serial += 1
         token = self._serial
-        geometry = action in ('compute_hug', 'execute_hug')
+        geometry = action in ('compute_hug', 'execute_hug', 'plan_mobile', 'start_mobile')
         scope = 'all' if geometry or action in ('plan_reconstructed_hug','execute_reconstructed_hug') else 'motion' if action in ('scan','cancel_scan','wrap') else 'scene'
         self._pending = dict(action=action,token=token,geometry=geometry,
             scope=scope,context=self._context(geometry=geometry,scope=scope),
@@ -302,7 +312,12 @@ class ServoingController:
         callbacks = dict(on_result=lambda value: self._callback(token,value),
                          on_error=lambda error: self._callback(token,error,error=True))
         try:
-            if action in ('plan_reconstructed_hug', 'execute_reconstructed_hug'):
+            if action in ('plan_mobile','start_mobile'):
+                method = 'plan_mobile_manipulation' if action == 'plan_mobile' else 'start_mobile_manipulation'
+                args = (self.target_id.strip(),) if action == 'plan_mobile' else (self.mobile_plan['plan_id'],)
+                self.service.mobile_manipulation_async(method,*args,**callbacks)
+                if action == 'start_mobile':self.mobile_plan = {}
+            elif action in ('plan_reconstructed_hug', 'execute_reconstructed_hug'):
                 method = 'plan_reconstructed_hug' if action == 'plan_reconstructed_hug' else 'execute_arm_trajectory'
                 args = (self.target_id.strip(),) if action == 'plan_reconstructed_hug' else (self.hug_plan['plan_id'],)
                 self.service.reconstructed_hug_async(method,*args,**callbacks)
@@ -345,6 +360,9 @@ class ServoingController:
         """Best-effort explicit stops remain reachable despite stale preflight."""
         v = self.view()
         operations = []
+        if self.service.session.service_value('mobile_manipulation', {}).get('active'):
+            operations.append(lambda: self.service.mobile_manipulation_async('cancel_mobile_manipulation',
+                on_result=lambda _:None,on_error=lambda error:setattr(self,'error',str(error))))
         paused_hug = False
         stopped_ik = False
         if v.scan.get('active') or self.pending == 'scan':

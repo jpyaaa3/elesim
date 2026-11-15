@@ -84,6 +84,29 @@ def test_render_snapshot_is_serializable_and_has_epoch_fields() -> None:
     assert snapshot.target_position == (0.5, 0.0, 0.2)
 
 
+def test_rgbd_snapshot_uses_measured_geometry_and_encoder_values() -> None:
+    from types import SimpleNamespace as NS
+    from elesim_protocol import SimQ
+    class Entity:
+        def get_joint(self, name):
+            return NS(dofs_idx_local={'arm_a': 0, 'arm_b': 1}[name])
+        def get_dofs_position(self, *, dofs_idx_local):
+            return np.array([.2, -.3])[dofs_idx_local]
+        def get_pos(self):return np.array([.1, .2, .32])
+        def get_quat(self):return np.array([1., 0., 0., 0.])
+    entity=Entity()
+    mover=NS(entity=entity,camera_joint_position_map=lambda:{'arm_a':.9,'arm_b':.9},
+        measured_4dof_q=lambda:SimQ(-.12,0.,-.3,.3))
+    stale=NS(camera_render_state=lambda:({},(0.,0.,0.),(1.,0.,0.,0.)))
+    scene=SimScene(mover=mover,go2_entity=entity,go2=stale,
+        camera_joint_names=('arm_a','arm_b'),camera_hand_eye_joint_names=('arm_a','arm_b'))
+    snapshot=scene._camera_state_snapshot(arm_q=(0.,0.,0.,0.),sim_time_s=1.)
+    assert snapshot.robot_joint_positions==(.2,-.3)
+    assert snapshot.hand_eye_robot_joint_positions==(.2,-.3)
+    assert snapshot.root_pos==(.1,.2,.32)
+    assert snapshot.arm_q==(-.12,0.,-.3,.3)
+
+
 def test_render_replica_applies_observer_pose_snapshot() -> None:
     class Camera:
         def __init__(self) -> None:

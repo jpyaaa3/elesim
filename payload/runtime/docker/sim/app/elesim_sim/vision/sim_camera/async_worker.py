@@ -517,7 +517,7 @@ def _build_camera_scene(gs, spec, streams, base_descriptions):
                     pos=(0.0, 0.0, -100.0),
                     fixed=True,
                     collision=False,
-                )
+                ), **(dict(surface=gs.surfaces.Default(color=(.85,.04,.04,1.))) if asset_id == 'cylinder_100mm' else {})
             ))
 
         if spec.scene_manifest:

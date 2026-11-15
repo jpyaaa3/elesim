@@ -730,7 +730,8 @@ class PyMpcGenesisController:
         return limits
 
     def _apply_physics_params(self) -> None:
-        self._entity.set_friction(float(self._config.physical_friction))
+        from elesim_sim.simulation.materials import apply_foot_friction
+        apply_foot_friction(self._entity,float(self._config.physical_friction))
         for stem, value in (
             ("armature", self._config.joint_armature),
             ("damping", self._config.joint_damping),

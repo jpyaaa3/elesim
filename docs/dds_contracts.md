@@ -445,3 +445,44 @@ executor and target boot/lease fences. Only the Sim that produced the reconstruc
 is accepted; scene epoch/revision and stationary base are pinned. No mesh/model
 paths are accepted from UI. Older Pilots reject the unknown operation. Wire and
 operator-view schema versions remain unchanged; no new authority is granted.
+
+Mobile manipulation adds protocol-v6 / operator-view-schema-1 operations
+`plan_mobile_manipulation(target_id, task_profile)`, `start_mobile_manipulation(plan_id)`
+and `cancel_mobile_manipulation()`. `plan` performs preflight only; an explicit
+`start` authorizes the bounded parent workflow to choose observation and grasp
+base goals. Optional `service.mobile_manipulation` reports phase, event history,
+estimate allowances and base-goal path. Old clients may ignore this status.
+
+A capable Sim advertises `simulation.timed_arm.v1`. Existing leased `target`
+motion commands may contain exclusive `timed_arm` data: `id`, `operation`
+(`start`, `keepalive`, `cancel`) and, for start only, `dt_s` plus bounded numeric
+q4 samples. Maximum 2401 samples / 24 seconds; Sim additionally validates mapped
+limits, command slew, linear travel, measured initial pose, physics dt, torque
+and stationary base command. The physics thread advances samples using simulation
+time. A 500 ms wall-clock heartbeat expiry or lease revocation cancels replay.
+IDs prevent a keepalive/cancel from acting on a different replay. Transport
+rejects this extension on Robot and on Sims without the capability; Robot's
+runtime also rejects it independently. Protocol major and ROSIDL shapes remain
+unchanged because the payload is an additive validated PeerEnvelope extension.
+
+Sim telemetry may report `timed_arm` execution, `physics_profile` and
+`manipulation_evaluation`. The optional physics profile identifies actual model
+bytes, Genesis version, integration step/substeps, actuator mode/gains/slew,
+body fixed/free mode and arm/floor/foot materials with a SHA-256 digest. It
+contains no object truth or authority. Pilot checks the required model dynamics
+before a hug; missing/mismatched profiles or Robot mirroring reject it. A profile
+change cancels an active timed path. Kinematic mode cannot start timed replay.
+The evaluation exposes only derived D100 contact/clearance/retention success metrics,
+not object positions to Pilot planning. The active cylinder is fixture-selected;
+these metrics are simulation evaluation, not physical Robot sensing. Success
+requires the declared five-second loaded hold and correct contact faces; command
+completion alone remains distinct from success. The evaluation stops at the
+replay's final sample and cannot accrue more hold after the episode expires.
+The parent may explicitly cancel remaining samples once a source-matched result
+for the current execution tick confirms the complete five-second hold. The
+generic command path then remains `cancelled`; task success is an independent
+parent outcome. Twenty seconds is an execution deadline, not a required dwell
+after success. An old success cannot finish a later tick or another execution.
+Wrong-face contact resets the hold window; actual camera/body/self collisions,
+penetration or joint-bound/spread faults remain episode failures. These checks
+share pure numerical definitions with the research task.

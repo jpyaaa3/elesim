@@ -198,6 +198,16 @@ def _reconstruction(c, v):
 
 def _actions(c, v):
     _title('Approach, grasp & verify', 'Choose the motion strategy after reconstructing the target.')
+    imgui.text('Mobile observation and C-hug')
+    imgui.text_wrapped('Sim / 100 mm upright cylinder. Begin at Home. The task acquires the target, selects observation and grasp positions, walks, scans and runs the interpolated path.')
+    _action(c, 'Plan mobile task', 'plan_mobile', explain=True)
+    _action(c, 'Start mobile task', 'start_mobile', primary=True, explain=True)
+    mobile = c.service.session.service_value('mobile_manipulation', {})
+    if mobile:
+        imgui.text_wrapped('Mobile: '+str(mobile.get('phase','idle')))
+        if mobile.get('reason'):imgui.text_wrapped(str(mobile['reason']))
+        if mobile.get('target_error_m') is not None:imgui.text(f"Target position allowance: {mobile['target_error_m']*1000:.1f} mm")
+    imgui.separator()
     imgui.text('Reconstructed cylinder / interpolated C-hug')
     imgui.text_wrapped('100 mm upright cylinder, Sim only. Fit the reconstructed mesh, solve q3/q4 and blend three learned paths. Start at Home.')
     _action(c, 'Prepare reconstructed hug', 'plan_reconstructed_hug', primary=True, explain=True)

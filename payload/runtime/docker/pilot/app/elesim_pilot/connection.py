@@ -269,6 +269,20 @@ class PilotConnection:
         if self._active_endpoint is not None and self.motion_route() == route:
             self._active_endpoint.send("release_target", payload={})
 
+    def send_workflow_motion(self, payload, route):
+        """Owned-workflow send on the DDS thread, always fenced to its route."""
+        if (threading.get_ident() != self._connection_thread_ident or self._active_endpoint is None
+                or tuple(route) != self.motion_route() or not all(route)
+                or self.active_target != self.desired_target):
+            raise RuntimeError('workflow route/thread changed')
+        descriptor = next((d for d in self.endpoints if d.get('endpoint_id') == route[0]), {})
+        if descriptor.get('role') != 'sim':raise RuntimeError('mobile manipulation is Sim-only')
+        if 'timed_arm' in payload and 'simulation.timed_arm.v1' not in descriptor.get('capabilities', ()):
+            raise RuntimeError('Sim has no timed-arm capability; update it first')
+        from elesim_protocol import MotionCommandRequest
+        MotionCommandRequest.from_payload(payload)
+        self._active_endpoint.send('motion_command', target_id=route[0], lease_id=route[2], payload=payload)
+
     def select_imu_model(self, model: Mapping[str, Any]) -> dict[str, Any]:
         target = self.active_target
         descriptor = next(
@@ -521,8 +535,11 @@ class PilotConnection:
                         self._diagnostic("calibration", dedupe="floor-observer-error",
                             state="observation-error", reason=str(exc)[:256])
                 if message.source_id == self.active_target:
-                    self.trajectory_telemetry = payload
-                    self._imu_reader_received_at = time.monotonic()
+                    # Sim publishes joint and base samples separately. A base-only
+                    # message must not erase the last measured joint stamp.
+                    self.trajectory_telemetry.update(payload)
+                    if 'imu_reader' in payload:
+                        self._imu_reader_received_at = time.monotonic()
                     q = payload.get("q")
                     stamp = payload.get("measurement_monotonic_s")
                     role = next((d.get('role') for d in self.endpoints if d.get('endpoint_id') == message.source_id), None)
@@ -534,7 +551,7 @@ class PilotConnection:
                     if valid and (self._measurement_stamp is None or stamp > self._measurement_stamp):
                         self._measurement_stamp = stamp
                         self.telemetry_received_at = time.monotonic()
-                    elif not valid:
+                    elif not valid and ('q' in payload or 'device' in payload):
                         self.telemetry_received_at = None
                 with self._imu_model_lock:
                     if (

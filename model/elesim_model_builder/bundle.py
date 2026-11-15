@@ -77,10 +77,13 @@ def _source_digest(asset_root: Path) -> str:
 
 
 def _write_metadata(bundle_dir: Path, *, source_asset_sha256: str, use_go2: bool) -> None:
+    from elesim_model_builder.physics import build_physics_models
+    physics = build_physics_models(bundle_dir)
     metadata: dict[str, Any] = {
         "schema_version": BUNDLE_SCHEMA_VERSION,
         "bundle_type": BUNDLE_TYPE,
         "entrypoints": dict(ENTRYPOINTS),
+        "physics": physics,
         "build": {
             "format_version": 1,
             "source_assets_sha256": source_asset_sha256,
@@ -159,6 +162,20 @@ def build_sim_bundle(
             source_asset_sha256=source_asset_sha256,
             use_go2=bool(use_go2),
         )
+        validate_bundle(stage)
+        _publish_staged_bundle(stage, output)
+    return output
+
+
+def augment_physics_bundle(bundle_dir):
+    """Atomically add generated physical variants while preserving old bytes."""
+    output = Path(bundle_dir).resolve()
+    previous = validate_bundle(output)
+    with tempfile.TemporaryDirectory(prefix='.elesim-physics-', dir=output.parent) as temp:
+        stage = Path(temp) / 'bundle'
+        shutil.copytree(output, stage)
+        _write_metadata(stage, source_asset_sha256=previous['build']['source_assets_sha256'],
+                        use_go2=previous['build']['use_go2'])
         validate_bundle(stage)
         _publish_staged_bundle(stage, output)
     return output
@@ -282,6 +299,12 @@ def validate_bundle(bundle_dir: str | os.PathLike[str]) -> dict[str, Any]:
     _validate_blueprint(bundle, entrypoints["blueprint"])
     _validate_urdf(bundle, entrypoints["arm_urdf"])
     _validate_urdf(bundle, entrypoints["robot_urdf"])
+    if 'physics' in metadata:
+        from elesim_model_builder.physics import PHYSICS_FILES
+        physics = metadata['physics']
+        if physics.get('schema_version') != 1 or physics.get('entrypoints') != PHYSICS_FILES:
+            raise BundleIntegrityError('invalid physical model entrypoints')
+        for name in PHYSICS_FILES.values(): _validate_urdf(bundle, name)
     return metadata
 
 

@@ -75,30 +75,74 @@ class HugModel:
         if hashlib.sha256(Path(planning_urdf).read_bytes()).hexdigest()!=self.meta['planning_urdf_sha256']:
             raise ValueError('Hug model does not match the configured arm model')
 
-    def resolve(self,xy):
+    def validate_physics(self,profile):
+        required=self.meta.get('required_physics')
+        if not required or not isinstance(profile,dict) or profile.get('mirroring') is not False:
+            raise ValueError('A source-matched physical Sim profile is required')
+        def check(wanted,actual):
+            return isinstance(actual,dict) and all(
+                check(v,actual.get(k)) if isinstance(v,dict) else actual.get(k)==v
+                for k,v in wanted.items())
+        if not check(required,profile):raise ValueError('Sim physics differ from the hug model contract')
+
+    def _kernel(self, payload, body):
+        code='const INPUT='+json.dumps(payload)+';\n'+(self.root/'kernel.js').read_text()+body
+        try:r=subprocess.run(['node','--max-old-space-size=128'],input=code,text=True,capture_output=True,check=True,timeout=8)
+        except FileNotFoundError as exc:raise RuntimeError('Pilot needs Node.js for the bundled exact hug solver') from exc
+        return json.loads(r.stdout)
+
+    def solve_many(self,points):
+        points=np.asarray(points,float)
+        if points.ndim!=2 or points.shape[1]!=2 or not 1<=len(points)<=4096 or not np.isfinite(points).all():
+            raise ValueError('Invalid solver point batch')
         m=self.meta
-        if len(xy)!=2 or not np.isfinite(xy).all():raise ValueError('Invalid solver coordinates')
-        data=dict(xy=list(map(float,xy)),diameter=m['diameter_mm'],mu=m['mu_max'],seeds=[dict(q4=c['q_deg'][1],kind=c['feature'],branch=c['root']) for c in m['anchors']])
-        code='const INPUT='+json.dumps(data)+';\n'+(self.root/'kernel.js').read_text()+r'''
-const out=[]; const [x,y]=INPUT.xy,D=INPUT.diameter,roll=-90;
-for(const seed of INPUT.seeds){
+        rows=self._kernel(dict(points=points.tolist(),diameter=m['diameter_mm'],mu=m['mu_max'],
+            seeds=[dict(q4=c['q_deg'][1],kind=c['feature'],branch=c['root']) for c in m['anchors']],
+            vertices=[c['q_deg'] for c in m['anchors']]),r'''
+const out=[],D=INPUT.diameter,roll=-90;
+for(const [x,y] of INPUT.points){let best=null;
+ if(x<=0&&y>=0&&Math.hypot(x,y)<=500)for(const seed of INPUT.seeds){
  const h=inverseContactPose(x,y,D,roll,seed);if(!h||h.q3>=0||h.q4>=0)continue;
  const c=h.c,p=collisionGeometry(h.q3,h.q4);
  if(c.mu>INPUT.mu||selfCollision(p)||objectCollision(p,c,D,roll)||preparationReport(c,D).blocked)continue;
- out.push({q_deg:[h.q3,h.q4],mu_min:c.mu});
+ const [a,b,d]=INPUT.vertices,ux=b[0]-a[0],uy=b[1]-a[1],vx=d[0]-a[0],vy=d[1]-a[1];
+ const det=ux*vy-uy*vx,px=h.q3-a[0],py=h.q4-a[1];
+ const wb=(px*vy-py*vx)/det,wc=(ux*py-uy*px)/det;
+ if(Math.min(1-wb-wc,wb,wc)<-1e-9)continue;
+ const row={q_deg:[h.q3,h.q4],xy_mm:[x,y],mu_min:c.mu,feature:c.kind,root:c.branch};
+ if(!best||c.mu<best.mu_min)best=row;
+ }out.push(best);
 }console.log(JSON.stringify(out));
-'''
-        try:r=subprocess.run(['node','--max-old-space-size=128'],input=code,text=True,capture_output=True,check=True,timeout=4)
-        except FileNotFoundError as exc:raise RuntimeError('Pilot needs Node.js for the bundled exact hug solver') from exc
-        vertices=[c['q_deg'] for c in m['anchors']];valid=[]
-        for row in json.loads(r.stdout):
+''')
+        vertices=[c['q_deg'] for c in m['anchors']];out=[]
+        for row in rows:
+            if row is None:out.append(None);continue
             w=barycentric(vertices,row['q_deg'])
-            if min(w)>=-1e-9 and max(w)<=1+1e-9:valid.append((row,w))
-        if not valid:raise ValueError('Reconstructed cylinder lies outside the supported C-hug triangle')
-        row,w=min(valid,key=lambda pair:pair[0]['mu_min']);w=np.maximum(w,0);w/=w.sum()
-        commands=np.tensordot(w,self.paths,axes=1)
-        ticks=round(m['episode_s']/m['dt_s'])+1
+            if min(w)<-1e-9 or max(w)>1+1e-9:out.append(None);continue
+            w=np.maximum(w,0);w/=w.sum();out.append(dict(row,weights=w.tolist()))
+        return out
+
+    def sample_triangle(self,resolution=20):
+        if not 2<=resolution<=64:raise ValueError('invalid triangle sampling budget')
+        v=np.asarray([c['q_deg'] for c in self.meta['anchors']]);points=[]
+        for i in range(resolution+1):
+            for j in range(resolution+1-i):points.append((np.array([i,j,resolution-i-j])/resolution)@v)
+        rows=self._kernel(dict(points=np.asarray(points).tolist(),D=self.meta['diameter_mm'],mu=self.meta['mu_max']),r'''
+const out=[];for(const q of INPUT.points){const m=model(...q,INPUT.D,-90),p=collisionGeometry(...q);
+ if(selfCollision(p))continue;
+ for(const c of m.candidates){if(c.x>0||c.y<0||!Number.isFinite(c.mu)||c.mu>INPUT.mu||objectCollision(p,c,INPUT.D,-90)||preparationReport(c,INPUT.D).blocked)continue;
+ out.push({q_deg:q,xy_mm:[c.x,c.y],mu_min:c.mu,feature:c.kind,root:c.branch});}}
+ console.log(JSON.stringify(out));
+''')
+        return rows
+
+    def commands(self,row):
+        commands=np.tensordot(row['weights'],self.paths,axes=1)
+        ticks=round(self.meta['episode_s']/self.meta['dt_s'])+1
         if len(commands)>ticks:raise ValueError('Anchor path exceeds episode budget')
-        commands=np.concatenate((commands,np.repeat(commands[-1:],ticks-len(commands),axis=0)))
-        return commands,dict(row,xy_mm=list(map(float,xy)),weights=w.tolist(),
-            duration_s=m['episode_s'],scope=m['scope'],physical_success_verified=False)
+        return np.concatenate((commands,np.repeat(commands[-1:],ticks-len(commands),axis=0)))
+
+    def resolve(self,xy):
+        row=self.solve_many([xy])[0]
+        if row is None:raise ValueError('Reconstructed cylinder lies outside the supported C-hug triangle')
+        return self.commands(row),dict(row,duration_s=self.meta['episode_s'],scope=self.meta['scope'],physical_success_verified=False)

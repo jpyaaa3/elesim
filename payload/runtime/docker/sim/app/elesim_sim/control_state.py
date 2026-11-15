@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import copy
 import threading
 import time
 from numbers import Real
@@ -59,6 +60,21 @@ class SimulationStateSource:
         self._last_update_at: Optional[float] = None
         self._torque_enabled = False
         self._robot_mirror_active = False
+        self._timed_arm = None
+        self._timed_report = dict(state='idle')
+        self._hold_evaluation = None
+        self._hold_report = {}
+        self._hold_sample_key = None
+        self._timed_serial = 0
+        self._physics_profile = {}
+
+    def set_physics_profile(self,profile):
+        with self._lock:
+            if self._physics_profile!=profile:self._cancel_timed('physics_profile_changed')
+            self._physics_profile=copy.deepcopy(profile)
+
+    def physics_profile_status(self):
+        with self._lock:return dict(copy.deepcopy(self._physics_profile),mirroring=self._robot_mirror_active)
 
     def poll(self) -> None:
         return None
@@ -73,6 +89,7 @@ class SimulationStateSource:
             return "target"
         if command == "sim_reset":
             with self._lock:
+                self._cancel_timed('scene_reset')
                 # Fence the previous command before the Genesis loop observes
                 # the reset sequence, so the first post-reset MPC step starts
                 # with neutral locomotion input.
@@ -86,6 +103,7 @@ class SimulationStateSource:
             return "torque_on"
         if command in {"torque_off", "estop"}:
             with self._lock:
+                self._cancel_timed(command)
                 self._torque_enabled = False
                 self._go2_velocity = (0.0, 0.0, 0.0)
             return command
@@ -95,7 +113,13 @@ class SimulationStateSource:
         parsed = MotionCommandRequest.from_payload(payload)
         body = parsed.raw
         with self._lock:
+            if 'timed_arm' in body:
+                self._accept_timed(body['timed_arm'])
+                self._last_update_at = self.clock()
+                return
             self._robot_mirror_active = False
+            if self._timed_arm is not None:
+                raise ValueError('timed arm owns motion; cancel it first')
             if parsed.mock_hug is not None:
                 if self._mock_object_state is None:
                     raise ValueError("mock hug support is unavailable")
@@ -147,6 +171,7 @@ class SimulationStateSource:
 
     def revoke_control(self) -> None:
         with self._lock:
+            self._cancel_timed('lease_revoked')
             self._robot_mirror_active = False
             self._go2_velocity = (0.0, 0.0, 0.0)
             if (
@@ -158,6 +183,119 @@ class SimulationStateSource:
     def estimate_q(self) -> SimQ:
         with self._lock:
             return self._q
+
+    def _cancel_timed(self, reason):
+        if self._timed_arm is not None:
+            self._timed_report.update(state='cancelled', reason=reason)
+        self._timed_arm = None
+
+    def _accept_timed(self, raw):
+        from elesim_protocol.timed_arm import validate
+        raw = validate(raw)
+        if raw['operation'] != 'start':
+            if self._timed_report.get('id') != raw['id']:
+                raise ValueError('timed arm id mismatch')
+            if raw['operation'] == 'cancel':self._cancel_timed('operator_cancelled')
+            elif self._timed_arm is not None:self._timed_arm['heartbeat'] = self.clock()
+            return
+        if self._timed_arm is not None:raise ValueError('timed arm already active')
+        if self._physics_profile.get('arm_control_mode')!='position' or self._robot_mirror_active:
+            raise ValueError('timed arm requires physical position actuators without Robot mirroring')
+        if not self._torque_enabled or self._claw_closed or any(abs(v)>1e-6 for v in self._go2_velocity):
+            raise ValueError('timed arm requires torque, open claws and stationary base command')
+        m = self.mapping
+        from elesim_protocol import linear_effective_q_bounds
+        bounds = np.array([linear_effective_q_bounds(m), [m.roll_q_min_rad,m.roll_q_max_rad],
+            [m.seg1_q_min_rad,m.seg1_q_max_rad],[m.seg2_q_min_rad,m.seg2_q_max_rad]])
+        q=np.asarray(raw['q'])
+        if np.any(q<bounds[:,0]-1e-7) or np.any(q>bounds[:,1]+1e-7):raise ValueError('timed arm exceeds mapped bounds')
+        from .simulation.physics_profile import SUPPORTED_SLEW
+        slew=np.minimum(SUPPORTED_SLEW,self._physics_profile.get('command_slew_per_s',SUPPORTED_SLEW))
+        if np.any(abs(np.diff(q,axis=0))>slew*raw['dt_s']+1e-6):
+            raise ValueError('timed arm exceeds supported actuator slew')
+        if np.abs(np.diff(q[:,0])).sum()*1500>200+1e-5:
+            raise ValueError('timed arm exceeds linear motor travel budget')
+        self._timed_serial += 1
+        self._hold_evaluation = None
+        self._hold_report = {}
+        self._hold_sample_key = None
+        self._timed_arm=dict(raw,started=None,heartbeat=self.clock(),commands=q)
+        self._timed_report=dict(id=raw['id'],state='pending',tick=0,duration_s=(len(q)-1)*raw['dt_s'])
+
+    def advance_sim_time(self, sim_time_s, measured_q, physics_dt):
+        """Called before physics commands, never from the DDS thread."""
+        with self._lock:
+            task=self._timed_arm
+            if task is None:return
+            if self.clock()-task['heartbeat']>.5:
+                self._cancel_timed('heartbeat_expired');self._q=measured_q;return
+            if not math.isfinite(physics_dt) or abs(task['dt_s']-physics_dt)>1e-9:
+                self._cancel_timed('physics_dt_mismatch');self._q=measured_q;return
+            actual=np.array([measured_q.linear_m,measured_q.roll_rad,measured_q.theta1_rad,measured_q.theta2_rad])
+            if not np.isfinite(actual).all() or not math.isfinite(sim_time_s):
+                self._cancel_timed('invalid_physics_feedback');return
+            if task['started'] is None:
+                if np.any(abs(actual-task['commands'][0])>[.001,.015,.015,.015]):
+                    self._cancel_timed('start_not_measured_home');self._q=measured_q;return
+                task['started']=sim_time_s
+            elapsed=sim_time_s-task['started']
+            index=int(round(elapsed/task['dt_s']))
+            if index<self._timed_report['tick']:
+                self._cancel_timed('simulation_clock_reset');self._q=measured_q;return
+            if index>self._timed_report['tick']+1:
+                self._cancel_timed('simulation_clock_jump');self._q=measured_q;return
+            index=min(index,len(task['commands'])-1)
+            if np.any(abs(actual-np.array([self._q.linear_m,self._q.roll_rad,self._q.theta1_rad,self._q.theta2_rad]))>[.008,.12,.12,.12]):
+                self._timed_report['tracking_error']=dict(actual=actual.tolist(),command=[
+                    self._q.linear_m,self._q.roll_rad,self._q.theta1_rad,self._q.theta2_rad])
+                self._cancel_timed('tracking_error');self._q=measured_q;return
+            self._q=SimQ(*task['commands'][index]);self._timed_report.update(state='executing',tick=index)
+            if index==len(task['commands'])-1:
+                self._timed_report['state']='completed';self._timed_arm=None
+
+    def timed_arm_status(self):
+        with self._lock:return dict(self._timed_report)
+
+    def timed_arm_active(self):
+        with self._lock:return self._timed_arm is not None
+
+    def manipulation_evaluation_due(self):
+        with self._lock:
+            return (self._timed_report.get('state') in {'executing','completed'}
+                and (self._timed_serial,self._timed_report['tick'])!=self._hold_sample_key)
+
+    def sample_manipulation_evaluation(self, robot, obj, actual, dt):
+        """Physics-only evidence; exposes no object pose to the controller."""
+        with self._lock:
+            report = dict(self._timed_report)
+            command = [self._q.linear_m,self._q.roll_rad,self._q.theta1_rad,self._q.theta2_rad]
+            if report.get('state') not in {'executing','completed'} or obj is None:return
+            key=(self._timed_serial,report['tick'])
+            if key==self._hold_sample_key:return
+            self._hold_sample_key=key
+            from .simulation.hold_evaluation import HoldEvaluation
+            if self._hold_evaluation is None:
+                self._hold_evaluation=HoldEvaluation()
+                self._hold_evaluation.reset(report['id'])
+            evaluation=self._hold_evaluation
+        try:result=evaluation.sample(robot,obj,actual,command,dt)
+        except Exception as exc:
+            with self._lock:
+                if key[0]==self._timed_serial:
+                    self._hold_report=dict(id=report['id'],tick=report['tick'],success=False,error=str(exc)[:256])
+                    self._cancel_timed('physical_evaluation_failed');self._q=SimQ(*actual)
+            return
+        result['tick']=report['tick']
+        with self._lock:
+            if (key!=(self._timed_serial,self._timed_report.get('tick'))
+                    or self._timed_report.get('state') not in {'executing','completed'}):return
+            self._hold_report=result
+            if result.get('forbidden') and self._timed_arm is not None:
+                self._cancel_timed('physical_contact_fault' if result.get('physical_fault') else 'forbidden_object_contact')
+                self._q=SimQ(*actual)
+
+    def manipulation_evaluation_status(self):
+        with self._lock:return dict(self._hold_report)
 
     def seed_estimate_q(self, q: SimQ) -> None:
         with self._lock:

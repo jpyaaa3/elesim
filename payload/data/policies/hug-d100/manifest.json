@@ -174,5 +174,45 @@
     0.003,
     0.003
   ],
-  "planning_urdf_sha256": "9aa6aef5046ff720109226a41759197b59db0d5fc2e6cc5aff9e8db3448d8299"
+  "planning_urdf_sha256": "9aa6aef5046ff720109226a41759197b59db0d5fc2e6cc5aff9e8db3448d8299",
+  "solver_origin_offset_mm": 144.5,
+  "nodes_per_segment": 5,
+  "required_physics": {
+    "schema_version": 1,
+    "arm_control_mode": "position",
+    "dt_s": 0.01,
+    "substeps": 4,
+    "body_mode": "free",
+    "genesis_version": "1.4.5",
+    "model_sha256": "7c0b445f13c45338a2037d0761eb49097d17dadace545159b601da7f86631c0b",
+    "gains": {
+      "kp": 200.0,
+      "kv": 20.0,
+      "linear_kp": 2000.0,
+      "linear_kv": 200.0,
+      "force_limit": 100.0
+    },
+    "friction": {
+      "arm": 0.5,
+      "floor": 0.01,
+      "feet": 0.8
+    },
+    "urdf_options": {
+      "default_armature": 0.0,
+      "decompose_robot_error_threshold": 0.15
+    },
+    "rigid_options": {
+      "constraint_solver": "Newton",
+      "iterations": 50,
+      "noslip_iterations": 0,
+      "max_collision_pairs": 256,
+      "max_contacts": 512
+    },
+    "command_slew_per_s": [
+      0.05,
+      1.0,
+      0.3,
+      0.3
+    ]
+  }
 }

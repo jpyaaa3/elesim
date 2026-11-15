@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 from elesim_model_builder.arm_model import build_arm_model
-from elesim_model_builder.bundle import build_sim_bundle
+from elesim_model_builder.bundle import build_sim_bundle, augment_physics_bundle
 
 
 def sim_bundle_main() -> None:
@@ -14,7 +14,11 @@ def sim_bundle_main() -> None:
     parser.add_argument("--use-go2", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use-hardware", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--mount", nargs=3, type=float, help="Override the asset connector mount (metres)")
+    parser.add_argument('--physics-only',action='store_true',help='Add physical variants to an existing valid bundle')
     args = parser.parse_args()
+    if args.physics_only:
+        print(augment_physics_bundle(args.output))
+        return
     output = build_sim_bundle(
         asset_root=Path(args.assets),
         output_dir=Path(args.output),

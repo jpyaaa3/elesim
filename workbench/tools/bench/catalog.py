@@ -63,6 +63,8 @@ class Stage:
     # Only these output subtrees are mounted, keeping private truth out of Pilot.
     reads: tuple[str, ...] = ()
     writes: tuple[str, ...] = ()
+    # Explicit role-owned source inputs; immutable image still supplies dependencies.
+    runtime_sources: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,16 @@ class Plan:
 
 
 CATALOG = (
+    Recipe('mobile-hug','sim-performance','Physical arm transfer: fixed/free body and three existing anchors',
+        ('config','data','sim_source','protocol_source'),
+        {'base':'fixed','fixed_open_claws':True,'locomotion':'configured','video':False,'anchors':[0,1,2]},
+        {'clock':'simulation','physics':True,'dds':False,'cameras':False,'hardware':False,
+         'truth':'fixture setup and physical evaluator only; not a mobile perception test'}),
+    Recipe('mobile-hug-case','sim-performance','Physical replay of one analytically selected interior placement',
+        ('config','data','sim_source','protocol_source','fixture'),
+        {'base':'free','fixed_open_claws':False,'locomotion':'configured','video':False,'compare_claws':False},
+        {'clock':'simulation','physics':True,'dds':False,'cameras':False,'hardware':False,
+         'truth':'declared analytic fixture; no RGB-D or mobile perception acceptance'}),
     Recipe("walking-core", "walking", "Production locomotion, progress and repeated stop gates",
            ("config", "data"), {"duration": 30., "repeat": 5, "cycles": 3,
            "command": [.8, 0., 0.]},
@@ -137,6 +149,7 @@ def _parameters(recipe: Recipe, values: dict) -> dict:
         raise ValueError(f"unused/unknown parameters: {sorted(unknown)}")
     params = {**recipe.defaults, **values}
     choices = {"backend": ("analytic", "genesis"), "view_policy": ("information", "angular"),
+               'base':('fixed','free'),'locomotion':('configured','raibert'),
                "profile": ("pcn", "shapenet55", "projected55"),
                "normalization": ("observed-radius", "center-only", "native"),
                "suite": ("full", "resume", "ablation", "preview-sign")}
@@ -148,6 +161,10 @@ def _parameters(recipe: Recipe, values: dict) -> dict:
         elif type(default) is bool:
             if type(value) is not bool:
                 raise ValueError(f"{name} must be a JSON boolean")
+        elif name == 'anchors':
+            if (not isinstance(value,list) or not 1<=len(value)<=3
+                    or any(type(v) is not int or v not in (0,1,2) for v in value) or len(set(value))!=len(value)):
+                raise ValueError('anchors must be unique indices from 0, 1, 2')
         elif name == "command":
             import math
             if (not isinstance(value, list) or len(value) != 3 or
@@ -179,7 +196,17 @@ def build(name: str, inputs: dict[str, str], parameters: dict | None = None) -> 
         stages.append(Stage(label, module, tuple(map(str, args)), **kwargs))
 
     result, gate = "evaluation.json", "accepted"
-    if name in ("walking-core", "sim-step"):
+    if name in {'mobile-hug','mobile-hug-case'}:
+        args=['--config','{config}','--data-root','{data}','--output','{run}/probe/run',
+              '--base',p['base'],'--locomotion',p['locomotion']]
+        args+=([('--suite-fixture' if p['compare_claws'] else '--fixture'),'{fixture}']
+            if name=='mobile-hug-case' else ['--anchors',*p['anchors']])
+        if p['fixed_open_claws']:args.append('--fixed-open-claws')
+        if p['video']:args.append('--video')
+        stage('probe',EXPERIMENTS+'mobile_manipulation.__main__',args,role='sim',inputs=recipe.inputs,
+              runtime_sources=('protocol_source','sim_source'),gpu=True,writes=('probe',),timeout_s=2400)
+        result='probe/run/report.json'
+    elif name in ("walking-core", "sim-step"):
         args = ["{config}", "{data}/models/assemblies/zed-mini", "--duration", p["duration"],
                 "--repeat", p["repeat"], "--cycles", p["cycles"], "--command", *p["command"],
                 "--output", "{run}/probe/walking.jsonl"]
@@ -247,5 +274,7 @@ def build(name: str, inputs: dict[str, str], parameters: dict | None = None) -> 
         scope["backend"] = p["backend"]
     if name == "sim-step":
         scope.update(cameras=p["cameras"], arm="motion" if p["arm_motion"] else "hold")
+    if name.startswith('mobile-hug') and p['video']:
+        scope['cameras']='report video only; no RGB-D perception'
     return Plan(name, recipe.family, scope, {n: str(Path(v).expanduser().resolve()) for n, v in inputs.items()},
                 p, stages, result, gate)

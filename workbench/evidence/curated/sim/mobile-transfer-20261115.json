@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "scope": "actual runtime fixture replays; derived body guard check; no mobile RGB-D/DDS acceptance",
+  "accepted": true,
+  "evidence_sha256": "71aa8da38df6a28764858b459d56b4a666004c8f7ac2563c78a125f59336d315",
+  "cases": [
+    {
+      "name": "active-anchor-0",
+      "accepted": true,
+      "tick": 1015,
+      "hold_s": 5.0,
+      "slip_m": 0.0066153500229120255,
+      "body_translation_m": 0.0021330948022416723,
+      "body_rotation_rad": 0.005828816749322796,
+      "solver_drift_m": 0.0029974188808332266,
+      "guard_accepted": true
+    },
+    {
+      "name": "active-anchor-1",
+      "accepted": true,
+      "tick": 1011,
+      "hold_s": 5.0,
+      "slip_m": 0.004067657515406609,
+      "body_translation_m": 0.002137156391254957,
+      "body_rotation_rad": 0.005865990792432136,
+      "solver_drift_m": 0.0030056765869995008,
+      "guard_accepted": true
+    },
+    {
+      "name": "active-anchor-2",
+      "accepted": true,
+      "tick": 1018,
+      "hold_s": 5.0,
+      "slip_m": 0.0004803686460945755,
+      "body_translation_m": 0.0021876339957465772,
+      "body_rotation_rad": 0.00612174313332567,
+      "solver_drift_m": 0.003134027684002839,
+      "guard_accepted": true
+    },
+    {
+      "name": "fixed-open-anchor-0",
+      "accepted": true,
+      "tick": 1015,
+      "hold_s": 5.0,
+      "slip_m": 0.0065929461270570755,
+      "body_translation_m": 0.0021336323342042766,
+      "body_rotation_rad": 0.005828123139916549,
+      "solver_drift_m": 0.0029977057971736078,
+      "guard_accepted": true
+    },
+    {
+      "name": "selected-interior",
+      "accepted": true,
+      "tick": 1016,
+      "hold_s": 5.0,
+      "slip_m": 0.0027058355044573545,
+      "body_translation_m": 0.002159664678184473,
+      "body_rotation_rad": 0.0059353349672669935,
+      "solver_drift_m": 0.0030470075600179955,
+      "guard_accepted": true
+    }
+  ]
+}
