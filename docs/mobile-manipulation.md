@@ -114,6 +114,13 @@ under the existing total deadline. Looking down must not spend the opportunity
 to recover the target afterward. Floor planning skips already attempted camera
 views and reports missing/blocked footprint cells; predicted visibility never
 marks those cells free. Only an actual accepted RGB-D observation updates them.
+Before thinning the collision cloud, mapping retains one measured depth point
+per observed floor cell. These points pass the same arm/body exclusion and
+occupied cells still override free space. Floor looks reuse the existing
+12,000-pose FK cache, prioritize missing cells in the proposed goal footprint,
+and project them with the received camera calibration. If the goal footprint
+is already observed, the search can cover the surrounding approach instead.
+Every selected arm segment still requires the ordinary collision certificate.
 
 The isolated physics probe is maintained in:
 

@@ -21,7 +21,7 @@ from elesim_pilot.vision.perception.sim_rendered_camera import SimCameraTimeout,
 from .contracts import Settings,TargetEstimate,planar,angle
 from .feedback import Feedback
 from .target_track import TargetTrack
-from .local_map import LocalMap,transport_footprint
+from .local_map import LocalMap,transport_footprint,floor_cell_points
 from .base_planner import BasePlanner,FloorObservationRequired,body_frame,solver_xy
 from .base_executor import BaseExecutor
 
@@ -39,7 +39,7 @@ class SimPorts:
         self.camera=None;self.model=None;self.grid=None;self.track=None;self.last_send=0.;self.operation=None
         self.generation=0;self.history=[];self.last_observation_base=None;self.scan_source=None
         self.last_command=None;self.stopped=False;self._summary={};self._latest={}
-        self.last_target_q=None;self.mapping_views=[]
+        self.last_target_q=None;self.mapping_views=[];self.mapping_intrinsics=None
     def route(self):return self.scan.route()
     def context(self):
         s=self.simulation_status()
@@ -70,8 +70,9 @@ class SimPorts:
         self.target_id=target_id;self.stopped=False
         self.grid=None;self.track=None;self.history=[];self.last_observation_base=None
         self.scan_source=None;self._summary={};self.operation=None;self.last_frame_seq=-1
-        self.last_target_q=None;self.mapping_views=[]
+        self.last_target_q=None;self.mapping_views=[];self.mapping_intrinsics=None
         if hasattr(self,'mapping_goal_xy'):del self.mapping_goal_xy
+        if hasattr(self,'mapping_goal_pose'):del self.mapping_goal_pose
         if hasattr(self,'camera_cache'):del self.camera_cache
         if self.camera is not None:self.camera.stop();self.camera=None
     def _require_home_start(self,q):
@@ -145,6 +146,7 @@ class SimPorts:
         try:return dict(goal=self.planner.grasp(self.track.estimate,snapshot['pose']))
         except FloorObservationRequired as exc:
             self.mapping_goal_xy=exc.pose[:2].copy()
+            self.mapping_goal_pose=exc.pose.copy()
             self._summary['planning_reason']=str(exc)
             self._summary['mapping_goal_xy']=self.mapping_goal_xy.tolist()
             self._summary['map_goal']=self.grid.footprint_status(exc.pose,self.footprint)
@@ -192,6 +194,7 @@ class SimPorts:
         generation=self.generation
         measurement,pose,base=self._capture()
         if self.stopped or generation!=self.generation:raise RuntimeError('observation cancelled')
+        self.mapping_intrinsics=measurement.sensor.intrinsics
         config=yaml.safe_load(self.scan.models_path.read_text())
         segmenter=load_model('segmenter',config['models']['segmenter'],self.scan.models_path.parent).implementation
         masks=segmenter.segment(measurement,Task('mobile',self.target_id))
@@ -199,20 +202,25 @@ class SimPorts:
         self.collision.base=base.copy()
         full=reconstruct_view(measurement.sensor,np.ones(measurement.sensor.depth_raw.shape,bool),pose,max_points=6000).points_before
         centers=self.collision._centers(measurement.sensor.encoder_q)
-        kept=[]
-        for start in range(0,len(full),256):
-            block=full[start:start+256]
-            gaps=np.linalg.norm(block[:,None]-centers[None],axis=2)-self.collision._radii
-            kept.append(block[np.all(gaps>.015,axis=1)])
-        environment=np.concatenate(kept) if kept else np.empty((0,3))
         snap=self.feedback.snapshot(self.route()[:2]);b=snap['base']
-        body_local=(environment-b['pos'])@Rotation.from_euler('xyz',b['rpy']).as_matrix()
-        self_body=(abs(body_local[:,0])<.4)&(abs(body_local[:,1])<.27)&(body_local[:,2]>-.4)&(body_local[:,2]<.25)
-        environment=environment[~self_body]
+        def exclude_robot(points):
+            kept=[]
+            for start in range(0,len(points),256):
+                block=points[start:start+256]
+                gaps=np.linalg.norm(block[:,None]-centers[None],axis=2)-self.collision._radii
+                kept.append(block[np.all(gaps>.015,axis=1)])
+            environment=np.concatenate(kept) if kept else np.empty((0,3))
+            body_local=(environment-b['pos'])@Rotation.from_euler('xyz',b['rpy']).as_matrix()
+            self_body=(abs(body_local[:,0])<.4)&(abs(body_local[:,1])<.27)&(body_local[:,2]>-.4)&(body_local[:,2]<.25)
+            return environment[~self_body]
+        environment=exclude_robot(full)
         self.collision.cloud.add(environment)
         fused=self.collision.cloud.points()
         self.collision.tree=cKDTree(fused) if len(fused) else None
-        self.grid.observe(environment)
+        floor=exclude_robot(floor_cell_points(measurement.sensor,pose,
+            resolution=self.grid.resolution,max_cells=self.grid.max_cells))
+        self.grid.observe(np.concatenate([environment,floor]))
+        self._summary['floor_cells_in_capture']=len(floor)
         if not masks:
             if allow_prediction and self.track.estimate is not None and self.last_observation_base is not None:
                 snap=self.feedback.snapshot(self.route()[:2]);previous=self.last_observation_base
@@ -321,22 +329,34 @@ class SimPorts:
         return result
     def _map_search_prepare(self,index):
         from scipy.stats import qmc
-        sample=qmc.Halton(4,scramble=True,seed=17).random(256)
-        qs=sample*(self.arm.bounds[:,1]-self.arm.bounds[:,0])+self.arm.bounds[:,0]
         host=self.connection.state_sink.get_state()
         base=base_world_transform_from_context(self.service._ik_context_for_host(host))
         model=ArmCameraModel(self.scan.model_dir.parents[1]/'arm/default.json',self.scan.hand_eye,base_world_transform=base)
+        cached=hasattr(self,'camera_cache')
+        if cached:
+            qs=self.camera_q;poses=base[None]@self.camera_cache
+        else:
+            sample=qmc.Halton(4,scramble=True,seed=17).random(256)
+            qs=sample*(self.arm.bounds[:,1]-self.arm.bounds[:,0])+self.arm.bounds[:,0]
+            poses=None
         snapshot=self.feedback.snapshot(self.route()[:2]);current=snapshot['joint']['q']
         start=snapshot['pose'][:2];goal=getattr(self,'mapping_goal_xy',start)
         lo=np.minimum(start,goal)-.45;hi=np.maximum(start,goal)+.45
         xy=np.array(np.meshgrid(*[np.arange(a,b,self.grid.resolution) for a,b in zip(lo,hi)])).reshape(2,-1).T
         unknown=np.array([p for p in xy if self.grid.cell(p) not in self.grid.free
             and self.grid.cell(p) not in self.grid.blocked]).reshape(-1,2)
+        focus=False
+        if hasattr(self,'mapping_goal_pose'):
+            cells=self.grid._footprint_cells(self.mapping_goal_pose,self.footprint)
+            missing=[c for c in cells if c not in self.grid.free and c not in self.grid.blocked]
+            if missing:
+                unknown=(np.asarray(missing)+.5)*self.grid.resolution;focus=True
         probes=np.column_stack([unknown,np.zeros(len(unknown))])
+        intr=getattr(self,'mapping_intrinsics',None)
         candidates=[]
         for i,q in enumerate(qs):
             if i%16==0:time.sleep(.001)
-            t=model.camera_pose(q);direction=t[:3,2]
+            t=model.camera_pose(q) if poses is None else poses[i];direction=t[:3,2]
             if direction[2]>=-.2:continue
             # A floor look that did not reveal the needed cells must not win
             # repeatedly on its predicted field of view alone.
@@ -347,18 +367,29 @@ class SimPorts:
             distance=np.linalg.norm(floor[:2]-base[:2,3])
             if not .25<distance<1.2:continue
             local=(probes-t[:3,3])@t[:3,:3]
-            visible=(local[:,2]>.1)&(local[:,2]<2.)&np.all(
-                abs(local[:,:2])/np.maximum(local[:,2:3],1e-9)<[.65,.45],axis=1)
+            normalized=local[:,:2]/np.maximum(local[:,2:3],1e-9)
+            visible=(local[:,2]>.1)&(local[:,2]<2.)
+            if intr is None:
+                visible&=np.all(abs(normalized)<[.65,.45],axis=1)
+            else:
+                uv=normalized*[intr.fx,intr.fy]+[intr.cx,intr.cy]
+                visible&=np.all((uv>=[0,0])&(uv<[intr.width,intr.height]),axis=1)
+            if not np.any(visible):continue
             duration=np.max(abs(q-current)/[.005,.04,.04,.04])
             score=float(visible.sum())/(1.+duration*.03)
-            candidates.append((score,floor[0],floor[1],q))
+            candidates.append((score,q,t))
         candidates.sort(key=lambda row:-row[0])
+        self._summary['floor_search']=dict(cached=cached,sampled=len(qs),
+            goal_footprint_focus=focus,unknown_probes=len(probes),candidates=len(candidates),blocked_paths=0)
         if not candidates:raise RuntimeError('no downward camera pose for local floor mapping')
-        for row in candidates:
+        for _,q,t in candidates:
             time.sleep(.001)
-            try:result=self._arm_prepare([row[3]])
-            except ArmPathBlocked:continue
-            self.mapping_views.append(model.camera_pose(row[3]));return result
+            try:result=self._arm_prepare([q])
+            except ArmPathBlocked as exc:
+                self._summary['floor_search']['blocked_paths']+=1
+                self._summary['floor_search']['last_rejection']=str(exc)
+                continue
+            self.mapping_views.append(t.copy());return result
         raise RuntimeError('floor observation arm paths are blocked')
     def _arm_prepare(self,waypoints):
         # Recheck each segment at the current base and observed scene.
@@ -367,7 +398,8 @@ class SimPorts:
         start=self.feedback.snapshot(self.route()[:2])['joint']['q']
         points=[start.copy()]+[np.asarray(q,float) for q in waypoints]
         for a,b in zip(points,points[1:]):
-            if not self.collision.certify_segment(a,b)['accepted']:raise ArmPathBlocked('arm transport/search path blocked')
+            report=self.collision.certify_segment(a,b)
+            if not report['accepted']:raise ArmPathBlocked('arm transport/search path blocked: '+report.get('reason','collision'))
         return points
     def _return_prepare(self,goal):
         history=list(reversed(self.history))

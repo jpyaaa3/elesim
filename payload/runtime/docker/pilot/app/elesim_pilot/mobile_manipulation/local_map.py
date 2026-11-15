@@ -4,6 +4,27 @@ import numpy as np
 from .contracts import planar,angle
 
 
+def floor_cell_points(sensor,world_from_camera,*,resolution,max_cells,floor_z=0.):
+    """Keep an actual depth witness per floor cell before cloud thinning.
+
+    Occluded and invalid pixels contribute nothing. Returned measurements still
+    pass the ordinary robot-volume filter and occupied-cell precedence.
+    """
+    from elesim_pilot.vision.floor_calibration import camera_transform
+    pose=camera_transform(world_from_camera)
+    depth=np.asarray(sensor.depth_raw,dtype=float)*sensor.depth_scale
+    intr=sensor.intrinsics
+    x=(np.arange(depth.shape[1])-intr.cx)/intr.fx
+    y=(np.arange(depth.shape[0])-intr.cy)/intr.fy
+    height=depth*(pose[2,0]*x[None,:]+pose[2,1]*y[:,None]+pose[2,2])+pose[2,3]
+    v,u=np.nonzero(np.isfinite(depth)&(depth>=.1)&(depth<=5)&(abs(height-floor_z)<.025))
+    z=depth[v,u]
+    points=np.column_stack([x[u]*z,y[v]*z,z])@pose[:3,:3].T+pose[:3,3]
+    _,keep=np.unique(np.floor(points[:,:2]/resolution).astype(int),axis=0,return_index=True)
+    if len(keep)>max_cells:raise RuntimeError('local map budget exceeded')
+    return points[keep]
+
+
 class LocalMap:
     def __init__(self,resolution=.04,max_cells=40000):
         self.resolution=resolution;self.max_cells=max_cells

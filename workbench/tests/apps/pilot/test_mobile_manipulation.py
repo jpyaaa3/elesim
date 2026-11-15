@@ -153,10 +153,34 @@ def test_floor_looks_choose_a_new_camera_view_after_an_unproductive_capture(monk
     ports.service=NS(_ik_context_for_host=lambda h:dict(base_world_T=np.eye(4)))
     ports.connection=NS(state_sink=NS(get_state=lambda:None));ports.route=lambda:('sim','boot','lease')
     ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=np.zeros(4)),pose=np.zeros(3)))
-    ports.grid=LocalMap(.1);ports.mapping_views=[];ports._arm_prepare=lambda qs:[np.zeros(4),*qs]
+    ports.grid=LocalMap(.1);ports.mapping_views=[];ports._summary={};ports._arm_prepare=lambda qs:[np.zeros(4),*qs]
     first=ports._map_search_prepare(1)[-1]
     second=ports._map_search_prepare(2)[-1]
     assert len(ports.mapping_views)==2 and abs(first[0]-second[0])>=.03
+    assert not ports.grid.free and not ports.grid.blocked
+
+
+def test_floor_search_reuses_cached_views_and_aims_at_missing_goal_cells(monkeypatch,tmp_path):
+    from scipy.stats import qmc
+    from elesim_pilot.mobile_manipulation import runtime
+    monkeypatch.setattr(qmc,'Halton',lambda *a,**k:NS(random=lambda n:np.zeros((1,4))))
+    class CameraModel:
+        def camera_pose(self,q):
+            pose=np.diag([1.,-1.,-1.,1.]);pose[:3,3]=[.45+q[0],q[1],.5];return pose
+    model=CameraModel();monkeypatch.setattr(runtime,'ArmCameraModel',lambda *a,**k:model)
+    ports=runtime.SimPorts.__new__(runtime.SimPorts)
+    ports.arm=NS(bounds=np.array([[0.,1.]]*4));ports.scan=NS(model_dir=tmp_path/'assembly',hand_eye=tmp_path/'eye.json')
+    ports.service=NS(_ik_context_for_host=lambda h:dict(base_world_T=np.eye(4)))
+    ports.connection=NS(state_sink=NS(get_state=lambda:None));ports.route=lambda:('sim','boot','lease')
+    ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=np.zeros(4)),pose=np.zeros(3)))
+    ports.camera_q=np.array([[0.,0,0,0],[.2,.15,0,0]])
+    ports.camera_cache=np.array([model.camera_pose(q) for q in ports.camera_q])
+    ports.mapping_goal_pose=np.zeros(3);ports.footprint=np.array([[.65,.15]])
+    ports.mapping_intrinsics=NS(fx=500.,fy=500.,cx=50.,cy=50.,width=100,height=100)
+    ports.grid=LocalMap(.1);ports.mapping_views=[];ports._summary={}
+    ports._arm_prepare=lambda qs:[np.zeros(4),*qs]
+    result=ports._map_search_prepare(1)
+    np.testing.assert_allclose(result[-1],ports.camera_q[1])
     assert not ports.grid.free and not ports.grid.blocked
 
 
@@ -421,12 +445,59 @@ def test_early_hold_completion_requires_fresh_evidence_and_reserved_drift(stale,
         assert sent==[dict(timed_arm=dict(id='path',operation='cancel'))]
 
 
+def test_floor_witnesses_keep_one_measured_point_per_cell_with_a_hard_budget():
+    from elesim_pilot.mobile_manipulation.local_map import floor_cell_points
+    sensor=NS(depth_raw=np.ones((4,4)),depth_scale=1.,
+        intrinsics=NS(fx=10.,fy=10.,cx=1.5,cy=1.5))
+    pose=np.diag([1.,-1.,-1.,1.]);pose[2,3]=1.
+    points=floor_cell_points(sensor,pose,resolution=.05,max_cells=16)
+    assert len(points)==len({tuple(c) for c in np.floor(points[:,:2]/.05).astype(int)})==16
+    assert np.all(points[:,2]==0.)
+    with pytest.raises(RuntimeError,match='map budget'):
+        floor_cell_points(sensor,pose,resolution=.05,max_cells=15)
+
+
+@pytest.mark.parametrize('depth_mm,exclusion,expected_free',[
+    (1000,None,True),(800,None,False),(0,None,False),
+    (1000,'body',False),(1000,'arm',False),(1000,'occupied',False),
+])
+def test_floor_pixels_survive_cloud_thinning_without_inventing_free_space(
+        tmp_path,monkeypatch,depth_mm,exclusion,expected_free):
+    from elesim_pilot.mobile_manipulation import runtime
+    from elesim_pilot.vision.partial_cloud import SensorObservation,VoxelCloud
+    from elesim_pilot.vision.perception.depth_pose import CameraIntrinsics
+    depth=np.full((480,640),2000,np.uint16)
+    sampled=set(np.linspace(0,depth.size-1,6000,dtype=int))
+    pixel=next(i for i in range(100*640+400,100*640+420) if i not in sampled)
+    v,u=divmod(pixel,640);depth[v,u]=depth_mm
+    pose=np.diag([1.,-1.,-1.,1.]);pose[2,3]=1.
+    floor=np.array([u/500.,-v/500.,0.])
+    sensor=SensorObservation(np.zeros((480,640,3),np.uint8),depth,.001,
+        CameraIntrinsics(500.,500.,0.,0.,640,480),1,10.,'sim','boot','calib',(0.,)*4)
+    ports=runtime.SimPorts.__new__(runtime.SimPorts)
+    ports._capture=lambda:(NS(sensor=sensor),pose,np.eye(4))
+    path=tmp_path/'models.yaml';path.write_text('models:\n  segmenter: {}\n')
+    ports.scan=NS(models_path=path)
+    monkeypatch.setattr(runtime,'load_model',lambda *a:NS(implementation=NS(segment=lambda *a:[])))
+    center=floor if exclusion=='arm' else np.array([9.,9.,9.])
+    ports.collision=NS(base=np.eye(4),cloud=VoxelCloud(voxel_m=.01,max_voxels=10000),
+        _centers=lambda q:np.array([center]),_radii=np.array([.02]),tree=None)
+    body=np.r_[floor[:2],.3] if exclusion=='body' else np.array([0.,0.,.3])
+    ports.feedback=NS(snapshot=lambda *a:dict(base=dict(pos=body,rpy=np.zeros(3))))
+    ports.route=lambda:('sim','boot','lease');ports.generation=0;ports.stopped=False
+    ports.grid=LocalMap();ports.track=NS(estimate=None);ports.target_id='target';ports._summary={}
+    if exclusion=='occupied':ports.grid.blocked.add(ports.grid.cell(floor))
+    assert ports._observe()==dict(visible=False)
+    assert (ports.grid.cell(floor) in ports.grid.free)==expected_free
+
+
 def test_identified_target_survives_the_broad_robot_body_mask(tmp_path,monkeypatch):
     from elesim_pilot.mobile_manipulation import runtime
     from elesim_pilot.vision.partial_cloud import VoxelCloud
     ports=runtime.SimPorts.__new__(runtime.SimPorts)
     cloud=np.array([[.34+.05*np.cos(a),.1+.05*np.sin(a),.5] for a in np.linspace(0,2*np.pi,80)])
-    sensor=NS(depth_raw=np.ones((8,10)),encoder_q=np.zeros(4),ts=10.)
+    sensor=NS(depth_raw=np.ones((8,10)),depth_scale=1.,
+        intrinsics=NS(fx=1.,fy=1.,cx=0.,cy=0.),encoder_q=np.zeros(4),ts=10.)
     ports._capture=lambda:(NS(sensor=sensor),np.eye(4),np.eye(4))
     path=tmp_path/'models.yaml';path.write_text('models:\n  segmenter: {}\n')
     ports.scan=NS(models_path=path);ports.scan_source=('sim','boot','calib')

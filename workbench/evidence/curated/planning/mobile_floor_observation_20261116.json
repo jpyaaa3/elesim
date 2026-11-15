@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "same installed D100 case; sensor replay and bounded observation repair; no training or Robot motion",
+  "installed_baseline_revision": "7164e865",
+  "installations": {
+    "operator": "/home/user/ws/newsim",
+    "compute": "/home/hckang/ws/newsim"
+  },
+  "baseline": {
+    "run": "run-24",
+    "evaluation_mode": "installed",
+    "accepted": false,
+    "elapsed_s": 432.2147004650001,
+    "reason": "floor observation arm paths are blocked",
+    "goal_footprint": {
+      "blocked_cells": 0,
+      "blocked_xy_m": [],
+      "total_cells": 315,
+      "unknown_cells": 11,
+      "unknown_xy_m": [
+        [
+          0.42,
+          -0.14
+        ],
+        [
+          0.42,
+          0.26
+        ],
+        [
+          0.42,
+          0.3
+        ],
+        [
+          0.46,
+          -0.18
+        ],
+        [
+          0.46,
+          0.26
+        ],
+        [
+          0.46,
+          0.3
+        ],
+        [
+          0.5,
+          0.22
+        ],
+        [
+          0.5,
+          0.26
+        ],
+        [
+          0.5,
+          0.3
+        ],
+        [
+          0.54,
+          -0.22
+        ],
+        [
+          0.62,
+          -0.26
+        ]
+      ]
+    },
+    "wrap_lift_hold_reached": false
+  },
+  "diagnosis": {
+    "stationary_rgbd_frames": 10,
+    "evaluation_camera_truth_used_for_diagnosis_only": true,
+    "production_uses_encoder_fk_and_measured_base": true,
+    "sampling_loss_floor_pixels_per_cell": [
+      1630,
+      1528,
+      1592,
+      1054
+    ],
+    "nominal_fk_replay_max_camera_translation_error_m": 0.0002493741362055128,
+    "nearest_body_sample_max_gap_s": 0.47399020195007324,
+    "remaining_not_in_any_recorded_image": 6,
+    "view_search": {
+      "old256": {
+        "candidate_count": 8,
+        "selected": null,
+        "rejections": {
+          "observed_surface_collision": 5,
+          "self_collision_or_margin": 3
+        },
+        "search_s": 0.21612974200024837
+      },
+      "cached12000": {
+        "candidate_count": 386,
+        "selected": {
+          "index": 1325,
+          "q": [
+            -0.018907229104147855,
+            0.9050386491606259,
+            -0.3236575600754667,
+            0.5850668777321368
+          ],
+          "duration_s": 5.071061708504021,
+          "visible_remaining": 6,
+          "certificate": {
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 3,
+            "minimum_margin_m": 0.012296163006449007,
+            "environment_scope": "observed_surfaces_only",
+            "environment_checks": 8
+          }
+        },
+        "rejections": {
+          "observed_surface_collision": 8
+        },
+        "search_s": 0.3920012640001005
+      }
+    },
+    "replay_is_not_installed_acceptance": true
+  },
+  "changes": [
+    "Retain one actual depth witness per observed floor cell before collision-cloud thinning; apply the existing robot mask and occupied-cell precedence.",
+    "Reuse the existing 12000-pose FK cache, focus on missing goal footprint cells, and use actual sensor intrinsics for field-of-view projection.",
+    "Retain segment collision certificates, view-attempt budgets, freshness and physical success limits."
+  ],
+  "tests": {
+    "red_floor_witness": "1 failed, 5 passed",
+    "red_cached_goal_view": "1 failed",
+    "host_focused": "93 passed",
+    "canonical_gates_run": false,
+    "canonical_limitation": "No usable prepared generated development environment; host scientific/ROS dependencies were not installed."
+  },
+  "deployed": false,
+  "installed_follow_up_accepted": false,
+  "fixed_acceptance_source_sha256": {
+    "payload/runtime/docker/sim/app/elesim_sim/simulation/hold_evaluation.py": "2de56685132821ed9799c22c3e76374afe90bb2dcfeacd0bd6d655c62a64e072",
+    "payload/runtime/docker/sim/app/elesim_sim/simulation/grasp_metrics.py": "5c3ee8a5d8e829db313d09d6c6ad37dbf1bf49714dbe00ce5686c2859feb1a9a",
+    "payload/runtime/docker/sim/app/elesim_sim/simulation/contact_metrics.py": "7bd91ac70d515635118c090442b03afaabc50088c17c47a7520638cb1c524459",
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/contracts.py": "d27dc237e3c70fa754ebbbb23e17efe146aeda899a4166bb3d133527724a64da",
+    "payload/data/policies/hug-d100/manifest.json": "fad5a8ff70adc56ee22979fb44516794e5561cbd97643a6f2053d61652034942"
+  },
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/local_map.py": "e4d12e24d49430193430d8c87ed6c65b438406b1f6e15cb27d151a403b85848f",
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "9a733f69192d225f1fd8418f5aa5d0292c9ac8aee7348755222880ca03adbf06",
+    "workbench/tests/apps/pilot/test_mobile_manipulation.py": "2e9ca28b3c250c12a99b1b6bffcca38ce21e01898d03c37cbc50dce5e9f62cdb"
+  },
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-24/report.json",
+      "bytes": 28310,
+      "sha256": "6b866af7d49724e3e7fae060a6312a18892e4c75d1d8f6c946638eb11ebac241"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-24/telemetry.jsonl",
+      "bytes": 8323831,
+      "sha256": "a5552563b480385324b3cc67eb73074ddd31b91e9b28a78646bb086bf888003b"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-24/observer.mp4",
+      "bytes": 7969717,
+      "sha256": "bc33f746978108d5b546bf0816534d1f64724a212561688509c8d54a0f3cd899"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-24/hand_eye_preview.mp4",
+      "bytes": 21778419,
+      "sha256": "5e3682de67d4b376e957868822f13d8ce9f4552cc9e5d41ec81b152aeb6c8873"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/operator-source-24.json",
+      "bytes": 343,
+      "sha256": "ee8ca230aebddbf3f9b7a5eed0ff11abbb03b725a0b80bd00e316c61ec5a3c33"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/scan-23.tar.gz",
+      "bytes": 3354663,
+      "sha256": "d9bb5dcd09ff6b62de8ad4701347d321ccfe04b6dd35ce21bdfd2cab7e72fe4f"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/scan-24.tar.gz",
+      "bytes": 3900747,
+      "sha256": "ed564845418f5cd52109cf52c3f9a05d1a72e1ff1b9aa1316f8de7e83d79f89d"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-24-snapshot.tar.gz",
+      "bytes": 2646369,
+      "sha256": "0e89a87f552f93fa818c6253fafbffbb3344bfd4d8772a59392b4710a92aeacc"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-24-density.json",
+      "bytes": 32303,
+      "sha256": "de852e1312e59648cd0040d9140eb875430c26846cfadd4edee4f65bea6da5b1"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-24-final-density.json",
+      "bytes": 10809,
+      "sha256": "2fd71838bb55548399b3da6af0f49fc3eb0d97230a33d9bda4ebb4587d495cc0"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-map-replay24.json",
+      "bytes": 9101,
+      "sha256": "1c7b53f24cfe7fff7f0217e4704154c825f7aad9449b7925322428a2fb8229c3"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-map-replay24.npz",
+      "bytes": 164094,
+      "sha256": "bcf33730831b6546a0c98b194d2019b6c9d439bafef41a83b028629392985731"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-view-search24.json",
+      "bytes": 893,
+      "sha256": "3a1bf4c130ab0913fb068733fe90d7170a414c9c1024b7128cc4ada1d254db58"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-witness-red.log",
+      "bytes": 1436,
+      "sha256": "725199894dda7edceaa523b10fcadd72c55530097da9c596e19093029427aad9"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-view-red.log",
+      "bytes": 972,
+      "sha256": "7f19cce6ddf9b1c214b69ede68af3325a2b412370ebb4a26e75f4e59e9a8e468"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-view-regression.log",
+      "bytes": 179,
+      "sha256": "30f234896a64b6605d9738499bf75aee60845995f7fd64fef9fd6d84a70e2224"
+    }
+  ]
+}
