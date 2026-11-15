@@ -105,6 +105,7 @@ class CameraStateSnapshot:
     debug_visible: bool = True
     arm_ghost_q: Optional[tuple[float, float, float, float]] = None
     arm_ghost_base: object = None
+    capture_time_s: float = 0.
 
 
 @dataclass(frozen=True)
@@ -704,6 +705,7 @@ def _camera_render_process_main(
                     started = time.perf_counter()
                     if stream == "hand_eye_preview" and eye is not None:
                         frame = eye.capture(
+                            ts=snapshot.capture_time_s or None,
                             arm_q=snapshot.arm_q,
                             rgb_enabled=bool(spec.hand_eye_rgb),
                             depth_enabled=bool(spec.hand_eye_depth),
@@ -712,6 +714,7 @@ def _camera_render_process_main(
                         )
                     elif stream == "observer" and observer is not None:
                         frame = observer.capture(
+                            ts=snapshot.capture_time_s or None,
                             rgb_enabled=True,
                             depth_enabled=False,
                             prefer_gpu=bool(spec.gpu_convert),

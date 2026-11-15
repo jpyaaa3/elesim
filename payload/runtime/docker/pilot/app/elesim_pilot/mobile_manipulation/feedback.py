@@ -35,10 +35,19 @@ class Feedback:
         with self.lock:return self._snapshot(source,max_age)
     def _snapshot(self,source,max_age=.5):
         if source!=self.source or not self.joints or not self.bases:raise RuntimeError('missing source-matched arm/base feedback')
-        j,b=self.joints[-1],self.bases[-1]
-        if max(self.clock()-j['received'],self.clock()-b['received'])>max_age:
-            raise RuntimeError('stale arm/base feedback')
-        if abs(j['stamp']-b['stamp'])>.2:raise RuntimeError('arm/base samples are not coherent')
+        ji,bi=len(self.joints)-1,len(self.bases)-1
+        j,b=self.joints[ji],self.bases[bi]
+        # Sim emits arm and body fields separately. A new half-frame must not
+        # invalidate a still-fresh coherent pair while its other half arrives.
+        # Walk the bounded histories backwards without widening either gate.
+        while abs(j['stamp']-b['stamp'])>.2:
+            if j['stamp']>b['stamp']:ji-=1
+            else:bi-=1
+            if min(ji,bi)<0:raise RuntimeError('arm/base samples are not coherent')
+            j,b=self.joints[ji],self.bases[bi]
+        arm_age=self.clock()-j['received'];base_age=self.clock()-b['received']
+        if max(arm_age,base_age)>max_age:
+            raise RuntimeError(f'stale arm/base feedback (arm {arm_age:.3f}s, base {base_age:.3f}s)')
         return dict(joint=j,base=b,pose=np.r_[b['pos'][:2],b['rpy'][2]])
     def associate(self,frame,source,max_delta=.05):
         with self.lock:return self._associate(frame,source,max_delta)

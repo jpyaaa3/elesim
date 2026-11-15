@@ -18,6 +18,22 @@ def cylinder(center=(.4,.1),r=.05):
         for z in np.linspace(.45,.65,12) for a in np.linspace(-np.pi/2,np.pi/2,60)])
 
 
+def test_operator_calibrated_home_is_admitted_without_redefining_the_policy_start():
+    from elesim_protocol import SimMappingConfig
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    ports=SimPorts.__new__(SimPorts)
+    home=np.array([-.12,0.,-np.deg2rad(170)/5,np.deg2rad(170)/5])
+    ports.model=NS(meta=dict(home=home.copy()))
+    ports.service=NS(control_mapping=lambda:SimMappingConfig(command_direction=(1,1,1,-1)))
+    ports.state=NS(offset_values=lambda:(0.,-9.,0.,0.,1))
+    ports._require_home_start(home)
+    calibrated=home.copy();calibrated[1]=-np.deg2rad(4.5)
+    ports._require_home_start(calibrated)
+    with pytest.raises(RuntimeError,match='Home'):
+        ports._require_home_start(np.zeros(4))
+    np.testing.assert_array_equal(ports.model.meta['home'],home)
+
+
 def test_partial_observation_retains_axis_without_claiming_full_height():
     t=TargetTrack();e=t.update(cylinder(),stamp=1.,source=('sim','boot','calib'))
     assert np.allclose(e.at_height(.55),[.4,.1,.55],atol=1e-6)
@@ -58,6 +74,24 @@ def test_split_feedback_and_capture_time_matching():
     with pytest.raises(RuntimeError,match='stale'):f.snapshot(source)
     f.accept(dict(go2_base_pos=[0,0,.32],go2_base_rpy=[0,0,0],go2_base_timestamp_s=102.),('sim','newboot'))
     with pytest.raises(RuntimeError):f.snapshot(('sim','newboot'))
+
+
+def test_split_half_frame_uses_the_last_coherent_pair_without_extending_freshness():
+    now=[1.];feedback=Feedback(lambda:now[0]);source=('sim','boot')
+    def arm(stamp):
+        feedback.accept(dict(q=[stamp,0,0,0],q_source='simulated',
+            measurement_time_s=stamp,measurement_monotonic_s=stamp),source)
+    def body(stamp):
+        feedback.accept(dict(go2_base_pos=[0,0,.3],go2_base_rpy=[0,0,0],
+            go2_base_timestamp_s=stamp),source)
+    arm(100.);body(100.)
+    now[0]=1.3;arm(100.3)
+    assert feedback.snapshot(source)['joint']['stamp']==100.
+    now[0]=1.6;arm(100.6)
+    with pytest.raises(RuntimeError,match='stale'):
+        feedback.snapshot(source)
+    body(100.6)
+    assert feedback.snapshot(source)['joint']['stamp']==100.6
 
 
 def test_unknown_space_and_swept_body_cannot_be_walked_through():
@@ -285,6 +319,25 @@ def test_planning_holds_one_checked_pose_instead_of_following_sensor_drift():
     np.testing.assert_array_equal(sent,[q,q])
     actual[2]+=.02;now[0]+=.1
     with pytest.raises(RuntimeError,match='checked posture'):ports.poll(op)
+
+
+def test_target_search_rechecks_return_to_last_visible_pose_after_a_floor_look():
+    from concurrent.futures import Future
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    ports=SimPorts.__new__(SimPorts);home=np.array([-.12,0.,-.59,.59]);floor=home+[.04,-.7,.3,-.1]
+    ports.clock=lambda:0.;ports.generation=0;ports._initialize=lambda:None
+    ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=floor.copy())))
+    ports.route=lambda:('sim','boot','lease');ports.history=[home.copy(),floor.copy()]
+    ports.last_target_q=home.copy();checked=[]
+    def certify(waypoints):
+        checked.extend(waypoints);return [floor.copy()]+waypoints
+    def submit(function,*args):
+        future=Future();future.set_result(function(*args));return future
+    ports._arm_prepare=certify;ports.pool=NS(submit=submit)
+    op=ports.begin('search',None,None,index=3)
+    assert op['future'].done()
+    np.testing.assert_array_equal(checked[-1],home)
+    np.testing.assert_array_equal(checked[:-1],[floor,home])
 
 
 def test_actual_body_tilt_changes_final_solver_coordinates():

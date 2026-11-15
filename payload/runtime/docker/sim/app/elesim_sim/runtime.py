@@ -1701,7 +1701,7 @@ class SimScene(_SimSceneKinematicsMixin):
         The sample is taken only at a camera deadline.  It is deliberately
         smaller than a frame and is never used for feedback or control.
         """
-
+        capture_time_s=time.time()
         (
             robot_joint_positions,
             root_pos,
@@ -1760,6 +1760,7 @@ class SimScene(_SimSceneKinematicsMixin):
             ik_target_direction=self.ik_target_direction,
             debug_visible=self.ik_debug_visible,
             arm_ghost_q=self.arm_ghost_q, arm_ghost_base=self.arm_ghost_base,
+            capture_time_s=capture_time_s,
         )
 
     @staticmethod

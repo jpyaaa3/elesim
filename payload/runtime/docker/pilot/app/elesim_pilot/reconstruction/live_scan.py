@@ -12,6 +12,7 @@ from elesim_protocol import linear_effective_q_bounds
 from elesim_pilot.arm_trajectory import require_stable_arm_base
 from elesim_pilot.robot.arm.iklib.kinematics import base_world_transform_from_context
 from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
+from elesim_pilot.robot.arm.approach import JointApproach
 from elesim_pilot.vision.multiview import ViewPlanner
 from elesim_pilot.vision.partial_cloud import ArmCameraModel, SensorObservation
 from elesim_pilot.vision.perception.sim_rendered_camera import SimRenderedCamera
@@ -286,7 +287,8 @@ class LiveScan:
             duration = float(np.max(np.abs(goal-self._last_q)/[.005, .04, .04, .04]))
             motion = dict(start=self._last_q.copy(), goal=np.array(goal), started=self._feedback['sim_time'],
                 duration=max(.1, duration), deadline=now+max(12., duration*4.+5.),
-                stable=0, last_sample=None, settled_wall=None)
+                stable=0, last_sample=None, settled_wall=None,last_sim_time=self._feedback['sim_time'],
+                approach=JointApproach(self._last_q,goal,tolerance=self._tracking_uncertainty))
             self._motion = motion
             while motion['settled_wall'] is None and not cancelled():
                 if self.clock() > motion['deadline']:
@@ -342,9 +344,11 @@ class LiveScan:
                         if motion is not None:
                             if now > motion['deadline']:
                                 raise TimeoutError('scan settling deadline exceeded')
-                            if feedback['sim_time']<motion['started']:raise RuntimeError('scan Sim clock reset')
-                            fraction = min(1., max(0., (feedback['sim_time']-motion['started'])/motion['duration']))
-                            q = motion['start']+(motion['goal']-motion['start'])*fraction
+                            if feedback['sim_time']<motion['last_sim_time']:raise RuntimeError('scan Sim clock reset')
+                            dt=min(.1,feedback['sim_time']-motion['last_sim_time'])
+                            q=motion['approach'].step(feedback['q'],dt)
+                            motion['last_sim_time']=feedback['sim_time']
+                            fraction=motion['approach'].fraction
                             if fraction == 1. and motion['settled_wall'] is None:
                                 close = np.all(np.abs(feedback['q']-motion['goal']) <= [.001, .015, .015, .015])
                                 if feedback['mono'] != motion['last_sample']:

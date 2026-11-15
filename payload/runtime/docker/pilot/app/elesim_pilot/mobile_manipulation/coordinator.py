@@ -1,5 +1,6 @@
 """Bounded parent workflow. Ports own sensors/planners; tick alone starts motion."""
 import uuid
+import logging
 from .contracts import Settings
 from .ownership import Ownership
 
@@ -104,7 +105,9 @@ class Coordinator:
             if result is None:return
             self.ownership.finish(self.grant);self.grant=None;self.current=None
             self._next(result)
-        except Exception as exc:self._end('failed',str(exc))
+        except Exception as exc:
+            logging.getLogger(__name__).exception('Mobile manipulation failed during %s',self.phase)
+            self._end('failed',str(exc))
     def _end(self,phase,reason):
         try:self.ports.stop(reason)
         except Exception as exc:reason=str(reason)+'; stop delivery: '+str(exc)

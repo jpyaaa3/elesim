@@ -105,6 +105,7 @@ def test_rgbd_snapshot_uses_measured_geometry_and_encoder_values() -> None:
     assert snapshot.hand_eye_robot_joint_positions==(.2,-.3)
     assert snapshot.root_pos==(.1,.2,.32)
     assert snapshot.arm_q==(-.12,0.,-.3,.3)
+    assert snapshot.capture_time_s>0
 
 
 def test_render_replica_applies_observer_pose_snapshot() -> None:
@@ -697,6 +698,7 @@ def test_camera_worker_rejects_invalid_render_timing() -> None:
 
 
 def test_async_camera_submission_does_not_call_scene_camera() -> None:
+    from types import SimpleNamespace
     class Worker:
         ready = True
 
@@ -718,6 +720,7 @@ def test_async_camera_submission_does_not_call_scene_camera() -> None:
     worker = Worker()
     scene = SimScene(
         hand_eye_enabled=True,
+        go2_entity=SimpleNamespace(get_pos=lambda:np.zeros(3),get_quat=lambda:np.array([1.,0.,0.,0.])),
         observer_enabled=True,
         observer_view=ObserverViewState.create(
             res=(64, 48),
@@ -992,6 +995,7 @@ def test_real_async_camera_workers_keep_hand_eye_and_observer_live() -> None:
             epoch=0,
             sim_step=1,
             sim_time_s=0.02,
+            capture_time_s=1000.,
             arm_q=(0.0, 0.0, 0.0, 0.0),
             robot_joint_positions=tuple(0.0 for _ in robot_names),
             root_pos=(0.0, 0.0, 0.42),
@@ -1013,6 +1017,8 @@ def test_real_async_camera_workers_keep_hand_eye_and_observer_live() -> None:
             assert color.shape == (48, 64, 3)
             assert int(np.ptp(color)) > 0, (stream, worker.diagnostics())
             assert getattr(frame, "camera_world_origin", None) is not None
+            # Rendering can finish long after the measured pose snapshot.
+            assert frame.ts==1000.
 
         # Move both visual trees substantially and ensure the latest-only
         # queues do not leave either stream stuck on its first frame.

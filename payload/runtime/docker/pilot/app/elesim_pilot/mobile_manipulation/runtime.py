@@ -13,6 +13,7 @@ from elesim_pilot.reconstruction.models import load_model
 from elesim_pilot.reconstruction.contracts import Measurement,Task
 from elesim_pilot.reconstruction.scan_collision import ScanCollision
 from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
+from elesim_pilot.robot.arm.approach import JointApproach
 from elesim_pilot.robot.arm.iklib.kinematics import _forward_link_tf,base_world_transform_from_context
 from elesim_pilot.vision.partial_cloud import ArmCameraModel,SensorObservation,reconstruct_view
 from elesim_pilot.vision.perception.sim_rendered_camera import SimRenderedCamera
@@ -33,6 +34,7 @@ class SimPorts:
         self.camera=None;self.model=None;self.grid=None;self.track=None;self.last_send=0.;self.operation=None
         self.generation=0;self.history=[];self.last_observation_base=None;self.scan_source=None
         self.last_command=None;self.stopped=False;self._summary={};self._latest={}
+        self.last_target_q=None
     def route(self):return self.scan.route()
     def context(self):
         s=self.simulation_status()
@@ -59,12 +61,25 @@ class SimPorts:
         self.model=HugModel(self.model_root);self.model.validate_robot(self.scan.model_dir/'arm.urdf')
         self.model.validate_physics(self._latest.get('physics_profile'))
         snapshot=self.feedback.snapshot(self.route()[:2]);q=snapshot['joint']['q']
-        if np.any(abs(q-self.model.meta['home'])>[.001,.015,.015,.015]):raise RuntimeError('Start mobile task at measured Home')
+        self._require_home_start(q)
         self.target_id=target_id;self.stopped=False
         self.grid=None;self.track=None;self.history=[];self.last_observation_base=None
         self.scan_source=None;self._summary={};self.operation=None;self.last_frame_seq=-1
+        self.last_target_q=None
         if hasattr(self,'camera_cache'):del self.camera_cache
         if self.camera is not None:self.camera.stop();self.camera=None
+    def _require_home_start(self,q):
+        from elesim_protocol import ControlU,control_u_to_sim_q
+        offsets=self.state.offset_values()[:4]
+        display=control_u_to_sim_q(ControlU(*(v+o for v,o in
+            zip((180.,180.,10.,10.),offsets))),self.service.control_mapping())
+        calibrated=np.array([display.linear_m,display.roll_rad,display.theta1_rad,display.theta2_rad])
+        # The UI Home preset includes operator calibration. It is a valid
+        # initial view; transport still certifies every segment back to the
+        # policy's exact canonical Home before any base move or learned path.
+        if not any(np.all(abs(q-home)<=[.001,.015,.015,.015])
+                   for home in (self.model.meta['home'],calibrated)):
+            raise RuntimeError('Start mobile task at measured Home')
     def guard(self):
         host=self.connection.state_sink.get_state();s=self.simulation_status()
         self.feedback.snapshot(self.route()[:2],self.s.feedback_timeout_s)
@@ -108,9 +123,11 @@ class SimPorts:
         self.planner.roll_pitch=b['rpy'][:2].copy()
         # The occupied starting stance is the only unobserved seed: the flat
         # Sim profile has just verified stationary measured standing support.
-        t=planar(snap['pose']);seed=self.footprint@t[:2,:2].T+t[:2,3]
+        start=snap['joint']['q'].copy()
+        occupied=transport_footprint((self.collision._centers(start)-b['pos'])@body[:3,:3],radii)
+        t=planar(snap['pose']);seed=occupied@t[:2,:2].T+t[:2,3]
         self.grid.free.update(self.grid.cell(p) for p in seed)
-        self.last_command=home.copy();self.history=[home.copy()]
+        self.last_command=start.copy();self.history=[start.copy()]
     def _measured_body(self,snapshot):
         b=snapshot['base']
         return body_frame(snapshot['pose'],b['pos'][2],b['rpy'][:2])
@@ -129,16 +146,23 @@ class SimPorts:
                 endpoint_id=self.connection.pilot_id+'-mobile',dds_settings=self.connection.dds_settings,
                 expected_source_id=self.route()[0],expected_boot_id=self.route()[1],wire_format=stream['format'])
             self.camera.start()
-        deadline=self.clock()+5.
+        deadline=self.clock()+5.;rejections={}
+        def rejected(reason):
+            rejections[reason]=rejections.get(reason,0)+1
+            self._summary['capture_rejections']=dict(rejections)
         while self.clock()<deadline and not self.stopped:
             try:frame=self.camera.capture(retries=1,retry_sleep_s=0.)
-            except RuntimeError:continue
-            if frame.arm_q is None or frame.seq<=self.last_frame_seq:continue
+            except RuntimeError:
+                rejected('no_frame');continue
+            if frame.arm_q is None or frame.seq<=self.last_frame_seq:
+                rejected('missing_encoder_or_replayed_frame');continue
             try:b=self.feedback.associate(frame,self.route()[:2])
-            except RuntimeError:continue
+            except RuntimeError as exc:
+                rejected(str(exc));continue
             current=self.feedback.snapshot(self.route()[:2])
             age=current['joint']['stamp']-frame.ts
-            if not -.05<=age<=.5:continue
+            if not -.05<=age<=.5:
+                rejected('capture/joint timestamp gap');continue
             if self.scan_source is not None and (frame.source_id,frame.source_boot_id,frame.calibration_id)!=self.scan_source:
                 raise RuntimeError('camera source/calibration changed')
             self.scan_source=(frame.source_id,frame.source_boot_id,frame.calibration_id)
@@ -220,11 +244,18 @@ class SimPorts:
             self.track.estimate=estimate
             self._summary['diameter_prior_only']=True
         self.last_observation_base=self.feedback.snapshot(self.route()[:2])['pose'].copy()
+        self.last_target_q=np.array(measurement.sensor.encoder_q,float)
         self.predicted_error=estimate.error_m
         self._summary.update(target_world_m=estimate.origin.tolist(),diameter_mm=estimate.diameter*1000,
             target_error_m=estimate.error_m,predicted_target=False,observed_points=len(cloud))
         return dict(visible=True)
     def _observation_goal(self):
+        generation=self.generation
+        def cooperate():
+            # Small NumPy/SciPy FK calls can retain the GIL across the whole
+            # batch. Give the DDS thread a turn; never relax feedback age.
+            time.sleep(.001)
+            if self.stopped or generation!=self.generation:raise RuntimeError('observation planning cancelled')
         # FK cache in arm-base coordinates; transformed per candidate body pose.
         if not hasattr(self,'camera_cache'):
             from scipy.stats import qmc
@@ -232,11 +263,18 @@ class SimPorts:
             self.camera_q=raw*(self.arm.bounds[:,1]-self.arm.bounds[:,0])+self.arm.bounds[:,0]
             local_model=ArmCameraModel(self.scan.model_dir.parents[1]/'arm/default.json',self.scan.hand_eye,
                 base_world_transform=np.eye(4))
-            self.camera_cache=np.array([local_model.camera_pose(q) for q in self.camera_q])
+            poses=[]
+            for i,q in enumerate(self.camera_q):
+                if i%16==0:cooperate()
+                poses.append(local_model.camera_pose(q))
+            cooperate();self.camera_cache=np.array(poses)
         snapshot=self.feedback.snapshot(self.route()[:2]);current=snapshot['pose']
         self.planner.body_z=snapshot['base']['pos'][2]
         self.planner.roll_pitch=snapshot['base']['rpy'][:2].copy()
+        diagnostics=dict(current_footprint_free=self.grid.footprint_free(current,self.footprint),
+            free_cells=len(self.grid.free),blocked_cells=len(self.grid.blocked),evaluated=[])
         def evaluate(pose,target):
+            cooperate()
             body=body_frame(pose,self.planner.body_z,self.planner.roll_pitch);base=body@self.arm_in_body
             center=target.at_height(self.planner.frame(pose)[2,3])
             poses=base[None]@self.camera_cache
@@ -244,24 +282,34 @@ class SimPorts:
             uv=abs(camera[:,:2])/np.maximum(camera[:,2:3],1e-9)
             ids=np.flatnonzero((camera[:,2]>.25)&(camera[:,2]<1.)&(uv[:,0]<.4)&(uv[:,1]<.25))
             accepted=[];directions=[]
+            tested=dict(pose=pose.tolist(),in_view=len(ids),accepted=0,rejections={})
+            diagnostics['evaluated'].append(tested)
             collision=ScanCollision(self.arm,base);collision.cloud=self.collision.cloud;collision.tree=self.collision.tree
             for i in ids[np.argsort(np.linalg.norm(uv[ids],axis=1))]:
+                cooperate()
                 direction=v[i]/np.linalg.norm(v[i])
                 if directions and max(float(direction@d) for d in directions)>np.cos(np.deg2rad(10)):continue
                 q=self.camera_q[i]
-                if not collision.certify_segment(np.array(self.model.meta['home']),q)['accepted']:continue
+                certificate=collision.certify_segment(np.array(self.model.meta['home']),q)
+                if not certificate['accepted']:
+                    reason=certificate.get('reason','collision')
+                    tested['rejections'][reason]=tested['rejections'].get(reason,0)+1
+                    continue
                 # ROI corners, not a hallucinated full 1.1 m object, must fit.
                 offsets=np.array([[x,y,z] for x in [-.06,.06] for y in [-.06,.06] for z in [-self.s.scan_roi_height_m/2,self.s.scan_roi_height_m/2]])
                 roi=(center+offsets-poses[i,:3,3])@poses[i,:3,:3]
                 if np.any(roi[:,2]<.1) or np.any(abs(roi[:,:2])/roi[:,2:3]>[.65,.45]):continue
                 accepted.append(i);directions.append(direction)
+                tested['accepted']=len(accepted)
                 if len(accepted)>=4:break
             if len(accepted)<3:return None
             return dict(views=len(accepted),camera_q=self.camera_q[accepted[0]].tolist())
-        try:return dict(goal=self.planner.observation(self.track.estimate,current,evaluate))
+        try:result=dict(goal=self.planner.observation(self.track.estimate,current,evaluate))
         except ValueError as exc:
             self._summary['planning_reason']=str(exc)
-            return dict(needs_mapping=True)
+            result=dict(needs_mapping=True)
+        self._summary['observation_planning']=diagnostics
+        return result
     def _map_search_prepare(self,index):
         from scipy.stats import qmc
         sample=qmc.Halton(4,scramble=True,seed=17).random(256)
@@ -310,9 +358,16 @@ class SimPorts:
             elif phase=='aim_observation':waypoints=[args['goal'].report['camera_q']]
             else:
                 q=self.feedback.snapshot(self.route()[:2])['joint']['q'].copy()
-                q[1]=np.clip(q[1]+(.18 if args['index']%2 else -.36),self.arm.bounds[1,0],self.arm.bounds[1,1])
-                q[2]+=(-1 if args['index']%2 else 1)*.06
-                waypoints=[np.clip(q,self.arm.bounds[:,0],self.arm.bounds[:,1])]
+                last_seen=getattr(self,'last_target_q',None)
+                if last_seen is not None and np.any(abs(q-last_seen)>[.001,.015,.015,.015]):
+                    # A floor look can hide the target for longer than its
+                    # prediction budget. Recheck the return route and look
+                    # from the last successful view before blind perturbations.
+                    waypoints=list(reversed(self.history))+[last_seen.copy()]
+                else:
+                    q[1]=np.clip(q[1]+(.18 if args['index']%2 else -.36),self.arm.bounds[1,0],self.arm.bounds[1,1])
+                    q[2]+=(-1 if args['index']%2 else 1)*.06
+                    waypoints=[np.clip(q,self.arm.bounds[:,0],self.arm.bounds[:,1])]
             op['future']=self.pool.submit(self._arm_prepare,waypoints)
         elif phase in {'move_observation','move_grasp'}:
             self._summary['base_goal']=dict(pose=args['goal'].pose.tolist(),kind=args['goal'].report['kind'],
@@ -365,21 +420,23 @@ class SimPorts:
             result=op['future'].result();op.pop('future')
             if phase not in {'transport','search','aim_observation','map_search'}:return result
             if snap['joint']['sim_time'] is None:raise RuntimeError('arm approach requires Sim-time feedback')
-            op.update(path=result,index=1,last=snap['joint']['q'].copy(),stable=None,last_at=snap['joint']['sim_time'])
+            op.update(path=result,index=1,approach=JointApproach(result[0],result[1]),
+                stable=None,last_at=snap['joint']['sim_time'])
         if phase in {'transport','search','aim_observation','map_search'}:
             path=op['path'];i=op['index'];goal=path[i]
             sim_time=snap['joint']['sim_time']
             if sim_time is None or sim_time<op['last_at']:raise RuntimeError('arm approach Sim clock changed')
             dt=min(.1,max(0.,sim_time-op['last_at']));op['last_at']=sim_time
-            rates=np.array([.005,.04,.04,.04])
-            q=op['last']+np.clip(goal-op['last'],-rates*dt,rates*dt)
-            if np.any(abs(snap['joint']['q']-op['last'])>[.001,.015,.015,.015]):raise RuntimeError('arm did not follow approach')
-            self._send(grant,ownership,q=q.tolist());op['last']=q;self.last_command=q
+            q=op['approach'].step(snap['joint']['q'],dt)
+            if self.last_command is None or not np.array_equal(q,self.last_command) or now-self.last_send>=.08:
+                self._send(grant,ownership,q=q.tolist());self.last_command=q;self.last_send=now
             close=np.all(abs(snap['joint']['q']-goal)<[.001,.015,.015,.015]) and np.allclose(q,goal,atol=1e-8)
             if close:
                 if op['stable'] is None:op['stable']=now
                 if now-op['stable']>.3:
-                    if i<len(path)-1:op['index']+=1;op['stable']=None
+                    if i<len(path)-1:
+                        op['index']+=1;op['stable']=None
+                        op['approach']=JointApproach(goal,path[i+1])
                     else:
                         if phase=='transport':self.history=[np.array(self.model.meta['home'])]
                         else:self.history.append(goal.copy())

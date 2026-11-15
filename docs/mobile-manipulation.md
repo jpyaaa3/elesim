@@ -1,8 +1,11 @@
 # Mobile observation and C-hug
 
 The experimental workflow targets one stationary upright 100 mm cylinder on a
-flat Sim floor. The operator starts at measured nominal Home with virtual torque
-ON and open claws. It has no whole-building search or general SLAM claim.
+flat Sim floor. The operator starts at measured Home with virtual torque ON and
+open claws. The configured operator Home offsets are accepted for the initial
+view; transport checks every arm segment back to the policy's exact canonical
+Home before walking or replaying a learned path. It has no whole-building search
+or general SLAM claim.
 
 In Visual Servoing, place `cylinder_100mm.obj`; its red physical representation
 matches the installed single-instance HSV profile. Selecting it hides the legacy
@@ -60,6 +63,20 @@ and per-node bends; displayed q3/q4 are total segment bends. Solver offset and
 node count are recorded in the model manifest.
 
 ## Verification
+
+`workbench/research/experiments/mobile_manipulation/installed_ui.py` exercises the
+published UI backend through its installed configuration, using the normal
+remote Pilot and Sim services. Run it in the registered UI service's published
+image with only the driver and evidence directory mounted. The ordinary UI must
+be stopped first because the driver uses that exact UI endpoint and security
+identity. No sibling runtime source is mounted for installed acceptance. It
+checks both decoded WebRTC streams, target role, measured torque/claws/Home and
+the new object revision before submitting the mobile intents. Fixture placement
+goes only to Sim. Completion requires the parent's independent loaded-hold
+result, rather than an operator acknowledgement. `--video` records both streams.
+`--preflight-only` is explicitly labelled as a Home check; development diagnoses
+with a patched service use `--evaluation-mode development` and are not installed
+acceptance evidence.
 
 Host checks cover state transitions, unknown-space rejection, base settling,
 source/capture-time association, bounded correction loops, real analytic

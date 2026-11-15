@@ -49,6 +49,10 @@ pinned, and Robot targets are rejected. Scan cancellation never redirects motion
 Sim joint feedback adds source `measurement_time_s` and
 `measurement_monotonic_s` to the existing open telemetry object while retaining
 `q_source=simulated`; Robot measured-feedback semantics are unchanged.
+The asynchronous Sim renderer retains the physics-pose snapshot's wall capture
+timestamp in the existing RGB-D timestamp field. Render completion time must
+not replace the timestamp associated with the measured encoder and body pose.
+This corrects existing protocol-v6 timestamp semantics; no wire field is added.
 
 The integrated floor/scan/completion path retains protocol v6 and operator-view
 schema 1. Optional scan status adds `predicted_points` and bounded

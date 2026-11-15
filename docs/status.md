@@ -1,10 +1,32 @@
 # 구현 상태와 수용시험
 
-갱신일: 2026-11-13. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
+갱신일: 2026-11-15. 이 문서만 마일스톤, 현재 완료 범위, 미해결 항목, 수동
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
+
+### 설치본 모바일 관측·끌어안기 평가 진행 중 (2026-11-15)
+
+- `/home/user/ws/newsim`의 UI와 `/home/hckang/ws/newsim`의 Pilot/Sim을 공식
+  updater로 발행했다. Bootstrap snapshot의 completion-assets/timed-arm 모듈
+  누락을 고쳤고 해당 묶음은 host **116 passed**다. 기존 `test`의 SROS2 세대도
+  사용자 승인 후 양측에 회전·배포했다. 정상 UI의 WSLg D3D12 시작, SROS2 Enforce
+  DDS와 두 WebRTC 영상 수신을 확인했다.
+- 설치 전 과정 시험에서는 표시 Home의 roll 보정, 분리된 관절·몸통 피드백,
+  FK 계산의 GIL 점유, 관절별 포화가 인증된 직선 경로를 벗어나는 문제를 찾았다.
+  보정 Home의 첫 관측을 허용하되 정책 Home까지 다시 인증하며, 기존 freshness/
+  tracking 한도를 유지한 채 coherent pair와 실측 기반 직선 진행기를 사용한다.
+- 1,536 FK의 별도 스레드 응답 실측은 최대 **515 ms → 7.3 ms**다. 이것은
+  스케줄링 비교이며 DDS 전체 지연 또는 학습 성능 수치가 아니다.
+- 비동기 렌더러가 physics snapshot의 측정 시각을 유지하도록 고쳤다. Host Pilot/
+  driver **57 passed**, 설치된 Sim 이미지의 실제 Genesis 라이브러리로 소스 회귀
+  **32 passed, 2 skipped**, GPU2의 실제 두 render-worker 통합 검사 **1 passed**다.
+  Source regression은 서비스의 새 공식 릴리스 활성화 증거와 구분한다.
+- 현재 전체 동작은 초기 RGB-D 검출과 바닥 관측 자세까지 확인했으며 **전 과정
+  성공은 아직 미확인**이다. 개발용 Pilot 진단을 최종 설치본 통과로 계산하지 않는다.
+  수정 릴리스를 양측에 다시 반영한 뒤 이동·scan/completion·C-band 진입·loaded hold를
+  검증해야 한다. Canonical required/extended/release 전체 gate는 실행하지 않았다.
 
 ### cuRobo 우선·GA 보충 교보재 연결 (2026-11-13)
 
