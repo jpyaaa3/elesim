@@ -102,7 +102,42 @@ class LocalMap:
     def segment_free(self,a,b,footprint,*,margin_m=0.):
         a,b=np.asarray(a,float),np.asarray(b,float);d=b-a;d[2]=angle(d[2])
         n=max(1,int(np.ceil(max(np.linalg.norm(d[:2])/(self.resolution/2),abs(d[2])/.05))))
-        return all(self.footprint_free(a+d*t,footprint,margin_m=margin_m) for t in np.linspace(0,1,n+1))
+        samples=np.linspace(0,1,n+1)
+        if not self.free:
+            return all(self.footprint_free(a+d*t,footprint,margin_m=margin_m) for t in samples)
+        cells=np.array(tuple(self.free),dtype=np.int64)
+        origin=cells.min(axis=0);shape=cells.max(axis=0)-origin+1
+        # Generic sparse maps can span arbitrarily distant islands. Keep the
+        # original sparse query rather than allocating their bounding box.
+        if int(shape[0])*int(shape[1])>4*self.max_cells:
+            return all(self.footprint_free(a+d*t,footprint,margin_m=margin_m) for t in samples)
+        unsafe=np.ones(tuple(shape),dtype=np.int32);relative=cells-origin
+        unsafe[relative[:,0],relative[:,1]]=0
+        if self.blocked:
+            blocked=np.array(tuple(self.blocked),dtype=np.int64)-origin
+            blocked=blocked[np.all((blocked>=0)&(blocked<shape),axis=1)]
+            unsafe[blocked[:,0],blocked[:,1]]=1
+        summed=np.zeros(tuple(shape+1),dtype=np.int32)
+        summed[1:,1:]=unsafe.cumsum(axis=0,dtype=np.int32).cumsum(axis=1,dtype=np.int32)
+        local=np.asarray(footprint,float)
+        if not np.isfinite(margin_m) or margin_m<0:raise ValueError('invalid footprint margin')
+        for fraction in samples:
+            t=planar(a+d*fraction);points=local@t[:2,:2].T+t[:2,3]
+            low=np.floor((points-self.origin-margin_m)/self.resolution).astype(int)
+            high=np.floor((points-self.origin+margin_m)/self.resolution).astype(int)
+            if not len(low):raise ValueError('empty transport footprint')
+            extent=high.max(axis=0)-low.min(axis=0)+2
+            if np.prod(extent)>4*self.max_cells:raise ValueError('transport footprint raster budget exceeded')
+            low-=origin;high-=origin
+            if np.any(low<0) or np.any(high>=shape):return False
+            # Every original sample contributes this exact inclusive cell
+            # rectangle. Its union is free iff each rectangle has zero unsafe
+            # cells; summed areas avoid rebuilding that union at every pose.
+            upper=high+1
+            count=(summed[upper[:,0],upper[:,1]]-summed[low[:,0],upper[:,1]]
+                -summed[upper[:,0],low[:,1]]+summed[low[:,0],low[:,1]])
+            if np.any(count):return False
+        return True
     def path(self,start,goal,footprint,*,max_expansions=6000,margin_m=0.):
         start,goal=np.asarray(start,float),np.asarray(goal,float)
         if self.segment_free(start,goal,footprint,margin_m=margin_m):return np.array([start,goal])

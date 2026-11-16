@@ -179,6 +179,32 @@ def test_fine_grid_separates_a_measured_obstacle_from_a_clear_transport_boundary
     assert statuses[1]['blocked_cells']==statuses[1]['unknown_cells']==0
 
 
+@pytest.mark.parametrize('resolution',[.01,.04])
+@pytest.mark.parametrize('margin',[0.,.022])
+@pytest.mark.parametrize('occupancy',['free','unknown','blocked'])
+def test_fast_sweep_matches_individual_footprints_with_the_same_sampling(resolution,margin,occupancy):
+    from elesim_pilot.mobile_manipulation.contracts import angle
+    rng=np.random.default_rng(71);grid=LocalMap(resolution,origin_xy=(.003,-.007))
+    grid.free={(x,y) for x in range(-30,31) for y in range(-30,31)}
+    foot=rectangular_footprint([[-.05,.05],[-.04,.04]],spacing=.005,padding=0.)
+    if occupancy=='unknown':grid.free-={(x,y) for x in range(3,5) for y in range(-2,3)}
+    if occupancy=='blocked':grid.blocked|={(x,y) for x in range(3,5) for y in range(-2,3)}
+    for i in range(12):
+        a=np.r_[rng.uniform(-.1,.1,2),np.pi-.03];b=np.r_[rng.uniform(-.1,.1,2),-np.pi+.04]
+        delta=b-a;delta[2]=angle(delta[2])
+        n=max(1,int(np.ceil(max(np.linalg.norm(delta[:2])/(resolution/2),abs(delta[2])/.05))))
+        expected=all(grid.footprint_free(a+delta*t,foot,margin_m=margin) for t in np.linspace(0,1,n+1))
+        assert grid.segment_free(a,b,foot,margin_m=margin)==expected
+
+
+def test_sweep_preserves_sparse_map_unknown_cells_and_raster_budget():
+    grid=LocalMap(.01);grid.free={(0,0),(10**9,0)};foot=np.array([[.001,.001]])
+    assert grid.segment_free(np.zeros(3),np.zeros(3),foot)
+    assert not grid.segment_free(np.zeros(3),[.01,0.,0.],foot)
+    with pytest.raises(ValueError,match='raster budget'):
+        grid.segment_free(np.zeros(3),np.zeros(3),np.array([[0.,0.],[100.,100.]]))
+
+
 def test_local_map_translation_keeps_the_same_measured_cells_routes_and_diagnostics():
     shift=np.array([.137,-.083]);base=LocalMap(.01);moved=LocalMap(.01,origin_xy=shift)
     points=np.array([[x+.002,y+.003,0.] for x in np.arange(-.1,.31,.005) for y in np.arange(-.1,.11,.005)])

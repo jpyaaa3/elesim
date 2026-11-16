@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-17",
+  "scope": "Same fixed D100 fixture; keep live swept-grid checks within feedback deadline",
+  "installed_baseline": {
+    "source": "eec6b16d",
+    "run": "run-47",
+    "accepted": false,
+    "elapsed_s": 917.0455457399949,
+    "reason": "stale arm/base feedback (arm 0.737s, base 0.737s)",
+    "grasp_path": [
+      [
+        -0.002737578237429261,
+        0.0010508684208616614,
+        7.595207327944507e-05
+      ],
+      [
+        0.22230594046089863,
+        0.010387517092517728,
+        7.595208348654126e-05
+      ]
+    ],
+    "scan_accepted_views": 2
+  },
+  "timing_baseline": {
+    "diagnostic_only": true,
+    "synthetic_free_map_for_timing_only": true,
+    "footprint_from_recorded_run40": true,
+    "path_from_run47": true,
+    "accepted": true,
+    "elapsed_s": 0.5347468946129084,
+    "same_thread_feedback_error": "stale arm/base feedback (arm 0.535s, base 0.535s)"
+  },
+  "host_comparison": {
+    "diagnostic_only": true,
+    "synthetic_free_map_for_timing_only": true,
+    "footprint_from_recorded_run40": true,
+    "path_from_run47": true,
+    "accepted": true,
+    "elapsed_s": [
+      0.2182435549912043,
+      0.19050513899128418,
+      0.1714643120067194
+    ],
+    "previous_elapsed_s": 1.8002102650061715
+  },
+  "fix": [
+    "Keep exactly the same half-cell translation and 0.05-radian angular samples.",
+    "Each original inclusive footprint-cell rectangle must contain zero unsafe cells.",
+    "Use a bounded integral image of current unsafe cells instead of repeatedly materializing unions of Python cell tuples.",
+    "Unknown cells stay unsafe and blocked cells override free cells.",
+    "Rebuild from current sets on every call; no stale-map cache.",
+    "Retain the original sparse path query when the bounding raster exceeds the existing budget."
+  ],
+  "tests": {
+    "host": "157 passed in 16.31s",
+    "canonical_gates_run": false,
+    "reason": "No usable generated development attachment in the current installation.",
+    "covers": [
+      "Existing raster oracle parity across resolution, margin, origin and yaw wrap",
+      "Unknown and blocked cell rejection",
+      "Sparse-map fallback and raster budget"
+    ]
+  },
+  "acceptance_unchanged": true,
+  "installed_retest_pending": true,
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/local_map.py": "a15dff27657551826e2557f90b34abea7cc51108578999b5c423ae55898287e7"
+  },
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-47/report.json",
+      "bytes": 32027,
+      "sha256": "0e32e7d333e7975e8788d17f16f165b6b1479403da56327c0f2fef3af4d938ca"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-47/telemetry.jsonl",
+      "bytes": 11494290,
+      "sha256": "197977ef702ae2cba287f4d6ed12cd9a0cb087c3d0aad0b2adeff8cfbd7e7dae"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-47/observer.mp4",
+      "bytes": 22046932,
+      "sha256": "e14a37fbf5f7ae878158a3282fc1f6c61376be9e32a8385ea912a8b9f123821a"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-47/hand_eye_preview.mp4",
+      "bytes": 34030646,
+      "sha256": "4e6e3017b62241df939b942664b23d00f206b1437a1e3247398a23ed597faf34"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/scan-47.tar.gz",
+      "bytes": 3941805,
+      "sha256": "aafdc40211b230dc7da9e9e6c65e2038efebc5beff4f6c209941ad26ad6b1104"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v26-remote.json",
+      "bytes": 2953,
+      "sha256": "f33ad1de0f87095ef6fc9566c167ffd6375ebb1648f769024190d019aeb4ea72"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v26-operator.json",
+      "bytes": 428,
+      "sha256": "931f024db79bc4396edb3aa491d5ebc791f99067d6e645d28ffbb81801dbed10"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/feedback-cadence47.json",
+      "bytes": 40912,
+      "sha256": "5d1ea5de513efa9e00c1d2242806256d9ee611a1dd3e29a25c505cf9216ca262"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/base-check-blocking-remote47.json",
+      "bytes": 284,
+      "sha256": "4a6e2ab9b214d2f704da8c42a264f72ceadc9b3025d9d9f5173d2a05a6e61ba0"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/base-check-blocking-host47.json",
+      "bytes": 245,
+      "sha256": "f4f5703be87e563d1298efd8ed410b7940e5e8830fb35fe88a3caa8a71bf6e81"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/base-sweep-host-after47.json",
+      "bytes": 302,
+      "sha256": "a5fc70b42197cf9575fa8d0b29725b0fbedf057f73aa30bfbbf3fe6af0b65486"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/base-sweep-parity-before.log",
+      "bytes": 181,
+      "sha256": "02d0dfe8b54987bd5b857b9a22bf4cd08b5e0211fe0b990289c07395c7c5cfaa"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/base-sweep-release-tests.log",
+      "bytes": 261,
+      "sha256": "b1af535c17bf73710cbf366d5d741fce077158d09169201837624c7221bec3f9"
+    }
+  ]
+}

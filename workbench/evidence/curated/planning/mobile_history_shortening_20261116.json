@@ -125,7 +125,7 @@
     "reason": "No usable generated development attachment in the current installation."
   },
   "acceptance_unchanged": true,
-  "installed_retest_pending": true,
+  "installed_retest_pending": false,
   "source_sha256": {
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "f8ef481b865c3ac2d0b5b5991849f7f6d963ff2b7d4a3a4c8b022704c8eba5e6",
     "payload/runtime/docker/pilot/app/elesim_pilot/robot/arm/joint_path.py": "dd1fc744341e91486491c6f9e002628dfda17e5204743a2e970c98891fec14d8"
@@ -181,5 +181,33 @@
       "bytes": 180,
       "sha256": "483acdcc10ac5bb31598eda3f96b8654a037950a14fc1dc5b6eac9b830e137ba"
     }
-  ]
+  ],
+  "installed_retest": {
+    "source": "eec6b16d",
+    "run": "run-47",
+    "elapsed_s": 917.0455457399949,
+    "accepted": false,
+    "reason": "stale arm/base feedback (arm 0.737s, base 0.737s)",
+    "arm_return": {
+      "goal_q": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "segments": 1,
+      "strategy": "direct"
+    },
+    "target_return_completed": true,
+    "scan_accepted_views": 2,
+    "grasp_planning": {
+      "blocked_goals": 104,
+      "interior_targets": 6,
+      "observed_goals": 1,
+      "route_rejections": 0,
+      "stage": "path_found",
+      "unknown_goals": 39
+    },
+    "next_blocker": "DDS control thread swept-grid calculation exceeds freshness limit"
+  }
 }

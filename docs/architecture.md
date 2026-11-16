@@ -1063,6 +1063,11 @@ continuous shortcut certificates. Shortening uses the remaining part of the firs
 30 seconds of return preparation and at most 1,024 checks; it retains the certified
 tail on exhaustion. Fresh measured joints/base revalidation precedes execution,
 including revalidation of the original if a shortcut loses admission.
+Live swept-footprint checks use summed areas of unsafe grid cells for the same
+sampled inclusive rectangles. They keep the existing sampling, tracking margin,
+unknown-cell rejection and occupied precedence while avoiding repeated Python
+union construction on the DDS receive/control thread. No asynchronous unchecked
+motion or stale-map cache is introduced.
 
 The parent grants one child arm/base control at a time. Pure planning/inference
 runs in one worker; DDS-thread ticks alone send motion. Existing LiveScan runs as

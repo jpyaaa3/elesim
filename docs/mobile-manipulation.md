@@ -118,6 +118,12 @@ base position. This separates narrow measured clearance from neighbouring obstac
 cells that a 40 mm raster can merge. Transport sampling uses half-cell spacing;
 tracking margins and occupied-cell precedence stay unchanged. Rasterization forms
 the exact union of the same inclusive margin rectangles using a difference array.
+Swept-path membership uses a bounded summed-area map of unsafe cells: every
+sampled footprint rectangle must contain zero unsafe cells. This is the same
+half-cell translation / 0.05-radian sampling and inclusive rectangle test, without
+rebuilding thousands of Python cell tuples at each pose on the DDS control tick.
+The mask is rebuilt from current sets on each call; unknown and blocked cells
+remain unsafe. Widely separated sparse maps retain the original bounded query.
 The local map recentres a square window at the midpoint of the current base and
 requested mapping destination. Its 200 by 200 cells fit the existing 40,000-cell
 budget and retain the relevant transport corridor. Outside/evicted cells remain
