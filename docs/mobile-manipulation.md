@@ -83,6 +83,11 @@ with its linear joint retracted to one tracking allowance inside its lower bound
 followed by the recorded initial pose. A seed is usable only after its entire
 incoming edge certifies, and its outgoing edge must also certify; neither the
 retraction nor a seed-to-goal bridge bypasses collision checks.
+Returns try a direct segment, retraction to the requested linear position, and
+then retract/transform/extend before replaying the recorded history. The latter
+holds both endpoint shapes at the same retracted linear position while changing
+shape, then extends to the unchanged goal. All three complete edges need the
+ordinary certificate; this can avoid replaying long roll reversals from history.
 These are local planning limits; motion authority, phase/view budgets and physical
 acceptance limits are unchanged.
 Mobile mapping uses 10 mm cells with a fixed origin centred on the initial measured

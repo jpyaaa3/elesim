@@ -821,6 +821,7 @@ def test_target_search_rechecks_return_to_last_visible_pose_after_a_floor_look()
 def test_return_uses_shortcut_only_when_its_whole_segment_is_certified(blocked):
     from elesim_pilot.mobile_manipulation.runtime import SimPorts
     ports=SimPorts.__new__(SimPorts)
+    ports.arm=NS(bounds=np.array([[0.,1.]]*4),uncertainty=np.array([.001,.015,.015,.015]))
     start=np.array([0.,1.,0.,0.]);via=np.array([0.,1.,1.,0.]);goal=np.zeros(4)
     ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=start.copy())))
     unused_home=np.array([0.,0.,2.,0.])
@@ -849,6 +850,7 @@ def test_return_uses_shortcut_only_when_its_whole_segment_is_certified(blocked):
 def test_return_can_retract_before_folding_but_certifies_both_segments(blocked):
     from elesim_pilot.mobile_manipulation.runtime import SimPorts,ArmPathBlocked
     ports=SimPorts.__new__(SimPorts)
+    ports.arm=NS(bounds=np.array([[-.121,0.],[-1.,1.],[-1.,1.],[-1.,1.]]),uncertainty=np.array([.001,.015,.015,.015]))
     start=np.array([-.074,-.067,-.117,.603]);goal=np.array([-.12,0.,-.593,.593])
     ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=start.copy())))
     ports.route=lambda:('sim','boot','lease');ports._summary={};ports.history=[]
@@ -871,6 +873,32 @@ def test_return_can_retract_before_folding_but_certifies_both_segments(blocked):
     else:
         with pytest.raises(ArmPathBlocked):ports._return_prepare(goal)
     assert checked
+
+
+def test_return_folds_while_fully_retracted_then_extends_to_the_unchanged_goal():
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    ports=SimPorts.__new__(SimPorts);start=np.array([-.05,.5,0.,0.]);goal=start.copy();goal[1]=-.5
+    ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=start.copy())))
+    ports.arm=NS(bounds=np.array([[-.2,0.],[-1.,1.],[-1.,1.],[-1.,1.]]),uncertainty=np.array([.001,.015,.015,.015]))
+    ports.route=lambda:('sim','boot','lease');ports._summary={};ports.history=[]
+    ports.connection=NS(state_sink=NS(get_state=lambda:None))
+    ports.service=NS(_ik_context_for_host=lambda h:dict(base_world_T=np.eye(4)))
+    checked=[]
+    def certify(a,b):
+        checked.append((a.copy(),b.copy()))
+        # A continuous joint-space barrier across roll=0 blocks a direct
+        # turn at the requested linear position; it ends below -140 mm.
+        if a[1]*b[1]<=0:
+            fraction=-a[1]/(b[1]-a[1]) if b[1]!=a[1] else 0.
+            return dict(accepted=a[0]+fraction*(b[0]-a[0])<-.14)
+        return dict(accepted=True)
+    ports.collision=NS(base=None,certify_segment=certify)
+    path=np.asarray(ports._return_prepare(goal))
+    np.testing.assert_array_equal(path[[0,-1]],[start,goal])
+    assert len(path)==4 and np.all(path[1:3,0]==-.199)
+    assert ports.summary()['arm_return']['strategy']=='retract_transform_extend'
+    assert all(any(np.array_equal(a,x) and np.array_equal(b,y) for x,y in checked)
+        for a,b in zip(path,path[1:]))
 
 
 def test_actual_body_tilt_changes_final_solver_coordinates():

@@ -459,15 +459,21 @@ class SimPorts:
     def _return_prepare(self,goal):
         history=list(reversed(self.history))
         current=self.feedback.snapshot(self.route()[:2])['joint']['q'].copy()
-        candidates=[('direct',[goal])]
-        # A straight joint-space return can swing the gripper toward a nearby
-        # object even when both endpoints are clear. Retract only as far as
-        # the requested goal before folding, and certify both complete edges.
-        if goal[0]<current[0]-1e-9:
-            retracted=current.copy();retracted[0]=goal[0]
-            candidates.append(('retract_first',[retracted,goal]))
-        candidates.extend(('history_prefix',history[:count]+[goal]) for count in range(1,len(history)+1))
-        for index,(strategy,waypoints) in enumerate(candidates):
+        def candidates():
+            yield 'direct',[goal]
+            # Try the smaller retraction first. If changing shape while
+            # extending still sweeps an obstacle, keep BOTH endpoint shapes
+            # fully retracted for the transform, then extend to the same goal.
+            if goal[0]<current[0]-1e-9:
+                retracted=current.copy();retracted[0]=goal[0]
+                yield 'retract_first',[retracted,goal]
+            linear=min(current[0],goal[0],self.arm.bounds[0,0]+self.arm.uncertainty[0])
+            if linear<max(current[0],goal[0])-1e-9:
+                before=current.copy();after=goal.copy();before[0]=after[0]=linear
+                yield 'retract_transform_extend',[before,after,goal]
+            for count in range(1,len(history)+1):
+                yield 'history_prefix',history[:count]+[goal]
+        for index,(strategy,waypoints) in enumerate(candidates()):
             if index:time.sleep(.001)
             try:points=self._arm_prepare(waypoints)
             except ArmPathBlocked:continue

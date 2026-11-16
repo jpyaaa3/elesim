@@ -89,7 +89,7 @@
     "canonical_gates_run": false,
     "reason": "No usable generated development attachment/pinned Docker test environment in this workspace; no host dependency installation."
   },
-  "installed_retest_pending": true,
+  "installed_retest_pending": false,
   "evidence": [
     {
       "path": "workbench/evidence/generated/mobile-installed-20261115/run-39/report.json",
@@ -165,5 +165,47 @@
   "source_sha256": {
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "20d424ab54a5d37e4c8d12a5a20187090088170070324485ac840462adb1cb61",
     "payload/runtime/docker/pilot/app/elesim_pilot/robot/arm/joint_path.py": "779be787b2bb5ddf88f0fe1de05d70f51a83e62d7b739cdd57d83baec932d6e0"
-  }
+  },
+  "installed_retest_result": {
+    "revision": "c5bba23e",
+    "run": "run-41",
+    "accepted": false,
+    "elapsed_s": 927.2133733340015,
+    "reason": "mobile task timeout",
+    "mapping_attempts": 5,
+    "third_floor_search": {
+      "status": "found",
+      "elapsed_s": 5.288634623400867,
+      "edge_checks": 11,
+      "actual_motion_completed": true
+    },
+    "unknown_counts_at_successive_plans": [
+      384,
+      239,
+      118
+    ],
+    "full_acceptance_passed": false
+  },
+  "publication_evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/registration-v20.json",
+      "bytes": 3746,
+      "sha256": "4f81abc4dc0f9d3b7ecb2c03da5ec445bde2047ccef74aef0259b7193e83f258"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v20-remote.json",
+      "bytes": 2530,
+      "sha256": "539e764af476388716ca51e0534b3f9c97f746485795bd8d7ba9ebf083ff48e6"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v20-operator.json",
+      "bytes": 264,
+      "sha256": "0bd591729cdd9370624e8b0e09f57d0e08c44d84c88f4267ae3107ee2f5d6a4f"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/operator-source-41.json",
+      "bytes": 910,
+      "sha256": "263389d22cbbac5de6927defd1b17218fcf1c350676c3435380a4af41be40403"
+    }
+  ]
 }

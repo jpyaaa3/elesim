@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "same fixed D100 case; shorten certified return paths without changing budgets or acceptance",
+  "installed_baseline": {
+    "revision": "c5bba23e",
+    "run": "run-41",
+    "accepted": false,
+    "elapsed_s": 927.2133733340015,
+    "reason": "mobile task timeout",
+    "mapping_attempts": 5,
+    "scan_started": false,
+    "actual_floor_4_phase_s": 167.85911320056766,
+    "actual_return_4_phase_s": 166.22516776435077
+  },
+  "fix": "Before replaying history, retract both current and goal shapes to the lower linear bound plus its existing tracking allowance, certify the transform at that retracted position, then extend to the exact unchanged goal. All three edges use the ordinary continuous collision certificate.",
+  "replay": {
+    "diagnostic_only": true,
+    "not_installed_acceptance": true,
+    "camera_truth_used": false,
+    "variants": {
+      "to_floor": {
+        "elapsed_s": 2.347411094000563,
+        "path": [
+          [
+            -0.10907933115959167,
+            1.1098989248275757,
+            -0.31461241841316223,
+            0.6271698355674744
+          ],
+          [
+            -0.17233333333333334,
+            1.1098989248275757,
+            -0.31461241841316223,
+            0.6271698355674744
+          ],
+          [
+            -0.17233333333333334,
+            1.0419835506888506,
+            0.2030442713065379,
+            0.28733802792920804
+          ],
+          [
+            -0.0914186223333145,
+            1.0419835506888506,
+            0.2030442713065379,
+            0.28733802792920804
+          ]
+        ],
+        "summary": {
+          "arm_return": {
+            "strategy": "retract_transform_extend",
+            "segments": 3,
+            "goal_q": [
+              -0.0914186223333145,
+              1.0419835506888506,
+              0.2030442713065379,
+              0.28733802792920804
+            ]
+          }
+        },
+        "certificates": [
+          {
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.001844467556604848,
+            "environment_scope": "observed_surfaces_only",
+            "environment_checks": 2
+          },
+          {
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 42,
+            "minimum_margin_m": 5.545416414636829e-05,
+            "environment_scope": "observed_surfaces_only",
+            "environment_checks": 56
+          },
+          {
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 11,
+            "minimum_margin_m": 0.00036535733223705055,
+            "environment_scope": "observed_surfaces_only",
+            "environment_checks": 2
+          }
+        ],
+        "nominal_approach_duration_s": 41.7751598777446
+      },
+      "to_target": {
+        "elapsed_s": 1.7366604920025566,
+        "path": [
+          [
+            -0.0914186223333145,
+            1.0419835506888506,
+            0.2030442713065379,
+            0.28733802792920804
+          ],
+          [
+            -0.17233333333333334,
+            1.0419835506888506,
+            0.2030442713065379,
+            0.28733802792920804
+          ],
+          [
+            -0.17233333333333334,
+            1.1098989248275757,
+            -0.31461241841316223,
+            0.6271698355674744
+          ],
+          [
+            -0.10907933115959167,
+            1.1098989248275757,
+            -0.31461241841316223,
+            0.6271698355674744
+          ]
+        ],
+        "summary": {
+          "arm_return": {
+            "strategy": "retract_transform_extend",
+            "segments": 3,
+            "goal_q": [
+              -0.10907933115959167,
+              1.1098989248275757,
+              -0.31461241841316223,
+              0.6271698355674744
+            ]
+          }
+        },
+        "certificates": [
+          {
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 11,
+            "minimum_margin_m": 0.00036535733223705055,
+            "environment_scope": "observed_surfaces_only",
+            "environment_checks": 2
+          },
+          {
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 42,
+            "minimum_margin_m": 5.545416414636829e-05,
+            "environment_scope": "observed_surfaces_only",
+            "environment_checks": 56
+          },
+          {
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 2,
+            "minimum_margin_m": 0.001844467556604848,
+            "environment_scope": "observed_surfaces_only",
+            "environment_checks": 2
+          }
+        ],
+        "nominal_approach_duration_s": 41.7751598777446
+      }
+    }
+  },
+  "tests": {
+    "tdd_before": "continuous barrier forces a turn while retracted; old return planner failed",
+    "host": "92 passed in 3.15s",
+    "canonical_gates_run": false
+  },
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "c336fe355e3aca0d3d67de46fd91752f668a3f86a213188838f88a2da1e6fd04"
+  },
+  "acceptance_unchanged": true,
+  "installed_retest_pending": true,
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-41/report.json",
+      "bytes": 13080,
+      "sha256": "e5c96099282f21788cae6232d7268230f4c6062c2b4c4ff0fec5029488100f08"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-41/telemetry.jsonl",
+      "bytes": 10050915,
+      "sha256": "8faf0d97f315676a9fd958f3ac42b4e1b7cfa45bdbef5d5df13b106200d95d29"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-41/observer.mp4",
+      "bytes": 18386287,
+      "sha256": "28af96a2ad1af4371ace0931f2f997f11b8bd9e295dc22415810dd0d107a3c36"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-41/hand_eye_preview.mp4",
+      "bytes": 38646648,
+      "sha256": "732031c1e9aed88e5b091c55037e589828105b60190687c63c83f4714ce7b530"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/full-retraction-transform-replay40.json",
+      "bytes": 5546,
+      "sha256": "f6928ab5e31818b872236ea7a2b853a93dddec375b625bc71e2b4bc40e4db1be"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/full-retraction-runtime-replay40.json",
+      "bytes": 3922,
+      "sha256": "708a117399837208c383e4378e6f6484d6c7170252f404d9fcc95562c669ad23"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/full-retraction-release-tests.log",
+      "bytes": 179,
+      "sha256": "0bb0e51b0fb8c4704ba9585920951783d9057c0866b6cb2c3896e124c48834af"
+    }
+  ]
+}
