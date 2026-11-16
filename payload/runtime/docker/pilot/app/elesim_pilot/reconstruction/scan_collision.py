@@ -69,15 +69,14 @@ class ScanCollision:
         return self.tree.query(self._centers(q))[0]-self._radii-self.margin_m-self._tracking_margin
 
     def configuration_free(self, q):
-        if not self.arm.configuration_free(q):
-            return False
         if self.reserve_tracking:
             # A realized endpoint may differ from its command by uncertainty.
             # Reserve that displacement so its *next* ordinary certificate
             # still has the existing tracking bound. Path limits stay intact.
-            extra=self.arm.pair_lipschitz@self.arm.uncertainty
-            if np.any(self.arm.pair_clearances(q)<=self.arm.required_gap+extra):
+            if not self.arm.configuration_free(q,uncertainty_scale=2.):
                 return False
+        elif not self.arm.configuration_free(q):
+            return False
         extra=self._tracking_margin if self.reserve_tracking else 0.
         return bool(np.all(self._gaps(q)>extra))
 

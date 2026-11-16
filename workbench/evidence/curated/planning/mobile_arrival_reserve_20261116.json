@@ -52,7 +52,7 @@
     "canonical_gates_run": false,
     "canonical_reason": "No usable prepared generated development environment; host scientific/ROS dependencies not installed."
   },
-  "deployed": false,
+  "deployed": true,
   "installed_follow_up_accepted": false,
   "evidence": [
     {
@@ -109,11 +109,129 @@
       "path": "workbench/evidence/generated/mobile-installed-20261115/registration-v13.json",
       "bytes": 3746,
       "sha256": "69293b157e8d4a13fae66d16686a8d1b075c6a686ada16bdc5341ba15659e998"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-30/report.json",
+      "bytes": 11086,
+      "sha256": "c3934cee8dd4f22d95063f25cf255abe977c335dc0eb3bc255d9ee7d8ad7e482"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-31/report.json",
+      "bytes": 11038,
+      "sha256": "27205c6236334d50176c6c90d787340472c7204a77fd34bc96fb5e52be8b28c7"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/mobile-floor-run31.npz",
+      "bytes": 1605229,
+      "sha256": "f2fd2140553d30b7cfc4d75a285ad5156f98c59bc8073537635bba032d348012"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/arrival-bound-red.log",
+      "bytes": 1436,
+      "sha256": "bceae078eb4486def6121a6aec8052b0fe83a493807c6ff48013945a8f731864"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/arrival-bound-tests.log",
+      "bytes": 181,
+      "sha256": "f951d887410c13c5222655e4feaa8d4782c711fdcca61810293f57fc7fdea5d2"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/arrival-bound-replay31.json",
+      "bytes": 1621,
+      "sha256": "1477752df86b5412f3d59d8217449cb96e9c1021b644fae08e35e69cd84396df"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/arrival-reserve-broadphase-diagnosis.json",
+      "bytes": 1145,
+      "sha256": "544416213e58d155ac8f3fa19309b0bd8483109784d6b5609588a76d680a7f2d"
     }
   ],
   "source_sha256": {
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "41cc796b7487a2b58f7e596ea337f9454c610f4b47527b31782e4264f62ed6eb",
-    "payload/runtime/docker/pilot/app/elesim_pilot/reconstruction/scan_collision.py": "499d57baf210847679b7f10dfb8b0d973d0da4de4502f65b6a8a069245cc5c4a",
-    "payload/runtime/docker/pilot/app/elesim_pilot/reconstruction/live_scan.py": "2e798a00b70157749534e3b0fb4fa51485d96cf5ede1d560b7d6656f6188ba0d"
+    "payload/runtime/docker/pilot/app/elesim_pilot/reconstruction/scan_collision.py": "34aef8d8295bc2589d177d489913f06cd34b39c545f1d1dcc8a98f4cd52f545d",
+    "payload/runtime/docker/pilot/app/elesim_pilot/reconstruction/live_scan.py": "2e798a00b70157749534e3b0fb4fa51485d96cf5ede1d560b7d6656f6188ba0d",
+    "payload/runtime/docker/pilot/app/elesim_pilot/robot/arm/self_collision.py": "20cde5d15df592b593a8d48b77d9bad87a3386cd2a3e4f65ef33bf5beba77b5f"
+  },
+  "deployed_revision": "ff3005e2",
+  "installed_follow_up": {
+    "run-30": {
+      "evaluation_mode": "installed",
+      "accepted": false,
+      "elapsed_s": 138.43036774999928,
+      "reason": null
+    },
+    "run-31": {
+      "evaluation_mode": "development",
+      "accepted": false,
+      "elapsed_s": 146.2322505330012,
+      "reason": null
+    }
+  },
+  "broadphase_correction": {
+    "cause": "An ordinary cached coarse lower bound was reused against the larger endpoint uncertainty threshold without refining inconclusive pairs.",
+    "fix": "Select the broad-phase threshold and cache key using the requested uncertainty scale; preserve both the endpoint 2x reserve and the ordinary continuous certificates.",
+    "sampled_false_rejections": 35,
+    "sample_count": 256,
+    "captured_sensor_replay": {
+      "replay_only": true,
+      "camera_truth_used": false,
+      "results": {
+        "old_bound_reuse": {
+          "accepted": false,
+          "reason": "floor observation arm paths are blocked",
+          "elapsed_s": 19.41577477800456,
+          "search": {
+            "cached": true,
+            "sampled": 12000,
+            "goal_footprint_focus": true,
+            "unknown_probes": 30,
+            "candidates": 1059,
+            "blocked_paths": 30,
+            "arrival_rejections": 1029,
+            "last_rejection": "arm transport/search path blocked: observed_surface_collision_on_path"
+          }
+        },
+        "corrected_bounds": {
+          "accepted": true,
+          "path": [
+            [
+              -0.04996086657047272,
+              1.1035046577453613,
+              -0.3311330616474152,
+              0.6018324136734009
+            ],
+            [
+              -0.16433203379164785,
+              0.4839889402661557,
+              -0.38590633355075626,
+              0.6088433152603467
+            ]
+          ],
+          "certificates": [
+            {
+              "accepted": true,
+              "reason": "continuous_sphere_separation",
+              "checked_configurations": 11,
+              "minimum_margin_m": 0.006537748194347159,
+              "environment_scope": "observed_surfaces_only",
+              "environment_checks": 6
+            }
+          ],
+          "elapsed_s": 13.546979218997876,
+          "search": {
+            "cached": true,
+            "sampled": 12000,
+            "goal_footprint_focus": true,
+            "unknown_probes": 30,
+            "candidates": 1059,
+            "blocked_paths": 24,
+            "arrival_rejections": 554,
+            "last_rejection": "arm transport/search path blocked: observed_surface_collision_on_path"
+          }
+        }
+      }
+    },
+    "focused_host": "128 passed in 24.37s",
+    "installed_follow_up_pending": true
   }
 }

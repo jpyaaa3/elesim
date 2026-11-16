@@ -105,8 +105,15 @@ class ArmSelfCollision:
             poses[j['child']]=poses[j['parent']]@t
         return poses
 
-    def pair_clearances(self,q):
-        q=self._q(q);key=tuple(q)
+    def _scaled_required_gap(self,uncertainty_scale):
+        scale=float(uncertainty_scale)
+        if not np.isfinite(scale) or scale<1.:
+            raise ValueError('collision uncertainty scale must be finite and at least one')
+        return self.required_gap if scale==1. else self.margin_m+(self.required_gap-self.margin_m)*scale
+
+    def pair_clearances(self,q,*,uncertainty_scale=1.):
+        required=self._scaled_required_gap(uncertainty_scale)
+        q=self._q(q);key=(float(uncertainty_scale),*tuple(q))
         if key in self._cache:return self._cache[key].copy()
         poses=self.link_poses(q)
         centers={n:self.local[n]@poses[n][:3,:3].T+poses[n][:3,3] for n in self.names}
@@ -114,7 +121,7 @@ class ArmSelfCollision:
         result=np.empty(len(self.pairs))
         for i,(a,b) in enumerate(self.pairs):
             lower=np.linalg.norm(bounds[a]-bounds[b])-self.local_bound[a]-self.local_bound[b]
-            if lower > self.required_gap[i]+.03:
+            if lower > required[i]+.03:
                 result[i]=lower
                 continue
             delta=centers[a][:,None,:]-centers[b][None,:,:]
@@ -123,8 +130,9 @@ class ArmSelfCollision:
         self._cache[key]=result.copy()
         return result
 
-    def configuration_free(self,q):
-        return bool(np.all(self.pair_clearances(q)>self.required_gap))
+    def configuration_free(self,q,*,uncertainty_scale=1.):
+        required=self._scaled_required_gap(uncertainty_scale)
+        return bool(np.all(self.pair_clearances(q,uncertainty_scale=uncertainty_scale)>required))
 
     def certify_segment(self,start,goal,*,max_checks=4096):
         """Certify the continuous straight joint segment, including uncertainty.

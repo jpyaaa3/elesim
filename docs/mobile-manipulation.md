@@ -66,6 +66,9 @@ at their endpoints. This leaves room for the realized arrival to pass the next
 ordinary collision certificate. The extra reserve uses the existing sphere
 motion bounds for self and observed-surface separation; it changes viewpoint
 admission, not path-certificate limits or the fixed Home target.
+Coarse distance bounds are refined against the requested uncertainty threshold;
+ordinary and reserved-endpoint queries use separate cache entries. An inconclusive
+ordinary lower bound must not reject an otherwise valid reserved endpoint.
 Base route planning additionally checks measured floor around every sampled
 footprint, including the starting stance. The padding is the existing base
 position tolerance plus `2 R sin(yaw_tolerance / 2)`, where R is the transport

@@ -54,7 +54,7 @@ def test_view_arrival_also_reserves_tracking_room_from_observed_surfaces():
         ancestry={'tip':[0]},bounds=np.array([[-1.,1.]]*4),uncertainty=np.array([.003,0.,0.,0.]),
         joints=[dict(index=0,multiplier=1.,kind='prismatic',t=np.eye(4))],link_poses=poses,
         pair_lipschitz=np.zeros((1,4)),required_gap=np.zeros(1),pair_clearances=lambda q:np.ones(1),
-        configuration_free=lambda q:True)
+        configuration_free=lambda q,**kwargs:True)
     normal=ScanCollision(arm,np.eye(4));reserve=ScanCollision(arm,np.eye(4),reserve_tracking=True)
     normal.tree=reserve.tree=cKDTree([[0.,0.,0.]])
     edge=np.array([.0295,0.,0.,0.])
@@ -62,3 +62,28 @@ def test_view_arrival_also_reserves_tracking_room_from_observed_surfaces():
     interior=np.array([.035,0.,0.,0.])
     assert reserve.configuration_free(interior)
     assert normal.configuration_free(interior-[.003,0.,0.,0.])
+
+
+def test_reserved_view_does_not_reject_an_inconclusive_coarse_lower_bound():
+    from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
+    root=Path(__file__).resolve().parents[4]/'payload/data/models/planning/zed-mini'
+    arm=ArmSelfCollision(root,joint_uncertainty=[.001,.015,.015,.015])
+    q=np.array([-.1582575233612705,-.42431923472756927,-.2726784451990047,.6163509940799397])
+    assert arm.configuration_free(q)  # Populate the ordinary broad-phase cache.
+    safety=ScanCollision(arm,np.eye(4),reserve_tracking=True)
+    assert safety.configuration_free(q)
+    assert arm.configuration_free(q)
+
+
+def test_scaled_uncertainty_queries_keep_the_original_model_and_bounds():
+    from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
+    root=Path(__file__).resolve().parents[4]/'payload/data/models/planning/zed-mini'
+    uncertainty=np.array([.001,.015,.015,.015])
+    arm=ArmSelfCollision(root,joint_uncertainty=uncertainty)
+    doubled=ArmSelfCollision(root,joint_uncertainty=2*uncertainty)
+    q=np.array([-.006590856694603825,-.6570298016601465,.028914449545615617,.4881227225048461])
+    original=arm.required_gap.copy()
+    arm.pair_clearances(q)
+    assert arm.configuration_free(q,uncertainty_scale=2.)==doubled.configuration_free(q)
+    np.testing.assert_array_equal(arm.required_gap,original)
+    np.testing.assert_array_equal(arm.uncertainty,uncertainty)
