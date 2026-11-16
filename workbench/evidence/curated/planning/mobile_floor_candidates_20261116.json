@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "Same fixed D100 floor routing; evaluate later short routes before committing to the first goal history",
+  "baseline_revision": "003390c2",
+  "installed_baseline": {
+    "run": "run-42",
+    "accepted": false,
+    "elapsed_s": 828.048342215996,
+    "reason": "mobile phase timeout",
+    "fifth_floor": {
+      "remaining_unknown_cells": 118,
+      "selected_strategy": "history_prefix",
+      "segments": 5,
+      "phase_timeout_s": 180
+    }
+  },
+  "fix": "After all direct routes fail, check simple continuously certified returns for the same first 64 valid goal roots before replaying the leading goal history. All final goals and collision/uncertainty checks are unchanged.",
+  "replay": {
+    "diagnostic_only": true,
+    "not_installed_acceptance": true,
+    "camera_truth_used": false,
+    "cached_measured_fk_used": true,
+    "runtime_method_replayed": true,
+    "elapsed_s": 17.694618054003513,
+    "path": [
+      [
+        -0.10907933115959167,
+        1.1098989248275757,
+        -0.31461241841316223,
+        0.6271698355674744
+      ],
+      [
+        -0.17233333333333334,
+        1.1098989248275757,
+        -0.31461241841316223,
+        0.6271698355674744
+      ],
+      [
+        -0.17233333333333334,
+        1.0419835506888506,
+        0.2030442713065379,
+        0.28733802792920804
+      ],
+      [
+        -0.0914186223333145,
+        1.0419835506888506,
+        0.2030442713065379,
+        0.28733802792920804
+      ]
+    ],
+    "certificates": [
+      {
+        "accepted": true,
+        "reason": "continuous_sphere_separation",
+        "checked_configurations": 2,
+        "minimum_margin_m": 0.001844467556604848,
+        "environment_scope": "observed_surfaces_only",
+        "environment_checks": 2
+      },
+      {
+        "accepted": true,
+        "reason": "continuous_sphere_separation",
+        "checked_configurations": 42,
+        "minimum_margin_m": 5.545416414636829e-05,
+        "environment_scope": "observed_surfaces_only",
+        "environment_checks": 56
+      },
+      {
+        "accepted": true,
+        "reason": "continuous_sphere_separation",
+        "checked_configurations": 11,
+        "minimum_margin_m": 0.00036535733223705055,
+        "environment_scope": "observed_surfaces_only",
+        "environment_checks": 2
+      }
+    ],
+    "reserved_endpoint": true,
+    "nominal_approach_duration_s": 41.7751598777446,
+    "summary": {
+      "floor_search": {
+        "cached": true,
+        "sampled": 12000,
+        "goal_footprint_focus": true,
+        "unknown_probes": 384,
+        "candidates": 1239,
+        "blocked_paths": 40,
+        "arrival_rejections": 1199,
+        "detour_attempts": 2,
+        "last_rejection": "arm transport/search path blocked: observed_surface_collision_on_path",
+        "path_strategy": "retract_transform_extend"
+      },
+      "arm_return": {
+        "strategy": "retract_transform_extend",
+        "segments": 3,
+        "goal_q": [
+          -0.0914186223333145,
+          1.0419835506888506,
+          0.2030442713065379,
+          0.28733802792920804
+        ]
+      }
+    }
+  },
+  "tests": {
+    "before": "Later simple goal ignored; new regression failed",
+    "after": "95 passed in 2.51s",
+    "canonical_gates_run": false
+  },
+  "unchanged": [
+    "mission 900 seconds",
+    "phase 180 seconds",
+    "floor view budget 8",
+    "RRT 30 seconds / 512 nodes / 1024 edge checks",
+    "collision and tracking margins",
+    "physical hold acceptance"
+  ],
+  "installed_retest_pending": true,
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "d296d13cffd54709de089b7ed355a2b225b819d2f1ea1502e61d13e80c5e30e1"
+  },
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-42/report.json",
+      "bytes": 12919,
+      "sha256": "ef6200165c4c76dbc90fdcfeb0444ff36e910747dd3f99db659097252e12876f"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-42/telemetry.jsonl",
+      "bytes": 8845841,
+      "sha256": "749340e7815e3bb07295ee0ee1a776502719b9f46128e20dccac60c3f079ea49"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-42/observer.mp4",
+      "bytes": 16207352,
+      "sha256": "fa132986b26e8808c2f16ecc312ffc500d243377cb9b7a63738aef9903d682ad"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-42/hand_eye_preview.mp4",
+      "bytes": 26426582,
+      "sha256": "28f4b150b317f390982e1ec92654450afb592f31e0d5099b1796c98133e0506e"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-candidate-route-replay40.json",
+      "bytes": 2211,
+      "sha256": "58a089685739dfe4c6fd253d6f425884d343a2ceccff6bca54e03fbcd53a0fc5"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-candidate-route-tests.log",
+      "bytes": 179,
+      "sha256": "e72ed7ee231e0e4024c37b3199a0b2d0ec009fe7163685e8fc4fd90c419bfba9"
+    }
+  ]
+}

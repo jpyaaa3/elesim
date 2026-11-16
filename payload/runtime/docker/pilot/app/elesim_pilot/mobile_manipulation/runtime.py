@@ -421,6 +421,18 @@ class SimPorts:
         # when both views are clear. Prefer every direct candidate before
         # reusing the bounded, fully re-certified return/history routes.
         if detours:
+            goals=detours[:64]
+            # A high-scoring view may need a long history replay, while a
+            # later view has a short certified retract/transform/extend path.
+            # Compare the simple routes within the existing goal-root set
+            # before committing to the first view's history.
+            for q,t in goals:
+                time.sleep(.001)
+                self._summary['floor_search']['detour_attempts']+=1
+                try:result=self._return_prepare(q,use_history=False)
+                except ArmPathBlocked:continue
+                self._summary['floor_search']['path_strategy']=self._summary['arm_return']['strategy']
+                self.mapping_views.append(t.copy());return result
             q,t=detours[0]
             self._summary['floor_search']['detour_attempts']+=1
             try:result=self._return_prepare(q)
@@ -430,7 +442,7 @@ class SimPorts:
                 self._summary['floor_search']['path_strategy']=self._summary['arm_return']['strategy']
                 self.mapping_views.append(t.copy());return result
             from elesim_pilot.robot.arm.joint_path import connect_joint_path
-            generation=self.generation;goals=detours[:64]
+            generation=self.generation
             retracted=current.copy()
             retracted[0]=min(current[0],self.arm.bounds[0,0]+self.arm.uncertainty[0])
             path,report=connect_joint_path(current,[q for q,t in goals],self.arm.bounds,
@@ -456,7 +468,7 @@ class SimPorts:
             report=self.collision.certify_segment(a,b)
             if not report['accepted']:raise ArmPathBlocked('arm transport/search path blocked: '+report.get('reason','collision'))
         return points
-    def _return_prepare(self,goal):
+    def _return_prepare(self,goal,*,use_history=True):
         history=list(reversed(self.history))
         current=self.feedback.snapshot(self.route()[:2])['joint']['q'].copy()
         def candidates():
@@ -471,8 +483,9 @@ class SimPorts:
             if linear<max(current[0],goal[0])-1e-9:
                 before=current.copy();after=goal.copy();before[0]=after[0]=linear
                 yield 'retract_transform_extend',[before,after,goal]
-            for count in range(1,len(history)+1):
-                yield 'history_prefix',history[:count]+[goal]
+            if use_history:
+                for count in range(1,len(history)+1):
+                    yield 'history_prefix',history[:count]+[goal]
         for index,(strategy,waypoints) in enumerate(candidates()):
             if index:time.sleep(.001)
             try:points=self._arm_prepare(waypoints)

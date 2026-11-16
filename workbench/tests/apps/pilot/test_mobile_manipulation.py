@@ -339,7 +339,7 @@ def test_floor_search_reuses_cached_views_and_aims_at_missing_goal_cells(monkeyp
     assert not ports.grid.free and not ports.grid.blocked
 
 
-@pytest.mark.parametrize('route',['direct','later_direct','history','blocked','proposal_rejected'])
+@pytest.mark.parametrize('route',['direct','later_direct','later_simple','history','blocked','proposal_rejected'])
 def test_floor_search_checks_direct_candidates_before_certified_history_detours(monkeypatch,tmp_path,route):
     from scipy.stats import qmc
     from elesim_pilot.mobile_manipulation import runtime
@@ -365,6 +365,14 @@ def test_floor_search_checks_direct_candidates_before_certified_history_detours(
             or (np.array_equal(a,home) and b[1]==0.))
         return dict(accepted=clear_direct or (route=='history' and clear_history),reason='observed_surface_collision_on_path')
     ports.collision=NS(base=None,configuration_free=lambda q:True,certify_segment=certify)
+    simple_calls=[]
+    if route=='later_simple':
+        def returning(goal,*,use_history=True):
+            simple_calls.append((goal.copy(),use_history))
+            if use_history or goal[0]<.05:raise runtime.ArmPathBlocked('long history needed')
+            ports._summary['arm_return']=dict(strategy='retract_transform_extend')
+            return [current.copy(),home.copy(),goal.copy()]
+        ports._return_prepare=returning
     if route in {'blocked','proposal_rejected'}:
         if route=='proposal_rejected':
             from elesim_pilot.robot.arm import joint_path
@@ -376,6 +384,9 @@ def test_floor_search_checks_direct_candidates_before_certified_history_detours(
         path=ports._map_search_prepare(1)
         if route=='history':
             assert any(np.array_equal(q,home) for q in path)
+        elif route=='later_simple':
+            assert len(path)==3 and path[-1][0]==pytest.approx(.1)
+            assert len(simple_calls)==2 and not any(use_history for q,use_history in simple_calls)
         else:
             assert len(path)==2
             assert path[-1][0]==pytest.approx(.1 if route=='later_direct' else 0.)

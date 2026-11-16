@@ -88,6 +88,10 @@ then retract/transform/extend before replaying the recorded history. The latter
 holds both endpoint shapes at the same retracted linear position while changing
 shape, then extends to the unchanged goal. All three complete edges need the
 ordinary certificate; this can avoid replaying long roll reversals from history.
+Floor search tries these simple return routes for the existing first 64 valid
+goal roots before accepting the leading candidate's history replay. A long
+history for the first-ranked viewpoint must not hide a short certified route to
+a later viewpoint. The same phase, view and RRT budgets still apply.
 These are local planning limits; motion authority, phase/view budgets and physical
 acceptance limits are unchanged.
 Mobile mapping uses 10 mm cells with a fixed origin centred on the initial measured
