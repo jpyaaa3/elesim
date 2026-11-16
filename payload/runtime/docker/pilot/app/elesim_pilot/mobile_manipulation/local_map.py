@@ -20,7 +20,14 @@ def floor_cell_points(sensor,world_from_camera,*,resolution,max_cells,floor_z=0.
     v,u=np.nonzero(np.isfinite(depth)&(depth>=.1)&(depth<=5)&(abs(height-floor_z)<.025))
     z=depth[v,u]
     points=np.column_stack([x[u]*z,y[v]*z,z])@pose[:3,:3].T+pose[:3,3]
-    _,keep=np.unique(np.floor(points[:,:2]/resolution).astype(int),axis=0,return_index=True)
+    cells=np.floor(points[:,:2]/resolution).astype(int)
+    # np.unique(axis=0) sorts structured records while holding the GIL on
+    # large depth frames. Stable numeric-key sorting preserves the first
+    # actual pixel in each cell without starving the feedback receiver.
+    order=np.lexsort((cells[:,1],cells[:,0]))
+    ordered=cells[order]
+    first=np.r_[True,np.any(ordered[1:]!=ordered[:-1],axis=1)] if len(order) else np.zeros(0,bool)
+    keep=order[first]
     if len(keep)>max_cells:raise RuntimeError('local map budget exceeded')
     return points[keep]
 

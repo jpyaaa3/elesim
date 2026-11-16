@@ -313,5 +313,250 @@
     },
     "wrap_lift_hold_reached": false,
     "interpretation": "Floor observation and observed-free C-band path planning passed. Stand-to-ready transition moved the base backward outside the observed route before approach could complete."
+  },
+  "scheduling_and_routing_follow_up": {
+    "installed_revision": "bc23fe74",
+    "runs": {
+      "run-32": {
+        "evaluation_mode": "installed",
+        "accepted": false,
+        "elapsed_s": 82.63114065099944,
+        "error": "stale arm/base feedback (arm 0.526s, base 0.526s)"
+      },
+      "run-33": {
+        "evaluation_mode": "installed",
+        "accepted": false,
+        "elapsed_s": 112.75925100100721,
+        "error": "floor observation arm paths are blocked"
+      },
+      "run-34": {
+        "evaluation_mode": "development",
+        "accepted": false,
+        "elapsed_s": 83.65065122600208,
+        "error": "stale arm/base feedback (arm 0.503s, base 0.503s)"
+      },
+      "run-35": {
+        "evaluation_mode": "development",
+        "accepted": false,
+        "elapsed_s": 107.66826641700027,
+        "error": "floor observation arm paths are blocked"
+      }
+    },
+    "scheduling": {
+      "scope": "Host-only timing on ten recorded 720p depth frames; camera truth used only for recorded camera pose in timing/equality replay, never production input",
+      "old_maximum_heartbeat_gap_s": 1.2791379439950106,
+      "new_maximum_heartbeat_gap_s": 0.028387931000906974,
+      "all_witnesses_bitwise_identical": true,
+      "cause_status": "Structured-record sorting reproduced receiver-thread starvation; no live fault stack was captured."
+    },
+    "routing": {
+      "captured_observed_points": 10328,
+      "direct_only": {
+        "accepted": false,
+        "reason": "floor observation arm paths are blocked",
+        "elapsed_s": 17.839258447005705,
+        "search": {
+          "cached": true,
+          "sampled": 12000,
+          "goal_footprint_focus": true,
+          "unknown_probes": 20,
+          "candidates": 889,
+          "blocked_paths": 36,
+          "arrival_rejections": 853,
+          "last_rejection": "arm transport/search path blocked: observed_surface_collision_on_path"
+        },
+        "arm_return": null
+      },
+      "history_only": {
+        "accepted": false,
+        "reason": "floor observation arm paths are blocked",
+        "elapsed_s": 43.11140809600329,
+        "search": {
+          "cached": true,
+          "sampled": 12000,
+          "goal_footprint_focus": true,
+          "unknown_probes": 20,
+          "candidates": 889,
+          "blocked_paths": 36,
+          "arrival_rejections": 853,
+          "detour_attempts": 36,
+          "last_rejection": "arm transport/search path blocked"
+        },
+        "arm_return": null
+      },
+      "maintained_runtime_replay": {
+        "accepted": true,
+        "path": [
+          [
+            -0.16388657689094543,
+            0.4866282045841217,
+            -0.382881897687912,
+            0.6102445602416993
+          ],
+          [
+            -0.16410548512180628,
+            -0.3535424984563378,
+            -0.12007264950059898,
+            0.45692460383066213
+          ],
+          [
+            -0.16435319264581452,
+            -0.7660722121453297,
+            -0.05914048519145165,
+            0.3695087978773294
+          ]
+        ],
+        "certificates": [
+          {
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 20,
+            "minimum_margin_m": 0.0001647186582393878,
+            "environment_scope": "observed_surfaces_only",
+            "environment_checks": 56
+          },
+          {
+            "accepted": true,
+            "reason": "continuous_sphere_separation",
+            "checked_configurations": 9,
+            "minimum_margin_m": 0.013547093054849753,
+            "environment_scope": "observed_surfaces_only",
+            "environment_checks": 13
+          }
+        ],
+        "replay_only": true,
+        "camera_truth_used": false,
+        "elapsed_s": 33.31260644100257,
+        "search": {
+          "cached": true,
+          "sampled": 12000,
+          "goal_footprint_focus": true,
+          "unknown_probes": 20,
+          "candidates": 889,
+          "blocked_paths": 36,
+          "arrival_rejections": 853,
+          "detour_attempts": 1,
+          "last_rejection": "arm transport/search path blocked",
+          "joint_search": {
+            "status": "found",
+            "elapsed_s": 13.693363382997632,
+            "iterations": 161,
+            "edge_checks": 227,
+            "tree_nodes": [
+              47,
+              63
+            ],
+            "goal_index": 29
+          },
+          "path_strategy": "certified_joint_search"
+        }
+      },
+      "limits": {
+        "goal_roots": 64,
+        "tree_nodes": 512,
+        "certified_candidate_edges": 1024,
+        "search_seconds": 30
+      },
+      "acceptance_unchanged": true,
+      "installed_retest_pending": true
+    },
+    "tests": {
+      "host_focused": "146 passed in 14.88s",
+      "final_connector": "10 passed",
+      "canonical_gates_run": false,
+      "canonical_reason": "Prepared generated development attachment unavailable; no host scientific/ROS installation added."
+    },
+    "source_sha256": {
+      "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/local_map.py": "24193b2cef854a527ae43e4baf68ae3c0d818f437e0c31db8402b2e8a0598ae4",
+      "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "624f94f3907f20df3b102e83c74f9977d639c3462681e8b633981fc6ae8110b3",
+      "payload/runtime/docker/pilot/app/elesim_pilot/robot/arm/joint_path.py": "6d1506631f29c8ae5dca0e720ae9ea9a3e3d201d39e41d544ac3afc08ae7a010"
+    },
+    "evidence": [
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/run-32/report.json",
+        "bytes": 10928,
+        "sha256": "83131c07c2a42cee6e4d15e4f23dc00a70bd357781cedad48f45c28e36860fad"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/run-33/report.json",
+        "bytes": 11428,
+        "sha256": "25b5f5ea6f2072c4814f6501944a082a422e34314e38d67a4a30e64b7ef16166"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/run-34/report.json",
+        "bytes": 10890,
+        "sha256": "c6ff3c5975187320f7e9502de58e99cd028e797e2a2524fe39268f4929253a63"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/run-35/report.json",
+        "bytes": 11072,
+        "sha256": "b1e039f234831ccf0e18885cc52f447f10f26c699997c2e3b297991273deb91d"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/mobile-floor-run35.npz",
+        "bytes": 1627159,
+        "sha256": "eaba7544a127e09b064d4572915adab995fa04471669f1045d0031331fafb0ab"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/floor-unique-profile-host.json",
+        "bytes": 1646,
+        "sha256": "da6d66acbc65553ffe7b018220629174b27bb7d122c9fe400ae6d48764403097"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/floor-unique-profile-host-fast.json",
+        "bytes": 2015,
+        "sha256": "b625d2f44ef84ed4c9d836258aabaa8c4934eb4f19728f0b8c238a25a5e742ec"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/floor-detour-red.log",
+        "bytes": 928,
+        "sha256": "2ec11f9f07337c56ce8bc9222605b8a21aacd8dac7d7ce2c145f65666cf0898a"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/floor-detour-replay35.json",
+        "bytes": 1094,
+        "sha256": "7fa25c2cae569de15432c2016a96ff6050bd13568b93623e75a3aacef3487516"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/floor-view-axis-replay35.json",
+        "bytes": 142051,
+        "sha256": "3813228bd712fa80ecc0b6a0f06ca91a5412eb76711e9a821950570c6370f005"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/floor-view-rrt-replay35.json",
+        "bytes": 3326,
+        "sha256": "2c93b19556a1de2a6befbd7ede05cf756011f5e25610a85d3e1ec50a5b43a728"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/floor-joint-search-replay35.json",
+        "bytes": 1568,
+        "sha256": "0f431a433e6e1531065a1bfd8307b5a1c1fa63554a6d10efb95015637fab5d4f"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/floor-joint-search-tests.log",
+        "bytes": 261,
+        "sha256": "d30d768a35ae8af6e846fd2e29bc53e09248e6a46f0f57bbd64d3f937d653009"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/registration-v15.json",
+        "bytes": 3745,
+        "sha256": "4ecfd79cbfe3a2d118c1559179906b57634f61171d4abcf31b3f83ddf7c47de2"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/official-v15-remote.json",
+        "bytes": 2458,
+        "sha256": "88793b013fa9cb41f40d1920b6b7dc6add3e4bca9a393699aa2d62e5bc022bfc"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/official-v15-operator.json",
+        "bytes": 376,
+        "sha256": "66bf6293dfaa691652d985f7fec1bcb8c6b83e274a4d1a435f26bb25b8883bc8"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/floor-joint-search-final-tests.log",
+        "bytes": 261,
+        "sha256": "40aad266cd30dbd66be4ba3d5cc58ce253a307831d60c4b1e55c0c9804c98b91"
+      }
+    ]
   }
 }

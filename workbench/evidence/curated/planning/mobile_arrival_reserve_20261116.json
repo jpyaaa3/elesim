@@ -158,13 +158,13 @@
       "evaluation_mode": "installed",
       "accepted": false,
       "elapsed_s": 138.43036774999928,
-      "reason": null
+      "reason": "floor observation arm paths are blocked"
     },
     "run-31": {
       "evaluation_mode": "development",
       "accepted": false,
       "elapsed_s": 146.2322505330012,
-      "reason": null
+      "reason": "floor observation arm paths are blocked"
     }
   },
   "broadphase_correction": {
@@ -232,6 +232,20 @@
       }
     },
     "focused_host": "128 passed in 24.37s",
-    "installed_follow_up_pending": true
+    "installed_follow_up_pending": false,
+    "deployed_revision": "bc23fe74",
+    "installed_full_acceptance": false,
+    "installed_retests": {
+      "run-32": {
+        "accepted": false,
+        "elapsed_s": 82.63114065099944,
+        "error": "stale arm/base feedback (arm 0.526s, base 0.526s)"
+      },
+      "run-33": {
+        "accepted": false,
+        "elapsed_s": 112.75925100100721,
+        "error": "floor observation arm paths are blocked"
+      }
+    }
   }
 }

@@ -240,6 +240,51 @@ def test_floor_search_reuses_cached_views_and_aims_at_missing_goal_cells(monkeyp
     assert not ports.grid.free and not ports.grid.blocked
 
 
+@pytest.mark.parametrize('route',['direct','later_direct','history','blocked','proposal_rejected'])
+def test_floor_search_checks_direct_candidates_before_certified_history_detours(monkeypatch,tmp_path,route):
+    from scipy.stats import qmc
+    from elesim_pilot.mobile_manipulation import runtime
+    monkeypatch.setattr(qmc,'Halton',lambda *a,**k:NS(random=lambda n:np.array([[0.,0,0,0],[.1,0,0,0]])))
+    class CameraModel:
+        def camera_pose(self,q):
+            pose=np.diag([1.,-1.,-1.,1.]);pose[:3,3]=[.45+q[0],0.,.5];return pose
+    monkeypatch.setattr(runtime,'ArmCameraModel',lambda *a,**k:CameraModel())
+    ports=runtime.SimPorts.__new__(runtime.SimPorts)
+    current=np.array([0.,.3,0.,0.]);home=np.array([0.,.15,0.,0.])
+    ports.arm=NS(bounds=np.array([[0.,1.]]*4));ports.scan=NS(model_dir=tmp_path/'assembly',hand_eye=tmp_path/'eye.json')
+    ports.service=NS(_ik_context_for_host=lambda h:dict(base_world_T=np.eye(4)))
+    ports.connection=NS(state_sink=NS(get_state=lambda:None));ports.route=lambda:('sim','boot','lease')
+    ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=current.copy()),pose=np.zeros(3)))
+    ports.grid=LocalMap(.1);ports.mapping_views=[];ports._summary={};ports.history=[home.copy(),current.copy()]
+    ports.generation=0;ports.stopped=False
+    checked=[]
+    def certify(a,b):
+        checked.append((a.copy(),b.copy()))
+        direct=np.array_equal(a,current) and b[1]==0.
+        clear_direct=direct and ((route=='direct' and b[0]==0.) or (route=='later_direct' and b[0]>.05))
+        clear_history=(np.array_equal(a,b) or (np.array_equal(a,current) and np.array_equal(b,home))
+            or (np.array_equal(a,home) and b[1]==0.))
+        return dict(accepted=clear_direct or (route=='history' and clear_history),reason='observed_surface_collision_on_path')
+    ports.collision=NS(base=None,configuration_free=lambda q:True,certify_segment=certify)
+    if route in {'blocked','proposal_rejected'}:
+        if route=='proposal_rejected':
+            from elesim_pilot.robot.arm import joint_path
+            monkeypatch.setattr(joint_path,'connect_joint_path',lambda start,goals,*a,**kw:
+                (np.array([start,home,goals[0]]),dict(goal_index=0)))
+        with pytest.raises(RuntimeError,match='path'):ports._map_search_prepare(1)
+        assert not ports.mapping_views
+    else:
+        path=ports._map_search_prepare(1)
+        if route=='history':
+            assert any(np.array_equal(q,home) for q in path)
+        else:
+            assert len(path)==2
+            assert path[-1][0]==pytest.approx(.1 if route=='later_direct' else 0.)
+            assert not any(np.array_equal(b,home) for a,b in checked)
+        assert len(ports.mapping_views)==1
+    assert not ports.grid.free and not ports.grid.blocked
+
+
 def test_base_executor_requires_measured_settle_and_stops_on_blockage():
     now=[0.];s=Settings();e=BaseExecutor(s,lambda:now[0])
     goal=BaseGoal(np.array([.1,0,0]),np.array([[0,0,0],[.1,0,0]]),np.zeros(4),{})
@@ -515,6 +560,27 @@ def test_floor_witnesses_keep_one_measured_point_per_cell_with_a_hard_budget():
         floor_cell_points(sensor,pose,resolution=.05,max_cells=15)
 
 
+@pytest.mark.parametrize('empty',[False,True])
+def test_floor_witnesses_preserve_the_first_valid_pixel_and_cell_order(empty):
+    import math
+    from elesim_pilot.mobile_manipulation.local_map import floor_cell_points
+    depth=(1000+np.arange(96).reshape(8,12)%15).astype(np.uint16)
+    depth[0,:3]=[0,1200,65535]
+    if empty:depth.fill(0)
+    intr=NS(fx=30.,fy=30.,cx=5.5,cy=3.5)
+    sensor=NS(depth_raw=depth,depth_scale=.001,intrinsics=intr)
+    pose=np.diag([1.,-1.,-1.,1.]);pose[2,3]=1.
+    expected={}
+    for v,u in np.ndindex(depth.shape):
+        z=float(depth[v,u])*.001
+        if not .1<=z<=5 or abs(1-z)>=.025:continue
+        point=np.array([(u-intr.cx)/intr.fx*z,-(v-intr.cy)/intr.fy*z,1-z])
+        cell=tuple(math.floor(value/.08) for value in point[:2])
+        expected.setdefault(cell,point)
+    points=floor_cell_points(sensor,pose,resolution=.08,max_cells=96)
+    np.testing.assert_array_equal(points,np.array([expected[c] for c in sorted(expected)]).reshape(-1,3))
+
+
 @pytest.mark.parametrize('depth_mm,exclusion,expected_free',[
     (1000,None,True),(800,None,False),(0,None,False),
     (1000,'body',False),(1000,'arm',False),(1000,'occupied',False),
@@ -588,6 +654,20 @@ def test_planning_holds_one_checked_pose_instead_of_following_sensor_drift():
     np.testing.assert_array_equal(sent,[q,q])
     actual[2]+=.02;now[0]+=.1
     with pytest.raises(RuntimeError,match='checked posture'):ports.poll(op)
+
+
+def test_completed_observation_preserves_every_certified_waypoint_for_return():
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    ports=SimPorts.__new__(SimPorts)
+    path=np.array([[0.,0.,0.,0.],[0.,.2,0.,0.],[0.,.2,.3,0.]])
+    ports.clock=lambda:1.;ports.route=lambda:('sim','boot','lease')
+    ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=path[-1].copy(),sim_time=1.)))
+    ports.last_command=path[-1].copy();ports.last_send=1.;ports.history=[path[0].copy()]
+    op=dict(phase='map_search',started=0.,grant=None,ownership=None,path=path,index=2,
+        approach=NS(step=lambda q,dt:path[-1].copy()),stable=0.,last_at=1.,args={})
+    ports.operation=op
+    assert ports.poll(op)==dict(purpose='')
+    np.testing.assert_array_equal(ports.history,path)
 
 
 def test_target_search_rechecks_return_to_last_visible_pose_after_a_floor_look():

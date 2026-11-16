@@ -393,8 +393,9 @@ class SimPorts:
         candidates.sort(key=lambda row:-row[0])
         self._summary['floor_search']=dict(cached=cached,sampled=len(qs),
             goal_footprint_focus=focus,unknown_probes=len(probes),candidates=len(candidates),blocked_paths=0,
-            arrival_rejections=0)
+            arrival_rejections=0,detour_attempts=0)
         if not candidates:raise RuntimeError('no downward camera pose for local floor mapping')
+        detours=[]
         for _,q,t in candidates:
             time.sleep(.001)
             if not self.collision.configuration_free(q):
@@ -404,8 +405,36 @@ class SimPorts:
             except ArmPathBlocked as exc:
                 self._summary['floor_search']['blocked_paths']+=1
                 self._summary['floor_search']['last_rejection']=str(exc)
+                detours.append((q,t))
                 continue
+            self._summary['floor_search']['path_strategy']='direct'
             self.mapping_views.append(t.copy());return result
+        # A straight joint interpolation can sweep through the object even
+        # when both views are clear. Prefer every direct candidate before
+        # reusing the bounded, fully re-certified return/history routes.
+        if detours:
+            q,t=detours[0]
+            self._summary['floor_search']['detour_attempts']+=1
+            try:result=self._return_prepare(q)
+            except ArmPathBlocked as exc:
+                self._summary['floor_search']['last_rejection']=str(exc)
+            else:
+                self._summary['floor_search']['path_strategy']=self._summary['arm_return']['strategy']
+                self.mapping_views.append(t.copy());return result
+            from elesim_pilot.robot.arm.joint_path import connect_joint_path
+            generation=self.generation;goals=detours[:64]
+            path,report=connect_joint_path(current,[q for q,t in goals],self.arm.bounds,
+                self.collision.certify_segment,samples=qs,seeds=self.history[:1],
+                cancelled=lambda:self.stopped or self.generation!=generation)
+            self._summary['floor_search']['joint_search']=report
+            if path is not None:
+                # The search used a stationary planning snapshot. Certify the
+                # entire proposal again from fresh feedback and the live base.
+                result=self._arm_prepare(path[1:])
+                if not self.collision.configuration_free(path[-1]):
+                    raise ArmPathBlocked('floor observation endpoint lost its tracking reserve')
+                self._summary['floor_search']['path_strategy']='certified_joint_search'
+                self.mapping_views.append(goals[report['goal_index']][1].copy());return result
         raise RuntimeError('floor observation arm paths are blocked')
     def _arm_prepare(self,waypoints):
         # Recheck each segment at the current base and observed scene.
@@ -541,7 +570,7 @@ class SimPorts:
                         op['approach']=JointApproach(goal,path[i+1])
                     else:
                         if phase=='transport':self.history=[np.array(self.model.meta['home'])]
-                        else:self.history.append(goal.copy())
+                        else:self.history.extend(q.copy() for q in path[1:])
                         return dict(purpose=op['args'].get('purpose',''))
             else:op['stable']=None
         elif phase.startswith('move_'):

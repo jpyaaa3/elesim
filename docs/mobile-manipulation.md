@@ -69,6 +69,16 @@ admission, not path-certificate limits or the fixed Home target.
 Coarse distance bounds are refined against the requested uncertainty threshold;
 ordinary and reserved-endpoint queries use separate cache entries. An inconclusive
 ordinary lower bound must not reject an otherwise valid reserved endpoint.
+Floor-cell grouping keeps the same first measured depth pixel in each cell,
+using stable numeric-key sorting so a large structured sort cannot monopolize
+Python's GIL. After all direct floor-view routes fail, the planner tries an
+existing certified return route and then bounded four-axis RRT-Connect: at most
+64 goal roots, 512 tree nodes, 1,024 candidate edges and 30 seconds. Every edge
+uses the existing continuous uncertainty-aware certificate. The complete proposal
+is checked again against fresh measured joints and the current base before any
+execution. Intermediate waypoints are retained for future certified returns.
+These are local planning limits; motion authority, phase/view budgets and physical
+acceptance limits are unchanged.
 Base route planning additionally checks measured floor around every sampled
 footprint, including the starting stance. The padding is the existing base
 position tolerance plus `2 R sin(yaw_tolerance / 2)`, where R is the transport
