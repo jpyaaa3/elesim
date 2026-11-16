@@ -355,6 +355,49 @@ class SimPorts:
             result=dict(needs_mapping=True)
         self._summary['observation_planning']=diagnostics
         return result
+    def _refine_floor_prepare(self,current,probes,model,seeds):
+        from elesim_pilot.robot.arm.view_refinement import refine_view,frustum_clearances
+        intr=getattr(self,'mapping_intrinsics',None)
+        if intr is None or not len(probes):return None
+        low,high=np.min(probes[:,:2],axis=0),np.max(probes[:,:2],axis=0)
+        # A camera frustum is convex. Covering this rectangle also covers
+        # every requested floor point without an unbounded constraint array.
+        points=np.array([[x,y,0.] for x in (low[0],high[0]) for y in (low[1],high[1])])
+        bounds=self.arm.bounds.copy()
+        bounds[:,0]+=self.arm.uncertainty;bounds[:,1]-=self.arm.uncertainty
+        anchor=np.clip(current,bounds[:,0],bounds[:,1])
+        starts=np.asarray([row[1] for row in seeds[:64]],float).reshape(-1,4)
+        starts=np.clip(starts,bounds[:,0],bounds[:,1])
+        intrinsic=np.array([intr.fx,intr.fy,intr.cx,intr.cy,intr.width,intr.height])
+        def admissible(q,pose):
+            direction=pose[:3,2]
+            if direction[2]>=-.2:return False
+            floor=pose[:3,3]-direction*(pose[2,3]/direction[2])
+            if not .25<np.linalg.norm(floor[:2]-self.collision.base[:2,3])<1.2:return False
+            return not any(np.linalg.norm(pose[:3,3]-p[:3,3])<.03
+                and direction@p[:3,2]>np.cos(np.deg2rad(10)) for p in self.mapping_views)
+        generation=self.generation
+        q,report=refine_view(anchor,points,bounds,model.camera_pose,
+            self.collision.configuration_margins,intrinsic,motion_rates=JointApproach.rates,
+            seeds=starts,admissible=admissible,
+            cancelled=lambda:self.stopped or self.generation!=generation)
+        self._summary['floor_search']['view_refinement']=report
+        if q is None:return None
+        try:result=self._arm_prepare([q])
+        except ArmPathBlocked as exc:
+            report.update(path_accepted=False,path_reason=str(exc));return None
+        # The body can move slightly during optimization. Recheck the same
+        # endpoint reserve and original frustum at the freshly measured base.
+        live=ArmCameraModel(self.scan.model_dir.parents[1]/'arm/default.json',self.scan.hand_eye,
+            base_world_transform=self.collision.base)
+        pose=live.camera_pose(q)
+        if (not self.collision.configuration_free(q) or not admissible(q,pose)
+                or np.min(frustum_clearances(pose,points,intrinsic,padding_fraction=0.))<0):
+            report.update(path_accepted=False,path_reason='refined view lost its live admission margin')
+            return None
+        report['path_accepted']=True
+        self._summary['floor_search']['path_strategy']='refined_direct'
+        self.mapping_views.append(pose.copy());return result
     def _map_search_prepare(self,index):
         from scipy.stats import qmc
         host=self.connection.state_sink.get_state()
@@ -412,7 +455,6 @@ class SimPorts:
         self._summary['floor_search']=dict(cached=cached,sampled=len(qs),
             goal_footprint_focus=focus,unknown_probes=len(probes),candidates=len(candidates),blocked_paths=0,
             arrival_rejections=0,detour_attempts=0)
-        if not candidates:raise RuntimeError('no downward camera pose for local floor mapping')
         detours=[]
         for _,q,t in candidates:
             time.sleep(.001)
@@ -467,7 +509,11 @@ class SimPorts:
                     raise ArmPathBlocked('floor observation endpoint lost its tracking reserve')
                 self._summary['floor_search']['path_strategy']='certified_joint_search'
                 self.mapping_views.append(goals[report['goal_index']][1].copy());return result
-        raise RuntimeError('floor observation arm paths are blocked')
+        if not detours:
+            result=self._refine_floor_prepare(current,probes,model,candidates)
+            if result is not None:return result
+        raise RuntimeError('floor observation arm paths are blocked' if candidates
+            else 'no downward camera pose for local floor mapping')
     def _arm_prepare(self,waypoints):
         # Recheck each segment at the current base and observed scene.
         base=base_world_transform_from_context(self.service._ik_context_for_host(self.connection.state_sink.get_state()))

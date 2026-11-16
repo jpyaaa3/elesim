@@ -1,0 +1,471 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "Same fixed D100 floor endpoint gap; continuous camera view IK after cached endpoints fail",
+  "installed_baseline": {
+    "revision": "eb411402",
+    "run": "run-44",
+    "accepted": false,
+    "elapsed_s": 475.60921034300554,
+    "reason": "floor observation arm paths are blocked",
+    "mapping_attempts": 8,
+    "unknown_cells": 21,
+    "cached_endpoint_candidates": 519,
+    "reserved_endpoint_rejections": 519
+  },
+  "postmortem": {
+    "read_only_dds_subscriber_after_test": true,
+    "no_control_or_peer_identity_changes": true,
+    "no_camera_truth_fields_saved": true,
+    "strict_sensor_packet_load_verified": true,
+    "projection_diagnosis": {
+      "diagnostic_only": true,
+      "not_installed_acceptance": true,
+      "camera_truth_used": false,
+      "extrinsics_from_measured_run40": true,
+      "body_from_last_report": true,
+      "postmortem_delay_s": 225.41979312896729,
+      "camera_pose": [
+        [
+          0.0014670056386800337,
+          0.708937631550123,
+          -0.705269652307938,
+          0.37454049753908625
+        ],
+        [
+          0.6829810536589478,
+          0.5144441639074957,
+          0.5185403384158577,
+          0.24188392616874468
+        ],
+        [
+          0.7304346159906235,
+          -0.48244651184729415,
+          -0.48343627808534334,
+          0.25855329235352614
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "valid_points": 726429,
+      "world_z_percentiles": [
+        0.0001655585103366164,
+        0.000229122911149382,
+        0.0003624211574601688,
+        0.0004977496697160522,
+        0.0006729686397420886,
+        0.0008563298445467549,
+        0.0011081058838194769,
+        0.0018844235406083308,
+        0.0023074388089839304
+      ],
+      "floor_points": 726429,
+      "unknown_probes": [
+        {
+          "xy": [
+            -0.42698400195688013,
+            0.08001516035445093
+          ],
+          "uv": [
+            330.3935715860557,
+            -182.19795758271482
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6063494618136135
+        },
+        {
+          "xy": [
+            -0.42698400195688013,
+            0.09001516035445092
+          ],
+          "uv": [
+            339.97845421744324,
+            -172.35930551034664
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.611534865197772
+        },
+        {
+          "xy": [
+            -0.42698400195688013,
+            0.10001516035445092
+          ],
+          "uv": [
+            349.4021568605426,
+            -162.6861008291237
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6167202685819306
+        },
+        {
+          "xy": [
+            -0.42698400195688013,
+            0.11001516035445093
+          ],
+          "uv": [
+            358.6687112357307,
+            -153.1742050748029
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6219056719660893
+        },
+        {
+          "xy": [
+            -0.42698400195688013,
+            0.12001516035445092
+          ],
+          "uv": [
+            367.7820157105283,
+            -143.8196166666495
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6270910753502478
+        },
+        {
+          "xy": [
+            -0.42698400195688013,
+            0.13001516035445093
+          ],
+          "uv": [
+            376.7458407678437,
+            -134.61846529441453
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6322764787344064
+        },
+        {
+          "xy": [
+            -0.42698400195688013,
+            0.1400151603544509
+          ],
+          "uv": [
+            385.5638342073288,
+            -125.5670065792691
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6374618821185649
+        },
+        {
+          "xy": [
+            -0.42698400195688013,
+            0.15001516035445092
+          ],
+          "uv": [
+            394.2395260949236,
+            -116.66161699321458
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6426472855027235
+        },
+        {
+          "xy": [
+            -0.42698400195688013,
+            0.16001516035445093
+          ],
+          "uv": [
+            402.77633347469543,
+            -107.8987890224937
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6478326888868822
+        },
+        {
+          "xy": [
+            -0.42698400195688013,
+            0.17001516035445094
+          ],
+          "uv": [
+            411.17756485618804,
+            -99.27512656143318
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6530180922710407
+        },
+        {
+          "xy": [
+            -0.42698400195688013,
+            0.18001516035445092
+          ],
+          "uv": [
+            419.44642448965976,
+            -90.78734052401552
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6582034956551993
+        },
+        {
+          "xy": [
+            -0.4169840019568801,
+            0.08001516035445093
+          ],
+          "uv": [
+            326.77118178390185,
+            -181.19667353977695
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.5992967652905341
+        },
+        {
+          "xy": [
+            -0.4169840019568801,
+            0.09001516035445092
+          ],
+          "uv": [
+            336.4989682513723,
+            -171.2518198804562
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6044821686746926
+        },
+        {
+          "xy": [
+            -0.4169840019568801,
+            0.10001516035445092
+          ],
+          "uv": [
+            346.0612793050908,
+            -161.4761340764827
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6096675720588512
+        },
+        {
+          "xy": [
+            -0.4169840019568801,
+            0.11001516035445093
+          ],
+          "uv": [
+            355.4623015887173,
+            -151.86533606284263
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6148529754430099
+        },
+        {
+          "xy": [
+            -0.4169840019568801,
+            0.12001516035445092
+          ],
+          "uv": [
+            364.7060816937022,
+            -142.4152889518764
+          ],
+          "in_frame": false,
+          "predicted_depth_m": 0.6200383788271684
+        }
+      ]
+    }
+  },
+  "runtime_replay": {
+    "diagnostic_only": true,
+    "not_installed_acceptance": true,
+    "camera_truth_used": false,
+    "collision_cloud_from_recorded_run40": true,
+    "camera_state_from_postmortem_run44": true,
+    "previous_views_inferred_from_measured_encoders": [
+      {
+        "attempt": 1,
+        "cache_index": 8122,
+        "encoder_difference": [
+          0.0003975645686253859,
+          0.0015703146185641614,
+          0.0018761523812463876,
+          0.0008865946365038679
+        ]
+      },
+      {
+        "attempt": 2,
+        "cache_index": 9200,
+        "encoder_difference": [
+          -0.0003561623906031264,
+          0.002357463235303392,
+          0.001189844081413205,
+          0.0002992852750874908
+        ]
+      },
+      {
+        "attempt": 3,
+        "cache_index": 4628,
+        "encoder_difference": [
+          -0.0003927142436241232,
+          -0.004336780211555702,
+          0.0005182446675068841,
+          -0.0004907345522854323
+        ]
+      },
+      {
+        "attempt": 4,
+        "cache_index": 5013,
+        "encoder_difference": [
+          -0.0003935734756226328,
+          0.003956119231483646,
+          0.0009675840517942846,
+          -0.0006454734979229326
+        ]
+      },
+      {
+        "attempt": 5,
+        "cache_index": 7281,
+        "encoder_difference": [
+          0.0004413049901589583,
+          0.002471614704912639,
+          0.0021985704919296883,
+          3.755004685596086e-05
+        ]
+      },
+      {
+        "attempt": 6,
+        "cache_index": 1433,
+        "encoder_difference": [
+          0.00018133352051824536,
+          -0.004954742336703788,
+          -0.00035800881107517224,
+          -0.0006741484994443048
+        ]
+      },
+      {
+        "attempt": 7,
+        "cache_index": 593,
+        "encoder_difference": [
+          -0.00047550770292034694,
+          -0.0015759987158294742,
+          0.0005400150399947901,
+          -0.0005199795599453438
+        ]
+      }
+    ],
+    "elapsed_s": 0.7995511330009322,
+    "path": [
+      [
+        -0.025543570518493652,
+        0.8204522132873535,
+        0.22876284420490264,
+        0.24159948527812958
+      ],
+      [
+        -0.02203843015178184,
+        0.8786820843106623,
+        0.21934906384520989,
+        0.29526245827836806
+      ]
+    ],
+    "summary": {
+      "floor_search": {
+        "view_refinement": {
+          "status": "found",
+          "elapsed_s": 0.6895337489986559,
+          "evaluations": 33,
+          "trials": 1,
+          "best_constraint_m": 0.0004203382699156942,
+          "optimizer_success": true,
+          "minimum_clearance_m": 1.0001609467014116e-06,
+          "path_accepted": true
+        },
+        "path_strategy": "refined_direct"
+      }
+    },
+    "certificates": [
+      {
+        "accepted": true,
+        "reason": "continuous_sphere_separation",
+        "checked_configurations": 4,
+        "minimum_margin_m": 0.006659218845388611,
+        "environment_scope": "observed_surfaces_only",
+        "environment_checks": 2
+      }
+    ]
+  },
+  "diagnostic_limitations": [
+    "Postmortem frame was captured after task termination, not the rejected planning capture.",
+    "Body is taken from the last run-44 report; constant arm/body calibration comes from measured run-40 transforms.",
+    "Collision cloud is recorded run-40 data, not a full run-44 accumulated snapshot.",
+    "Previous views are inferred by matching measured encoders to the exact deterministic FK cache.",
+    "No live movement or installed success is claimed."
+  ],
+  "fix": [
+    "Refine a camera endpoint continuously only when no cached endpoint is admitted.",
+    "Use the same signed self/observed-surface admission margins and existing joint uncertainty; reserve 5% of image bounds.",
+    "Limit to 30 seconds / 1024 unique geometry evaluations; this branch is alternative to RRT, not another RRT budget.",
+    "Recheck exact endpoint reserve, original frustum/direction/range/novelty and a continuous direct path at fresh measured base/joints.",
+    "Only subsequent actual depth measurements can clear missing cells."
+  ],
+  "tests": {
+    "host": "128 passed in 5.48s",
+    "canonical_gates_run": false,
+    "covers": [
+      "joint/frustum feasibility",
+      "zero/negative margins rejected",
+      "cancellation and bounded exhaustion",
+      "live path/reserve/frustum revalidation",
+      "numerical clearances identical to original admission"
+    ]
+  },
+  "acceptance_unchanged": true,
+  "installed_retest_pending": true,
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/robot/arm/view_refinement.py": "6c7f5207c8a1e9f92a0727fb07cdb150defb24969494f78e6bd0e73563d0086e",
+    "payload/runtime/docker/pilot/app/elesim_pilot/reconstruction/scan_collision.py": "a5fed35fd28bbf6094ea6c50e4a923dace715aea398fb4ae06d4f728fd22c41e",
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "736f087d6070fa0ab89386978873c6b65453f447ea450dac6892811b64529c1f"
+  },
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-44/report.json",
+      "bytes": 12813,
+      "sha256": "ebaf5731723d77c1b24b1612a79e5d508103c4275984e433b0c4940cc1072a8d"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-44/telemetry.jsonl",
+      "bytes": 4797434,
+      "sha256": "b8a62679bb5d3387808ee41444a17d1888de449b2a1050af877faa1780bc6fc8"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-44/observer.mp4",
+      "bytes": 10487978,
+      "sha256": "6d1bba3413989a819b2ac124edeb566e64a122a368ecaf2ba0ca152215211165"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-44/hand_eye_preview.mp4",
+      "bytes": 17639399,
+      "sha256": "998fd7a5d3da7250d0af6d4a3372ae5357b585b4f9ba6aa880cbdab62a40c754"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/mobile-postmortem44.npz",
+      "bytes": 385574,
+      "sha256": "7d09902f1c61e15a66b2129741d4031988a4bd24ec7c6f70f6faea44b3359f8e"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/postmortem44.sensor.npz",
+      "bytes": 385575,
+      "sha256": "75304110446d90b3f55196d893096861e23ade051c76fa5ff878cb1800fab942"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/postmortem-floor-projection44.json",
+      "bytes": 4878,
+      "sha256": "24a0310f47fc93c3f65182e140c98442551c99a7e135cafdc40d0295da7b7ca1"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-pose-repair44.json",
+      "bytes": 1869,
+      "sha256": "fa227b3190ffb329b51d8bde3a7ea99733c67dc874e4be8da4e2eacb6bdbbfcb"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/view-refinement-runtime-replay44.json",
+      "bytes": 2781,
+      "sha256": "c861becc8abf03717c0cc0471cef21e612a7a05210ef72dc87d3eafeb5acb7ff"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/view-refinement-runtime-before.log",
+      "bytes": 11235,
+      "sha256": "edc91b71e9797e4194f035dd312afd379b5f6d46dc6f7537546be39a3d2622e1"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/view-refinement-final-tests.log",
+      "bytes": 180,
+      "sha256": "1be000bf02035ea673e326d5b5364020c6d5fe8602e2d451908c3ce66390b736"
+    }
+  ]
+}

@@ -92,6 +92,14 @@ Floor search tries these simple return routes for the existing first 64 valid
 goal roots before accepting the leading candidate's history replay. A long
 history for the first-ranked viewpoint must not hide a short certified route to
 a later viewpoint. The same phase, view and RRT budgets still apply.
+When the cache supplies no admissible endpoint, continuous four-axis view IK may
+refine a nearby pose for the remaining floor rectangle. Its alternative fallback
+has a 30-second deadline and at most 1,024 unique geometry evaluations; it does not
+add another RRT allowance. It uses the original collision/endpoint tracking
+margins, inner joint bounds, and a 5% image reserve. A returned optimizer result
+still needs exact endpoint admission, a direct continuous certificate from fresh
+measured joints, and the original frustum/downward/range/novelty checks at the live
+base. Unknown cells only become free after actual depth observations.
 These are local planning limits; motion authority, phase/view budgets and physical
 acceptance limits are unchanged.
 Mobile mapping uses 10 mm cells with a fixed origin centred on the initial measured

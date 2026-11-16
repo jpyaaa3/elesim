@@ -42,7 +42,7 @@
     ],
     "canonical_gates_run": false
   },
-  "installed_retest_pending": true,
+  "installed_retest_pending": false,
   "source_sha256": {
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "a1bcfb25eb926928b40d0d544edfd5512cada932ed7d4214d2b122f0766413cd",
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/coordinator.py": "aa2a095392070cd27c8d0929cf1201a3f67643f6b7a38a9c89bd7e335e9dc5da"
@@ -77,6 +77,41 @@
       "path": "workbench/evidence/generated/mobile-installed-20261115/continuous-floor-release-tests.log",
       "bytes": 180,
       "sha256": "8180d91252138ba45cbe21947e1a15aef0a7e312548b85bf1a3265d01415183f"
+    }
+  ],
+  "installed_retest_result": {
+    "revision": "eb411402",
+    "run": "run-44",
+    "accepted": false,
+    "elapsed_s": 475.60921034300554,
+    "reason": "floor observation arm paths are blocked",
+    "mapping_attempts": 8,
+    "target_recoveries": 0,
+    "last_unknown_cells": 21,
+    "last_cached_candidates": 519,
+    "last_endpoint_rejections": 519,
+    "scan_started": false
+  },
+  "publication_evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/registration-v23.json",
+      "bytes": 3746,
+      "sha256": "459d8118a23dc33917abb93f8b675363e0da635ffe4b8083dd11296a7bdb660f"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v23-remote.json",
+      "bytes": 2642,
+      "sha256": "485fcf136aa348e4f77155eea782b6946e33d9bb847021b8f4671a673165cac7"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v23-operator.json",
+      "bytes": 264,
+      "sha256": "0bd591729cdd9370624e8b0e09f57d0e08c44d84c88f4267ae3107ee2f5d6a4f"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/operator-source-44.json",
+      "bytes": 1066,
+      "sha256": "85202748d3a7e1c334d4bd4f06c0c9d23aa12d900bdd131ad136c38846cf627d"
     }
   ]
 }

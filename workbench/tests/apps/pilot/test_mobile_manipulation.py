@@ -339,7 +339,7 @@ def test_floor_search_reuses_cached_views_and_aims_at_missing_goal_cells(monkeyp
     assert not ports.grid.free and not ports.grid.blocked
 
 
-@pytest.mark.parametrize('route',['direct','later_direct','later_simple','history','blocked','proposal_rejected'])
+@pytest.mark.parametrize('route',['direct','later_direct','later_simple','refined','history','blocked','proposal_rejected'])
 def test_floor_search_checks_direct_candidates_before_certified_history_detours(monkeypatch,tmp_path,route):
     from scipy.stats import qmc
     from elesim_pilot.mobile_manipulation import runtime
@@ -364,7 +364,14 @@ def test_floor_search_checks_direct_candidates_before_certified_history_detours(
         clear_history=(np.array_equal(a,b) or (np.array_equal(a,current) and np.array_equal(b,home))
             or (np.array_equal(a,home) and b[1]==0.))
         return dict(accepted=clear_direct or (route=='history' and clear_history),reason='observed_surface_collision_on_path')
-    ports.collision=NS(base=None,configuration_free=lambda q:True,certify_segment=certify)
+    ports.collision=NS(base=None,configuration_free=lambda q:route!='refined',certify_segment=certify)
+    refined_calls=[]
+    if route=='refined':
+        def refine(current,probes,model,seeds):
+            refined_calls.append(len(probes));goal=np.array([.15,0.,0.,0.])
+            ports.mapping_views.append(model.camera_pose(goal))
+            return [current.copy(),goal]
+        ports._refine_floor_prepare=refine
     simple_calls=[]
     if route=='later_simple':
         def returning(goal,*,use_history=True):
@@ -387,12 +394,49 @@ def test_floor_search_checks_direct_candidates_before_certified_history_detours(
         elif route=='later_simple':
             assert len(path)==3 and path[-1][0]==pytest.approx(.1)
             assert len(simple_calls)==2 and not any(use_history for q,use_history in simple_calls)
+        elif route=='refined':
+            assert refined_calls and path[-1][0]==pytest.approx(.15)
+            assert not checked
         else:
             assert len(path)==2
             assert path[-1][0]==pytest.approx(.1 if route=='later_direct' else 0.)
             assert not any(np.array_equal(b,home) for a,b in checked)
         assert len(ports.mapping_views)==1
     assert not ports.grid.free and not ports.grid.blocked
+
+
+@pytest.mark.parametrize('case',['accepted','blocked_path','lost_reserve','moved_body'])
+def test_refined_floor_goal_still_requires_a_live_path_reserve_and_view(monkeypatch,tmp_path,case):
+    from elesim_pilot.mobile_manipulation import runtime
+    from elesim_pilot.robot.arm import view_refinement
+    p=runtime.SimPorts.__new__(runtime.SimPorts);current=np.zeros(4);goal=np.ones(4)*.05
+    p.arm=NS(bounds=np.array([[-.2,.2]]*4),uncertainty=np.array([.001,.015,.015,.015]))
+    p.collision=NS(base=np.eye(4),configuration_margins=lambda q:np.array([.1]),
+        configuration_free=lambda q:case!='lost_reserve')
+    p.mapping_intrinsics=NS(fx=500.,fy=500.,cx=320.,cy=240.,width=640,height=480)
+    p.mapping_views=[];p.generation=0;p.stopped=False;p._summary={'floor_search':{}}
+    p.scan=NS(model_dir=tmp_path/'assembly',hand_eye=tmp_path/'eye.json')
+    def camera_model(*a,base_world_transform,**kw):
+        pose=np.diag([1.,-1.,-1.,1.]);pose[:3,3]=[.45,0.,.5]
+        return NS(camera_pose=lambda q:base_world_transform@pose)
+    monkeypatch.setattr(runtime,'ArmCameraModel',camera_model)
+    monkeypatch.setattr(view_refinement,'refine_view',lambda *a,**kw:(goal.copy(),dict(status='found')))
+    checked=[]
+    def prepare(waypoints):
+        checked.extend(waypoints)
+        if case=='blocked_path':raise runtime.ArmPathBlocked('blocked live segment')
+        if case=='moved_body':p.collision.base[0,3]=1.
+        return [current.copy(),*waypoints]
+    p._arm_prepare=prepare
+    model=camera_model(base_world_transform=np.eye(4))
+    path=p._refine_floor_prepare(current,np.array([[.45,-.01,0.],[.45,.01,0.]]),model,[])
+    assert checked
+    if case=='accepted':
+        np.testing.assert_array_equal(path[-1],goal)
+        assert len(p.mapping_views)==1
+        assert p._summary['floor_search']['path_strategy']=='refined_direct'
+    else:
+        assert path is None and not p.mapping_views
 
 
 def test_base_executor_requires_measured_settle_and_stops_on_blockage():

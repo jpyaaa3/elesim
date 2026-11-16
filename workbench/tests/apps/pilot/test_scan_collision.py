@@ -3,6 +3,7 @@ from pathlib import Path
 import itertools
 
 import numpy as np
+import pytest
 from scipy.spatial import cKDTree
 
 from elesim_pilot.reconstruction.scan_collision import ScanCollision
@@ -87,3 +88,16 @@ def test_scaled_uncertainty_queries_keep_the_original_model_and_bounds():
     assert arm.configuration_free(q,uncertainty_scale=2.)==doubled.configuration_free(q)
     np.testing.assert_array_equal(arm.required_gap,original)
     np.testing.assert_array_equal(arm.uncertainty,uncertainty)
+
+
+@pytest.mark.parametrize('reserved',[False,True])
+@pytest.mark.parametrize('obstacle',[False,True])
+def test_numerical_view_constraints_use_the_unchanged_configuration_admission(reserved,obstacle):
+    from elesim_pilot.robot.arm.self_collision import ArmSelfCollision
+    root=Path(__file__).resolve().parents[4]/'payload/data/models/planning/zed-mini'
+    arm=ArmSelfCollision(root,joint_uncertainty=[.001,.015,.015,.015])
+    safety=ScanCollision(arm,np.eye(4),reserve_tracking=reserved)
+    interior=np.array([-.08,.4,-.2,.4])
+    if obstacle:safety.tree=cKDTree([safety._centers(interior)[-1]])
+    for q in (interior,np.zeros(4),np.array([-.12,0.,-.59,.59])):
+        assert bool(np.all(safety.configuration_margins(q)>0))==safety.configuration_free(q)

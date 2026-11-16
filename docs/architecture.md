@@ -1049,6 +1049,10 @@ parent may collect another measured floor view within the same view budget.
 This does not renew a target estimate or make it visible. Target recovery and
 fresh planning still precede any base move; final grasp reacquisition is unchanged.
 Fresh base planning retires the preceding floor request.
+If cached floor samples provide no admissible endpoint, bounded continuous view
+IK can propose a nearby endpoint using the same FK, collision and tracking model.
+It is planning only: live endpoint admission, a continuous direct path certificate
+and an actual subsequent depth observation remain required.
 
 The parent grants one child arm/base control at a time. Pure planning/inference
 runs in one worker; DDS-thread ticks alone send motion. Existing LiveScan runs as

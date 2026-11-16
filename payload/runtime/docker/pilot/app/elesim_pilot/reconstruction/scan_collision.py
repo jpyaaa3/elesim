@@ -80,6 +80,14 @@ class ScanCollision:
         extra=self._tracking_margin if self.reserve_tracking else 0.
         return bool(np.all(self._gaps(q)>extra))
 
+    def configuration_margins(self,q):
+        """Expose the same signed admission margins for continuous IK."""
+        scale=2. if self.reserve_tracking else 1.
+        own=(self.arm.pair_clearances(q,uncertainty_scale=scale)
+            -self.arm._scaled_required_gap(scale))
+        extra=self._tracking_margin if self.reserve_tracking else 0.
+        return np.r_[own,self._gaps(q)-extra]
+
     def certify_segment(self, start, goal, *, max_checks=512):
         own = self.arm.certify_segment(start, goal)
         if not own['accepted']:
