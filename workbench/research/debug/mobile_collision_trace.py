@@ -40,6 +40,7 @@ def main():
                 extra=dict(camera_q=self.camera_q,camera_poses=self.camera_cache,
                     footprint=self.footprint,free=np.array(sorted(self.grid.free)),
                     blocked=np.array(sorted(self.grid.blocked)),resolution=self.grid.resolution,
+                    map_origin=self.grid.origin,
                     mapping_margin_m=self.mapping_margin_m,mapping_views=np.asarray(self.mapping_views),
                     intrinsics=np.array([intr.fx,intr.fy,intr.cx,intr.cy,intr.width,intr.height]))
             np.savez_compressed(options.output,cloud=self.collision.cloud.points(),

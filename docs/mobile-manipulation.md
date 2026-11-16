@@ -79,10 +79,16 @@ is checked again against fresh measured joints and the current base before any
 execution. Intermediate waypoints are retained for future certified returns.
 These are local planning limits; motion authority, phase/view budgets and physical
 acceptance limits are unchanged.
-The local map recentres a square cell window whose area fits its existing
-40,000-cell budget (200 by 200 at the default resolution). Outside/evicted cells
-remain unknown. This bounds retained distant floor measurements without expanding
-the declared free stance or discarding collision-cloud obstacles.
+Mobile mapping uses 10 mm cells with a fixed origin centred on the initial measured
+base position. This separates narrow measured clearance from neighbouring obstacle
+cells that a 40 mm raster can merge. Transport sampling uses half-cell spacing;
+tracking margins and occupied-cell precedence stay unchanged. Rasterization forms
+the exact union of the same inclusive margin rectangles using a difference array.
+The local map recentres a square window at the midpoint of the current base and
+requested mapping destination. Its 200 by 200 cells fit the existing 40,000-cell
+budget and retain the relevant transport corridor. Outside/evicted cells remain
+unknown. This does not expand the declared free stance or discard collision-cloud
+obstacles; a route outside measured coverage still requires actual observations.
 Mobile D100 scanning may finish after at least two accepted views when the exact
 observed cloud to be published meets the existing diameter and position-allowance
 gates. It otherwise continues to the existing maximum of twelve views. This

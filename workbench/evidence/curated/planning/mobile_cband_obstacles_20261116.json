@@ -166,10 +166,203 @@
       "path": "workbench/evidence/generated/mobile-installed-20261115/grasp-occupancy-final-tests.log",
       "bytes": 261,
       "sha256": "ccefcb0bedbd9bcb7e52d356ef7b761cc3e345d140f75e631209b34968763b36"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-38/report.json",
+      "bytes": 31211,
+      "sha256": "5673a05ca71b0d80d04dd8b006fca7803986a9ca5ee6c4adf4dd075da8896e02"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/scan-38.tar.gz",
+      "bytes": 3317672,
+      "sha256": "f84db701777a77bfe12a989a45047d583957ada976a7085b27277d9ada5aa90b"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/cband-grid-origin-replay38.json",
+      "bytes": 1447,
+      "sha256": "b97ab2416c4102acfa9972de4d3dd6ff5dbdf1432461945c7516968f5871f69b"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/fine-map-release-tests.log",
+      "bytes": 261,
+      "sha256": "2b8605f0aebb8fd115a8c8bb08ea468f57d2d9b1e0f5cf1aadfcabf3b462915e"
     }
   ],
   "source_sha256": {
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/base_planner.py": "40b92f7521894034fe4bb441f55e910c27dbb4d35b64a1d6fdd4ea13ddd2d377",
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "0596b5d23de6ebf4039f015da5db66d3e8b0b378748e5c1fd56dca085885d48c"
+  },
+  "deployed_revision": "adf1b225",
+  "current_installed_run": "run-38",
+  "publication_evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/registration-v18.json",
+      "bytes": 3745,
+      "sha256": "08fbe502171a479b3a2f38f32ee5f0691d316fd79779e5b23452b1f5f910a0cf"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v18-remote.json",
+      "bytes": 2562,
+      "sha256": "1f9fd2d7fd5ae3fcabc3fe091e4e0cf32be864fad32521eca958ede5080c591b"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v18-operator.json",
+      "bytes": 376,
+      "sha256": "bb6c80fc50a93270c42178a77de88dc6d531bb66e70341725de0437dcb633ef5"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/operator-source-38.json",
+      "bytes": 578,
+      "sha256": "7df90fd35ac39bd503c8e261076b2b8b8882833b08ee342b5f67a3472bc4eca3"
+    }
+  ],
+  "current_installed_run_result": {
+    "run": "run-38",
+    "accepted": false,
+    "elapsed_s": 799.1280227390016,
+    "reason": "no_observed_free_grasp_path",
+    "mapping_attempts": 9,
+    "last_goal_status": {
+      "blocked_cells": 0,
+      "blocked_xy_m": [],
+      "total_cells": 366,
+      "unknown_cells": 11,
+      "unknown_xy_m": [
+        [
+          0.7000000000000001,
+          0.18
+        ],
+        [
+          0.74,
+          0.18
+        ],
+        [
+          0.74,
+          0.22
+        ],
+        [
+          0.78,
+          0.22
+        ],
+        [
+          0.78,
+          0.26
+        ],
+        [
+          0.8200000000000001,
+          0.3
+        ],
+        [
+          0.86,
+          0.34
+        ],
+        [
+          0.9,
+          0.38
+        ],
+        [
+          0.9400000000000001,
+          0.42
+        ],
+        [
+          0.9400000000000001,
+          0.46
+        ],
+        [
+          0.98,
+          0.5
+        ]
+      ]
+    },
+    "grasp_planning": {
+      "blocked_goals": 107,
+      "interior_targets": 5,
+      "observed_goals": 0,
+      "route_rejections": 0,
+      "stage": "needs_actual_floor",
+      "unknown_goals": 13
+    },
+    "scan_job": "8b1fc66818834fb1a66b1a5368f6f321"
+  },
+  "fine_grid_followup": {
+    "status": "host_validated_not_yet_installed",
+    "resolution_m": 0.01,
+    "origin": "fixed initial measured base XY minus half a cell",
+    "retained_cell_limit": 40000,
+    "retention_center": "midpoint of measured base and requested mapping destination",
+    "footprint_spacing_m": 0.005,
+    "raster": "exact union of inclusive tracking-margin rectangles, difference-array implementation",
+    "unknown_policy": "only actual measured depth witnesses become free; outside/evicted cells remain unknown",
+    "unchanged": [
+      "mapping attempt budget 8",
+      "maximum scan views 12",
+      "mission 900 seconds",
+      "physical hold acceptance",
+      "collision/tracking margins"
+    ],
+    "geometric_diagnosis": {
+      "geometric_raster_diagnosis_only": true,
+      "not_installed_acceptance": true,
+      "no_unknown_cells_marked_free": true,
+      "camera_truth_used": false,
+      "calibration_from_measured_run35": true,
+      "interior_targets": 5,
+      "variants": {
+        "coarse_world": {
+          "blocked_candidates": 107,
+          "unblocked_but_not_observed": 13,
+          "origin_xy": [
+            0.0,
+            0.0
+          ],
+          "closest_unblocked_pose": [
+            0.6845597655517031,
+            0.6426169791828935,
+            -1.8326793045672312
+          ],
+          "cost": 1.3089068358687688,
+          "footprint_samples": 926,
+          "elapsed_s": 0.37406883900257526
+        },
+        "fine_world": {
+          "blocked_candidates": 87,
+          "unblocked_but_not_observed": 33,
+          "origin_xy": [
+            0.0,
+            0.0
+          ],
+          "closest_unblocked_pose": [
+            0.4399539275026224,
+            0.5693811676912764,
+            -1.3090805289672311
+          ],
+          "cost": 0.9842429957151217,
+          "footprint_samples": 17549,
+          "elapsed_s": 4.2042114900032175
+        },
+        "fine_robot_centered": {
+          "blocked_candidates": 86,
+          "unblocked_but_not_observed": 34,
+          "origin_xy": [
+            -0.011903423462063075,
+            -0.004984816016876721
+          ],
+          "closest_unblocked_pose": [
+            0.43901445334568584,
+            0.5643549860352183,
+            -1.3090805289672311
+          ],
+          "cost": 0.979707739645183,
+          "footprint_samples": 17549,
+          "elapsed_s": 3.9526078479975695
+        }
+      }
+    },
+    "tests": "177 passed in 23.69s",
+    "canonical_gates_run": false
+  },
+  "fine_grid_source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/local_map.py": "2d7cc69308301532420dba64a2bd6364f8fd52a7f25aa617c552f1911f85d7be",
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "90c784c8d436a15939ae8120dc73fea253705ad1904ebd856084b11a65747e38"
   }
 }

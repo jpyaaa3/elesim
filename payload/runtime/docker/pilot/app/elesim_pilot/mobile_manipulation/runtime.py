@@ -121,19 +121,22 @@ class SimPorts:
         node_pos,node_rot=_forward_link_tf(context,[0.,0.,0.,0.])['node0']
         node=np.eye(4);node[:3,3]=node_pos;node[:3,:3]=node_rot
         self.node_in_body=np.linalg.inv(body)@node;self.arm_in_body=np.linalg.inv(body)@self.base
-        self.grid=LocalMap();self.track=TargetTrack(self.target_id,self.s.min_position_error_m)
+        map_resolution=.01
+        self.grid=LocalMap(resolution=map_resolution,origin_xy=b['pos'][:2]-map_resolution/2)
+        self.track=TargetTrack(self.target_id,self.s.min_position_error_m)
         # Conservative 3D spheres projected with the actual transport posture,
         # plus GO2 body/leg sweep envelope from this flat-floor task profile.
         home=np.asarray(self.model.meta['home']);centers=self.collision._centers(home)
         centers=(centers-b['pos'])@body[:3,:3]
         radii=self.collision._radii
-        self.footprint=transport_footprint(centers,radii)
+        spacing=self.grid.resolution/2
+        self.footprint=transport_footprint(centers,radii,spacing=spacing)
         self.planner=BasePlanner(self.model,self.grid,self.footprint,self.node_in_body,b['pos'][2],self.s)
         self.planner.roll_pitch=b['rpy'][:2].copy()
         # The occupied starting stance is the only unobserved seed: the flat
         # Sim profile has just verified stationary measured standing support.
         start=snap['joint']['q'].copy()
-        occupied=transport_footprint((self.collision._centers(start)-b['pos'])@body[:3,:3],radii)
+        occupied=transport_footprint((self.collision._centers(start)-b['pos'])@body[:3,:3],radii,spacing=spacing)
         t=planar(snap['pose']);seed=occupied@t[:2,:2].T+t[:2,3]
         self.grid.free.update(self.grid.cell(p) for p in seed)
         self.last_command=start.copy();self.history=[start.copy()]
@@ -210,7 +213,8 @@ class SimPorts:
         full=reconstruct_view(measurement.sensor,np.ones(measurement.sensor.depth_raw.shape,bool),pose,max_points=6000).points_before
         centers=self.collision._centers(measurement.sensor.encoder_q)
         snap=self.feedback.snapshot(self.route()[:2]);b=snap['base']
-        self.grid.recenter(b['pos'][:2])
+        goal_xy=getattr(self,'mapping_goal_xy',b['pos'][:2])
+        self.grid.recenter((b['pos'][:2]+goal_xy)/2)
         def exclude_robot(points):
             kept=[]
             for start in range(0,len(points),256):
@@ -226,7 +230,8 @@ class SimPorts:
         fused=self.collision.cloud.points()
         self.collision.tree=cKDTree(fused) if len(fused) else None
         floor=exclude_robot(floor_cell_points(measurement.sensor,pose,
-            resolution=self.grid.resolution,max_cells=self.grid.max_cells,cell_window=self.grid.window))
+            resolution=self.grid.resolution,max_cells=self.grid.max_cells,cell_window=self.grid.window,
+            origin_xy=self.grid.origin))
         self.grid.observe(np.concatenate([environment,floor]))
         self._summary['floor_cells_in_capture']=len(floor)
         if not masks:
@@ -365,7 +370,7 @@ class SimPorts:
                 margin_m=getattr(self,'mapping_margin_m',0.))
             missing=[c for c in cells if c not in self.grid.free and c not in self.grid.blocked]
             if missing:
-                unknown=(np.asarray(missing)+.5)*self.grid.resolution;focus=True
+                unknown=self.grid.cell_centers(missing);focus=True
         probes=np.column_stack([unknown,np.zeros(len(unknown))])
         intr=getattr(self,'mapping_intrinsics',None)
         candidates=[]

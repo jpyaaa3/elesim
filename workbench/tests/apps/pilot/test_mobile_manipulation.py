@@ -150,6 +150,60 @@ def test_footprint_diagnostics_distinguish_unknown_floor_from_obstacles():
     assert grid.free=={(0,0)} and not grid.footprint_free([0,0,0],footprint)
 
 
+@pytest.mark.parametrize('resolution',[.04,.01])
+@pytest.mark.parametrize('margin',[0.,.022])
+def test_footprint_raster_matches_the_exact_union_of_tracking_rectangles(resolution,margin):
+    from elesim_pilot.mobile_manipulation.contracts import planar
+    grid=LocalMap(resolution);foot=np.random.default_rng(37).uniform(-.3,.3,(53,2))
+    pose=np.array([-.007,.013,.41]);t=planar(pose);points=foot@t[:2,:2].T+t[:2,3]
+    low=np.floor((points-margin)/resolution).astype(int)
+    high=np.floor((points+margin)/resolution).astype(int);expected=set()
+    for a,b in zip(low,high):
+        expected.update((x,y) for x in range(a[0],b[0]+1) for y in range(a[1],b[1]+1))
+    assert grid._footprint_cells(pose,foot,margin_m=margin)==sorted(expected)
+
+
+def test_fine_grid_separates_a_measured_obstacle_from_a_clear_transport_boundary():
+    # A 40 mm cell merges these physically separate regions; the margin and
+    # obstacle stay identical when measured floor is rasterized at 10 mm.
+    goal=np.array([.219,.01,0.]);obstacle=np.array([[.6505,.15,.2]])
+    statuses=[]
+    for resolution in (.04,.01):
+        grid=LocalMap(resolution);foot=rectangular_footprint([[-.38,.38],[-.25,.25]],
+            spacing=resolution/2,padding=.02)
+        cells=grid._footprint_cells(goal,foot,margin_m=.022)
+        grid.observe(np.array([[*(np.array(c)+.5)*resolution,0.] for c in cells]))
+        grid.observe(obstacle)
+        statuses.append(grid.footprint_status(goal,foot,margin_m=.022))
+    assert statuses[0]['blocked_cells']>0
+    assert statuses[1]['blocked_cells']==statuses[1]['unknown_cells']==0
+
+
+def test_local_map_translation_keeps_the_same_measured_cells_routes_and_diagnostics():
+    shift=np.array([.137,-.083]);base=LocalMap(.01);moved=LocalMap(.01,origin_xy=shift)
+    points=np.array([[x+.002,y+.003,0.] for x in np.arange(-.1,.31,.005) for y in np.arange(-.1,.11,.005)])
+    base.observe(points);moved.observe(points+np.r_[shift,0.])
+    foot=np.array([[.002,.003],[.012,.013]]);start=np.array([0.,0.,.1]);goal=np.array([.2,0.,.1])
+    assert base.free==moved.free and base.blocked==moved.blocked
+    np.testing.assert_allclose(moved.path(start+np.r_[shift,0.],goal+np.r_[shift,0.],foot),
+        base.path(start,goal,foot)+np.r_[shift,0.])
+    base.blocked.add((0,0));moved.blocked.add((0,0))
+    a=base.footprint_status(start,foot);b=moved.footprint_status(start+np.r_[shift,0.],foot)
+    np.testing.assert_allclose(np.array(b['blocked_xy_m'])-shift,a['blocked_xy_m'])
+    assert a['blocked_cells']==b['blocked_cells']
+
+
+def test_fine_local_window_covers_both_ends_of_the_requested_transport_corridor():
+    grid=LocalMap(.01);start=np.zeros(3);goal=np.array([.44,.57,-1.31])
+    grid.recenter((start[:2]+goal[:2])/2)
+    foot=rectangular_footprint([[-.38,.38],[-.25,.25]],spacing=.005,padding=.02)
+    for pose in (start,goal):
+        cells=grid._footprint_cells(pose,foot,margin_m=.022)
+        assert all(grid._inside(c) for c in cells)
+        assert not grid.footprint_free(pose,foot,margin_m=.022)
+    assert not grid.free and not grid.blocked and grid.max_cells==40000
+
+
 @pytest.mark.parametrize('all_blocked',[False,True])
 def test_grasp_floor_requests_never_select_an_observed_obstacle(all_blocked):
     from elesim_pilot.mobile_manipulation.base_planner import BasePlanner,FloorObservationRequired
@@ -606,6 +660,17 @@ def test_floor_witnesses_keep_one_measured_point_per_cell_with_a_hard_budget():
     local=floor_cell_points(sensor,pose,resolution=.05,max_cells=1,
         cell_window=(np.array([1,1]),np.array([2,2])))
     np.testing.assert_allclose(local,[[.05,.05,0.]])
+
+
+def test_floor_witnesses_follow_the_translated_map_origin():
+    from elesim_pilot.mobile_manipulation.local_map import floor_cell_points
+    sensor=NS(depth_raw=np.ones((4,4)),depth_scale=1.,
+        intrinsics=NS(fx=13.,fy=13.,cx=1.5,cy=1.5))
+    pose=np.diag([1.,-1.,-1.,1.]);pose[:3,3]=[.013,.017,1.]
+    shift=np.array([.137,-.083]);moved=pose.copy();moved[:2,3]+=shift
+    a=floor_cell_points(sensor,pose,resolution=.01,max_cells=100)
+    b=floor_cell_points(sensor,moved,resolution=.01,max_cells=100,origin_xy=shift)
+    np.testing.assert_allclose(b-np.r_[shift,0.],a,atol=1e-15)
 
 
 def test_local_map_retains_only_measured_cells_in_its_capacity_derived_window():

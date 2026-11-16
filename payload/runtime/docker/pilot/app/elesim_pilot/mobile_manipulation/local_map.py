@@ -4,7 +4,8 @@ import numpy as np
 from .contracts import planar,angle
 
 
-def floor_cell_points(sensor,world_from_camera,*,resolution,max_cells,floor_z=0.,cell_window=None):
+def floor_cell_points(sensor,world_from_camera,*,resolution,max_cells,floor_z=0.,cell_window=None,
+                      origin_xy=(0.,0.)):
     """Keep an actual depth witness per floor cell before cloud thinning.
 
     Occluded and invalid pixels contribute nothing. Returned measurements still
@@ -20,7 +21,7 @@ def floor_cell_points(sensor,world_from_camera,*,resolution,max_cells,floor_z=0.
     v,u=np.nonzero(np.isfinite(depth)&(depth>=.1)&(depth<=5)&(abs(height-floor_z)<.025))
     z=depth[v,u]
     points=np.column_stack([x[u]*z,y[v]*z,z])@pose[:3,:3].T+pose[:3,3]
-    cells=np.floor(points[:,:2]/resolution).astype(int)
+    cells=np.floor((points[:,:2]-np.asarray(origin_xy))/resolution).astype(int)
     if cell_window is not None:
         low,high=cell_window
         inside=np.all((cells>=low)&(cells<high),axis=1)
@@ -37,10 +38,14 @@ def floor_cell_points(sensor,world_from_camera,*,resolution,max_cells,floor_z=0.
 
 
 class LocalMap:
-    def __init__(self,resolution=.04,max_cells=40000):
+    def __init__(self,resolution=.04,max_cells=40000,*,origin_xy=(0.,0.)):
         self.resolution=resolution;self.max_cells=max_cells
+        self.origin=np.array(origin_xy,float,copy=True)
+        if self.origin.shape!=(2,) or not np.isfinite(self.origin).all():raise ValueError('invalid map origin')
+        self.origin.setflags(write=False)
         self.free=set();self.blocked=set();self.revision=0;self.window=None
-    def cell(self,xy):return tuple(np.floor(np.asarray(xy)[:2]/self.resolution).astype(int))
+    def cell(self,xy):return tuple(np.floor((np.asarray(xy)[:2]-self.origin)/self.resolution).astype(int))
+    def cell_centers(self,cells):return (np.asarray(cells).reshape(-1,2)+.5)*self.resolution+self.origin
     def recenter(self,xy):
         """Keep a capacity-derived local window; discarded cells become unknown."""
         xy=np.asarray(xy,float)
@@ -73,23 +78,27 @@ class LocalMap:
         points=local@t[:2,:2].T+t[:2,3]
         if not np.isfinite(margin_m) or margin_m<0:raise ValueError('invalid footprint margin')
         # Footprint is an interior-filled sampling, not just its boundary.
-        low=np.floor((points-margin_m)/self.resolution).astype(int)
-        high=np.floor((points+margin_m)/self.resolution).astype(int)
-        if margin_m:
-            span=np.max(high-low,axis=0);chunks=[]
-            for x in range(span[0]+1):
-                for y in range(span[1]+1):
-                    cells=low+[x,y];chunks.append(cells[np.all(cells<=high,axis=1)])
-            cells=np.unique(np.concatenate(chunks),axis=0)
-        else:cells=np.unique(low,axis=0)
+        low=np.floor((points-self.origin-margin_m)/self.resolution).astype(int)
+        high=np.floor((points-self.origin+margin_m)/self.resolution).astype(int)
+        if not len(low):raise ValueError('empty transport footprint')
+        origin=np.min(low,axis=0);shape=np.max(high,axis=0)-origin+2
+        if np.prod(shape)>4*self.max_cells:raise ValueError('transport footprint raster budget exceeded')
+        # Exact union of the same inclusive cell rectangles, without sorting
+        # hundreds of thousands of duplicate structured records at fine grids.
+        delta=np.zeros(tuple(shape),dtype=np.int32)
+        lower=low-origin;upper=high-origin+1
+        for x,y,sign in ((lower[:,0],lower[:,1],1),(upper[:,0],lower[:,1],-1),
+                         (lower[:,0],upper[:,1],-1),(upper[:,0],upper[:,1],1)):
+            np.add.at(delta,(x,y),sign)
+        cells=np.argwhere(delta.cumsum(axis=0).cumsum(axis=1)>0)+origin
         return [(int(x),int(y)) for x,y in cells]
     def footprint_status(self,pose,footprint,*,margin_m=0.):
         cells=self._footprint_cells(pose,footprint,margin_m=margin_m)
         blocked=[c for c in cells if c in self.blocked]
         unknown=[c for c in cells if c not in self.free and c not in self.blocked]
         return dict(total_cells=len(cells),unknown_cells=len(unknown),blocked_cells=len(blocked),
-            unknown_xy_m=((np.array(unknown[:16]).reshape(-1,2)+.5)*self.resolution).tolist(),
-            blocked_xy_m=((np.array(blocked[:16]).reshape(-1,2)+.5)*self.resolution).tolist())
+            unknown_xy_m=self.cell_centers(unknown[:16]).tolist(),
+            blocked_xy_m=self.cell_centers(blocked[:16]).tolist())
     def segment_free(self,a,b,footprint,*,margin_m=0.):
         a,b=np.asarray(a,float),np.asarray(b,float);d=b-a;d[2]=angle(d[2])
         n=max(1,int(np.ceil(max(np.linalg.norm(d[:2])/(self.resolution/2),abs(d[2])/.05))))
@@ -107,8 +116,8 @@ class LocalMap:
             if c==last:break
             for dx,dy in ((1,0),(-1,0),(0,1),(0,-1)):
                 nxt=(c[0]+dx,c[1]+dy)
-                p=np.r_[(np.array(nxt)+.5)*self.resolution,start[2]]
-                before=start if c==first else np.r_[(np.array(c)+.5)*self.resolution,start[2]]
+                p=np.r_[self.cell_centers([nxt])[0],start[2]]
+                before=start if c==first else np.r_[self.cell_centers([c])[0],start[2]]
                 if not self.segment_free(before,p,footprint,margin_m=margin_m):continue
                 new=cost[c]+1
                 if new>=cost.get(nxt,float('inf')):continue
@@ -117,7 +126,7 @@ class LocalMap:
         if last not in cost:raise ValueError('no observed-free local base path')
         cells=[last]
         while cells[-1]!=first:cells.append(parent[cells[-1]])
-        path=[start]+[np.r_[(np.array(c)+.5)*self.resolution,start[2]] for c in cells[::-1][1:]]+[goal]
+        path=[start]+[np.r_[self.cell_centers([c])[0],start[2]] for c in cells[::-1][1:]]+[goal]
         if not all(self.segment_free(a,b,footprint,margin_m=margin_m) for a,b in zip(path,path[1:])):
             raise ValueError('final approach or turn blocked')
         return np.asarray(path)
