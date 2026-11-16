@@ -9,6 +9,38 @@ import time
 import numpy as np
 
 
+def shorten_joint_path(path,certify,*,max_seconds=30.,max_checks=1024,
+                       cancelled=lambda:False,clock=time.monotonic):
+    """Shortcut a certified polyline; keep its certified tail on budget expiry.
+
+    The caller must certify the input and revalidate the returned path against
+    live feedback. Every newly introduced edge needs its own full certificate.
+    """
+    path=np.array(path,float,copy=True)
+    if path.ndim!=2 or path.shape[1:]!=(4,) or len(path)<2 or not np.isfinite(path).all():
+        raise ValueError('shortening requires a finite certified four-axis path')
+    if (not np.isfinite(max_seconds) or max_seconds<=0 or not isinstance(max_checks,int)
+            or isinstance(max_checks,bool) or max_checks<1):
+        raise ValueError('invalid path shortening budget')
+    began=clock();checks=0;exhausted=False;shortened=[path[0]];i=0
+    while i<len(path)-1:
+        if cancelled():raise RuntimeError('joint path shortening cancelled')
+        chosen=i+1  # This original adjacent edge is already certified.
+        for j in range(len(path)-1,i+1,-1):
+            if cancelled():raise RuntimeError('joint path shortening cancelled')
+            if checks>=max_checks or clock()-began>=max_seconds:
+                exhausted=True;break
+            time.sleep(.001)
+            checks+=1
+            if certify(path[i],path[j])['accepted']:
+                chosen=j;break
+        if exhausted:
+            shortened.extend(path[i+1:]);break
+        shortened.append(path[chosen]);i=chosen
+    return np.array(shortened),dict(edge_checks=checks,elapsed_s=clock()-began,
+        original_segments=len(path)-1,segments=len(shortened)-1,budget_exhausted=exhausted)
+
+
 def connect_joint_path(start, goals, bounds, certify, *, samples, seeds=(),
                        cancelled=lambda: False, clock=time.monotonic,
                        max_seconds=30., max_nodes=512, max_checks=1024):

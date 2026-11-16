@@ -542,6 +542,7 @@ class SimPorts:
             if not report['accepted']:raise ArmPathBlocked('arm transport/search path blocked: '+report.get('reason','collision'))
         return points
     def _return_prepare(self,goal,*,use_history=True):
+        began=time.monotonic()
         history=list(reversed(self.history))
         current=self.feedback.snapshot(self.route()[:2])['joint']['q'].copy()
         def candidates():
@@ -563,8 +564,23 @@ class SimPorts:
             if index:time.sleep(.001)
             try:points=self._arm_prepare(waypoints)
             except ArmPathBlocked:continue
+            shortening=None
+            remaining=30.-(time.monotonic()-began)
+            if strategy=='history_prefix' and len(points)>3 and remaining>0:
+                from elesim_pilot.robot.arm.joint_path import shorten_joint_path
+                generation=getattr(self,'generation',None)
+                shorter,shortening=shorten_joint_path(points,self.collision.certify_segment,
+                    max_seconds=remaining,cancelled=lambda:getattr(self,'stopped',False)
+                        or getattr(self,'generation',None)!=generation)
+                if len(shorter)<len(points):
+                    try:points=self._arm_prepare(shorter[1:])
+                    except ArmPathBlocked:
+                        # A live base change can invalidate a proposed shortcut.
+                        # Revalidate the original too before retaining it.
+                        points=self._arm_prepare(points[1:])
             self._summary['arm_return']=dict(strategy=strategy,
                 segments=len(points)-1,goal_q=np.asarray(goal).tolist())
+            if shortening is not None:self._summary['arm_return']['shortening']=shortening
             return points
         raise ArmPathBlocked('arm transport/search path blocked')
     def begin(self,phase,grant,ownership,**args):

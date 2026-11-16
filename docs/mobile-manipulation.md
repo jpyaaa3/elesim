@@ -92,6 +92,12 @@ Floor search tries these simple return routes for the existing first 64 valid
 goal roots before accepting the leading candidate's history replay. A long
 history for the first-ranked viewpoint must not hide a short certified route to
 a later viewpoint. The same phase, view and RRT budgets still apply.
+Before executing a certified history return, the planner tries to skip redundant
+bends using full continuous edge certificates. This uses only time remaining in
+the first 30 seconds of return preparation, with at most 1,024 shortcut checks.
+Budget exhaustion retains the certified remainder. The resulting path is checked
+again from fresh measured joints/base; a lost shortcut requires rechecking the
+original path before using it. The exact return goal and motion rates stay fixed.
 When the cache supplies no admissible endpoint, continuous four-axis view IK may
 refine a nearby pose for the remaining floor rectangle. Its alternative fallback
 has a 30-second deadline and at most 1,024 unique geometry evaluations; it does not

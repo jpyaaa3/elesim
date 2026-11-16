@@ -155,7 +155,7 @@
     "canonical_reason": "Current installation has no usable generated development attachment."
   },
   "acceptance_unchanged": true,
-  "installed_retest_pending": true,
+  "installed_retest_pending": false,
   "source_sha256": {
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "c6a8b95f5faee9b2a022699e036555bdd669e24956ea4f7e46f5e508e6db290e",
     "payload/runtime/docker/pilot/app/elesim_pilot/reconstruction/scan_collision.py": "69cf454779a4a65ebe781836b03b78d2bb9f22b843ee7effc839f6e3af9cc999",
@@ -212,5 +212,46 @@
       "bytes": 180,
       "sha256": "d2cd374f2beed2201c128afb6aa52b83d99e4565c77944246d4142dfa808cdbd"
     }
-  ]
+  ],
+  "installed_retest": {
+    "source": "c8272a55",
+    "run": "run-46",
+    "accepted": false,
+    "elapsed_s": 647.393387393,
+    "reason": "mobile phase timeout",
+    "view_refinement": {
+      "base_position_delta_m": 0.00023221471947750956,
+      "base_rotation_delta_rad": 4.395553612052902e-05,
+      "base_stable": true,
+      "best_constraint_m": -1.3402001730611346e-11,
+      "elapsed_s": 1.4488170202821493,
+      "endpoint_admitted": true,
+      "evaluations": 33,
+      "live_frustum_margin_m": 0.040452537233223396,
+      "live_minimum_clearance_m": 1.0000283268696286e-06,
+      "minimum_clearance_m": 1.0000259034409834e-06,
+      "optimizer_success": true,
+      "path_accepted": true,
+      "status": "found",
+      "target_q": [
+        -0.022082097500261338,
+        0.8847028002345473,
+        0.22328786106367673,
+        0.2921770662317135
+      ],
+      "trials": 1,
+      "view_admitted": true
+    },
+    "floor_view_executed": true,
+    "next_blocker": {
+      "goal_q": [
+        -0.10916874557733536,
+        1.1064491271972656,
+        -0.3161339402198792,
+        0.6267915368080139
+      ],
+      "segments": 11,
+      "strategy": "history_prefix"
+    }
+  }
 }

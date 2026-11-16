@@ -1031,6 +1031,36 @@ def test_return_folds_while_fully_retracted_then_extends_to_the_unchanged_goal()
         for a,b in zip(path,path[1:]))
 
 
+@pytest.mark.parametrize('live_shortcut_lost',[False,True])
+def test_history_return_shortens_and_recertifies_instead_of_replaying_every_bend(live_shortcut_lost):
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    ports=SimPorts.__new__(SimPorts)
+    points=np.array([[0.,0.,0.,0.],[0.,.5,0.,0.],[.2,.5,0.,0.],
+        [.4,.5,0.,0.],[.4,0.,0.,0.]])
+    start,a,b,c,goal=points
+    ports.arm=NS(bounds=np.array([[0.,1.]]*4),uncertainty=np.array([.001,.015,.015,.015]))
+    ports.feedback=NS(snapshot=lambda *args:dict(joint=dict(q=start.copy())))
+    ports.route=lambda:('sim','boot','lease');ports._summary={};ports.history=list(points[:-1][::-1])
+    ports.connection=NS(state_sink=NS(get_state=lambda:None))
+    ports.service=NS(_ik_context_for_host=lambda h:dict(base_world_T=np.eye(4)))
+    allowed=[(start,a),(a,b),(b,c),(c,goal),(start,b)];checked=[]
+    def certify(x,y):
+        checked.append((x.copy(),y.copy()))
+        if live_shortcut_lost and np.array_equal(x,start) and np.array_equal(y,b):
+            if sum(np.array_equal(u,start) and np.array_equal(v,b) for u,v in checked)>1:
+                return dict(accepted=False)
+        ok=np.array_equal(x,y) or any(np.array_equal(x,u) and np.array_equal(y,v) for u,v in allowed)
+        return dict(accepted=ok)
+    ports.collision=NS(base=None,certify_segment=certify)
+    result=ports._return_prepare(goal)
+    np.testing.assert_array_equal(result,[start,start,a,b,c,goal] if live_shortcut_lost else [start,b,c,goal])
+    # One check authorizes the new edge; a second checks it at fresh feedback.
+    assert sum(np.array_equal(x,start) and np.array_equal(y,b) for x,y in checked)>=2
+    report=ports.summary()['arm_return']
+    assert report['segments']==(5 if live_shortcut_lost else 3)
+    assert report['shortening']['original_segments']==5
+
+
 def test_actual_body_tilt_changes_final_solver_coordinates():
     from elesim_pilot.mobile_manipulation.base_planner import BasePlanner,body_frame
     model=NS(meta={'home':[0,0,0,0]},solve_many=lambda points:[dict(feature='side',root=1,xy_mm=p) for p in points])

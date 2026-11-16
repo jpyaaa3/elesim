@@ -1058,6 +1058,11 @@ stability allowance against observed surfaces using each sphere's rigid-motion
 displacement bound. Self-separation is base-invariant. Fresh base stability,
 endpoint admission, and path/view checks remain mandatory; this is a planning
 reserve rather than a relaxed execution tolerance.
+Certified arm-history returns can omit intermediate bends only after complete
+continuous shortcut certificates. Shortening uses the remaining part of the first
+30 seconds of return preparation and at most 1,024 checks; it retains the certified
+tail on exhaustion. Fresh measured joints/base revalidation precedes execution,
+including revalidation of the original if a shortcut loses admission.
 
 The parent grants one child arm/base control at a time. Pure planning/inference
 runs in one worker; DDS-thread ticks alone send motion. Existing LiveScan runs as

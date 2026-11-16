@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "Same fixed D100 fixture; eliminate certified history loops before target reacquisition",
+  "installed_baseline": {
+    "source": "c8272a55",
+    "run": "run-46",
+    "elapsed_s": 647.393387393,
+    "accepted": false,
+    "reason": "mobile phase timeout",
+    "arm_return": {
+      "goal_q": [
+        -0.10916874557733536,
+        1.1064491271972656,
+        -0.3161339402198792,
+        0.6267915368080139
+      ],
+      "segments": 11,
+      "strategy": "history_prefix"
+    }
+  },
+  "fix": [
+    "Shorten only an already-certified arm-history polyline.",
+    "Every new edge needs a complete continuous collision certificate.",
+    "Use only time remaining in the first 30 seconds of return preparation; at most 1024 shortcut checks.",
+    "Preserve certified remainder on exhaustion and the exact return goal.",
+    "Revalidate from fresh measured joints/base; revalidate the original if a live shortcut fails.",
+    "Keep existing rates, 8 floor views, 180-second phase and 900-second task limits."
+  ],
+  "runtime_replay": {
+    "diagnostic_only": true,
+    "not_installed_acceptance": true,
+    "elapsed_s": 11.555125824990682,
+    "summary": {
+      "arm_return": {
+        "strategy": "history_prefix",
+        "segments": 3,
+        "goal_q": [
+          -0.10916874557733536,
+          1.1064491271972656,
+          -0.3161339402198792,
+          0.6267915368080139
+        ],
+        "shortening": {
+          "edge_checks": 4,
+          "elapsed_s": 0.2835495730105322,
+          "original_segments": 11,
+          "segments": 3,
+          "budget_exhausted": false
+        }
+      }
+    },
+    "path": [
+      [
+        -0.0225498266518116,
+        0.8779095411300659,
+        0.22393302023410797,
+        0.2905240297317505
+      ],
+      [
+        -0.17233333333333334,
+        1.0419835506888506,
+        0.2030442713065379,
+        0.28733802792920804
+      ],
+      [
+        -0.17233333333333334,
+        1.1055081087404046,
+        -0.3167410296893234,
+        0.6266382590707682
+      ],
+      [
+        -0.10916874557733536,
+        1.1064491271972656,
+        -0.3161339402198792,
+        0.6267915368080139
+      ]
+    ],
+    "certificates": [
+      {
+        "accepted": true,
+        "reason": "continuous_sphere_separation",
+        "checked_configurations": 21,
+        "minimum_margin_m": 0.0001824512158397438,
+        "environment_scope": "observed_surfaces_only",
+        "environment_checks": 4
+      },
+      {
+        "accepted": true,
+        "reason": "continuous_sphere_separation",
+        "checked_configurations": 42,
+        "minimum_margin_m": 5.3970638016120594e-05,
+        "environment_scope": "observed_surfaces_only",
+        "environment_checks": 71
+      },
+      {
+        "accepted": true,
+        "reason": "continuous_sphere_separation",
+        "checked_configurations": 2,
+        "minimum_margin_m": 0.0008353366079333624,
+        "environment_scope": "observed_surfaces_only",
+        "environment_checks": 2
+      }
+    ],
+    "limitations": [
+      "History waypoints are inferred from measured encoders and the deterministic FK cache.",
+      "Collision cloud is recorded run-40 data, not the full run-46 accumulated scene.",
+      "No installed motion or full task success is claimed."
+    ]
+  },
+  "nominal_motion_comparison": {
+    "report": {
+      "edge_checks": 4,
+      "elapsed_s": 0.46337593300268054,
+      "original_segments": 11,
+      "segments": 3,
+      "budget_exhausted": false
+    },
+    "original_nominal_s": 147.98072980613605,
+    "shortened_nominal_s": 55.58425141240048
+  },
+  "tests": {
+    "host": "144 passed in 5.10s",
+    "canonical_gates_run": false,
+    "reason": "No usable generated development attachment in the current installation."
+  },
+  "acceptance_unchanged": true,
+  "installed_retest_pending": true,
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "f8ef481b865c3ac2d0b5b5991849f7f6d963ff2b7d4a3a4c8b022704c8eba5e6",
+    "payload/runtime/docker/pilot/app/elesim_pilot/robot/arm/joint_path.py": "dd1fc744341e91486491c6f9e002628dfda17e5204743a2e970c98891fec14d8"
+  },
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-46/report.json",
+      "bytes": 12443,
+      "sha256": "8c3a059ea60c8790fcdae1a17340298c95df7ed3b1d5b8fcdf365dc0b4e46ba6"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-46/telemetry.jsonl",
+      "bytes": 6858785,
+      "sha256": "a26b8cf2f01c70504280469b261a220ec0f2537d1f93dc8540c77e9d7f8406c1"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-46/observer.mp4",
+      "bytes": 13448671,
+      "sha256": "aad99a663c5dbccd2c9da4dbdfd6475ed3be73f5b684a18ceb43b19a09d48b7c"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-46/hand_eye_preview.mp4",
+      "bytes": 26403996,
+      "sha256": "43aa728960c0e4dcb978d8c37d1eeb375c3e0c3480fc7e13f8a5a9d470d1c828"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v25-remote.json",
+      "bytes": 2953,
+      "sha256": "886e439fa996921ff47d4ba14ea69ffca4ed138652e2cf6f0393a0d8bf0d3189"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v25-operator.json",
+      "bytes": 428,
+      "sha256": "931f024db79bc4396edb3aa491d5ebc791f99067d6e645d28ffbb81801dbed10"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/history-shortening-replay46.json",
+      "bytes": 4698,
+      "sha256": "0661d2b0914a6c807ae12dcf19684bca0c8f42e25c3350df2104abeef09f2d69"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/history-shortening-runtime-replay46.json",
+      "bytes": 2070,
+      "sha256": "9b9736a6fb4ec7bfc73f4f51751e7fc7de8e55fe99272334318aae99d9353604"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/history-shortening-before.log",
+      "bytes": 2190,
+      "sha256": "812eabe12c33ecf3054248ab4ae5399e5c45dd331e1120990a681f463c62d945"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/history-shortening-release-tests.log",
+      "bytes": 180,
+      "sha256": "483acdcc10ac5bb31598eda3f96b8654a037950a14fc1dc5b6eac9b830e137ba"
+    }
+  ]
+}
