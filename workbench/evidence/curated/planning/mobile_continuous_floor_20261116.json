@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "Same fixed D100 mobile case; continue actual floor acquisition without repeated target-view returns",
+  "installed_baseline": {
+    "revision": "3639a37d",
+    "run": "run-43",
+    "accepted": false,
+    "elapsed_s": 886.1282695080008,
+    "reason": "mobile phase timeout",
+    "mapping_attempts": 5,
+    "last_plan_unknown_cells": 117,
+    "scan_started": false
+  },
+  "cause": "A target-hidden floor capture always triggered a return to the last target view before the next floor view, even when the already-requested footprint still needed measured floor. Those repeated arm returns consumed large fractions of the unchanged phase/mission budgets.",
+  "fix": [
+    "An actual acquisition with a still-unknown unblocked pending footprint can request the next floor view directly.",
+    "The same shared floor counter handles planner requests and continued acquisitions. Target-search budget remains separate.",
+    "No target is invented or timestamp renewed. When the request clears, ordinary target recovery and fresh base planning remain mandatory under existing gates.",
+    "Known blocked requests cannot continue. Fresh base planning clears old mapping goals. Final grasp reacquisition/prediction gates are unchanged."
+  ],
+  "unchanged": [
+    "floor budget 8",
+    "phase 180 seconds",
+    "mission 900 seconds",
+    "target freshness",
+    "joint/base feedback freshness",
+    "collision and tracking margins",
+    "loaded hold acceptance"
+  ],
+  "tests": {
+    "tdd_before": "7 new regression cases failed",
+    "host_after": "104 passed in 4.25s",
+    "covers": [
+      "initial and post-scan floor bursts",
+      "one final target recovery before planning",
+      "unchanged exhausted-budget failures",
+      "known obstacle rejection",
+      "no target stamp refresh",
+      "no final grasp mapping fallback",
+      "retiring old floor requests on fresh planning"
+    ],
+    "canonical_gates_run": false
+  },
+  "installed_retest_pending": true,
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "a1bcfb25eb926928b40d0d544edfd5512cada932ed7d4214d2b122f0766413cd",
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/coordinator.py": "aa2a095392070cd27c8d0929cf1201a3f67643f6b7a38a9c89bd7e335e9dc5da"
+  },
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-43/report.json",
+      "bytes": 12923,
+      "sha256": "7cbe3f7eff678d0af1bad72f82df0ccf380b8082b6288f28ede70eed909d1be7"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-43/telemetry.jsonl",
+      "bytes": 9472974,
+      "sha256": "f9f541a8ce7432353ea9642e29a8ebc224a0716a39835a14a8a75c64bcf588c3"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-43/observer.mp4",
+      "bytes": 16822110,
+      "sha256": "91fb898cb09ec8bb329d3a201e362ae55a0c83337351eb7f65db103789d2bc49"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-43/hand_eye_preview.mp4",
+      "bytes": 28751181,
+      "sha256": "29bf833f0c88995f6677a1b885478080d22b2690345b2cf72664e15ef6ca29be"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/continuous-floor-before.log",
+      "bytes": 11761,
+      "sha256": "424c8edc1ceca4841698fa012069022bf7e60e5acbd6b830ac898c04f7956ceb"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/continuous-floor-release-tests.log",
+      "bytes": 180,
+      "sha256": "8180d91252138ba45cbe21947e1a15aef0a7e312548b85bf1a3265d01415183f"
+    }
+  ]
+}

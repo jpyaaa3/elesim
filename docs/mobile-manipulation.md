@@ -113,6 +113,13 @@ C-band placement distinguishes measured obstacles from unknown floor. Occupied
 goals are discarded; extra views are requested only for unblocked unknown goals
 or missing route coverage. A known obstacle at the current transport footprint
 is an explicit failure, never a request to clear it through more observations.
+When the target is hidden and that unblocked floor request still has unknown
+cells, another actual floor view can start without first returning to the target
+viewpoint. Each view consumes the same floor budget. This neither marks the
+target visible nor refreshes its timestamp. Once coverage clears, ordinary target
+recovery and fresh planning resume before any base motion. Known blocked goals
+cannot continue this loop, fresh planning discards the old request, and final
+grasp reacquisition retains its existing target/robustness gates.
 Base route planning additionally checks measured floor around every sampled
 footprint, including the starting stance. The padding is the existing base
 position tolerance plus `2 R sin(yaw_tolerance / 2)`, where R is the transport

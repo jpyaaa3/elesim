@@ -43,10 +43,22 @@ class Coordinator:
         self.phase=phase;self.events.append(dict(phase=phase,time_s=self.clock()-self.started))
         self.grant=self.ownership.grant(phase,set(channels)|{'arm'})
         self.current=self.ports.begin(phase,self.grant,self.ownership,**args)
+    def _request_mapping(self,return_phase):
+        self.mapping_attempts+=1
+        if self.mapping_attempts>self.s.search_limit:
+            raise RuntimeError('no_observed_free_grasp_path' if return_phase=='post_scan_acquire'
+                else 'no_observed_free_base_path')
+        self._map_return=return_phase
+        self._begin('map_search',{'arm'},index=self.mapping_attempts)
     def _next(self,result):
         phase=self.phase
         if phase in {'acquire','reacquire','post_scan_acquire'}:
-            if result.get('visible'):
+            if phase!='reacquire' and result.get('needs_mapping'):
+                # Mapping needs measured floor, not a target sighting between
+                # every pair of arm views. Recover the target after this
+                # pending request clears, before planning any base motion.
+                self._request_mapping(phase)
+            elif result.get('visible'):
                 if phase=='acquire':self._begin('plan_observation',set())
                 elif phase=='post_scan_acquire':self._begin('plan_grasp',set())
                 else:self._begin('check_grasp',set())
@@ -61,9 +73,7 @@ class Coordinator:
         elif phase=='search':self._begin(self._search_return,{'arm'})
         elif phase=='plan_observation':
             if result.get('needs_mapping'):
-                self.mapping_attempts+=1
-                if self.mapping_attempts>self.s.search_limit:raise RuntimeError('no_observed_free_base_path')
-                self._map_return='acquire';self._begin('map_search',{'arm'},index=self.mapping_attempts)
+                self._request_mapping('acquire')
             else:
                 self.observation=result['goal'];self._begin('transport',{'arm'},purpose='observation')
         elif phase=='map_search':self._begin(self._map_return,{'arm'})
@@ -81,10 +91,7 @@ class Coordinator:
             else:self._begin('post_scan_acquire',{'arm'})
         elif phase=='plan_grasp':
             if result.get('needs_mapping'):
-                self.mapping_attempts+=1
-                if self.mapping_attempts>self.s.search_limit:raise RuntimeError('no_observed_free_grasp_path')
-                self._map_return='post_scan_acquire'
-                self._begin('map_search',{'arm'},index=self.mapping_attempts)
+                self._request_mapping('post_scan_acquire')
             else:
                 self.grasp=result['goal'];self._begin('transport',{'arm'},purpose='grasp')
         elif phase=='move_grasp':self._begin('reacquire',{'arm'})

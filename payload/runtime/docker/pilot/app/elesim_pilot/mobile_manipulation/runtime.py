@@ -200,6 +200,14 @@ class SimPorts:
             self.last_frame_seq=frame.seq
             return Measurement(sensor,base_world_transform=base),pose,base
         raise RuntimeError('no fresh stationary RGB-D capture')
+    def _missing_target(self,*,allow_mapping):
+        if allow_mapping and hasattr(self,'mapping_goal_pose'):
+            status=self.grid.footprint_status(self.mapping_goal_pose,self.footprint,
+                margin_m=getattr(self,'mapping_margin_m',0.))
+            self._summary['map_goal']=status
+            if status['unknown_cells'] and not status['blocked_cells']:
+                return dict(visible=False,needs_mapping=True)
+        return dict(visible=False)
     def _observe(self,allow_prediction=False):
         generation=self.generation
         measurement,pose,base=self._capture()
@@ -235,6 +243,8 @@ class SimPorts:
         self.grid.observe(np.concatenate([environment,floor]))
         self._summary['floor_cells_in_capture']=len(floor)
         if not masks:
+            missing=self._missing_target(allow_mapping=not allow_prediction)
+            if missing.get('needs_mapping'):return missing
             if allow_prediction and self.track.estimate is not None and self.last_observation_base is not None:
                 snap=self.feedback.snapshot(self.route()[:2]);previous=self.last_observation_base
                 distance=np.linalg.norm(snap['pose'][:2]-previous[:2]);turn=angle(snap['pose'][2]-previous[2])
@@ -250,10 +260,10 @@ class SimPorts:
                 # acquired stationary target. It may guide observation planning
                 # but never passes the stricter final grasp handoff above.
                 return dict(visible=True,observation_only=True)
-            return dict(visible=False)
+            return missing
         cloud=reconstruct_view(measurement.sensor,masks[0].mask,pose).points_before
         if len(cloud)<60:
-            return dict(visible=False)
+            return self._missing_target(allow_mapping=not allow_prediction)
         # The broad self-body mask must never erase an identified nearby
         # target from the collision map along with the robot's own surfaces.
         self.collision.cloud.add(cloud)
@@ -265,7 +275,7 @@ class SimPorts:
         except ValueError as exc:
             if self.track.estimate is not None:
                 self._summary['observation_reason']=str(exc)
-                return dict(visible=False)
+                return self._missing_target(allow_mapping=not allow_prediction)
             # A partial first view can locate the task's known cylinder before
             # its diameter is measurable. This prior only guides observation;
             # the post-scan fitted diameter/error gates the actual grasp.
@@ -498,6 +508,9 @@ class SimPorts:
         self.generation+=1;self.stopped=False
         op=dict(phase=phase,grant=grant,ownership=ownership,args=args,started=self.clock())
         self.operation=op
+        if phase in {'plan_observation','plan_grasp'}:
+            for field in ('mapping_goal_pose','mapping_goal_xy'):
+                if hasattr(self,field):delattr(self,field)
         if phase in {'acquire','reacquire','post_scan_acquire','plan_observation','plan_grasp',
                 'transport','search','aim_observation','map_search','check_grasp'}:
             op['hold_q']=self.feedback.snapshot(self.route()[:2])['joint']['q'].copy()

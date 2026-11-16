@@ -1044,6 +1044,11 @@ flat-floor map, observation/grasp base placement and measured base execution.
 Object estimates remain in world coordinates; robot-relative solver coordinates
 are recomputed at the measured body pose. Target IDs are output identities in the
 single-instance detector profile, not arbitrary object-selection semantics.
+If a target is hidden while an unblocked floor request is still pending, the
+parent may collect another measured floor view within the same view budget.
+This does not renew a target estimate or make it visible. Target recovery and
+fresh planning still precede any base move; final grasp reacquisition is unchanged.
+Fresh base planning retires the preceding floor request.
 
 The parent grants one child arm/base control at a time. Pure planning/inference
 runs in one worker; DDS-thread ticks alone send motion. Existing LiveScan runs as

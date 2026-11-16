@@ -508,6 +508,73 @@ def test_missing_floor_keeps_its_own_bounded_failure():
     assert ports.calls.count('map_search')==2 and coordinator.searches==0
 
 
+@pytest.mark.parametrize('acquisition',['acquire','post_scan_acquire'])
+def test_floor_views_continue_before_one_final_fresh_target_recovery(acquisition):
+    ports=Ports();poll=ports.poll;views=[0];recovered=[False]
+    planning='plan_observation' if acquisition=='acquire' else 'plan_grasp'
+    def collect(op):
+        phase,_=op
+        if phase==planning and views[0]==0:return dict(needs_mapping=True)
+        if phase=='map_search':views[0]+=1
+        if phase==acquisition and 0<views[0]<3:
+            return dict(visible=False,needs_mapping=True)
+        if phase==acquisition and views[0]==3 and not recovered[0]:
+            recovered[0]=True;return dict(visible=False)
+        return poll(op)
+    ports.poll=collect;c=Coordinator(ports,settings=Settings(search_limit=3),clock=lambda:0.)
+    c.start(c.plan()['plan_id'])
+    for _ in range(40):c.tick()
+    assert c.phase=='unverified' and views[0]==3
+    assert c.mapping_attempts==3 and c.searches==1
+    assert ports.calls.count('scan')==1
+    last_view=max(i for i,phase in enumerate(ports.calls) if phase=='map_search')
+    assert ports.calls.index('search')>last_view
+    assert ports.calls[last_view+1:last_view+4]==[acquisition,'search',acquisition]
+
+
+@pytest.mark.parametrize('acquisition,reason',[('acquire','no_observed_free_base_path'),
+    ('post_scan_acquire','no_observed_free_grasp_path')])
+def test_continuing_floor_views_keeps_the_same_budget_and_cannot_start_blind_motion(acquisition,reason):
+    ports=Ports();poll=ports.poll;started=[False]
+    planning='plan_observation' if acquisition=='acquire' else 'plan_grasp'
+    def missing(op):
+        phase,_=op
+        if phase==planning:started[0]=True;return dict(needs_mapping=True)
+        if phase==acquisition and started[0]:return dict(visible=False,needs_mapping=True)
+        return poll(op)
+    ports.poll=missing;c=Coordinator(ports,settings=Settings(search_limit=2),clock=lambda:0.)
+    c.start(c.plan()['plan_id'])
+    for _ in range(30):c.tick()
+    assert c.phase=='failed' and c.reason==reason
+    assert ports.calls.count('map_search')==2 and c.searches==0
+    assert ('move_observation' if acquisition=='acquire' else 'move_grasp') not in ports.calls
+
+
+@pytest.mark.parametrize('status',['unknown','free','blocked'])
+def test_missing_target_can_continue_only_a_real_unblocked_pending_floor_request(status):
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    p=SimPorts.__new__(SimPorts);p.grid=LocalMap(.01);p.footprint=np.array([[.005,.005]])
+    p.mapping_goal_pose=np.zeros(3);p.mapping_margin_m=0.;p._summary={}
+    p.track=NS(estimate=NS(stamp=1.))
+    if status=='free':p.grid.observe(np.array([[.005,.005,0.]]))
+    if status=='blocked':p.grid.observe(np.array([[.005,.005,.5]]))
+    result=p._missing_target(allow_mapping=True)
+    assert not result['visible'] and bool(result.get('needs_mapping'))==(status=='unknown')
+    assert p.track.estimate.stamp==1.
+    assert p._missing_target(allow_mapping=False)==dict(visible=False)
+
+
+@pytest.mark.parametrize('phase',['plan_observation','plan_grasp'])
+def test_fresh_base_planning_discards_the_previous_floor_request(phase):
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    p=SimPorts.__new__(SimPorts);p.mapping_goal_pose=np.ones(3);p.mapping_goal_xy=np.ones(2)
+    p.generation=0;p.clock=lambda:0.;p.route=lambda:('sim','boot','lease')
+    p.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=np.zeros(4))))
+    p.pool=NS(submit=lambda *a:object())
+    p.begin(phase,None,None)
+    assert not hasattr(p,'mapping_goal_pose') and not hasattr(p,'mapping_goal_xy')
+
+
 def test_grasp_geometry_can_request_floor_observation_without_marking_unknown_cells_free():
     from elesim_pilot.mobile_manipulation.base_planner import BasePlanner,FloorObservationRequired
     rows=[dict(feature='side',root=1,xy_mm=[-100,300],q_deg=[-50,-150])]
