@@ -50,11 +50,11 @@ def connect_joint_path(start, goals, bounds, certify, *, samples, seeds=(),
         cache[key]=bool(certify(a,b)['accepted'])
         return cache[key]
 
-    def result(path=None,goal_index=None):
+    def result(path=None,goal_index=None,*,strategy='rrt_connect'):
         if path is not None and len(path)==1:path=[path[0],path[0].copy()]
         report=dict(status='found' if path is not None else 'budget_exhausted',
             elapsed_s=clock()-began,iterations=iterations,edge_checks=checks,
-            tree_nodes=[len(t['q']) for t in trees],goal_index=goal_index)
+            tree_nodes=[len(t['q']) for t in trees],goal_index=goal_index,strategy=strategy)
         return (None if path is None else np.array(path)),report
 
     if not clear(start,start):return result()
@@ -63,6 +63,13 @@ def connect_joint_path(start, goals, bounds, certify, *, samples, seeds=(),
         if not budget() or len(trees[0]['q'])+len(goals)>=max_nodes:break
         if not np.array_equal(start,q) and clear(start,q):
             trees[0]['q'].append(q.copy());trees[0]['parent'].append(0);trees[0]['root'].append(0)
+            # A useful clearance pose may already connect to a goal. Check
+            # that complete bridge before spending the same bounded budget
+            # growing short random edges around an existing solution.
+            for goal_index,goal in enumerate(goals):
+                if not budget():break
+                if clear(q,goal):
+                    return result([start,q,goal],goal_index,strategy='certified_seed_bridge')
 
     def extend(tree,target):
         values=np.array(tree['q'])

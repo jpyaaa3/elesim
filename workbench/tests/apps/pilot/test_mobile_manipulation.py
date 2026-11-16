@@ -300,7 +300,7 @@ def test_floor_looks_choose_a_new_camera_view_after_an_unproductive_capture(monk
             pose=np.diag([1.,-1.,-1.,1.]);pose[:3,3]=[.45+q[0],0,.5];return pose
     monkeypatch.setattr(runtime,'ArmCameraModel',lambda *a,**k:CameraModel())
     ports=runtime.SimPorts.__new__(runtime.SimPorts)
-    ports.arm=NS(bounds=np.array([[0.,1.]]*4));ports.scan=NS(model_dir=tmp_path/'assembly',hand_eye=tmp_path/'eye.json')
+    ports.arm=NS(bounds=np.array([[0.,1.]]*4),uncertainty=np.array([.001,.015,.015,.015]));ports.scan=NS(model_dir=tmp_path/'assembly',hand_eye=tmp_path/'eye.json')
     ports.service=NS(_ik_context_for_host=lambda h:dict(base_world_T=np.eye(4)))
     ports.connection=NS(state_sink=NS(get_state=lambda:None));ports.route=lambda:('sim','boot','lease')
     ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=np.zeros(4)),pose=np.zeros(3)))
@@ -323,7 +323,7 @@ def test_floor_search_reuses_cached_views_and_aims_at_missing_goal_cells(monkeyp
             pose=np.diag([1.,-1.,-1.,1.]);pose[:3,3]=[.45+q[0],q[1],.5];return pose
     model=CameraModel();monkeypatch.setattr(runtime,'ArmCameraModel',lambda *a,**k:model)
     ports=runtime.SimPorts.__new__(runtime.SimPorts)
-    ports.arm=NS(bounds=np.array([[0.,1.]]*4));ports.scan=NS(model_dir=tmp_path/'assembly',hand_eye=tmp_path/'eye.json')
+    ports.arm=NS(bounds=np.array([[0.,1.]]*4),uncertainty=np.array([.001,.015,.015,.015]));ports.scan=NS(model_dir=tmp_path/'assembly',hand_eye=tmp_path/'eye.json')
     ports.service=NS(_ik_context_for_host=lambda h:dict(base_world_T=np.eye(4)))
     ports.connection=NS(state_sink=NS(get_state=lambda:None));ports.route=lambda:('sim','boot','lease')
     ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=np.zeros(4)),pose=np.zeros(3)))
@@ -350,7 +350,7 @@ def test_floor_search_checks_direct_candidates_before_certified_history_detours(
     monkeypatch.setattr(runtime,'ArmCameraModel',lambda *a,**k:CameraModel())
     ports=runtime.SimPorts.__new__(runtime.SimPorts)
     current=np.array([0.,.3,0.,0.]);home=np.array([0.,.15,0.,0.])
-    ports.arm=NS(bounds=np.array([[0.,1.]]*4));ports.scan=NS(model_dir=tmp_path/'assembly',hand_eye=tmp_path/'eye.json')
+    ports.arm=NS(bounds=np.array([[0.,1.]]*4),uncertainty=np.array([.001,.015,.015,.015]));ports.scan=NS(model_dir=tmp_path/'assembly',hand_eye=tmp_path/'eye.json')
     ports.service=NS(_ik_context_for_host=lambda h:dict(base_world_T=np.eye(4)))
     ports.connection=NS(state_sink=NS(get_state=lambda:None));ports.route=lambda:('sim','boot','lease')
     ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=current.copy()),pose=np.zeros(3)))

@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "same fixed D100 mobile floor approach; no acceptance or budget changes",
+  "baseline_revision": "cc59623a",
+  "installed_run": {
+    "run": "run-39",
+    "accepted": false,
+    "elapsed_s": 205.78748337199795,
+    "reason": "floor observation arm paths are blocked",
+    "mapping_attempts": 3,
+    "scan_started": false
+  },
+  "recorded_development_diagnosis": {
+    "run": "run-40",
+    "not_installed_acceptance": true,
+    "elapsed_s": 236.23611633999826,
+    "cloud_points": 13572,
+    "camera_truth_used": false,
+    "rrt_elapsed_s": 30.07358703110367,
+    "rrt_status": "budget_exhausted"
+  },
+  "cause": "A valid fully retracted intermediate posture was not offered as a search seed, and known seed-to-goal bridges were not tried directly. Random short-edge growth exhausted its existing time budget despite a two-edge certified route.",
+  "fix": [
+    "Supply the current joint posture with linear retracted to the lower bound plus its existing 1 mm tracking allowance. Never extend a current posture that is already farther retracted.",
+    "Certify incoming seed edges and attempt whole seed-to-goal bridges before random growth, inside the same deadline/check/node budget.",
+    "Keep final whole-proposal revalidation at current measured base/joints and reserved endpoint checks."
+  ],
+  "final_bounded_replay": {
+    "diagnostic_only": true,
+    "not_installed_acceptance": true,
+    "camera_truth_used": false,
+    "elapsed_s": 4.070524527000089,
+    "path": [
+      [
+        -0.10907933115959167,
+        1.1098989248275757,
+        -0.31461241841316223,
+        0.6271698355674744
+      ],
+      [
+        -0.17233333333333334,
+        1.1098989248275757,
+        -0.31461241841316223,
+        0.6271698355674744
+      ],
+      [
+        -0.10267513274998118,
+        -0.7952807400936571,
+        -0.007266507295376923,
+        0.442109177876989
+      ]
+    ],
+    "search": {
+      "status": "found",
+      "elapsed_s": 2.442879742004152,
+      "iterations": 0,
+      "edge_checks": 11,
+      "tree_nodes": [
+        2,
+        40
+      ],
+      "goal_index": 8,
+      "strategy": "certified_seed_bridge"
+    },
+    "certificates": [
+      {
+        "accepted": true,
+        "reason": "continuous_sphere_separation",
+        "checked_configurations": 2,
+        "minimum_margin_m": 0.001844467556604848,
+        "environment_scope": "observed_surfaces_only",
+        "environment_checks": 2
+      },
+      {
+        "accepted": true,
+        "reason": "continuous_sphere_separation",
+        "checked_configurations": 43,
+        "minimum_margin_m": 0.0007942972763323244,
+        "environment_scope": "observed_surfaces_only",
+        "environment_checks": 119
+      }
+    ],
+    "reserved_endpoint": true
+  },
+  "tests": {
+    "tdd_before": "new three-check seed-route case failed on old planner",
+    "host_focused": "91 passed; see recorded log",
+    "canonical_gates_run": false,
+    "reason": "No usable generated development attachment/pinned Docker test environment in this workspace; no host dependency installation."
+  },
+  "installed_retest_pending": true,
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-39/report.json",
+      "bytes": 12091,
+      "sha256": "7ff355d34fd2e5562f0cf79d4aee52ad53b6ac172dfa9d48b3ade48a2a542dce"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-39/telemetry.jsonl",
+      "bytes": 1883275,
+      "sha256": "183f63eb79def6920270358eb46be70c76b2135653f0907585c23694ba8d2a65"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-39/observer.mp4",
+      "bytes": 3514942,
+      "sha256": "4e47e36bc75ceeee5bc50c2e3947b29e18fbe62916bf07288246aa794df4f0b4"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-39/hand_eye_preview.mp4",
+      "bytes": 6716676,
+      "sha256": "62be724b04b65a79889d047260391fdadbb12adee015e51fd2e564c0752199e9"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v19-remote.json",
+      "bytes": 2530,
+      "sha256": "91b05791afa36e62697ae483081b6279a47b90ab52beacc14291343748740590"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v19-operator.json",
+      "bytes": 354,
+      "sha256": "351349b5dbdb39213411712f6e1bea69964f6ee69966f9b6f3d0570055e1a5fb"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/registration-v19.json",
+      "bytes": 3746,
+      "sha256": "e9d39f541f02dad3ef95cef91fd47a7d3e4a67b412ae3a318ae7b71fe42c0390"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-40/report.json",
+      "bytes": 12061,
+      "sha256": "b562548d36025f461d9d491ccc22942388157b1ab9b84063b62eaf6dad9359f1"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/mobile-floor-run40.npz",
+      "bytes": 1734580,
+      "sha256": "6941094374d878ebd78ca31fcfe427fb1c1d5005485229ad305452ce642511ab"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-goals-replay40.json",
+      "bytes": 6772,
+      "sha256": "317b008fa406d11cf3eea05c8a64524a8f8baf710dba2e0226d55a7de5d26128"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-via-goals40.json",
+      "bytes": 1912,
+      "sha256": "68128e1bc03146476833f0f0c0433d89b940f735cc356c2cbbbf8258cb4ee99e"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-bridge-runtime-replay40.json",
+      "bytes": 1713,
+      "sha256": "f61f14bb51aac0a9c33bbf069071e96d0f6460d08fbdedeb3550650466d3ae05"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-bridge-bounded-replay40.json",
+      "bytes": 1294,
+      "sha256": "49f711e0624952176588d111a9d7877fc075d6d6187080e7dbfae67117f40c88"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/floor-bridge-release-tests.log",
+      "bytes": 179,
+      "sha256": "2ea533aea5661de198e117dec58ee830acb496ddc7f65bb7ab4bd3cebe8b313b"
+    }
+  ],
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "20d424ab54a5d37e4c8d12a5a20187090088170070324485ac840462adb1cb61",
+    "payload/runtime/docker/pilot/app/elesim_pilot/robot/arm/joint_path.py": "779be787b2bb5ddf88f0fe1de05d70f51a83e62d7b739cdd57d83baec932d6e0"
+  }
+}

@@ -77,6 +77,12 @@ existing certified return route and then bounded four-axis RRT-Connect: at most
 uses the existing continuous uncertainty-aware certificate. The complete proposal
 is checked again against fresh measured joints and the current base before any
 execution. Intermediate waypoints are retained for future certified returns.
+Within that same search budget, certified clearance seeds are first connected
+directly to the candidate goals. Mobile floor search supplies the current posture
+with its linear joint retracted to one tracking allowance inside its lower bound,
+followed by the recorded initial pose. A seed is usable only after its entire
+incoming edge certifies, and its outgoing edge must also certify; neither the
+retraction nor a seed-to-goal bridge bypasses collision checks.
 These are local planning limits; motion authority, phase/view budgets and physical
 acceptance limits are unchanged.
 Mobile mapping uses 10 mm cells with a fixed origin centred on the initial measured

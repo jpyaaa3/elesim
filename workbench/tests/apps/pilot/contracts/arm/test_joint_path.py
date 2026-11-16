@@ -37,6 +37,18 @@ def test_multi_goal_forest_does_not_accept_an_invalid_goal_or_seed():
     assert all(np.linalg.norm(q[:2])>.35 for q in path)
 
 
+def test_certified_seed_connects_a_blocked_direct_route_within_three_checks():
+    start,goal,samples,bounds,certify,checked=problem()
+    via=np.array([0.,.8,0.,0.])
+    path,report=connect_joint_path(start,[goal],bounds,certify,samples=samples,
+        seeds=[via],max_checks=3)
+    assert path is not None and report['status']=='found'
+    np.testing.assert_array_equal(path,[start,via,goal])
+    assert report['edge_checks']==len(checked)==3
+    assert all(any(np.array_equal(a,x) and np.array_equal(b,y) for x,y in checked)
+        for a,b in zip(path,path[1:]))
+
+
 def test_exhausted_budget_never_returns_an_uncertified_partial_route():
     start,goal,samples,bounds,certify,checked=problem()
     path,report=connect_joint_path(start,[goal],bounds,certify,samples=samples,max_checks=1)

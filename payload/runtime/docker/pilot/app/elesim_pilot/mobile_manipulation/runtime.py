@@ -431,8 +431,10 @@ class SimPorts:
                 self.mapping_views.append(t.copy());return result
             from elesim_pilot.robot.arm.joint_path import connect_joint_path
             generation=self.generation;goals=detours[:64]
+            retracted=current.copy()
+            retracted[0]=min(current[0],self.arm.bounds[0,0]+self.arm.uncertainty[0])
             path,report=connect_joint_path(current,[q for q,t in goals],self.arm.bounds,
-                self.collision.certify_segment,samples=qs,seeds=self.history[:1],
+                self.collision.certify_segment,samples=qs,seeds=[retracted,*self.history[:1]],
                 cancelled=lambda:self.stopped or self.generation!=generation)
             self._summary['floor_search']['joint_search']=report
             if path is not None:
