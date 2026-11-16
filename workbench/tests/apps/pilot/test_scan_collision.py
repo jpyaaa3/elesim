@@ -101,3 +101,35 @@ def test_numerical_view_constraints_use_the_unchanged_configuration_admission(re
     if obstacle:safety.tree=cKDTree([safety._centers(interior)[-1]])
     for q in (interior,np.zeros(4),np.array([-.12,0.,-.59,.59])):
         assert bool(np.all(safety.configuration_margins(q)>0))==safety.configuration_free(q)
+
+
+def test_view_constraints_reserve_rigid_base_jitter_from_observed_surfaces():
+    from scipy.spatial.transform import Rotation
+    def poses(q):
+        pose=np.eye(4);pose[0,3]=1.+q[0];return {'tip':pose}
+    arm=NS(names=['tip'],radii={'tip':np.array([.01])},local={'tip':np.zeros((1,3))},
+        ancestry={'tip':[0]},bounds=np.array([[-1.,1.]]*4),uncertainty=np.array([.003,0.,0.,0.]),
+        joints=[dict(index=0,multiplier=1.,kind='prismatic',t=np.eye(4))],link_poses=poses,
+        pair_clearances=lambda q,**kw:np.ones(1),_scaled_required_gap=lambda scale:np.zeros(1),
+        configuration_free=lambda q,**kw:True)
+    safety=ScanCollision(arm,np.eye(4),reserve_tracking=True)
+    safety.tree=cKDTree([[1.0315,0.,0.]])
+    edge=np.zeros(4)
+    assert safety.configuration_free(edge)
+    assert np.min(safety.configuration_margins(edge,base_position_error_m=.002,
+        base_angle_error_rad=np.deg2rad(.25)))<0
+    safe=np.array([-.01,0.,0.,0.]);margin=safety.configuration_margins(safe,
+        base_position_error_m=.002,base_angle_error_rad=np.deg2rad(.25))
+    assert np.all(margin>0) and margin[0]==1.  # Common rigid motion leaves self separation unchanged.
+    for axis in np.eye(3):
+        for sign in (-1,1):
+            safety.base=np.eye(4);safety.base[:3,3]=axis*sign*.002
+            safety.base[:3,:3]=Rotation.from_rotvec(axis*sign*np.deg2rad(.25)).as_matrix()
+            assert safety.configuration_free(safe)
+
+
+@pytest.mark.parametrize('position,angle',[(np.nan,0.),(-.1,0.),(0.,-.1),(0.,np.inf),(0.,2*np.pi)])
+def test_invalid_frame_uncertainty_fails_before_geometry_queries(position,angle):
+    safety=ScanCollision.__new__(ScanCollision)
+    with pytest.raises(ValueError,match='arm-base uncertainty'):
+        safety.configuration_margins(np.zeros(4),base_position_error_m=position,base_angle_error_rad=angle)

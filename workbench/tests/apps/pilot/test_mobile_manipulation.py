@@ -405,13 +405,16 @@ def test_floor_search_checks_direct_candidates_before_certified_history_detours(
     assert not ports.grid.free and not ports.grid.blocked
 
 
-@pytest.mark.parametrize('case',['accepted','blocked_path','lost_reserve','moved_body'])
+@pytest.mark.parametrize('case',['accepted','measured_jitter','blocked_path','lost_reserve','moved_body'])
 def test_refined_floor_goal_still_requires_a_live_path_reserve_and_view(monkeypatch,tmp_path,case):
     from elesim_pilot.mobile_manipulation import runtime
     from elesim_pilot.robot.arm import view_refinement
     p=runtime.SimPorts.__new__(runtime.SimPorts);current=np.zeros(4);goal=np.ones(4)*.05
     p.arm=NS(bounds=np.array([[-.2,.2]]*4),uncertainty=np.array([.001,.015,.015,.015]))
-    p.collision=NS(base=np.eye(4),configuration_margins=lambda q:np.array([.1]),
+    reserved=[]
+    def margins(q,**kwargs):
+        reserved.append(kwargs);return np.array([.1])
+    p.collision=NS(base=np.eye(4),configuration_margins=margins,
         configuration_free=lambda q:case!='lost_reserve')
     p.mapping_intrinsics=NS(fx=500.,fy=500.,cx=320.,cy=240.,width=640,height=480)
     p.mapping_views=[];p.generation=0;p.stopped=False;p._summary={'floor_search':{}}
@@ -420,18 +423,23 @@ def test_refined_floor_goal_still_requires_a_live_path_reserve_and_view(monkeypa
         pose=np.diag([1.,-1.,-1.,1.]);pose[:3,3]=[.45,0.,.5]
         return NS(camera_pose=lambda q:base_world_transform@pose)
     monkeypatch.setattr(runtime,'ArmCameraModel',camera_model)
-    monkeypatch.setattr(view_refinement,'refine_view',lambda *a,**kw:(goal.copy(),dict(status='found')))
+    def refine(*args,**kwargs):
+        args[4](goal)
+        return goal.copy(),dict(status='found')
+    monkeypatch.setattr(view_refinement,'refine_view',refine)
     checked=[]
     def prepare(waypoints):
         checked.extend(waypoints)
         if case=='blocked_path':raise runtime.ArmPathBlocked('blocked live segment')
         if case=='moved_body':p.collision.base[0,3]=1.
+        if case=='measured_jitter':p.collision.base[0,3]=.001
         return [current.copy(),*waypoints]
     p._arm_prepare=prepare
     model=camera_model(base_world_transform=np.eye(4))
     path=p._refine_floor_prepare(current,np.array([[.45,-.01,0.],[.45,.01,0.]]),model,[])
     assert checked
-    if case=='accepted':
+    assert any(x.get('base_position_error_m',0)>0 and x.get('base_angle_error_rad',0)>0 for x in reserved)
+    if case in {'accepted','measured_jitter'}:
         np.testing.assert_array_equal(path[-1],goal)
         assert len(p.mapping_views)==1
         assert p._summary['floor_search']['path_strategy']=='refined_direct'

@@ -1053,6 +1053,11 @@ If cached floor samples provide no admissible endpoint, bounded continuous view
 IK can propose a nearby endpoint using the same FK, collision and tracking model.
 It is planning only: live endpoint admission, a continuous direct path certificate
 and an actual subsequent depth observation remain required.
+The continuous proposal reserves the existing 2 mm / 0.25 degree arm-base
+stability allowance against observed surfaces using each sphere's rigid-motion
+displacement bound. Self-separation is base-invariant. Fresh base stability,
+endpoint admission, and path/view checks remain mandatory; this is a planning
+reserve rather than a relaxed execution tolerance.
 
 The parent grants one child arm/base control at a time. Pure planning/inference
 runs in one worker; DDS-thread ticks alone send motion. Existing LiveScan runs as

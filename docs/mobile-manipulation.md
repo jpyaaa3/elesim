@@ -100,6 +100,11 @@ margins, inner joint bounds, and a 5% image reserve. A returned optimizer result
 still needs exact endpoint admission, a direct continuous certificate from fresh
 measured joints, and the original frustum/downward/range/novelty checks at the live
 base. Unknown cells only become free after actual depth observations.
+Continuous view IK also reserves the existing arm-base stability allowance
+(2 mm and 0.25 degrees) against observed surfaces. For each sphere centre at
+distance `r` from the arm base, this adds `2 mm + 2*r*sin(0.25 degrees/2)`;
+rigid base motion does not change self-separation. The live base must still pass
+that original stability guard and all original endpoint/path/view checks.
 These are local planning limits; motion authority, phase/view budgets and physical
 acceptance limits are unchanged.
 Mobile mapping uses 10 mm cells with a fixed origin centred on the initial measured

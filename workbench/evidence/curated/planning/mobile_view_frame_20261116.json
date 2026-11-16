@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "Same fixed D100 fixture; continuous floor view endpoint stability",
+  "installed_baseline": {
+    "source": "2fddbf41",
+    "run": "run-45",
+    "accepted": false,
+    "elapsed_s": 471.40694323900243,
+    "reason": "floor observation arm paths are blocked",
+    "floor_search": {
+      "arrival_rejections": 519,
+      "blocked_paths": 0,
+      "cached": true,
+      "candidates": 519,
+      "detour_attempts": 0,
+      "goal_footprint_focus": true,
+      "sampled": 12000,
+      "unknown_probes": 21,
+      "view_refinement": {
+        "best_constraint_m": 0.0003921708811162476,
+        "elapsed_s": 1.4830857021734118,
+        "evaluations": 34,
+        "minimum_clearance_m": 1.0000446831470722e-06,
+        "optimizer_success": true,
+        "path_accepted": false,
+        "path_reason": "refined view lost its live admission margin",
+        "status": "found",
+        "trials": 1
+      }
+    },
+    "next_fix": "Reserve existing arm-base stability displacement in observed-surface view constraints."
+  },
+  "mechanism": {
+    "optimized_environment_margin_m": 1.0000446831470722e-06,
+    "observed_planning_body_translation_approx_m": 0.000215,
+    "diagnostic_directional_translation_m": 1e-05,
+    "diagnostic_unbuffered_admission_lost": true
+  },
+  "fix": {
+    "existing_position_tolerance_m": 0.002,
+    "existing_rotation_tolerance_deg": 0.25,
+    "additional_surface_margin": "position + 2*distance_from_arm_base*sin(angle/2)",
+    "self_collision_unchanged": true,
+    "live_original_stability_and_endpoint_and_path_and_view_gates": true,
+    "budgets_unchanged": true
+  },
+  "runtime_replay": {
+    "diagnostic_only": true,
+    "not_installed_acceptance": true,
+    "camera_truth_used": false,
+    "collision_cloud_from_recorded_run40": true,
+    "camera_state_from_postmortem_run44": true,
+    "previous_views_inferred_from_measured_encoders": true,
+    "elapsed_s": 0.734602808006457,
+    "path": [
+      [
+        -0.025543570518493652,
+        0.8204522132873535,
+        0.22876284420490264,
+        0.24159948527812958
+      ],
+      [
+        -0.02205270664517045,
+        0.8830547648179847,
+        0.22245241647461683,
+        0.29273671686141606
+      ]
+    ],
+    "summary": {
+      "floor_search": {
+        "view_refinement": {
+          "status": "found",
+          "elapsed_s": 0.6738964589967509,
+          "evaluations": 33,
+          "trials": 1,
+          "best_constraint_m": 6.502342130020331e-07,
+          "optimizer_success": true,
+          "minimum_clearance_m": 1.00014693613093e-06,
+          "target_q": [
+            -0.02205270664517045,
+            0.8830547648179847,
+            0.22245241647461683,
+            0.29273671686141606
+          ],
+          "base_position_delta_m": 0.0,
+          "base_rotation_delta_rad": 0.0,
+          "base_stable": true,
+          "endpoint_admitted": true,
+          "view_admitted": true,
+          "live_frustum_margin_m": 0.04043468791574012,
+          "live_minimum_clearance_m": 1.00014693613093e-06,
+          "path_accepted": true
+        },
+        "path_strategy": "refined_direct"
+      }
+    },
+    "certificates": [
+      {
+        "accepted": true,
+        "reason": "continuous_sphere_separation",
+        "checked_configurations": 3,
+        "minimum_margin_m": 0.0008685451493504193,
+        "environment_scope": "observed_surfaces_only",
+        "environment_checks": 2
+      }
+    ]
+  },
+  "perturbation_replay": {
+    "diagnostic_only": true,
+    "not_installed_acceptance": true,
+    "collision_cloud_from_record40": true,
+    "unbuffered_admission_at_reference": true,
+    "unbuffered_admission_after_10_micrometre_z_change": true,
+    "elapsed_s": 0.6291658780028229,
+    "search": {
+      "status": "found",
+      "elapsed_s": 0.6287233990005916,
+      "evaluations": 33,
+      "trials": 1,
+      "best_constraint_m": 6.502342130020331e-07,
+      "optimizer_success": true,
+      "minimum_clearance_m": 1.00014693613093e-06
+    },
+    "q": [
+      -0.02205270664517045,
+      0.8830547648179847,
+      0.22245241647461683,
+      0.29273671686141606
+    ],
+    "sampled_perturbations": 49,
+    "all_reserved_endpoints_admitted": true,
+    "direct_certificate": {
+      "accepted": true,
+      "reason": "continuous_sphere_separation",
+      "checked_configurations": 3,
+      "minimum_margin_m": 0.0008685451493504193,
+      "environment_scope": "observed_surfaces_only",
+      "environment_checks": 2
+    },
+    "ordinary_environment_margin_m": 0.0032575946729334893,
+    "unbuffered_admission_after_10_micrometres_toward_nearest_surface": false,
+    "unbuffered_admission_before_directional_test": true,
+    "unbuffered_reserved_environment_margin_after_shift_m": -8.99925353693709e-06
+  },
+  "limitations": [
+    "Postmortem run-44 encoders/body are used, not the run-45 rejected planning capture.",
+    "Collision cloud is recorded run-40 data, not the complete run-44/45 accumulated cloud.",
+    "Prior views are inferred from measured encoders and the deterministic FK cache.",
+    "49 perturbations are sampled diagnostics, not live execution proof."
+  ],
+  "tests": {
+    "host": "135 passed in 5.80s",
+    "canonical_gates_run": false,
+    "canonical_reason": "Current installation has no usable generated development attachment."
+  },
+  "acceptance_unchanged": true,
+  "installed_retest_pending": true,
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "c6a8b95f5faee9b2a022699e036555bdd669e24956ea4f7e46f5e508e6db290e",
+    "payload/runtime/docker/pilot/app/elesim_pilot/reconstruction/scan_collision.py": "69cf454779a4a65ebe781836b03b78d2bb9f22b843ee7effc839f6e3af9cc999",
+    "payload/runtime/docker/pilot/app/elesim_pilot/arm_trajectory.py": "c087b75f6a13be12895ebe1793929aa0b001ca6321dc6a17a66834f4c8cf3376"
+  },
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-45/report.json",
+      "bytes": 13199,
+      "sha256": "34fff0ee5b81acada529be567cb82807b437e63c66fb594cc0c1e3ad10a92076"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-45/telemetry.jsonl",
+      "bytes": 4776722,
+      "sha256": "d3d0b6dec577a47c22c3a5b8428827429c4677908acd2b68a700ee036b371a0e"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-45/observer.mp4",
+      "bytes": 9862405,
+      "sha256": "9906005bf512ba64b111e9ccb11fcfa3c9e0c6aa8bd2c5eee95d51ca3f8f1b38"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-45/hand_eye_preview.mp4",
+      "bytes": 17975196,
+      "sha256": "78e32e5114149b496a0b3723da8e01f2644e3d4fb0e73e6792ffc3285c8e6fb9"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v24-remote.json",
+      "bytes": 2858,
+      "sha256": "a3571c635a33fe10a6bb30b9f116ca95b1e60a32b75cf4c5e722d8f2261cbdd4"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v24-operator.json",
+      "bytes": 264,
+      "sha256": "0bd591729cdd9370624e8b0e09f57d0e08c44d84c88f4267ae3107ee2f5d6a4f"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/view-frame-runtime-replay44.json",
+      "bytes": 1665,
+      "sha256": "1ee5a83217b7bef3b32991d0da8106728fcbe409fb6eb32e6abc03803d39497b"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/refinement-frame-reserve-replay44.json",
+      "bytes": 1211,
+      "sha256": "b7ba107e92ac1cb3117eae667449709a243f25c70a1226fbbd91c67f3972dc2b"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/view-frame-before.log",
+      "bytes": 1649,
+      "sha256": "37a41c55656bbaab11b433e7b8f404895941c209317e1468211104a0cd6a1915"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/view-frame-release-tests.log",
+      "bytes": 180,
+      "sha256": "d2cd374f2beed2201c128afb6aa52b83d99e4565c77944246d4142dfa808cdbd"
+    }
+  ]
+}

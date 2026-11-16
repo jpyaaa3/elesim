@@ -357,6 +357,8 @@ class SimPorts:
         return result
     def _refine_floor_prepare(self,current,probes,model,seeds):
         from elesim_pilot.robot.arm.view_refinement import refine_view,frustum_clearances
+        from elesim_pilot.arm_trajectory import (arm_base_pose_delta,require_stable_arm_base,
+            _ARM_BASE_POSITION_TOLERANCE_M,_ARM_BASE_ANGLE_TOLERANCE_RAD)
         intr=getattr(self,'mapping_intrinsics',None)
         if intr is None or not len(probes):return None
         low,high=np.min(probes[:,:2],axis=0),np.max(probes[:,:2],axis=0)
@@ -377,12 +379,18 @@ class SimPorts:
             return not any(np.linalg.norm(pose[:3,3]-p[:3,3])<.03
                 and direction@p[:3,2]>np.cos(np.deg2rad(10)) for p in self.mapping_views)
         generation=self.generation
+        reference_base=self.collision.base.copy()
+        def margins(q):
+            return self.collision.configuration_margins(q,
+                base_position_error_m=_ARM_BASE_POSITION_TOLERANCE_M,
+                base_angle_error_rad=_ARM_BASE_ANGLE_TOLERANCE_RAD)
         q,report=refine_view(anchor,points,bounds,model.camera_pose,
-            self.collision.configuration_margins,intrinsic,motion_rates=JointApproach.rates,
+            margins,intrinsic,motion_rates=JointApproach.rates,
             seeds=starts,admissible=admissible,
             cancelled=lambda:self.stopped or self.generation!=generation)
         self._summary['floor_search']['view_refinement']=report
         if q is None:return None
+        report['target_q']=q.tolist()
         try:result=self._arm_prepare([q])
         except ArmPathBlocked as exc:
             report.update(path_accepted=False,path_reason=str(exc));return None
@@ -391,9 +399,18 @@ class SimPorts:
         live=ArmCameraModel(self.scan.model_dir.parents[1]/'arm/default.json',self.scan.hand_eye,
             base_world_transform=self.collision.base)
         pose=live.camera_pose(q)
-        if (not self.collision.configuration_free(q) or not admissible(q,pose)
-                or np.min(frustum_clearances(pose,points,intrinsic,padding_fraction=0.))<0):
-            report.update(path_accepted=False,path_reason='refined view lost its live admission margin')
+        position_delta,angle_delta=arm_base_pose_delta(reference_base,self.collision.base)
+        try:require_stable_arm_base(reference_base,self.collision.base);stable=True
+        except RuntimeError:stable=False
+        endpoint=bool(self.collision.configuration_free(q));view=bool(admissible(q,pose))
+        frustum=float(np.min(frustum_clearances(pose,points,intrinsic,padding_fraction=0.)))
+        margin=float(np.min(self.collision.configuration_margins(q)))
+        report.update(base_position_delta_m=position_delta,base_rotation_delta_rad=angle_delta,
+            base_stable=stable,endpoint_admitted=endpoint,view_admitted=view,
+            live_frustum_margin_m=frustum,live_minimum_clearance_m=margin if np.isfinite(margin) else None)
+        failed=[name for name,ok in [('base',stable),('endpoint',endpoint),('view',view),('frustum',frustum>=0)] if not ok]
+        if failed:
+            report.update(path_accepted=False,path_reason='refined live admission failed: '+', '.join(failed))
             return None
         report['path_accepted']=True
         self._summary['floor_search']['path_strategy']='refined_direct'

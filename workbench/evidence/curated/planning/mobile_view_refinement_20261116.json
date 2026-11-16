@@ -405,7 +405,7 @@
     ]
   },
   "acceptance_unchanged": true,
-  "installed_retest_pending": true,
+  "installed_retest_pending": false,
   "source_sha256": {
     "payload/runtime/docker/pilot/app/elesim_pilot/robot/arm/view_refinement.py": "6c7f5207c8a1e9f92a0727fb07cdb150defb24969494f78e6bd0e73563d0086e",
     "payload/runtime/docker/pilot/app/elesim_pilot/reconstruction/scan_collision.py": "a5fed35fd28bbf6094ea6c50e4a923dace715aea398fb4ae06d4f728fd22c41e",
@@ -467,5 +467,34 @@
       "bytes": 180,
       "sha256": "1be000bf02035ea673e326d5b5364020c6d5fe8602e2d451908c3ce66390b736"
     }
-  ]
+  ],
+  "installed_retest": {
+    "source": "2fddbf41",
+    "run": "run-45",
+    "accepted": false,
+    "elapsed_s": 471.40694323900243,
+    "reason": "floor observation arm paths are blocked",
+    "floor_search": {
+      "arrival_rejections": 519,
+      "blocked_paths": 0,
+      "cached": true,
+      "candidates": 519,
+      "detour_attempts": 0,
+      "goal_footprint_focus": true,
+      "sampled": 12000,
+      "unknown_probes": 21,
+      "view_refinement": {
+        "best_constraint_m": 0.0003921708811162476,
+        "elapsed_s": 1.4830857021734118,
+        "evaluations": 34,
+        "minimum_clearance_m": 1.0000446831470722e-06,
+        "optimizer_success": true,
+        "path_accepted": false,
+        "path_reason": "refined view lost its live admission margin",
+        "status": "found",
+        "trials": 1
+      }
+    },
+    "next_fix": "Reserve existing arm-base stability displacement in observed-surface view constraints."
+  }
 }
