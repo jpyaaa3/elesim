@@ -85,6 +85,36 @@ def test_active_acquisition_records_silhouettes_and_exports_separate_scene_objec
     assert result.objects[0].shape.predicted.shape == (1, 3)
 
 
+@pytest.mark.parametrize('ready',[False,True])
+def test_task_readiness_uses_two_accepted_views_and_the_exact_published_observed_cloud(tmp_path,ready):
+    engine=ActiveScan(pipeline(tmp_path),CameraModel(),Planner(),max_views=3)
+    acquired=[];checked=[]
+    def capture(q,certificate):
+        acquired.append(q.copy());return Measurement(sensor(q,len(acquired)))
+    def finish(points):
+        checked.append((len(acquired),points.copy()));return ready
+    result,report=engine.run(capture,np.zeros(4),Task('orchard','apple-1'),tmp_path/'scan',finish_when=finish)
+    assert len(acquired)==(2 if ready else 3)
+    assert checked[0][0]==2
+    if ready:
+        assert report['stop_reason']=='task_observation_ready'
+        target=next(o for o in result.objects if o.shape.cloud.object_id=='apple-1')
+        np.testing.assert_array_equal(checked[-1][1],target.shape.cloud.observed)
+    else:assert report['stop_reason']=='view_budget'
+    assert not report['geometry_complete_claimed'] and report['needs_more_observation']
+
+
+def test_task_readiness_failure_cannot_publish_a_successful_scene(tmp_path):
+    count=[0]
+    def capture(q,certificate):
+        count[0]+=1;return Measurement(sensor(q,count[0]))
+    def failing(points):raise RuntimeError('task readiness failed')
+    engine=ActiveScan(pipeline(tmp_path),CameraModel(),Planner(),max_views=3)
+    with pytest.raises(RuntimeError,match='task readiness failed'):
+        engine.run(capture,np.zeros(4),Task('orchard','apple-1'),tmp_path/'scan',finish_when=failing)
+    assert not (tmp_path/'scan/scene/scene.json').exists()
+
+
 @pytest.mark.parametrize('limit',[0,1,2])
 def test_acquisition_budget_finishes_only_two_or_more_already_accepted_views(tmp_path,limit):
     from elesim_pilot.reconstruction.scan import AcquisitionLimit

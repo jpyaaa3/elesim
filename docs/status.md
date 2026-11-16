@@ -8,6 +8,17 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### 설치본 모바일 관측·끌어안기 평가 미통과 (2026-11-16)
 
+- 공식 `69d5ba5b`의 `run-36`은 우회 경로 실제 이동·세 번의 바닥 관측과 출발
+  여유 확보·Home 복귀·**5시점 scan/AdaPoinTr/80,516 triangles 메시 발행**을
+  통과했다. 이후 **793.77초에 local map budget exceeded**로 중단됐으며 파지와
+  loaded hold에는 도달하지 않았다. 원본 5시점·메시·두 영상을 보존했다.
+- 지도 한도를 늘리지 않고 기존 40,000칸에서 계산한 200×200칸 로컬 창을 사용한다.
+  창 밖이나 퇴역한 칸은 unknown이며 충돌 점군·안전 기준은 유지한다. 센서 재생에서
+  창 안의 관측점은 모두 동일했다. D100 관측은 최소 두 accepted view의 **최종
+  observed cloud**가 기존 직경/오차 조건을 만족하면 마무리하고, 부족하면 기존
+  최대 12시점까지 계속한다. 일반 scan은 선택적인 작업 조건이 없으면 그대로다.
+  같은 실제 자료의 2시점 fit은 **99.917 mm / 오차 여유 3.391 mm**였다. Host
+  **165 passed**이며, 새 공식 릴리스 발행·동일 전체 케이스 재평가는 남아 있다.
 - 공식 `bc23fe74`의 `run-32`는 첫 바닥 관측 뒤 **82.63초에 stale feedback**으로,
   동일 조건의 `run-33`은 두 번째 관측 경로를 찾지 못해 **112.76초에 실패**했다.
   전 과정 합격은 여전히 미통과다. 두 공식 이미지의 소스·Enforce·GPU2를 확인했다.
@@ -90,10 +101,10 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
   위 `run-25`에서 바닥 관측과 계획까지 통과했으며, 재생을 실제 파지 성공으로
   취급하지 않는다.
   [재현 자료·소스 SHA·검증 범위](../workbench/evidence/curated/planning/mobile_floor_observation_20261116.json).
-- 최신 활성 공식 소스는 `bc23fe74`이며 `/home/user/ws/newsim`의 UI와
+- 최신 활성 공식 소스는 `69d5ba5b`이며 `/home/user/ws/newsim`의 UI와
   `/home/hckang/ws/newsim`의 Pilot/Sim에 updater 발행·등록·활성화를 완료했다.
   이미지 안의 소스 SHA, SROS2 Enforce와 GPU2를 대조했다. 아래의 `run-17`부터
-  `run-28`까지는 수정 경위를 남긴 과거 실행이며, 현재 공식 결과는 위 `run-32`·`run-33`이며 `run-31`·`run-34`·`run-35`는 진단 전용이다.
+  `run-28`까지는 수정 경위를 남긴 과거 실행이며, 현재 공식 결과는 위 `run-36`이며 `run-31`·`run-34`·`run-35`는 진단 전용이다.
 - `run-23`은 **463.15초 후 accepted=false**로 끝났다. 실제 2시점 촬영,
   AdaPoinTr와 메시 발행, 스캔 후 RGB-D 재취득은 통과했다. 물체를 다시 찾는
   복귀도 **history prefix 3구간 / 48.52초**로 통과해 이전 복귀 timeout을 해결했다.

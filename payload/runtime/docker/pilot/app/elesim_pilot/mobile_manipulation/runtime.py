@@ -208,6 +208,7 @@ class SimPorts:
         full=reconstruct_view(measurement.sensor,np.ones(measurement.sensor.depth_raw.shape,bool),pose,max_points=6000).points_before
         centers=self.collision._centers(measurement.sensor.encoder_q)
         snap=self.feedback.snapshot(self.route()[:2]);b=snap['base']
+        self.grid.recenter(b['pos'][:2])
         def exclude_robot(points):
             kept=[]
             for start in range(0,len(points),256):
@@ -223,7 +224,7 @@ class SimPorts:
         fused=self.collision.cloud.points()
         self.collision.tree=cKDTree(fused) if len(fused) else None
         floor=exclude_robot(floor_cell_points(measurement.sensor,pose,
-            resolution=self.grid.resolution,max_cells=self.grid.max_cells))
+            resolution=self.grid.resolution,max_cells=self.grid.max_cells,cell_window=self.grid.window))
         self.grid.observe(np.concatenate([environment,floor]))
         self._summary['floor_cells_in_capture']=len(floor)
         if not masks:
@@ -506,7 +507,8 @@ class SimPorts:
         elif phase=='scan':
             self.scan.start(self.target_id,self.s.max_views,roi_height_m=self.s.scan_roi_height_m,
                 retain_lease=True,tracking_uncertainty=[.001,.015,.015,.015],
-                finish_drift_bounds=(self.s.hug_body_position_tolerance_m,self.s.hug_body_rotation_tolerance_rad))
+                finish_drift_bounds=(self.s.hug_body_position_tolerance_m,self.s.hug_body_rotation_tolerance_rad),
+                finish_when=self._scan_observation_ready)
         elif phase=='check_grasp':op['future']=self.pool.submit(self._check_grasp)
         elif phase=='hug':
             self.model.validate_robot(self.scan.model_dir/'arm.urdf')
@@ -539,6 +541,14 @@ class SimPorts:
         if row is None:return dict(accepted=False)
         self._selected_hug=row;self._summary.update(solver_xy_mm=row['xy_mm'],q_deg=row['q_deg'],weights=row['weights'])
         return dict(accepted=True)
+    @staticmethod
+    def _scan_quality(estimate):
+        return estimate.error_m<=.012 and abs(estimate.diameter-.1)<=.002
+    def _scan_observation_ready(self,points):
+        try:
+            estimate=TargetTrack(self.target_id).update(points,stamp=self.clock(),source=self.scan_source)
+        except ValueError:return False
+        return self._scan_quality(estimate)
     def poll(self,op):
         if op is not self.operation:raise RuntimeError('stale mobile operation')
         phase=op['phase'];now=self.clock();snap=self.feedback.snapshot(self.route()[:2])
@@ -600,7 +610,7 @@ class SimPorts:
             self.track.update(points,stamp=stamp,source=self.scan_source)
             self.last_observation_base=snap['pose'].copy();self.predicted_error=self.track.estimate.error_m
             self.history+=list(map(np.array,status.get('return_q_path',[])))
-            return dict(quality_ok=self.track.estimate.error_m<=.012 and abs(self.track.estimate.diameter-.1)<=.002)
+            return dict(quality_ok=self._scan_quality(self.track.estimate))
         elif phase=='hug':
             measured=self._measured_body(snap);initial=op['body_frame']
             movement=measured[:3,3]-initial[:3,3]

@@ -132,7 +132,7 @@ class LiveScan:
                 geometry_complete_claimed=False, **{**self._progress, **self._result})
 
     def start(self, target_id='target', max_views=12, *, roi_height_m=None, retain_lease=False,
-              tracking_uncertainty=None,finish_drift_bounds=None):
+              tracking_uncertainty=None,finish_drift_bounds=None,finish_when=None):
         if self.active or (self._worker is not None and self._worker.is_alive()) or self._release_pending:
             raise RuntimeError('scan session already active or stopping')
         if self._busy():
@@ -147,6 +147,8 @@ class LiveScan:
             raise ValueError('measured scan start is outside configured operating bounds')
         if type(max_views) is not int or not 2 <= max_views <= 24:
             raise ValueError('scan view budget must be 2..24')
+        if finish_when is not None and not callable(finish_when):
+            raise ValueError('scan readiness must be a callable')
         uncertainty = np.asarray(tracking_uncertainty if tracking_uncertainty is not None else [.003,.04,.04,.04],float)
         if uncertainty.shape != (4,) or not np.isfinite(uncertainty).all() or np.any(uncertainty<=0):
             raise ValueError('invalid scan tracking uncertainty')
@@ -252,8 +254,9 @@ class LiveScan:
                         raise PipelineCancelled('scan cancelled')
                     raise TimeoutError('no fresh coherent RGB-D after measured scan settling')
 
-                _, report = engine.run(acquire, feedback['q'], task, self.output_root/job_id,
-                    cancelled=cancelled, progress=progress)
+                run_options=dict(cancelled=cancelled,progress=progress)
+                if finish_when is not None:run_options['finish_when']=finish_when
+                _, report = engine.run(acquire, feedback['q'], task, self.output_root/job_id,**run_options)
                 publication = (scene_publication(report['scene_manifest'], self.output_root, *route[:2])
                     if report.get('scene_manifest') else {})
                 with self._condition:

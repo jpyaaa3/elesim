@@ -79,6 +79,15 @@ is checked again against fresh measured joints and the current base before any
 execution. Intermediate waypoints are retained for future certified returns.
 These are local planning limits; motion authority, phase/view budgets and physical
 acceptance limits are unchanged.
+The local map recentres a square cell window whose area fits its existing
+40,000-cell budget (200 by 200 at the default resolution). Outside/evicted cells
+remain unknown. This bounds retained distant floor measurements without expanding
+the declared free stance or discarding collision-cloud obstacles.
+Mobile D100 scanning may finish after at least two accepted views when the exact
+observed cloud to be published meets the existing diameter and position-allowance
+gates. It otherwise continues to the existing maximum of twelve views. This
+optional task condition does not assert hidden-surface completeness; AdaPoinTr,
+mesh validation, final observed-only fitting and independent hold checks remain.
 Base route planning additionally checks measured floor around every sampled
 footprint, including the starting stance. The padding is the existing base
 position tolerance plus `2 R sin(yaw_tolerance / 2)`, where R is the transport

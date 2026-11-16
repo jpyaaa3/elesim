@@ -4,7 +4,7 @@ import numpy as np
 from .contracts import planar,angle
 
 
-def floor_cell_points(sensor,world_from_camera,*,resolution,max_cells,floor_z=0.):
+def floor_cell_points(sensor,world_from_camera,*,resolution,max_cells,floor_z=0.,cell_window=None):
     """Keep an actual depth witness per floor cell before cloud thinning.
 
     Occluded and invalid pixels contribute nothing. Returned measurements still
@@ -21,6 +21,10 @@ def floor_cell_points(sensor,world_from_camera,*,resolution,max_cells,floor_z=0.
     z=depth[v,u]
     points=np.column_stack([x[u]*z,y[v]*z,z])@pose[:3,:3].T+pose[:3,3]
     cells=np.floor(points[:,:2]/resolution).astype(int)
+    if cell_window is not None:
+        low,high=cell_window
+        inside=np.all((cells>=low)&(cells<high),axis=1)
+        cells,points=cells[inside],points[inside]
     # np.unique(axis=0) sorts structured records while holding the GIL on
     # large depth frames. Stable numeric-key sorting preserves the first
     # actual pixel in each cell without starving the feedback receiver.
@@ -35,13 +39,27 @@ def floor_cell_points(sensor,world_from_camera,*,resolution,max_cells,floor_z=0.
 class LocalMap:
     def __init__(self,resolution=.04,max_cells=40000):
         self.resolution=resolution;self.max_cells=max_cells
-        self.free=set();self.blocked=set();self.revision=0
+        self.free=set();self.blocked=set();self.revision=0;self.window=None
     def cell(self,xy):return tuple(np.floor(np.asarray(xy)[:2]/self.resolution).astype(int))
+    def recenter(self,xy):
+        """Keep a capacity-derived local window; discarded cells become unknown."""
+        xy=np.asarray(xy,float)
+        if xy.shape!=(2,) or not np.isfinite(xy).all():raise ValueError('invalid local map center')
+        width=int(np.sqrt(self.max_cells));low=np.asarray(self.cell(xy))-width//2
+        high=low+width
+        if self.window is not None and np.array_equal(low,self.window[0]):return
+        self.window=(low,high)
+        self.free={c for c in self.free if self._inside(c)}
+        self.blocked={c for c in self.blocked if self._inside(c)}
+        self.revision+=1
+    def _inside(self,cell):
+        return self.window is None or all(lo<=v<hi for v,lo,hi in zip(cell,*self.window))
     def observe(self,points,floor_z=0.):
         p=np.asarray(points,float)
         if p.ndim!=2 or p.shape[1]!=3 or len(p)>100000 or not np.isfinite(p).all():raise ValueError('invalid map points')
         for row in p:
             c=self.cell(row)
+            if not self._inside(c):continue
             if abs(row[2]-floor_z)<.025:self.free.add(c)
             elif floor_z+.04<row[2]<floor_z+1.7:self.blocked.add(c)
         self.free-=self.blocked

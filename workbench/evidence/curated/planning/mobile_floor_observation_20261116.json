@@ -558,5 +558,176 @@
         "sha256": "40aad266cd30dbd66be4ba3d5cc58ce253a307831d60c4b1e55c0c9804c98b91"
       }
     ]
+  },
+  "local_retention_and_task_readiness": {
+    "installed_revision": "69d5ba5b",
+    "run": "run-36",
+    "accepted": false,
+    "elapsed_s": 793.7675864339981,
+    "reason": "local map budget exceeded",
+    "actual_joint_detour_executed": true,
+    "initial_floor_clearance_passed": true,
+    "scan": {
+      "accepted_views": 5,
+      "phase": "completed",
+      "mesh_triangles": 80516
+    },
+    "changes": [
+      "Recenter a square local grid window derived from the existing cell budget. Evicted/outside cells are unknown, never implicitly free; collision-cloud retention and safety limits are unchanged.",
+      "After at least two accepted scan views, evaluate exactly the final observed target cloud with the existing D100 diameter/error gate. Continue up to the unchanged 12-view cap when inadequate; completion, mesh checks and final fit/hold gates still apply."
+    ],
+    "sensor_replay": {
+      "sensor_replay_only": true,
+      "camera_truth_used": false,
+      "voxel_m": 0.004,
+      "registered_quality": [
+        {
+          "views": 1,
+          "accepted": true,
+          "diameter_mm": 99.67232553477831,
+          "error_m": 0.0035320154288471656,
+          "quality": true
+        },
+        {
+          "views": 2,
+          "accepted": true,
+          "diameter_mm": 99.91703989421214,
+          "error_m": 0.0033908778840732465,
+          "quality": true
+        },
+        {
+          "views": 3,
+          "accepted": true,
+          "diameter_mm": 100.30905590159689,
+          "error_m": 0.0033860208210900735,
+          "quality": true
+        },
+        {
+          "views": 4,
+          "accepted": true,
+          "diameter_mm": 100.24147452464159,
+          "error_m": 0.003369140970727865,
+          "quality": true
+        },
+        {
+          "views": 5,
+          "accepted": true,
+          "diameter_mm": 100.18425626825739,
+          "error_m": 0.0033649908217222263,
+          "quality": true
+        }
+      ],
+      "floor_only_replay": [
+        {
+          "view": 1,
+          "raw_floor_cells": 6439,
+          "retained_floor_cells": 4773,
+          "map_cells": 4773,
+          "same_measurements_inside_window": true
+        },
+        {
+          "view": 2,
+          "raw_floor_cells": 8528,
+          "retained_floor_cells": 5364,
+          "map_cells": 8858,
+          "same_measurements_inside_window": true
+        },
+        {
+          "view": 3,
+          "raw_floor_cells": 6847,
+          "retained_floor_cells": 5383,
+          "map_cells": 11984,
+          "same_measurements_inside_window": true
+        },
+        {
+          "view": 4,
+          "raw_floor_cells": 9100,
+          "retained_floor_cells": 5939,
+          "map_cells": 13117,
+          "same_measurements_inside_window": true
+        },
+        {
+          "view": 5,
+          "raw_floor_cells": 7257,
+          "retained_floor_cells": 5165,
+          "map_cells": 13119,
+          "same_measurements_inside_window": true
+        }
+      ],
+      "local_window_cells": [
+        [
+          -101,
+          -100
+        ],
+        [
+          99,
+          100
+        ]
+      ],
+      "unchanged_map_budget": 40000
+    },
+    "tests": {
+      "host_focused": "165 passed in 25.61s",
+      "canonical_gates_run": false
+    },
+    "installed_retest_pending": true,
+    "source_sha256": {
+      "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/local_map.py": "c8aecd4e0bd50ccb18f430e0f2f38edfc7cfe06e9ef23f0969b7714e35192d49",
+      "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "9af11c016dd157d06181892850f7193d1e33962252b5198fdc13268712730450",
+      "payload/runtime/docker/pilot/app/elesim_pilot/reconstruction/live_scan.py": "bc7d52eeee8fea147522f83ec60f999cf083719d1d61474daac3baa7e2bbc6fe",
+      "payload/runtime/docker/pilot/app/elesim_pilot/reconstruction/scan.py": "4886858fca4470fc7a82752e5bc5ac2ace6dae06b72cdd77629e6413ca6e1006"
+    },
+    "evidence": [
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/run-36/report.json",
+        "bytes": 30766,
+        "sha256": "ca7de48702308cabd74e4608d3a17750fafbf4d010b2d4bc635d966502271234"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/run-36/telemetry.jsonl",
+        "bytes": 9417860,
+        "sha256": "32906d7c2607fa2034bc891ff63c5382ca7c8cf18baabde28993e358f0d803ac"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/run-36/observer.mp4",
+        "bytes": 41828439,
+        "sha256": "4c0059088af1df6b4d13defb774123f99bae01e22b75f778e454b5fb8606227a"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/run-36/hand_eye_preview.mp4",
+        "bytes": 33426147,
+        "sha256": "1d3fef3e21a186271149d370562d58c47d3fa72cf847a3856d690b661873ba0d"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/scan-36.tar.gz",
+        "bytes": 8809696,
+        "sha256": "2181cf590fdabea07ac8ab43ce415e8e9da0bd16bb95e797cb81855660b95337"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/scan-local-quality-replay36.json",
+        "bytes": 1903,
+        "sha256": "e0fc5317d4da2123bbf9dfc65df36c8bd142a29d5f8b20ae7dedcf8abc6015a4"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/local-map-scan-final-tests.log",
+        "bytes": 261,
+        "sha256": "cbc0753c87e7c771cc4c92b3d50e78904426b56a0a73e6d6be5681618b98917a"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/registration-v16.json",
+        "bytes": 3745,
+        "sha256": "ed1941016b57af6b52787c68c53901991d97f98683989e9f2c1262495508a10d"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/official-v16-remote.json",
+        "bytes": 2459,
+        "sha256": "9052683ca9c01dc746a0c5b133f78b0d9c3824198ddac8569a290b21658dcd84"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/official-v16-operator.json",
+        "bytes": 376,
+        "sha256": "fdc78cef005aa73d4bd33d637b8726662998d4e4f2b20afbef791532895a5cc3"
+      }
+    ]
   }
 }

@@ -42,7 +42,10 @@ class ActiveScan:
         self.pipeline, self.camera_model, self.planner = pipeline, camera_model, planner
         self.max_views = max_views
 
-    def run(self, acquire, start_q, task, output, *, cancelled=lambda: False, progress=lambda event: None):
+    def run(self, acquire, start_q, task, output, *, cancelled=lambda: False, progress=lambda event: None,
+            finish_when=None):
+        if finish_when is not None and not callable(finish_when):
+            raise ValueError('scan readiness must be a callable')
         root = Path(output)
         root.mkdir(parents=True, exist_ok=False)
         (root/'frames').mkdir()
@@ -51,7 +54,7 @@ class ActiveScan:
         report = {'schema_version': 1, 'phase': 'acquiring', 'scene_id': task.scene_id,
                   'target_id': task.target_id, 'geometry_complete_claimed': False, 'views': []}
         try:
-            result = self._run(acquire, start_q, task, root, report, cancelled, progress)
+            result = self._run(acquire, start_q, task, root, report, cancelled, progress, finish_when)
             report['phase'] = 'completed'
             return result, report
         except BaseException as exc:
@@ -61,7 +64,7 @@ class ActiveScan:
         finally:
             (root/'scan.json').write_text(json.dumps(report, indent=2, allow_nan=False)+'\n')
 
-    def _run(self, acquire, start_q, task, root, report, cancelled, progress):
+    def _run(self, acquire, start_q, task, root, report, cancelled, progress, finish_when):
         mapper = ScanMap(max_views=self.max_views)
         current = np.array(start_q, dtype=float)
         attempted, accepted_poses, captures, labels = [], [], [], {}
@@ -72,6 +75,18 @@ class ActiveScan:
         stop = 'view_budget'
         nominal_fit = True
         callbacks = dict(cancelled=cancelled, progress=progress)
+        def accepted_transforms():
+            return (incremental_poses if fit is None else
+                {i:mapper.reference_pose@fit['camera_in_reference'][i] for i in fit['used_frames']})
+        def scene_clouds(poses):
+            clouds={}
+            for i,(_,by_object,_) in enumerate(captures):
+                if i not in poses:continue
+                for key,values in by_object.items():
+                    if len(values):
+                        clouds.setdefault(key,VoxelCloud(voxel_m=self.pipeline.voxel_m)).add(transform(values,poses[i]))
+            return [ObjectCloud(key,labels[key],task.role(key),task.frame_id,cloud.points())
+                    for key,cloud in clouds.items()]
         for index in range(self.max_views):
             if cancelled():
                 raise PipelineCancelled('scan cancelled')
@@ -191,6 +206,13 @@ class ActiveScan:
             progress({'stage': 'observed', 'view': index, 'accepted': row['accepted'],
                 'accepted_views': len(accepted_poses), 'observed_points': len(fused),
                 'coverage': report['coverage']})
+            if finish_when is not None and len(accepted_poses)>=2:
+                # Test exactly the observed cloud that would be published,
+                # before any completion model adds unobserved geometry.
+                target=next(c.observed for c in scene_clouds(accepted_transforms())
+                            if c.object_id==task.target_id)
+                if finish_when(target):
+                    stop='task_observation_ready';break
             if index == self.max_views-1:
                 break
             progress({'stage': 'choosing_view', 'view': index})
@@ -207,20 +229,8 @@ class ActiveScan:
         if cancelled():
             raise PipelineCancelled('scan cancelled')
         # Rebuild all scene objects using one set of accepted camera transforms.
-        clouds = {}
-        if fit is not None:
-            used = set(fit['used_frames'])
-            poses = {i: mapper.reference_pose@fit['camera_in_reference'][i] for i in used}
-        else:
-            poses = incremental_poses
-        for i, (_, by_object, _) in enumerate(captures):
-            if i not in poses:
-                continue
-            for key, values in by_object.items():
-                if len(values):
-                    clouds.setdefault(key, VoxelCloud(voxel_m=self.pipeline.voxel_m)).add(transform(values, poses[i]))
-        final_clouds = [ObjectCloud(key, labels[key], task.role(key), task.frame_id, cloud.points())
-                        for key, cloud in clouds.items()]
+        poses=accepted_transforms()
+        final_clouds=scene_clouds(poses)
         target_points = next(cloud.observed for cloud in final_clouds if cloud.object_id == task.target_id)
         report['accepted_views'] = len(poses)
         report['observed_points'] = len(target_points)

@@ -71,6 +71,16 @@ def test_partial_observation_retains_axis_without_claiming_full_height():
         t.update(cylinder(),stamp=1.,source=e.source)
 
 
+def test_scan_readiness_reuses_the_final_d100_quality_without_refreshing_the_track():
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    ports=SimPorts.__new__(SimPorts);ports.target_id='target';ports.clock=lambda:1.
+    ports.scan_source=('sim','boot','calib');previous=object();ports.track=NS(estimate=previous)
+    assert ports._scan_observation_ready(cylinder())
+    assert not ports._scan_observation_ready(cylinder(r=.055))
+    assert not ports._scan_observation_ready(np.zeros((3,3)))
+    assert ports.track.estimate is previous
+
+
 def test_more_than_half_circle_coverage_cannot_worsen_position_allowance():
     estimates=[]
     for arc in (np.pi,2*np.pi):
@@ -558,6 +568,25 @@ def test_floor_witnesses_keep_one_measured_point_per_cell_with_a_hard_budget():
     assert np.all(points[:,2]==0.)
     with pytest.raises(RuntimeError,match='map budget'):
         floor_cell_points(sensor,pose,resolution=.05,max_cells=15)
+    local=floor_cell_points(sensor,pose,resolution=.05,max_cells=1,
+        cell_window=(np.array([1,1]),np.array([2,2])))
+    np.testing.assert_allclose(local,[[.05,.05,0.]])
+
+
+def test_local_map_retains_only_measured_cells_in_its_capacity_derived_window():
+    grid=LocalMap(resolution=1.,max_cells=16);grid.recenter([0.,0.])
+    points=np.array([[x+.5,y+.5,0.] for x in range(-10,10) for y in range(-10,10)])
+    grid.observe(points)
+    assert len(grid.free)==16 and not grid.blocked
+    assert grid.footprint_free([0.,0.,0.],[[.5,.5]])
+    grid.observe([[.5,.5,.2]])
+    assert (0,0) in grid.blocked and (0,0) not in grid.free
+    grid.recenter([4.,0.])
+    assert not grid.free and not grid.blocked
+    assert not grid.footprint_free([0.,0.,0.],[[.5,.5]])
+    grid.observe(points)
+    assert len(grid.free)==16 and (4,0) in grid.free and (0,0) not in grid.free
+    assert grid.footprint_status([0.,0.,0.],[[.5,.5]])['unknown_cells']==1
 
 
 @pytest.mark.parametrize('empty',[False,True])
