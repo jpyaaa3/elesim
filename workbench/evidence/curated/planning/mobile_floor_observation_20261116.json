@@ -670,7 +670,7 @@
       "host_focused": "165 passed in 25.61s",
       "canonical_gates_run": false
     },
-    "installed_retest_pending": true,
+    "installed_retest_pending": false,
     "source_sha256": {
       "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/local_map.py": "c8aecd4e0bd50ccb18f430e0f2f38edfc7cfe06e9ef23f0969b7714e35192d49",
       "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "9af11c016dd157d06181892850f7193d1e33962252b5198fdc13268712730450",
@@ -728,6 +728,38 @@
         "bytes": 376,
         "sha256": "fdc78cef005aa73d4bd33d637b8726662998d4e4f2b20afbef791532895a5cc3"
       }
-    ]
+    ],
+    "deployed_revision": "6b495c07",
+    "current_installed_run": "run-37",
+    "publication_evidence": [
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/registration-v17.json",
+        "bytes": 3745,
+        "sha256": "d733807ae9b56cfeb18633e78e716ee74e1ae51e6c3f43636c31486dabfe074c"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/official-v17-remote.json",
+        "bytes": 2449,
+        "sha256": "d73b4ea36f9d1aed846eaac86d98429338385c220d0c8172d89e03adfd371ab7"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/official-v17-operator.json",
+        "bytes": 376,
+        "sha256": "6683d6cb945c1e2934da9d009ff407c1a9cbd276ae642e5157dc48540174abef"
+      },
+      {
+        "path": "workbench/evidence/generated/mobile-installed-20261115/operator-source-37.json",
+        "bytes": 868,
+        "sha256": "41e5ce3c6362f8e3b79694df73f96c08e4e96f38890e50ac7f5a17c9eb7d736e"
+      }
+    ],
+    "installed_follow_up": {
+      "run": "run-37",
+      "accepted": false,
+      "elapsed_s": 748.2476344339957,
+      "scan_early_finish_confirmed": true,
+      "local_map_overflow_recurred": false,
+      "reason": "floor observation arm paths are blocked; known occupied goal misclassified as unobserved"
+    }
   }
 }

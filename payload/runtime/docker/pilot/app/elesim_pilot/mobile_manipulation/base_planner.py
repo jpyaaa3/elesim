@@ -57,10 +57,16 @@ class BasePlanner:
         # All perturbations must remain on the same analytic contact branch.
         if len({(r['feature'],r['root']) for r in rows})!=1:return None
         return rows[0]
-    def grasp(self,target,current_pose):
-        if abs(target.diameter-.1)>.002:raise ValueError('diameter outside D100 profile')
+    def _require_current_clearance(self,current_pose):
         if not self.grid.footprint_free(current_pose,self.footprint,margin_m=self.clearance_m):
+            if self.grid.footprint_status(current_pose,self.footprint,margin_m=self.clearance_m)['blocked_cells']:
+                raise ValueError('current transport footprint intersects an observed obstacle')
             raise FloorObservationRequired(current_pose)
+    def grasp(self,target,current_pose):
+        self.last_grasp_report=dict(stage='checking_start',blocked_goals=0,unknown_goals=0,
+            observed_goals=0,route_rejections=0)
+        if abs(target.diameter-.1)>.002:raise ValueError('diameter outside D100 profile')
+        self._require_current_clearance(current_pose)
         if self.rows is None:self.rows=self.model.sample_triangle(20)
         error=target.error_m+self.s.arrival_error_m+self.s.hug_drift_error_m
         # Reject narrow/boundary targets once in a single solver batch, before
@@ -75,6 +81,7 @@ class BasePlanner:
             if all(r is not None for r in neighbourhood) and len({(r['feature'],r['root']) for r in neighbourhood})==1:
                 interior.append(row)
         if not interior:raise ValueError('no supported C-band interior at measured-error allowance')
+        self.last_grasp_report.update(stage='checking_goals',interior_targets=len(interior))
         possible=[];unobserved=[]
         for index,row in enumerate(interior):
             if index%8==0:time.sleep(.001)
@@ -87,9 +94,17 @@ class BasePlanner:
                 pose=np.array([*(point-relative)[:2],yaw])
                 distance=np.linalg.norm(pose[:2]-current_pose[:2]);turn=abs(angle(yaw-current_pose[2]))
                 if not self.grid.footprint_free(pose,self.footprint,margin_m=self.clearance_m):
-                    unobserved.append((distance+.2*turn,pose));continue
+                    status=self.grid.footprint_status(pose,self.footprint,margin_m=self.clearance_m)
+                    # More floor views cannot clear a measured obstacle.
+                    if status['blocked_cells']:
+                        self.last_grasp_report['blocked_goals']+=1
+                    elif status['unknown_cells']:
+                        self.last_grasp_report['unknown_goals']+=1
+                        unobserved.append((distance+.2*turn,pose))
+                    continue
                 # Geometric neighbourhood must have room in XY, not just q.
                 possible.append((distance+.2*turn,pose,row,distance,turn))
+        self.last_grasp_report['observed_goals']=len(possible)
         for _,pose,row,distance,turn in sorted(possible,key=lambda x:x[0])[:48]:
             # Arrival is followed by a fresh observation. Travel drift is
             # charged separately only when a blind final handoff is needed.
@@ -97,7 +112,9 @@ class BasePlanner:
             report=self.robust_solution(target,pose,error)
             if report is None:continue
             try:path=self.grid.path(current_pose,pose,self.footprint,margin_m=self.clearance_m)
-            except ValueError:continue
+            except ValueError:
+                self.last_grasp_report['route_rejections']+=1;continue
+            self.last_grasp_report['stage']='path_found'
             return BaseGoal(pose,path,np.array(self.model.meta['home']),dict(
                 kind='grasp',**report,error_allowance_m=error,map_revision=self.grid.revision,
                 hug_drift_error_m=self.s.hug_drift_error_m,
@@ -105,12 +122,13 @@ class BasePlanner:
                 base_clearance_m=self.clearance_m,
                 robustness='16 boundary probes plus centre; not a continuous certificate'))
         if possible or unobserved:
+            self.last_grasp_report['stage']='needs_actual_floor'
             closest=min([(cost,pose) for cost,pose,*_ in possible]+unobserved,key=lambda row:row[0])[1]
             raise FloorObservationRequired(closest)
+        self.last_grasp_report['stage']='no_unblocked_goal'
         raise ValueError('no reachable C-band goal with measured-error allowance')
     def observation(self,target,current_pose,camera_evaluator):
-        if not self.grid.footprint_free(current_pose,self.footprint,margin_m=self.clearance_m):
-            raise FloorObservationRequired(current_pose)
+        self._require_current_clearance(current_pose)
         candidates=[np.asarray(current_pose,float)]
         center=target.origin[:2]
         bearing=np.arctan2(current_pose[1]-center[1],current_pose[0]-center[0])

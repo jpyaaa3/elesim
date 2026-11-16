@@ -150,6 +150,41 @@ def test_footprint_diagnostics_distinguish_unknown_floor_from_obstacles():
     assert grid.free=={(0,0)} and not grid.footprint_free([0,0,0],footprint)
 
 
+@pytest.mark.parametrize('all_blocked',[False,True])
+def test_grasp_floor_requests_never_select_an_observed_obstacle(all_blocked):
+    from elesim_pilot.mobile_manipulation.base_planner import BasePlanner,FloorObservationRequired
+    row=dict(xy_mm=[0.,400.],feature='side',root=1)
+    model=NS(meta={'home':np.zeros(4)},sample_triangle=lambda n:[row],
+        solve_many=lambda points:[row for _ in points])
+    def status(pose,*a,**kw):
+        blocked=all_blocked or abs(angle_for_test(pose[2]))<.4
+        return dict(blocked_cells=int(blocked),unknown_cells=int(not blocked))
+    def angle_for_test(value):return (value+np.pi)%(2*np.pi)-np.pi
+    grid=NS(footprint_free=lambda pose,*a,**kw:np.linalg.norm(pose[:2])<1e-9,
+        footprint_status=status)
+    planner=BasePlanner(model,grid,np.array([[0.,0.]]),np.eye(4),.3,Settings())
+    target=TargetTrack().update(cylinder((.7,.15)),stamp=1.,source=('sim','boot','calib'))
+    if all_blocked:
+        with pytest.raises(ValueError,match='no reachable C-band'):
+            planner.grasp(target,np.zeros(3))
+    else:
+        with pytest.raises(FloorObservationRequired) as caught:
+            planner.grasp(target,np.zeros(3))
+        assert status(caught.value.pose)['blocked_cells']==0
+        assert status(caught.value.pose)['unknown_cells']>0
+
+
+@pytest.mark.parametrize('operation',['grasp','observation'])
+def test_observed_obstacle_at_the_start_cannot_be_cleared_by_floor_views(operation):
+    from elesim_pilot.mobile_manipulation.base_planner import BasePlanner
+    grid=LocalMap();grid.blocked.add((0,0))
+    planner=BasePlanner(NS(meta={}),grid,np.array([[0.,0.]]),np.eye(4),.3,Settings())
+    target=TargetTrack().update(cylinder(),stamp=1.,source=('sim','boot','calib'))
+    with pytest.raises(ValueError,match='observed obstacle'):
+        if operation=='grasp':planner.grasp(target,np.zeros(3))
+        else:planner.observation(target,np.zeros(3),lambda *a:None)
+
+
 def test_path_margin_requires_measured_room_for_small_tracking_errors():
     grid=LocalMap(.04)
     foot=rectangular_footprint([[-.38,.38],[-.25,.25]],padding=.02)

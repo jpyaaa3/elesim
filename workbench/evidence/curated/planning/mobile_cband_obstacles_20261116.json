@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-16",
+  "scope": "Same fixed D100 installed case; distinguish measured obstacles from unobserved floor",
+  "baseline": {
+    "revision": "6b495c07",
+    "run": "run-37",
+    "accepted": false,
+    "elapsed_s": 748.2476344339957,
+    "reason": "floor observation arm paths are blocked",
+    "scan_views": 2,
+    "scan_stop_reason": "task_observation_ready",
+    "scan_observed_points": 6837,
+    "scan_predicted_points": 8192,
+    "requested_goal_status": {
+      "blocked_cells": 3,
+      "blocked_xy_m": [
+        [
+          0.66,
+          0.1
+        ],
+        [
+          0.66,
+          0.14
+        ],
+        [
+          0.66,
+          0.18
+        ]
+      ],
+      "total_cells": 352,
+      "unknown_cells": 0,
+      "unknown_xy_m": []
+    }
+  },
+  "cause": "Every non-free candidate was put in the unobserved list, including candidates with known occupied cells. Selecting the closest such candidate requested views that cannot clear the measured cylinder.",
+  "fix": [
+    "Discard candidate goals with observed obstacles. Only genuinely unknown unblocked goals request floor observations.",
+    "An observed obstacle at the starting footprint fails explicitly in either observation or grasp placement.",
+    "Keep all collision, footprint padding, measured-error and physical acceptance limits unchanged; expose bounded rejection counts."
+  ],
+  "sensor_subset_diagnosis": {
+    "result": "needs_actual_floor",
+    "pose": [
+      0.5598376640723249,
+      0.6267680241375384,
+      -1.5708339222576124
+    ],
+    "status": {
+      "total_cells": 352,
+      "unknown_cells": 159,
+      "blocked_cells": 0,
+      "unknown_xy_m": [
+        [
+          0.26,
+          0.34
+        ],
+        [
+          0.26,
+          0.38
+        ],
+        [
+          0.26,
+          0.42
+        ],
+        [
+          0.26,
+          0.46
+        ],
+        [
+          0.26,
+          0.5
+        ],
+        [
+          0.26,
+          0.54
+        ],
+        [
+          0.26,
+          0.58
+        ],
+        [
+          0.26,
+          0.62
+        ],
+        [
+          0.26,
+          0.66
+        ],
+        [
+          0.26,
+          0.7000000000000001
+        ],
+        [
+          0.26,
+          0.74
+        ],
+        [
+          0.26,
+          0.78
+        ],
+        [
+          0.26,
+          0.8200000000000001
+        ],
+        [
+          0.26,
+          0.86
+        ],
+        [
+          0.26,
+          0.9
+        ],
+        [
+          0.26,
+          0.9400000000000001
+        ]
+      ],
+      "blocked_xy_m": []
+    },
+    "diagnostic_sensor_subset_only": true,
+    "not_installed_acceptance": true,
+    "camera_truth_used": false,
+    "omitted_unrecorded_mobile_floor_views": true,
+    "elapsed_s": 3.8395897839945974,
+    "footprint_samples": 926
+  },
+  "diagnostic_limitations": "Sensor subset and explicitly reported current-free footprint only. Constant robot extrinsics reconstructed from measured run-35 arm/body transforms; not a full map snapshot, execution, or installed acceptance.",
+  "tests": {
+    "host_focused": "169 passed in 30.32s",
+    "canonical_gates_run": false
+  },
+  "installed_retest_pending": true,
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-37/report.json",
+      "bytes": 30783,
+      "sha256": "378491d7a7de2980e28e25cdb201cd8bd74407a12b33dd2185e33f9dce8b30e9"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-37/telemetry.jsonl",
+      "bytes": 10228651,
+      "sha256": "4aee938be0068c1e4715da913f31678ae2bd905b3fe76c9f20a931a3ab08b4de"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-37/observer.mp4",
+      "bytes": 29090913,
+      "sha256": "d549cd58f587fca96c4045b56ca04db2559cc6ade834fa5f8e3b7e74f1faa373"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-37/hand_eye_preview.mp4",
+      "bytes": 33474585,
+      "sha256": "ad70c4adc8b09bc2a76349373ec3d237931467e75c3b663c09b77f1ff89c45ff"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/scan-37.tar.gz",
+      "bytes": 3956485,
+      "sha256": "231248bde3a8109400e0099314eadfdd453cb0299556b109c7c7ac797dd13eef"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/grasp-obstacle-subset-replay37.json",
+      "bytes": 1232,
+      "sha256": "bb911ada4ffd0490e3e339ae54326c8a475ca3afb0997ebf20e378081126216d"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/grasp-occupancy-final-tests.log",
+      "bytes": 261,
+      "sha256": "ccefcb0bedbd9bcb7e52d356ef7b761cc3e345d140f75e631209b34968763b36"
+    }
+  ],
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/base_planner.py": "40b92f7521894034fe4bb441f55e910c27dbb4d35b64a1d6fdd4ea13ddd2d377",
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "0596b5d23de6ebf4039f015da5db66d3e8b0b378748e5c1fd56dca085885d48c"
+  }
+}

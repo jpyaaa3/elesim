@@ -149,6 +149,8 @@ class SimPorts:
         try:return dict(goal=self.planner.grasp(self.track.estimate,snapshot['pose']))
         except FloorObservationRequired as exc:
             return self._mapping_required(exc)
+        finally:
+            self._summary['grasp_planning']=dict(self.planner.last_grasp_report)
     def _mapping_required(self,exc):
         self.mapping_goal_xy=exc.pose[:2].copy();self.mapping_goal_pose=exc.pose.copy()
         self.mapping_margin_m=self.planner.clearance_m

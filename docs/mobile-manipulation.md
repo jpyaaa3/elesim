@@ -88,6 +88,10 @@ observed cloud to be published meets the existing diameter and position-allowanc
 gates. It otherwise continues to the existing maximum of twelve views. This
 optional task condition does not assert hidden-surface completeness; AdaPoinTr,
 mesh validation, final observed-only fitting and independent hold checks remain.
+C-band placement distinguishes measured obstacles from unknown floor. Occupied
+goals are discarded; extra views are requested only for unblocked unknown goals
+or missing route coverage. A known obstacle at the current transport footprint
+is an explicit failure, never a request to clear it through more observations.
 Base route planning additionally checks measured floor around every sampled
 footprint, including the starting stance. The padding is the existing base
 position tolerance plus `2 R sin(yaw_tolerance / 2)`, where R is the transport
