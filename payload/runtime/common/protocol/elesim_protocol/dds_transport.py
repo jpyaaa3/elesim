@@ -447,7 +447,7 @@ class DdsPeerNode:
                 StreamDescriptor as RosStreamDescriptor,
             )
             from rclpy.context import Context
-            from rclpy.executors import SingleThreadedExecutor
+            from rclpy.executors import SingleThreadedExecutor, ShutdownException, TimeoutException
             from rclpy.qos import (
                 DurabilityPolicy,
                 HistoryPolicy,
@@ -483,6 +483,7 @@ class DdsPeerNode:
             use_global_arguments=True,
         )
         self._executor = SingleThreadedExecutor(context=self._context)
+        self._executor_timeout_errors = (ShutdownException, TimeoutException)
         self._executor.add_node(self._node)
 
         discovery_qos = QoSProfile(
@@ -589,10 +590,22 @@ class DdsPeerNode:
         self._expire_pending_heartbeats(now)
         self.spin_once(timeout_s=0.0)
 
-    def spin_once(self, *, timeout_s: float) -> None:
+    def spin_once(self, *, timeout_s: float) -> bool:
         if self._closed:
-            return
-        self._executor.spin_once(timeout_sec=max(0.0, float(timeout_s)))
+            return False
+        # Match SingleThreadedExecutor's execution/exception behavior, but
+        # expose whether any ready ROS task ran. Internal tasks may precede
+        # an application callback, so an inbox counter cannot detect idleness.
+        try:
+            handler, _, _ = self._executor.wait_for_ready_callbacks(
+                timeout_sec=max(0.0, float(timeout_s)))
+        except self._executor_timeout_errors:
+            return False
+        handler()
+        error = handler.exception()
+        if error is not None:
+            raise error
+        return True
 
     def discover(
         self,
@@ -696,7 +709,22 @@ class DdsPeerNode:
         publisher.publish(message)
 
     def receive(self, timeout_ms: int = 0) -> Iterator[tuple[Envelope, PeerIdentity]]:
-        self.spin_once(timeout_s=max(0, int(timeout_ms)) / 1000.0)
+        # One callback per pump lets a short control computation accumulate a
+        # permanent DDS backlog. Drain ready work without additional waits,
+        # preserving the same finite per-cycle budget and source validation.
+        idle = False
+        for index in range(_MAX_RECEIVE_PER_CYCLE):
+            ready = self.spin_once(timeout_s=max(0, int(timeout_ms)) / 1000.0 if index == 0 else 0.0)
+            if ready:
+                idle = False
+            elif idle:
+                break
+            else:
+                # Humble may time out at the end of its cached ready-task
+                # generator although another sample is queued on that reader.
+                # One fresh nonblocking waitset distinguishes that boundary
+                # from an actually empty queue. Both probes consume the cap.
+                idle = True
         # Bound work handed to the caller in one pump pass.  A fixed inbox
         # cap protects memory, but draining the entire cap here could still
         # postpone the next heartbeat or UI/render cycle under a burst.

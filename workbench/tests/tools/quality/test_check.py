@@ -13,6 +13,7 @@ class QualityMatrixTests(unittest.TestCase):
             names,
             {
                 "protocol",
+                "dds-receive-burst",
                 "robot",
                 "pilot",
                 "sim",

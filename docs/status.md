@@ -8,6 +8,19 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 ### 설치본 모바일 관측·끌어안기 평가 미통과 (2026-11-16)
 
+- 공식 `8b2682b8`의 `run-48`도 2시점 scan/AdaPoinTr와 C-band 위치 계획·Home
+  복귀 뒤 보행에서 **feedback 0.571초**로 실패했다. 총 **915.67초**, 파지/hold는
+  미통과다. 격자 검사 단독은 공식 새 이미지에서 **0.103–0.106초**로 줄어
+  신선도를 통과했지만 반복 제어 중 DDS backlog는 남았다. 원본 스캔·두 영상과
+  실행 이미지 증거를 보존했다.
+- DDS pump가 한 callback만 실행하던 문제를 보완했다. 최대 **64 ready-task probes /
+  64 검증 envelope** 한도에서 첫 probe만 대기하며, Humble의 cached generator
+  종료를 빈 reader로 오인하지 않도록 새 nonblocking waitset으로 확인한다.
+  Source/boot·QoS·protocol 6·512개 startup/inbox·feedback 0.5초는 그대로다.
+  공식 이미지의 분리된 loopback ROS 2 프로세스 진단은 수정 전 **16개 중 1개**,
+  수정 소스는 **16개 모두 한 pump에 전달**했다. 개발용 읽기 전용 source override
+  진단이며 공식 새 릴리스 성공 증거가 아니다. Host **365 passed, 5 skipped,
+  5 subtests passed**다. 공식 발행·같은 전체 케이스 재평가는 남아 있다.
 - 공식 `eec6b16d`의 `run-47`은 실제 이력 복귀 **10 → 3구간**, 물체 재관측,
   **2시점 scan/AdaPoinTr**, C-band 위치 계획과 Home 복귀를 통과했다. 관측 위치는
   현재 위치를 선택했으며 이후 약 **225 mm**의 grasp 보행을 시작하다

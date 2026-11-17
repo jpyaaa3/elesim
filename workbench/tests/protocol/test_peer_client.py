@@ -248,6 +248,68 @@ def test_dds_receive_caps_one_pump_pass() -> None:
     assert len(node._inbox) == 6
 
 
+def _callback_burst_node(events,*,expire_ready_generator=False):
+    class NoReady(RuntimeError):pass
+    node=object.__new__(DdsPeerNode);node._closed=False;node._executor_timeout_errors=(NoReady,)
+    node._inbox=deque();node._inbox_lock=threading.Lock();pending=deque(events);waits=[];expired=[False]
+    class Handler:
+        def __init__(self,value):self.value=value
+        def __call__(self):
+            if self.value is not None:node._inbox.append(self.value)
+        def exception(self):return None
+    def ready(*,timeout_sec):
+        waits.append(timeout_sec)
+        if expired[0]:
+            expired[0]=False;raise NoReady()
+        if not pending:raise NoReady()
+        expired[0]=expire_ready_generator
+        return Handler(pending.popleft()),None,None
+    node._executor=SimpleNamespace(wait_for_ready_callbacks=ready)
+    return node,pending,waits
+
+
+def test_dds_pump_drains_ready_arm_base_pairs_after_a_control_pause():
+    # Discovery may precede the coherent pair. All queued callbacks must run
+    # before the caller checks sample age again; no extra blocking waits.
+    events=[None,('arm-1','sim'),('base-1','sim'),('arm-2','sim'),('base-2','sim')]
+    node,pending,waits=_callback_burst_node(events)
+    assert list(node.receive(timeout_ms=10))==events[1:]
+    assert not pending and waits==[.01,0.,0.,0.,0.,0.,0.]
+
+
+def test_dds_callback_burst_keeps_the_same_bounded_work_per_pump():
+    events=[(i,'sim') for i in range(100)]
+    node,pending,waits=_callback_burst_node(events)
+    assert list(node.receive(timeout_ms=10))==events[:64]
+    assert len(pending)==36 and len(waits)==64
+
+
+def test_dds_pump_refreshes_an_exhausted_ready_generator_before_declaring_idle():
+    events=[('arm-1','sim'),('base-1','sim'),('arm-2','sim'),('base-2','sim')]
+    node,pending,waits=_callback_burst_node(events,expire_ready_generator=True)
+    assert list(node.receive(timeout_ms=10))==events
+    assert not pending and waits[0]==.01 and all(t==0. for t in waits[1:])
+
+
+def test_dds_empty_pump_performs_only_the_requested_wait():
+    node,pending,waits=_callback_burst_node([])
+    assert list(node.receive(timeout_ms=10))==[] and waits==[.01,0.]
+
+
+def test_dds_ready_task_failure_is_not_hidden_by_burst_drain():
+    node,_,_=_callback_burst_node([])
+    class Handler:
+        def __call__(self):pass
+        def exception(self):return RuntimeError('callback failed')
+    node._executor.wait_for_ready_callbacks=lambda **kwargs:(Handler(),None,None)
+    with pytest.raises(RuntimeError,match='callback failed'):list(node.receive())
+
+
+def test_dds_closed_pump_never_touches_the_executor():
+    node,_,waits=_callback_burst_node([]);node._closed=True
+    assert list(node.receive())==[] and waits==[]
+
+
 def test_peer_client_local_reply_queue_uses_max_pending_bound() -> None:
     bus = _Bus()
     client = PeerClient(

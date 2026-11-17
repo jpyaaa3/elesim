@@ -24,6 +24,14 @@ prefix를 광고한다. descriptor와 같은 endpoint/boot의 heartbeat가 확�
 전에는 peer를 live authority로 취급하지 않는다. startup queue는 heartbeat
 timeout 동안 최대 512 envelope만 보관한다.
 
+수신 pump는 대기 중인 ROS callback을 최대 64개 처리한 뒤 검증된 envelope을
+최대 64개 전달한다. 첫 callback만 지정된 시간만큼 기다리고 나머지는 nonblocking
+처리한다. Humble의 cached ready-generator가 끝났을 때 한 번의 새 nonblocking
+waitset으로 빈 큐인지 확인하고 끝낸다. 빈 확인과 discovery/무효 callback도 같은 작업 한도를
+사용한다. 짧은 제어 계산 뒤 쌓인 arm/base 표본을 한 개씩만 꺼내 backlog로
+남기지 않기 위한 runtime scheduling이다. Protocol 6의 wire/registry/QoS,
+source/boot 검증과 512개 startup/inbox 한도는 바뀌지 않는다.
+
 동일 endpoint에 두 live boot가 겹치면 어느 쪽도 authority 대상으로 선택하지
 않는다. Exact-identity 조회는 unavailable을 반환하고 발행은 재시도 가능한
 transport 오류로 거부한다. Lease/session의 로컬 해제와 DDS 루프는 계속

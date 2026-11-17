@@ -63,7 +63,7 @@
     ]
   },
   "acceptance_unchanged": true,
-  "installed_retest_pending": true,
+  "installed_retest_pending": false,
   "source_sha256": {
     "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/local_map.py": "a15dff27657551826e2557f90b34abea7cc51108578999b5c423ae55898287e7"
   },
@@ -133,5 +133,37 @@
       "bytes": 261,
       "sha256": "b1af535c17bf73710cbf366d5d741fce077158d09169201837624c7221bec3f9"
     }
-  ]
+  ],
+  "official_image_timing": {
+    "diagnostic_only": true,
+    "synthetic_free_map_for_timing_only": true,
+    "footprint_from_recorded_run40": true,
+    "path_from_run47": true,
+    "source_sha256": "a15dff27657551826e2557f90b34abea7cc51108578999b5c423ae55898287e7",
+    "results": [
+      {
+        "accepted": true,
+        "elapsed_s": 0.10584688279777765,
+        "same_thread_feedback_error": ""
+      },
+      {
+        "accepted": true,
+        "elapsed_s": 0.1037280261516571,
+        "same_thread_feedback_error": ""
+      },
+      {
+        "accepted": true,
+        "elapsed_s": 0.10316587332636118,
+        "same_thread_feedback_error": ""
+      }
+    ]
+  },
+  "installed_retest": {
+    "source": "8b2682b8",
+    "run": "run-48",
+    "accepted": false,
+    "elapsed_s": 915.6677936540073,
+    "reason": "stale arm/base feedback (arm 0.571s, base 0.571s)",
+    "next_fix": "Drain ready DDS callbacks within the existing bounded pump."
+  }
 }

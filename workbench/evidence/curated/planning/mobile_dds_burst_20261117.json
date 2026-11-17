@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-17",
+  "scope": "Same fixed D100 fixture; bounded DDS receive drain after control work",
+  "installed_baseline": {
+    "source": "8b2682b8",
+    "run": "run-48",
+    "accepted": false,
+    "elapsed_s": 915.6677936540073,
+    "reason": "stale arm/base feedback (arm 0.571s, base 0.571s)"
+  },
+  "protocol_decision": "Wire major 6, carrier fields, QoS, authority and source/boot validation unchanged.",
+  "fix": [
+    "At most 64 ready-task probes and 64 validated envelopes per pump.",
+    "Only the first probe may block.",
+    "A fresh nonblocking waitset confirms idleness after Humble cached generator exhaustion.",
+    "Match SingleThreadedExecutor handler execution and exception propagation.",
+    "Keep 512-entry inbox and startup bounds; do not make control transient-local."
+  ],
+  "real_ros_regression": {
+    "before_samples": 1,
+    "after_samples": 16,
+    "expected_samples": 16,
+    "separate_processes": 2,
+    "loopback_only": true,
+    "development_source_override": true,
+    "not_installed_acceptance": true
+  },
+  "intermediate_failures": [
+    "Initial loopback test omitted ParticipantIndex auto; both sides failed discovery.",
+    "Application callback-counter attempt delivered only two samples.",
+    "Ready-task attempt still stopped at cached generator exhaustion and delivered one sample."
+  ],
+  "host_tests": {
+    "result": "365 passed, 5 skipped, 5 subtests passed in 14.93s",
+    "canonical_gates_run": false,
+    "canonical_reason": "No usable generated development attachment; protocol-only actual ROS test uses the installed image.",
+    "unrelated_quality_failures": {
+      "source_revision": "8b2682b875782643c3512320435549e9320e7f73",
+      "existing_oversized_definitions": {
+        "payload/runtime/docker/sim/app/elesim_sim/robot/go2/pympc_controller.py": {
+          "class_name": "PyMpcGenesisController",
+          "baseline_lines": 1111,
+          "limit": 1000
+        },
+        "payload/runtime/docker/sim/app/elesim_sim/runtime.py": {
+          "class_name": "SimScene",
+          "baseline_lines": 1036,
+          "limit": 1000
+        },
+        "payload/runtime/docker/ui/app/elesim_ui/sim_session.py": {
+          "class_name": "UiSimSession",
+          "baseline_lines": 1065,
+          "limit": 1000
+        }
+      },
+      "existing_layout_failure": "Host .venv site-packages tests appear outside workbench; no host dependencies were installed or removed."
+    }
+  },
+  "acceptance_unchanged": true,
+  "installed_retest_pending": true,
+  "source_sha256": {
+    "payload/runtime/common/protocol/elesim_protocol/dds_transport.py": "dc231bc53f77c871edee078107c9c0b8e772296dc239322c484da8cb4197ce00",
+    "workbench/tests/system/smoke_dds_burst.py": "3a7ae910f3177f004b83c67ca17eb49070c0ef3311412d28c9e1a9b6bb8dfa14",
+    "workbench/tests/protocol/test_peer_client.py": "b9fd239e24176caa62fed8c671cdef876bb9c53b4465d14046938b4042ee7182"
+  },
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-48/report.json",
+      "bytes": 32051,
+      "sha256": "8fe72bcf8ddc9c8a8c5ae5d2cfd047e1cd879e24a0a33017551c4fb15eb33e15"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-48/telemetry.jsonl",
+      "bytes": 11778492,
+      "sha256": "c0f4f23da47911c0412510aa189f430f6e35fefdc42d0c8f38b0beab5a37c41b"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-48/observer.mp4",
+      "bytes": 21561868,
+      "sha256": "6ff9d19e55f2e463a3b7a6f891845a8a016b31eb0de80c4eb34d233f35027fff"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/run-48/hand_eye_preview.mp4",
+      "bytes": 32895020,
+      "sha256": "cd6dcd62dcdcc3d79126cff615e41aa5ea133172ec5e6974b0b2871969b6f74e"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/scan-48.tar.gz",
+      "bytes": 4103849,
+      "sha256": "b6d43256034a7f83ea4a4bc4a5bfa6bba9d7676fcb0473da5701c63444a822d6"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v27-remote.json",
+      "bytes": 2953,
+      "sha256": "b7d73b69e03c2b07d702d82486ab8ff10780aa6ab111e4eb266c8d123a2e3aac"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/official-v27-operator.json",
+      "bytes": 428,
+      "sha256": "931f024db79bc4396edb3aa491d5ebc791f99067d6e645d28ffbb81801dbed10"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/dds-burst-before.log",
+      "bytes": 1853,
+      "sha256": "7f87ee7245fe9132fb4e9dcba838cd4a23db46cc3203651be6e0c4c8a2246110"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/dds-burst-real-before.log",
+      "bytes": 3837,
+      "sha256": "0f9bedfa14f7026e9259bd64ec0edaa73b16aec76961cf4188ff77b846e30b8a"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/dds-burst-real-after.log",
+      "bytes": 3659,
+      "sha256": "9bbae1e3646f6a0491f282ad05af671d5ba4e9bdb7f9eb7ff8933a1c2e6b7851"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/dds-burst-counter-attempt.log",
+      "bytes": 3838,
+      "sha256": "ed7f9ae4aa802b2ef1e869f86db3c0cf9b78987b801ddf00450663d50df31589"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/dds-burst-ready-attempt.log",
+      "bytes": 3835,
+      "sha256": "58f58679caa492a54505389b38f8bc356f5dc60b2519a515869c9a65940958aa"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/rclpy-single-threaded-source.log",
+      "bytes": 3998,
+      "sha256": "5c7a34e2ebe41ec3c7985c1e9214bda3668fc29404a34984aab9e185ccd4b3dd"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/rclpy-wait-source.log",
+      "bytes": 5239,
+      "sha256": "17c54b59f40d9ed6231f43967023789e7ddbb63dda9b5b94624d67731e653d21"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/dds-burst-focused-tests.log",
+      "bytes": 526,
+      "sha256": "76626c1752cce4329efe605996b22005320608dbb776d45a777d5fb1e65c8715"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/dds-burst-release-tests.log",
+      "bytes": 4583,
+      "sha256": "9f1f5c9d89e6981e776c0f296b0e53ff9bbc39a26edaf7c90a3396a22447cae0"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/dds-burst-quality-baseline.json",
+      "bytes": 739,
+      "sha256": "baa15d830564332d051c3dc0c1a2b80b647d88cd10f063fea4359c5c5fccb23e"
+    }
+  ]
+}

@@ -46,6 +46,13 @@ CHECKS: tuple[Check, ...] = (
         description="Protocol v6 DDS contracts, peer authority and media sessions",
     ),
     Check(
+        "dds-receive-burst",
+        ("workbench/tests/system/smoke_dds_burst.py",),
+        (PROTOCOL_SRC,),
+        module="script",
+        description="Bounded real-DDS callback burst after a receiver pause",
+    ),
+    Check(
         "robot",
         ("workbench/tests/apps/robot",),
         (PROTOCOL_SRC, "payload/runtime/native/robot/app"),

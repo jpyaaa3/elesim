@@ -1068,6 +1068,12 @@ sampled inclusive rectangles. They keep the existing sampling, tracking margin,
 unknown-cell rejection and occupied precedence while avoiding repeated Python
 union construction on the DDS receive/control thread. No asynchronous unchecked
 motion or stale-map cache is introduced.
+The peer receive pump processes at most 64 ready-task probes before delivering at
+most 64 validated envelopes. Only the first probe can block. A fresh nonblocking
+waitset distinguishes Humble's cached ready-generator boundary from an empty
+reader. This prevents one-sample pumps from retaining a backlog after bounded
+control work; wire v6, QoS, exact source/boot admission and 512-entry limits stay
+unchanged. The protocol-only two-process loopback burst is a required software gate.
 
 The parent grants one child arm/base control at a time. Pure planning/inference
 runs in one worker; DDS-thread ticks alone send motion. Existing LiveScan runs as
