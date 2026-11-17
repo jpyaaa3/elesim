@@ -1,0 +1,194 @@
+{
+  "updated": "2026-11-17T11:05:30.627422+09:00",
+  "deployed_source": "58c526d84e3971f86480e2b3abeaf44fbbb659da",
+  "release_keys": {
+    "operator": "66a9aee8d1f417a1277bf2e3f7d27577185947e100cb114bbd0b7e3ab6eb3487",
+    "compute": "e0046dfbadc5a8b33850cb22b81e0985ffba916a49d3caf859c922feeee9976b"
+  },
+  "registered_via": "approved SROS2 generation rotation v30; both registrations completed atomically",
+  "base_probe": {
+    "success": false,
+    "reason": "base made no measured progress",
+    "diagnostic_only": true,
+    "no_dds_or_map_or_grasp_acceptance": true,
+    "controller_source_sha256": "a57ea9c0c4bc44df6288e4ae32016b8011d9dabf47cd7150cc7dade27e769390",
+    "implementation_override": false,
+    "maximum_abs_roll_pitch_rad": [
+      0.0780423411294719,
+      0.1464012251587612
+    ],
+    "last": {
+      "elapsed_s": 48.06604210473597,
+      "pose": [
+        0.2527932822704315,
+        -0.0072967903688549995,
+        0.02134000351212276
+      ],
+      "goal": [
+        0.21734277073021238,
+        0.009063529140188669,
+        -9.020951341526324e-06
+      ],
+      "rpy": [
+        0.014878819037470039,
+        0.088117757098646,
+        0.02134000351212276
+      ],
+      "command": [
+        -0.028074669650143703,
+        0.01369044085090291,
+        -0.017079219570771544
+      ],
+      "linear_speed": 0.030887847925955326,
+      "angular_speed": 0.07629746599305648,
+      "executor_stage": "approach",
+      "locomotion_stage": "walk",
+      "combined_arrival_error_m": 0.04964978996937858
+    },
+    "case": {
+      "source_report_sha256": "8fe72bcf8ddc9c8a8c5ae5d2cfd047e1cd879e24a0a33017551c4fb15eb33e15",
+      "goal_offset": [
+        0.22492037409938792,
+        0.009086641509576304,
+        1.0206946399193839e-11
+      ],
+      "planned_start_yaw": 7.052441101380706e-05,
+      "target_reach_m": 0.49680207405929605,
+      "home_q": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "settings": {
+        "max_reobservations": 3,
+        "max_corrections": 3,
+        "search_limit": 8,
+        "max_views": 12,
+        "total_timeout_s": 900.0,
+        "feedback_timeout_s": 0.5,
+        "base_speed_mps": 0.08,
+        "yaw_speed_radps": 0.15,
+        "base_position_tolerance_m": 0.01,
+        "base_yaw_tolerance_rad": 0.025,
+        "settle_s": 0.5,
+        "base_timeout_s": 90.0,
+        "target_age_s": 45.0,
+        "drift_per_m": 0.02,
+        "drift_per_rad": 0.005,
+        "arrival_error_m": 0.003,
+        "min_position_error_m": 0.003,
+        "scan_roi_height_m": 0.18,
+        "hug_drift_error_m": 0.004,
+        "hug_body_position_tolerance_m": 0.003,
+        "hug_body_rotation_tolerance_rad": 0.008726646259971648
+      }
+    },
+    "executor_source_sha256": "007906c2ccaf0425e59969a9ce91ac4ff40914a89ac2dae22bfc3eeead184bdc"
+  },
+  "closest_combined_error_m": 0.002339515919190345,
+  "diagnosis": "Actual walking reached the neighbourhood and two stand transitions occurred. A 2.34 mm transient error grew during the moving gait/stand handoff, then corrections restarted the gait. No fall or tilt guard failure was observed.",
+  "dds_burst": "Actual installed protocol, two loopback processes: passed 16/16 in one pump.",
+  "four_process_smoke": "Not runnable in isolated Sim role: elesim_robot is intentionally absent. Canonical dev environment remains unprepared; this is not a DDS runtime failure.",
+  "planted_trim_candidate": {
+    "controller_sha256": "44a4e925c4feec3b8905343d2f5f08592fdc7c052956c0170daea7966367a3bd",
+    "container": "elesim-merry-base-planted-trim",
+    "container_id": "384f1dd8dc2bc71a38c4b0ddae24cd2d6174a4c84d2cfe0fccfed776de689684",
+    "remote_root": "/home/hckang/ws/elesim-mobile-diagnostics/base-planted-trim-20261117",
+    "state": "completed: arrived_leveled_and_settled",
+    "source_override": true,
+    "host_regressions": "46 passed",
+    "result": {
+      "success": true,
+      "reason": "arrived_leveled_and_settled",
+      "diagnostic_only": true,
+      "no_dds_or_map_or_grasp_acceptance": true,
+      "controller_source_sha256": "44a4e925c4feec3b8905343d2f5f08592fdc7c052956c0170daea7966367a3bd",
+      "implementation_override": true,
+      "maximum_abs_roll_pitch_rad": [
+        0.0402549411234283,
+        0.0981547261544129
+      ],
+      "last": {
+        "elapsed_s": 7.113740520551801,
+        "pose": [
+          0.21730223298072815,
+          0.010334556922316551,
+          -0.0019657305222762354
+        ],
+        "goal": [
+          0.21734277073021238,
+          0.009063529140188669,
+          -9.020951341526324e-06
+        ],
+        "rpy": [
+          0.00509823996405161,
+          0.016546107833576018,
+          -0.0019657305222762354
+        ],
+        "command": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "linear_speed": 0.0006308352705497449,
+        "angular_speed": 0.0007897796945387125,
+        "executor_stage": "completed",
+        "locomotion_stage": "stand",
+        "combined_arrival_error_m": 0.0022437714399337286
+      },
+      "case": {
+        "source_report_sha256": "8fe72bcf8ddc9c8a8c5ae5d2cfd047e1cd879e24a0a33017551c4fb15eb33e15",
+        "goal_offset": [
+          0.22492037409938792,
+          0.009086641509576304,
+          1.0206946399193839e-11
+        ],
+        "planned_start_yaw": 7.052441101380706e-05,
+        "target_reach_m": 0.49680207405929605,
+        "home_q": [
+          -0.12,
+          0.0,
+          -0.593411945678072,
+          0.593411945678072
+        ],
+        "settings": {
+          "max_reobservations": 3,
+          "max_corrections": 3,
+          "search_limit": 8,
+          "max_views": 12,
+          "total_timeout_s": 900.0,
+          "feedback_timeout_s": 0.5,
+          "base_speed_mps": 0.08,
+          "yaw_speed_radps": 0.15,
+          "base_position_tolerance_m": 0.01,
+          "base_yaw_tolerance_rad": 0.025,
+          "settle_s": 0.5,
+          "base_timeout_s": 90.0,
+          "target_age_s": 45.0,
+          "drift_per_m": 0.02,
+          "drift_per_rad": 0.005,
+          "arrival_error_m": 0.003,
+          "min_position_error_m": 0.003,
+          "scan_roi_height_m": 0.18,
+          "hug_drift_error_m": 0.004,
+          "hug_body_position_tolerance_m": 0.003,
+          "hug_body_rotation_tolerance_rad": 0.008726646259971648
+        }
+      },
+      "executor_source_sha256": "007906c2ccaf0425e59969a9ce91ac4ff40914a89ac2dae22bfc3eeead184bdc"
+    },
+    "final_host_regressions": "55 passed in 0.54s"
+  },
+  "full_mobile_run_49_started": false,
+  "physical_grasp_hold_verified": false,
+  "evidence_sha256": {
+    "workbench/evidence/generated/mobile-installed-20261115/rotation-v30.json": "a51667235e6c14e30394c18a5d5a7cd6d9ead0c437d38bd68beab3a326d8a894",
+    "workbench/evidence/generated/mobile-installed-20261115/registration-v30.json": "ab6b2d8bcd515a4bdd25c6556ca41933419e2f2cd3ab56511df02cfac38033a5",
+    "workbench/evidence/generated/mobile-installed-20261115/base-walk-level-v30.tar.gz": "22923bdf62d3eb96f8c0447e3df96301c443102e11f4ae261c48b234e97ce0d6",
+    "workbench/evidence/generated/mobile-installed-20261115/dds-burst-v30-installed.log": "db3775665fdf23c7ee82401a9e8bb6e2c79a9f4a5a8c2e8e5451c48e35f7bd5b",
+    "workbench/evidence/generated/mobile-installed-20261115/planted-trim-prototype-tests.log": "54a43d3f43e5a43240c46960cfe82c319e5a9bcb66ec01debb956714ef97e2c5",
+    "workbench/evidence/generated/mobile-installed-20261115/base-planted-trim-prototype.tar.gz": "44efdd0ae9533cc439305e995af4c98e86c41f1839cd7f482bc42986b8bf37b1",
+    "workbench/evidence/generated/mobile-installed-20261115/planted-trim-final-tests.log": "708e579bf359022f4a7e4555ca01e68a3179520394f27f7e8ca6552711fc68eb"
+  }
+}

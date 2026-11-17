@@ -30,7 +30,9 @@ from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
 from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge, synchronize_model_inertias
 from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
 from elesim_sim.robot.go2.pympc_solver import PyMpcForceSolver, PyMpcInput, project_support_motor_limits
-from elesim_sim.robot.go2.foot_workspace import project_ground_target, reachable, stance_preserving_pose
+from elesim_sim.robot.go2.foot_workspace import (
+    project_ground_target, reachable, stance_preserving_pose, foot_position_body, foot_angles_body,
+)
 from elesim_sim.simulation.genesis.utils import to_numpy_1d
 from elesim_sim.simulation.genesis.control_state import EntityControlStateReader
 
@@ -178,6 +180,26 @@ def body_ready_for_liftoff(rpy, angular_velocity_body):
     roll_rate = angular[0] + np.tan(pitch)*(sr*angular[1]+cr*angular[2])
     pitch_rate = cr*angular[1]-sr*angular[2]
     return bool(max(abs(roll_rate), abs(pitch_rate)) <= 1.)
+
+
+def planted_body_joint_target(feet, displacement, yaw, lower, upper):
+    """Move the level body relative to fixed feet using only leg references."""
+    feet=np.asarray(feet,float);displacement=np.asarray(displacement,float)
+    lower=np.asarray(lower,float);upper=np.asarray(upper,float)
+    if (feet.shape!=(4,3) or displacement.shape!=(3,) or lower.shape!=(4,3)
+            or upper.shape!=(4,3) or not all(np.isfinite(x).all() for x in
+                (feet,displacement,lower,upper)) or not np.isfinite(yaw)):
+        raise ValueError('planted body target requires finite feet, displacement, yaw and limits')
+    c,s=np.cos(yaw),np.sin(yaw)
+    rotation=np.array([[c,-s,0.],[s,c,0.],[0.,0.,1.]])
+    targets=(feet-displacement)@rotation
+    result=[]
+    for i,target in enumerate(targets):
+        q=foot_angles_body(i,target)
+        if q is None or np.any(q<lower[i]) or np.any(q>upper[i]):
+            raise ValueError('planted body target exceeds leg workspace')
+        result.extend(q)
+    return np.array(result)
 
 
 class ContactGatedGait:
@@ -806,6 +828,7 @@ class PyMpcGenesisController:
         # No samples are taken during position control. Do not differentiate
         # across that gap or reuse the previous walking horizon.
         self._bridge.reset()
+        self._stand_trim_anchor=None
         if self._payload is not None:
             self._payload.reset()
         self._solver.reset()
@@ -827,6 +850,7 @@ class PyMpcGenesisController:
         self._set_ready_actuation()
 
     def _begin_stand_pose(self) -> None:
+        self._stand_trim_anchor=None
         current=self._current_leg_pose()
         try:self._standing_q=self._in_place_pose(self._kin.stand_q)
         except ValueError as exc:
@@ -851,6 +875,30 @@ class PyMpcGenesisController:
         self._touchdowns.fill(0.0)
         self._last_contacts.fill(1.0)
         self._set_stand_actuation()
+
+    def _trim_standing_body(self) -> bool:
+        """Resolve slow base commands without another swing or root-pose write.
+
+        Keep the initial planted-foot frame through the whole correction. A
+        bounded workspace exhaustion returns to normal walking for a new stance.
+        """
+        if getattr(self,'_stand_trim_anchor',None) is None:
+            try:level=self._in_place_pose(self._kin.stand_q)
+            except ValueError:return False
+            feet=np.array([foot_position_body(i,q) for i,q in enumerate(level.reshape(4,3))])
+            self._stand_trim_anchor=feet
+            self._stand_trim_displacement=np.zeros(3);self._stand_trim_yaw=0.
+        feet=self._stand_trim_anchor
+        c,s=np.cos(self._stand_trim_yaw),np.sin(self._stand_trim_yaw)
+        velocity=np.array([c*self._cmd.vx-s*self._cmd.vy,s*self._cmd.vx+c*self._cmd.vy,0.])
+        displacement=self._stand_trim_displacement+self._dt*velocity
+        yaw=self._stand_trim_yaw+self._dt*self._cmd.yaw_rate
+        if np.linalg.norm(displacement[:2])>.05 or abs(yaw)>.1:return False
+        try:target=planted_body_joint_target(feet,displacement,yaw,self._foot_lower,self._foot_upper)
+        except ValueError:return False
+        self._stand_trim_displacement=displacement;self._stand_trim_yaw=yaw
+        self._standing_q=target
+        return True
 
     def _body_ready_to_stand(self) -> bool:
         """Retain zero-command balance control until actual motion settles."""
@@ -928,6 +976,7 @@ class PyMpcGenesisController:
         self._settling = False
         self._torque_mode_active = False
         self._pose_stage = "stand"
+        self._stand_trim_anchor=None;self._trim_since=None;self._trim_needs_step=False
         self._pose_transition.reset(self._kin.stand_q)
         self._standing_q=self._kin.stand_q.copy()
         if hasattr(self,'_prepared_q'):del self._prepared_q
@@ -1540,8 +1589,8 @@ class PyMpcGenesisController:
         self._sim_time += self._dt
         self._cmd = self._command_shaper.update(self._dt)
         gpu = self._solver.backend == 'jax_mppi'
-        # Slow goal corrections are still walking requests. Only a released
-        # command starts braking and the planted-foot leveling transition.
+        # A small command still requests motion; finish it through planted
+        # leg control instead of treating it as a released command.
         idle_threshold = 1e-9
         if gpu:
             stop_ready = self._command_shaper.braking_ready(time_s=self._sim_time,
@@ -1554,6 +1603,19 @@ class PyMpcGenesisController:
                 gait_duty=float(self._config.gait_duty),
             )
         target_idle = self._command_shaper.target.is_idle(idle_threshold)
+        # Finish small goal corrections by moving the supported body through
+        # leg IK. Repeated full gait/stand transitions shift it centimetres.
+        if (getattr(self,'_trim_needs_step',False) and self._pose_stage=='walk'
+                and self._contact_gait.time>1./self._config.gait_hz
+                and np.all(self._contact_gait.confirmed) and not self._contact_gait.blocked):
+            self._trim_needs_step=False
+        trim_requested=gpu and not getattr(self,'_trim_needs_step',False) and not target_idle and self._command_shaper.target.is_idle(
+            float(self._config.command_idle_threshold))
+        if trim_requested and self._cmd.is_idle(float(self._config.command_idle_threshold)):
+            if getattr(self,'_trim_since',None) is None:self._trim_since=self._sim_time
+            trim_ready=self._sim_time-self._trim_since>=self._command_shaper.stop_dwell_s
+        else:self._trim_since=None;trim_ready=False
+        stop_ready=stop_ready or (trim_ready and self._pose_stage=='walk')
         if self._faulted:
             pose, _ = self._pose_transition.update(self._dt)
             self._entity.control_dofs_position(
@@ -1574,7 +1636,7 @@ class PyMpcGenesisController:
                 self._gait_time(), gait_hz=float(self._config.gait_hz),
                 duty=float(self._config.gait_duty), dt=self._dt, horizon=2,
             )[:, 0])) if self._config.gait_duty > 0.5 else stop_ready
-        if not target_idle:
+        if not target_idle and not trim_ready:
             self._settling = False
         if not gpu and stop_ready and self._pose_stage == "walk":
             # Finish the current swing, then balance on four feet while the
@@ -1583,10 +1645,13 @@ class PyMpcGenesisController:
             stop_ready = self._body_ready_to_stand()
         if stop_ready and self._pose_stage in {"to_ready", "ready_hold", "walk"}:
             self._begin_stand_pose()
-        elif self._pose_stage == "to_stand" and not target_idle:
+        elif self._pose_stage == "to_stand" and not target_idle and not trim_requested:
             self._begin_ready_pose()
         elif self._pose_stage == "stand" and not target_idle:
-            self._begin_ready_pose()
+            if not trim_requested:self._begin_ready_pose()
+            elif not self._trim_standing_body():
+                self._trim_needs_step=True
+                self._begin_ready_pose()
 
         if self._faulted:
             self._entity.control_dofs_position(

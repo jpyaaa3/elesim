@@ -1088,8 +1088,12 @@ velocities, the standing attitude bound and a stable settling interval admit
 the next arm operation. The final position/yaw test uses the pose after leveling;
 any remaining correction needs a fresh swept-footprint check and another stop.
 Roll/pitch and body height are still measured inputs to subsequent scan/grasp
-geometry. Small nonzero PyMPC velocity requests remain motion intent; only zero
-requests the braking/standing transition.
+geometry. Small nonzero GPU PyMPC velocity requests remain motion intent. After
+landing they move the supported body through leg IK in a fixed foot frame,
+instead of restarting the gait for each position correction. This trim is bounded
+to 50 mm / 0.1 rad per stance and existing joint limits; exhaustion requires an
+actual supported gait cycle before reanchoring. No root-pose writes or raised
+actuator limits are used. Zero holds the last leg reference.
 
 The parent grants one child arm/base control at a time. Pure planning/inference
 runs in one worker; DDS-thread ticks alone send motion. Existing LiveScan runs as

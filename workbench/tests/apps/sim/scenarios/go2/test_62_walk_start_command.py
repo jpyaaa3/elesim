@@ -34,8 +34,7 @@ def ready_controller(command, backend='jax_mppi'):
 
 
 @pytest.mark.parametrize('command', [Go2Command(vx=.8), Go2Command(vx=-.8),
-    Go2Command(vy=.35), Go2Command(vx=.8, vy=.35, yaw_rate=.8),
-    Go2Command(vx=.004), Go2Command(vy=-.004), Go2Command(yaw_rate=.003)])
+    Go2Command(vy=.35), Go2Command(vx=.8, vy=.35, yaw_rate=.8)])
 def test_gpu_start_rewinds_only_current_velocity_and_keeps_held_intent(command):
     c, observed = ready_controller(command)
     c._step()

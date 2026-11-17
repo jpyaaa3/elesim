@@ -1,34 +1,41 @@
 # Mobile task: exact continuation checkpoint
 
-Updated: 2026-11-17T10:27:04.156947+09:00
+Updated: 2026-11-17T11:05:30.627422+09:00
 This file records execution state. `docs/status.md` still owns acceptance milestones.
 
 ## Resume here
 
-**The requested source correction is implemented and host-tested, but not committed,
-pushed or deployed. Do not relaunch the failed prototype. No experiment is running.**
-Run 49 has not started. The user asked for code first, after clarifying that normal
-walking sway must not be judged against stationary grasp precision.
+**Runtime `58c526d8` was pushed and officially updated/registered on both hosts
+(v30). The normal test runtime is stopped. Full run 49 has not started.**
 
-Current flow: normal MPC walking → zero command near the goal → planted-foot leg
-position control levels the body → measured `stand` + stationary settling → final
-position/yaw validation. Any remaining correction gets another swept-path check.
-The former 0.07 rad tilt guard applies only to stationary arrival readiness; it is
-no longer an unconditional moving-body task failure. The failed 0.02 rad precision
-liftoff / recovery-gravity prototype was archived and removed from active source.
+The installed 225 mm probe completed and failed after **48.07 s** with
+`base made no measured progress`. It walked normally and entered `to_stand` /
+`stand` twice; it transiently reached **2.34 mm** combined error, but the moving
+stop/stand transition displaced it again. Final error **49.65 mm**. No fall or
+walking-tilt guard failure was observed. Raw data is fetched and preserved.
 
-Host software evidence: **402 passed, 5 skipped, 5 subtests passed** (Pilot/research
-139, focused Sim 51, protocol 212). Source hashes, exact logs and omitted canonical
-checks: `mobile_walk_level_20261117.json`. No physical arrival or grasp success is
-claimed. Next actual-motion check, when requested, is the short base-goal test;
-do not repeat the long scan first. Its maintained runner now uses the actual
-Pilot `BaseExecutor` instead of duplicating its control law. Mount maintained
-Pilot app source read-only using `--pilot-app`; this is diagnostic, not release
-acceptance. No new probe output or server source staging has been made yet.
+**The planted-body correction candidate finished successfully: 7.11 s, settled
+combined error 2.24 mm. Its raw output has been fetched. Do not relaunch it.**
+Next: commit/publish/register the candidate, verify actual installed source hashes,
+then the installed short probe and full run 49. The old detached container ID was:
+`384f1dd8dc2bc71a38c4b0ddae24cd2d6174a4c84d2cfe0fccfed776de689684`.
+Remote root: `/home/hckang/ws/elesim-mobile-diagnostics/base-planted-trim-20261117`.
+Output: `output/planted-trim.{summary.json,state.jsonl,profile.jsonl,console.log}`.
+Controller SHA: `44a4e925c4feec3b8905343d2f5f08592fdc7c052956c0170daea7966367a3bd`.
+It is an explicit diagnostic source override, **not deployed code or acceptance**.
+It handles slow corrections by moving the supported body through leg IK, retaining
+fixed feet; workspace exhaustion returns to walking for a new measured stance.
+Host focused candidate regressions: **46 passed**; final focused Sim batch: **55 passed**. Uncommitted files are the controller,
+`test_62_walk_start_command.py` and new `test_76_planted_body_trim.py`; preserve them.
 
-The runner refuses existing output prefixes and creates an exclusive `.run.json`
-marker. Use a new explicit experiment identity for a changed implementation; do
-not overwrite old failed results or restart merely because a tool session expired.
+Actual installed two-process loopback DDS burst **passed 16/16**. The four-process
+smoke cannot run in an isolated Sim image because its Robot application import is
+correctly absent; the canonical dev image remains unprepared. Do not add sibling
+packages to runtime or start a new environment rebuild as a detour.
+
+See `mobile_walk_level_live_20261117.json` for exact release keys, evidence hashes
+and the completed v30 probe. Keep the 3 mm settled arrival and loaded-hold success
+criteria. Only after the short arrival succeeds should full run 49 start.
 
 ## Objective and fixed scope
 
@@ -49,10 +56,10 @@ not overwrite old failed results or restart merely because a tool session expire
 
 - Runtime commits pushed: `8b2682b8` swept-grid speed; `55c6b296` bounded DDS
   ready-work drain; `0afd1a02` atomic base-velocity + Home hold.
-- Last runtime source published/registered on both installs: **`0afd1a0248357a453ff806d0a6088a28c0e79855`**.
-- Operator release: `13cb3ee299d4904e3eb4094395515432deb66379a910e625fcf2246a40d5f993`.
-- Compute release: `cdbbde8b6fbaeae57bb2e05749bf5001b763ead50c5086871289967e638390e4`.
-- Registration/approved SROS2 rotation v29 completed atomically. Normal `test`
+- Last runtime source published/registered on both installs: **`58c526d84e3971f86480e2b3abeaf44fbbb659da`**.
+- Operator release: `66a9aee8d1f417a1277bf2e3f7d27577185947e100cb114bbd0b7e3ab6eb3487`.
+- Compute release: `e0046dfbadc5a8b33850cb22b81e0985ffba916a49d3caf859c922feeee9976b`.
+- Registration/approved SROS2 rotation v30 completed atomically. Normal `test`
   runtime remains stopped. GPU selection remains host GPU2; do not reapply index
   2 inside its single-visible-GPU container.
 - Protocol real-RMW two-process loopback regression: old receive delivered 1/16;
