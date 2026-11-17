@@ -1074,6 +1074,10 @@ waitset distinguishes Humble's cached ready-generator boundary from an empty
 reader. This prevents one-sample pumps from retaining a backlog after bounded
 control work; wire v6, QoS, exact source/boot admission and 512-entry limits stay
 unchanged. The protocol-only two-process loopback burst is a required software gate.
+Mobile base velocity and the certified arm Home hold are sent atomically in one
+latest-only motion sample after both grants and the measured Home tolerance are
+checked. Timed-arm commands remain exclusive; stopping that execution sends its
+single cancel command, since timed ownership admits only an already stopped base.
 
 The parent grants one child arm/base control at a time. Pure planning/inference
 runs in one worker; DDS-thread ticks alone send motion. Existing LiveScan runs as

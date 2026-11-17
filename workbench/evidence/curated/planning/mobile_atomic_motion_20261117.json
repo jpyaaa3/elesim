@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-17",
+  "scope": "Same fixed D100 mobile task; preserve both motion channels under KEEP_LAST=1",
+  "baseline": "Base velocity and arm hold were consecutive motion frames, so retaining only the latter can lose an unsampled velocity.",
+  "causal_limit": "This is an independent code/contract defect, not proof that it alone caused the preceding feedback failures.",
+  "fix": [
+    "Send checked Home q and Go2 velocity in one target frame.",
+    "Check the existing measured Home tolerance before sending and require both ownership channels.",
+    "Preserve exclusive timed-arm commands; a timed execution admits a stopped base and stopping sends one exclusive cancel.",
+    "Keep zero base commands for non-timed stops and clear pending motion even if sending fails."
+  ],
+  "tests": {
+    "host": "370 passed, 5 skipped, 5 subtests passed in 17.54s",
+    "covers": [
+      "Latest-only move and final zero frame retain both fields.",
+      "Out-of-tolerance Home sends no velocity.",
+      "Timed cancel respects the exclusive wire validator and is not overwritten.",
+      "Stop cleanup survives route delivery errors."
+    ],
+    "canonical_gates_run": false
+  },
+  "acceptance_unchanged": true,
+  "installed_retest_pending": true,
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "354fcb988c36af08347bc634ccbb5fd2ab3e5df3933e9fec20c3bf97d37b3fe7"
+  },
+  "evidence": [
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/mobile-atomic-motion-before.log",
+      "bytes": 5898,
+      "sha256": "3e941b1869c26abf68cad3a34a0a21a5877059790d3d91a5e007e8f140214362"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/mobile-stop-exclusive-attempt.log",
+      "bytes": 7702,
+      "sha256": "6fe4e666f7cb4590e8f7fb0aa2f4e1440f2dbf6331fff061326ec961704338fc"
+    },
+    {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/mobile-atomic-motion-tests.log",
+      "bytes": 526,
+      "sha256": "187f049fa4ea9f5a5f3c7df7d8b7d00525c0d5300ab13dde8e6d8c90b36dd3b5"
+    }
+  ]
+}

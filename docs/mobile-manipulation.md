@@ -113,6 +113,12 @@ rigid base motion does not change self-separation. The live base must still pass
 that original stability guard and all original endpoint/path/view checks.
 These are local planning limits; motion authority, phase/view budgets and physical
 acceptance limits are unchanged.
+During base motion, the checked Home target and base velocity share one motion
+frame. The motion reader keeps only the latest sample, so a following arm-only
+hold must not replace an unsampled velocity. Home tolerance is checked before
+that frame is sent, and both ownership channels remain required. Timed execution
+retains its exclusive-command contract: its stopped-base cancellation is one
+cancel frame, without a following frame that could replace it.
 Mobile mapping uses 10 mm cells with a fixed origin centred on the initial measured
 base position. This separates narrow measured clearance from neighbouring obstacle
 cells that a 40 mm raster can merge. Transport sampling uses half-cell spacing;

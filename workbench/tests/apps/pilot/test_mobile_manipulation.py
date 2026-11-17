@@ -761,6 +761,48 @@ def test_combined_motion_requires_both_child_channels_before_sending():
     assert not sent
 
 
+@pytest.mark.parametrize('finished,hold_error',[(False,0.),(True,0.),(False,.02)])
+def test_base_motion_and_home_hold_share_one_latest_only_frame(finished,hold_error):
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    ports=SimPorts.__new__(SimPorts);home=np.array([-.12,0.,-.59,.59]);actual=home.copy();actual[2]+=hold_error
+    ports.clock=lambda:.2;ports.last_send=0.;ports.last_command=None;ports._summary={}
+    ports.route=lambda:('sim','boot','lease');ports.model=NS(meta={'home':home})
+    ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=actual.copy()),pose=np.zeros(3),
+        base=dict(velocity=np.zeros(3),angular=np.zeros(3))))
+    velocity=np.array([0.,0.,0.]) if finished else np.array([.08,.002,0.])
+    executor=NS(step=lambda *a:(velocity,finished));sent=[]
+    ports._send=lambda *a,**kw:sent.append(kw)
+    op=dict(phase='move_grasp',started=0.,executor=executor,grant=None,ownership=None);ports.operation=op
+    if hold_error:
+        with pytest.raises(RuntimeError,match='hold its checked posture'):ports.poll(op)
+        assert not sent
+    else:
+        result=ports.poll(op)
+        # KEEP_LAST=1 can retain only this frame. It must carry both channels.
+        assert sent==[dict(q=home.tolist(),go2_vel=velocity.tolist())]
+        assert result==({} if finished else None)
+
+
+@pytest.mark.parametrize('send_fails',[False,True])
+def test_timed_stop_sends_one_exclusive_cancel_without_overwriting_it(send_fails):
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    from elesim_protocol import MotionCommandRequest
+    route=('sim','boot','lease');sent=[];cleared=[]
+    ports=SimPorts.__new__(SimPorts);ports.generation=0
+    ports.operation=dict(phase='hug',timed_id='path',grant=NS(route=route))
+    def send(payload,target):
+        sent.append(payload);assert target==route
+        if send_fails:raise RuntimeError('route lost')
+    ports.connection=NS(send_workflow_motion=send,motion_route=lambda:route,
+        clear_pending_motion=lambda:cleared.append(True))
+    if send_fails:
+        with pytest.raises(RuntimeError,match='route lost'):ports.stop('test stop')
+    else:ports.stop('test stop')
+    assert sent==[dict(command='target',timed_arm=dict(id='path',operation='cancel'))]
+    MotionCommandRequest.from_payload(sent[0])
+    assert cleared==[True] and ports.stopped
+
+
 def test_completed_commands_with_stale_success_evidence_remain_unverified():
     from elesim_pilot.mobile_manipulation.runtime import SimPorts
     ports=SimPorts.__new__(SimPorts);ports.clock=lambda:0.;ports.generation=0

@@ -713,8 +713,13 @@ class SimPorts:
                 return free
             b=snap['base'];velocity,done=op['executor'].step(snap['pose'],np.linalg.norm(b['velocity']),np.linalg.norm(b['angular']),
                 segment_free)
-            self._send(grant,ownership,go2_vel=velocity.tolist())
-            self._hold(op,np.array(self.model.meta['home']))
+            home=np.array(self.model.meta['home'])
+            if np.any(abs(snap['joint']['q']-home)>[.001,.015,.015,.015]):
+                raise RuntimeError('arm did not hold its checked posture')
+            # Both channels share KEEP_LAST=1. A following arm-only hold
+            # could overwrite the velocity before Sim takes either sample.
+            self._send(grant,ownership,q=home.tolist(),go2_vel=velocity.tolist())
+            self.last_send=now
             if done:return dict()
         elif phase=='scan':
             status=self.scan.status()
@@ -778,8 +783,12 @@ class SimPorts:
         if op is not None and op['phase']=='scan':self.scan.request_cancel(reason)
         try:
             if op is not None and op.get('timed_id'):
-                self.connection.send_workflow_motion(dict(command='target',timed_arm=dict(id=op['timed_id'],operation='cancel')),op['grant'].route)
-            self.connection.send_workflow_motion(dict(command='target',go2_vel=[0.,0.,0.]),op['grant'].route)
+                # Timed execution exclusively owns motion and admits only a
+                # stopped base. Do not overwrite its cancel with a second
+                # latest-only frame; q/velocity cannot share timed commands.
+                command=dict(command='target',timed_arm=dict(id=op['timed_id'],operation='cancel'))
+            else:command=dict(command='target',go2_vel=[0.,0.,0.])
+            self.connection.send_workflow_motion(command,op['grant'].route)
         finally:
             if self.connection.motion_route()==op['grant'].route:self.connection.clear_pending_motion()
     def close(self):
