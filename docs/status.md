@@ -4,6 +4,11 @@
 acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계약은
 `dds_contracts.md`, 운영 절차는 `setup.md`와 `deployment.md`를 따른다.
 
+현재 실행 재개 지점은
+[`mobile_resume_20261117.md`](../workbench/evidence/curated/planning/mobile_resume_20261117.md)에
+고정한다. 전체 49번은 아직 시작하지 않았으며, 현재 차단점은 **225 mm 보행 분리
+실험의 몸체 기울기 실패**다. 앞단 스캔을 다시 돌리기 전에 이 짧은 재현을 해결한다.
+
 ## 현재 목표: 기존 기능의 운영 경로 완결
 
 ### 설치본 모바일 관측·끌어안기 평가 미통과 (2026-11-16)

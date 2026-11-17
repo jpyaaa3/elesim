@@ -14,6 +14,12 @@
 
 ## Current Work Handoff
 
+- Active mobile task, 2026-11-17: read
+  `workbench/evidence/curated/planning/mobile_resume_20261117.md` before resuming
+  experiments. It records the exact deployed revision, current short failure
+  reproduction and next action. Do not rediscover completed setup or restart
+  the long scan loop before resolving that reproduction. `docs/status.md`
+  remains the acceptance milestone owner.
 - Updated: 2026-09-10
 - Docker source directories are `payload/runtime/docker/dev` and
   `payload/runtime/docker/setup` (formerly development/tools). This source-only
