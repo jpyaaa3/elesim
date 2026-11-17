@@ -63,6 +63,8 @@ EXPECTED = {
     "ui:status",
     "ui:go2-fault",
     "ui:go2-fault-cleared",
+    "ui:go2-leveling",
+    "ui:go2-standing",
 }
 
 
@@ -356,6 +358,12 @@ def _sim_process(barrier: Any, stop: Any, results: Any) -> None:
                         )
                         _report(results, "sim:webrtc")
                 if active_session and ui_id and not status_sent:
+                    for stage in ('to_stand', 'stand'):
+                        peer.send('telemetry', target_id=ui_id, payload={
+                            'go2_locomotion_stage': stage,
+                            'go2_base_pos': [.2, 0., .3],
+                            'go2_base_rpy': [.01, -.01, 0.],
+                        })
                     for fault in ("GPU MPC produced no finite force trajectory", ""):
                         peer.send("telemetry", target_id=ui_id, payload={
                             "go2_controller_fault": fault,
@@ -446,8 +454,12 @@ def _ui_process(barrier: Any, stop: Any, results: Any) -> None:
                         SimulationStatusPayload.from_payload(message.payload or {})
                         _report(results, "ui:status")
                     elif message.message_type == "telemetry" and message.source_id == "sim-smoke":
-                        fault = TelemetryPayload.from_payload(message.payload or {}).raw.get(
-                            "go2_controller_fault")
+                        body = TelemetryPayload.from_payload(message.payload or {}).raw
+                        stage = body.get('go2_locomotion_stage')
+                        if stage in {'to_stand', 'stand'}:
+                            assert body['go2_base_pos']==[.2, 0., .3]
+                            _report(results, 'ui:go2-leveling' if stage=='to_stand' else 'ui:go2-standing')
+                        fault = body.get('go2_controller_fault')
                         if fault == "GPU MPC produced no finite force trajectory":
                             go2_fault_seen = True
                             _report(results, "ui:go2-fault")

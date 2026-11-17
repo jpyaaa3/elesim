@@ -1079,6 +1079,18 @@ latest-only motion sample after both grants and the measured Home tolerance are
 checked. Timed-arm commands remain exclusive; stopping that execution sends its
 single cancel command, since timed ownership admits only an already stopped base.
 
+Normal walking roll/pitch is not a mobile-task failure criterion. Near a base
+goal the executor requests zero velocity, lets the Go2 controller finish landing,
+and waits for its planted-foot leg-position transition to level the body. This
+changes joint references without writing the root pose. Sim reports the actual
+locomotion stage with each body sample. Only a measured `stand`, stationary
+velocities, the standing attitude bound and a stable settling interval admit
+the next arm operation. The final position/yaw test uses the pose after leveling;
+any remaining correction needs a fresh swept-footprint check and another stop.
+Roll/pitch and body height are still measured inputs to subsequent scan/grasp
+geometry. Small nonzero PyMPC velocity requests remain motion intent; only zero
+requests the braking/standing transition.
+
 The parent grants one child arm/base control at a time. Pure planning/inference
 runs in one worker; DDS-thread ticks alone send motion. Existing LiveScan runs as
 a child with retained parent lease and a fixed base for that scan segment. Its

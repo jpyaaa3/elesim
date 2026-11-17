@@ -7,7 +7,21 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 현재 실행 재개 지점은
 [`mobile_resume_20261117.md`](../workbench/evidence/curated/planning/mobile_resume_20261117.md)에
 고정한다. 전체 49번은 아직 시작하지 않았으며, 현재 차단점은 **225 mm 보행 분리
-실험의 몸체 기울기 실패**다. 앞단 스캔을 다시 돌리기 전에 이 짧은 재현을 해결한다.
+실험에 잘못 적용한 보행 중 기울기 제한**이다. 보행은 정상 진행 중이었으며 넘어짐은
+관찰하지 않았다. 미배포 precision liftoff 후보도 정렬 조건 때문에 멈췄다.
+사용자 지시에 따라 **보행 → 정지 → 다리 관절로 수평 정렬 → 실측 도착 재검사**로
+소스를 수정했다. 이동 중 기울기 실패 조건을 제거하고, Sim의 정지 관절 전환 완료와
+실제 정착을 기다린 후 최종 위치·방향을 검사한다. 작은 이동 명령의 정지 오인도
+수정했다. 후보 원본은 로컬 archive와 해시로 보존했다. 서버 반영·실제 보행/정렬·
+전체 모바일/파지/hold 성공은 아직 검증하지 않았다.
+
+이번 소스의 host 회귀는 **402 passed, 5 skipped, 5 subtests passed**
+(Pilot/진단 139, focused Sim 51, protocol 212)다. 정식 `required`, `extended`,
+release build/verify, 실제 RMW `smoke_topology.py`는 미실행이다. 현재 설치의 dev
+wrapper는 새 이미지 준비를 시작해 테스트 전에 중단했으며, host 전체 Sim 검사에는
+pinocchio/torch가 없다. 임의 host 의존성 설치나 대체 컨테이너를 만들지 않았다.
+추가한 DDS 상태 전환 smoke도 준비된 ROS/ROSIDL 환경에서 실행해야 한다.
+[변경 소스·검사 로그 해시와 미검증 범위](../workbench/evidence/curated/planning/mobile_walk_level_20261117.json).
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 

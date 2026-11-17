@@ -156,6 +156,13 @@ Sim telemetry의 선택적 `go2_controller_fault`는 최대 512자 문자열이�
 새 motion authority나 Robot의 arm `safety_fault` 해제 권한을 만들지 않는다.
 Protocol major 6의 additive telemetry 확장이며 기존 발신자는 생략할 수 있다.
 
+Sim의 선택적 `go2_locomotion_stage`는 `unknown`, `stand`, `to_ready`,
+`ready_hold`, `walk`, `to_stand`, `fault` 중 하나다. 몸체 측정과 같은 telemetry에
+실으며 `stand`는 정지 후 발 지지를 유지하는 다리 관절 목표 전환의 완료를 뜻한다.
+실제 수평·정착·위치 정확도나 파지 성공을 보증하지 않는다. Pilot은 이 상태와
+실측 자세·속도를 함께 확인한다. 생략된 상태는 정렬 완료로 간주하지 않는다.
+Protocol major 6의 additive 확장이며 motion 명령·권한·QoS는 바꾸지 않는다.
+
 Depth-plane calibration 역시 protocol major 6의 additive surface다. Robot의
 선택적 `measurement_time_s`는 arm sample의 source wall-clock 시각이며 기존
 `measurement_monotonic_s`는 freshness 확인 의미를 유지한다. Pilot은 이를

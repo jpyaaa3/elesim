@@ -838,6 +838,10 @@ class Go2Locomotion:
     def fault_reason(self) -> str:
         return str(getattr(self._controller, 'fault_reason', ''))
 
+    @property
+    def locomotion_stage(self) -> str:
+        return str(getattr(self._controller, 'locomotion_stage', 'unknown'))
+
     def set_command_source(self, source: str) -> None:
         if self._controller is not None and hasattr(self._controller, "_command_source"):
             self._controller._command_source = str(source)
@@ -4126,6 +4130,7 @@ class SimRuntime:
                             sim_realtime_factor=sim_realtime_factor,
                             sim_step_count=sim_step_count,
                             go2_controller_fault=getattr(a.sim_scene.go2, 'fault_reason', ''),
+                            go2_locomotion_stage=getattr(a.sim_scene.go2, 'locomotion_stage', 'unknown'),
                         )
                         refresh = getattr(a.sim_scene.go2, "refresh_camera_feedback", None)
                         if camera_base_pose is not None and callable(refresh):

@@ -172,7 +172,9 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
             "optional Robot measurement_time_s is the arm sample time in the source wall clock "
             "for RGB-D pairing; measurement_monotonic_s retains its existing freshness meaning; "
             "Sim go2_controller_fault is an additive 0..512 character locomotion fault string; "
-            "empty clears it after explicit controller reset and grants no motion authority"
+            "empty clears it after explicit controller reset and grants no motion authority; "
+            "optional Sim go2_locomotion_stage is unknown/stand/to_ready/ready_hold/walk/to_stand/fault; "
+            "stand reports completion of leg-reference leveling, not measured grasp readiness"
         ),
     ),
     "ack": _contract(

@@ -1,0 +1,10 @@
+{
+  "reason": "Retired precision-liftoff prototype: normal walking was stopped by an inappropriate stationary attitude gate. User requested walk, stop, level via leg joints, then verify actual pose.",
+  "archive": "workbench/archive/mobile-liftoff-prototype-20261117.zip",
+  "archive_sha256": "11bdc1dbcf4c20b78923045a00c369dc83a328e03f05ea1b8037d5ac9b9b2a6c",
+  "files": {
+    "payload/runtime/docker/sim/app/elesim_sim/robot/go2/pympc_controller.py": "d6f32eb40576652167d00355eea500c71eeca57ff97ab56ec6fd624d8656acda",
+    "workbench/tests/apps/sim/scenarios/go2/test_75_liftoff_posture.py": "7c08a5daf7b02ed74121a9fb738cbb428b26c650ec1c7add084080b7e5a031d2",
+    "workbench/evidence/curated/planning/mobile_stance_transition_20261116.json": "265e2cb9c436142f9c2aa0ce1ab2e948dd40380062ec9120f00f97bc6c57eda0"
+  }
+}

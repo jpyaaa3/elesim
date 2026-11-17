@@ -26,6 +26,7 @@ def walking(backend='jax_mppi'):
                          np.tile(np.eye(3), (4, 1, 1)), np.zeros(12))
     c._torques = lambda *_: np.zeros(12)
     c._entity.control_dofs_force = lambda *_args, **_kw: None
+    c._as_force_tensor = np.asarray  # Exercise the state machine on the fake entity.
     calls = []
     c._entity.control_dofs_position = lambda *_args, **_kw: calls.append('position')
     def begin():
@@ -78,3 +79,23 @@ def test_a_nonzero_reversal_does_not_latch_braking_at_the_zero_crossing(backend)
     assert not c._settling
     assert c._pose_stage == 'walk'
     assert calls == []
+
+
+@pytest.mark.parametrize('command',[Go2Command(vx=.004),Go2Command(vy=-.004),Go2Command(yaw_rate=.003)])
+def test_small_goal_corrections_do_not_trigger_a_stand_transition(command):
+    c,calls=walking()
+    c._command_shaper.set_target(command)
+    c._step()
+    assert not c._settling and c.locomotion_stage=='walk'
+    assert not calls
+
+
+def test_zero_command_hands_normal_walking_tilt_to_leg_position_leveling():
+    from scipy.spatial.transform import Rotation
+    c,calls=walking()
+    c._bridge.last_q[3:7]=Rotation.from_euler('xyz',[.12,-.1,.2]).as_quat()
+    c._contact_gait.confirmed[:]=True;c._contact_gait.load[:]=1.
+    c._contact_gait.blocked=False
+    c._step()
+    assert c.locomotion_stage=='to_stand'
+    assert calls==['begin_stand','position']

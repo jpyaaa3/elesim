@@ -830,7 +830,7 @@ def test_ready_transition_preserves_the_planted_foot_horizontal_positions(bad_li
 
 
 @pytest.mark.parametrize('raising',[False,True])
-@pytest.mark.parametrize('tilt',[(0.,0.,0.),(.03,-.05,.2)])
+@pytest.mark.parametrize('tilt',[(0.,0.,0.),(.03,-.05,.2),(.12,-.1,.2)])
 def test_pose_handover_preserves_world_foot_xy_in_both_height_directions(raising,tilt):
     from scipy.spatial.transform import Rotation
     from elesim_sim.robot.go2.foot_workspace import foot_position_body,stance_preserving_pose

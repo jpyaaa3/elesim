@@ -30,7 +30,8 @@ class Feedback:
             stamp=float(payload['go2_base_timestamp_s'])
             if not np.isfinite(stamp):raise ValueError('invalid base timestamp')
             if not self.bases or stamp>self.bases[-1]['stamp']:
-                self.bases.append(dict(pos=pos,rpy=rpy,velocity=velocity,angular=angular,stamp=stamp,received=now))
+                self.bases.append(dict(pos=pos,rpy=rpy,velocity=velocity,angular=angular,stamp=stamp,received=now,
+                    locomotion_stage=payload.get('go2_locomotion_stage','unknown')))
     def snapshot(self,source,max_age=.5):
         with self.lock:return self._snapshot(source,max_age)
     def _snapshot(self,source,max_age=.5):

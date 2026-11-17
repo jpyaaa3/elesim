@@ -95,8 +95,6 @@ class SimPorts:
         if s is None or s.paused or not host.connected or not host.torque_enabled or host.claw_closed is not False:
             raise RuntimeError('running Sim, torque ON and open claws required')
         if host.safety_fault or not host.reply_ok:raise RuntimeError(host.safety_fault or host.reply_reason or 'Sim rejected command')
-        b=self.feedback.bases[-1]
-        if max(abs(b['rpy'][:2]))>.07:raise RuntimeError('Go2 body tilt outside flat-floor profile')
         if self._latest.get('go2_controller_fault'):raise RuntimeError(self._latest['go2_controller_fault'])
         if self.model is not None and self.operation is not None and not self.stopped:
             self.model.validate_physics(self._latest.get('physics_profile'))
@@ -623,7 +621,10 @@ class SimPorts:
             self._summary['base_goal']=dict(pose=args['goal'].pose.tolist(),kind=args['goal'].report['kind'],
                 path=args['goal'].path.tolist())
             op['executor']=BaseExecutor(self.s,self.clock)
-            snap=self.feedback.snapshot(self.route()[:2]);op['executor'].start(args['goal'],snap['pose'],self.grid.revision)
+            snap=self.feedback.snapshot(self.route()[:2])
+            if snap['base'].get('locomotion_stage','unknown')=='unknown':
+                raise RuntimeError('Update Sim: measured Go2 locomotion stage required')
+            op['executor'].start(args['goal'],snap['pose'],self.grid.revision)
         elif phase=='scan':
             self.scan.start(self.target_id,self.s.max_views,roi_height_m=self.s.scan_roi_height_m,
                 retain_lease=True,tracking_uncertainty=[.001,.015,.015,.015],
@@ -711,8 +712,12 @@ class SimPorts:
                         current=self.grid.footprint_status(a,self.footprint),
                         next=self.grid.footprint_status(b,self.footprint))
                 return free
-            b=snap['base'];velocity,done=op['executor'].step(snap['pose'],np.linalg.norm(b['velocity']),np.linalg.norm(b['angular']),
-                segment_free)
+            b=snap['base'];stage=b.get('locomotion_stage','unknown')
+            velocity,done=op['executor'].step(snap['pose'],np.linalg.norm(b['velocity']),np.linalg.norm(b['angular']),
+                segment_free,posture_ready=(stage=='stand'
+                    and np.max(abs(b['rpy'][:2]))<=self.s.standing_tilt_tolerance_rad))
+            self._summary['base_execution']=dict(stage=op['executor'].stage,
+                locomotion_stage=stage,roll_pitch_rad=b['rpy'][:2].tolist())
             home=np.array(self.model.meta['home'])
             if np.any(abs(snap['joint']['q']-home)>[.001,.015,.015,.015]):
                 raise RuntimeError('arm did not hold its checked posture')

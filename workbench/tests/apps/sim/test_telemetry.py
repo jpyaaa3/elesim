@@ -19,6 +19,18 @@ def test_go2_controller_fault_is_published_and_empty_reset_clears_it():
     assert emitted[-1]['go2_controller_fault'] == ''
 
 
+def test_leg_transition_stage_is_paired_with_the_measured_body():
+    from types import SimpleNamespace
+    emitted=[]
+    base=SimpleNamespace(get_pos=lambda:np.array([.2,.1,.3]),
+        get_quat=lambda:np.array([1.,0.,0.,0.]),get_vel=lambda:np.zeros(3),get_ang=lambda:np.zeros(3))
+    telemetry=RuntimeTelemetry(emitted.append)
+    for stage in ('walk','to_stand','stand'):
+        telemetry.send_go2_base(SimpleNamespace(get_link=lambda _:base),go2_locomotion_stage=stage)
+        assert emitted[-1]['go2_locomotion_stage']==stage
+        assert emitted[-1]['go2_base_pos']==[.2,.1,.3]
+
+
 def test_runtime_telemetry_uses_canonical_q_and_normalized_direction() -> None:
     emitted: list[dict[str, object]] = []
     telemetry = RuntimeTelemetry(emitted.append)

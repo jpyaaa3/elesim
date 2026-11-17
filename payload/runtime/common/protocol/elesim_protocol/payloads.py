@@ -396,6 +396,10 @@ class TelemetryPayload:
         raw = _object(payload, context="telemetry")
         if 'go2_controller_fault' in raw:
             _text(raw['go2_controller_fault'], name='go2_controller_fault', maximum=512, allow_empty=True)
+        if 'go2_locomotion_stage' in raw:
+            stage = _text(raw['go2_locomotion_stage'], name='go2_locomotion_stage', maximum=16)
+            if stage not in {'unknown', 'stand', 'to_ready', 'ready_hold', 'walk', 'to_stand', 'fault'}:
+                raise ProtocolError('invalid go2_locomotion_stage')
         q: Optional[tuple[float, float, float, float]] = None
         if "q" in raw:
             values = _vector(raw["q"], 4, name="telemetry q")

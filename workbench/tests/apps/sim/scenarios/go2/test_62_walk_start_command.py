@@ -22,6 +22,7 @@ def ready_controller(command, backend='jax_mppi'):
     c._config.command_ramp_s = .15
     c._entity.control_dofs_position = lambda *args, **kwargs: None
     c._entity.control_dofs_force = lambda *args, **kwargs: None
+    c._as_force_tensor = np.asarray  # This fixture has no Genesis/GPU entity.
     c._set_torque_actuation = lambda: None
     observed = []
     def sample():
@@ -33,7 +34,8 @@ def ready_controller(command, backend='jax_mppi'):
 
 
 @pytest.mark.parametrize('command', [Go2Command(vx=.8), Go2Command(vx=-.8),
-    Go2Command(vy=.35), Go2Command(vx=.8, vy=.35, yaw_rate=.8)])
+    Go2Command(vy=.35), Go2Command(vx=.8, vy=.35, yaw_rate=.8),
+    Go2Command(vx=.004), Go2Command(vy=-.004), Go2Command(yaw_rate=.003)])
 def test_gpu_start_rewinds_only_current_velocity_and_keeps_held_intent(command):
     c, observed = ready_controller(command)
     c._step()

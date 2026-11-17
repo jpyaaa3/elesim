@@ -189,5 +189,27 @@
       "path": "workbench/evidence/generated/mobile-installed-20261115/ready-stance-quiet-liftoff.jsonl",
       "sha256": "c96b6b1fe57b77e4245f49c7952876eac244caba4fc51b7af03febb4aa1693fc"
     }
+  },
+  "recovery_gravity_diagnostic": {
+    "production_changed": false,
+    "lift_gate_rad": 0.02,
+    "lift_gate_rate_radps": 0.1,
+    "gravity_during_quiet_loaded_posture_recovery": true,
+    "command_duration_s": 6,
+    "maximum_abs_roll_pitch_rad": [
+      0.02370805231195959,
+      0.06071929392035602
+    ],
+    "command_displacement_m": [
+      0.06625762255862355,
+      -0.021123613234522054,
+      -0.0031613707542419434
+    ],
+    "diagnostic_completed": true,
+    "scope": "Isolated implementation prototype only, not integrated base arrival or full acceptance.",
+    "evidence": {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/ready-stance-recovery-gravity.jsonl",
+      "sha256": "d4c7a1ec9c30c5d0a9b1d280351470ad8a04f049c46b64941d0d35d59f10f8eb"
+    }
   }
 }

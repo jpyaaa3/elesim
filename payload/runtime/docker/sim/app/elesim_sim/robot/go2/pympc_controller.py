@@ -696,6 +696,10 @@ class PyMpcGenesisController:
     def fault_reason(self) -> str:
         return getattr(self, '_fault_reason', '')
 
+    @property
+    def locomotion_stage(self) -> str:
+        return self._pose_stage
+
     @cached_property
     def _leg_control_dofs(self) -> range | list[int]:
         """Keep static contiguous writes on Genesis' slice path.
@@ -1536,19 +1540,20 @@ class PyMpcGenesisController:
         self._sim_time += self._dt
         self._cmd = self._command_shaper.update(self._dt)
         gpu = self._solver.backend == 'jax_mppi'
+        # Slow goal corrections are still walking requests. Only a released
+        # command starts braking and the planted-foot leveling transition.
+        idle_threshold = 1e-9
         if gpu:
             stop_ready = self._command_shaper.braking_ready(time_s=self._sim_time,
-                threshold=float(self._config.command_idle_threshold))
+                threshold=idle_threshold)
         else:
             stop_ready = self._command_shaper.stop_ready(
                 time_s=self._sim_time,
-                threshold=float(self._config.command_idle_threshold),
+                threshold=idle_threshold,
                 gait_hz=float(self._config.gait_hz),
                 gait_duty=float(self._config.gait_duty),
             )
-        target_idle = self._command_shaper.target.is_idle(
-            float(self._config.command_idle_threshold)
-        )
+        target_idle = self._command_shaper.target.is_idle(idle_threshold)
         if self._faulted:
             pose, _ = self._pose_transition.update(self._dt)
             self._entity.control_dofs_position(

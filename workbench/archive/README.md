@@ -30,3 +30,9 @@ Start/cancel·coverage·mock scene/motion authority·파일 선택 회귀는 현
 suite로 이관했다. 이 ZIP은 현재 runtime이나 테스트가 읽지 않는다.
 
 `retired-hug-pipelines-20261110.zip` preserves the exact pre-cleanup Hug workflow sources and instructions. Five obsolete standalone files were removed; shared code and all regression assertions remain. See `../research/experiments/HUG_WORKFLOWS.md` for the dependency boundary. ZIP is local-only and is not pushed by Git.
+
+`mobile-liftoff-prototype-20261117.zip` preserves the failed uncommitted precision
+liftoff prototype, tests, evidence summary and exact patch. It incorrectly applied
+stationary attitude limits during walking. Hashes and the retirement reason are in
+[`mobile_liftoff_retired_20261117.json`](../evidence/curated/planning/mobile_liftoff_retired_20261117.json).
+The current implementation waits for leg leveling after stopping instead.

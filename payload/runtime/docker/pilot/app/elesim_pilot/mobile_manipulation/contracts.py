@@ -73,6 +73,7 @@ class Settings:
     base_position_tolerance_m: float=.01
     base_yaw_tolerance_rad: float=.025
     settle_s: float=.5
+    standing_tilt_tolerance_rad: float=.07
     base_timeout_s: float=90.
     target_age_s: float=45.
     drift_per_m: float=.02

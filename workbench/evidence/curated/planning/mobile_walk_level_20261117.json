@@ -1,0 +1,54 @@
+{
+  "updated": "2026-11-17T10:26:23.268180+09:00",
+  "scope": "Source change and host software regressions only. No deployment or physical arrival/grasp acceptance.",
+  "user_correction": "Permit normal walking sway. Stop, level through leg joint position control, then verify the actual arrival pose.",
+  "behavior": [
+    "Remove the unconditional 0.07 rad moving-body task failure.",
+    "Retire the uncommitted 0.02 rad precision liftoff and recovery-gravity prototype, retaining exact bytes in an ignored archive.",
+    "Near the goal, command zero; wait for real controller stand stage and measured stationary leveling/settling.",
+    "Use post-leveling position/yaw for the unchanged 3 mm combined grasp-arrival test; swept-check every further correction.",
+    "Preserve small nonzero PyMPC motion intent rather than interpreting it as a 0.05 deadband stop.",
+    "Carry optional bounded locomotion stage with measured body telemetry under additive protocol major 6.",
+    "Use the actual Pilot executor in the isolated diagnostic; record sway without failing on it."
+  ],
+  "host_checks": {
+    "pilot": {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/walk-level-pilot-tests.log",
+      "sha256": "c77e9409e9a10bc3ba128c4c1db99fae98a8660d7eebf3001c79b5a4461a2d35",
+      "result": "139 passed in 2.75s"
+    },
+    "sim": {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/walk-level-sim-tests.log",
+      "sha256": "f08ab9d2289051451d10e6046c23eabf879569d79c5bb4a272eaa0212f16334b",
+      "result": "51 passed in 0.43s"
+    },
+    "protocol": {
+      "path": "workbench/evidence/generated/mobile-installed-20261115/walk-level-protocol-tests.log",
+      "sha256": "a069214b5e1f4a4ae2706536f8fba2bb4b9ddf857e7f080652441b93cb118e0b",
+      "result": "212 passed, 5 skipped, 5 subtests passed in 1.02s"
+    }
+  },
+  "canonical_checks": {
+    "required": "Not run: generated wrapper attempted a fresh dev image build; image preparation was interrupted before tests, code-only scope.",
+    "extended": "Not run: same unavailable prepared dev image.",
+    "release_build_verify": "Not run: same unavailable prepared dev image.",
+    "smoke_topology": "Updated for stage transition; not executed without prepared ROS/ROSIDL environment.",
+    "sim_full": "Host lacks pinocchio/torch. A broad host attempt had dependency failures; focused state-machine tests use their existing fake entity and explicit NumPy conversion, with geometry tests using actual leg FK/IK."
+  },
+  "live_acceptance": {
+    "server_deployed": false,
+    "gpu_base_goal_rerun": false,
+    "full_run_49_started": false,
+    "grasp_hold_verified": false
+  },
+  "source_sha256": {
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/base_executor.py": "007906c2ccaf0425e59969a9ce91ac4ff40914a89ac2dae22bfc3eeead184bdc",
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/runtime.py": "70ed0406ace4e1060ca40709bd4157a26682b163243451e30c2be5a0ccbb1cc7",
+    "payload/runtime/docker/pilot/app/elesim_pilot/mobile_manipulation/feedback.py": "e56bd9228548702673dabc55c1729ab81e93e5690410ac137bc5bee5bacaf9c7",
+    "payload/runtime/docker/sim/app/elesim_sim/robot/go2/pympc_controller.py": "a57ea9c0c4bc44df6288e4ae32016b8011d9dabf47cd7150cc7dade27e769390",
+    "payload/runtime/docker/sim/app/elesim_sim/runtime.py": "7507108ff0f705e69df6d3da3d571adc67b1500ae4eec8135e120f556c9d8cb9",
+    "payload/runtime/docker/sim/app/elesim_sim/telemetry.py": "d6da871f430cf7418742734684c3aeb48a107e6f77f21cef24a5624dad733086",
+    "payload/runtime/common/protocol/elesim_protocol/payloads.py": "b64a26f1b8d5ffea4024a907ffd6b02b621a25327c23c8b291f8ed7a3b4f2dff",
+    "workbench/research/debug/profile_mobile_base.py": "c0ec3c638ffc6d96a9c15851db4619c59ad264c2122eceeebf68e716974d0c2d"
+  }
+}

@@ -477,12 +477,12 @@ def test_base_executor_requires_measured_settle_and_stops_on_blockage():
     now=[0.];s=Settings();e=BaseExecutor(s,lambda:now[0])
     goal=BaseGoal(np.array([.1,0,0]),np.array([[0,0,0],[.1,0,0]]),np.zeros(4),{})
     e.start(goal,[0,0,0],1)
-    v,done=e.step([0,0,0],0,0,lambda *a:True);assert v[0]>0 and not done
-    now[0]=1.;v,done=e.step([.1,0,0],.1,0,lambda *a:True);assert not done
-    e.step([.1,0,0],0,0,lambda *a:True);now[0]=1.6
-    assert e.step([.1,0,0],0,0,lambda *a:True)[1]
+    v,done=e.step([0,0,0],0,0,lambda *a:True,posture_ready=False);assert v[0]>0 and not done
+    now[0]=1.;v,done=e.step([.1,0,0],.1,0,lambda *a:True,posture_ready=False);assert not done
+    e.step([.1,0,0],0,0,lambda *a:True,posture_ready=True);now[0]=1.6
+    assert e.step([.1,0,0],0,0,lambda *a:True,posture_ready=True)[1]
     e.start(goal,[0,0,0],1)
-    with pytest.raises(RuntimeError):e.step([0,0,0],0,0,lambda *a:False)
+    with pytest.raises(RuntimeError):e.step([0,0,0],0,0,lambda *a:False,posture_ready=False)
 
 
 def test_reached_observation_goal_holds_without_demanding_a_corrective_grid_sweep():
@@ -490,10 +490,11 @@ def test_reached_observation_goal_holds_without_demanding_a_corrective_grid_swee
     goal=BaseGoal(np.zeros(3),np.array([[0.,0.,0.]]),np.zeros(4),dict(kind='observation'))
     executor.start(goal,[.0003,0,0],1)
     def blocked(*args):raise AssertionError('no movement requested')
-    velocity,done=executor.step([.0003,0,0],0,0,blocked)
+    velocity,done=executor.step([.0003,0,0],0,0,blocked,posture_ready=True)
     assert not velocity.any() and not done
+    executor.step([.0003,0,0],0,0,blocked,posture_ready=True)
     now[0]=.6
-    velocity,done=executor.step([.0003,0,0],0,0,blocked)
+    velocity,done=executor.step([.0003,0,0],0,0,blocked,posture_ready=True)
     assert not velocity.any() and done
 
 
@@ -746,8 +747,8 @@ def test_grasp_arrival_charges_yaw_error_at_object_distance():
     executor.start(goal,[0,0,0],1)
     # Ten milliradians is inside the generic yaw tolerance but shifts a target
     # 0.5 m away by 5 mm, larger than this task's 3 mm arrival allowance.
-    _,done=executor.step([0,0,.01],0,0,lambda *a:True);assert not done
-    now[0]=1.;_,done=executor.step([0,0,.01],0,0,lambda *a:True);assert not done
+    _,done=executor.step([0,0,.01],0,0,lambda *a:True,posture_ready=True);assert not done
+    now[0]=1.;_,done=executor.step([0,0,.01],0,0,lambda *a:True,posture_ready=True);assert not done
 
 
 def test_combined_motion_requires_both_child_channels_before_sending():
@@ -765,12 +766,12 @@ def test_combined_motion_requires_both_child_channels_before_sending():
 def test_base_motion_and_home_hold_share_one_latest_only_frame(finished,hold_error):
     from elesim_pilot.mobile_manipulation.runtime import SimPorts
     ports=SimPorts.__new__(SimPorts);home=np.array([-.12,0.,-.59,.59]);actual=home.copy();actual[2]+=hold_error
-    ports.clock=lambda:.2;ports.last_send=0.;ports.last_command=None;ports._summary={}
+    ports.clock=lambda:.2;ports.last_send=0.;ports.last_command=None;ports._summary={};ports.s=Settings()
     ports.route=lambda:('sim','boot','lease');ports.model=NS(meta={'home':home})
     ports.feedback=NS(snapshot=lambda *a:dict(joint=dict(q=actual.copy()),pose=np.zeros(3),
-        base=dict(velocity=np.zeros(3),angular=np.zeros(3))))
+        base=dict(velocity=np.zeros(3),angular=np.zeros(3),rpy=np.zeros(3),locomotion_stage='stand')))
     velocity=np.array([0.,0.,0.]) if finished else np.array([.08,.002,0.])
-    executor=NS(step=lambda *a:(velocity,finished));sent=[]
+    executor=NS(step=lambda *a,**kw:(velocity,finished),stage='completed' if finished else 'approach');sent=[]
     ports._send=lambda *a,**kw:sent.append(kw)
     op=dict(phase='move_grasp',started=0.,executor=executor,grant=None,ownership=None);ports.operation=op
     if hold_error:

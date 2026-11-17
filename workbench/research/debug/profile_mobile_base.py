@@ -19,19 +19,15 @@ import time
 import numpy as np
 
 
-def goal_command(pose,goal,settings,reach):
-    """The mobile executor's proportional command and final-arrival condition."""
-    pose=np.asarray(pose,float);delta=np.asarray(goal,float)-pose
-    delta[2]=(delta[2]+np.pi)%(2*np.pi)-np.pi
-    distance=float(np.linalg.norm(delta[:2]))
-    close=(distance<settings['base_position_tolerance_m']
-        and abs(delta[2])<settings['base_yaw_tolerance_rad']
-        and distance+reach*abs(delta[2])<=settings['arrival_error_m'])
-    if close:return np.zeros(3),True
-    c,s=np.cos(pose[2]),np.sin(pose[2]);v=np.array([[c,s],[-s,c]])@delta[:2]*.8
-    norm=np.linalg.norm(v)
-    if norm>settings['base_speed_mps']:v*=settings['base_speed_mps']/norm
-    return np.r_[v,np.clip(delta[2]*.8,-settings['yaw_speed_radps'],settings['yaw_speed_radps'])],False
+def make_executor(case,goal,current,clock):
+    """Use the actual Pilot executor; research may load both role sources."""
+    from elesim_pilot.mobile_manipulation.base_executor import BaseExecutor
+    from elesim_pilot.mobile_manipulation.contracts import BaseGoal,Settings
+    executor=BaseExecutor(Settings(**case['settings']),clock)
+    proposal=BaseGoal(goal,np.array([current,goal]),np.array(case['home_q']),
+        dict(kind='grasp',target_reach_m=case['target_reach_m']))
+    executor.start(proposal,current,0)
+    return executor
 
 
 class ProbeFinished(Exception):
@@ -45,18 +41,21 @@ def main():
     parser.add_argument('--model-bundle',required=True)
     parser.add_argument('--controller-source',type=Path,
         help='explicit read-only implementation prototype; never an installed acceptance run')
+    parser.add_argument('--pilot-app',type=Path,
+        help='read-only Pilot app source for the actual arrival executor in a Sim-only diagnostic')
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args()
     if any(args.output.with_suffix(suffix).exists() for suffix in
             ('.run.json','.summary.json','.state.jsonl','.profile.jsonl')):
         parser.error('probe output already exists; inspect it before starting another experiment')
-    case=json.loads(args.case.read_text());settings=case['settings']
+    case=json.loads(args.case.read_text())
     args.output.parent.mkdir(parents=True,exist_ok=True)
     with args.output.with_suffix('.run.json').open('x') as marker:
         json.dump(dict(started_epoch_s=time.time(),
             case_sha256=hashlib.sha256(args.case.read_bytes()).hexdigest(),
             runner_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest()),marker)
     module_name='elesim_sim.robot.go2.pympc_controller'
+    if args.pilot_app:sys.path.insert(0,str(args.pilot_app.resolve()))
     if args.controller_source:
         spec=importlib.util.spec_from_file_location(module_name,args.controller_source)
         module=importlib.util.module_from_spec(spec);sys.modules[module_name]=module;spec.loader.exec_module(module)
@@ -66,12 +65,12 @@ def main():
     from scipy.spatial.transform import Rotation
     from elesim_sim.simulation.genesis.utils import to_numpy_1d
     from workbench.research.debug import profile_sim_walking as walking
-    original=walking.advance_controlled_step;started=None;settled=None;goal=None
-    maximum=np.zeros(2);best=float('inf');last_progress=None;latest={};result=None
+    original=walking.advance_controlled_step;started=None;goal=None;executor=None
+    maximum=np.zeros(2);latest={};result=None
     args.output.parent.mkdir(parents=True,exist_ok=True)
     states=args.output.with_suffix('.state.jsonl').open('w')
     def step(scene,command,arm_q,**kwargs):
-        nonlocal started,settled,goal,best,last_progress,latest
+        nonlocal started,goal,executor,latest
         arm_q=replace(arm_q,**dict(zip(['linear_m','roll_rad','theta1_rad','theta2_rad'],case['home_q'])))
         if np.linalg.norm(command)>0:
             base=scene.go2._entity.get_link('base');pos=to_numpy_1d(base.get_pos())[:3]
@@ -79,27 +78,28 @@ def main():
             velocity=to_numpy_1d(base.get_vel())[:3];angular=to_numpy_1d(base.get_ang())[:3]
             pose=np.r_[pos[:2],rpy[2]];now=time.monotonic()
             if started is None:
-                started=last_progress=now
+                started=now
                 turn=rpy[2]-case['planned_start_yaw'];c,s=np.cos(turn),np.sin(turn)
                 delta=np.asarray(case['goal_offset']);xy=np.array([[c,-s],[s,c]])@delta[:2]
                 goal=pose+np.r_[xy,delta[2]]
+                executor=make_executor(case,goal,pose,time.monotonic)
             maximum[:]=np.maximum(maximum,abs(rpy[:2]))
-            desired,close=goal_command(pose,goal,settings,case['target_reach_m'])
+            if scene.go2.fault_reason:raise ProbeFinished(False,scene.go2.fault_reason)
+            stage=getattr(scene.go2._controller,'locomotion_stage','unknown')
+            posture_ready=(stage=='stand'
+                and np.max(abs(rpy[:2]))<=executor.s.standing_tilt_tolerance_rad)
+            try:
+                desired,done=executor.step(pose,np.linalg.norm(velocity),np.linalg.norm(angular),
+                    lambda *a:True,posture_ready=posture_ready)
+            except RuntimeError as exc:raise ProbeFinished(False,str(exc)) from exc
             delta=goal-pose;delta[2]=(delta[2]+np.pi)%(2*np.pi)-np.pi
-            metric=float(np.linalg.norm(delta[:2])+.2*abs(delta[2]))
-            if metric<best-.0002:best=metric;last_progress=now
             latest=dict(elapsed_s=now-started,pose=pose.tolist(),goal=goal.tolist(),
                 rpy=rpy.tolist(),command=desired.tolist(),linear_speed=float(np.linalg.norm(velocity)),
                 angular_speed=float(np.linalg.norm(angular)),
+                executor_stage=executor.stage,locomotion_stage=stage,
                 combined_arrival_error_m=float(np.linalg.norm(delta[:2])+case['target_reach_m']*abs(delta[2])))
             states.write(json.dumps(latest)+'\n');states.flush()
-            if maximum.max()>.07:raise ProbeFinished(False,'body_tilt')
-            if now-started>settings['base_timeout_s']:raise ProbeFinished(False,'base_timeout')
-            if close and np.linalg.norm(velocity)<.01 and np.linalg.norm(angular)<.05:
-                if settled is None:settled=now
-                if now-settled>=settings['settle_s']:raise ProbeFinished(True,'arrived_and_settled')
-            else:settled=None
-            if not close and now-last_progress>10.:raise ProbeFinished(False,'no_measured_progress')
+            if done:raise ProbeFinished(True,'arrived_leveled_and_settled')
             command=desired
         return original(scene,command,arm_q,**kwargs)
     walking.advance_controlled_step=step;previous=sys.argv
@@ -116,6 +116,8 @@ def main():
             result.update(diagnostic_only=True,no_dds_or_map_or_grasp_acceptance=True,
                 controller_source_sha256=controller_sha,implementation_override=bool(args.controller_source),
                 maximum_abs_roll_pitch_rad=maximum.tolist(),last=latest,case=case)
+            if executor is not None:
+                result['executor_source_sha256']=hashlib.sha256(Path(inspect.getfile(type(executor))).read_bytes()).hexdigest()
             temporary=args.output.with_suffix('.summary.partial.json')
             temporary.write_text(json.dumps(result,indent=2)+'\n')
             temporary.replace(args.output.with_suffix('.summary.json'))

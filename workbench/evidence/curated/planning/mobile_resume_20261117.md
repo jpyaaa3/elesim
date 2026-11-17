@@ -1,20 +1,34 @@
 # Mobile task: exact continuation checkpoint
 
-Updated: 2026-11-17T09:41:25+09:00
+Updated: 2026-11-17T10:27:04.156947+09:00
 This file records execution state. `docs/status.md` still owns acceptance milestones.
 
 ## Resume here
 
-**Do not restart scan or the full mobile run. First check the exact prototype
-container and `output/prototype.summary.json` on the server. If a result exists,
-read it; do not rerun. If still running, monitor it. Only if neither exists is
-the next action the isolated 225 mm probe below.** Run 49 has **not** started.
-The runner refuses any existing summary/state/profile output so an interruption
-cannot silently overwrite a finished or partial experiment.
-It also creates an exclusive `.run.json` marker before loading the physics stack.
-The prototype is launched as a detached server-owned container, with console and
-state files bound into remote `output/`; no Codex tool-session ID is needed to
-recover it. Never relaunch just because an old session ID is unavailable.
+**The requested source correction is implemented and host-tested, but not committed,
+pushed or deployed. Do not relaunch the failed prototype. No experiment is running.**
+Run 49 has not started. The user asked for code first, after clarifying that normal
+walking sway must not be judged against stationary grasp precision.
+
+Current flow: normal MPC walking → zero command near the goal → planted-foot leg
+position control levels the body → measured `stand` + stationary settling → final
+position/yaw validation. Any remaining correction gets another swept-path check.
+The former 0.07 rad tilt guard applies only to stationary arrival readiness; it is
+no longer an unconditional moving-body task failure. The failed 0.02 rad precision
+liftoff / recovery-gravity prototype was archived and removed from active source.
+
+Host software evidence: **402 passed, 5 skipped, 5 subtests passed** (Pilot/research
+139, focused Sim 51, protocol 212). Source hashes, exact logs and omitted canonical
+checks: `mobile_walk_level_20261117.json`. No physical arrival or grasp success is
+claimed. Next actual-motion check, when requested, is the short base-goal test;
+do not repeat the long scan first. Its maintained runner now uses the actual
+Pilot `BaseExecutor` instead of duplicating its control law. Mount maintained
+Pilot app source read-only using `--pilot-app`; this is diagnostic, not release
+acceptance. No new probe output or server source staging has been made yet.
+
+The runner refuses existing output prefixes and creates an exclusive `.run.json`
+marker. Use a new explicit experiment identity for a changed implementation; do
+not overwrite old failed results or restart merely because a tool session expired.
 
 ## Objective and fixed scope
 
@@ -24,7 +38,10 @@ recover it. Never relaunch just because an old session ID is unavailable.
 - Required result remains observation → reconstruction → C-band positioning →
   hug/lift → independent same-execution 5 s loaded hold. It is **not achieved**.
 - Keep existing 900 s task / 180 s phase / 90 s base deadlines, 0.5 s feedback,
-  0.07 rad body tilt, 3 mm combined final arrival, friction and hold conditions.
+  3 mm combined final arrival, friction and hold conditions. The user corrected
+  the intermediate tilt criterion: 0.07 rad is a stationary arrival bound only;
+  walking sway is recorded, not a task failure. Immutable old experiment files
+  retain their old criteria for historical evidence.
 - No training or physical Robot. Never modify host MTU/Tailscale/SSH/firewall or
   stop NewtonGym/unrelated work. Only the owned `test` instance is in scope.
 
@@ -48,10 +65,11 @@ recover it. Never relaunch just because an old session ID is unavailable.
   Run 48 reached 2-view scan/AdaPoinTr, C-band plan and Home return, then failed
   feedback freshness before meaningful base motion. No wrap/hold acceptance.
 
-## Current blocking evidence: isolated base plant
+## Historical failure evidence: isolated base plant
 
 - Recorded goal offset: `(0.2249203741, 0.0090866415, ~0)`; same policy Home.
-- Installed baseline controller failed **body_tilt** after **4.168 s**.
+- Installed baseline controller was stopped by the misplaced **body_tilt** task
+  guard after **4.168 s**. No fall or controller fault was observed.
   Maximum roll/pitch: `[0.0402549411234283, 0.07019917980996326]` rad.
   Combined final-position/yaw error at failure: **54.63 mm**.
 - This isolates the physical Go2 controller from DDS/scan/map. It does not prove
@@ -60,40 +78,20 @@ recover it. Never relaunch just because an old session ID is unavailable.
   `profile_sim_walking.py` and the production Genesis plant. No sibling role
   import is added to runtime. Its goal command is parity-tested against Pilot.
 
-## Server-owned prototype job
+## Finished prototype: do not relaunch
 
-Launched detached as `elesim-merry-base-goal-prototype`.
-Container ID: `339d60e7a6df135cf5580f1ad967627e92dc6c9c2946414b2a1bab9806f4ac4c`.
-Read remote `output/prototype.summary.json` or the live container first.
-Runner SHA256: `a090863433ebd1d7a46f09118907359a82ad4dbd79cd25f1d6bca392e61b76c0`.
-Console: `output/prototype.console.log`. This job does not depend on a Codex
-exec session, and existing output prevents a duplicate run.
+The detached `elesim-merry-base-goal-prototype` container finished and was removed.
+It failed **no_measured_progress** after **13.898 s**. Maximum roll/pitch was
+`[0.0397596635, 0.0346419613]` rad; final combined arrival error **188.21 mm**.
+All four feet were loaded, but the overly strict 0.02 rad liftoff gate kept
+`posture_hold` active and the desired COM velocity zero. It was never deployed.
 
-## Exact next probe inputs
-
-Remote source root: `/home/hckang/ws/elesim-mobile-diagnostics/base-goal-20261117`.
-It contains maintained source copies (read-only mount at `/diagnostic`),
-`case.json`, `prototype_controller.py`, and writable `output/`.
-
-Use the official installed Sim service:
-`svc-test-sim-readiness-c539c9eacd40eb82be9248b70089b842baf793273edb8366c40f485b9a1e3ed5`.
-Launch through `/home/hckang/ws/newsim/bin/elesim-compose`, with
-`containers/compose.instances.yaml`, `run --rm --no-deps -d`, an exact distinct
-container name, and GPU2 from that service. Source ROS + generated ROSIDL, set
-`PYTHONPATH=/diagnostic:$PYTHONPATH`, then run:
-
-```bash
-python -m workbench.research.debug.profile_mobile_base   --case /diagnostic/case.json   --config /opt/elesim/config/config.yaml   --model-bundle /opt/elesim/data/models/assemblies/zed-mini   --controller-source /diagnostic/prototype_controller.py   --output /probe-output/prototype
-```
-
-Bind remote `output/` at `/probe-output:rw`. The runner enforces the unchanged
-90 s wall deadline, 10 s no-progress guard, 0.07 rad tilt and 3 mm/settling gates.
-The implementation override is an **unvalidated prototype**, not installed code.
-Its current source SHA256 is `d6f32eb40576652167d00355eea500c71eeca57ff97ab56ec6fd624d8656acda`.
-
-If it fails, work on this short reproduction and preserve the raw result.
-If it passes, validate/deploy the controller change and verify actual installed
-image hashes + Enforce/GPU2. Only then run full fixed-case 49 from Home.
+Remote old source/data:
+`/home/hckang/ws/elesim-mobile-diagnostics/base-goal-20261117`.
+`output/baseline.*` and `output/prototype.*` are complete old evidence. Their old
+runner hash is `a090863433ebd1d7a46f09118907359a82ad4dbd79cd25f1d6bca392e61b76c0`;
+prototype hash `d6f32eb40576652167d00355eea500c71eeca57ff97ab56ec6fd624d8656acda`.
+The updated local runner/controller must not be confused with these old copies.
 
 ## Files that must survive
 
@@ -105,11 +103,17 @@ Generated evidence root:
 - `rotation-v29.json`, `registration-v29.json`, `update-*-v29.log`.
 - `operator-source-49.json`: prepared manifest, **no run-49/report.json yet**.
 - `dds-burst-real-before.log`, `dds-burst-real-after.log`: actual ROS regression.
-- Uncommitted controller prototype, its `test_75_liftoff_posture.py` tests and
-  `mobile_stance_transition_20261116.json` must be preserved. Do not silently
-  include it in unrelated commits. No successful 225 mm arrival is claimed.
+- `base-goal-prototype/`, `base-goal-prototype.tar.gz`: fetched complete failure.
+- Exact failed prototype bytes, patch and hashes are preserved in
+  `workbench/archive/mobile-liftoff-prototype-20261117.zip` (ignored) and
+  `mobile_liftoff_retired_20261117.json` (tracked inventory). Historical stance
+  diagnostic evidence remains intact. No successful 225 mm arrival is claimed.
 
 SSH uses the existing connection-local MSS proxy:
 `-o 'ProxyCommand=python3 -m workbench.research.support.ssh_mss_proxy %h %p'`.
-This does not change interface MTU. Existing canonical dev attachment is absent;
-do not install host dependencies or search old containers again.
+This does not change interface MTU. The known current-install dev wrapper exists,
+but invoking it attempted a fresh image build; preparation was interrupted before
+any tests ran. Canonical required/extended, release build/verify and real-RMW
+`smoke_topology.py` remain unrun for this source revision. Host Sim lacks
+pinocchio/torch; do not install them into host Python or invent a substitute
+container. The focused host checks above are partial software evidence only.

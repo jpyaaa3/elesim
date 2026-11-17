@@ -1,19 +1,20 @@
-from types import SimpleNamespace
 import numpy as np
 import pytest
 from elesim_pilot.mobile_manipulation.base_executor import BaseExecutor
 from elesim_pilot.mobile_manipulation.contracts import Settings
-from workbench.research.debug.profile_mobile_base import goal_command
+from workbench.research.debug.profile_mobile_base import make_executor
 
 
 @pytest.mark.parametrize('pose',[[0.,0.,0.],[.22,.01,.001],[.222,.01,0.],[.22,.01,.02],[0.,0.,3.14]])
-def test_isolated_probe_matches_the_actual_base_executor_command(pose):
+def test_isolated_probe_uses_the_actual_walk_stop_level_executor(pose):
     settings=Settings();goal=np.array([.222,.01,0.]);reach=.5
-    expected=BaseExecutor(settings,lambda:0.)
-    expected.start(SimpleNamespace(path=np.array([pose,goal]),report=dict(kind='grasp',target_reach_m=reach)),pose,1)
-    command,_=expected.step(pose,0.,0.,lambda *a:True)
-    actual,close=goal_command(pose,goal,settings.__dict__,reach)
-    np.testing.assert_allclose(actual,command)
+    probe=make_executor(dict(settings=settings.__dict__,home_q=[0.,0.,0.,0.],target_reach_m=reach),goal,pose,lambda:0.)
+    assert isinstance(probe,BaseExecutor)
+    command,done=probe.step(pose,0.,0.,lambda *a:True,posture_ready=False)
+    assert not done and np.isfinite(command).all()
+    if np.linalg.norm(goal[:2]-pose[:2])<settings.base_position_tolerance_m and abs(pose[2])<settings.base_yaw_tolerance_rad:
+        assert probe.stage=='leveling' and not command.any()
+    else:assert probe.stage=='approach' and command.any()
 
 
 @pytest.mark.parametrize('suffix',['.run.json','.summary.json','.state.jsonl','.profile.jsonl'])

@@ -44,6 +44,17 @@ def test_go2_controller_fault_has_a_bounded_string_contract(reason):
         TelemetryPayload.from_payload({'go2_controller_fault':reason})
 
 
+@pytest.mark.parametrize('stage', ['unknown','stand','to_ready','ready_hold','walk','to_stand','fault'])
+def test_locomotion_stage_survives_additive_v6_telemetry(stage):
+    assert TelemetryPayload.from_payload({'go2_locomotion_stage':stage}).raw['go2_locomotion_stage']==stage
+
+
+@pytest.mark.parametrize('stage', [None,[],1,'','x'*17,'standing'])
+def test_locomotion_stage_rejects_invalid_completion_claims(stage):
+    with pytest.raises(ProtocolError):
+        TelemetryPayload.from_payload({'go2_locomotion_stage':stage})
+
+
 def test_discovery_and_target_selection_are_typed() -> None:
     assert DiscoverRequest.from_payload({"role": "robot", "capability": "motion.arm"}).role == "robot"
     assert SelectTargetRequest.from_payload({"target_id": "robot-a"}).target_id == "robot-a"
