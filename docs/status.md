@@ -6,7 +6,9 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 
 현재 실행 재개 지점은
 [`mobile_resume_20261117.md`](../workbench/evidence/curated/planning/mobile_resume_20261117.md)에
-고정한다. 전체 49번은 아직 시작하지 않았다. 225 mm 분리 시험에서 보행 중 기울기
+고정한다. 전체 49번은 v31 일반 설치본에서 **674.43초 / 팔 복귀 단계 시간초과**로
+끝났다. 필요한 바닥 관측은 통과했지만 물체 스캔·보행·파지에는 도달하지 않았다.
+225 mm 분리 시험에서 보행 중 기울기
 제한을 제거한 뒤 실제 보행·정지 후 관절 정렬을 확인했지만, 위치 재보정 때 gait를
 반복해서 **48.07초 / 최종 오차 49.65 mm**로 실패했다. 한때 2.34 mm에 도달했어도
 정착한 도착은 아니었다. 보행 중 넘어짐은 관찰하지 않았다.
@@ -25,13 +27,24 @@ acceptance gate를 소유한다. 구현 불변식은 `architecture.md`, wire 계
 이미지에서 실행할 수 없으며 canonical dev 환경은 미준비다.
 [실제 시험 결과·원본 해시·다음 실행](../workbench/evidence/curated/planning/mobile_walk_level_live_20261117.json).
 
-이번 소스의 host 회귀는 **402 passed, 5 skipped, 5 subtests passed**
+이후 `9c1d1d73`을 양쪽에 공식 발행·등록했고, 소스 override 없는 설치 Sim에서도
+**7.72초 / 정착 합산 오차 2.26 mm**로 같은 분리 시험을 통과했다. 실제 실행
+Pilot/Sim/UI의 이미지·소스 해시, SROS2 Enforce 및 GPU2도 일치했다. `run-49`는
+실제 DDS/WebRTC·두 영상·8회 바닥 관측에서 미관측 셀을 **424 → 0**으로 줄였다.
+이후 인증된 물체 재관측 복귀를 10 → 3구간으로 줄였으나 기존 180초 단계 한도를
+넘었다. 종료 시 회전 축들은 목표 허용오차 안이었고 리니어는 **9.51 mm** 남았다.
+마지막 30초에도 리니어가 **43.85 mm** 움직였으므로 정체나 로컬 미니마로 판정하지
+않는다. 두 영상은 각 **5,926프레임**으로 저장했다. 분리 도착 성공과 전체 파지
+실패를 구분하며, 다음 미해결 항목은 이 팔 복귀 시간이다. 완료 후 test만 종료했다.
+
+앞선 보행·정렬 변경의 host 회귀는 **402 passed, 5 skipped, 5 subtests passed**
 (Pilot/진단 139, focused Sim 51, protocol 212)다. 정식 `required`, `extended`,
 release build/verify, 실제 RMW `smoke_topology.py`는 미실행이다. 현재 설치의 dev
 wrapper는 새 이미지 준비를 시작해 테스트 전에 중단했으며, host 전체 Sim 검사에는
 pinocchio/torch가 없다. 임의 host 의존성 설치나 대체 컨테이너를 만들지 않았다.
 추가한 DDS 상태 전환 smoke도 준비된 ROS/ROSIDL 환경에서 실행해야 한다.
 [변경 소스·검사 로그 해시와 미검증 범위](../workbench/evidence/curated/planning/mobile_walk_level_20261117.json).
+추가 발 고정 위치 보정의 최종 focused Sim batch는 **55 passed**다.
 
 ## 현재 목표: 기존 기능의 운영 경로 완결
 

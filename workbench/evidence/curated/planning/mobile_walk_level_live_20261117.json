@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-17T11:05:30.627422+09:00",
+  "updated": "2026-11-17T13:59:43.981910+09:00",
   "deployed_source": "58c526d84e3971f86480e2b3abeaf44fbbb659da",
   "release_keys": {
     "operator": "66a9aee8d1f417a1277bf2e3f7d27577185947e100cb114bbd0b7e3ab6eb3487",
@@ -180,7 +180,7 @@
     },
     "final_host_regressions": "55 passed in 0.54s"
   },
-  "full_mobile_run_49_started": false,
+  "full_mobile_run_49_started": true,
   "physical_grasp_hold_verified": false,
   "evidence_sha256": {
     "workbench/evidence/generated/mobile-installed-20261115/rotation-v30.json": "a51667235e6c14e30394c18a5d5a7cd6d9ead0c437d38bd68beab3a326d8a894",
@@ -189,6 +189,157 @@
     "workbench/evidence/generated/mobile-installed-20261115/dds-burst-v30-installed.log": "db3775665fdf23c7ee82401a9e8bb6e2c79a9f4a5a8c2e8e5451c48e35f7bd5b",
     "workbench/evidence/generated/mobile-installed-20261115/planted-trim-prototype-tests.log": "54a43d3f43e5a43240c46960cfe82c319e5a9bcb66ec01debb956714ef97e2c5",
     "workbench/evidence/generated/mobile-installed-20261115/base-planted-trim-prototype.tar.gz": "44efdd0ae9533cc439305e995af4c98e86c41f1839cd7f482bc42986b8bf37b1",
-    "workbench/evidence/generated/mobile-installed-20261115/planted-trim-final-tests.log": "708e579bf359022f4a7e4555ca01e68a3179520394f27f7e8ca6552711fc68eb"
-  }
+    "workbench/evidence/generated/mobile-installed-20261115/planted-trim-final-tests.log": "708e579bf359022f4a7e4555ca01e68a3179520394f27f7e8ca6552711fc68eb",
+    "workbench/evidence/generated/mobile-installed-20261115/base-planted-v31.tar.gz": "3ed07d3dbe4d57f0d81f525bf1a55f40374192ec06c1efdd2270bcc862448a04",
+    "workbench/evidence/generated/mobile-installed-20261115/registration-v31.json": "d49651609ca12f24a9d228bb489543da34b17babf565bbecfcd88e514b2d15d6",
+    "workbench/evidence/generated/mobile-installed-20261115/rotation-v31.json": "51f9d703deb156a5f6bc55fcc648e776bd68d77541f905ca6732751cb3d662f7",
+    "workbench/evidence/generated/mobile-installed-20261115/official-v31-remote.json": "68a62dbf71c656db8aae4b375c7ab169fe5a3f550e8592ae95960fface884ed6",
+    "workbench/evidence/generated/mobile-installed-20261115/official-v31-operator.json": "590451e958f35776ee38a006f1b3af096cb5224d5b38157ddbd907dcf4352509",
+    "workbench/evidence/generated/mobile-installed-20261115/base-planted-v31-job.json": "e1a2e32bc60ed8503824ae96e808f28c223e232e21e56cef62ba897142517d24",
+    "workbench/evidence/generated/mobile-installed-20261115/run-49/report.json": "35a610a66211a1abf44c358f06b754362ffaf83c0ddfac5a2f370e5cfcd1bc7c",
+    "workbench/evidence/generated/mobile-installed-20261115/run-49/telemetry.jsonl": "029eddabc76f61cdf049204055c80f9a5ec8401ffc5829abd85bfa4e9470215b",
+    "workbench/evidence/generated/mobile-installed-20261115/run-49/observer.mp4": "7237637db4d60b1b18fe5ac6fa23b0ac031037e2ff9fa3f7ffdea46940ef2738",
+    "workbench/evidence/generated/mobile-installed-20261115/run-49/hand_eye_preview.mp4": "d203ac1cbe48b068bd5ca48d8a46514bbf7cd2bb375ef7bcd22dde08045519b4",
+    "workbench/evidence/generated/mobile-installed-20261115/run-49-return-timing.json": "34f2a32e56e3dc32f343a2b8887d072eda9607f6fbace79a0f921732c431db76",
+    "workbench/evidence/generated/mobile-installed-20261115/post-run-49-gpu.log": "6b802006589d993d337117cc5b7ef10b7a46935df790b717e75c69f9b38388b6"
+  },
+  "v31_source": "9c1d1d73115ab03bc3da69d91cef4e7dc36df995",
+  "v31_release_keys": {
+    "operator": "fa332f9e510eebbd10a32e02ee582986b27e5a725024914e08d5c15b6bd9e805",
+    "compute": "f3c02b2232d4a8cd8055ca00e37c1ab067efc82dd9ed880f1b632706e56fa06b"
+  },
+  "v31_installed_base_probe": {
+    "success": true,
+    "reason": "arrived_leveled_and_settled",
+    "diagnostic_only": true,
+    "no_dds_or_map_or_grasp_acceptance": true,
+    "controller_source_sha256": "44a4e925c4feec3b8905343d2f5f08592fdc7c052956c0170daea7966367a3bd",
+    "implementation_override": false,
+    "maximum_abs_roll_pitch_rad": [
+      0.0402549411234283,
+      0.0981547261544129
+    ],
+    "last": {
+      "elapsed_s": 7.716728006489575,
+      "pose": [
+        0.21726840734481812,
+        0.010358133353292942,
+        -0.0019549377059924675
+      ],
+      "goal": [
+        0.21734277073021238,
+        0.009063529140188669,
+        -9.020951341526324e-06
+      ],
+      "rpy": [
+        0.005107358931608151,
+        0.016470481851796892,
+        -0.0019549377059924675
+      ],
+      "command": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "linear_speed": 0.0006969168343142159,
+      "angular_speed": 0.0008868451366153998,
+      "executor_stage": "completed",
+      "locomotion_stage": "stand",
+      "combined_arrival_error_m": 0.0022634736882694672
+    },
+    "case": {
+      "source_report_sha256": "8fe72bcf8ddc9c8a8c5ae5d2cfd047e1cd879e24a0a33017551c4fb15eb33e15",
+      "goal_offset": [
+        0.22492037409938792,
+        0.009086641509576304,
+        1.0206946399193839e-11
+      ],
+      "planned_start_yaw": 7.052441101380706e-05,
+      "target_reach_m": 0.49680207405929605,
+      "home_q": [
+        -0.12,
+        0.0,
+        -0.593411945678072,
+        0.593411945678072
+      ],
+      "settings": {
+        "max_reobservations": 3,
+        "max_corrections": 3,
+        "search_limit": 8,
+        "max_views": 12,
+        "total_timeout_s": 900.0,
+        "feedback_timeout_s": 0.5,
+        "base_speed_mps": 0.08,
+        "yaw_speed_radps": 0.15,
+        "base_position_tolerance_m": 0.01,
+        "base_yaw_tolerance_rad": 0.025,
+        "settle_s": 0.5,
+        "base_timeout_s": 90.0,
+        "target_age_s": 45.0,
+        "drift_per_m": 0.02,
+        "drift_per_rad": 0.005,
+        "arrival_error_m": 0.003,
+        "min_position_error_m": 0.003,
+        "scan_roi_height_m": 0.18,
+        "hug_drift_error_m": 0.004,
+        "hug_body_position_tolerance_m": 0.003,
+        "hug_body_rotation_tolerance_rad": 0.008726646259971648
+      }
+    },
+    "executor_source_sha256": "007906c2ccaf0425e59969a9ce91ac4ff40914a89ac2dae22bfc3eeead184bdc"
+  },
+  "run_49": {
+    "state": "completed: failed during search return before base motion",
+    "report": "workbench/evidence/generated/mobile-installed-20261115/run-49/report.json",
+    "console": "workbench/evidence/generated/mobile-installed-20261115/run-49-console.log",
+    "container": "elesim-warm3-secure-eval-operator-49",
+    "source_manifest": "workbench/evidence/generated/mobile-installed-20261115/operator-source-49-v31.json",
+    "source_revision": "9c1d1d73115ab03bc3da69d91cef4e7dc36df995",
+    "video_streams": [
+      "observer",
+      "hand_eye_preview"
+    ],
+    "accepted": false,
+    "reason": "mobile phase timeout",
+    "elapsed_s": 674.4333247169998,
+    "video_frames": {
+      "observer": 5926,
+      "hand_eye_preview": 5926
+    },
+    "return_timing": {
+      "last_actual_q": [
+        -0.11870431900024414,
+        1.108125925064087,
+        -0.3153077483177185,
+        0.6269978880882263
+      ],
+      "goal_q": [
+        -0.10919631272554398,
+        1.1063191890716553,
+        -0.31614654660224917,
+        0.6267884612083435
+      ],
+      "remaining_delta_q": [
+        0.009508006274700165,
+        -0.0018067359924316406,
+        -0.0008387982845306508,
+        -0.0002094268798827903
+      ],
+      "last_30s_measured_range_q": [
+        0.043848589062690735,
+        0.0020394325256347656,
+        0.0009346544742584451,
+        0.00023164749145510033
+      ],
+      "search_samples": 344,
+      "elapsed_s": 674.4333247169998,
+      "videos": {
+        "observer.mp4": 23914419,
+        "hand_eye_preview.mp4": 27663102
+      },
+      "classification": "phase deadline while return motion continued; no evidence of a stationary deadlock from the last 30 s"
+    }
+  },
+  "post_run_runtime": "Scoped test Pilot/Sim stopped with official instance down; unrelated work preserved.",
+  "post_run_gpu2": "0 %, 188 MiB"
 }

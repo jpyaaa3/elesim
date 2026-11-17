@@ -1,41 +1,54 @@
 # Mobile task: exact continuation checkpoint
 
-Updated: 2026-11-17T11:05:30.627422+09:00
+Updated: 2026-11-17T13:59:43.981910+09:00
 This file records execution state. `docs/status.md` still owns acceptance milestones.
 
 ## Resume here
 
-**Runtime `58c526d8` was pushed and officially updated/registered on both hosts
-(v30). The normal test runtime is stopped. Full run 49 has not started.**
+**V31 walking/leveling/arrival correction is pushed and deployed on both installs.
+The installed short probe passed. Full run 49 FINISHED with a separate arm-return
+timeout; do not restart or repeat the long scan unchanged.**
 
-The installed 225 mm probe completed and failed after **48.07 s** with
-`base made no measured progress`. It walked normally and entered `to_stand` /
-`stand` twice; it transiently reached **2.34 mm** combined error, but the moving
-stop/stand transition displaced it again. Final error **49.65 mm**. No fall or
-walking-tilt guard failure was observed. Raw data is fetched and preserved.
+- Actual runtime source: `9c1d1d73115ab03bc3da69d91cef4e7dc36df995`.
+- Operator v31: `fa332f9e510eebbd10a32e02ee582986b27e5a725024914e08d5c15b6bd9e805`.
+- Compute v31: `f3c02b2232d4a8cd8055ca00e37c1ab067efc82dd9ed880f1b632706e56fa06b`.
+- Actual Pilot/Sim/UI image + package hashes and Enforce/GPU2 matched. Registration
+  v31 completed atomically; manager shut down. Scoped test Pilot/Sim were
+  stopped after the finished run; GPU2 returned to 0% / 188 MiB. Other work remained running.
+- **Installed short arrival passed WITHOUT source override: 7.72 s / 2.26 mm
+  settled combined error**, measured stand, zero command, stationary velocities.
+  Raw `base-planted-v31.tar.gz`. Controller SHA:
+  `44a4e925c4feec3b8905343d2f5f08592fdc7c052956c0170daea7966367a3bd`.
 
-**The planted-body correction candidate finished successfully: 7.11 s, settled
-combined error 2.24 mm. Its raw output has been fetched. Do not relaunch it.**
-Next: commit/publish/register the candidate, verify actual installed source hashes,
-then the installed short probe and full run 49. The old detached container ID was:
-`384f1dd8dc2bc71a38c4b0ddae24cd2d6174a4c84d2cfe0fccfed776de689684`.
-Remote root: `/home/hckang/ws/elesim-mobile-diagnostics/base-planted-trim-20261117`.
-Output: `output/planted-trim.{summary.json,state.jsonl,profile.jsonl,console.log}`.
-Controller SHA: `44a4e925c4feec3b8905343d2f5f08592fdc7c052956c0170daea7966367a3bd`.
-It is an explicit diagnostic source override, **not deployed code or acceptance**.
-It handles slow corrections by moving the supported body through leg IK, retaining
-fixed feet; workspace exhaustion returns to walking for a new measured stance.
-Host focused candidate regressions: **46 passed**; final focused Sim batch: **55 passed**. Uncommitted files are the controller,
-`test_62_walk_start_command.py` and new `test_76_planted_body_trim.py`; preserve them.
+Full run 49 used actual installed UI/Pilot/Sim, DDS and both WebRTC streams.
+It cleared the needed floor map (**unknown 424 → 0**, eight bounded views).
+Then the certified return to the last target sighting used 3 shortened segments
+(from 10), but exceeded the unchanged **180 s** search phase deadline.
+Total report time **674.43 s**. It never reached scan/base/hug/hold in this run.
+This is not a walking failure or evidence that full mobile grasp succeeded.
 
-Actual installed two-process loopback DDS burst **passed 16/16**. The four-process
-smoke cannot run in an isolated Sim image because its Robot application import is
-correctly absent; the canonical dev image remains unprepared. Do not add sibling
-packages to runtime or start a new environment rebuild as a detour.
+At timeout the angular axes were within endpoint tolerance; linear had **9.51 mm**
+left. The linear axis still covered **43.85 mm over the last 30 s**, so do not
+claim it was stuck or in a local minimum. Inspect the recorded trajectory/timing
+before changing rates or tolerances. Next remaining bottleneck is the certified
+arm-return duration. Do not rerun floor mapping merely to rediscover this.
 
-See `mobile_walk_level_live_20261117.json` for exact release keys, evidence hashes
-and the completed v30 probe. Keep the 3 mm settled arrival and loaded-hold success
-criteria. Only after the short arrival succeeds should full run 49 start.
+Generated evidence root:
+`workbench/evidence/generated/mobile-installed-20261115/`.
+- `run-49/report.json`, `telemetry.jsonl`, `observer.mp4`, `hand_eye_preview.mp4`.
+- Both videos finalized with **5,926 frames each**.
+- `run-49-return-timing.json`, `run-49-remote-tail.log`.
+- `official-v31-{remote,operator}.json`, `registration-v31.json`, `rotation-v31.json`.
+- `operator-source-49-v31.json`, `runtime-down-v31.log`.
+
+Both earlier short probes are FINISHED and fetched; never relaunch them. The v30
+installed probe failed because gait restarts displaced the body after a transient
+2.34 mm arrival. The planted-leg candidate passed in 7.11 s / 2.24 mm, then the
+unchanged installed code passed as above. No precision/hold criterion was relaxed.
+See `mobile_walk_level_live_20261117.json` for exact evidence hashes and outcomes.
+Final focused Sim checks: **55 passed**. Installed two-process loopback DDS burst
+passed **16/16**. Four-process smoke remains canonical-dev-only; Robot is correctly
+absent from isolated Sim. Do not add sibling packages or rebuild dev as a detour.
 
 ## Objective and fixed scope
 
@@ -56,11 +69,11 @@ criteria. Only after the short arrival succeeds should full run 49 start.
 
 - Runtime commits pushed: `8b2682b8` swept-grid speed; `55c6b296` bounded DDS
   ready-work drain; `0afd1a02` atomic base-velocity + Home hold.
-- Last runtime source published/registered on both installs: **`58c526d84e3971f86480e2b3abeaf44fbbb659da`**.
-- Operator release: `66a9aee8d1f417a1277bf2e3f7d27577185947e100cb114bbd0b7e3ab6eb3487`.
-- Compute release: `e0046dfbadc5a8b33850cb22b81e0985ffba916a49d3caf859c922feeee9976b`.
-- Registration/approved SROS2 rotation v30 completed atomically. Normal `test`
-  runtime remains stopped. GPU selection remains host GPU2; do not reapply index
+- Last runtime source published/registered on both installs: **`9c1d1d73115ab03bc3da69d91cef4e7dc36df995`**.
+- Operator release: `fa332f9e510eebbd10a32e02ee582986b27e5a725024914e08d5c15b6bd9e805`.
+- Compute release: `f3c02b2232d4a8cd8055ca00e37c1ab067efc82dd9ed880f1b632706e56fa06b`.
+- Registration/approved SROS2 rotation v31 completed atomically. Normal remote `test`
+  runtime was stopped after completed run 49. GPU selection remains host GPU2; do not reapply index
   2 inside its single-visible-GPU container.
 - Protocol real-RMW two-process loopback regression: old receive delivered 1/16;
   fixed receive delivered 16/16 in one pump. It used an explicit diagnostic
