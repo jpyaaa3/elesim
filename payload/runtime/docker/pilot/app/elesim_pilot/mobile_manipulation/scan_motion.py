@@ -65,8 +65,15 @@ class ScanMotion:
         # Rebuild the selected certificate using fresh measured joints and the
         # current map before authorizing either actuator group.
         snapshot = self.p.feedback.snapshot(self.p.route()[:2])
-        self.planner.update_base(snapshot)
-        plan = self.planner.motion(np.asarray(choice['base_pose']), np.asarray(choice['q']),
+        actual_base = self.planner.update_base(snapshot)
+        base_goal = np.asarray(choice['base_pose'])
+        if len(choice['motion'].base.path) == 1:
+            # A stationary view means hold the body, not walk back to a stale
+            # micrometre-level pose estimate. Keep the existing capture drift
+            # guard, then certify the arm anew in the measured frame.
+            require_stable_arm_base(choice['motion'].start_arm_base, actual_base)
+            base_goal = snapshot['pose'].copy()
+        plan = self.planner.motion(base_goal, np.asarray(choice['q']),
                                    snapshot, cancelled=cancelled)
         if plan is None:
             raise RuntimeError('selected mobile view lost motion admission')

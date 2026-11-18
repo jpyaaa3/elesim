@@ -306,3 +306,44 @@ def test_see_parent_grants_the_same_scan_both_motion_channels():
     coordinator.start(coordinator.plan()['plan_id']);coordinator.tick()
     assert coordinator.phase=='scan' and len(grants)==1
     assert p.calls==['acquire','scan']
+
+
+@pytest.mark.parametrize('drift,allowed',[(.00001,True),(.003,False)])
+def test_fixed_base_view_does_not_turn_pose_jitter_into_a_walking_request(drift,allowed):
+    p,snapshot=ports();p.clock=lambda:1.
+    motion=ScanMotion(p,dict(grant=None,ownership=None))
+    view,_=planner(p);motion.planner=view
+    initial=view.motion(snapshot['pose'].copy(),np.zeros(4),snapshot,cancelled=lambda:False)
+    choice=dict(base_pose=snapshot['pose'].copy(),q=np.zeros(4),motion=initial)
+    p.grid.free.clear()  # A fixed-base arm view does not authorize any walk.
+    snapshot['pose'][0]=drift;snapshot['base']['pos'][0]=drift
+    recorded=[]
+    def finish(plan,cancelled):
+        recorded.append(plan)
+        return dict(q=plan.base.arm_q.copy())
+    motion._wait=finish
+    if not allowed:
+        with pytest.raises(RuntimeError,match='arm base moved'):
+            motion.relocate(choice,cancelled=lambda:False)
+        assert not recorded
+        return
+    motion.relocate(choice,cancelled=lambda:False)
+    assert len(recorded[0].base.path)==1
+    np.testing.assert_array_equal(recorded[0].base.pose,snapshot['pose'])
+
+
+def test_coupled_view_keeps_its_planned_base_goal_during_recertification():
+    p,snapshot=ports();p.clock=lambda:1.
+    motion=ScanMotion(p,dict(grant=None,ownership=None));view,_=planner(p);motion.planner=view
+    target=np.array([.03,0.,0.]);q=np.zeros(4)
+    initial=view.motion(target,q,snapshot,cancelled=lambda:False)
+    choice=dict(base_pose=target.copy(),q=q,motion=initial)
+    snapshot['pose'][0]=.00001;snapshot['base']['pos'][0]=.00001
+    recorded=[]
+    def finish(plan,cancelled):
+        recorded.append(plan)
+        return dict(q=plan.base.arm_q.copy())
+    motion._wait=finish
+    motion.relocate(choice,cancelled=lambda:False)
+    assert len(recorded[0].base.path)>1
+    np.testing.assert_array_equal(recorded[0].base.pose,target)
