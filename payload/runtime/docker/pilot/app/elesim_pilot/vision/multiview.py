@@ -220,7 +220,8 @@ class ViewPlanner:
         azimuth=np.arange(96)*np.pi*(3-np.sqrt(5))
         self.surface_directions=np.column_stack([np.sqrt(1-z*z)*np.cos(azimuth),np.sqrt(1-z*z)*np.sin(azimuth),z])
 
-    def choose(self, observed_base, current_q, accepted_poses, attempted_q, *, cancelled=lambda: False):
+    def choose(self, observed_base, current_q, accepted_poses, attempted_q, *,
+               cancelled=lambda: False, can_return=None):
         points = _points(observed_base)
         if len(points) < 3 or not accepted_poses:
             return None
@@ -279,6 +280,9 @@ class ViewPlanner:
             certificate=self.collision_checker.certify_segment(current_q,self.q[chosen])
             if not certificate['accepted']:
                 self.last_search['unsafe_paths']+=1;continue
+            if can_return is not None and not can_return(self.q[chosen]):
+                self.last_search['return_rejections'] = self.last_search.get('return_rejections', 0) + 1
+                continue
             self.last_search['chosen_gain']=float(gain[chosen])
             return {'q': self.q[chosen].copy(), 'pose': self.poses[chosen].copy(),
                     'novelty_deg': float(novelty[chosen]), 'nearest_accepted_view_deg': float(novelty[chosen]),

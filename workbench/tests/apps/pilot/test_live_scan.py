@@ -92,6 +92,74 @@ def test_worker_acquires_after_settling_and_only_tick_sends_motion(rig):
     assert not status['geometry_complete_claimed']
 
 
+def test_mobile_scan_reanchors_after_commanded_motion_and_uses_capture_base(rig):
+    base=np.eye(4);moved=threading.Event();cancelled=[];bases=[]
+    rig.service._ik_context_for_host=lambda host:{'base_world_T':base.copy()}
+    class Mobility:
+        last_q=np.zeros(4)
+        last_send=rig.now[0]
+        steps=0
+        measurements=0
+        walking=False
+        def tick(self):
+            self.last_send=rig.now[0]
+            if self.walking:
+                self.steps+=1
+                base[0,3]=.04*self.steps
+                if self.steps==3:
+                    self.walking=False;rig.host.go2_vel=(0.,0.,0.);moved.set()
+        def settle(self,goal,*,cancelled):return rig.scan._feedback['wall']
+        def measurement(self,frame):
+            from elesim_pilot.reconstruction.contracts import Measurement
+            from elesim_pilot.reconstruction.pipeline import ObservationPending
+            from elesim_pilot.vision.partial_cloud import SensorObservation
+            self.measurements+=1
+            if self.measurements==1:raise ObservationPending('capture-time base feedback unavailable')
+            sensor=SensorObservation(frame.color_bgr,frame.depth_raw,frame.depth_scale,frame.intrinsics,
+                frame.seq,frame.ts,frame.source_id,frame.source_boot_id,frame.calibration_id,tuple(frame.arm_q))
+            return Measurement(sensor,base_world_transform=base.copy()).validated()
+        def observe_scene(self,measurement,pose):pass
+        def relocate(self,choice,*,cancelled):
+            self.walking=True;rig.host.go2_vel=(.08,0.,0.)
+            assert moved.wait(2.)
+            return self.last_q.copy()
+        def cancel(self,reason):cancelled.append(reason);rig.host.go2_vel=(0.,0.,0.)
+    class Engine:
+        def run(self,acquire,start,task,output,**kwargs):
+            for index in range(2):
+                if index:kwargs['relocate'](dict(q=start,base_pose=[.12,0.,0.]))
+                sample=acquire(start,dict(accepted=True));bases.append(sample.base_world_transform)
+            return None,dict(accepted_views=2,stop_reason='task_observation_ready',
+                views=[dict(q=start.tolist()),dict(q=start.tolist())])
+    rig.scan.engine_factory=lambda *_:Engine()
+    mobility=Mobility()
+    rig.scan.start(max_views=2,view_policy='see',mobility=mobility,retain_lease=True)
+    rig.pump();rig.scan.tick()
+    assert rig.scan.status()['phase']=='completed'
+    assert [value[0,3] for value in bases]==pytest.approx([0.,.12])
+    assert rig.scan._base[0,3]==pytest.approx(.12)
+    assert rig.scan.status()['return_q_path']==[mobility.last_q.tolist()]
+    assert mobility.steps==3 and cancelled==['scan finished']
+    assert mobility.measurements==3
+    assert rig.released==[] and rig.sent==[]
+
+
+def test_mobile_tick_authority_does_not_allow_captures_while_walking(rig):
+    rig.host.go2_vel=(.08,0.,0.)
+    assert rig.scan._checked_feedback(stationary=False)
+    with pytest.raises(RuntimeError,match='stationary'):
+        rig.scan._checked_feedback()
+
+
+def test_failed_mobile_stop_still_attempts_route_cleanup(rig):
+    def failed(reason):raise RuntimeError('stop transport failed')
+    rig.scan._mobility=NS(cancel=failed)
+    rig.scan._route=rig.scan.route();rig.scan._release_pending=True
+    rig.scan.tick()
+    assert rig.released==[('sim','boot','lease')]
+    assert 'stop transport failed' in rig.scan.status()['reason']
+
+
 def test_capture_drift_budget_stops_motion_without_admitting_a_new_view(rig):
     from elesim_pilot.reconstruction.scan import AcquisitionLimit
     rig.scan.start(max_views=2,finish_drift_bounds=(.003,np.deg2rad(.5)))

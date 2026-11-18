@@ -6,9 +6,11 @@ from .contracts import BaseGoal,planar,angle
 
 
 class FloorObservationRequired(ValueError):
-    def __init__(self,pose):
+    def __init__(self,pose,*,footprint=None,margin_m=0.):
         super().__init__('no observed-free local path to a supported C-band goal')
         self.pose=np.array(pose,float,copy=True)
+        self.footprint=None if footprint is None else np.array(footprint,float,copy=True)
+        self.margin_m=float(margin_m)
 
 
 def body_frame(base_pose,body_z,roll_pitch=(0.,0.)):

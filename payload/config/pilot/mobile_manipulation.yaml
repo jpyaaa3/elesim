@@ -4,6 +4,7 @@ max_reobservations: 3
 max_corrections: 3
 search_limit: 8
 max_views: 12
+scan_view_policy: see
 total_timeout_s: 900.0
 feedback_timeout_s: 0.5
 base_speed_mps: 0.08

@@ -43,18 +43,26 @@ class ActiveScan:
         self.max_views = max_views
 
     def run(self, acquire, start_q, task, output, *, cancelled=lambda: False, progress=lambda event: None,
-            finish_when=None):
+            finish_when=None, on_observation=None, relocate=None, scene_observer=None):
         if finish_when is not None and not callable(finish_when):
             raise ValueError('scan readiness must be a callable')
+        if on_observation is not None and not callable(on_observation):
+            raise ValueError('scan observation sink must be a callable')
+        if relocate is not None and not callable(relocate):
+            raise ValueError('scan relocation must be a callable')
+        if scene_observer is not None and not callable(scene_observer):
+            raise ValueError('scan scene observer must be a callable')
         root = Path(output)
         root.mkdir(parents=True, exist_ok=False)
         (root/'frames').mkdir()
         (root/'silhouettes').mkdir()
         (root/'calibration').mkdir()
         report = {'schema_version': 1, 'phase': 'acquiring', 'scene_id': task.scene_id,
-                  'target_id': task.target_id, 'geometry_complete_claimed': False, 'views': []}
+                  'target_id': task.target_id, 'geometry_complete_claimed': False, 'views': [],
+                  'view_policy': getattr(self.planner, 'policy', 'information')}
         try:
-            result = self._run(acquire, start_q, task, root, report, cancelled, progress, finish_when)
+            result = self._run(acquire, start_q, task, root, report, cancelled, progress,
+                               finish_when, on_observation, relocate, scene_observer)
             report['phase'] = 'completed'
             return result, report
         except BaseException as exc:
@@ -64,7 +72,8 @@ class ActiveScan:
         finally:
             (root/'scan.json').write_text(json.dumps(report, indent=2, allow_nan=False)+'\n')
 
-    def _run(self, acquire, start_q, task, root, report, cancelled, progress, finish_when):
+    def _run(self, acquire, start_q, task, root, report, cancelled, progress, finish_when,
+             on_observation, relocate, scene_observer):
         mapper = ScanMap(max_views=self.max_views)
         current = np.array(start_q, dtype=float)
         attempted, accepted_poses, captures, labels = [], [], [], {}
@@ -73,7 +82,10 @@ class ActiveScan:
         fused, stalls = np.empty((0, 3)), 0
         fit = None
         stop = 'view_budget'
-        nominal_fit = True
+        # Shared bend-offset fitting assumes one fixed base. Mobile observations
+        # instead retain their individual measured transforms and overlap fits.
+        nominal_fit = relocate is None
+        segment_start = current.copy()
         callbacks = dict(cancelled=cancelled, progress=progress)
         def accepted_transforms():
             return (incremental_poses if fit is None else
@@ -91,7 +103,7 @@ class ActiveScan:
             if cancelled():
                 raise PipelineCancelled('scan cancelled')
             certificate = self.planner.collision_checker.certify_segment(
-                np.asarray(start_q) if index == 0 else attempted[-1], current)
+                segment_start, current)
             if not certificate['accepted']:
                 raise ValueError('unsafe scan segment: '+certificate['reason'])
             progress({'stage': 'moving', 'view': index, 'views': self.max_views})
@@ -134,7 +146,8 @@ class ActiveScan:
                     if calibration_attempt == 7:
                         raise RuntimeError('scan calibration unavailable after 8 coherent captures: '+str(error)) from error
             if measurement is None:break
-            observe_scene = getattr(self.planner.collision_checker, 'observe', None)
+            observe_scene = (scene_observer if scene_observer is not None else
+                             getattr(self.planner.collision_checker, 'observe', None))
             if observe_scene is not None:
                 observe_scene(measurement, pose.world_from_camera)
             nominal_fit &= np.allclose(pose.world_from_camera,
@@ -165,7 +178,7 @@ class ActiveScan:
                 raise OSError('could not save silhouette image')
             result = mapper.add(points[task.target_id], pose.world_from_camera,
                 identity=source, seq=sensor.seq)
-            row = {'view': index, 'seq': sensor.seq, 'q': list(sensor.encoder_q),
+            row = {'view': index, 'seq': sensor.seq, 'timestamp_s': sensor.ts, 'q': list(sensor.encoder_q),
                    'accepted': bool(result['accepted']), 'reason': result['reason'],
                    'observed_points': len(points[task.target_id]), 'path_certificate': certificate,
                    'base_world_transform': (None if measurement.base_world_transform is None
@@ -177,6 +190,13 @@ class ActiveScan:
             previous = fused
             if result['accepted']:
                 incremental_poses[index] = mapper.reference_pose@result['camera_in_reference']
+                if on_observation is not None:
+                    # Map evidence uses the measured camera pose before any
+                    # target-only registration and before model completion.
+                    if cancelled():
+                        raise PipelineCancelled('scan cancelled')
+                    on_observation(measurement, pose.world_from_camera,
+                                   transform(points[task.target_id], pose.world_from_camera))
             accepted_poses = list(incremental_poses.values())
             fused = mapper.points()
             if not len(fused):
@@ -216,16 +236,34 @@ class ActiveScan:
             if index == self.max_views-1:
                 break
             progress({'stage': 'choosing_view', 'view': index})
+            if hasattr(self.planner, 'set_observations'):
+                poses = accepted_transforms()
+                self.planner.set_observations([(captures[i][1][task.target_id], poses[i])
+                    for i in sorted(poses)], sensor.intrinsics)
             choice = self.planner.choose(placed, sensor.encoder_q, accepted_poses, attempted,
                 cancelled=cancelled)
+            row['view_search'] = dict(getattr(self.planner, 'last_search', {}))
             if choice is None:
                 stop = 'no_safe_distinct_view'
                 break
-            if len(accepted_poses) >= 4 and stalls >= 2 and choice['expected_visibility_gain'] < .015:
+            if choice.get('policy') != 'see' and len(accepted_poses) >= 4 and stalls >= 2 and choice['expected_visibility_gain'] < .015:
                 stop = 'information_saturated'
                 break
             row['next_expected_visibility_gain'] = float(choice['expected_visibility_gain'])
-            current = choice['q']
+            row['next_view_policy'] = choice.get('policy', 'information')
+            segment_start = sensor.encoder_q
+            if relocate is None:
+                current = choice['q']
+            else:
+                # The mobile adapter certifies and executes the complete base /
+                # arm motion, then returns the measured, settled joints. The
+                # next acquire is stationary at that new base, not an invented
+                # joint segment from the previous base's observation.
+                current = np.asarray(relocate(choice), dtype=float)
+                if current.shape != (4,) or not np.isfinite(current).all():
+                    raise ValueError('invalid measured relocation result')
+                segment_start = current.copy()
+                row['next_base_pose'] = np.asarray(choice['base_pose'], float).tolist()
         if cancelled():
             raise PipelineCancelled('scan cancelled')
         # Rebuild all scene objects using one set of accepted camera transforms.
@@ -237,6 +275,11 @@ class ActiveScan:
         report['coverage'] = self.planner.coverage(target_points, list(poses.values()))
         for i, row in enumerate(report['views']):
             row['fusion_used'] = i in poses
+        last_used = report['views'][max(poses)]
+        report['last_observation'] = {'seq': last_used['seq'], 'timestamp_s': last_used['timestamp_s'],
+                                      'source': list(identity)}
+        report['selected_view_policies'] = [row['next_view_policy'] for row in report['views'][:-1]
+                                            if 'next_view_policy' in row]
         report.update(stop_reason=stop, needs_more_observation=True,
             world_placement_independently_verified=False,
             joint_fit=None if fit is None else {k:v for k,v in fit.items()

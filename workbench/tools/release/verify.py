@@ -95,6 +95,7 @@ SETUP_PYTHON_MODULES = frozenset(
         "build_progress",
         "capabilities",
         "cli",
+        "completion_assets",
         "configuration",
         "container_installer",
         "install_transaction",

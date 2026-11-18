@@ -46,6 +46,8 @@ class ScanCollision:
         return local@self.base[:3, :3].T+self.base[:3, 3]
 
     def observe(self, measurement, world_from_camera):
+        if getattr(measurement, 'base_world_transform', None) is not None:
+            self.base = np.array(measurement.base_world_transform, copy=True)
         sensor = measurement.sensor
         view = reconstruct_view(sensor, np.ones(sensor.depth_raw.shape, bool), world_from_camera,
             max_points=6000)
@@ -59,7 +61,10 @@ class ScanCollision:
             gap = np.linalg.norm(block[:, None, :]-centers[None, :, :], axis=2)-self._radii
             kept.append(block[np.all(gap > self.margin_m, axis=1)])
         if kept:
-            self.cloud.add(np.concatenate(kept))
+            self.add_observed(np.concatenate(kept))
+
+    def add_observed(self, points):
+        self.cloud.add(points)
         fused = self.cloud.points()
         self.tree = cKDTree(fused) if len(fused) else None
 

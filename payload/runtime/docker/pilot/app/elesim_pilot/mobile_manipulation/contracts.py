@@ -66,6 +66,7 @@ class Settings:
     max_corrections: int=3
     search_limit: int=8
     max_views: int=12
+    scan_view_policy: str='see'
     total_timeout_s: float=900.
     feedback_timeout_s: float=.5
     base_speed_mps: float=.08
@@ -85,7 +86,11 @@ class Settings:
     hug_body_position_tolerance_m: float=.003
     hug_body_rotation_tolerance_rad: float=.008726646259971648
     def __post_init__(self):
+        if self.scan_view_policy not in ('see', 'information'):
+            raise ValueError('scan_view_policy must be see or information')
         for k,v in vars(self).items():
+            if k == 'scan_view_policy':
+                continue
             if isinstance(v,bool) or not isinstance(v,(int,float)) or not np.isfinite(v) or v<=0:
                 raise ValueError('invalid mobile manipulation setting '+k)
         if any(type(getattr(self,k)) is not int for k in ('max_reobservations','max_corrections','search_limit','max_views')):

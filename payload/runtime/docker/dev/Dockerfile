@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcb-xinerama0 libxcb-xinput0 libxcb-xkb1 libxcb1 libxcursor1 \
     libxext6 libxft2 libxi6 libxinerama1 libxkbcommon-x11-0 \
     libxkbcommon0 libxrandr2 libxrender1 \
-    swig \
+    swig libpcl-dev libnlopt-cxx-dev liblemon-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY robotpkg.asc /etc/apt/keyrings/robotpkg.asc

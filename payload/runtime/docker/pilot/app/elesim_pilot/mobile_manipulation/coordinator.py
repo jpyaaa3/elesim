@@ -59,13 +59,13 @@ class Coordinator:
                 # pending request clears, before planning any base motion.
                 self._request_mapping(phase)
             elif result.get('visible'):
-                if phase=='acquire':self._begin('plan_observation',set())
+                if phase=='acquire':self._begin_observation()
                 elif phase=='post_scan_acquire':self._begin('plan_grasp',set())
                 else:self._begin('check_grasp',set())
             elif phase=='reacquire':
                 self.reobservations+=1
                 if self.reobservations>self.s.max_reobservations:raise RuntimeError('final_target_reacquisition_failed')
-                self._begin('plan_observation',set())
+                self._begin_observation()
             elif self.searches<self.s.search_limit:
                 self.searches+=1;self._search_return=phase
                 self._begin('search',{'arm'},index=self.searches)
@@ -87,7 +87,8 @@ class Coordinator:
             if not result['quality_ok']:
                 self.reobservations+=1
                 if self.reobservations>self.s.max_reobservations:raise RuntimeError('observation_quality_insufficient')
-                self._begin('plan_observation',set())
+                self._begin_observation()
+            elif result.get('mapped_scan'):self._begin('plan_grasp',set())
             else:self._begin('post_scan_acquire',{'arm'})
         elif phase=='plan_grasp':
             if result.get('needs_mapping'):
@@ -106,6 +107,11 @@ class Coordinator:
             self.phase='completed' if result.get('verified') else 'failed' if result.get('evaluated_failure') else 'unverified'
             self.reason=result.get('reason','');self.plan_id='';self.ports.stop('finished');self.ownership.release()
         else:raise RuntimeError('unknown mobile phase '+phase)
+    def _begin_observation(self):
+        if self.s.scan_view_policy=='see':
+            self._begin('scan',{'arm','base'})
+        else:
+            self._begin('plan_observation',set())
     def tick(self):
         if not self.active:return
         if self.cancel_reason is not None:

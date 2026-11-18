@@ -4028,3 +4028,20 @@ def test_refresh_preserves_unrecorded_retired_wrapper(local_state):
     assert str(old) not in {w.path for w in manifest.wrappers}
     assert str(state.bin_path / "elesim-register") in {w.path for w in manifest.wrappers}
     assert any(str(old) in message and "Preserving" in message for message in messages)
+
+
+def test_pilot_context_contains_official_see_core_and_native_build(local_state):
+    """Exercise generated context copying without downloading completion weights."""
+    state = local_state(roles=('pilot',))
+    installer = ContainerInstaller(state)
+    installer._write_role_context('pilot')
+    context = installer._build_root/'pilot'
+    native = context/'app/elesim_pilot/vision/see_native'
+    assert (native/'upstream/LICENSE').is_file()
+    assert (native/'upstream/see_core/src/see_core.cpp').is_file()
+    assert (native/'prepare.py').is_file()
+    assert (native/'bridge.cpp').is_file()
+    dockerfile = (context/'Dockerfile').read_text()
+    assert 'AS see_builder' in dockerfile
+    assert 'COPY --from=see_builder /opt/elesim/native/' in dockerfile
+    assert 'libpcl-common1.12 libpcl-octree1.12' in dockerfile

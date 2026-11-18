@@ -1,4 +1,16 @@
 # syntax=docker/dockerfile:1
+FROM ros:humble-ros-base-jammy AS see_builder
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake libpcl-dev libnlopt-cxx-dev liblemon-dev && \
+    rm -rf /var/lib/apt/lists/*
+COPY wheels/ /tmp/wheels/
+ARG APP_WHEEL
+RUN python3 -m zipfile -e "/tmp/wheels/${APP_WHEEL}" /tmp/see-wheel && \
+    cmake -S /tmp/see-wheel/elesim_pilot/vision/see_native -B /tmp/see-build \
+      -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build /tmp/see-build -j2
+
 FROM ros:humble-ros-base-jammy
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -11,6 +23,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       nodejs \
+      libpcl-common1.12 libpcl-octree1.12 libnlopt0 liblemon1.3.1 \
       libgl1 \
       libegl1 \
       libusb-1.0-0 \
@@ -43,6 +56,10 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked python3 -m pip ins
       "/tmp/wheels/${APP_WHEEL}" && \
     python3 -m pip check && \
     rm -rf /tmp/wheels
+
+# No compiler, ROS 1, or PCL visualization dependencies in the final role image.
+COPY --from=see_builder /tmp/see-build/libelesim_see.so /opt/elesim/native/libelesim_see.so
+RUN python3 -c 'import ctypes; ctypes.CDLL("/opt/elesim/native/libelesim_see.so")'
 
 COPY config/ /opt/elesim/config/
 COPY data/ /opt/elesim/data/

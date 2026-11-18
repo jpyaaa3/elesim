@@ -1,6 +1,7 @@
 """Sim-only scan lifecycle. DDS tick owns all motion, worker owns all models/I/O."""
 from __future__ import annotations
 
+import os
 import threading
 import time
 import uuid
@@ -17,7 +18,7 @@ from elesim_pilot.vision.multiview import ViewPlanner
 from elesim_pilot.vision.partial_cloud import ArmCameraModel, SensorObservation
 from elesim_pilot.vision.perception.sim_rendered_camera import SimCameraTimeout, SimRenderedCamera
 from .contracts import Measurement, Task
-from .pipeline import Pipeline, PipelineCancelled
+from .pipeline import Pipeline, PipelineCancelled, ObservationPending
 from .scan import ActiveScan,AcquisitionLimit
 from .scan_collision import ScanCollision
 from .artifacts import scene_publication
@@ -44,6 +45,7 @@ class LiveScan:
         self._release_pending = False
         self._cancel_reason = ''
         self._retain_lease = False
+        self._mobility = None
 
     @property
     def active(self):
@@ -75,7 +77,7 @@ class LiveScan:
             self._feedback = dict(identity=identity, q=q.copy(), wall=float(wall), mono=float(mono),
                                   received=self.clock(),sim_time=payload.get('sim_time_s'))
 
-    def _checked_feedback(self):
+    def _checked_feedback(self, *, stationary=True):
         route = self.route()
         with self._condition:
             feedback = self._feedback
@@ -90,7 +92,7 @@ class LiveScan:
             raise RuntimeError(host.safety_fault or host.reply_reason or 'Sim disconnected/rejected command')
         if not host.torque_enabled or host.claw_closed is not False:
             raise RuntimeError('turn Sim torque ON and open claws before scanning')
-        if (max(abs(v) for v in host.go2_vel) > 1e-4
+        if stationary and (max(abs(v) for v in host.go2_vel) > 1e-4
                 or (host.go2_base_lin_vel_body is not None and np.linalg.norm(host.go2_base_lin_vel_body) > .01)
                 or (host.go2_base_ang_vel is not None and np.linalg.norm(host.go2_base_ang_vel) > .05)):
             raise RuntimeError('scan requires a stationary arm base')
@@ -132,7 +134,8 @@ class LiveScan:
                 geometry_complete_claimed=False, **{**self._progress, **self._result})
 
     def start(self, target_id='target', max_views=12, *, roi_height_m=None, retain_lease=False,
-              tracking_uncertainty=None,finish_drift_bounds=None,finish_when=None):
+              tracking_uncertainty=None,finish_drift_bounds=None,finish_when=None,
+              on_observation=None, view_policy=None, return_q=None, scene_points=None, mobility=None):
         if self.active or (self._worker is not None and self._worker.is_alive()) or self._release_pending:
             raise RuntimeError('scan session already active or stopping')
         if self._busy():
@@ -149,6 +152,14 @@ class LiveScan:
             raise ValueError('scan view budget must be 2..24')
         if finish_when is not None and not callable(finish_when):
             raise ValueError('scan readiness must be a callable')
+        if on_observation is not None and not callable(on_observation):
+            raise ValueError('scan observation sink must be a callable')
+        policy = os.environ.get('ELESIM_SCAN_VIEW_POLICY', 'information') if view_policy is None else view_policy
+        if policy not in ('information', 'see'):
+            raise ValueError('invalid scan view policy; choose information or see')
+        if mobility is not None and policy != 'see':
+            raise ValueError('mobile next-view planning requires SEE')
+        scene_points = None if scene_points is None else np.array(scene_points, dtype=float, copy=True)
         uncertainty = np.asarray(tracking_uncertainty if tracking_uncertainty is not None else [.003,.04,.04,.04],float)
         if uncertainty.shape != (4,) or not np.isfinite(uncertainty).all() or np.any(uncertainty<=0):
             raise ValueError('invalid scan tracking uncertainty')
@@ -166,11 +177,13 @@ class LiveScan:
             raise RuntimeError('scan requires encoded RGB-D with source identity, calibration and measured q')
         self._generation += 1
         self._retain_lease = bool(retain_lease)
+        self._mobility = mobility
         generation = self._generation
         self._stop.clear()
         self._cancel_reason = ''
         self._job_id, self._route, self._base, self._epoch = job_id, route, base.copy(), status.epoch
-        self._phase, self._reason, self._progress, self._result = 'preparing', '', {}, {}
+        self._phase, self._reason = 'preparing', ''
+        self._progress, self._result = {'view_policy': policy}, {}
         self._last_q, self._last_send, self._started = feedback['q'].copy(), self.clock(), self.clock()
         self._motion = None
         self._bounds = bounds
@@ -196,13 +209,22 @@ class LiveScan:
                 progress({'stage': 'loading_models'})
                 if self.engine_factory is None:
                     pipeline = Pipeline.from_config(self.models_path, mapping=self.connection.mapping)
-                    pipeline.prepare(cancelled=cancelled, progress=progress)
                     model = ArmCameraModel(self.model_dir.parents[1]/'arm/default.json', self.hand_eye,
                         base_world_transform=base)
                     arm = ArmSelfCollision(self.model_dir, joint_uncertainty=self._tracking_uncertainty)
                     collision = ScanCollision(arm, base, reserve_tracking=True)
-                    planner = ViewPlanner(model, collision_checker=collision, cancelled=cancelled,
-                        operating_bounds=bounds, roi_height_m=roi_height_m)
+                    if scene_points is not None:
+                        collision.add_observed(scene_points)
+                    options = dict(collision_checker=collision, cancelled=cancelled,
+                                   operating_bounds=bounds, roi_height_m=roi_height_m)
+                    if mobility is not None:
+                        planner = mobility.make_planner(model, **options)
+                    elif policy == 'see':
+                        from elesim_pilot.vision.see_planner import SeeViewPlanner
+                        planner = SeeViewPlanner(model, return_q=return_q, fallback=True, **options)
+                    else:
+                        planner = ViewPlanner(model, **options)
+                    pipeline.prepare(cancelled=cancelled, progress=progress)
                     engine = ActiveScan(pipeline, model, planner, max_views=max_views)
                 else:
                     engine = self.engine_factory(max_views, cancelled)
@@ -222,7 +244,9 @@ class LiveScan:
                     feedback, current_base, _ = self._checked_feedback()
                     self._check_capture_base(current_base)
                     if self._capture_finish_reason:raise AcquisitionLimit(self._capture_finish_reason)
-                    if (settled_goal is None or not np.array_equal(goal, settled_goal)
+                    if mobility is not None:
+                        settled_wall = mobility.settle(goal, cancelled=cancelled)
+                    elif (settled_goal is None or not np.array_equal(goal, settled_goal)
                             or not np.allclose(feedback['q'], goal, rtol=0., atol=[.001, .015, .015, .015])):
                         settled_wall = self._move_and_wait(goal, certificate, generation, cancelled)
                         settled_goal = np.array(goal, copy=True)
@@ -245,17 +269,37 @@ class LiveScan:
                                 or not np.allclose(frame.arm_q, goal, rtol=0., atol=[.001, .015, .015, .015])):
                             time.sleep(.001)
                             continue
-                        sample = SensorObservation(frame.color_bgr, frame.depth_raw, frame.depth_scale,
-                            frame.intrinsics, frame.seq, frame.ts, frame.source_id, frame.source_boot_id,
-                            frame.calibration_id, tuple(frame.arm_q))
+                        if mobility is not None:
+                            try:
+                                measurement = mobility.measurement(frame)
+                            except ObservationPending:
+                                time.sleep(.001)
+                                continue
+                        else:
+                            sample = SensorObservation(frame.color_bgr, frame.depth_raw, frame.depth_scale,
+                                frame.intrinsics, frame.seq, frame.ts, frame.source_id, frame.source_boot_id,
+                                frame.calibration_id, tuple(frame.arm_q))
+                            measurement = Measurement(sample, base_world_transform=base).validated()
                         calibration, last_seq = frame.calibration_id, frame.seq
-                        return Measurement(sample, base_world_transform=base).validated()
+                        return measurement
                     if cancelled():
                         raise PipelineCancelled('scan cancelled')
                     raise TimeoutError('no fresh coherent RGB-D after measured scan settling')
 
                 run_options=dict(cancelled=cancelled,progress=progress)
                 if finish_when is not None:run_options['finish_when']=finish_when
+                if on_observation is not None:run_options['on_observation']=on_observation
+                if mobility is not None:
+                    def relocate(choice):
+                        q = mobility.relocate(choice, cancelled=cancelled)
+                        # Every deliberate relocation starts a new stationary
+                        # capture anchor. Uncommanded movement while capturing
+                        # still uses the original stability limit.
+                        _, moved_base, _ = self._checked_feedback()
+                        self._base = moved_base.copy()
+                        return q
+                    run_options['relocate'] = relocate
+                    run_options['scene_observer'] = mobility.observe_scene
                 _, report = engine.run(acquire, feedback['q'], task, self.output_root/job_id,**run_options)
                 publication = (scene_publication(report['scene_manifest'], self.output_root, *route[:2])
                     if report.get('scene_manifest') else {})
@@ -265,9 +309,11 @@ class LiveScan:
                         self._progress['stage'] = 'completed'
                         self._result = {key: report[key] for key in ('scene_manifest', 'stop_reason',
                             'accepted_views', 'observed_points', 'predicted_points', 'model_execution',
-                            'coverage', 'needs_more_observation') if key in report}
+                            'coverage', 'needs_more_observation', 'last_observation',
+                            'selected_view_policies') if key in report}
                         self._result.update(publication)
-                        self._result['return_q_path'] = [feedback['q'].tolist()] + [v['q'] for v in report.get('views', [])]
+                        self._result['return_q_path'] = ([mobility.last_q.tolist()] if mobility is not None else
+                            [feedback['q'].tolist()] + [v['q'] for v in report.get('views', [])])
                         self._release_pending = True
             except Exception as exc:
                 with self._condition:
@@ -348,6 +394,11 @@ class LiveScan:
             self._motion = None
             self._release_pending = True
             self._condition.notify_all()
+        if self._mobility is not None:
+            try:
+                self._mobility.cancel(reason)
+            except Exception as exc:
+                self._reason = (self._reason+'; mobile stop failed: '+str(exc))[:512]
 
     def tick(self):
         if self._stop.is_set() and self.active:
@@ -355,9 +406,17 @@ class LiveScan:
         if self.active:
             try:
                 now = self.clock()
-                feedback, base, status = self._checked_feedback()
+                feedback, base, status = (self._checked_feedback() if self._mobility is None else
+                                           self._checked_feedback(stationary=False))
                 if self.route() != self._route or status.epoch != self._epoch:
                     raise RuntimeError('scan target boot/lease or simulation epoch changed')
+                if self._mobility is not None:
+                    if now-self._started > 600.:
+                        raise TimeoutError('scan session exceeded 600 seconds')
+                    self._mobility.tick()
+                    self._last_q = self._mobility.last_q.copy()
+                    self._last_send = self._mobility.last_send
+                    return
                 self._check_capture_base(base)
                 if self._capture_finish_reason and not self._finish_hold_set:
                     with self._condition:
@@ -399,6 +458,11 @@ class LiveScan:
                 self._stop_on_tick('failed', str(exc))
         if self._release_pending:
             self._release_pending = False
+            if self._mobility is not None:
+                try:
+                    self._mobility.cancel(self._reason or 'scan finished')
+                except Exception as exc:
+                    self._reason = (self._reason+'; mobile stop failed: '+str(exc))[:512]
             try:
                 self.connection.clear_pending_motion()
                 if not self._retain_lease:

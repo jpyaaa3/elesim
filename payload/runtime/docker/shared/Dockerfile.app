@@ -1,5 +1,22 @@
 # syntax=docker/dockerfile:1
 ARG BASE_IMAGE=ros:humble-ros-base-jammy
+FROM ${BASE_IMAGE} AS see_builder
+ENV DEBIAN_FRONTEND=noninteractive
+ARG ROLE
+RUN mkdir -p /opt/elesim/native && \
+    if [ "$ROLE" = pilot ]; then \
+      apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake libpcl-dev libnlopt-cxx-dev liblemon-dev && \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
+COPY app/ /tmp/see-app/
+RUN if [ "$ROLE" = pilot ]; then \
+      cmake -S /tmp/see-app/elesim_pilot/vision/see_native -B /tmp/see-build \
+        -DCMAKE_BUILD_TYPE=Release && \
+      cmake --build /tmp/see-build -j2 && \
+      cp /tmp/see-build/libelesim_see.so /opt/elesim/native/; \
+    fi
+
 FROM ${BASE_IMAGE}
 
 ARG ROLE
@@ -17,7 +34,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN set -eux; \
     packages="ca-certificates python3-colcon-common-extensions python3-pip python3-venv python-is-python3 ros-humble-rmw-cyclonedds-cpp ros-humble-rosidl-default-generators ros-humble-sros2"; \
     case "$ROLE" in \
-      pilot) packages="$packages nodejs libgl1 libglib2.0-0 libgomp1 curl xz-utils git build-essential python3-dev" ;; \
+      pilot) packages="$packages libpcl-common1.12 libpcl-octree1.12 libnlopt0 liblemon1.3.1 nodejs libgl1 libglib2.0-0 libgomp1 curl xz-utils git build-essential python3-dev" ;; \
       ui) packages="$packages libgl1 libgl1-mesa-dri libglx-mesa0 libglu1-mesa libglfw3 libx11-6 libxcursor1 libxi6 libxinerama1 libxrandr2 libxxf86vm1 libfontconfig1" ;; \
       sim) packages="$packages build-essential cmake curl git python3-dev swig python3-pip python-is-python3 libgl1 libegl1 libglx-mesa0 libosmesa6 libglfw3 libglib2.0-0 libx11-6 libxext6 libxrender1" ;; \
       *) echo "unsupported role: $ROLE" >&2; exit 2 ;; \
@@ -175,6 +192,11 @@ RUN if [ "$ROLE" = sim ]; then \
       mkdir -p /usr/share/glvnd/egl_vendor.d && \
       printf '%s\n' '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
         > /usr/share/glvnd/egl_vendor.d/10_nvidia.json; \
+    fi
+
+COPY --from=see_builder /opt/elesim/native/ /opt/elesim/native/
+RUN if [ "$ROLE" = pilot ]; then \
+      python -c 'import ctypes; ctypes.CDLL("/opt/elesim/native/libelesim_see.so")'; \
     fi
 
 COPY entrypoint /usr/local/bin/elesim-entrypoint

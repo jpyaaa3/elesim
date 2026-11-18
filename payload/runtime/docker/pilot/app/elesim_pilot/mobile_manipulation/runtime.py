@@ -41,6 +41,7 @@ class SimPorts:
         self.last_command=None;self.stopped=False;self._summary={};self._latest={}
         self.last_target_q=None;self.mapping_views=[];self.mapping_intrinsics=None
         self.mapping_margin_m=0.
+        self.floor_attempts=0
     def route(self):return self.scan.route()
     def context(self):
         s=self.simulation_status()
@@ -61,8 +62,9 @@ class SimPorts:
         if 'simulation.timed_arm.v1' not in descriptor.get('capabilities',()):
             raise RuntimeError('Update Sim: simulation.timed_arm.v1 required')
         if getattr(self.service,'_go2_arm_mount',None) is None:raise RuntimeError('mobile task needs a mounted Go2 arm')
-        if self.scan.active or self.scan._busy():
-            raise RuntimeError('stop competing arm workflows')
+        scan_status=self.scan.status()
+        if not scan_status['can_start']:
+            raise RuntimeError(scan_status['blocked_reason'] or 'stop competing arm workflows')
         self.guard()
         self.model=HugModel(self.model_root);self.model.validate_robot(self.scan.model_dir/'arm.urdf')
         self.model.validate_physics(self._latest.get('physics_profile'))
@@ -73,8 +75,10 @@ class SimPorts:
         self.scan_source=None;self._summary={};self.operation=None;self.last_frame_seq=-1
         self.last_target_q=None;self.mapping_views=[];self.mapping_intrinsics=None
         self.mapping_margin_m=0.
+        self.floor_attempts=0
         if hasattr(self,'mapping_goal_xy'):del self.mapping_goal_xy
         if hasattr(self,'mapping_goal_pose'):del self.mapping_goal_pose
+        if hasattr(self,'mapping_goal_footprint'):del self.mapping_goal_footprint
         if hasattr(self,'camera_cache'):del self.camera_cache
         if self.camera is not None:self.camera.stop();self.camera=None
     def _require_home_start(self,q):
@@ -206,21 +210,16 @@ class SimPorts:
             if status['unknown_cells'] and not status['blocked_cells']:
                 return dict(visible=False,needs_mapping=True)
         return dict(visible=False)
-    def _observe(self,allow_prediction=False):
-        generation=self.generation
-        measurement,pose,base=self._capture()
-        if self.stopped or generation!=self.generation:raise RuntimeError('observation cancelled')
+    def _map_scene(self,measurement,pose,base,body):
         self.mapping_intrinsics=measurement.sensor.intrinsics
-        config=yaml.safe_load(self.scan.models_path.read_text())
-        segmenter=load_model('segmenter',config['models']['segmenter'],self.scan.models_path.parent).implementation
-        masks=segmenter.segment(measurement,Task('mobile',self.target_id))
         # Map every observed surface, removing the arm's own conservative volume.
         self.collision.base=base.copy()
         full=reconstruct_view(measurement.sensor,np.ones(measurement.sensor.depth_raw.shape,bool),pose,max_points=6000).points_before
         centers=self.collision._centers(measurement.sensor.encoder_q)
-        snap=self.feedback.snapshot(self.route()[:2]);b=snap['base']
-        goal_xy=getattr(self,'mapping_goal_xy',b['pos'][:2])
-        self.grid.recenter((b['pos'][:2]+goal_xy)/2)
+        position=body['pos']
+        rotation=Rotation.from_euler('xyz',body['rpy']).as_matrix()
+        goal_xy=getattr(self,'mapping_goal_xy',position[:2])
+        self.grid.recenter((position[:2]+goal_xy)/2)
         def exclude_robot(points):
             kept=[]
             for start in range(0,len(points),256):
@@ -228,7 +227,7 @@ class SimPorts:
                 gaps=np.linalg.norm(block[:,None]-centers[None],axis=2)-self.collision._radii
                 kept.append(block[np.all(gaps>.015,axis=1)])
             environment=np.concatenate(kept) if kept else np.empty((0,3))
-            body_local=(environment-b['pos'])@Rotation.from_euler('xyz',b['rpy']).as_matrix()
+            body_local=(environment-position)@rotation
             self_body=(abs(body_local[:,0])<.4)&(abs(body_local[:,1])<.27)&(body_local[:,2]>-.4)&(body_local[:,2]<.25)
             return environment[~self_body]
         environment=exclude_robot(full)
@@ -240,6 +239,45 @@ class SimPorts:
             origin_xy=self.grid.origin))
         self.grid.observe(np.concatenate([environment,floor]))
         self._summary['floor_cells_in_capture']=len(floor)
+
+    def _map_target(self,points):
+        # The broad self-body mask must never erase an identified nearby
+        # target from the collision map along with the robot's own surfaces.
+        self.collision.cloud.add(points)
+        self.collision.tree=cKDTree(self.collision.cloud.points())
+        self.grid.observe(points)
+
+    def _map_scan_observation(self,op,measurement,pose,target_points,*,scene_mapped=False):
+        sensor=measurement.sensor
+        source=(sensor.source_id,sensor.source_boot_id,sensor.calibration_id)
+        if self.stopped or self.operation is not op:
+            raise RuntimeError('mobile scan observation cancelled')
+        if source!=self.scan_source or source[:2]!=op['grant'].route[:2]:
+            raise RuntimeError('mobile scan source/calibration changed')
+        if sensor.seq<=self.last_frame_seq:
+            raise RuntimeError('replayed mobile scan observation')
+        self.last_frame_seq=sensor.seq
+        self.last_target_q=np.array(sensor.encoder_q,float)
+        if not scene_mapped:
+            try:
+                body=self.feedback.associate(sensor,source[:2])
+            except RuntimeError as exc:
+                # Standalone acquisition may still fuse the view, but floor
+                # mapping requires its capture-time body evidence.
+                op['unmapped_scan_reason']=str(exc)
+                return
+            self._map_scene(measurement,pose,measurement.base_world_transform,body)
+        self._map_target(target_points)
+        op['mapped_scan_views']+=1
+
+    def _observe(self,allow_prediction=False):
+        generation=self.generation
+        measurement,pose,base=self._capture()
+        if self.stopped or generation!=self.generation:raise RuntimeError('observation cancelled')
+        config=yaml.safe_load(self.scan.models_path.read_text())
+        segmenter=load_model('segmenter',config['models']['segmenter'],self.scan.models_path.parent).implementation
+        masks=segmenter.segment(measurement,Task('mobile',self.target_id))
+        self._map_scene(measurement,pose,base,self.feedback.snapshot(self.route()[:2])['base'])
         if not masks:
             missing=self._missing_target(allow_mapping=not allow_prediction)
             if missing.get('needs_mapping'):return missing
@@ -262,11 +300,7 @@ class SimPorts:
         cloud=reconstruct_view(measurement.sensor,masks[0].mask,pose).points_before
         if len(cloud)<60:
             return self._missing_target(allow_mapping=not allow_prediction)
-        # The broad self-body mask must never erase an identified nearby
-        # target from the collision map along with the robot's own surfaces.
-        self.collision.cloud.add(cloud)
-        self.collision.tree=cKDTree(self.collision.cloud.points())
-        self.grid.observe(cloud)
+        self._map_target(cloud)
         try:
             latest=self.feedback.snapshot(self.route()[:2])['joint']
             estimate=self.track.update(cloud,stamp=latest['received']-max(0.,latest['stamp']-measurement.sensor.ts),source=self.scan_source)
@@ -434,7 +468,7 @@ class SimPorts:
             and self.grid.cell(p) not in self.grid.blocked]).reshape(-1,2)
         focus=False
         if hasattr(self,'mapping_goal_pose'):
-            cells=self.grid._footprint_cells(self.mapping_goal_pose,self.footprint,
+            cells=self.grid._footprint_cells(self.mapping_goal_pose,getattr(self,'mapping_goal_footprint',self.footprint),
                 margin_m=getattr(self,'mapping_margin_m',0.))
             missing=[c for c in cells if c not in self.grid.free and c not in self.grid.blocked]
             if missing:
@@ -529,6 +563,12 @@ class SimPorts:
             if result is not None:return result
         raise RuntimeError('floor observation arm paths are blocked' if candidates
             else 'no downward camera pose for local floor mapping')
+    def reserve_floor_view(self):
+        if self.floor_attempts>=self.s.search_limit:
+            raise RuntimeError('floor observation budget exhausted')
+        self.floor_attempts+=1
+        self._summary['mapping_attempts']=self.floor_attempts
+        return self.floor_attempts
     def _arm_prepare(self,waypoints):
         # Recheck each segment at the current base and observed scene.
         base=base_world_transform_from_context(self.service._ik_context_for_host(self.connection.state_sink.get_state()))
@@ -586,7 +626,7 @@ class SimPorts:
         op=dict(phase=phase,grant=grant,ownership=ownership,args=args,started=self.clock())
         self.operation=op
         if phase in {'plan_observation','plan_grasp'}:
-            for field in ('mapping_goal_pose','mapping_goal_xy'):
+            for field in ('mapping_goal_pose','mapping_goal_xy','mapping_goal_footprint'):
                 if hasattr(self,field):delattr(self,field)
         if phase in {'acquire','reacquire','post_scan_acquire','plan_observation','plan_grasp',
                 'transport','search','aim_observation','map_search','check_grasp'}:
@@ -597,7 +637,8 @@ class SimPorts:
         elif phase in {'transport','search','aim_observation','map_search'}:
             self._initialize()
             if phase=='map_search':
-                op['future']=self.pool.submit(self._map_search_prepare,args['index'])
+                index=self.reserve_floor_view()
+                op['future']=self.pool.submit(self._map_search_prepare,index)
                 return op
             if phase=='transport':
                 op['future']=self.pool.submit(self._return_prepare,np.array(self.model.meta['home']))
@@ -626,10 +667,19 @@ class SimPorts:
                 raise RuntimeError('Update Sim: measured Go2 locomotion stage required')
             op['executor'].start(args['goal'],snap['pose'],self.grid.revision)
         elif phase=='scan':
-            self.scan.start(self.target_id,self.s.max_views,roi_height_m=self.s.scan_roi_height_m,
+            op['mapped_scan_views']=0
+            mobility=None
+            if self.s.scan_view_policy=='see':
+                from .scan_motion import ScanMotion
+                mobility=ScanMotion(self,op)
+            status=self.scan.start(self.target_id,self.s.max_views,roi_height_m=self.s.scan_roi_height_m,
                 retain_lease=True,tracking_uncertainty=[.001,.015,.015,.015],
                 finish_drift_bounds=(self.s.hug_body_position_tolerance_m,self.s.hug_body_rotation_tolerance_rad),
-                finish_when=self._scan_observation_ready)
+                finish_when=self._scan_observation_ready,view_policy=self.s.scan_view_policy,
+                return_q=self.model.meta['home'],scene_points=self.collision.cloud.points(),
+                on_observation=lambda *capture:self._map_scan_observation(op,*capture,
+                    scene_mapped=mobility is not None),mobility=mobility)
+            op['scan_job_id']=status['job_id']
         elif phase=='check_grasp':op['future']=self.pool.submit(self._check_grasp)
         elif phase=='hug':
             self.model.validate_robot(self.scan.model_dir/'arm.urdf')
@@ -670,6 +720,48 @@ class SimPorts:
             estimate=TargetTrack(self.target_id).update(points,stamp=self.clock(),source=self.scan_source)
         except ValueError:return False
         return self._scan_quality(estimate)
+
+    def _finish_scan(self,op,status):
+        self.history.extend(np.asarray(q,float) for q in status.get('return_q_path',()))
+        views=status['accepted_views']
+        summary=dict(policy=status['view_policy'], selected=status.get('selected_view_policies',[]),
+            accepted_views=views,mapped_views=op['mapped_scan_views'],stop_reason=status['stop_reason'])
+        if op.get('unmapped_scan_reason'):
+            summary['unmapped_reason']=op['unmapped_scan_reason']
+        self._summary['scan_handoff']=summary
+        if views<2:
+            summary['reason']='fewer than two registered scan views'
+            return dict(quality_ok=False)
+        observation=status['last_observation']
+        source=tuple(observation['source'])
+        if source!=self.scan_source or source[:2]!=op['grant'].route[:2]:
+            raise RuntimeError('scan result source/calibration changed')
+        root=Path(status['scene_manifest']).parent
+        with np.load(root/(self.target_id+'.npz'),allow_pickle=False) as data:
+            points=data['observed'].copy()
+        snap=self.feedback.snapshot(source[:2])
+        joint=snap['joint']
+        stamp=joint['received']-max(0.,joint['stamp']-observation['timestamp_s'])
+        if self.stopped or self.operation is not op:
+            raise RuntimeError('mobile scan handoff cancelled')
+        try:
+            estimate=self.track.update(points,stamp=stamp,source=source)
+        except ValueError as exc:
+            summary['reason']=str(exc)
+            return dict(quality_ok=False)
+        self.last_frame_seq=max(self.last_frame_seq,observation['seq'])
+        self.last_observation_base=snap['pose'].copy()
+        self.predicted_error=estimate.error_m
+        self._summary.update(target_world_m=estimate.origin.tolist(),diameter_mm=estimate.diameter*1000,
+            target_error_m=estimate.error_m,predicted_target=False,observed_points=len(points))
+        self._summary.pop('diameter_prior_only',None)
+        ready=self._scan_quality(estimate)
+        # Inference can outlast the target age allowance. In that case the
+        # existing post-scan reacquisition remains the next operation.
+        fresh=self.clock()-stamp<=self.s.target_age_s
+        summary.update(fresh=fresh,quality_ok=ready)
+        return dict(quality_ok=ready,mapped_scan=ready and fresh and op['mapped_scan_views']>=2)
+
     def poll(self,op):
         if op is not self.operation:raise RuntimeError('stale mobile operation')
         phase=op['phase'];now=self.clock();snap=self.feedback.snapshot(self.route()[:2])
@@ -728,19 +820,11 @@ class SimPorts:
             if done:return dict()
         elif phase=='scan':
             status=self.scan.status()
+            if status['job_id']!=op['scan_job_id']:raise RuntimeError('scan job changed')
             if status['active']:return None
             if status['phase']!='completed':raise RuntimeError(status.get('reason','scan failed'))
-            root=Path(status['scene_manifest']).parent
-            with np.load(root/(self.target_id+'.npz'),allow_pickle=False) as d:points=d['observed'].copy()
-            frame_files=sorted(root.parent.glob('frames/*.npz'))
-            if not frame_files:raise RuntimeError('scan has no capture provenance')
-            with np.load(frame_files[-1],allow_pickle=False) as d:
-                latest=self.feedback.snapshot(self.route()[:2])['joint']
-                stamp=latest['received']-max(0.,latest['stamp']-float(d['ts']))
-            self.track.update(points,stamp=stamp,source=self.scan_source)
-            self.last_observation_base=snap['pose'].copy();self.predicted_error=self.track.estimate.error_m
-            self.history+=list(map(np.array,status.get('return_q_path',[])))
-            return dict(quality_ok=self._scan_quality(self.track.estimate))
+            op['hold_q']=snap['joint']['q'].copy()
+            op['future']=self.pool.submit(self._finish_scan,op,status)
         elif phase=='hug':
             measured=self._measured_body(snap);initial=op['body_frame']
             movement=measured[:3,3]-initial[:3,3]

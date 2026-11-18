@@ -519,14 +519,57 @@ class Ports:
         return {}
 
 
-def test_parent_cycle_uses_observation_and_grasp_base_goals_and_is_truthful():
-    p=Ports();c=Coordinator(p,clock=lambda:0.)
+@pytest.mark.parametrize('policy',['see','information'])
+def test_parent_cycle_uses_the_selected_observation_planner_and_is_truthful(policy):
+    p=Ports();c=Coordinator(p,settings=Settings(scan_view_policy=policy),clock=lambda:0.)
     c.start(c.plan()['plan_id'])
     for _ in range(20):c.tick()
     assert c.phase=='unverified' and not c.active
-    assert p.calls==['acquire','plan_observation','transport','move_observation','aim_observation','scan','post_scan_acquire',
+    initial=(['acquire'] if policy=='see' else
+        ['acquire','plan_observation','transport','move_observation','aim_observation'])
+    assert p.calls==initial+['scan','post_scan_acquire',
         'plan_grasp','transport','move_grasp','reacquire','check_grasp','hug','verify']
     assert c.ownership.session is None
+
+
+def test_parent_reuses_the_scan_map_but_requests_unobserved_floor():
+    ports=Ports();poll=ports.poll;grasp_checks=[]
+    def result(op):
+        if op[0]=='scan':return dict(quality_ok=True,mapped_scan=True)
+        if op[0]=='plan_grasp':
+            grasp_checks.append(op)
+            if len(grasp_checks)==1:return dict(needs_mapping=True)
+        return poll(op)
+    ports.poll=result
+    coordinator=Coordinator(ports,clock=lambda:0.)
+    coordinator.start(coordinator.plan()['plan_id'])
+    for _ in range(24):coordinator.tick()
+    index=ports.calls.index('scan')
+    assert ports.calls[index:index+5]==['scan','plan_grasp','map_search','post_scan_acquire','plan_grasp']
+    assert coordinator.phase=='unverified'
+
+
+@pytest.mark.parametrize('views,mapped,lag,reuse', [
+    (1, 1, 0., False), (2, 1, 0., False), (2, 2, 46., False), (2, 2, 0., True),
+])
+def test_scan_handoff_uses_registered_observations_with_capture_age(tmp_path,views,mapped,lag,reuse):
+    from elesim_pilot.mobile_manipulation.runtime import SimPorts
+    ports=SimPorts.__new__(SimPorts);ports.s=Settings();ports._summary={}
+    ports.scan_source=('sim','boot','calib');ports.track=TargetTrack();ports.target_id='target'
+    ports.stopped=False;ports.history=[];ports.last_frame_seq=1;ports.clock=lambda:100.
+    ports.feedback=NS(snapshot=lambda _:dict(joint=dict(received=100.,stamp=200.),pose=np.zeros(3)))
+    op=dict(grant=NS(route=('sim','boot','lease')),mapped_scan_views=mapped)
+    ports.operation=op
+    np.savez(tmp_path/'target.npz',observed=cylinder(),predicted=np.full((60,3),99.))
+    status=dict(accepted_views=views,view_policy='see',stop_reason='task_observation_ready',
+        scene_manifest=str(tmp_path/'scene.json'),last_observation=dict(
+            seq=2,timestamp_s=200.-lag,source=list(ports.scan_source)))
+    result=ports._finish_scan(op,status)
+    assert result['quality_ok']==(views==2)
+    assert result.get('mapped_scan',False)==reuse
+    if views==2:
+        assert ports.track.estimate.diameter==pytest.approx(.1)
+        assert ports.track.estimate.stamp==100.-lag
 
 
 def test_search_after_reconstruction_resumes_post_scan_acquisition_instead_of_restarting_scan():
@@ -600,7 +643,7 @@ def test_floor_views_continue_before_one_final_fresh_target_recovery(acquisition
         if phase==acquisition and views[0]==3 and not recovered[0]:
             recovered[0]=True;return dict(visible=False)
         return poll(op)
-    ports.poll=collect;c=Coordinator(ports,settings=Settings(search_limit=3),clock=lambda:0.)
+    ports.poll=collect;c=Coordinator(ports,settings=Settings(search_limit=3,scan_view_policy='information'),clock=lambda:0.)
     c.start(c.plan()['plan_id'])
     for _ in range(40):c.tick()
     assert c.phase=='unverified' and views[0]==3
@@ -621,7 +664,7 @@ def test_continuing_floor_views_keeps_the_same_budget_and_cannot_start_blind_mot
         if phase==planning:started[0]=True;return dict(needs_mapping=True)
         if phase==acquisition and started[0]:return dict(visible=False,needs_mapping=True)
         return poll(op)
-    ports.poll=missing;c=Coordinator(ports,settings=Settings(search_limit=2),clock=lambda:0.)
+    ports.poll=missing;c=Coordinator(ports,settings=Settings(search_limit=2,scan_view_policy='information'),clock=lambda:0.)
     c.start(c.plan()['plan_id'])
     for _ in range(30):c.tick()
     assert c.phase=='failed' and c.reason==reason
@@ -727,7 +770,7 @@ def test_mapping_budget_does_not_allow_blind_walking():
         def poll(self,op):
             if op[0]=='plan_observation':return dict(needs_mapping=True)
             return super().poll(op)
-    p=Unknown();c=Coordinator(p,clock=lambda:0.);c.start(c.plan()['plan_id'])
+    p=Unknown();c=Coordinator(p,settings=Settings(scan_view_policy='information'),clock=lambda:0.);c.start(c.plan()['plan_id'])
     for _ in range(80):c.tick()
     assert c.phase=='failed' and c.reason=='no_observed_free_base_path'
     assert 'move_observation' not in p.calls

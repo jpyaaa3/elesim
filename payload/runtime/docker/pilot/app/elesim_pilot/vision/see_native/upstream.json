@@ -1,0 +1,19 @@
+{
+  "repository": "https://github.com/robotic-esp/see-public",
+  "commit": "b9f29b6daa4ed9322bcbdbef855a34ac048d3c11",
+  "license": "MIT",
+  "normalization": "UTF-8 with LF line endings and final newline",
+  "files": {
+    "LICENSE": "25358610e811efed532b7f279adab7547ef1164baa68dc3d7a35d01666318571",
+    "see_common/include/see_common/abstract_core.h": "1b1dfa1695c8696110224223364a3619734be455b6dfef86986be8cf1efe68b8",
+    "see_common/include/see_common/common_params.h": "7296b017d2a63b661bb856e295b3b025a7f2ea8dc6a16103c413e92af7a1ef30",
+    "see_common/include/see_common/common_structs.h": "780a30be03a60b14984322355caedd07ece3912b2996f1896c03736f3d52e9c7",
+    "see_common/include/see_common/pcl_common.h": "9675c2451a9694a5c5703a57cf562ce7be56997ae66e656f633ef94969031fd0",
+    "see_common/include/see_common/pcl_types.h": "f05c1b0b9000e0f3574883af94e7d464f5d43a649f34efed18aaadbabc7196b6",
+    "see_core/include/see_core/see_core.h": "f9dc3d762f590ced17a40ffa21517658c3d16d2c484f2a0ef030e478f4ac7a12",
+    "see_core/include/see_core/see_params.h": "88c10f26cd9dd32984a22413fd840429d5806780a934533bd6d7b58b479bfdf7",
+    "see_core/include/see_core/see_structs.h": "30b83260d3e7c5bbc6e2454c8a8db6659d430b0ff74badec8425fc9ac79018ab",
+    "see_core/include/see_core/view_opt.h": "4ade7a9302dab9e6ef6108afeabb8ba68e84b257e42d58a3ad087e7b2a9cf614",
+    "see_core/src/see_core.cpp": "68984ba44d2d617d03a9e3951f688574f77824c0a6fb82d355c00cf9dab46961"
+  }
+}

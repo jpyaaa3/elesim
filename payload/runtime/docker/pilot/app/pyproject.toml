@@ -32,3 +32,6 @@ elesim-reconstruct = "elesim_pilot.reconstruction.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["elesim_pilot*"]
+
+[tool.setuptools.package-data]
+elesim_pilot = ["vision/see_native/*.txt", "vision/see_native/*.json", "vision/see_native/*.md", "vision/see_native/*.cpp", "vision/see_native/upstream/LICENSE", "vision/see_native/upstream/**/*.h", "vision/see_native/upstream/**/*.cpp"]

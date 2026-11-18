@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from elesim_pilot.reconstruction import Measurement, Pipeline, PipelineCancelled, Task
+from elesim_pilot.reconstruction.contracts import Pose
 from elesim_pilot.reconstruction.scan import ActiveScan
 from elesim_pilot.vision.partial_cloud import SensorObservation
 from elesim_pilot.vision.partial_cloud import VoxelCloud, reconstruct_view
@@ -85,6 +86,47 @@ def test_active_acquisition_records_silhouettes_and_exports_separate_scene_objec
     assert result.objects[0].shape.predicted.shape == (1, 3)
 
 
+def test_mobile_scan_retains_observations_across_measured_base_relocations(tmp_path,monkeypatch):
+    p=pipeline(tmp_path);view_planner=Planner(choices=4);base=np.eye(4)
+    certificates=[];poses=[];captures=[];relocations=[];scene_poses=[]
+    def certify(a,b):
+        certificates.append((np.array(a),np.array(b)))
+        return dict(accepted=True)
+    view_planner.collision_checker.certify_segment=certify
+    original_choose=view_planner.choose
+    def choose(*args,**kwargs):
+        result=original_choose(*args,**kwargs)
+        if result is not None:result['base_pose']=np.array([base[0,3]+.004,0.,0.])
+        return result
+    view_planner.choose=choose
+    def estimate(measurement,task):
+        camera=CameraModel().camera_pose(measurement.sensor.encoder_q)
+        return Pose(task.frame_id,measurement.base_world_transform@camera)
+    p.models['pose'].implementation.estimate=estimate
+    def forbidden(*args,**kwargs):raise AssertionError('fixed-base fitting used for mobile scan')
+    monkeypatch.setattr('elesim_pilot.reconstruction.scan.refine_joint_scan',forbidden)
+    view_planner.collision_checker.observe=forbidden
+    def acquire(q,certificate):
+        captures.append(q.copy())
+        return Measurement(sensor(q,len(captures)),base_world_transform=base.copy())
+    def relocate(choice):
+        relocations.append(choice)
+        base[0,3]=choice['base_pose'][0]
+        return choice['q'].copy()
+    engine=ActiveScan(p,CameraModel(),view_planner,max_views=5)
+    _,report=engine.run(acquire,np.zeros(4),Task('mobile','apple-1'),tmp_path/'mobile',
+        relocate=relocate,on_observation=lambda measurement,pose,points:poses.append(pose.copy()),
+        scene_observer=lambda measurement,pose:scene_poses.append(pose.copy()))
+    assert len(captures)==5 and len(relocations)==4 and report['accepted_views']==5
+    assert report['joint_fit'] is None
+    np.testing.assert_allclose(scene_poses,poses)
+    assert poses[0][0,3]==0. and poses[-1][0,3]==pytest.approx(.012)
+    assert all(np.array_equal(a,b) for a,b in certificates)
+    for index in range(5):
+        with np.load(tmp_path/f'mobile/silhouettes/{index:03d}.npz') as raw:
+            assert raw['base_world_transform'][0,3]==pytest.approx(.004*index)
+
+
 @pytest.mark.parametrize('ready',[False,True])
 def test_task_readiness_uses_two_accepted_views_and_the_exact_published_observed_cloud(tmp_path,ready):
     engine=ActiveScan(pipeline(tmp_path),CameraModel(),Planner(),max_views=3)
@@ -113,6 +155,23 @@ def test_task_readiness_failure_cannot_publish_a_successful_scene(tmp_path):
     with pytest.raises(RuntimeError,match='task readiness failed'):
         engine.run(capture,np.zeros(4),Task('orchard','apple-1'),tmp_path/'scan',finish_when=failing)
     assert not (tmp_path/'scan/scene/scene.json').exists()
+
+
+def test_handoff_uses_rgbd_observations_before_completion(tmp_path):
+    engine = ActiveScan(pipeline(tmp_path), CameraModel(), Planner(), max_views=2)
+    emitted = []
+    attempts = iter(range(1, 3))
+
+    def acquire(q, certificate):
+        return Measurement(sensor(q, next(attempts)))
+
+    result, report = engine.run(acquire, np.zeros(4), Task('orchard', 'apple-1'), tmp_path/'scan',
+        on_observation=lambda measurement, pose, points: emitted.append((measurement, pose, points)))
+    assert [m.sensor.seq for m, _, _ in emitted] == [1, 2]
+    assert all(len(points) == 400 for _, _, points in emitted)
+    assert report['last_observation'] == {
+        'seq': 2, 'timestamp_s': 102., 'source': ['sim', 'boot', 'calibration']}
+    assert sum(len(obj.shape.predicted) for obj in result.objects) > 0
 
 
 @pytest.mark.parametrize('limit',[0,1,2])
