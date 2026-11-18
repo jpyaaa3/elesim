@@ -185,4 +185,11 @@ def transport_footprint(centers, radii, body_bounds=((- .38,.38),(-.25,.25)),spa
         axis=np.arange(-r,r+spacing*.5,spacing)
         xy=np.array(np.meshgrid(axis,axis)).reshape(2,-1).T
         chunks.append(xy[np.linalg.norm(xy,axis=1)<=r]+center[:2])
-    return np.unique(np.round(np.concatenate(chunks)/spacing).astype(int),axis=0)*spacing
+    # Structured-record unique holds the GIL during sorting: a full arm sweep
+    # blocked live feedback for 80 seconds. Numeric lexsort preserves exactly
+    # the same rounded cells and order while allowing control threads to run.
+    cells=np.round(np.concatenate(chunks)/spacing).astype(int)
+    order=np.lexsort((cells[:,1],cells[:,0]))
+    ordered=cells[order]
+    first=np.r_[True,np.any(ordered[1:]!=ordered[:-1],axis=1)]
+    return ordered[first]*spacing

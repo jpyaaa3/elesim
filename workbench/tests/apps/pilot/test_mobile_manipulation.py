@@ -1184,3 +1184,25 @@ def test_actual_body_tilt_changes_final_solver_coordinates():
     tilted=planner.robust_solution(target,[0,0,0],.003,measured)
     np.testing.assert_allclose(tilted['xy_mm'],solver_xy(target,measured@node))
     assert not np.allclose(flat['xy_mm'],tilted['xy_mm'])
+
+
+@pytest.mark.parametrize('spacing',[.01,.02,.035])
+def test_swept_footprint_preserves_exact_union_without_gil_holding_record_sort(monkeypatch,spacing):
+    from elesim_pilot.mobile_manipulation.local_map import transport_footprint,rectangular_footprint
+    centers=np.array([[-.31,.22,.1],[.19,-.24,.2],[.19,-.24,.9],[.6,.31,.3]])
+    radii=np.array([.03,.07,.07,.055])
+    chunks=[rectangular_footprint(((-.38,.38),(-.25,.25)),spacing,.02)]
+    for center,radius in zip(centers,radii):
+        r=radius+.02
+        axis=np.arange(-r,r+spacing*.5,spacing)
+        xy=np.array(np.meshgrid(axis,axis)).reshape(2,-1).T
+        chunks.append(xy[np.linalg.norm(xy,axis=1)<=r]+center[:2])
+    expected=np.array(sorted({tuple(row) for row in
+        np.round(np.concatenate(chunks)/spacing).astype(int)}))*spacing
+    original=np.unique
+    def no_record_sort(values,*args,**kwargs):
+        assert kwargs.get('axis') is None,'structured record sorting starves motion feedback'
+        return original(values,*args,**kwargs)
+    monkeypatch.setattr(np,'unique',no_record_sort)
+    actual=transport_footprint(centers,radii,spacing=spacing)
+    np.testing.assert_array_equal(actual,expected)

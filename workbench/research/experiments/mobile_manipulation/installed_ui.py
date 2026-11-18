@@ -128,6 +128,12 @@ def main():
         else:
             previous_serial=controller._serial
             gui.click(name,tick)
+            # A fresh snapshot can expire between the availability check and
+            # mouse release. Retry once only when the real controller reports
+            # that admission changed; never repeat a submitted command.
+            if controller._serial<=previous_serial and controller.reason(name):
+                wait(name+' available after click race',lambda:not controller.reason(name),30.)
+                gui.click(name,tick)
             if controller._serial<=previous_serial:raise RuntimeError(name+': GUI click did not submit an action')
         wait(name+' ACK',lambda:not controller.pending,65.)
         if controller.error:raise RuntimeError(name+': '+controller.error)
