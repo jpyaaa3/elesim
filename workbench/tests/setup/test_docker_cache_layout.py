@@ -138,6 +138,34 @@ def test_see_native_builder_keeps_its_own_dependency_cache(name, source):
     assert runtime.index("pip install -r") < runtime.index("COPY --from=see_builder")
 
 
+@pytest.mark.parametrize("name", ["shared/Dockerfile.app", "pilot/Dockerfile.release"])
+def test_native_builder_fetches_ubuntu_over_https_only_in_its_image(name, tmp_path):
+    stages = docker_stages((ROOT / name).read_text())
+    builder = next(body for header, body in stages if header.endswith(" AS see_builder"))
+    command = run_commands(builder)[0]
+    source = tmp_path / 'sources.list'
+    source.write_text('deb http://archive.ubuntu.com/ubuntu jammy main\n'
+        'deb http://security.ubuntu.com/ubuntu jammy-security main\n'
+        'deb http://packages.ros.org/ros2/ubuntu jammy main\n')
+    for original, replacement in [('/etc/apt/sources.list', source),
+            ('/etc/apt/apt.conf.d/docker-clean', tmp_path/'docker-clean'),
+            ('/var/lib/apt/lists', tmp_path/'lists'),
+            ('/opt/elesim/native', tmp_path/'native')]:
+        command = command.replace(original, str(replacement))
+    assert '/etc/' not in command and '/opt/' not in command and '/var/lib/' not in command
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    apt = fake_bin / 'apt-get'
+    apt.write_text('#!/bin/sh\nexit 0\n')
+    apt.chmod(0o755)
+    result = subprocess.run(['/bin/sh', '-c', command], text=True, capture_output=True,
+        env={**os.environ, 'ROLE':'pilot', 'PATH':str(fake_bin)+os.pathsep+os.defpath})
+    assert result.returncode == 0, result.stderr
+    assert source.read_text() == ('deb https://archive.ubuntu.com/ubuntu jammy main\n'
+        'deb https://security.ubuntu.com/ubuntu jammy-security main\n'
+        'deb http://packages.ros.org/ros2/ubuntu jammy main\n')
+
+
 def test_developer_identity_does_not_invalidate_dependencies():
     text = (ROOT / "dev/Dockerfile").read_text()
     for arg in ("USERNAME", "UID", "GID"):

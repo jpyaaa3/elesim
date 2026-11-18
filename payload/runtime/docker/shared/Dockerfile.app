@@ -6,8 +6,9 @@ ARG ROLE
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked mkdir -p /opt/elesim/native && \
     if [ "$ROLE" = pilot ]; then \
       rm -f /etc/apt/apt.conf.d/docker-clean && \
-      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update && \
-      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
+      sed -i 's|http://archive.ubuntu.com/|https://archive.ubuntu.com/|g;s|http://security.ubuntu.com/|https://security.ubuntu.com/|g' /etc/apt/sources.list && \
+      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && \
+      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends \
         build-essential cmake libpcl-dev libnlopt-cxx-dev liblemon-dev && \
       rm -rf /var/lib/apt/lists/*; \
     fi
