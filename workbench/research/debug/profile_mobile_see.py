@@ -28,28 +28,35 @@ def main():
     from elesim_pilot.mobile_manipulation.scan_motion import ScanMotion
     from elesim_pilot.vision.see import SeeBackend
     from elesim_pilot.main import main as pilot_main
+    stack_depth = 0
 
     def instrument(cls, name, *, stacks=False):
         original = getattr(cls, name)
 
         @functools.wraps(original)
         def traced(*values, **options):
+            nonlocal stack_depth
             started = time.monotonic()
             label = cls.__name__ + '.' + name
             print('MOBILE_SEE_PROFILE begin', label, 'wall', time.time(), flush=True)
             if stacks:
-                faulthandler.dump_traceback_later(args.stack_period, repeat=True)
+                if stack_depth == 0:
+                    faulthandler.dump_traceback_later(args.stack_period, repeat=True)
+                stack_depth += 1
             try:
                 return original(*values, **options)
             finally:
                 if stacks:
-                    faulthandler.cancel_dump_traceback_later()
+                    stack_depth -= 1
+                    if stack_depth == 0:
+                        faulthandler.cancel_dump_traceback_later()
                 print('MOBILE_SEE_PROFILE end', label, 'elapsed_s', time.monotonic()-started, flush=True)
         setattr(cls, name, traced)
 
     instrument(MobileSeePlanner, 'choose', stacks=True)
-    for name in ('frontiers', '_choose_mobile', '_information_view', 'motion'):
+    for name in ('frontiers', '_choose_mobile', '_information_view'):
         instrument(MobileSeePlanner, name)
+    instrument(MobileSeePlanner, 'motion', stacks=True)
     instrument(ScanMotion, 'observe_floor')
     instrument(SeeBackend, 'propose')
     print('MOBILE_SEE_PROFILE diagnostic installed Pilot; planner/commands/limits unchanged', flush=True)
