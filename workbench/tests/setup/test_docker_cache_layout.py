@@ -18,6 +18,11 @@ def run_commands(text):
             if line.startswith("RUN ")]
 
 
+def docker_stages(text):
+    """Inspect independent BuildKit stages without mixing their COPY order."""
+    return re.findall(r"(?ms)^FROM ([^\n]+)\n(.*?)(?=^FROM |\Z)", text)
+
+
 @pytest.mark.parametrize("name", FILES)
 def test_pip_runs_use_external_cache_and_valid_shell(name):
     text = (ROOT / name).read_text()
@@ -36,7 +41,7 @@ def test_pip_runs_use_external_cache_and_valid_shell(name):
 
 
 def test_runtime_source_does_not_invalidate_external_dependencies():
-    text = (ROOT / "shared/Dockerfile.app").read_text()
+    text = docker_stages((ROOT / "shared/Dockerfile.app").read_text())[-1][1]
     assert text.index("cmake --install") < text.index("ARG COMPUTE_MODE")
     assert text.index('"torch==$torch_version"') < text.index("COPY requirements.lock")
     assert text.index("COPY requirements.lock") < text.index("ARG INSTALL_GO2_MPC")
@@ -105,7 +110,7 @@ def test_tools_source_and_interfaces_do_not_invalidate_python_dependencies():
 
 @pytest.mark.parametrize("role", ("pilot", "sim", "ui"))
 def test_release_dependencies_precede_wheels_and_runtime_data(role):
-    text = (ROOT / role / "Dockerfile.release").read_text()
+    text = docker_stages((ROOT / role / "Dockerfile.release").read_text())[-1][1]
     deps = text.index("pip install -r")
     markers = ["COPY wheels/", "COPY config/", "ARG APP_WHEEL", "ARG PROTOCOL_WHEEL"]
     if role in {"pilot", "sim"}:
@@ -115,6 +120,22 @@ def test_release_dependencies_precede_wheels_and_runtime_data(role):
     for marker in markers:
         assert deps < text.index(marker)
     assert "python3 -m pip check" in text
+
+
+@pytest.mark.parametrize("name,source", [
+    ("shared/Dockerfile.app", "COPY app/"),
+    ("pilot/Dockerfile.release", "COPY wheels/"),
+])
+def test_see_native_builder_keeps_its_own_dependency_cache(name, source):
+    stages = docker_stages((ROOT / name).read_text())
+    builder = next(body for header, body in stages if header.endswith(" AS see_builder"))
+    runtime = stages[-1][1]
+    assert builder.index("libpcl-dev") < builder.index(source) < builder.index("cmake -S")
+    assert builder.index("cmake -S") < builder.index("cmake --build")
+    assert "--mount=type=cache,target=/var/cache/apt,sharing=locked" in builder
+    assert "Acquire::Retries=3" in builder and "Acquire::http::Timeout=30" in builder
+    assert "libpcl-dev" not in runtime
+    assert runtime.index("pip install -r") < runtime.index("COPY --from=see_builder")
 
 
 def test_developer_identity_does_not_invalidate_dependencies():

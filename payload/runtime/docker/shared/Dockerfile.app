@@ -3,9 +3,11 @@ ARG BASE_IMAGE=ros:humble-ros-base-jammy
 FROM ${BASE_IMAGE} AS see_builder
 ENV DEBIAN_FRONTEND=noninteractive
 ARG ROLE
-RUN mkdir -p /opt/elesim/native && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked mkdir -p /opt/elesim/native && \
     if [ "$ROLE" = pilot ]; then \
-      apt-get update && apt-get install -y --no-install-recommends \
+      rm -f /etc/apt/apt.conf.d/docker-clean && \
+      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update && \
+      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
         build-essential cmake libpcl-dev libnlopt-cxx-dev liblemon-dev && \
       rm -rf /var/lib/apt/lists/*; \
     fi

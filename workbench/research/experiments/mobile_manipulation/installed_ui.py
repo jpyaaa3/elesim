@@ -31,9 +31,11 @@ def main():
     p.add_argument('--timeout',type=float,default=1200.)
     p.add_argument('--home-timeout',type=float,default=120.)
     p.add_argument('--preflight-only',action='store_true')
+    p.add_argument('--scan-only',action='store_true',help='stop after fresh multi-view reconstruction; does not verify grasp or hold')
     p.add_argument('--evaluation-mode',choices=('installed','development'),default='installed')
     p.add_argument('--reset-sim',action='store_true')
     p.add_argument('--video',action='store_true')
+    p.add_argument('--gui',action='store_true',help='render the published panel and click real ImGui buttons on EGL')
     a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
     for sibling in ('elesim_pilot','elesim_sim'):
         if importlib.util.find_spec(sibling) is not None:raise RuntimeError('UI image sees sibling '+sibling)
@@ -52,13 +54,24 @@ def main():
     sim=UiSimSession(ui_id=cfg.endpoint_id,sim_id=cfg.sim_id,peer=hub.channel('sim'))
     controller=ServoingController(SimpleNamespace(service=service,state=service.state,
         _sim_view=SimpleNamespace(session=sim)))
+    gui=None
+    if a.gui:
+        if __package__:
+            from .installed_gui import InstalledGui
+        else:
+            from installed_gui import InstalledGui
+        gui=InstalledGui(service,sim,a.output)
+        controller=gui.controller
     started_monotonic=time.monotonic()
     report=dict(accepted=False,complete=False,started=time.time(),stage='discovery',events=[],
         scope='published installed UI backends; actual cross-host DDS/WebRTC and production Pilot/Sim; no native GUI input',
         fixture_sim_placement_only=list(a.position),sibling_imports_absent=True,
         endpoint=cfg.endpoint_id,system_id=cfg.dds.system_id,security_profile=cfg.dds.security_profile,
-        evaluation_mode=a.evaluation_mode,check_kind='home_preflight' if a.preflight_only else 'full_mobile',
+        evaluation_mode=a.evaluation_mode,check_kind='home_preflight' if a.preflight_only else 'mobile_scan' if a.scan_only else 'full_mobile',
         reset_sim=a.reset_sim)
+    if gui is not None:
+        report['scope']='published installed UI rendering and ImGui mouse clicks; actual cross-host DDS/WebRTC and production Pilot/Sim'
+        report['gui']=dict(renderer=gui.renderer_name,clicks=gui.clicks)
     if a.evaluation_mode=='development':
         report['scope']='development diagnosis with patched runtime; not installed-release acceptance'
     trace=(a.output/'telemetry.jsonl').open('w');last_log=last_save=0.;last_phase='';encoders={};video_frames={}
@@ -69,6 +82,7 @@ def main():
     def tick():
         nonlocal last_log,last_save,last_phase,last_video
         service.poll();controller.refresh();now=time.monotonic()
+        if gui is not None:gui.draw()
         mobile=operator.service_value('mobile_manipulation',{})
         host=service.current_host_state()
         if now-last_save>.5:
@@ -115,7 +129,12 @@ def main():
         # Match the real button's availability instead of clicking while a
         # fresh snapshot / scene ACK is still in flight during startup.
         wait(name+' available',lambda:not controller.reason(name),30.)
-        if not controller.perform(name):raise RuntimeError(name+': '+controller.error)
+        if gui is None:
+            if not controller.perform(name):raise RuntimeError(name+': '+controller.error)
+        else:
+            previous_serial=controller._serial
+            gui.click(name,tick)
+            if controller._serial<=previous_serial:raise RuntimeError(name+': GUI click did not submit an action')
         wait(name+' ACK',lambda:not controller.pending,65.)
         if controller.error:raise RuntimeError(name+': '+controller.error)
     try:
@@ -182,7 +201,21 @@ def main():
         wait('physical cylinder placed',lambda:sim.status.mock_object.asset_id=='cylinder_100mm'
             and sim.status.mock_object.revision>previous_revision,30.)
         perform('plan_mobile');report['plan']=controller.mobile_plan.copy();save()
+        previous_scan_job=service.object_scan.get('job_id')
         perform('start_mobile')
+        if a.scan_only:
+            def scan_terminal():
+                scan=service.object_scan
+                fresh=scan.get('job_id') and scan.get('job_id')!=previous_scan_job
+                return (fresh and scan.get('phase')=='completed') or operator.service_value(
+                    'mobile_manipulation',{}).get('phase') in {'failed','unverified','cancelled'}
+            wait('mobile scan terminal',scan_terminal,a.timeout)
+            scan=service.object_scan
+            accepted=(scan.get('job_id')!=previous_scan_job and scan.get('phase')=='completed'
+                and scan.get('accepted_views',0)>=2)
+            report.update(complete=True,accepted=accepted,scan=scan,stage='scan verified' if accepted else 'failed')
+            if not accepted:report['error']='Fresh multi-view reconstruction did not complete'
+            return 0 if accepted else 1
         wait('mobile task terminal',lambda:operator.service_value('mobile_manipulation',{}).get('phase')
             in {'completed','failed','unverified','cancelled'},a.timeout)
         mobile=operator.service_value('mobile_manipulation',{})
@@ -204,6 +237,12 @@ def main():
                 container.close()
             except Exception as exc:report['video_error']=repr(exc)
         report.update(finished=time.time(),elapsed_s=time.monotonic()-started_monotonic,video_frames=video_frames)
+        if gui is not None:
+            try:
+                gui.draw(force=True);gui.screenshot('final')
+                report['gui'].update(frames=gui.frames)
+            except Exception as exc:report['gui_error']=repr(exc)
+            finally:gui.close()
         save();trace.close();sim.close();operator.close();hub.close()
     return 0 if report['accepted'] else 1
 
