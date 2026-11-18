@@ -35,7 +35,8 @@ def main():
     p.add_argument('--evaluation-mode',choices=('installed','development'),default='installed')
     p.add_argument('--reset-sim',action='store_true')
     p.add_argument('--video',action='store_true')
-    p.add_argument('--gui',action='store_true',help='render the published panel and click real ImGui buttons on EGL')
+    p.add_argument('--gui',action='store_true',help='render the published panel and click real ImGui buttons')
+    p.add_argument('--gui-backend',choices=('glfw','egl'),default='glfw')
     a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
     for sibling in ('elesim_pilot','elesim_sim'):
         if importlib.util.find_spec(sibling) is not None:raise RuntimeError('UI image sees sibling '+sibling)
@@ -55,13 +56,6 @@ def main():
     controller=ServoingController(SimpleNamespace(service=service,state=service.state,
         _sim_view=SimpleNamespace(session=sim)))
     gui=None
-    if a.gui:
-        if __package__:
-            from .installed_gui import InstalledGui
-        else:
-            from installed_gui import InstalledGui
-        gui=InstalledGui(service,sim,a.output)
-        controller=gui.controller
     started_monotonic=time.monotonic()
     report=dict(accepted=False,complete=False,started=time.time(),stage='discovery',events=[],
         scope='published installed UI backends; actual cross-host DDS/WebRTC and production Pilot/Sim; no native GUI input',
@@ -69,9 +63,9 @@ def main():
         endpoint=cfg.endpoint_id,system_id=cfg.dds.system_id,security_profile=cfg.dds.security_profile,
         evaluation_mode=a.evaluation_mode,check_kind='home_preflight' if a.preflight_only else 'mobile_scan' if a.scan_only else 'full_mobile',
         reset_sim=a.reset_sim)
-    if gui is not None:
+    if a.gui:
         report['scope']='published installed UI rendering and ImGui mouse clicks; actual cross-host DDS/WebRTC and production Pilot/Sim'
-        report['gui']=dict(renderer=gui.renderer_name,clicks=gui.clicks)
+        report['gui']=dict(backend=a.gui_backend,renderer=None,clicks=[])
     if a.evaluation_mode=='development':
         report['scope']='development diagnosis with patched runtime; not installed-release acceptance'
     trace=(a.output/'telemetry.jsonl').open('w');last_log=last_save=0.;last_phase='';encoders={};video_frames={}
@@ -138,6 +132,14 @@ def main():
         wait(name+' ACK',lambda:not controller.pending,65.)
         if controller.error:raise RuntimeError(name+': '+controller.error)
     try:
+        if a.gui:
+            if __package__:
+                from .installed_gui import InstalledGui
+            else:
+                from installed_gui import InstalledGui
+            gui=InstalledGui(service,sim,a.output,backend=a.gui_backend)
+            controller=gui.controller
+            report['gui'].update(renderer=gui.renderer_name,clicks=gui.clicks)
         wait('installed discovery and media',lambda:service.has_client() and sim.status is not None
             and all(sim.frame(s) is not None for s in SIMULATION_STREAMS),900.)
         report['peers']=service.available_endpoints
@@ -242,7 +244,9 @@ def main():
                 gui.draw(force=True);gui.screenshot('final')
                 report['gui'].update(frames=gui.frames)
             except Exception as exc:report['gui_error']=repr(exc)
-            finally:gui.close()
+            finally:
+                try:gui.close()
+                except Exception as exc:report['gui_close_error']=repr(exc)
         save();trace.close();sim.close();operator.close();hub.close()
     return 0 if report['accepted'] else 1
 

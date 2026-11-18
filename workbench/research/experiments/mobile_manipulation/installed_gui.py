@@ -1,8 +1,9 @@
 """Render the published operator panel and exercise its real ImGui buttons.
 
-An EGL surface keeps automated input inside this process, away from the user's
-desktop. Button observation records item rectangles only; the original ImGui
-return value and the production controller decide whether an action is sent.
+A hidden GLFW window uses the installed UI's normal graphics stack. An optional
+EGL surface supports headless development fixtures. Input stays inside ImGui;
+no desktop mouse events are sent. Button observation records item rectangles
+only; the original return value and controller decide whether an action is sent.
 """
 from __future__ import annotations
 
@@ -12,18 +13,57 @@ import time
 
 
 class InstalledGui:
-    def __init__(self, service, sim, output):
-        os.environ.setdefault('PYOPENGL_PLATFORM', 'egl')
-        os.environ.setdefault('EGL_PLATFORM', 'surfaceless')
-        os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
+    def __init__(self, service, sim, output, *, backend='glfw'):
+        if backend not in {'glfw', 'egl'}:
+            raise ValueError('Unknown installed UI graphics backend')
+        self.backend = backend
+        os.environ['PYOPENGL_PLATFORM'] = 'egl' if backend == 'egl' else 'glx'
+        if backend == 'egl':
+            os.environ.setdefault('EGL_PLATFORM', 'surfaceless')
+            os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
         import imgui
-        from OpenGL import EGL, GL
+        from OpenGL import GL
         from imgui.integrations.opengl import ProgrammablePipelineRenderer
         from elesim_ui.control_panel import ControlPanel
 
-        self.imgui, self.egl, self.gl = imgui, EGL, GL
+        self.imgui, self.gl = imgui, GL
         self.output = output
         self.width, self.height = 1600, 1200
+        if backend == 'egl':
+            self._init_egl()
+        else:
+            import glfw
+            self.glfw = glfw
+            if not glfw.init():
+                raise RuntimeError('Installed UI GLFW initialization failed')
+            glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
+            glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+            glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+            glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+            self.window = glfw.create_window(self.width, self.height, 'EleSim UI verification', None, None)
+            if not self.window:
+                glfw.terminate()
+                raise RuntimeError('Installed UI GLFW window creation failed')
+            glfw.make_context_current(self.window)
+        self.ui_context = imgui.create_context()
+        self.io = imgui.get_io()
+        self.io.ini_file_name = None
+        self.io.display_size = self.width, self.height
+        self.io.delta_time = 1 / 30
+        self.panel = ControlPanel(service.state, service, sim_session=sim, use_go2=True)
+        self.panel._workspace_tab_request = 'Visual Servoing'
+        self.panel._workspace_controls_visible = True
+        self.panel._install_ui_font()
+        self.panel._install_ui_style()
+        self.renderer = ProgrammablePipelineRenderer()
+        self.buttons, self.clicks = {}, []
+        self.frames = 0
+        self.last_frame = 0.
+        self.renderer_name = GL.glGetString(GL.GL_RENDERER).decode()
+
+    def _init_egl(self):
+        from OpenGL import EGL
+        self.egl = EGL
         self.display = EGL.eglGetDisplay(EGL.EGL_DEFAULT_DISPLAY)
         major, minor = ctypes.c_int(), ctypes.c_int()
         if not EGL.eglInitialize(self.display, major, minor):
@@ -41,21 +81,6 @@ class InstalledGui:
         self.context = EGL.eglCreateContext(self.display, configs[0], EGL.EGL_NO_CONTEXT,
             (ctypes.c_int * 1)(EGL.EGL_NONE))
         EGL.eglMakeCurrent(self.display, self.surface, self.surface, self.context)
-        self.ui_context = imgui.create_context()
-        self.io = imgui.get_io()
-        self.io.ini_file_name = None
-        self.io.display_size = self.width, self.height
-        self.io.delta_time = 1 / 30
-        self.panel = ControlPanel(service.state, service, sim_session=sim, use_go2=True)
-        self.panel._workspace_tab_request = 'Visual Servoing'
-        self.panel._workspace_controls_visible = True
-        self.panel._install_ui_font()
-        self.panel._install_ui_style()
-        self.renderer = ProgrammablePipelineRenderer()
-        self.buttons, self.clicks = {}, []
-        self.frames = 0
-        self.last_frame = 0.
-        self.renderer_name = GL.glGetString(GL.GL_RENDERER).decode()
 
     @property
     def controller(self):
@@ -65,6 +90,8 @@ class InstalledGui:
         now = time.monotonic()
         if not force and now - self.last_frame < .1:
             return
+        if self.backend == 'glfw':
+            self.glfw.poll_events()
         self.panel._host_state = self.panel.service.current_host_state()
         self.panel.sync_offset_drafts()
         imgui, GL = self.imgui, self.gl
@@ -115,21 +142,31 @@ class InstalledGui:
         self.screenshot('clicked-' + action)
 
     def screenshot(self, name):
-        import cv2
+        import av
         import numpy as np
+        from fractions import Fraction
         pixels = self.gl.glReadPixels(0, 0, self.width, self.height,
             self.gl.GL_RGBA, self.gl.GL_UNSIGNED_BYTE)
         pixels = np.frombuffer(pixels, dtype=np.uint8).reshape(self.height, self.width, 4)[::-1]
         path = self.output / ('ui-' + name + '.png')
-        if not cv2.imwrite(str(path), cv2.cvtColor(pixels, cv2.COLOR_RGBA2BGRA)):
-            raise RuntimeError('Could not save installed UI screenshot: ' + str(path))
+        codec = av.CodecContext.create('png', 'w')
+        codec.width, codec.height = self.width, self.height
+        codec.pix_fmt, codec.time_base = 'rgba', Fraction(1, 1)
+        frame = av.VideoFrame.from_ndarray(pixels.copy(), format='rgba')
+        frame.pts = 0
+        packets = codec.encode(frame) + codec.encode(None)
+        path.write_bytes(b''.join(bytes(packet) for packet in packets))
 
     def close(self):
-        EGL = self.egl
         self.panel._sim_view.close()
         self.renderer.shutdown()
         self.imgui.destroy_context(self.ui_context)
-        EGL.eglMakeCurrent(self.display, EGL.EGL_NO_SURFACE, EGL.EGL_NO_SURFACE, EGL.EGL_NO_CONTEXT)
-        EGL.eglDestroyContext(self.display, self.context)
-        EGL.eglDestroySurface(self.display, self.surface)
-        EGL.eglTerminate(self.display)
+        if self.backend == 'egl':
+            EGL = self.egl
+            EGL.eglMakeCurrent(self.display, EGL.EGL_NO_SURFACE, EGL.EGL_NO_SURFACE, EGL.EGL_NO_CONTEXT)
+            EGL.eglDestroyContext(self.display, self.context)
+            EGL.eglDestroySurface(self.display, self.surface)
+            EGL.eglTerminate(self.display)
+        else:
+            self.glfw.destroy_window(self.window)
+            self.glfw.terminate()
