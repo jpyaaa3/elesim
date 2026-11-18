@@ -3541,9 +3541,10 @@ _TAILSCALE_START_CASE = r'''
       # Desktop can restore the container before its WSL bind is available.
       # Repair only the proven empty-view case, once, with no live consumers.
       if (( recovery == 0 )) && [[ -n $tailscale_state_file && -f $tailscale_state_file && ! -L $tailscale_state_file ]]; then
-        host_bytes="$(wc -c <"$tailscale_state_file")"
-        visible_bytes="$("${tailscale_compose[@]}" exec -T tailscale wc -c /var/lib/tailscale/tailscaled.state 2>/dev/null || true)"
-        read -r visible_bytes _ <<<"$visible_bytes"
+        # The daemon's private state may belong to a remapped container UID.
+        # Comparing metadata must not require reading it or relaxing its mode.
+        host_bytes="$(stat -c %s -- "$tailscale_state_file")"
+        visible_bytes="$("${tailscale_compose[@]}" exec -T tailscale stat -c %s /var/lib/tailscale/tailscaled.state 2>/dev/null || true)"
         if [[ $host_bytes =~ ^[[:space:]]*[0-9]+[[:space:]]*$ && $visible_bytes =~ ^[0-9]+$ ]] && (( host_bytes > 2 && visible_bytes <= 2 )); then
           sidecar_id="$("${tailscale_compose[@]}" ps -q tailscale)"
           [[ $sidecar_id =~ ^[0-9a-f]{64}$ ]] || exit 75

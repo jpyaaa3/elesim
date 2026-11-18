@@ -1432,17 +1432,25 @@ def test_legacy_unpinned_update_rejects_foreign_daemon_labels(
         ContainerInstaller(pinned).run()
 
 
-@pytest.mark.parametrize("live_consumer,has_state,exists", [
-    (False, True, True), (True, True, True), (False, False, False), (False, True, False),
+@pytest.mark.parametrize("live_consumer,has_state,exists,host_readable", [
+    (False, True, True, True), (True, True, True, True),
+    (False, False, False, True), (False, True, False, True), (False, True, True, False),
 ])
 def test_tailscale_start_recovers_only_empty_mount_without_live_consumers(
-    tmp_path: Path, live_consumer: bool, has_state: bool, exists: bool,
+    tmp_path: Path, live_consumer: bool, has_state: bool, exists: bool, host_readable: bool,
 ) -> None:
     calls = tmp_path / "calls"
     recovered = tmp_path / "recovered"
     state = tmp_path / "tailscaled.state"
     if has_state:
         state.write_text('{"saved_profile":"fixture"}')
+        if not host_readable:
+            state.chmod(0)
+            # A privileged test runner must not accidentally make a content
+            # read pass. Metadata remains available for a protected state file.
+            wc = tmp_path / 'wc'
+            wc.write_text('#!/bin/sh\nprintf "state contents must stay private\\n" >&2\nexit 23\n')
+            wc.chmod(0o755)
     compose_wrapper = tmp_path / "elesim-compose"
     compose_wrapper.write_text(
         '#!/usr/bin/env bash\n'
@@ -1452,6 +1460,7 @@ def test_tailscale_start_recovers_only_empty_mount_without_live_consumers(
         '    if [[ -e $TEST_RECOVERED ]]; then printf \'{"BackendState":"Running"}\\n\';\n'
         '    else printf \'{"BackendState":"NeedsLogin"}\\n\'; fi ;;\n'
         '  *" wc -c "*) printf "2 /var/lib/tailscale/tailscaled.state\\n" ;;\n'
+        '  *" stat -c %s "*) printf "2\\n" ;;\n'
         '  *" ps -a -q tailscale "*) if [[ $TEST_EXISTS == 1 ]]; then printf "%064d\\n" 1; fi ;;\n'
         '  *" ps -q tailscale "*) printf "%064d\\n" 1 ;;\n'
         '  *" restart --no-deps tailscale "*) : >"$TEST_RECOVERED" ;;\n'

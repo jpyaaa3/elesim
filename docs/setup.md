@@ -652,6 +652,8 @@ host의 저장 state는 있지만 container에서 2 byte 이하의 빈 state만 
 그 namespace를 사용하는 실행 중 container가 없을 때 기존 sidecar를 한 번만
 restart한다. state·container ID는 유지하며 인증이 실제로 없으면 명시적인
 `login`이 필요하다. 실행 중 namespace 사용자가 있으면 자동 restart하지 않는다.
+크기는 양쪽 파일의 메타데이터로만 비교한다. 컨테이너 UID에 매핑된 mode-0600
+state의 내용을 읽기 위해 호스트 소유권이나 권한을 바꾸지 않는다.
 
 `update`는 설치된 Compose의 고정 Tailscale image를 pull한 뒤 sidecar를
 재생성한다. sidecar namespace를 공유하는 role과 managed Coturn 중 당시
