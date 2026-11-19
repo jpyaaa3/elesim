@@ -15,6 +15,24 @@ from .contracts import BaseGoal, angle
 from .local_map import transport_footprint
 
 
+def _certification_candidates(ranked, current):
+    """Budget checks across both fixed and moving views, keeping one score."""
+    stationary, moving = [], []
+    for row in sorted(ranked, key=lambda item: -item[0]):
+        delta = row[1]-current
+        if np.linalg.norm(delta[:2]) <= 1e-6 and abs(angle(delta[2])) <= 1e-6:
+            stationary.append(row)
+        else:
+            moving.append(row)
+    # Stationary certificates are cheap and should not be crowded out by many
+    # unobserved-floor moving candidates; moving and stationary still compete
+    # using the same information/travel score once certified.
+    fixed_count = min(len(stationary), 8)
+    moving_count = min(len(moving), 16-fixed_count)
+    fixed_count = min(len(stationary), 16-moving_count)
+    return stationary[:fixed_count]+moving[:moving_count]
+
+
 @dataclass(frozen=True)
 class ViewMotion:
     base: BaseGoal
@@ -220,10 +238,19 @@ class MobileSeePlanner(SeeViewPlanner):
                         value = least_squares(residual, value,
                             bounds=(low[active], high[active]), max_nfev=24).x
                     base_pose, q = unpack(value)
-                    if any(np.linalg.norm(base_pose-old[0])<.005 and np.max(abs(q-old[1]))<.01
-                           for old in candidates):
-                        continue
-                    candidates.append((base_pose, q))
+                    # An optimized frontier endpoint can aim at one edge of
+                    # the object and lose the rest of the task ROI. Retain
+                    # reachable intermediate base/arm configurations too;
+                    # each still passes the same FOV, visibility, floor and
+                    # continuous collision checks before motion is admitted.
+                    delta = base_pose-current
+                    delta[2] = angle(delta[2])
+                    for fraction in (.25, .5, .75, 1.):
+                        middle_base = current+fraction*delta
+                        middle_q = current_q+fraction*(q-current_q)
+                        if not any(np.linalg.norm(middle_base-old[0])<.005 and
+                                   np.max(abs(middle_q-old[1]))<.01 for old in candidates):
+                            candidates.append((middle_base, middle_q))
         best, missing = None, None
         self.last_search.update(mobile_candidates=len(candidates), unknown_floor=0,
                                 rejected_views=0, rejected_paths=0)
@@ -254,17 +281,17 @@ class MobileSeePlanner(SeeViewPlanner):
             back_time = float(np.max(abs(q-self.return_q)/JointApproach.rates))
             score = count/(1.+max(arm_time, base_time)+back_time+p.s.settle_s)
             ranked.append((score, base_pose, q, pose, count, back_time))
-        # Expensive swept geometry is bounded and score ordered; candidates
-        # below the best feasible upper bound cannot improve that choice.
+        # Expensive swept geometry is bounded; within either motion category,
+        # candidates are score ordered and cannot beat a better certified bound.
         certified_at = time.monotonic()
-        for upper_score, base_pose, q, pose, count, back_time in sorted(ranked, key=lambda row: -row[0])[:16]:
+        for upper_score, base_pose, q, pose, count, back_time in _certification_candidates(ranked, current):
             if cancelled():
                 raise InterruptedError('mobile SEE certification cancelled')
             if time.monotonic()-certified_at > 5.:
                 self.last_search['certificate_budget_exhausted'] = True
                 break
             if best is not None and upper_score <= best['score']:
-                break
+                continue
             try:
                 motion = self.motion(base_pose, q, snapshot, cancelled=cancelled)
             except FloorObservationRequired as request:

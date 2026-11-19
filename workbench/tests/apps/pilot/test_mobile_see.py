@@ -347,3 +347,29 @@ def test_coupled_view_keeps_its_planned_base_goal_during_recertification():
     motion.relocate(choice,cancelled=lambda:False)
     assert len(recorded[0].base.path)>1
     np.testing.assert_array_equal(recorded[0].base.pose,target)
+
+
+def test_see_uses_intermediate_coupled_pose_when_frontier_endpoint_is_out_of_frame(monkeypatch):
+    p,snapshot=ports();view,points=planner(p)
+    # The endpoint sought by SEE is around x=-.14; the object fits only in
+    # this narrower field of view, reached on the way to that endpoint.
+    monkeypatch.setattr(view,'_contains_extent',lambda observed,pose:-.11<pose[0,3]<-.05)
+    monkeypatch.setattr(view,'_information_view',lambda *a,**kw:None)
+    choice=view.choose(points,snapshot['joint']['q'],[np.eye(4)],[])
+    assert choice is not None
+    assert choice['policy']=='see' and choice['visible_frontiers']>0
+    assert -.11<choice['pose'][0,3]<-.05
+    assert len(choice['motion'].base.path)>1
+    assert choice['motion'].certificate['environment_scope']=='observed_swept_floor'
+    assert p.grid.segment_free(choice['motion'].base.path[0],choice['motion'].base.path[-1],
+        choice['motion'].footprint)
+
+
+def test_certification_budget_keeps_stationary_option_among_many_higher_ranked_moves():
+    from elesim_pilot.mobile_manipulation.see_planner import _certification_candidates
+    def candidate(score,x):return (score,np.array([x,0.,0.]),None,None,None,None)
+    candidates=[candidate(100-i,.1+i*.001) for i in range(20)]+[candidate(1.,0.)]
+    selected=_certification_candidates(candidates,np.zeros(3))
+    assert len(selected)==16
+    assert any(np.allclose(item[1],0.) for item in selected)
+    assert any(not np.allclose(item[1],0.) for item in selected)
