@@ -36,6 +36,21 @@ def cancel_mobile_after_scan(report, cancel_and_wait):
         report['stage']=previous_stage
 
 
+def scan_result(scan, previous_job, *, require_see=False, require_adapointr=False):
+    if (not scan.get('job_id') or scan.get('job_id')==previous_job or
+            scan.get('phase')!='completed' or scan.get('accepted_views',0)<2):
+        return False,'Fresh multi-view reconstruction did not complete'
+    if require_see and 'see' not in (scan.get('selected_view_policies') or []):
+        return False,'No executed next view was selected by SEE'
+    execution=scan.get('model_execution') or {}
+    completion=(execution.get('models') or {}).get('completion') or {}
+    if require_adapointr and (not completion.get('loaded') or not completion.get('applied') or
+            'adapointr' not in str(completion.get('backend','')).lower() or
+            scan.get('predicted_points',0)<=0):
+        return False,'AdaPoinTr completion was not verified'
+    return True,''
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--config',type=Path,default=Path('/opt/elesim/config/installed.yaml'))
@@ -45,12 +60,17 @@ def main():
     p.add_argument('--home-timeout',type=float,default=120.)
     p.add_argument('--preflight-only',action='store_true')
     p.add_argument('--scan-only',action='store_true',help='stop after fresh multi-view reconstruction; does not verify grasp or hold')
+    p.add_argument('--require-see',action='store_true',help='require a SEE-selected next view in a scan-only test')
+    p.add_argument('--require-adapointr',action='store_true',help='require applied AdaPoinTr in a scan-only test')
     p.add_argument('--evaluation-mode',choices=('installed','development'),default='installed')
     p.add_argument('--reset-sim',action='store_true')
     p.add_argument('--video',action='store_true')
     p.add_argument('--gui',action='store_true',help='render the published panel and click real ImGui buttons')
     p.add_argument('--gui-backend',choices=('glfw','egl'),default='glfw')
-    a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
+    a=p.parse_args()
+    if (a.require_see or a.require_adapointr) and not a.scan_only:
+        p.error('--require-see and --require-adapointr require --scan-only')
+    a.output.mkdir(parents=True,exist_ok=False)
     for sibling in ('elesim_pilot','elesim_sim'):
         if importlib.util.find_spec(sibling) is not None:raise RuntimeError('UI image sees sibling '+sibling)
     from elesim_ui.config import load_config
@@ -232,10 +252,10 @@ def main():
                     'mobile_manipulation',{}).get('phase') in {'failed','unverified','cancelled'}
             wait('mobile scan terminal',scan_terminal,a.timeout)
             scan=service.object_scan
-            accepted=(scan.get('job_id')!=previous_scan_job and scan.get('phase')=='completed'
-                and scan.get('accepted_views',0)>=2)
+            accepted,error=scan_result(scan,previous_scan_job,require_see=a.require_see,
+                                       require_adapointr=a.require_adapointr)
             report.update(complete=True,accepted=accepted,scan=scan,stage='scan verified' if accepted else 'failed')
-            if not accepted:report['error']='Fresh multi-view reconstruction did not complete'
+            if not accepted:report['error']=error
         else:
             wait('mobile task terminal',lambda:operator.service_value('mobile_manipulation',{}).get('phase')
                 in {'completed','failed','unverified','cancelled'},a.timeout)

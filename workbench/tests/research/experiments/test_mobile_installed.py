@@ -51,3 +51,17 @@ def test_successful_scan_cleanup_keeps_successful_ui_result():
     report={'accepted':True,'stage':'scan verified'};calls=[]
     cancel_mobile_after_scan(report,lambda:calls.append('cancelled'))
     assert report['accepted'] and calls==['cancelled'] and 'cancel_error' not in report
+
+
+def test_required_see_and_adapointr_are_verified_from_actual_scan_status():
+    from copy import deepcopy
+    from workbench.research.experiments.mobile_manipulation.installed_ui import scan_result
+    scan={'job_id':'new','phase':'completed','accepted_views':2,'selected_view_policies':['see'],
+        'predicted_points':8192,'model_execution':{'models':{'completion':{
+            'loaded':True,'applied':True,'backend':'upstream AdaPoinTr graph'}}}}
+    assert scan_result(scan,'old',require_see=True,require_adapointr=True)==(True,'')
+    fallback=deepcopy(scan);fallback['selected_view_policies']=['information']
+    assert not scan_result(fallback,'old',require_see=True,require_adapointr=True)[0]
+    fake=deepcopy(scan);fake['model_execution']['models']['completion']['backend']='passthrough'
+    assert not scan_result(fake,'old',require_see=True,require_adapointr=True)[0]
+    assert not scan_result(scan,'new',require_see=True,require_adapointr=True)[0]
