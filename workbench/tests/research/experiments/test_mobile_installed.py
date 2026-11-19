@@ -35,3 +35,19 @@ def test_ui_screenshot_round_trips_rgba_and_opengl_vertical_origin(tmp_path):
     with av.open(str(tmp_path/'ui-codec.png')) as image:
         decoded=next(image.decode(video=0)).to_ndarray(format='rgba')
     np.testing.assert_array_equal(decoded,raw[::-1])
+
+
+def test_failed_scan_cleanup_cannot_report_a_successful_ui_run():
+    from workbench.research.experiments.mobile_manipulation.installed_ui import cancel_mobile_after_scan
+    report={'accepted':True,'complete':True,'stage':'scan verified'}
+    def failed():raise RuntimeError('cancel acknowledgement failed')
+    cancel_mobile_after_scan(report,failed)
+    assert not report['accepted'] and report['complete']
+    assert report['stage']=='failed' and 'cancel acknowledgement failed' in report['cancel_error']
+
+
+def test_successful_scan_cleanup_keeps_successful_ui_result():
+    from workbench.research.experiments.mobile_manipulation.installed_ui import cancel_mobile_after_scan
+    report={'accepted':True,'stage':'scan verified'};calls=[]
+    cancel_mobile_after_scan(report,lambda:calls.append('cancelled'))
+    assert report['accepted'] and calls==['cancelled'] and 'cancel_error' not in report

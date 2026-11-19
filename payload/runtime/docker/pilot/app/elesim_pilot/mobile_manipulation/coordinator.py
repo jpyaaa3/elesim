@@ -16,10 +16,15 @@ class Coordinator:
     @property
     def active(self):return self.phase not in self.TERMINAL
     def status(self):
-        return dict(phase=self.phase,active=self.active,reason=self.reason,plan_id=self.plan_id,
+        summary=self.ports.summary()
+        # Scan and later grasp mapping share one floor-view budget. The port
+        # reports the total reserved views, while the parent tracks its own
+        # requests; avoid duplicate-key failures and expose the shared count.
+        mapping_attempts=max(self.mapping_attempts,summary.get('mapping_attempts',0))
+        summary.update(phase=self.phase,active=self.active,reason=self.reason,plan_id=self.plan_id,
             reobservations=self.reobservations,corrections=self.corrections,searches=self.searches,
-            mapping_attempts=self.mapping_attempts,
-            events=self.events[-24:],**self.ports.summary())
+            mapping_attempts=mapping_attempts,events=self.events[-24:])
+        return summary
     def plan(self,target_id='target',task_profile='cylinder-d100'):
         if self.active:raise RuntimeError('mobile task is active')
         if task_profile!='cylinder-d100':raise ValueError('unsupported mobile task profile')

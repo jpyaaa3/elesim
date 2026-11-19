@@ -1206,3 +1206,14 @@ def test_swept_footprint_preserves_exact_union_without_gil_holding_record_sort(m
     monkeypatch.setattr(np,'unique',no_record_sort)
     actual=transport_footprint(centers,radii,spacing=spacing)
     np.testing.assert_array_equal(actual,expected)
+
+
+def test_scan_floor_view_count_and_parent_cancel_share_status_without_collision():
+    ports=Ports();coordinator=Coordinator(ports,settings=Settings(scan_view_policy='see'),clock=lambda:0.)
+    coordinator.start(coordinator.plan()['plan_id'])
+    ports.summary=lambda:dict(mapping_attempts=2,active_scan_floor_views=2)
+    assert coordinator.status()['mapping_attempts']==2
+    result=coordinator.cancel('test_cancel')
+    assert result['phase']=='cancelled' and not result['active']
+    assert result['mapping_attempts']==2 and result['active_scan_floor_views']==2
+    assert ports.stops==['test_cancel'] and coordinator.ownership.session is None

@@ -23,6 +23,19 @@ def plain(value):
     return value
 
 
+def cancel_mobile_after_scan(report, cancel_and_wait):
+    """A passing observation must also release its mobile task cleanly."""
+    previous_stage=report.get('stage')
+    try:
+        cancel_and_wait()
+    except Exception as exc:
+        report.update(accepted=False,stage='failed',cancel_error=repr(exc))
+        if not report.get('error'):
+            report['error']='Mobile task cancellation could not be confirmed'
+    else:
+        report['stage']=previous_stage
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--config',type=Path,default=Path('/opt/elesim/config/installed.yaml'))
@@ -223,13 +236,13 @@ def main():
                 and scan.get('accepted_views',0)>=2)
             report.update(complete=True,accepted=accepted,scan=scan,stage='scan verified' if accepted else 'failed')
             if not accepted:report['error']='Fresh multi-view reconstruction did not complete'
-            return 0 if accepted else 1
-        wait('mobile task terminal',lambda:operator.service_value('mobile_manipulation',{}).get('phase')
-            in {'completed','failed','unverified','cancelled'},a.timeout)
-        mobile=operator.service_value('mobile_manipulation',{})
-        report.update(complete=True,accepted=mobile.get('phase')=='completed',mobile=mobile,
-            scan=service.object_scan,stage='completed' if mobile.get('phase')=='completed' else 'failed')
-        if not report['accepted']:report['error']=mobile.get('reason','task did not verify the loaded hold')
+        else:
+            wait('mobile task terminal',lambda:operator.service_value('mobile_manipulation',{}).get('phase')
+                in {'completed','failed','unverified','cancelled'},a.timeout)
+            mobile=operator.service_value('mobile_manipulation',{})
+            report.update(complete=True,accepted=mobile.get('phase')=='completed',mobile=mobile,
+                scan=service.object_scan,stage='completed' if mobile.get('phase')=='completed' else 'failed')
+            if not report['accepted']:report['error']=mobile.get('reason','task did not verify the loaded hold')
     except KeyboardInterrupt:
         report.update(error='evaluation interrupted',stage='interrupted')
     except Exception as exc:
@@ -237,8 +250,12 @@ def main():
         print('MOBILE_INSTALLED_ERROR',repr(exc),flush=True)
     finally:
         if operator.service_value('mobile_manipulation',{}).get('active'):
-            try:call('cancel_mobile_manipulation')
-            except Exception as exc:report['cancel_error']=repr(exc)
+            def cancel_and_wait():
+                call('cancel_mobile_manipulation')
+                wait('mobile cancellation confirmed',lambda:operator.service_value(
+                    'mobile_manipulation',{}).get('phase') in
+                    {'idle','cancelled','failed','unverified','completed'},15.)
+            cancel_mobile_after_scan(report,cancel_and_wait)
         for name,(container,stream) in encoders.items():
             try:
                 for packet in stream.encode():container.mux(packet)
